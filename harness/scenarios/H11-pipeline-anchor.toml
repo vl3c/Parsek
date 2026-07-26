@@ -6,9 +6,21 @@ tier = "nightly"
 # anchor epsilon stays within tolerance of the recorded geometric offset across the
 # seven anchor situations the recorder can produce: live separation, a Relative
 # section boundary, an orbital checkpoint, an SOI crossing, a loop, a dock, and a
-# suppressed subtree. They resolve positions through the LIVE CelestialBody
-# transforms (Kerbin's bodyTransform rotation at the real Planetarium time), which
-# is the half a headless xUnit fixture has to stub.
+# suppressed subtree.
+#
+# WHAT THESE SEVEN CELLS ACTUALLY EXERCISE, stated precisely because the obvious
+# reading is wrong. Only ONE of the seven (Pipeline_Anchor_LiveSeparation) resolves
+# through a live CelestialBody - it calls kerbin.GetWorldSurfacePosition. FOUR
+# (RelativeBoundary, OrbitalCheckpoint, SOI, Loop) route through
+# RunPhase6PerSourceFixture, which installs
+# AnchorPropagator.ResolverOverrideForTesting (a stub returning a CONSTANT offset)
+# plus SmoothedPositionForTesting, so the production resolver is REPLACED for the
+# duration. TWO (Dock, SuppressedSubtree) drive RenderSessionState.PutAnchorForTesting
+# seams and touch no body at all. So what this spec gates is the anchor EPSILON
+# ARITHMETIC and the per-source dispatch around it, exercised inside a live KSP
+# process - NOT ProductionAnchorWorldFrameResolver's frame resolution, which the stub
+# bypasses. Still worth a boot (none of this runs unattended today), but do not read
+# a green H11 as cover for the resolver.
 description = "Run the in-game Pipeline-Anchor category unattended: anchor epsilon within tolerance of the recorded geometric offset across live separation, Relative boundary, orbital checkpoint, SOI, loop, dock, and suppressed-subtree cases."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "anchor", "reference-frames", "H11"]
@@ -30,13 +42,17 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST: the Relative-boundary, loop and orbital-checkpoint cells resolve anchors
-# in exactly the three TrackSection reference frames those names denote (D3), each
-# through the production anchor math rather than a test double. SANDBOX,
-# FLIGHT-scene host (D14). NOT claimed: parent-anchored-debris (no debris recording
-# is built here) or any D5 topology token - the dock and separation cells assert
-# anchor GEOMETRY, not tree structure.
-D3  = ["relative-anchored-nonloop", "relative-loop", "orbital-checkpoint"]
+# HONEST, and DELIBERATELY NARROWER than the first cut. The obvious claim here would
+# be D3 relative-anchored-nonloop / relative-loop / orbital-checkpoint, because three
+# cells carry those names. That claim is WITHDRAWN: those three cells run with
+# AnchorPropagator.ResolverOverrideForTesting installed (a constant-returning stub),
+# so a regression inside the component that actually resolves those three reference
+# frames is invisible to them. Claiming the tokens would record coverage that does
+# not exist and would let a later audit skip writing the test that WOULD catch it -
+# the worse of the two errors. Only the environment axes are claimed.
+# NOT claimed and why: D3 (stubbed resolver, see above); parent-anchored-debris (no
+# debris recording is built); any D5 topology token (the dock and suppressed-subtree
+# cells assert anchor GEOMETRY through a PutAnchorForTesting seam, not tree structure).
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]

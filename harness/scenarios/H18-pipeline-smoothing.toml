@@ -13,6 +13,22 @@ tier = "nightly"
 # LIVE GameEvents singletons. There is no headless equivalent: a regression that
 # drops one GameEvents.X.Add(...) call compiles, unit-tests green, and silently
 # stops recording docks or undocks. Nothing else in the suite guards it.
+#
+# BUT IT ONLY GUARDS FOUR OF THE FIVE, and the fifth is a commanded-vs-observed
+# assertion that FAILS OPEN. Read this before trusting the `asserted=5 of 5` pin
+# below. onPartCouple / onPartUndock / onVesselsUndocking / onCrewOnEva are wired by
+# PRODUCTION code (ParsekFlight.Start) and are genuinely OBSERVED by the reflection
+# walk. onPartJointBreak is NOT: the test itself constructs a throwaway
+# `new FlightRecorder()` and reflection-invokes SubscribePartEvents (which subscribes
+# exactly onPartDie + onPartJointBreak) immediately before asserting, so that one
+# binding is SEEDED BY THE TEST and then found by the test. If a refactor stops
+# calling FlightRecorder.SubscribePartEvents on the recording lifecycle, joint-break
+# part events silently stop being recorded, and this cell still logs
+# `asserted=5 of 5` and still passes. The seeding is deliberate on the test's part
+# (the hook is recorder-scoped, so an idle FLIGHT scene has no live subscription to
+# observe) - it is the CLAIM that was overstated, not the test. Treat this spec as
+# guarding four production bindings; closing the fifth needs a test that observes a
+# recorder wired by the real lifecycle, which is a C# change and is NOT done here.
 description = "Run the in-game Pipeline-Smoothing category unattended: coast-jitter suppression, structural-event flag alignment and child-seed parity, and the live GameEvents dock/undock/EVA/joint-break subscription contract."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "smoothing", "gameevents-wiring", "H18"]
@@ -72,7 +88,9 @@ count = { min = 0, max = 0 }
 #
 # The wiring cell logs its own count line, pinned here so a partially-wired run
 # (say 3 of 5 events resolving) reds even if the cell's own assertions are later
-# loosened. "of 5" is the literal the test formats.
+# loosened. "of 5" is the literal the test formats. NOTE the header caveat: one of
+# those five (onPartJointBreak) is seeded by the test itself, so this line proves
+# four production bindings, not five.
 required  = [
   "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: asserted=5 of 5 GameEvents bindings",
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Pipeline-Smoothing scene=FLIGHT",

@@ -1487,7 +1487,7 @@ def _pin_literal_word(tok: Optional[str]) -> Optional[str]:
     Widening is safe against mistaking a REGEX for a literal: `-` is a metacharacter
     only inside a character class, and `[` / `]` are still excluded, so `[A-Z]-x`
     stays non-literal and is reported as unpinned rather than silently read as the
-    six-character category "[A-Z]-x". The hyphen is written last so it is a literal
+    seven-character category "[A-Z]-x". The hyphen is written last so it is a literal
     member of the class rather than a range.
     """
     if tok is None:

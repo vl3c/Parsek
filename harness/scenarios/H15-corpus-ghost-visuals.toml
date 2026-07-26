@@ -73,10 +73,22 @@ required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Gho
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-# Building a mesh per recording across a 272-recording corpus is the most
-# allocation-heavy batch in this group. 720 total with the 540 RunTests cap;
-# re-time against the first live run rather than assuming this is comfortable.
-budgetSeconds = 720
+# RAISED to 1200 pre-emptively, and this is the one spec in the group whose budget is
+# not the boilerplate 720. AllSnapshotsBuildWithoutCrash is a `void` cell - SINGLE
+# FRAME - that calls GhostVisualBuilder.BuildTimelineGhostFromSnapshot once per
+# committed recording, so it builds up to 272 full part-mesh hierarchies in one
+# frame and keeps every one alive via runner.TrackForCleanup until RunCleanup fires
+# at the end of the cell. That is a materially different shape from S1.4's
+# incremental GhostPlayback batch, which is the only measured precedent for a 720 s
+# corpus run, and it is the reason this spec is flown near the END of the runbook.
+# WHY PRE-EMPTIVE RATHER THAN REACTIVE: overrunning does not produce a red that can
+# be re-derived. run.py's watchdog kills the process tree, the verdict is KILLED, no
+# BATCH_COMPLETE line is ever printed, and `retry policy = "once"` immediately burns
+# a second full-length run. A too-generous budget costs nothing on a passing run
+# (steps finish when they finish); a too-tight one costs two boots and yields no
+# tally. The 540 s RunTests step budget is unchanged - it is the deferred-verb cap
+# (S8) and cannot be raised.
+budgetSeconds = 1200
 
 [retry]
 policy = "once"

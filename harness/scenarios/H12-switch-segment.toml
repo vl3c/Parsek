@@ -52,8 +52,8 @@ count = { min = 0, max = 0 }
 # exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
 #  - total=6 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 6
 #    [InGameTest(Category = "SwitchSegment")] methods. Same per-file caveat as H9:
-#    that file DOES contain InGameAssert.Skip call sites, all in its Ledger /
-#    Rewind / RouteLiveAnchor members, none in a SwitchSegment one.
+#    that file DOES contain InGameAssert.Skip call sites - 4 in Ledger members, 1 in
+#    RouteLiveAnchor, 1 in TestRunnerIsolation - and none in a SwitchSegment one.
 #  - skipped=0 is DERIVED: all 6 carry Scene = GameScenes.FLIGHT and the batch runs
 #    at FLIGHT; none sets AllowBatchExecution = false; none of the 6 bodies, nor any
 #    helper they call, contains an InGameAssert.Skip.

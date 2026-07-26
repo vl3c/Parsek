@@ -53,12 +53,13 @@ count = { min = 0, max = 0 }
 # EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
 # exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
 #  - total=8 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 8
-#    [InGameTest(Category = "IncompleteBallistic")] methods. NOTE the file also
-#    hosts Ledger / Rewind / RouteLiveAnchor / SwitchSegment declarations and DOES
-#    contain InGameAssert.Skip call sites - all of them in THOSE categories'
-#    methods, none in an IncompleteBallistic one. A per-file grep would mislead
-#    here; the derivation is per-method-body. Kept in sync by
-#    CommittedBatchTallySourceSyncTests.
+#    [InGameTest(Category = "IncompleteBallistic")] methods. NOTE the file also hosts
+#    Ledger, Rewind, RouteLiveAnchor, TestRunnerIsolation and SwitchSegment
+#    declarations, and it DOES contain InGameAssert.Skip call sites - 4 in Ledger
+#    members, 1 in RouteLiveAnchor, 1 in TestRunnerIsolation, and NONE in an
+#    IncompleteBallistic or SwitchSegment one (Rewind's single declaration here has
+#    none either). A per-file grep would mislead; the derivation is per-method-body.
+#    Kept in sync by CommittedBatchTallySourceSyncTests.
 #  - skipped=0 is DERIVED: all 8 carry Scene = GameScenes.FLIGHT and the batch runs
 #    at FLIGHT; none sets AllowBatchExecution = false; and none of the 8 bodies, nor
 #    any helper they call, contains an InGameAssert.Skip.

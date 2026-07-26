@@ -8,9 +8,20 @@ tier = "nightly"
 # node vs world Transform.rotation at playback), and mixing them puts a spawned
 # vessel at a plausible-looking but wrong attitude. All 10 declarations run
 # ApplyProtoVesselSpawnRotationToNode / PrepareSpawnNodeAtPosition /
-# TryGetPreferredSpawnRotationFrame / OverrideSnapshotPosition against LIVE
-# CelestialBody transforms for a Kerbin-pad case and a Mun case, which is exactly
-# the part a headless xUnit cannot cover.
+# TryGetPreferredSpawnRotationFrame / OverrideSnapshotPosition.
+#
+# WHY THIS IS WORTH A BOOT, corrected. The first cut claimed these run "against LIVE
+# CelestialBody transforms for a Kerbin-pad case and a Mun case". They do NOT:
+# SpawnRotationInGameTests.cs contains ZERO references to FlightGlobals or
+# CelestialBody. Every cell fabricates its own body rotation (Quaternion.Euler(...))
+# and passes a body NAME STRING; "KerbinPadCase" and "MunCase" are fixture LABELS,
+# not lookups. The same 10 assertions would pass identically at SPACECENTER or with
+# the body table absent.
+# The real reason to fly it: these four VesselSpawner methods have NO xUnit coverage
+# in Source/Parsek.Tests at all, and they encode the srfRelRotation contract that is
+# the single easiest thing in this codebase to invert. Running them anywhere beats
+# running them nowhere - but this spec gates the PURE rotation arithmetic, and a
+# regression in the body-frame half of the contract cannot red it.
 description = "Run the in-game SpawnRotation category unattended: ProtoVessel spawn-node rotation written surface-relative on Kerbin and Mun, terminal-pose frame preference, and snapshot position/rotation override."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "spawn", "rotation", "H8"]
@@ -32,15 +43,19 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST: the terminal-pose frame preference tests (surface terminal prefers the
-# terminal pose, orbiting terminal does not, legacy pose without a frame falls
-# back) are the surface-vs-orbit reseed decision driven through production code
-# (D13). The Kerbin-pad and Mun cases resolve against the real CelestialBody
-# transforms of both bodies (D14). NOT claimed: any spawn-SAFETY token
-# (proximity-offset / bbox-block / trajectory-walkback) - no vessel is spawned
-# here, only the node that would spawn one is built and inspected.
+# HONEST, and NARROWER than the first cut. The terminal-pose frame preference cells
+# (surface terminal prefers the terminal pose, orbiting terminal does not, legacy
+# pose without a frame falls back) really are the surface-vs-orbit reseed decision
+# driven through production code, so D13 stands.
+# D14 kerbin / mun are WITHDRAWN: as the header explains, "KerbinPadCase" and
+# "MunCase" are fixture labels over fabricated quaternions, not lookups against
+# either body - nothing here would notice if Mun were absent from the game. Claiming
+# the tokens would record body-axis coverage that does not exist.
+# NOT claimed: any spawn-SAFETY token (proximity-offset / bbox-block /
+# trajectory-walkback) - no vessel is spawned here, only the node that would spawn
+# one is built and inspected.
 D13 = ["surface-orbit-reseed"]
-D14 = ["kerbin", "mun", "sandbox", "scene-flight"]
+D14 = ["sandbox", "scene-flight"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING (see H7).

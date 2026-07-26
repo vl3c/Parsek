@@ -7,7 +7,7 @@ never executed in any unattended run. The inventory is now DERIVED from the C#
 attributes rather than guessed at, every category triaged A/B/C with the reason
 stated, and 14 categories wired as batch-only specs H7-H20 over the existing
 gloops-airshow fixture: 22 of 97 categories driven, 201 of 539 declarations inside a
-driven category and 179 of them actually batch-executed.
+driven category and 179 of them that would actually execute.
 None has flown - 13 pin their tally WHOLE from a source derivation that closes
 (attribute-exact total, plus a transitive scan proving no reachable
 InGameAssert.Skip), and H20 carries the honest interim form because its split is
@@ -425,10 +425,11 @@ All 14 are batch-only specs on the S1.4 / H6 shape: LoadGame the committed
 `gloops-airshow` host, pin `autoRecordOnLaunch` false, one `RunTests` step naming one
 category, FlushAndQuit. Driven categories go 8 -> 22 of 97. Declarations inside a
 driven category go 125 -> 201 of 539, and the subset that actually EXECUTES (surviving
-both runner filters at the scene each spec drives) goes 103 -> 179. The two numbers
-differ because three of the eight pre-existing driven categories run at SPACECENTER
-where some of their members are scene-skipped; all 76 declarations the new group adds
-execute.
+both runner filters at the scene each spec drives) goes 103 -> 179. All 76
+declarations the new group adds execute; the whole 22-declaration gap sits in the
+eight pre-existing driven categories, over half of it at FLIGHT rather than
+SPACECENTER (`GhostMap` alone is 9) and 4 of it `AllowBatchExecution=false` rather
+than scene-skipped. Per-category decomposition is in the inventory doc.
 
 EVIDENCE STANDING FOR THE WHOLE GROUP, stated once: **no member has ever been flown.**
 Thirteen pin their tally WHOLE from a SOURCE DERIVATION - `total` is attribute-exact,
@@ -477,6 +478,25 @@ Two findings from building this group, both with full detail in the inventory do
   FIXTURE defends against it, which is why the four corpus-backed members pin
   `recordings.count = 272`.
 
+A three-reviewer panel ran against this branch before merge: 26 findings, no
+blockers. Four changed what the specs CLAIM rather than what they do, and all four
+are corrected here. H18's GameEvents cell is commanded-vs-observed for one of its
+five bindings (the test seeds `onPartJointBreak` itself via `SubscribePartEvents`,
+so that one fails open); H11 and H8 both claimed live CelestialBody work they do not
+perform, and their D3 / D14 claims are withdrawn; H20's interim pin named the one
+guard that IS derivable (`WalkbackFixtureCoversParent`, true with about 913 m of
+margin) instead of the live `Physics.OverlapBox` that is not; and the `spawnedPid`
+mechanism cited here and in the todo doc was wrong - `CleanSaveStart` runs before the
+corpus writer injects and does not run on the harness path at all, the real
+invariants being that `RecordingBuilder.WithSpawnedPid` has zero callers and
+`AddRealCareerRecordings` injects `RECORDING_TREE` nodes only. That last one was an
+active trap: "making the stated mechanism real" by adding `-CleanStart` would strip
+the fixture's VESSEL nodes and route every corpus spec to SPACECENTER. Also fixed:
+the new test class had no anti-vacuity floor (emptying its GROUP table left all eight
+cells passing over zero specs), its membership guard compared an intersection so a
+new spec was invisible to it, and H15's budget is raised to 1200 s because its
+failure mode is a KILLED run that produces no tally to re-derive from.
+
 A harness bug was found and fixed on the way: `hlib._pin_literal_word`'s character
 class excluded `-`, so all seven hyphenated categories (`Pipeline-Anchor`,
 `Pipeline-Smoothing`, `Pipeline-Frame`, `Pipeline-Outlier`, `Pipeline-Terrain`,
@@ -510,9 +530,10 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   `origin/main` (which carried `autotest-orbit-missions` ->
   `autotest-landing-missions` -> `autotest-eve-missions` ->
   `autotest-batch-coverage` -> `autotest-tally-gate`); the harness figure
-  moved 664 -> 726 because that merge is the first tree holding both sides.
-  cells, then 726 -> 737 on `ingame-test-wiring` (the H7-H20 group's
-  `IngameBatchWiringGroupTests` plus the hyphenated-category pin cells).
+  moved 664 -> 726 because that merge is the first tree holding both sides of
+  those cells, then 726 -> 742 on `ingame-test-wiring` (the H7-H20 group's
+  `IngameBatchWiringGroupTests`, the hyphenated-category pin cells, and the
+  inventory-doc source-sync gate).
   This line inherits SILENTLY through a clean auto-merge and is wrong
   the moment either side adds a test, so re-measure rather than editing it by
   memory - `cd harness && python -m unittest discover -s missions/lib -q`
@@ -526,9 +547,10 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   declarations were invisible to both). AUTORUN-ABLE IS NOT THE SAME AS
   AUTORUN: **22 of the 97 categories are driven by a committed spec** (up from
   8 before the H7-H20 group). That covers 201 of the 539 declarations, 179 of
-  which actually execute - the gap is the members scene-skipped in the three
-  pre-existing categories that run at SPACECENTER. The remaining 75 categories
-  still run only when an operator presses Ctrl+Shift+T.
+  which would actually execute; the 22-declaration gap is decomposed per category
+  in the inventory doc (it is NOT simply the SPACECENTER categories - over half is
+  at FLIGHT). The remaining 75 categories still run only when an operator presses
+  Ctrl+Shift+T.
   Per-category eligibility, the A/B/C triage of what is left, and the reason
   each un-wired category is un-wired live in
   [`autotest-ingame-category-inventory.md`](autotest-ingame-category-inventory.md);
@@ -541,10 +563,17 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   does not model reds instead of quietly shrinking a total.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 97 / 241 registry cells claimed (the growth metric),
-  recomputed 2026-07-26 through `hlib.compute_coverage` over the 52 committed
-  specs + the merged registry (83 / 241 over 38 specs before the H7-H20
-  group). The green-backed subset is the OTHER half of
+- Coverage ledger: 95 / 241 registry cells claimed (the growth metric),
+  recomputed through `hlib.compute_coverage` over the 52 committed specs + the
+  merged registry (83 / 241 over 38 specs before the H7-H20 group). It reads 95
+  and not 97 because the review round WITHDREW two claims rather than adding
+  cells: H11's D3 tokens (four of its seven cells run with the production anchor
+  resolver replaced by a constant-returning stub, so the frames it named are not
+  actually exercised) and H8's D14 kerbin / mun (its "KerbinPadCase" /
+  "MunCase" are fixture labels over fabricated quaternions - the file never looks
+  up a CelestialBody). A withdrawn false claim is worth more than a claimed cell:
+  the failure mode of over-claiming is a later audit reading a dimension as
+  covered and skipping the test that would have caught the regression. The green-backed subset is the OTHER half of
   this metric and needs the run archive, which is gitignored
   (`harness/results/*.json`, `harness/coverage/coverage.{json,txt}`), so
   re-derive it on a checkout that has one; last measured 2026-07-25 at 58 of

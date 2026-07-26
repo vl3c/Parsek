@@ -1967,27 +1967,75 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
 
     # H20 is the ONE member that does not pin its tally whole: both of its cells
     # carry run-time InGameAssert.Skip guards whose outcome is fixture-measured, so
-    # it carries the honest interim form until a live run supplies the split. Every
-    # other member's skipped=0 is derivable from the attributes plus a source scan
-    # showing no InGameAssert.Skip reachable from any of its members.
+    # it carries the honest interim form until a live run supplies the split.
+    #
+    # For every other member, skipped=0 is derivable from the attributes plus a
+    # source scan for reachable InGameAssert.Skip - with ONE stated exception that
+    # this comment previously denied outright. H18's cell
+    # Pipeline_Smoothing_StructuralEvent_HandlersRegistered calls the private helper
+    # AssertHandlerRegistered, which DOES contain an InGameAssert.Skip, on exactly
+    # one branch: EventData<T>'s internal `events` field missing by reflection, i.e.
+    # a KSP version renaming it. On the pinned KSP 1.12.5 that branch is
+    # unreachable, so skipped=0 holds; a KSP upgrade that renames the field reds H18
+    # with skipped=1 and the log names the event. If you are here because H18 red on
+    # its skipped token, look at that reflection branch FIRST - the spec documents it
+    # at length. (Nothing enforces this paragraph; it exists so the reader is not
+    # sent hunting for a scene or attribute regression that is not there.)
     INTERIM_PIN_IDS = {"H20-eva-spawn-position"}
+
+    # Every committed spec whose id matches this belongs to the group. Membership is
+    # DISCOVERED from disk and then compared for set equality against GROUP, which is
+    # what makes "a 15th spec arrives with its doc row" true: an id-filtered
+    # intersection (the first cut) could only ever see members that were in GROUP
+    # already, so a brand-new H21 spec on disk was invisible to every cell here.
+    GROUP_ID_RE = re.compile(r"^H(?:[7-9]|1[0-9]|20)-")
 
     @classmethod
     def setUpClass(cls):
         cls.decls = load_ingame_test_declarations()
         cls.specs = {}
+        cls.on_disk = set()
         for name in sorted(os.listdir(SCENARIOS_DIR)):
             if not name.endswith(".toml"):
                 continue
             spec = load_spec(name)
-            if spec.get("id") in cls.GROUP:
-                cls.specs[spec["id"]] = spec
+            sid = spec.get("id") or ""
+            if cls.GROUP_ID_RE.match(sid):
+                cls.on_disk.add(sid)
+            if sid in cls.GROUP:
+                cls.specs[sid] = spec
+
+    def test_the_group_table_is_not_empty(self):
+        # ANTI-VACUITY FLOOR, and the reason it exists is this PR's own thesis.
+        # Every other cell in this class iterates `self.specs`, which is built by
+        # filtering the committed specs against GROUP. Delete an entry from GROUP and
+        # that spec silently drops out of all of them; empty GROUP entirely and all
+        # eight cells pass over ZERO specs while asserting nothing. The membership
+        # cell below cannot catch either, because it compares two sets that shrink
+        # together. Same shape as CommittedBatchTallySourceSyncTests's
+        # test_the_source_tree_is_actually_readable.
+        self.assertEqual(14, len(self.GROUP),
+                         "the H7-H20 group is 14 specs; if it genuinely changed size, "
+                         "update this floor AND the counts in "
+                         "docs/dev/autotest-ingame-category-inventory.md and "
+                         "docs/dev/autotest-status.md in the same commit")
+        self.assertEqual(len(self.GROUP), len(self.specs),
+                         "GROUP names %d specs but only %d were loaded from %s - the "
+                         "rest of this class would assert over the missing ones' "
+                         "absence" % (len(self.GROUP), len(self.specs), SCENARIOS_DIR))
 
     def test_the_group_is_exactly_the_committed_set(self):
-        self.assertEqual(sorted(self.specs), sorted(self.GROUP),
-                         "the H7-H20 group on disk differs from the table in this "
-                         "test; add the new spec here and to the enumeration table "
-                         "in docs/dev/autotest-status.md in the same commit")
+        # SET EQUALITY against what is on disk, not an intersection: this fires both
+        # when a listed member is removed/renamed AND when a new H-series spec is
+        # committed without being added here.
+        self.assertEqual(sorted(self.on_disk), sorted(self.GROUP),
+                         "the H7-H20 specs on disk differ from the table in this "
+                         "test. A spec here but not on disk was removed or renamed; a "
+                         "spec on disk but not here is new and must be added to GROUP, "
+                         "to the enumeration table in "
+                         "docs/dev/autotest-ingame-category-inventory.md, and to the "
+                         "section table + scenario total in "
+                         "docs/dev/autotest-status.md, in the same commit")
 
     def test_each_drives_exactly_one_named_category(self):
         for sid, spec in sorted(self.specs.items()):
@@ -2060,10 +2108,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # an accidental interim pin is a real weakening. Exactly the declared member
         # may leave passed / skipped unpinned, and it must still pin total literally.
         for sid, spec in sorted(self.specs.items()):
-            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
-            pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
-            loose = pin.passed is None or pin.skipped is None
             with self.subTest(spec=sid):
+                # Resolved INSIDE the subTest: a spec whose pin fails to resolve
+                # would otherwise error the whole cell without naming which one.
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                loose = pin.passed is None or pin.skipped is None
                 self.assertEqual(sid in self.INTERIM_PIN_IDS, loose,
                                  "%s: interim-vs-whole pin state disagrees with "
                                  "INTERIM_PIN_IDS" % sid)
@@ -2774,6 +2824,99 @@ REPO_ROOT = os.path.dirname(HARNESS_ROOT)
 PARSEK_SRC_DIR = os.path.join(REPO_ROOT, "Source", "Parsek")
 DOCS_DEV_DIR = os.path.join(REPO_ROOT, "docs", "dev")
 AUTOTEST_STATUS_DOC = os.path.join(DOCS_DEV_DIR, "autotest-status.md")
+INGAME_INVENTORY_DOC = os.path.join(DOCS_DEV_DIR,
+                                    "autotest-ingame-category-inventory.md")
+
+
+class IngameCategoryInventoryDocTests(unittest.TestCase):
+    """`autotest-ingame-category-inventory.md`'s 97-row table says of itself "Do NOT
+    hand-edit the table: re-derive it" - and shipped with nothing enforcing that.
+
+    The gap that leaves: add one `[InGameTest(Category = "Rewind")]` and NOTHING
+    reds. `CommittedBatchTallySourceSyncTests` does not (Rewind is unpinned),
+    `IngameBatchWiringGroupTests` does not (Rewind is not in the H7-H20 group), and
+    the Rewind row, the 539 / 97 totals repeated across four documents, and the
+    A/B/C declaration sums all go quietly stale. The table is the stated authority
+    for what remains to wire, so a stale row is how the next wave plans against
+    fiction.
+
+    Scope: the five columns that are mechanically derivable from the attributes.
+    The "Members with self-skip" column is NOT gated - it needs a call-graph walk
+    whose name resolution over-approximates, so pinning it here would trade a
+    silent-staleness bug for a false-red one."""
+
+    HEADER_RE = re.compile(r"^\|\s*Category\s*\|")
+    SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$")
+    ROW_RE = re.compile(
+        r"^\|\s*`(?P<cat>[^`]+)`\s*\|\s*(?P<decls>\d+)\s*\|\s*(?P<f>\d+)\s*\|"
+        r"\s*(?P<s>\d+)\s*\|\s*(?P<t>\d+)\s*\|\s*(?P<nb>\d+)\s*\|")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(INGAME_INVENTORY_DOC, encoding="utf-8") as fh:
+            cls.lines = fh.read().split("\n")
+        cls.decls = load_ingame_test_declarations()
+        cls.rows = {}
+        in_table = False
+        for line in cls.lines:
+            if cls.HEADER_RE.match(line):
+                in_table = True
+                continue
+            if in_table and cls.SEPARATOR_RE.match(line):
+                continue
+            m = cls.ROW_RE.match(line)
+            if m:
+                in_table = True
+                cls.rows[m.group("cat")] = (
+                    int(m.group("decls")), int(m.group("f")), int(m.group("s")),
+                    int(m.group("t")), int(m.group("nb")))
+            elif in_table and not line.startswith("|"):
+                in_table = False
+
+    def test_the_table_was_actually_parsed(self):
+        # Anti-vacuity floor: a table this cell cannot parse must RED, not silently
+        # verify zero rows. Same reason CommittedBatchTallySourceSyncTests asserts
+        # its source walk found something.
+        self.assertGreater(
+            len(self.rows), 90,
+            "only %d rows parsed out of %s - the row regex no longer matches the "
+            "committed table, so every assertion below would be vacuous"
+            % (len(self.rows), INGAME_INVENTORY_DOC))
+
+    def test_the_table_lists_exactly_the_categories_in_the_source(self):
+        source = {d.category for d in self.decls}
+        self.assertEqual(
+            sorted(source), sorted(self.rows),
+            "the inventory table's category set has drifted from Source/Parsek. "
+            "Re-derive the table (hlib.parse_ingame_test_declarations + "
+            "derive_batch_tally) rather than editing rows by hand, and update the "
+            "539 / 97 totals and the A/B/C sums in the same commit")
+
+    def test_every_row_matches_the_source_derivation(self):
+        for cat in sorted(self.rows):
+            with self.subTest(category=cat):
+                in_cat = [d for d in self.decls if d.category == cat]
+                stated = self.rows[cat]
+                derived = (
+                    len(in_cat),
+                    hlib.derive_batch_tally(in_cat, cat, "FLIGHT").executable,
+                    hlib.derive_batch_tally(in_cat, cat, "SPACECENTER").executable,
+                    hlib.derive_batch_tally(in_cat, cat, "TRACKSTATION").executable,
+                    sum(1 for d in in_cat if not d.allow_batch))
+                self.assertEqual(
+                    derived, stated,
+                    "%s row is stale: stated (decls, execF, execS, execT, "
+                    "batch-disabled) = %s but the source derives %s"
+                    % (cat, stated, derived))
+
+    def test_the_stated_totals_match_the_table(self):
+        stated_decls = sum(r[0] for r in self.rows.values())
+        body = "\n".join(self.lines)
+        self.assertIn("**97 categories / %d declarations**" % stated_decls, body,
+                      "the triage totals line disagrees with the table it summarises "
+                      "(table sums to %d declarations across %d categories)"
+                      % (stated_decls, len(self.rows)))
+        self.assertEqual(len(self.decls), stated_decls)
 TODO_DOC = os.path.join(DOCS_DEV_DIR, "todo-and-known-bugs.md")
 
 # A reason token: lowercase words joined by hyphens. Deliberately requires a

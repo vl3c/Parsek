@@ -9,13 +9,30 @@ tier = "nightly"
 #
 # ONE OF THE THREE IS INERT OVER THIS CORPUS, AND THAT IS STATED HERE RATHER THAN
 # DISCOVERED LATER. SpawnedPidConsistency only counts violations among recordings
-# with SpawnedVesselPersistentId != 0, and the corpus writer
-# (SyntheticRecordingTests.CleanSaveStart -> RemoveSpawnedPidLines) STRIPS every
-# `spawnedPid = ` line out of the staged save by construction. So that cell runs,
-# passes, and asserts over an empty subset. The other two are genuinely exercised
-# across all 272 recordings. Fixing the third means teaching the corpus writer to
-# author spawned-endpoint recordings - see the same root cause under
-# CrewReservationLive in docs/dev/autotest-status.md.
+# with SpawnedVesselPersistentId != 0, and the injected corpus contains none. So that
+# cell runs, passes, and asserts over an empty subset. The other two are genuinely
+# exercised across all 272 recordings.
+#
+# WHY THE CORPUS HAS NONE - the ACTUAL invariant, not the one first written here. An
+# earlier draft of this comment blamed
+# `SyntheticRecordingTests.CleanSaveStart -> RemoveSpawnedPidLines` for stripping
+# every `spawnedPid = ` line. That is WRONG twice over: CleanSaveStart runs BEFORE
+# the corpus writer injects, so it could only ever clean pre-existing save content,
+# and it does not run on the harness path at all (run.py invokes
+# inject-recordings.ps1 without -CleanStart, so PARSEK_INJECT_CLEAN_START=0 and the
+# whole block is skipped). The real invariants are: (1)
+# `RecordingBuilder.WithSpawnedPid` has ZERO callers, so every synthetic recording
+# serializes with spawnedPid == 0 and the key is never emitted; and (2)
+# `AddRealCareerRecordings` injects RECORDING_TREE nodes only, so the one
+# `spawnedPid` that does exist in the frozen career fixture sits in a standalone
+# RECORDING node that is never injected.
+# DO NOT "fix" this by adding -CleanStart to the harness inject. CleanSaveStart also
+# runs RemoveVesselBlocksFromFlightState + ResetActiveVessel, which would leave
+# activeVessel = -1 with zero VESSEL nodes; DecideLoadRoute would then return
+# NoVesselSpaceCenter and every corpus spec in this group would red on scene=FLIGHT.
+# The right fix is to teach the corpus writer to author spawned-endpoint recordings -
+# see the same root cause under CrewReservationLive in
+# docs/dev/autotest-ingame-category-inventory.md.
 description = "Walk the injected synthetic corpus through the in-game SpawnHealth category: no stuck SpawnAbandoned flag and no out-of-bounds SpawnDeathCount across all committed recordings."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "corpus", "spawn-health", "H16"]

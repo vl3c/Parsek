@@ -6,6 +6,13 @@ that produced it is the same pair of pure functions
 `harness/lib/test_hlib.py::CommittedBatchTallySourceSyncTests` uses, so a number here
 that disagrees with the source is a bug in this doc, never in the source.
 
+THAT INSTRUCTION IS ENFORCED, not merely requested:
+`test_hlib.py::IngameCategoryInventoryDocTests` re-derives the category set and the
+five machine-derivable columns of every row on each test run, so adding an
+`[InGameTest]` anywhere - including to a category no spec pins - reds locally instead
+of leaving a stale row the next wave plans against. The one column it cannot gate is
+"Members with self-skip"; see the note on it below.
+
 Status authority for the automated-testing system as a whole is
 `docs/dev/autotest-status.md`; this file is the DETAIL it links to for the in-game
 category axis. Counts stated in both must agree.
@@ -26,7 +33,14 @@ category axis. Counts stated in both must agree.
 - **Members with self-skip** - members whose body, or a helper it calls, contains an
   `InGameAssert.Skip`. This is the run-time skip surface the attributes cannot
   predict. A zero here plus a non-zero Exec column is the strongest signal a category
-  will actually execute end to end.
+  will actually execute end to end. TWO CAVEATS. (1) This column is the ONLY one in
+  the table not machine-gated: resolving "a helper it calls" needs a call-graph walk
+  whose name resolution over-approximates, so it is a hand-verified best effort, and
+  `Pipeline-Smoothing`'s entry is the known correction - it reads 1, not 0, because
+  `Pipeline_Smoothing_StructuralEvent_HandlersRegistered` reaches an
+  `InGameAssert.Skip` through its private `AssertHandlerRegistered` helper (see the
+  bucket-A note). (2) A zero does not mean a category cannot pass vacuously - see the
+  fourth trap below.
 - **Driven by** - the committed scenario spec that runs this category, or `-`.
 
 Two limits of this table, stated so nobody over-reads it:
@@ -97,7 +111,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-Frame` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-Outlier` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 0 | H18 | A |
+| `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | C |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
@@ -152,9 +166,22 @@ Totals, re-derived: **97 categories / 539 declarations**. Buckets **A 14 categor
 declarations)**. Driven by a committed spec after this change: **22 of 97
 categories**, up from 8. Measured against declarations rather than categories, that
 is 201 of 539 inside a driven category (was 125) of which 179 actually execute (was
-103) - the two differ because three of the eight pre-existing driven categories run
-at SPACECENTER, where some of their members are scene-skipped, whereas all 76
-declarations this group adds execute.
+103).
+
+The 22-declaration gap between 201 and 179 is entirely in the eight PRE-EXISTING
+driven categories - all 76 declarations this group adds execute. Decomposed, because
+the one-line summary "the SPACECENTER categories scene-skip" is wrong on all three
+counts (half the gap is at FLIGHT, one of the three SPACECENTER categories
+contributes nothing, and 4 of the 22 are not scene skips at all):
+
+| Category | Scene driven | Scene-skipped | Batch-disabled | Gap |
+|---|---|---|---|---|
+| `GhostMap` | FLIGHT | 9 | 0 | 9 |
+| `Missions` | SPACECENTER | 7 | 0 | 7 |
+| `Periodicity` | SPACECENTER | 1 | 3 | 4 |
+| `GhostPlayback` | FLIGHT | 0 | 1 | 1 |
+| `MapRender` | FLIGHT | 0 | 1 | 1 |
+| `GameActionsHealth` | SPACECENTER | 0 | 0 | 0 |
 
 The constraint that shapes every decision below: `hlib.SINGLE_BATCH_SELECTOR_RULE`
 makes a batch-owning spec drive exactly ONE `RunTests` step naming exactly ONE
@@ -173,9 +200,18 @@ fixture. The admission test each had to pass:
    so the attribute-derived `skipped` floor is 0.
 2. No member, and no helper any member calls, contains a reachable
    `InGameAssert.Skip` - checked directly and transitively, not by a per-file grep
-   (`IncompleteBallisticRuntimeTests.cs` does contain `InGameAssert.Skip` calls, all
-   of them in its `Ledger` / `Rewind` / `RouteLiveAnchor` members, so a per-file
-   answer would have been wrong for both `IncompleteBallistic` and `SwitchSegment`).
+   (`IncompleteBallisticRuntimeTests.cs` does contain `InGameAssert.Skip` calls - 4
+   in `Ledger` members, 1 in `RouteLiveAnchor`, 1 in `TestRunnerIsolation` - so a
+   per-file answer would have been wrong for both `IncompleteBallistic` and
+   `SwitchSegment`, neither of which has any).
+   ONE MEMBER OF BUCKET A DOES NOT SATISFY THIS CRITERION AS WRITTEN, and saying so
+   is cheaper than a footnote nobody reads: `Pipeline-Smoothing`'s
+   `Pipeline_Smoothing_StructuralEvent_HandlersRegistered` reaches an
+   `InGameAssert.Skip` through its private `AssertHandlerRegistered` helper. That
+   branch fires only if reflection cannot find `EventData<T>`'s internal `events`
+   field, i.e. if a KSP version renamed it, which is unreachable on the pinned
+   1.12.5. It is admitted on the narrower ground that the skip is a KSP-VERSION
+   guard rather than a fixture-context guard, and `H18` documents it at length.
 3. The fixture already exists and its route is known.
 
 That is what lets 13 of the 14 pin their tally WHOLE (`total=N passed=N failed=0
@@ -208,12 +244,35 @@ doing.
 `todo-and-known-bugs.md` was to wire `EvaSpawnPosition` AND `CrewReservationLive`
 over the injected corpus. Half of it shipped; the other half cannot, and the reason
 is structural rather than a matter of effort. Both `CrewReservationLive` cells
-short-circuit on `spawnedCount == 0`, and the corpus injector
-(`SyntheticRecordingTests.CleanSaveStart` -> `RemoveSpawnedPidLines`) STRIPS every
-`spawnedPid = ` line out of the staged save by construction, so the injected corpus
-is guaranteed to contain zero spawned-endpoint recordings. Driving it would emit
-exactly `total=2 passed=0 failed=0 skipped=2` - the vacuous line the anti-vacuity
-gate exists to reject. Unlocking it means teaching the corpus writer to author
+short-circuit on `spawnedCount == 0`, and the injected corpus contains no recording
+with a non-zero `SpawnedVesselPersistentId`. Driving it would emit exactly
+`total=2 passed=0 failed=0 skipped=2` - the vacuous line the anti-vacuity gate exists
+to reject.
+
+THE INVARIANT THAT MAKES THAT TRUE IS NOT THE ONE THIS DOC FIRST NAMED, and the
+correction matters because the wrong one is an active trap. The first draft credited
+`SyntheticRecordingTests.CleanSaveStart` -> `RemoveSpawnedPidLines` with stripping
+every `spawnedPid = ` line "by construction". That helper runs BEFORE the corpus
+writer injects, so it can only ever clean pre-existing save content - and it does not
+run on the harness path at all, because `run.py` invokes `inject-recordings.ps1`
+without `-CleanStart`, leaving `PARSEK_INJECT_CLEAN_START=0` and the whole block
+skipped. The real invariants are (1) `RecordingBuilder.WithSpawnedPid` has ZERO
+callers, so every synthetic recording serializes `spawnedPid == 0` and the key is
+never emitted, and (2) `AddRealCareerRecordings` injects `RECORDING_TREE` nodes only,
+so the single `spawnedPid` that does exist in the frozen career fixture
+(`Source/Parsek.Tests/Fixtures/DefaultCareer/persistent.sfs`) sits in a standalone
+`RECORDING` node that is never injected. Both are one edit away from ceasing to hold,
+which is exactly why the mechanism has to be stated correctly.
+
+DO NOT "make the stated mechanism real" by adding `-CleanStart` to the harness
+inject. `CleanSaveStart` also runs `RemoveVesselBlocksFromFlightState` and
+`ResetActiveVessel`, producing `activeVessel = -1` with zero `VESSEL` nodes;
+`DecideLoadRoute` would then return `NoVesselSpaceCenter`, the batch would run at
+SPACECENTER, and all four corpus-backed specs plus every FLIGHT-scoped member would
+red on `scene=FLIGHT`. The doc's original wording pointed at the one switch that
+breaks the group.
+
+Unlocking `CrewReservationLive` means teaching the corpus writer to author
 spawned-endpoint recordings, which also makes `SpawnHealth`'s third cell
 (`SpawnedPidConsistency`, wired but inert for the same reason) meaningful. That is a
 C# fixture change, not a spec change, and it is the highest-value item in this
@@ -236,8 +295,9 @@ multi-category batch contract is ever designed; not worth eight boots now.
 
 **B4 - self-skip guards whose preconditions the committed fixtures do not obviously
 meet.** The large categories live here: `Rewind` (37 declarations, 26 batch-eligible
-at FLIGHT, 24 members carrying self-skips), `Logistics` (47 declarations but 38
-`AllowBatchExecution = false`, leaving 8, and 46 of 47 members carry self-skips),
+at FLIGHT, most members carrying self-skips), `Logistics` (47 declarations, of which
+38 are `AllowBatchExecution = false` and one more is scene-ineligible, leaving 8
+executable at FLIGHT; nearly every member carries a self-skip),
 `GhostLifecycle` (17, every member self-skip-guarded), `CrewReservation` (15, 12
 guarded), `TerrainClearance` (6, all 6), `PartEventFX` (6, all 6). These are exactly
 where the "specs that all Skip" warning bites: wiring them now produces green-looking
@@ -254,6 +314,26 @@ Several are zero-self-skip and would pass immediately; they are simply not worth
 KSP boot each at one or two tests. They are the strongest argument for a future
 multi-category batch contract, and the honest answer today is "not worth wiring",
 not "cannot be wired".
+
+**B6 - THE NEXT WAVE: qualified on every criterion, deferred only on batch size.**
+B1-B5 were written as if they partitioned the bucket. They do not, and the omission
+matters because these are the categories a reader would reach for first:
+
+| Category | Decls | Exec FLIGHT | Members with self-skip | Note |
+|---|---|---|---|---|
+| `LogContracts` | 10 | 10 | 2 | Ties `SpawnRotation` as the largest wireable category left. The 2 guarded members are the FLIGHT-scoped store / career pair; the other 8 are unconditional |
+| `GhostAudio` | 9 | 8 | 1 | One member is SPACECENTER-scoped, so it scene-skips at FLIGHT and the pin carries `skipped=1` |
+| `Diagnostics` | 6 | 6 | 1 | |
+| `MapPresence` | 5 | 5 | 2 | |
+| `KspApiSanity` | 5 | 5 | 3 | |
+| `Serialization` | 4 | 4 | 1 | |
+| `LocalizedName` | 3 | 3 | 0 | **Meets bucket A's admission test verbatim** - identical on all three criteria to `RecordingFinalization` (3/3/0) and `SpawnHealth` (3/3/0), both of which WERE wired. It was omitted by oversight, not by judgment |
+
+None of these is blocked by a fixture, a profile or a scene. They were left out of
+this wave to keep it at 14 boots and because each carries at least one self-skip
+whose fixture precondition wants reading first - except `LocalizedName`, which
+carries none and should simply have been wired. This is the highest-confidence
+starting point for the next wave, ahead of B4's large guarded categories.
 
 ### Bucket C - not batch-runnable (7 categories, 28 declarations)
 
@@ -299,9 +379,12 @@ items. The tally reads `total=N passed=N failed=0 skipped=0` - indistinguishable
 a real pass. Some tests make it worse by bailing early with a silent `return` /
 `yield break` and a Verbose log INSTEAD of an `InGameAssert.Skip`, so they are
 reported PASSED rather than Skipped:
-`FlightIntegration.GhostPositionMatchesGeographic`, `GhostVisuals.GhostHasRenderers`
-and `GhostVisuals.IncrementalSnapshotBuild_YieldsThenCompletes` all do this, and a
-scan for the pattern across the tree finds around a dozen more.
+`FlightIntegration.GhostPositionMatchesGeographic`,
+`FlightIntegration.ActiveVesselBodySurfaceApi` (a bare `if (vessel == null) return;`),
+`GhostVisuals.GhostHasRenderers` and
+`GhostVisuals.IncrementalSnapshotBuild_YieldsThenCompletes` all do this - note three
+of the four are in categories THIS WAVE WIRES - and a scan for the pattern across the
+tree finds around a dozen more.
 
 The only defence is the FIXTURE. That is why `H14` / `H15` / `H16` / `H17` inject the
 272-recording corpus and pin `recordings.count = {min = 272, max = 272}`: the count
