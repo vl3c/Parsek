@@ -20,6 +20,12 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - expectations evaluation (``evaluate_expectations``)
   - the in-game batch anti-vacuity gate (``batch_contract_vacuity_gap`` +
     ``vacuous_batch_complete_probes``), enforced by ``validate_spec``
+  - the batch-tally SOURCE-SYNC gate (``parse_ingame_test_declarations`` +
+    ``derive_batch_tally`` + ``resolve_batch_tally_pin`` +
+    ``batch_tally_pin_mismatches``): the pure half of the check that a spec's
+    pinned ``total=``/``skipped=`` still agrees with the C# ``[InGameTest]``
+    attributes. Enforced by a test-suite sweep, not ``validate_spec`` -- the
+    C# tree is not on disk at harness run time (see the section note)
   - the M-B2 ledger-oracle PURE support: the ``[expectations.ledger]`` spec-surface
     validator (``validate_ledger_expectations``), the produced-save ``careerSave``
     block read (``parse_career_save_block``), and the leg-A stock-award capture
@@ -698,6 +704,550 @@ def batch_contract_vacuity_gap(
         if all(rx.search(probe) is not None for rx in compiled):
             return probe
     return None
+
+
+# ---------------------------------------------------------------------------
+# Batch-tally SOURCE SYNC (the second half of the anti-vacuity rule).
+#
+# THE GAP THIS CLOSES. The anti-vacuity gate above forces a batch-owning spec to
+# pin its tally WHOLE (`total=N passed=P failed=0 skipped=S`). Nothing then keeps
+# those numbers in step with the C# they describe: `total` is the count of
+# `[InGameTest(Category = "X")]` methods, and `P`/`S` follow from each test's
+# `Scene` / `AllowBatchExecution` attributes. A developer adding one test to
+# Missions / Periodicity / GameActionsHealth / RouteRewindTimeline /
+# RecordingInvariants / GhostPlayback moves `total` by one and silently reds that
+# category's daily scenario on its NEXT NIGHTLY RUN, with no local signal at all
+# -- the failure surfaces hours later, in a different process, as a logContract
+# mismatch on a spec they never opened.
+#
+# WHAT IS DERIVABLE, AND WHAT IS NOT. `RunTests` drives
+# InGameTestRunner.RunCategory, which applies exactly two filters in this order:
+#   1. FilterSceneEligibleBatchCandidates(scene) -- marks Skipped every test whose
+#      RequiredScene is neither AnyScene nor the scene the batch runs in;
+#   2. PrepareBatchExecution -- marks Skipped every REMAINING test declaring
+#      AllowBatchExecution = false.
+# Both mark Skipped, and `total` is `allTests.Count(Status != NotRun)` over the
+# single-category batch, so total == sceneSkipped + batchSkipped + executable.
+# The order matters for ATTRIBUTION (a test that is both scene-ineligible AND
+# batch-disabled lands in bucket 1 only, never counted twice), which is why the
+# derivation applies them in the same order the runner does.
+#
+# `total` is therefore EXACT. `skipped` is only a LOWER BOUND: a test that clears
+# both filters can still self-skip at run time via InGameAssert.Skip on live
+# fixture state (mode != CAREER, a non-stock body graph, a missing vessel), and no
+# static read of the source can predict that. L1-passive-sandbox is the standing
+# proof -- it pins skipped=3 over a category whose attributes force ZERO skips,
+# because SANDBOX mode is precisely its subject. So the checks are:
+#   total    == derived total                       (exact; a rename or an added
+#                                                    test reds here)
+#   skipped  >= sceneSkipped + batchSkipped        (attribute floor)
+#   passed+failed <= executable                    (attribute ceiling)
+#   passed+failed+skipped == total                 (the runner's own invariant)
+# A pin using a regex class rather than a literal for a token (S1.4's
+# `passed=[1-9][0-9]*`) simply leaves that token unchecked; `total=` is still
+# pinned literally there, so the load-bearing check still applies.
+#
+# WHY A TEST-SUITE GATE AND NOT validate_spec. validate_spec is pure and runs
+# inside run.py against a PROVISIONED instance, where the C# tree need not exist
+# (the harness gates a shipped DLL, not a checkout). Reading the source is
+# therefore the test suite's job; everything decided here is pure over strings so
+# the sweep is a thin file-reading shell over these functions.
+# ---------------------------------------------------------------------------
+
+# The InGameTestAttribute.AnyScene sentinel ((GameScenes)(-1), "runs in any
+# scene"). Modelled as None rather than -1 so a scene comparison against a real
+# scene NAME can never accidentally succeed.
+INGAME_ANY_SCENE: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class InGameTestDecl:
+    """One `[InGameTest(...)]` attribute as the runner's DiscoverTests would see it.
+
+    ``scene`` is the bare enum member name ("FLIGHT") or ``INGAME_ANY_SCENE``
+    (None) for a declaration with no ``Scene =`` argument, mirroring the
+    attribute's own default. ``origin`` is "<file>:<line> <Member>" and exists
+    only so a mismatch message can name the declarations it counted.
+    """
+
+    category: str
+    scene: Optional[str]
+    allow_batch: bool
+    origin: str = ""
+
+
+# `const string Foo = "bar"` -- the `Category = <const>` indirection
+# RouteRewindTimelineRuntimeTests uses. Matched on the MASKED text (so a
+# commented-out const is invisible) with the value read back off the ORIGINAL
+# text at the captured span.
+_CS_CONST_STRING_RE = re.compile(
+    r"\bconst\s+string\s+(?P<name>[A-Za-z_]\w*)\s*=\s*\"(?P<val>[^\"]*)\"")
+
+# `[InGameTest(...)]` or a bare `[InGameTest]` (legal C#, taking every attribute
+# default including Category = "General" -- counted, not silently dropped).
+# The trailing `(` / `]` alternation is load-bearing, not decoration: `\[\s*
+# InGameTest` alone also matches an INDEXER or array access whose subscript starts
+# with the type name (`foo[InGameTestRunner.Tag]`), which would invent a phantom
+# "General" declaration out of ordinary code.
+_CS_INGAME_ATTR_RE = re.compile(r"\[\s*InGameTest\s*(?:(?P<open>\()|\])")
+
+_CS_STRING_LITERAL_RE = re.compile(r"^\"((?:[^\"\\]|\\.)*)\"$")
+_CS_SCENE_MEMBER_RE = re.compile(r"^(?:global::)?GameScenes\.([A-Za-z_]\w*)$")
+# No `^` anchor: this is used with re.match(mask, pos, endpos), which already
+# anchors at pos, and `^` would additionally demand a line start there.
+_CS_ASSIGN_RE = re.compile(r"\s*(?P<name>[A-Za-z_]\w*)\s*=\s*")
+_CS_MEMBER_NAME_RE = re.compile(r"([A-Za-z_]\w*)\s*\(")
+
+
+def _mask_csharp_noise(text: str) -> str:
+    """Blank comment bodies and string/char literal INTERIORS, preserving length.
+
+    The result is positionally identical to ``text`` (newlines survive, so line
+    numbers do too), which lets every structural scan below run on the mask while
+    values are read back off the original at the same offsets. Masking is what
+    makes the parse immune to the two traps a naive regex hits: an attribute-shaped
+    string inside a ``Description =`` value (RuntimeTests has a Description that
+    literally contains "[InGameTest]") and a commented-out attribute. Quotes
+    themselves are KEPT so the argument splitter still sees literal boundaries.
+    """
+    out = list(text)
+    n = len(text)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(max(a, 0), min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    i = 0
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if c == "/" and nxt == "/":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
+        elif c == "/" and nxt == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            blank(i, j)
+            i = j
+        elif c == "@" and nxt == "\"":
+            # Verbatim string: no backslash escapes, "" is one literal quote.
+            j = i + 2
+            while j < n:
+                if text[j] == "\"":
+                    if j + 1 < n and text[j + 1] == "\"":
+                        j += 2
+                        continue
+                    break
+                j += 1
+            blank(i + 2, j)
+            i = min(j + 1, n)
+        elif c == "\"" or c == "'":
+            j = i + 1
+            while j < n and text[j] != c and text[j] != "\n":
+                j += 2 if text[j] == "\\" else 1
+            blank(i + 1, j)
+            i = min(j + 1, n)
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _split_arg_spans(mask: str, start: int, end: int) -> List[Tuple[int, int]]:
+    """Split an attribute argument list into top-level `(a, b)` spans.
+
+    Runs on the MASK, so a comma inside a ``Description`` string is already blank
+    and cannot split an argument. Nested ``()``/``[]``/``{}`` are tracked so an
+    argument like ``Scene = (GameScenes)(-1)`` stays whole.
+    """
+    spans: List[Tuple[int, int]] = []
+    depth = 0
+    a = start
+    for i in range(start, end):
+        c = mask[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            spans.append((a, i))
+            a = i + 1
+    if mask[a:end].strip():
+        spans.append((a, end))
+    return spans
+
+
+def _attr_arg_end(mask: str, open_paren: int) -> int:
+    """Offset of the `)` closing the attribute argument list opened at
+    ``open_paren``, or len(mask) when the source is truncated."""
+    depth = 1
+    for i in range(open_paren + 1, len(mask)):
+        c = mask[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(mask)
+
+
+def _member_name_after(mask: str, pos: int) -> str:
+    """The method name following an attribute, skipping the attribute's own closing
+    `]` and any FURTHER `[...]` attribute blocks stacked on the same member.
+
+    Diagnostics only -- an empty string is harmless. Skipping the stacked blocks
+    matters anyway: without it the name reads as the next attribute's own type
+    ("Obsolete"), which would point a mismatch message at the wrong line.
+    """
+    i = pos
+    n = len(mask)
+    while i < n:
+        while i < n and mask[i].isspace():
+            i += 1
+        if i < n and mask[i] == "]":
+            i += 1  # the closing bracket of the attribute just parsed
+            continue
+        if i < n and mask[i] == "[":
+            depth = 0
+            while i < n:
+                if mask[i] == "[":
+                    depth += 1
+                elif mask[i] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                i += 1
+            continue
+        break
+    m = _CS_MEMBER_NAME_RE.search(mask, i, min(i + 400, n))
+    return m.group(1) if m else ""
+
+
+def parse_ingame_test_declarations(
+    source_text: str, source_name: str = ""
+) -> List[InGameTestDecl]:
+    """Every `[InGameTest(...)]` declaration in one C# file, as the runner sees it.
+
+    Pure over the file TEXT (the caller does the reading). Handles the four forms
+    the tree actually uses, each of which defeats a one-line regex:
+      - multi-line argument lists (``[InGameTest(\\n Category = "X",\\n ...)]``);
+      - ``Category = <const>`` resolved against a ``const string`` in the same
+        file (RouteRewindTimelineRuntimeTests declares
+        ``private const string Category = "RouteRewindTimeline"``);
+      - ``Description`` strings carrying commas, parentheses, or attribute-shaped
+        text;
+      - commented-out code and a bare ``[InGameTest]``.
+
+    An unresolvable ``Category`` / ``Scene`` expression is NOT dropped: it is kept
+    with a ``<unresolved:...>`` marker so it still counts toward a category total
+    somewhere visible, and the sweep can assert that none exist. Silently dropping
+    it would make the gate fail OPEN in exactly the case where the source grew a
+    form this parser does not model.
+    """
+    text = source_text or ""
+    mask = _mask_csharp_noise(text)
+    consts: Dict[str, str] = {}
+    for m in _CS_CONST_STRING_RE.finditer(mask):
+        a, b = m.span("val")
+        consts[m.group("name")] = text[a:b]
+
+    out: List[InGameTestDecl] = []
+    for m in _CS_INGAME_ATTR_RE.finditer(mask):
+        line = text.count("\n", 0, m.start()) + 1
+        if m.group("open") is None:
+            args_end = m.end()
+            named: Dict[str, str] = {}
+        else:
+            open_paren = m.end() - 1
+            args_end = _attr_arg_end(mask, open_paren)
+            named = {}
+            for a, b in _split_arg_spans(mask, open_paren + 1, args_end):
+                am = _CS_ASSIGN_RE.match(mask, a, b)
+                if am:
+                    named[am.group("name")] = text[am.end():b].strip()
+            args_end += 1  # past the ')'
+        member = _member_name_after(mask, args_end)
+        origin = "%s:%d %s" % (source_name or "<text>", line, member or "?")
+        out.append(InGameTestDecl(
+            category=_resolve_category(named.get("Category"), consts),
+            scene=_resolve_scene(named.get("Scene")),
+            allow_batch=_resolve_bool_default_true(named.get("AllowBatchExecution")),
+            origin=origin))
+    return out
+
+
+def _resolve_category(expr: Optional[str], consts: Dict[str, str]) -> str:
+    """The attribute's effective Category. Absent -> "General" (the property
+    initializer, which DiscoverTests also falls back to)."""
+    if expr is None:
+        return "General"
+    sm = _CS_STRING_LITERAL_RE.match(expr)
+    if sm:
+        return sm.group(1)
+    if expr in consts:
+        return consts[expr]
+    tail = expr.rsplit(".", 1)[-1]  # SomeType.Category
+    if tail in consts:
+        return consts[tail]
+    return "<unresolved:%s>" % expr
+
+
+def _resolve_scene(expr: Optional[str]) -> Optional[str]:
+    """The attribute's effective Scene as a bare enum member name. Absent, or the
+    explicit AnyScene sentinel, -> ``INGAME_ANY_SCENE``."""
+    if expr is None:
+        return INGAME_ANY_SCENE
+    sm = _CS_SCENE_MEMBER_RE.match(expr)
+    if sm:
+        return sm.group(1)
+    if expr.rsplit(".", 1)[-1] == "AnyScene":
+        return INGAME_ANY_SCENE
+    return "<unresolved:%s>" % expr
+
+
+def _resolve_bool_default_true(expr: Optional[str]) -> bool:
+    """AllowBatchExecution: absent -> true (the property initializer). Anything
+    that is not literally ``false`` is treated as true, matching the runner's
+    ``if (test.AllowBatchExecution)`` branch on the default."""
+    return (expr or "true").strip() != "false"
+
+
+def unresolved_ingame_declarations(
+    decls: Sequence[InGameTestDecl],
+) -> List[InGameTestDecl]:
+    """Declarations whose Category or Scene this parser could not resolve. A
+    non-empty result means the source grew an attribute form the parse does not
+    model -- a gate that must FAIL, not shrug."""
+    return [d for d in decls
+            if str(d.category).startswith("<unresolved:")
+            or str(d.scene or "").startswith("<unresolved:")]
+
+
+@dataclass(frozen=True)
+class BatchTallyDerivation:
+    """What `RunCategory(category)` at ``scene`` must tally, from the attributes
+    alone. ``skipped`` is split into the two runner filters, applied in the
+    runner's order, so a mismatch message can say WHICH filter moved."""
+
+    category: str
+    scene: str
+    total: int
+    scene_skipped: int
+    batch_skipped: int
+    executable: int
+    scene_skipped_members: Tuple[str, ...] = ()
+    batch_skipped_members: Tuple[str, ...] = ()
+
+    @property
+    def attribute_skipped(self) -> int:
+        """The FLOOR on the runner's `skipped=` token: the tests the two
+        attribute filters skip before any test body runs. Run-time
+        ``InGameAssert.Skip`` self-skips add to this and are not derivable."""
+        return self.scene_skipped + self.batch_skipped
+
+
+def derive_batch_tally(
+    decls: Sequence[InGameTestDecl], category: str, scene: str
+) -> BatchTallyDerivation:
+    """Model InGameTestRunner.RunCategory's two filters over ``decls``.
+
+    Order is the runner's (InGameTestRunner.cs:411): scene eligibility FIRST,
+    then AllowBatchExecution over what survived. A test that is both
+    scene-ineligible and batch-disabled is counted in the scene bucket ONLY,
+    exactly as the runner counts it once.
+    """
+    in_category = [d for d in decls if d.category == category]
+    # Partitioned by predicate, never by membership: two declarations with the
+    # same category/scene/flags would compare EQUAL as frozen dataclasses, and an
+    # `in`-based split would then mis-bucket the duplicate.
+    scene_skipped = [d for d in in_category
+                     if d.scene is not INGAME_ANY_SCENE and d.scene != scene]
+    eligible = [d for d in in_category
+                if d.scene is INGAME_ANY_SCENE or d.scene == scene]
+    batch_skipped = [d for d in eligible if not d.allow_batch]
+    return BatchTallyDerivation(
+        category=category,
+        scene=scene,
+        total=len(in_category),
+        scene_skipped=len(scene_skipped),
+        batch_skipped=len(batch_skipped),
+        executable=len(eligible) - len(batch_skipped),
+        scene_skipped_members=tuple(d.origin for d in scene_skipped),
+        batch_skipped_members=tuple(d.origin for d in batch_skipped))
+
+
+@dataclass(frozen=True)
+class BatchTallyPin:
+    """The literal tokens a spec's `logContracts.required` pins on its
+    BATCH_COMPLETE line. A token given as a regex class rather than a literal
+    (S1.4's ``passed=[1-9][0-9]*``) reads as None = deliberately unpinned."""
+
+    total: Optional[int] = None
+    passed: Optional[int] = None
+    failed: Optional[int] = None
+    skipped: Optional[int] = None
+    category: Optional[str] = None
+    scene: Optional[str] = None
+    patterns: Tuple[str, ...] = ()
+
+    @property
+    def is_aggregate(self) -> bool:
+        """True when the pinned category is the multi-category AGGREGATE token
+        (``multi:<n>``, see resolve_batch_complete). No single C# category
+        corresponds to it, and the pin does not carry the constituent list, so a
+        per-category derivation is OUT OF SCOPE rather than failed."""
+        return (self.category is not None
+                and _MULTI_CATEGORY_RE.match(self.category) is not None)
+
+    @property
+    def statically_checkable(self) -> bool:
+        """True when the pin names a literal, non-aggregate category + scene, which
+        is what the derivation needs as its input. Everything else is optional."""
+        return (self.category is not None and self.scene is not None
+                and not self.is_aggregate)
+
+
+# A trailing regex anchor a literal token may legitimately carry ("failed=0\b").
+_PIN_TOKEN_TAIL_RE = re.compile(r"(?:\\b|\$)+$")
+
+
+def _pin_token(pattern: str, name: str) -> Optional[str]:
+    m = re.search(r"\b%s=(\S+)" % name, pattern)
+    return m.group(1) if m else None
+
+
+def _pin_literal_int(tok: Optional[str]) -> Optional[int]:
+    if tok is None:
+        return None
+    t = _PIN_TOKEN_TAIL_RE.sub("", tok)
+    return int(t) if re.fullmatch(r"\d+", t) else None
+
+
+def _pin_literal_word(tok: Optional[str]) -> Optional[str]:
+    if tok is None:
+        return None
+    t = _PIN_TOKEN_TAIL_RE.sub("", tok)
+    return t if re.fullmatch(r"[A-Za-z0-9_:]+", t) else None
+
+
+def resolve_batch_tally_pin(
+    required_patterns: Sequence[str],
+) -> Optional[BatchTallyPin]:
+    """Merge the BATCH_COMPLETE tokens a spec pins across ALL of its required
+    patterns, or None when no pattern names BATCH_COMPLETE.
+
+    Merging rather than reading one pattern is deliberate: nothing in the spec
+    schema says the six tokens arrive in one pattern, and a spec that splits them
+    over two patterns is still fully pinned. First literal wins; a LATER pattern
+    contradicting an earlier literal is reported by
+    ``batch_tally_pin_mismatches`` rather than silently resolved, since two
+    patterns pinning different totals can never both be met.
+    """
+    pats = [str(p) for p in (required_patterns or []) if "BATCH_COMPLETE" in str(p)]
+    if not pats:
+        return None
+    vals: Dict[str, object] = {}
+    for pat in pats:
+        for name, conv in (("total", _pin_literal_int), ("passed", _pin_literal_int),
+                           ("failed", _pin_literal_int), ("skipped", _pin_literal_int),
+                           ("category", _pin_literal_word),
+                           ("scene", _pin_literal_word)):
+            got = conv(_pin_token(pat, name))
+            if got is not None and vals.get(name) is None:
+                vals[name] = got
+    return BatchTallyPin(
+        total=vals.get("total"), passed=vals.get("passed"),
+        failed=vals.get("failed"), skipped=vals.get("skipped"),
+        category=vals.get("category"), scene=vals.get("scene"),
+        patterns=tuple(pats))
+
+
+def batch_tally_pin_mismatches(
+    pin: BatchTallyPin, decls: Sequence[InGameTestDecl]
+) -> List[str]:
+    """Every way ``pin`` contradicts the `[InGameTest]` attributes in ``decls``.
+
+    Empty list = the pin still agrees with the source. Each message is written to
+    be actionable on its own, because the developer who reads it is the one who
+    just added a test to a category they may never have heard of.
+    """
+    problems: List[str] = []
+    if pin.is_aggregate:
+        # A multi-category batch gates on the UNION line, whose total sums several
+        # categories the pin does not enumerate. Understood and out of scope, so
+        # empty rather than a complaint -- unlike the case below, where the pin
+        # simply could not be read.
+        return []
+    if not pin.statically_checkable:
+        return ["pin does not name a literal category= and scene=, so the tally "
+                "cannot be cross-checked against the source: %s"
+                % " | ".join(pin.patterns)]
+
+    d = derive_batch_tally(decls, pin.category, pin.scene)
+    if d.total == 0:
+        problems.append(
+            "no [InGameTest(Category = \"%s\")] method exists in the source: the "
+            "category was renamed or its file was lost, and the batch this spec "
+            "gates would run EMPTY" % pin.category)
+        return problems
+
+    if pin.total is not None and pin.total != d.total:
+        problems.append(
+            "pins total=%d but the source declares %d [InGameTest(Category = "
+            "\"%s\")] method(s). BATCH_COMPLETE's total is "
+            "allTests.Count(Status != NotRun) over the single RunCategory batch, "
+            "so it counts filtered tests too. At scene=%s the source derives "
+            "total=%d = %d scene-skipped + %d batch-skipped + %d executable."
+            % (pin.total, d.total, pin.category, pin.scene, d.total,
+               d.scene_skipped, d.batch_skipped, d.executable))
+
+    if pin.skipped is not None and pin.skipped < d.attribute_skipped:
+        problems.append(
+            "pins skipped=%d but the attributes already force %d skip(s) at "
+            "scene=%s: %d scene-ineligible (%s) + %d AllowBatchExecution=false "
+            "(%s). Run-time InGameAssert.Skip guards can only push skipped "
+            "HIGHER, never lower."
+            % (pin.skipped, d.attribute_skipped, pin.scene, d.scene_skipped,
+               ", ".join(d.scene_skipped_members) or "-", d.batch_skipped,
+               ", ".join(d.batch_skipped_members) or "-"))
+
+    if pin.passed is not None and pin.failed is not None:
+        executed = pin.passed + pin.failed
+        if executed > d.executable:
+            problems.append(
+                "pins passed=%d failed=%d (%d executed) but only %d test(s) in "
+                "%s are batch-eligible at scene=%s, so that many can never run."
+                % (pin.passed, pin.failed, executed, d.executable, pin.category,
+                   pin.scene))
+
+    if None not in (pin.total, pin.passed, pin.failed, pin.skipped):
+        summed = pin.passed + pin.failed + pin.skipped
+        if summed != pin.total:
+            problems.append(
+                "pinned tally is not self-consistent: passed=%d + failed=%d + "
+                "skipped=%d = %d, but total=%d. The runner recounts all three "
+                "over the same `considered` set, so total == passed + failed + "
+                "skipped always holds and this line can never match."
+                % (pin.passed, pin.failed, pin.skipped, summed, pin.total))
+
+    for pat in pin.patterns:
+        for name, conv, got in (("total", _pin_literal_int, pin.total),
+                                ("passed", _pin_literal_int, pin.passed),
+                                ("failed", _pin_literal_int, pin.failed),
+                                ("skipped", _pin_literal_int, pin.skipped),
+                                ("category", _pin_literal_word, pin.category),
+                                ("scene", _pin_literal_word, pin.scene)):
+            here = conv(_pin_token(pat, name))
+            if here is not None and got is not None and here != got:
+                problems.append(
+                    "two required patterns pin conflicting %s= (%s vs %s); no "
+                    "single BATCH_COMPLETE line can satisfy both"
+                    % (name, got, here))
+    return problems
 
 
 # The terminal RED token is the LAST token on the [Analyzer] header line and the

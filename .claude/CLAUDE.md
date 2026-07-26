@@ -129,8 +129,15 @@ stdlib runner: `cd harness && python -m unittest discover -s lib -q AND discover
   selection, seam response-stream evaluation, the named line parsers, verdict
   classification + retry + expected-fail overlay, expectations, log-validate profile
   selection, budget arithmetic, admission reuse over provlib, coverage/flake, result
-  serialization + schema gate). No KSP, no filesystem, no network. Tests:
-  `harness/lib/test_hlib.py`.
+  serialization + schema gate, the in-game batch anti-vacuity gate + the batch-tally
+  source-sync decisions). No KSP, no filesystem, no network. Tests:
+  `harness/lib/test_hlib.py` - note that two of its cells read OUTSIDE `harness/`:
+  `CommittedBatchTallySourceSyncTests` walks `Source/Parsek` to keep each spec's
+  pinned `BATCH_COMPLETE v1 total=N ... skipped=S` tally in step with the C#
+  `[InGameTest]` attributes it counts (adding an in-game test to `Missions`,
+  `Periodicity`, `GameActionsHealth`, `RouteRewindTimeline`, `RecordingInvariants` or
+  `GhostPlayback` reds locally instead of on the next nightly), and
+  `test_doc_spec_sync.py` reads `docs/dev`.
 - `harness/run.py` - the M-A5 thin I/O shell (orchestrator). Owns everything OUTSIDE
   KSP and delegates every decision to hlib. CLI `--id/--tier/--tag/--cadence` +
   `--dry-run`; per-scenario admit -> run-lock -> zombie preflight -> stage -> launch

@@ -400,6 +400,52 @@ honest interim form and carries a PENDING-OPERATOR to tighten. Deliberate except
 non-empty `batchVacuityOptOutReason` (an unexplained bool is how the class returns) and
 is misplaced-key-guarded like `skipTailOnUnmetMission`.
 
+**Batch-tally SOURCE SYNC (added 2026-07-26).** Pinning the tally whole makes `total=N`
+a hardcoded copy of a number that lives in C#, so a second gate keeps the two in step:
+`hlib.parse_ingame_test_declarations` reads every `[InGameTest(...)]` attribute out of
+the `Source/Parsek` tree, `derive_batch_tally` models `RunCategory`'s two filters over
+them, `resolve_batch_tally_pin` reads the literal tokens a spec pins (merged across all
+of its BATCH_COMPLETE-naming patterns), and `batch_tally_pin_mismatches` reports every
+contradiction. Without it, adding one in-game test to a pinned category reds that
+category's daily scenario on its next NIGHTLY run rather than locally.
+
+The filters are modelled IN THE RUNNER'S ORDER (`FilterSceneEligibleBatchCandidates` on
+scene, then `PrepareBatchExecution` on `AllowBatchExecution=false` over what survived),
+because a test failing both must be counted ONCE, in the scene bucket, exactly as the
+runner counts it. What that buys, and what it cannot:
+
+| Token | Check | Why |
+|---|---|---|
+| `total` | `==` derived | EXACT: `allTests.Count(Status != NotRun)` counts filtered tests, so it is the category's method count |
+| `skipped` | `>=` scene-skipped + batch-skipped | FLOOR only: a test clearing both filters can still `InGameAssert.Skip` on live fixture state, which no static read predicts (`L1-passive-sandbox` pins `skipped=3` over a category whose attributes force 0) |
+| `passed`+`failed` | `<=` batch-eligible | CEILING: more cannot run than are eligible |
+| all four | `passed+failed+skipped == total` | the runner recounts all three over one `considered` set |
+
+A token written as a regex class rather than a literal is left unchecked, so S1.4's
+`passed=[1-9][0-9]*` interim form stays legal while its `total=42` is still enforced.
+This makes a literal `total=` a spec-authoring REQUIREMENT for a single-category
+batch owner, over and above the anti-vacuity rule (which a `passed=[1-9][0-9]*` pin
+alone would satisfy): `total` is the only token derivable exactly, and the only one
+that catches an added or removed test. `batchVacuityOptOut` waives that requirement
+along with the vacuity probe, but does NOT waive the agreement check - literal
+numbers written anyway are still expected to be true. A `category=multi:<n>`
+aggregate pin (a future multi-category selector) is out of scope, not failed: the
+union total spans categories the pin never enumerates.
+The parse masks comment bodies and string-literal interiors in one offset-preserving
+pass, which is what makes it survive multi-line argument lists, `Category = <const>`
+indirection (`RouteRewindTimelineRuntimeTests`), and `Description` values containing
+commas or attribute-shaped text; an unresolvable form is REPORTED, never dropped,
+since dropping it is the only way this gate could fail open.
+
+Two deliberate placements. It is a TEST-SUITE sweep, not a `validate_spec` rule,
+because `validate_spec` runs inside `run.py` against a provisioned instance where the
+C# tree need not exist - the harness gates a shipped DLL, not a checkout. And the
+`scene=` token is taken from the PIN, not derived from the fixture's `VESSEL` nodes
+through `DecideLoadRoute`, so a spec pinning the wrong scene stays self-consistent here;
+the anti-vacuity gate plus a live run are what pin the route. Sweep:
+`CommittedBatchTallySourceSyncTests` in `harness/lib/test_hlib.py`, discovered over
+every committed spec rather than hardcoded.
+
 ### Dimension registry: `harness/coverage/registry.toml`
 
 A committed materialization of catalog section 1, the single source of truth for

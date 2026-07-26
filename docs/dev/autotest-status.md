@@ -8,13 +8,19 @@ contract `BATCH_COMPLETE v1 .* failed=0\b` cannot tell `passed=0 skipped=2` from
 two passes. L1-passive-sandbox had the identical shape. Both fixtures are
 vessel-less by design, so the CATEGORY moved to GameActionsHealth (4
 scene-agnostic read-only tests) rather than papering the pin over a category the
-fixture can never host. All five RunTests specs now pin the batch tally whole
+fixture can never host. All seven RunTests specs now pin the batch tally whole
 (H5's numbers are MEASURED off its 2026-07-19 line; S1.4 pins total + a non-zero
 passed class and carries a PENDING-OPERATOR to pin the exact split). The class is
 closed harness-side: hlib.validate_spec now synthesizes every BATCH_COMPLETE line
 a vacuous batch could emit and REJECTS any spec whose contract would accept one -
 checked by construction, not by a syntactic "must mention total=" tautology, with
-a reason-required opt-out. NEW: M1-mission-loop-unit and M2-periodicity-solver
+a reason-required opt-out. Second order: those pins are hardcoded copies of
+numbers that live in C#, so CommittedBatchTallySourceSyncTests now cross-checks
+every pinned tally against the [InGameTest] attributes in Source/Parsek - total
+exactly, skipped as a floor (run-time InGameAssert.Skip guards are not statically
+derivable, which is why L1-passive-sandbox legitimately pins skipped=3 over a
+category whose attributes force 0). Adding an in-game test to a pinned category
+now reds locally instead of on the next nightly. NEW: M1-mission-loop-unit and M2-periodicity-solver
 take D11 from 0/18 to 8/18 by running the Missions / Periodicity in-game
 categories, which needed no fixture and had never run because no spec named them;
 both gate the mission-loop PLAN and the periodicity SOLVER, explicitly not the
@@ -225,12 +231,17 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 330 mission-machine + 402 harness + 203 provisioner unittest
+- Headless: 454 mission-machine + 525 harness + 203 provisioner unittest
   cells; 18.5k+ xUnit on the C# side (analyzer, seam, log contracts, the
   new route-window delta formatter).
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
-- In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
-  log-contract tests.
+- In-game: 534 runtime tests / 96 categories (autorun-able), H5 invariants,
+  log-contract tests. Counted mechanically by
+  `hlib.parse_ingame_test_declarations` over `Source/Parsek`, not by hand.
+- Spec-vs-source: every batch-owning spec's pinned `BATCH_COMPLETE` tally is
+  cross-checked against the C# `[InGameTest]` attributes it describes
+  (`CommittedBatchTallySourceSyncTests`), so adding an in-game test to a
+  pinned category fails locally instead of on the next nightly.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
 - Coverage ledger: 52 / 238 registry cells covered (the growth metric).
