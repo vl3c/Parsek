@@ -14,46 +14,101 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## R1-EMPTY-PROVISIONAL: a rewind with no re-flight throws in Debug, silently writes nothing in Release [FOUND by R1 flight 2, 2026-07-26 - the autotest lane's FIRST Parsek find. REPORTED, NOT FIXED]
+## R1-EMPTY-PROVISIONAL: a Re-Fly's re-flight is recorded into a NEW tree, so the re-fly supersedes nothing [FOUND by R1 flight 2, DIAGNOSED by R1 flight 3, 2026-07-26. REPORTED, NOT FIXED. Severity HIGH - user-visible correctness, build-independent]
 
-**How it was found.** `R1-rewind-loop-flown` flight 2 (run `2026-07-26_2237`) rewound CORRECTLY - `MISSION-OK`, all seven phases, `clockRewound value=267.832`, craft back at `PRE_LAUNCH` - and the RUN still classified `PARSEK-FAIL` on the spec's `logContracts.forbidden = ["\[Parsek\]\[ERROR\]"]`. Exactly one such line:
+**CORRECTION to the first version of this entry.** It originally read "rewind then quit without re-flying" and said Release "loses no data ... arguably the correct end state". BOTH ARE WRONG. Flight 3 flew the FULL loop - rewind AND re-fly, the PRIMARY intended use of the feature - and reproduced it exactly. And the Release end state is not correct: the supersede that the whole feature exists to perform silently does not happen. The quit was never required; it was a coincidence of flight 2's shape.
+
+### What actually happens
+
+The re-fly session's provisional recording is **never bound to a recorder**, so the re-flight is recorded into a brand-new, unrelated tree. The `empty Points` invariant is only where it surfaces.
+
+Flight 3 (`logs/2026-07-26_2303_R1-rewind-loop-flown/`), in order:
 
 ```
-[Parsek][WARN][Supersede] AppendRelations invariant violation:
-    provisional=rec_aa59a4edefa2415fb84f01e517863442 reason=empty Points
-    -- refusing to write supersede rows in this batch
-[Parsek][ERROR][MergeDialog] TryCommitReFlySupersede: orchestrator threw
-    InvalidOperationException: AppendRelations invariant violation:
-    provisional=rec_aa59a4edefa2415fb84f01e517863442 reason=empty Points
-    - journal will drive recovery on next load
+23:03:15.740 [ReFlySession] Started sess=... rp=rp_b9_root slot=1
+             provisional=rec_5b0697a6cb744dc98af82cb7e8553652 origin=b9-booster-a
+             supersedeTarget=b9-booster-a tree=tree-b9-stack-root inPlaceContinuation=True
+23:03:16.206 [Flight] RestoreActiveTreeFromPending: waiting for vessel 'Kerbal X'
+             (pid=2708531065) to load (activeRecId=9a98f7c366c847d5a81a1bb3da7ab1e6)
+23:03:16.206 [Flight] RestoreActiveTreeFromPending: active vessel 'B9 Slot 1' pid=948397159
+             liveGuid=... conclusively differs from recording '9a98f7c3...' - skipping pid/name match
+23:03:16.204 [RecState] [#38][OnFlightReady] mode=none tree=- rec=- rec.live=F/F
+             tree.recs=0/0 pend.tree=b435c4ad:Limbo
+23:03:17.207 [Flight] Auto-record started (first staging on pad, stage=7)
+23:03:17.207 [Flight] StartRecording succeeded: pid=948397159, chainActive=False, tree=True
+23:03:17.207 [RecState] [#45][StartRecording:post] mode=tree tree=820de77e|B9 Slot 1
+             rec=f6155f8d|B9 Slot 1|pid=948397159
+23:03:21.990 [TestCommands] recordingstate recording=true tree=820de77e857a4b03bb1747ac7d16c994 points=24
+23:03:23.976 [Supersede] AppendRelations invariant violation:
+             provisional=rec_5b0697a6cb744dc98af82cb7e8553652 reason=empty Points
 ```
 
-**Reproduction (normal play, no harness needed):** rewind from flight via Re-Fly, then conclude WITHOUT flying the new attempt (leave the scene / quit). The re-fly session's provisional recording accumulates zero trajectory points, and the merge hits the invariant.
+**Which recording got the flight, on disk** (`saves/b2-lko-craft/Parsek/Recordings/`):
 
-**Code.** `SupersedeCommit.ValidateSupersedeTarget` (`SupersedeCommit.cs:2498`) requires a supersede target to have playable payload (Points / OrbitSegments / TrackSections) AND a non-null terminal state; a zero-point provisional returns `reason=empty Points`. `AppendRelations` (`SupersedeCommit.cs:226-237`) then:
+| recording | tree | `.prec` size | POINT nodes |
+|---|---|---|---|
+| `rec_5b0697a6...` (the marker's provisional) | `tree-b9-stack-root` "B9 Stack" | 82 bytes | **0** |
+| `f6155f8d...` (the actual re-flight) | `820de77e...` "B9 Slot 1" (NEW) | 5,408 bytes | **58** |
 
-```csharp
-ParsekLog.Warn(Tag, "AppendRelations invariant violation: ... refusing to write supersede rows in this batch");
-#if DEBUG
-    throw new InvalidOperationException(...);
-#else
-    return new List<string>();
-#endif
+### Root cause
+
+The marker-aware adoption exists - `ParsekFlight.RestoreActiveTreeFromPending` carries the bug #585 "in-place continuation Re-Fly carve-out", which swaps the wait target to `marker.ActiveReFlyRecordingId` via `ReFlySessionMarker.ResolveInPlaceContinuationTarget(marker, tree.Id, ...)` precisely so the re-fly keeps recording into the provisional.
+
+It did not run for the marker's tree. **The single pending-tree slot was already occupied by a stale Limbo tree.** `pend.tree=b435c4ad:Limbo` is the "Kerbal X" tree from the PRE-rewind flight, and it survived the rewind reload; `RestoreActiveTreeFromPending` therefore ran with `tree.Id = b435c4ad` and `activeRecId = 9a98f7c3...`, while the marker names `tree-b9-stack-root` / `rec_5b0697a6...`. The swap is gated on the tree matching the marker, so it never applied. The scene reached `OnFlightReady` with `mode=none tree=- rec=-` - no active tree, no recorder, nothing bound to the provisional - and the relaunch staging then took the plain auto-record path, which creates a fresh tree by construction.
+
+PROVEN vs INFERRED, stated separately:
+- PROVEN by this run: the adoption ran against the wrong tree, no recorder was bound to the provisional, and the re-flight landed in a new tree.
+- NOT PROVEN: whether a rewind with NO prior in-flight commit also leaves a stale Limbo pending tree. R1 commits mid-flight, which is what produced the Limbo leftover (`CommitTreeFlight` -> promotion re-adopt -> our `StopRecording` -> Limbo). A plain player Re-Fly may reach the adoption path cleanly. **The cheapest next experiment is a rewind + re-fly with no prior commit**; if the provisional gets the points there, the trigger narrows to "a pending tree already exists at rewind time" and the fix scope shrinks accordingly.
+
+### Release consequence: BOTH branches stay live (this is the user-visible bug)
+
+The `#if DEBUG` throw is Debug-only; everything above is build-independent. In Release `AppendRelations` returns an empty list, the merge completes, and the final state - which is exactly what the flight-3 save shows, since the Debug throw happened after the same decision - is:
+
+- **Zero `RECORDING_SUPERSEDE` nodes in `persistent.sfs`** (verified: `grep -c RECORDING_SUPERSEDE` = 0).
+- `b9-booster-a`, the pre-rewind branch the re-fly was invoked to REPLACE, is therefore never superseded and stays effective in ERS.
+- The actual re-flight sits in an unrelated committed tree ("B9 Slot 1") with no supersede relation, no chain link, and no reference back to the origin.
+- The provisional `rec_5b0697a6...` is stranded in the B9 Stack tree with `mergeState = NotCommitted` and no trajectory.
+
+So the user ends up with **the original branch AND the re-flown branch both live, as two unrelated histories**, plus an empty orphan. That is a correctness bug in the feature's core promise ("this attempt replaces that one"), not a logging bug.
+
+### Debug-only extra: a non-convergent stuck merge
+
+Predicted in the first version of this entry, now OBSERVED. The throw lands at `RunMerge` step 2, after `DurableSave("split")`. `RunFinisher` treats any post-Begin phase as drive-forward, and `CompleteFromPostDurable`'s `Split` block falls through into `Supersede` and re-runs `AppendRelations` against the same empty provisional:
+
+```
+[WARN][MergeJournal] RunFinisher drive-forward FAILED at phase=Split: InvalidOperationException ...
+  Save is mid-merge and may be inconsistent. Manual recovery: copy save, clear
+  scenario.ActiveMergeJournal and scenario.ActiveReFlySessionMarker, reload.
+[ERROR][Scenario] OnLoad: exception phase=merge-journal ... journal=...,phase=Supersede
+[ERR] Exception loading ScenarioModule ParsekScenario: System.InvalidOperationException ...
 ```
 
-**VERDICT: the REFUSAL is correct; its CLASSIFICATION as an invariant violation is not.** Refusing is right, and the code says why: a zero-point placeholder cannot validly replace a real origin, and "the placeholder-redirect bug class shipped twice in 2026-04 (items 5, 568)". A supersede row pointing at a trajectory-less recording would poison ERS. Nothing about the refusal is wrong.
+The save keeps `MERGE_JOURNAL { phase = Supersede }` and `REFLY_SESSION_MARKER`, and the input never changes, so **every subsequent load repeats it**. The ERROR line's own promise, "journal will drive recovery on next load", is false for this condition.
 
-What IS wrong is that a REACHABLE, LEGITIMATE user action (rewind then stop playing) is modelled as a "this cannot happen" invariant. Three consequences, all evidenced:
+### Does the OnLoad-abort save-wipe risk apply? NO - assessed, with evidence
 
-1. **The two builds take different control paths on a reachable condition.** Debug throws; Release returns an empty list and the orchestrator carries on to Tombstone / Finalize / Durable1Done / RpReap / marker-clear and reports success. The shipped behaviour is therefore never the behaviour under test. That asymmetry is the defect, independent of which end state is preferable.
-2. **In Debug the recovery does not converge.** The throw lands at `MergeJournalOrchestrator.RunMerge` step 2, AFTER `DurableSave("split")`, so the journal is persisted at `phase = Split`. Confirmed in the run's own save (`logs/2026-07-26_2237_.../saves/b2-lko-craft/persistent.sfs`): `MERGE_JOURNAL { phase = Split }` with ZERO `SUPERSEDE` rows and the marker still active. On the next load `RunFinisher` treats any post-Begin phase as drive-forward and calls `CompleteFromPostDurable`, whose `Split` block falls through into the `Supersede` block and re-runs `AppendRelations` against the SAME empty provisional - same invariant, same throw, and `RunFinisher` logs "drive-forward FAILED at phase=Split ... Save is mid-merge and may be inconsistent" and re-throws. The input never changes, so **every subsequent load repeats it**. The ERROR line's own promise, "journal will drive recovery on next load", is false for this specific condition.
-3. **In Release there is no data loss.** No rows are written, the merge otherwise completes, the marker and journal clear. The pre-rewind recordings simply stay un-superseded - which for "I rewound and never re-flew" is arguably the correct end state. So this is NOT a dropped-rows corruption bug; it is a mis-modelled no-op plus a stuck-journal bug that only Debug builds can hit.
+The known-dangerous class is "a static GameEvent handler NRE aborted OnLoad and WIPED the persistent.sfs recording index". It does NOT apply here, for two independent reasons:
 
-**Honest fix (NOT applied here - this lane is harness-side and cannot fly a C# change to validate it):** give the condition a NAMED, non-throwing outcome. `AppendRelations` should distinguish "the provisional is empty because nothing was re-flown" (a legitimate no-op: log at Info/Verbose, return an empty list, let the merge complete in BOTH builds) from "the provisional is empty for a reason that should be impossible" (the placeholder-redirect class the `#if DEBUG` throw was written for). The caller then stops logging a user action at ERROR, and the journal stops getting stranded at `Split`. Whoever takes this should also decide whether a no-re-flight conclusion ought to reach the merge orchestrator at all, or be short-circuited earlier by the dialog.
+1. **Ordering.** `ParsekScenario.OnLoad` reaches `loadPhase = "merge-journal"` only after the recordings and trees are loaded (`... -> sidecar-reconcile -> rewind-post-load -> merge-journal -> load-time-sweep -> test-batch-reconcile -> rewind-point-reap`). The exception line itself reports `committedRecordings=13 committedTrees=3`, so the store was populated when it threw.
+2. **Empirically.** The post-run save retains all 13 recordings and all 3 trees. Nothing was wiped.
 
-**Standing regression coverage (so this does not become untested).** R1 now closes the loop by re-flying, which deliberately routes AROUND this condition - so two guards keep it exercised:
-- SCENARIO: **`S4.1-rewind-merge` is the dedicated rewind-then-teardown case** - `LoadGame -> InvokeRewind -> AnswerMergeDialog -> RecordingState -> FlushAndQuit`, with no flying between, which is precisely the reproduction. It carries `expectedFail.bugId = "R1-EMPTY-PROVISIONAL"` with `subkind = "expectation"`, so on a Debug DLL it demotes to EXPECTED-FAIL (tracked, does not red the nightly), a DIFFERENT failure still reds as PARSEK-FAIL, and the day the finding is fixed it reports XPASS loudly and the key must be removed.
-- MACHINE: `R1LoopClosureTests.test_a_rewind_without_a_second_flight_does_not_evaluate_green` pins the flight-2 shape at unit level, and the shell cell `test_a_rewind_with_no_second_flight_is_not_mission_ok` pins it end to end.
+What the abort DOES cost is everything after it: **`LoadTimeSweep.Run()` and `RewindPointReaper.ReapOrphanedRPs()` never run**. That is self-reinforcing - the sweep is exactly the thing that would discard a zombie marker and stale RPs, and the exception is what prevents it. Severity stays HIGH on the Release correctness ground above, not on a wipe.
+
+### Proposed fix (NOT applied - C# that cannot be validated from this headless lane)
+
+Three layers, in priority order:
+
+1. **Bind the provisional (the actual bug).** Make the re-fly's in-place-continuation adoption independent of whichever tree happens to own the single pending slot. Either evict / defer a stale Limbo pending tree when a re-fly marker is active, or drive the adoption from the MARKER (`marker.TreeId` / `marker.ActiveReFlyRecordingId`) rather than from whatever `RestoreActiveTreeFromPending` was handed. A re-fly session that ends with no recorder ever bound to its provisional should be impossible by construction.
+2. **Detect it early and loudly, not at merge time.** Parsek already notices at save time - `OnSave: rewriting sidecars for recording='B9 Booster A' id=rec_5b0697a6... reason=trajectory-missing` - and again when auto-record starts a tree while a re-fly marker is live. Either is a far cheaper detection point than the merge orchestrator, and either can warn while the player can still act.
+3. **Give the refusal a named, non-throwing outcome.** The refusal itself is CORRECT - a trajectory-less recording cannot validly replace a real origin (the placeholder-redirect class that shipped twice in 2026-04, items 5 and 568). But rewind-then-conclude is reachable in normal play, so it must not be modelled as an invariant violation: the `#if DEBUG throw` / `#else return` split means the shipped path is never the tested one, and the throw strands the journal. A named outcome that both builds take, plus a merge that completes without rows, removes the non-convergence while keeping the guard.
+
+Whoever takes this should also decide whether a conclusion with an un-flown provisional should reach the merge orchestrator at all.
+
+### Standing regression coverage
+
+- SCENARIO, scheduled: **`S4.1-rewind-merge`** is the rewind-then-conclude case (`LoadGame -> InvokeRewind -> AnswerMergeDialog -> RecordingState -> FlushAndQuit`, no flying between). It keeps `expectedFail.bugId = "R1-EMPTY-PROVISIONAL"` + `subkind = "expectation"`: the known finding demotes to EXPECTED-FAIL on the nightly, a DIFFERENT failure still reds as PARSEK-FAIL, and a fixed finding reports XPASS and the keys must be deleted.
+- SCENARIO, unscheduled: **`R1-rewind-loop-flown` deliberately does NOT carry the tag.** It is `operator` tier and therefore in no cadence (`hlib.CADENCE_TIERS` maps operator to nothing), so it cannot redden any sweep, and its red is the loudest evidence we have that the bug is open on the PRIMARY use path - the full rewind-and-re-fly loop. Tagging it would demote exactly the signal worth keeping, and would leave a key to remember to delete. Its `Added [1-9][0-9]* supersede relations` logContract is the positive assertion that fails today and passes the moment the fix lands.
+- MACHINE: `R1LoopClosureTests.test_a_rewind_without_a_second_flight_does_not_evaluate_green` and the shell cell `test_a_rewind_with_no_second_flight_is_not_mission_ok` pin the flight-2 shape; `test_flying_is_not_enough_the_flight_must_be_RECORDED` pins the flight-3 shape (the craft flew, the recording stayed empty), which is the harness-side guard that would have caught this without a merge.
 
 ## Rewind-in-flight: a verb-agnostic seam bridge, the R1 rewind-loop mission, and two wrongly-operator-tiered scenarios [BUILT, branch `rewind-loop-lane`]
 
