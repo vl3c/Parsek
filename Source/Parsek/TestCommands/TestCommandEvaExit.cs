@@ -256,15 +256,26 @@ namespace Parsek.TestCommands
             return EvaExitStandoffState.Waiting;
         }
 
-        /// <summary>The <c>standoff=</c> payload token for a concluded wait: "off" when none
-        /// was requested, "cleared" when it was observed, "timeout" when the bounded wait
-        /// gave up. Never a bare bool - a reader must be able to tell "we never asked" from
-        /// "we asked and gave up".</summary>
+        /// <summary>The <c>standoff=</c> payload token: "off" when none was requested,
+        /// "cleared" when separation was observed, "timeout" when the bounded wait gave up,
+        /// "waiting" when the stage had not concluded. Never a bare bool - a reader must be
+        /// able to tell "we never asked" from "we asked and gave up".
+        ///
+        /// "waiting" is only reachable on the <see cref="EvaExitCompletionDecision.ExitTimeout"/>
+        /// path (the standoff cannot itself cause that timeout - it gives up first - so this
+        /// says the exit died of something else while the stage was mid-flight). The OK path
+        /// only ever sees off / cleared / timeout, because it is not reached until the stage
+        /// has concluded.</summary>
         internal static string StandoffToken(double minStandoffMeters,
                                              EvaExitStandoffState state)
         {
             if (minStandoffMeters <= 0.0) return "off";
-            return state == EvaExitStandoffState.GaveUp ? "timeout" : "cleared";
+            switch (state)
+            {
+                case EvaExitStandoffState.GaveUp: return "timeout";
+                case EvaExitStandoffState.Cleared: return "cleared";
+                default: return "waiting";
+            }
         }
 
         /// <summary>Terminal completion payload once the EVA vessel is live + active.

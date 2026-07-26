@@ -399,6 +399,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Standoff_AnUnconcludedStageIsNotReportedAsCleared()
+        {
+            // Reachable only on the ExitTimeout path (the standoff gives up bounded, so it
+            // cannot itself cause that timeout). Reporting a still-Waiting stage as
+            // "cleared" would claim an observation that was never made - the exact shape of
+            // the defect this whole change exists to close.
+            Assert.Equal("waiting", TestCommandEvaExit.StandoffToken(
+                30.0, TestCommandEvaExit.EvaExitStandoffState.Waiting));
+            Assert.Equal("off", TestCommandEvaExit.StandoffToken(
+                0.0, TestCommandEvaExit.EvaExitStandoffState.Waiting));
+        }
+
+        [Fact]
         public void Standoff_ConstantsAreSizedForTheMeasuredProfile()
         {
             // 15 s against a measured ~2-3 s clear for a 30 m standoff (the background

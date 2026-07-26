@@ -274,7 +274,11 @@ namespace Parsek.TestCommands
             else // ExitTimeout
             {
                 TestCommandDiagnostics.Timeout(id, verb, elapsed, "eva-exit-timeout");
-                ParsekLog.Error(Tag, $"evaexit timeout kerbal={kerbal ?? string.Empty} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                // standoff= is carried here too: the stage cannot CAUSE this timeout (it
+                // gives up bounded first), so a `standoff=waiting` read names the exit as
+                // having died of something else mid-stage rather than leaving the reader to
+                // guess whether the standoff was involved.
+                ParsekLog.Error(Tag, $"evaexit timeout kerbal={kerbal ?? string.Empty} standoff={standoffToken} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null, "eva-exit-timeout", dequeueHead: true);
             }
         }
