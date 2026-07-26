@@ -1,9 +1,9 @@
 # Automated Testing System - Status
 
 Last updated: 2026-07-26 (VACUOUS-BATCH class found and closed; the first two D11
-scenarios; ALL FIVE RunTests tallies now MEASURED off live flights, no derived
-value and no PENDING-OPERATOR left among them; and one real Parsek defect caught
-by the new M1 scenario's very first flight.
+scenarios; four of the seven RunTests tallies now MEASURED off live flights and
+the other three honestly labelled; and one real Parsek defect caught by the new
+M1 scenario's very first flight.
 
 B10-career-passive-safety - shipped, daily tier - was proved live to read GREEN
 while executing ZERO tests: its RecordingInvariants batch ran at SPACECENTER,
@@ -15,20 +15,42 @@ tests) rather than papering the pin over a category the fixture can never host.
 The class is closed harness-side: hlib.validate_spec now synthesizes every
 BATCH_COMPLETE line a vacuous batch could emit and REJECTS any spec whose
 contract would accept one - checked by construction, not by a syntactic "must
-mention total=" tautology, with a reason-required opt-out.
+mention total=" tautology, with a reason-required opt-out. Scope of that
+guarantee, after review found three ways around the first cut and all three were
+closed: a batch-owning spec must now declare exactly ONE RunTests step naming
+exactly ONE category (a second step ran ungated; a multi-category aggregate
+cannot express per-constituent non-vacuity), and vacuity detection requires ONE
+single required pattern to reject the whole vacuous family plus the known
+batch-independent decoy line, because evaluate_expectations searches each
+pattern over the whole log independently. It still blocks only passed==0 - the
+`passed=[1-9][0-9]*` placeholder form accepts 1-of-42 by design.
 
 NEW: M1-mission-loop-unit and M2-periodicity-solver take D11 from 0/18 to 8/18 by
 running the Missions / Periodicity in-game categories, which needed no fixture
 and had never run because no spec named them; both gate the mission-loop PLAN and
 the periodicity SOLVER, explicitly not the playback.
 
-MEASURED 2026-07-26, five flights, all PASS: B10 `total=4 passed=4 skipped=0`
-(the vacuity fix proven - the same step used to emit `total=2 passed=0
-skipped=2`), L1-passive-sandbox `total=4 passed=1 skipped=3`, M2 `total=11
-passed=7 skipped=4`, M1 `total=12 passed=5 skipped=7`, and S1.4 `total=42
-passed=40 skipped=2` - which CLOSES the last PENDING-OPERATOR of the set (S1.4
-had shipped a loose `passed=[1-9][0-9]*` because 12 of its 42 carry conditional
-skips and no live tally had ever been recorded).
+2026-07-26 ran SIX flights, of which FIVE passed. The one red is M1 flight 1, and
+it is the run that found the sidecar leak below - the pin doing its job, not a
+blemish: B10 PASS, M1 PARSEK-FAIL, M2 PASS, M1 re-fly PASS, L1-passive-sandbox
+PASS, S1.4 PASS (`harness/results/summary.txt`).
+
+MEASURED - exact pin already committed before the flight, so the run's
+expectations PASS matched the whole line: B10 `total=4 passed=4 skipped=0` (the
+vacuity fix proven - the same step used to emit `total=2 passed=0 skipped=2`),
+L1-passive-sandbox `total=4 passed=1 skipped=3`, M2 `total=11 passed=7
+skipped=4`, M1 `total=12 passed=5 skipped=7`. H5's `total=2 passed=2 skipped=0`
+is measured off its own 2026-07-19 archived line.
+
+NOT fully measured, and now labelled as such rather than claimed: S1.4's
+`total=42 passed=40 skipped=2` - the 2026-07-26 run executed the LOOSE
+`passed=[1-9][0-9]*` pin, so it proves total=42 / failed=0 / category / scene but
+not the 40/2 split, and that run archived no log (collectLogs ran=false on a
+PASS). H6's `total=7 passed=7 skipped=0 ... scene=FLIGHT` is DERIVED: the
+2026-07-24 PASS was against a pin carrying only `failed=0 skipped=0`, and the
+scene token has no H6-specific evidence at all (it is inferred from the shared
+gloops-airshow fixture's FLIGHT LoadGame route). Both pins STAY - each fails
+LOUD, never green - and both are re-derivable from the spec comments.
 
 M1's first flight also found a REAL Parsek-side defect and its `recordings.count
 = {0,0}` pin is what caught it: in-game tests that register synthetic trees
@@ -38,8 +60,13 @@ through the real `RecordingStore.CommitTree` were leaving orphan `.prec` /
 design; once those ids leave the store `CleanOrphanFiles` preserves the files
 forever - the S0.5 discard-residue shape again. Fixed at the SHARED path: the
 one-test `PersistenceSplitOptimizerTestCleanup` is generalized to
-`InGameTestSidecarReaper` with a known-ids guard, and wired into all five
-commit-driving in-game tests. Re-flown green with the pin untouched.
+`InGameTestSidecarReaper` with a known-ids guard, wired into every enumerated
+in-game site that reaches a real commit - the five DIRECT `CommitTree` callers
+plus, after review found them, the four that reach one INDIRECTLY through the
+production merge / live-recording paths (both `MergeDialog` and `SceneExitMerge`
+deferred-merge canaries and the EVA ghost-snapshot canary), all now reaping at
+the shared `RemoveCommittedTreeByIdForRuntimeTest` helper. Re-flown green with
+the pin untouched.
 
 Prior 2026-07-25: B1-pad-hop DE-LISTED from live-proven: its
 2026-07-19/20 PASSes proved the flight but its chute never opened - the
@@ -186,7 +213,7 @@ The "Parsek surface verified" column is the reason the case exists.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item. Batch tally pinned WHOLE 2026-07-26: `failed=0 skipped=0` still accepted an EMPTY batch (`total=0 passed=0 ...`), so the pin is now `total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT` (7 = the category's scene-agnostic, batch-allowed test count; the live PASS's skipped=0 fixes passed=total) |
+| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item. Batch tally pinned WHOLE 2026-07-26: `failed=0 skipped=0` still accepted an EMPTY batch (`total=0 passed=0 ...`), so the pin is now `total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT`. That pin is DERIVED, not measured: the 2026-07-24 PASS was against a contract carrying only `failed=0 skipped=0`, so it proves those two; `total=passed=7` follows from the category's 7 scene-agnostic batch-allowed tests plus skipped=0; and `scene=FLIGHT` is inferred from the gloops-airshow fixture's Focusable/FLIGHT LoadGame route (the rule H5 and S1.4 measured on the same fixture), with no H6-specific evidence. Re-pin from the measured line the first time an H6 run archives a log |
 | B2-lko-ascent | nightly | Ascent-to-orbit recording, orbital checkpoints, 6-booster parent-anchored debris children model | D1; D3 orbital-checkpoint; D4 atmospheric/exo-propulsive; D14 kerbin |
 | B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
 | B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
@@ -194,7 +221,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | B7-duna-flyby | nightly | Multi-SOI interplanetary recording (Kerbin->Sun->Duna->Sun), 100,000x warp recording, SOI-count | As B5 with D14 duna/soi-count/warp-high. GATE: HEAD's 300 km target has not itself flown (the pass flew 50 km); first nightly covers it |
 | S0.5-live-record-discard | daily | Live record start/stop marker pairing + DiscardTree returns the store to zero (caught the orphan-sidecar leak) | D1 discard-rollback; D5 single-node; D14 |
 | S0.6-live-record-commit | daily | Commit on top of the injected corpus without corpus loss (the save-hollowing guard class) | D5; D14; D16 sidecar-prec |
-| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf. Batch contract hardened 2026-07-26 (was `failed=0` only) and its PENDING-OPERATOR CLOSED the same day by a live flight: the loose `passed=[1-9][0-9]* skipped=[0-9]+` placeholder is replaced by the MEASURED `total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT`. The 2 skips are 1 structural (`AllowBatchExecution=false`) + 1 fixture-determined self-skip; the other 10 conditional guards did not fire on this corpus |
+| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf. Batch contract hardened 2026-07-26 (was `failed=0` only) and its PENDING-OPERATOR CLOSED the same day by a live flight: the loose `passed=[1-9][0-9]* skipped=[0-9]+` placeholder is replaced by `total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT`. Evidence standing, PARTLY MEASURED: the run executed the LOOSE pin (the exact one was committed after it), so it proves total=42 / failed=0 / category / scene and passed>=1; the 40/2 split was read off that run's live log, which was not archived (`collectLogs: {ran: false}` on a PASS) and is not re-derivable from any committed artifact. The 2 skips are 1 structural (`AllowBatchExecution=false`, attribute-exact) + 1 fixture-determined self-skip; the other 10 conditional guards did not fire on this corpus. The pin STAYS - a wrong split reds loud with the numbers to re-derive from |
 | H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. Batch tally pinned WHOLE 2026-07-26 from the MEASURED 2026-07-19 line: `total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT` |
 | B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class), now with a batch that genuinely executes | D8 funds/science/reputation/recalc-from-ut0; D14 career/cold-load-ut0/scene-ksc. RE-PROVEN 2026-07-26 in the corrected `GameActionsHealth` category: `total=4 passed=4 failed=0 skipped=0 ... scene=SPACECENTER`, MEASURED. Its earlier "green" runs executed ZERO tests (see the de-listing note in todo-and-known-bugs.md); this is the vacuity fix proven live. D16 schema-gate stays dropped - it was claimed over a save with zero recordings |
 | L1-passive-sandbox | daily | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert); the one scene- and mode-independent suppression-flag assertion actually runs | D8 recalc-engine/orchestrator/ksp-state-patcher; D14 sandbox/scene-ksc. RE-PROVEN 2026-07-26 in the corrected `GameActionsHealth` category (its first flight there): `total=4 passed=1 failed=0 skipped=3 ... scene=SPACECENTER`, MEASURED, and the 3 skips ARE the subject (SANDBOX has no pools). Ledger oracle green, hardDivergences=0 |

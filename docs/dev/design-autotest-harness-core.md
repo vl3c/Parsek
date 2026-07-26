@@ -285,6 +285,20 @@ D14 = ["career", "cold-load-ut0", "scene-ksc"]
 # RESERVED here (parsed + spec-validated) but their heavier verifiers land with
 # M-B2 (world-diff / ledger oracle) and M-C2 (rewind/loop) -- the spec carries
 # them now so scenarios do not need a format break when those verifiers arrive.
+[expectations]
+# allowedAnomalies: the scenario's bounded, documented exceptions to the Tier-C
+# anomaly sweep. This is a DEDICATED field (NOT logContracts.forbidden): the sweep's
+# forbidden token set is harness-owned and fixed (see the anomaly-sweep verifier);
+# a scenario only ADDS known-benign exceptions here, it never redefines the sweep.
+# Empty = the sweep must find zero anomaly lines.
+#
+# PLACEMENT IS LOAD-BEARING, and this example had it WRONG until 2026-07-26 (it sat
+# at the bottom of [expectations.logContracts], which is where every spec then copied
+# it from). run.py reads `expectations.allowedAnomalies`; a bare key written after an
+# `[expectations.<sub>]` header is TOML-scoped to that SUB-table and is never read, so
+# a declared exception is silently INERT. Keep this table AHEAD of the sub-tables.
+allowedAnomalies = []                # e.g. ["polyline-orbit-overlap"] for a known-benign leg
+
 [expectations.recordings]
 count = { min = 0, max = 0 }
 # treeShape, sectionFrameKinds, eventKinds, resourceDeltas -> reserved
@@ -304,12 +318,8 @@ required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Gam
 # The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]") and the
 # forbidden patterns are case-sensitive re.search, so match ERROR (not Error).
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-# allowedAnomalies: the scenario's bounded, documented exceptions to the Tier-C
-# anomaly sweep. This is a DEDICATED field (NOT logContracts.forbidden): the sweep's
-# forbidden token set is harness-owned and fixed (see the anomaly-sweep verifier);
-# a scenario only ADDS known-benign exceptions here, it never redefines the sweep.
-# Empty = the sweep must find zero anomaly lines.
-allowedAnomalies = []                # e.g. ["polyline-orbit-overlap"] for a known-benign leg
+# allowedAnomalies belongs in the [expectations] table ABOVE, not here. See the note
+# there; a bare key at this point in the file binds to logContracts and is never read.
 # [expectations.perRecording] terminalState / endUT / predictedTail / mergeState -> reserved
 # [expectations.world]  vesselPid -> resource totals / roster (M-B2)          -> reserved
 # [expectations.rewind] supersedeCount / tombstoneCount / rpState (M-C2)      -> reserved
@@ -399,6 +409,40 @@ honest interim form and carries a PENDING-OPERATOR to tighten. Deliberate except
 `batchVacuityOptOut = true` in `[expectations.logContracts]`, which REQUIRES a
 non-empty `batchVacuityOptOutReason` (an unexplained bool is how the class returns) and
 is misplaced-key-guarded like `skipTailOnUnmetMission`.
+
+**SHAPE RULE - one batch, one category (added 2026-07-26 after adversarial review).**
+The probe family is built for ONE batch driven by ONE named category, so outside that
+shape the guarantee simply does not hold. The shape is therefore enforced rather than
+assumed, both errors waivable through the same opt-out:
+
+- **More than one `RunTests` step is an ERROR.** `run.py::_driven_category` resolves
+  only the FIRST category and `batch_owners` counted 1 for any n>0, so a whole-tally
+  pin on the first batch left every later batch UNGATED. Split the extra batch into
+  its own spec (which is what `M1-mission-loop-unit` / `M2-periodicity-solver` do).
+- **A multi-category selector - `"A,B"` or an ABSENT category (RunAll) - is an
+  ERROR.** The gating line for a multi-category run is the `category=multi:<n>`
+  AGGREGATE, whose tally sums the constituents, so "category B executed nothing" is
+  not expressible on this contract surface at all; and a pin naming one constituent
+  rejected the other's probes for the wrong reason (category-token mismatch), which
+  read as "no gap". Fail-closed until the aggregate grows a per-constituent surface.
+
+**Detection is PER-PATTERN, not per-line.** `evaluate_expectations` applies each
+required pattern with `re.search` over the WHOLE log INDEPENDENTLY, so two patterns
+can be satisfied by two DIFFERENT lines. ANDing them against one synthesized probe was
+too weak: `LogContractTests.BatchCompleteFormatValid` pushes a literal
+`BATCH_COMPLETE v1 total=42 passed=40 failed=1 skipped=1 ...` through `ParsekLog.Info`
+regardless of what the driven batch did, so one pattern could ride that decoy while
+another was satisfied by the vacuous tally. `batch_contract_vacuity_gap` now requires
+ONE single required pattern to reject the entire vacuous family plus the modelled
+decoys (`hlib._BATCH_DECOY_BODIES`, cross-checked against the C# literal by a unit
+cell). Any NEW code path that prints a `BATCH_COMPLETE`-shaped line outside
+`InGameTestRunner`'s batch end must be added to that list or the gate silently weakens.
+
+**What the gate does NOT do.** It blocks only `passed == 0`. The
+`passed=[1-9][0-9]*` interim form its own error message recommends accepts 1-of-42.
+That is deliberate - it is the placeholder for an unmeasured split - but it is not a
+guarantee that the batch did meaningful work, and it should be tightened to the whole
+tally the first time a live run produces one.
 
 ### Dimension registry: `harness/coverage/registry.toml`
 

@@ -84,6 +84,12 @@ D11 = ["partner-journey", "land-dock-dual-constraint", "arrival-hold",
        "multi-moon-config-hold", "fail-closed-to-faithful"]
 D14 = ["sandbox", "scene-ksc"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py:1733 reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. This table must stay AHEAD of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # count.max == 0: the fixture carries none, nothing is injected, and the one test that
 # commits trees (CrossTreeDock) removes both via RemoveCommittedTreeById in its finally
@@ -138,8 +144,6 @@ count = { min = 0, max = 0 }
 # - which is the intended behavior, not a flake. Do NOT relax it back to a bare failed=0.
 required  = ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (M-A5 S8, mirrors H5/H6): 720 >= 300 LoadGame + 540 RunTests ceiling

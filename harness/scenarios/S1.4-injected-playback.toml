@@ -51,10 +51,36 @@ count = { min = 272, max = 272 }
 # `skipped=[0-9]+` and a PENDING-OPERATOR, because 12 of the 42 carry conditional
 # skips and no live tally had ever been recorded.
 #
-# THAT PENDING-OPERATOR IS NOW CLOSED. Flown 2026-07-26; the tally is MEASURED and
-# pinned WHOLE:
+# THAT PENDING-OPERATOR IS NOW CLOSED. Flown 2026-07-26 (run
+# 2026-07-26_1012_S1.4-injected-playback, PASS) and pinned WHOLE:
 #
 #   BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT
+#
+# EVIDENCE STANDING, STATED HONESTLY - this row is WEAKER than the other four and a
+# future maintainer must know which half is re-checkable:
+#  - B10 / L1 / M1 / M2 all carried their EXACT whole-tally pins in the commit
+#    BEFORE their live runs (a0d03a949), so each run's `expectations status=PASS`
+#    matched the whole line - those four are measured in the strict sense.
+#  - S1.4 is NOT. This spec still carried the loose
+#    `passed=[1-9][0-9]* skipped=[0-9]+` form at a0d03a949; the exact split below
+#    was written in the commit AFTER the run. So what the committed run artifact
+#    (harness/results/2026-07-26_1012_S1.4-injected-playback.json) proves is
+#    total=42, failed=0, category=GhostPlayback, scene=FLIGHT and passed>=1 - the
+#    tokens the loose pin already carried.
+#  - The 40/2 split is NOT proven by any committed artifact. That run had
+#    `collectLogs: {ran: false}` (it PASSED, and collect-logs only fires on
+#    non-PASS), so no KSP.log or parsek-test-results.txt was archived for it, and
+#    the instance KSP.log has since been overwritten by later runs. The 40/2
+#    numbers were read off that run's LIVE log at the time; the exact pin below has
+#    never itself been executed as a contract.
+#  - What IS re-derivable from source, and what the pin therefore still gates
+#    honestly: total=42 and the 1 structural skip below are attribute-exact (see
+#    those two bullets). skipped >= 1 follows from the attributes alone; the exact
+#    value 2 requires the conditional self-skip to fire, which is fixture-determined
+#    and not statically derivable.
+# So: keep the pin (a wrong split reds LOUDLY and names the numbers to re-derive
+# from - the failure mode is a false RED, never a false green), but if you need the
+# split re-proven from an artifact, re-fly with collect-logs forced.
 #
 # What each token means, and what a change in it would be telling you:
 #  - total=42 is attribute-exact: RuntimeTests declares 42
@@ -67,7 +93,8 @@ count = { min = 272, max = 272 }
 #    TestCommandLoadGame.DecideLoadRoute takes the Focusable/FLIGHT route (the
 #    same route H5 MEASURED on this fixture). This is the token that would have
 #    caught B10 directly.
-#  - skipped=2, both accounted for in the live log, and NEITHER is a scene skip
+#  - skipped=2, both accounted for in that run's live log (not archived - see the
+#    evidence-standing note above), and NEITHER is a scene skip
 #    (41 of the 42 are Scene = FLIGHT, 1 is scene-agnostic, so scene eligibility
 #    drops none):
 #      * 1 batch-execution skip - RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs is

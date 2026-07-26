@@ -16,7 +16,14 @@ tier = "daily"
 # see the logContracts derivation for why 3 of the 4 correctly skip here.
 description = "Sandbox: no economy pool exists; cold load into an in-scene game-actions-health batch drives no career action and moves nothing. A pure B10 variant."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "sandbox", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-26: the tag was stale (it is non-gating - hlib.py
+# comment above TIERS says only the tier gates - but it contradicted the record). This
+# scenario was LIVE-PROVEN 2026-07-23 on the ledger-oracle half and RE-PROVEN
+# 2026-07-26 in the corrected GameActionsHealth category, run
+# 2026-07-26_1011_L1-passive-sandbox: PASS on attempt 1, every verifier green
+# including ledgerOracle hardDivergences=0, with the exact whole tally below already
+# pinned before the flight.
+tags = ["ledger", "L1", "sandbox"]
 
 [fixture]
 # fresh-sandbox (GAME node Mode = SANDBOX): NO funds/science/rep pool. CareerSaveParser
