@@ -48,14 +48,14 @@ def load_spec(name):
         return tomllib.load(fh)
 
 
-def load_ingame_test_declarations():
-    """Every [InGameTest] declaration in the mod assembly's source tree.
+def walk_parsek_sources():
+    """(relpath, text) for every .cs file in the mod assembly that mentions
+    InGameTest.
 
     The ONLY file I/O the batch-tally sync gate needs; every decision it then
     makes is a pure hlib call. bin/obj are pruned so a generated or stale copy of
     a source file cannot double-count a category.
     """
-    decls = []
     for dirpath, dirnames, filenames in os.walk(PARSEK_SOURCE_DIR):
         dirnames[:] = [d for d in dirnames if d not in ("bin", "obj")]
         for fn in sorted(filenames):
@@ -66,14 +66,34 @@ def load_ingame_test_declarations():
                 text = fh.read()
             if "InGameTest" not in text:
                 continue
-            decls.extend(hlib.parse_ingame_test_declarations(
-                text, os.path.relpath(path, REPO_ROOT).replace("\\", "/")))
+            yield os.path.relpath(path, REPO_ROOT).replace("\\", "/"), text
+
+
+def load_ingame_test_declarations():
+    """Every [InGameTest] declaration in the mod assembly's source tree."""
+    decls = []
+    for rel, text in walk_parsek_sources():
+        decls.extend(hlib.parse_ingame_test_declarations(text, rel))
     return decls
 
 
-def batch_owning_specs():
-    """(name, spec, selector) for every committed spec that owns a RunTests batch.
+def load_unclaimed_ingame_attribute_tokens():
+    """Every attribute-position InGameTest spelling the strict parse did not claim
+    (the RECOGNITION-completeness half of the gate)."""
+    out = []
+    for rel, text in walk_parsek_sources():
+        out.extend(hlib.unclaimed_ingame_attribute_tokens(text, rel))
+    return out
 
+
+def batch_owning_specs():
+    """(name, spec, selector) for every committed spec that OWNS a batch.
+
+    Ownership mirrors hlib.validate_spec exactly: a RunTests step XOR an
+    [driver.autorun] block (hlib.py's "Exactly one BATCH owner" rule), with the
+    same selector resolution -- the FIRST RunTests category, else autorun.tests.
+    Matching only cmd == "RunTests" would leave an autorun-owned spec carrying a
+    pinned tally that the anti-vacuity rule validates and this one never sees.
     Discovered, never hardcoded, so a scenario added later is gated automatically.
     """
     out = []
@@ -81,11 +101,14 @@ def batch_owning_specs():
         if not name.endswith(".toml"):
             continue
         spec = load_spec(name)
-        steps = (spec.get("driver", {}) or {}).get("steps", []) or []
-        if not any((s or {}).get("cmd") == "RunTests" for s in steps):
+        driver = spec.get("driver", {}) or {}
+        steps = driver.get("steps", []) or []
+        run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+        autorun_tests = (driver.get("autorun", {}) or {}).get("tests")
+        if not run_tests and not autorun_tests:
             continue
-        selector = next((((s or {}).get("args", {}) or {}).get("category")
-                         for s in steps if (s or {}).get("cmd") == "RunTests"), None)
+        selector = (((run_tests[0].get("args", {}) or {}).get("category"))
+                    if run_tests else autorun_tests)
         out.append((name, spec, selector))
     return out
 
@@ -1228,6 +1251,130 @@ class InGameAttributeParseTests(unittest.TestCase):
         self.assertEqual(len(hlib.unresolved_ingame_declarations(decls)), 1)
 
 
+class RoslynAttributeSpellingTests(unittest.TestCase):
+    """The four spellings Roslyn binds that the ORIGINAL `[`-anchored parse missed.
+
+    Each was mutation-proved to add a REAL test to a category while leaving the
+    gate green - a SILENT DROP, because unresolved_ingame_declarations only ever
+    sees forms the parse already recognised. Not hypothetical either: the tree
+    already carried five `[Parsek.InGameTests.InGameTest(...)]` declarations that
+    both this parse AND a raw `[InGameTest(` grep dropped identically, which is
+    why the two agreeing on 534 proved nothing. All four must now be COUNTED, and
+    the ordinary code the old anchor existed to exclude must stay excluded.
+    """
+
+    def cats(self, text):
+        return [d.category
+                for d in hlib.parse_ingame_test_declarations(text, "T.cs")]
+
+    def test_stacked_attribute_list_is_counted(self):
+        self.assertEqual(self.cats(
+            '[System.Obsolete("x"), InGameTest(Category = "GameActionsHealth")]\n'
+            'public void Foo() { }'), ["GameActionsHealth"])
+
+    def test_explicit_attribute_suffix_is_counted(self):
+        self.assertEqual(self.cats(
+            '[InGameTestAttribute(Category = "GameActionsHealth")]\n'
+            'public void Foo() { }'), ["GameActionsHealth"])
+
+    def test_namespace_qualified_name_is_counted(self):
+        # The form the tree ACTUALLY uses in IncompleteBallisticRuntimeTests.cs.
+        decls = hlib.parse_ingame_test_declarations(
+            '[Parsek.InGameTests.InGameTest(Category = "Ledger",\n'
+            '    Scene = GameScenes.SPACECENTER,\n'
+            '    Description = "x")]\n'
+            'public void Foo() { }', "T.cs")
+        self.assertEqual([(d.category, d.scene) for d in decls],
+                         [("Ledger", "SPACECENTER")])
+        self.assertIn("T.cs:1 Foo", decls[0].origin)
+
+    def test_attribute_target_prefix_is_counted(self):
+        self.assertEqual(self.cats(
+            '[method: InGameTest(Category = "GameActionsHealth")]\n'
+            'public void Foo() { }'), ["GameActionsHealth"])
+
+    def test_bare_attribute_sharing_a_bracket_is_counted(self):
+        self.assertEqual(self.cats(
+            '[InGameTest, System.Obsolete("x")]\npublic void Foo() { }'),
+            ["General"])
+
+    def test_member_name_survives_a_shared_bracket(self):
+        d = hlib.parse_ingame_test_declarations(
+            '[InGameTest(Category = "A"), Obsolete("x")]\n'
+            'public IEnumerator Later() { yield break; }', "T.cs")[0]
+        self.assertIn("Later", d.origin)
+
+
+class UnclaimedInGameAttributeTests(unittest.TestCase):
+    """The residual backstop: an attribute-bracket occurrence of the name that the
+    parse claims NOTHING for. Empty for every form the parse models; non-empty
+    (and asserted empty repo-wide) for the next spelling nobody anticipated."""
+
+    def unclaimed(self, text):
+        return hlib.unclaimed_ingame_attribute_tokens(text, "T.cs")
+
+    def test_house_style_declaration_is_claimed(self):
+        self.assertEqual(self.unclaimed(
+            '[InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT)]\n'
+            'public void Foo() { }'), [])
+
+    def test_bare_attribute_is_claimed(self):
+        self.assertEqual(self.unclaimed('[InGameTest]\npublic void Foo() { }'), [])
+
+    def test_multi_line_declaration_is_claimed(self):
+        self.assertEqual(self.unclaimed(
+            '        [InGameTest(\n'
+            '            Category = "X",\n'
+            '            Scene = GameScenes.FLIGHT)]\n'
+            '        public void Foo() { }'), [])
+
+    def test_the_four_roslyn_spellings_are_all_claimed(self):
+        for text in (
+                '[System.Obsolete("x"), InGameTest(Category = "G")]\nvoid F(){}',
+                '[InGameTestAttribute(Category = "G")]\nvoid F(){}',
+                '[Parsek.InGameTests.InGameTest(Category = "G")]\nvoid F(){}',
+                '[method: InGameTest(Category = "G")]\nvoid F(){}'):
+            with self.subTest(text=text):
+                self.assertEqual(self.unclaimed(text), [])
+
+    def test_an_unmodelled_spelling_is_reported(self):
+        # `@InGameTest` is C#'s verbatim-identifier escape: legal, binds to the
+        # same attribute, and the element grammar rejects it. Stands for the
+        # general case - a spelling nobody anticipated must RED, not vanish.
+        got = self.unclaimed(
+            '[@InGameTest(Category = "GameActionsHealth")]\npublic void Bar(){}')
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("T.cs:1", got[0])
+        self.assertEqual(
+            [d.category for d in hlib.parse_ingame_test_declarations(
+                '[@InGameTest(Category = "GameActionsHealth")]\nvoid Bar(){}')],
+            [], "the point of the cell: the parse really does drop it")
+
+    def test_indexer_on_a_similarly_named_type_is_not_reported(self):
+        # The false-positive direction: these are ordinary subscript code, and the
+        # `\b` boundaries plus the "(" / "]" follow requirement keep them out.
+        self.assertEqual(self.unclaimed(
+            'var t = lookup[InGameTestRunner.Tag];\n'
+            'var u = byName[InGameTestInfo.Key];\n'
+            'var v = map[InGameTestAttribute.Something];\n'), [])
+
+    def test_a_type_reference_outside_a_bracket_is_not_reported(self):
+        self.assertEqual(self.unclaimed(
+            'var a = m.GetCustomAttribute<InGameTestAttribute>();\n'
+            'if (attr is InGameTestAttribute) { }\n'
+            'typeof(InGameTest);\n'), [])
+
+    def test_a_typeof_reference_inside_a_bracket_is_not_reported(self):
+        self.assertEqual(self.unclaimed(
+            '[SomeAttr(typeof(InGameTestAttribute))]\npublic void Foo() { }'), [])
+
+    def test_commented_out_and_stringified_forms_are_not_reported(self):
+        self.assertEqual(self.unclaimed(
+            '// [InGameTestAttribute(Category = "X")]\n'
+            '/* [method: InGameTest(Category = "X")] */\n'
+            'var s = "[InGameTestAttribute(Category = \\"X\\")]";\n'), [])
+
+
 class DeriveBatchTallyTests(unittest.TestCase):
     """Guards the two-filter model against InGameTestRunner.RunCategory."""
 
@@ -1275,6 +1422,35 @@ class DeriveBatchTallyTests(unittest.TestCase):
             [self.decl(scene="FLIGHT"), self.decl(allow=False, origin="p"),
              self.decl(origin="q")], "C", "SPACECENTER")
         self.assertEqual(d.total, d.scene_skipped + d.batch_skipped + d.executable)
+
+    def test_runall_token_spans_every_category(self):
+        # RunTests with no category argument drives InGameTestRunner.RunAll, which
+        # stamps currentBatchSelector = "all" and scene-filters the WHOLE allTests
+        # set. Reading "all" as a category name would derive total=0 and report the
+        # category as missing -- a false RED pointing the wrong way.
+        decls = [self.decl(cat="C"), self.decl(cat="D", origin="p"),
+                 self.decl(cat="E", scene="FLIGHT", origin="q"),
+                 self.decl(cat="F", allow=False, origin="r")]
+        d = hlib.derive_batch_tally(decls, hlib.INGAME_RUNALL_CATEGORY,
+                                    "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped, d.batch_skipped, d.executable),
+                         (4, 1, 1, 2))
+
+    def test_runall_pin_is_checked_not_reported_as_a_missing_category(self):
+        decls = [self.decl(cat="C"), self.decl(cat="D", origin="p")]
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+            "category=all scene=SPACECENTER"])
+        self.assertEqual(hlib.batch_tally_pin_mismatches(pin, decls), [])
+        stale = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 "
+            "category=all scene=SPACECENTER"])
+        problems = hlib.batch_tally_pin_mismatches(stale, decls)
+        self.assertTrue(any("the source declares 2" in p for p in problems),
+                        problems)
+        # The false-RED this replaces: reading "all" as a category name derived
+        # total=0 and claimed the batch "would run EMPTY" - the wrong direction.
+        self.assertFalse(any("would run EMPTY" in p for p in problems), problems)
 
     def test_duplicate_looking_declarations_are_both_counted(self):
         # Frozen dataclasses compare by value; a membership-based split would
@@ -1490,6 +1666,34 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
             "these [InGameTest] attributes use a Category/Scene form the harness "
             "parse does not model, so their category totals are wrong: %s"
             % [(d.origin, d.category, d.scene) for d in unresolved])
+
+    def test_every_attribute_occurrence_is_claimed_by_the_parse(self):
+        # The OTHER half of "reported, never dropped". test_every_declaration_
+        # resolves only sees forms the strict regex already RECOGNISED; a spelling
+        # it never matches (a stacked attribute list, an explicit `Attribute`
+        # suffix, a namespace-qualified name, a `[method: ...]` target) is simply
+        # absent from self.decls and silently shrinks a pinned category total.
+        unclaimed = load_unclaimed_ingame_attribute_tokens()
+        self.assertEqual(
+            unclaimed, [],
+            "these attribute brackets name InGameTest in a spelling the C# "
+            "compiler binds but hlib.parse_ingame_test_declarations does not "
+            "claim, so the tests they declare are MISSING from every category "
+            "total. Either write them in house style ([InGameTest(...)] first in "
+            "its own bracket) or teach the parse the new form:\n  - %s"
+            % "\n  - ".join(unclaimed))
+
+    def test_no_category_is_literally_the_runall_selector_token(self):
+        # derive_batch_tally reads "all" as RunAll's whole-assembly batch, not as a
+        # category name. A declaration categorised "all" would make the two
+        # readings silently disagree.
+        clashing = [d.origin for d in self.decls
+                    if d.category == hlib.INGAME_RUNALL_CATEGORY]
+        self.assertEqual(
+            clashing, [],
+            "Category = %r collides with the token InGameTestRunner.RunAll stamps "
+            "as currentBatchSelector; rename the category: %s"
+            % (hlib.INGAME_RUNALL_CATEGORY, clashing))
 
     def test_every_batch_spec_pins_a_statically_checkable_tally(self):
         checked = []

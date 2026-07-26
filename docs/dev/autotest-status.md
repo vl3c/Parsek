@@ -24,7 +24,13 @@ pinned tally against the [InGameTest] attributes in Source/Parsek - total exactl
 skipped as a floor (run-time InGameAssert.Skip guards are not statically
 derivable, which is why L1-passive-sandbox legitimately pins skipped=3 over a
 category whose attributes force 0). Adding an in-game test to a pinned category
-now reds locally instead of on the next nightly.
+now reds locally instead of on the next nightly. The same sweep also asserts
+RECOGNITION completeness: any `InGameTest` / `InGameTestAttribute` token sitting
+in an attribute bracket that the strict parse did not claim (a stacked
+`[Obsolete(...), InGameTest(...)]` list, the explicit `Attribute` suffix, a
+namespace-qualified name, or a `[method: ...]` target) is reported as UNCLAIMED
+and reds, so a form the parser does not model can never silently shrink a
+category total.
 
 NEW: M1-mission-loop-unit and M2-periodicity-solver take D11 from 0/18 to 8/18 by
 running the Missions / Periodicity in-game categories, which needed no fixture

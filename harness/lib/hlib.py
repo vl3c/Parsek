@@ -743,9 +743,26 @@ def batch_contract_vacuity_gap(
 #   skipped  >= sceneSkipped + batchSkipped        (attribute floor)
 #   passed+failed <= executable                    (attribute ceiling)
 #   passed+failed+skipped == total                 (the runner's own invariant)
-# A pin using a regex class rather than a literal for a token (S1.4's
-# `passed=[1-9][0-9]*`) simply leaves that token unchecked; `total=` is still
-# pinned literally there, so the load-bearing check still applies.
+# A pin using a regex class rather than a literal for a token simply leaves that
+# token unchecked (no committed spec writes one today); `total=` is required as a
+# LITERAL by the sweep, so the load-bearing check always applies.
+#
+# THE RESIDUAL, STATED. `skipped` being a floor and `passed+failed` a ceiling
+# leaves a near-vacuous pin EXPRESSIBLE: `total=42 passed=1 failed=0 skipped=41`
+# satisfies the exact total, the floor, the ceiling and the runner's own sum, and
+# #1353's anti-vacuity probes only cover the `passed=0 failed=0` family, so
+# nothing here reds it. Static analysis cannot close that: run-time
+# `InGameAssert.Skip` is unbounded and a legitimate spec (L1-passive-sandbox)
+# pins a skipped count its attributes do not force. Only a MEASURED tally off a
+# live run distinguishes the two, which is why every committed pin carries one.
+#
+# TWO FAILURE MODES, TWO CHECKS. A form that was RECOGNISED but whose
+# Category/Scene could not be resolved is reported by
+# unresolved_ingame_declarations. A form NEVER RECOGNISED at all would simply be
+# absent, shrinking a category total silently -- the one way this gate fails
+# open. unclaimed_ingame_attribute_tokens is the second check: it re-scans for
+# every attribute-position spelling of the name Roslyn accepts and reports the
+# ones the strict parse did not claim.
 #
 # WHY A TEST-SUITE GATE AND NOT validate_spec. validate_spec is pure and runs
 # inside run.py against a PROVISIONED instance, where the C# tree need not exist
@@ -776,20 +793,101 @@ class InGameTestDecl:
     origin: str = ""
 
 
+# The selector token InGameTestRunner.RunAll stamps as currentBatchSelector, and
+# therefore the `category=` a RunAll batch prints. It is NOT a C# category: its
+# batch spans EVERY declaration in the assembly (RunAll scene-filters `allTests`
+# rather than a Where(t => t.Category == x) slice), which is how derive_batch_tally
+# treats it. A declaration literally categorised "all" would be ambiguous with it;
+# the sweep asserts none exists.
+INGAME_RUNALL_CATEGORY = "all"
+
 # `const string Foo = "bar"` -- the `Category = <const>` indirection
 # RouteRewindTimelineRuntimeTests uses. Matched on the MASKED text (so a
 # commented-out const is invisible) with the value read back off the ORIGINAL
 # text at the captured span.
+#
+# Resolution is FILE-FLAT and LAST-WINS: consts are collected into one per-file
+# dict with no class/namespace scoping, so two nested types in one file each
+# declaring `const string Category` would resolve both to the second value. The
+# tree has const-name collisions but none in a `Category =` position, and the
+# `<unresolved:...>` marker only covers a name that is absent entirely, not one
+# that is shadowed. If a file ever needs two differently-valued Category consts,
+# scope this by enclosing type rather than trusting the flat dict.
 _CS_CONST_STRING_RE = re.compile(
     r"\bconst\s+string\s+(?P<name>[A-Za-z_]\w*)\s*=\s*\"(?P<val>[^\"]*)\"")
 
-# `[InGameTest(...)]` or a bare `[InGameTest]` (legal C#, taking every attribute
-# default including Category = "General" -- counted, not silently dropped).
-# The trailing `(` / `]` alternation is load-bearing, not decoration: `\[\s*
-# InGameTest` alone also matches an INDEXER or array access whose subscript starts
-# with the type name (`foo[InGameTestRunner.Tag]`), which would invent a phantom
-# "General" declaration out of ordinary code.
-_CS_INGAME_ATTR_RE = re.compile(r"\[\s*InGameTest\s*(?:(?P<open>\()|\])")
+# One ELEMENT of an attribute section, anchored at the element's start: an
+# optional attribute target (`method:`), an optional namespace/type qualifier, the
+# attribute name with C#'s optional `Attribute` suffix sugar, and then either its
+# argument list or the end of the element (a bare `[InGameTest]`, legal C# taking
+# every default including Category = "General" -- counted, not silently dropped).
+#
+# Anchoring at an element start is what keeps ORDINARY CODE out. An indexer whose
+# subscript starts with a similarly named type (`lookup[InGameTestRunner.Tag]`,
+# `map[InGameTestAttribute.Something]`) forms one element whose name is `Tag` /
+# `Something`, so the trailing `(`-or-end requirement rejects it -- the same job
+# the old `\[\s*InGameTest\s*(?:\(|\])` did by demanding the name sit immediately
+# after `[`, but without also rejecting the four legal spellings Roslyn accepts
+# (see unclaimed_ingame_attribute_tokens).
+#
+# No `^` anchor: this runs via re.match(mask, pos, endpos), which already anchors
+# at pos, and `^` would additionally demand a LINE start there (see _CS_ASSIGN_RE).
+# `$` does honour endpos, and is what recognises the bare form.
+_CS_INGAME_ELEMENT_RE = re.compile(
+    r"\s*(?:[A-Za-z_]\w*\s*:\s*)?"                  # [method: ...] target
+    r"(?:global::)?(?:[A-Za-z_]\w*\s*\.\s*)*"       # Parsek.InGameTests. qualifier
+    r"(?P<name>InGameTest(?:Attribute)?)\s*(?:(?P<open>\()|$)")
+
+# Every spelling of the attribute NAME the C# compiler binds to
+# InGameTestAttribute, for the RECOGNITION-completeness scan. `Attribute` is C#'s
+# own attribute-name sugar ([InGameTest] and [InGameTestAttribute] are the same
+# attribute), and the `\b` on both sides is what keeps InGameTestRunner /
+# InGameTestInfo / InGameTests out.
+_CS_INGAME_NAME_RE = re.compile(r"\bInGameTest(?:Attribute)?\b")
+
+_CS_BRACKET_RE = re.compile(r"[\[\]]")
+
+
+def _matching_bracket(mask: str, open_idx: int) -> int:
+    """Offset of the `]` closing the `[` at ``open_idx``, or len(mask) when the
+    source is truncated. Nesting-aware."""
+    depth = 0
+    for i in range(open_idx, len(mask)):
+        c = mask[i]
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(mask)
+
+
+def _iter_ingame_attribute_uses(mask: str):
+    """Yield ``(name_start, name_end, open_paren, section_close)`` for every
+    attribute-position `InGameTest` use in ``mask``.
+
+    Walks each balanced `[...]` region, splits it into top-level elements (the
+    existing ``_split_arg_spans``, which already ignores commas nested in
+    ``()``/``[]``/``{}`` and, running on the mask, commas inside strings), and
+    matches each element against ``_CS_INGAME_ELEMENT_RE``. ``open_paren`` is None
+    for a bare attribute. ``section_close`` is the region's `]`, which is where the
+    member-name lookup must resume: an attribute written alongside others in one
+    bracket has more text after its own `)`.
+    """
+    for bm in _CS_BRACKET_RE.finditer(mask):
+        if bm.group() != "[":
+            continue
+        open_idx = bm.start()
+        close_idx = _matching_bracket(mask, open_idx)
+        for a, b in _split_arg_spans(mask, open_idx + 1, close_idx):
+            em = _CS_INGAME_ELEMENT_RE.match(mask, a, b)
+            if em is None:
+                continue
+            name_start, name_end = em.span("name")
+            open_paren = em.start("open") if em.group("open") else None
+            yield name_start, name_end, open_paren, close_idx
+
 
 _CS_STRING_LITERAL_RE = re.compile(r"^\"((?:[^\"\\]|\\.)*)\"$")
 _CS_SCENE_MEMBER_RE = re.compile(r"^(?:global::)?GameScenes\.([A-Za-z_]\w*)$")
@@ -860,7 +958,12 @@ def _split_arg_spans(mask: str, start: int, end: int) -> List[Tuple[int, int]]:
 
     Runs on the MASK, so a comma inside a ``Description`` string is already blank
     and cannot split an argument. Nested ``()``/``[]``/``{}`` are tracked so an
-    argument like ``Scene = (GameScenes)(-1)`` stays whole.
+    argument like ``Scene = (GameScenes)(-1)`` arrives at ``_resolve_scene`` as ONE
+    span instead of being split at a comma it does not contain. Keeping it whole is
+    all this does: ``_resolve_scene`` recognises ``GameScenes.X`` and the
+    ``AnyScene`` member by name, so a raw cast still resolves to
+    ``<unresolved:...>`` and reds the sweep. That is the intended outcome (an
+    unmodelled form must be reported), not a gap in this splitter.
     """
     spans: List[Tuple[int, int]] = []
     depth = 0
@@ -956,21 +1059,20 @@ def parse_ingame_test_declarations(
         consts[m.group("name")] = text[a:b]
 
     out: List[InGameTestDecl] = []
-    for m in _CS_INGAME_ATTR_RE.finditer(mask):
-        line = text.count("\n", 0, m.start()) + 1
-        if m.group("open") is None:
-            args_end = m.end()
-            named: Dict[str, str] = {}
-        else:
-            open_paren = m.end() - 1
+    for name_start, _name_end, open_paren, section_close in \
+            _iter_ingame_attribute_uses(mask):
+        line = text.count("\n", 0, name_start) + 1
+        named: Dict[str, str] = {}
+        if open_paren is not None:
             args_end = _attr_arg_end(mask, open_paren)
-            named = {}
             for a, b in _split_arg_spans(mask, open_paren + 1, args_end):
                 am = _CS_ASSIGN_RE.match(mask, a, b)
                 if am:
                     named[am.group("name")] = text[am.end():b].strip()
-            args_end += 1  # past the ')'
-        member = _member_name_after(mask, args_end)
+        # Resume the member-name lookup after the WHOLE attribute section, not
+        # after this attribute's own `)`: an attribute sharing a bracket with
+        # others has more text before the member ([Obsolete("x"), InGameTest(...)]).
+        member = _member_name_after(mask, section_close)
         origin = "%s:%d %s" % (source_name or "<text>", line, member or "?")
         out.append(InGameTestDecl(
             category=_resolve_category(named.get("Category"), consts),
@@ -1021,10 +1123,100 @@ def unresolved_ingame_declarations(
 ) -> List[InGameTestDecl]:
     """Declarations whose Category or Scene this parser could not resolve. A
     non-empty result means the source grew an attribute form the parse does not
-    model -- a gate that must FAIL, not shrug."""
+    model -- a gate that must FAIL, not shrug.
+
+    This catches only forms that were RECOGNISED and then failed to resolve. A
+    form never recognised at all is caught by
+    ``unclaimed_ingame_attribute_tokens``; the two together are what make
+    "reported, never dropped" true."""
     return [d for d in decls
             if str(d.category).startswith("<unresolved:")
             or str(d.scene or "").startswith("<unresolved:")]
+
+
+def _line_text_at(text: str, offset: int) -> str:
+    """The whitespace-collapsed source line containing ``offset``, truncated. Used
+    only to make an unclaimed-token message actionable at a glance."""
+    a = text.rfind("\n", 0, offset) + 1
+    b = text.find("\n", offset)
+    b = len(text) if b < 0 else b
+    line = " ".join(text[a:b].split())
+    return line if len(line) <= 160 else line[:157] + "..."
+
+
+def unclaimed_ingame_attribute_tokens(
+    source_text: str, source_name: str = ""
+) -> List[str]:
+    """Attribute-position `InGameTest` spellings ``parse_ingame_test_declarations``
+    did NOT claim.
+
+    RECOGNITION completeness, the mirror of ``unresolved_ingame_declarations``'s
+    resolution completeness. The resolution check only ever sees forms the parse
+    already recognised; a spelling it never matches is simply ABSENT, shrinking a
+    category total with no marker anywhere -- the one way this gate fails open.
+
+    That is not hypothetical. The original parse anchored on `[` immediately
+    followed by the name, and the tree already contained FIVE
+    ``[Parsek.InGameTests.InGameTest(...)]`` declarations (4 Ledger, 1 Rewind in
+    IncompleteBallisticRuntimeTests.cs) that it silently dropped -- and that a raw
+    ``[InGameTest(`` grep drops identically, so the two agreeing proved nothing.
+    The parse now models the attribute-section grammar (optional `method:` target,
+    optional namespace/type qualifier, C#'s optional `Attribute` suffix, and
+    position anywhere in a comma-separated bracket), so all four spellings below
+    are COUNTED rather than reported::
+
+        [System.Obsolete("x"), InGameTest(Category = "GameActionsHealth")]
+        [InGameTestAttribute(Category = "GameActionsHealth")]
+        [Parsek.InGameTests.InGameTest(Category = "GameActionsHealth")]
+        [method: InGameTest(Category = "GameActionsHealth")]
+
+    This function is the residual backstop: it re-scans for EVERY occurrence of
+    the attribute name inside an attribute bracket that looks like a use (followed
+    by `(` or the bracket's end) and reports the ones no claim covers. The sweep
+    asserts the list is empty, so the next spelling nobody anticipated reds
+    locally instead of quietly moving a pinned total.
+
+    Pure over the file TEXT. A reported occurrence is not automatically a bug in
+    the source: the fix is EITHER to write the declaration in house style OR to
+    teach ``_CS_INGAME_ELEMENT_RE`` the new form. What is not allowed is for it to
+    pass unnoticed.
+    """
+    text = source_text or ""
+    mask = _mask_csharp_noise(text)
+    hits = [m.span() for m in _CS_INGAME_NAME_RE.finditer(mask)]
+    if not hits:
+        return []
+    claimed = {ns for ns, _ne, _op, _sc in _iter_ingame_attribute_uses(mask)}
+    # Attribute-bracket context, from a single ordered walk of the `[`/`]` marks
+    # (masked, so a bracket inside a comment or string literal is already gone).
+    # depth > 0 at the token start is what separates an attribute list from an
+    # ordinary expression mentioning the type.
+    marks = [(m.start(), m.group()) for m in _CS_BRACKET_RE.finditer(mask)]
+    out: List[str] = []
+    mi = 0
+    depth = 0
+    for a, b in hits:
+        while mi < len(marks) and marks[mi][0] < a:
+            depth = depth + 1 if marks[mi][1] == "[" else max(0, depth - 1)
+            mi += 1
+        if depth <= 0 or a in claimed:
+            continue
+        j = b
+        while j < len(mask) and mask[j].isspace():
+            j += 1
+        # An attribute USE is the name followed by its argument list or the end of
+        # the attribute; `typeof(InGameTestAttribute)` or `InGameTestAttribute.X`
+        # inside a bracket is a reference, not a declaration. A `,` follow is NOT
+        # in the set: the bare-attribute-sharing-a-bracket form it would cover is
+        # already claimed by the parse, so admitting it would only add a
+        # false-positive surface (a generic type argument inside an attribute
+        # argument list).
+        if j >= len(mask) or mask[j] not in "(]":
+            continue
+        out.append("%s:%d %s" % (source_name or "<text>",
+                                 text.count("\n", 0, a) + 1,
+                                 _line_text_at(text, a)))
+    return out
 
 
 @dataclass(frozen=True)
@@ -1059,8 +1251,16 @@ def derive_batch_tally(
     then AllowBatchExecution over what survived. A test that is both
     scene-ineligible and batch-disabled is counted in the scene bucket ONLY,
     exactly as the runner counts it once.
+
+    ``category`` may be ``INGAME_RUNALL_CATEGORY`` ("all"), the token RunAll
+    stamps when a spec drives RunTests with no category argument. RunAll runs the
+    two filters over the WHOLE ``allTests`` set rather than a category slice, so
+    the derivation is the same two filters over every declaration -- not a lookup
+    for a C# category named "all", which would derive total=0 and report the
+    category as missing.
     """
-    in_category = [d for d in decls if d.category == category]
+    in_category = (list(decls) if category == INGAME_RUNALL_CATEGORY
+                   else [d for d in decls if d.category == category])
     # Partitioned by predicate, never by membership: two declarations with the
     # same category/scene/flags would compare EQUAL as frozen dataclasses, and an
     # `in`-based split would then mis-bucket the duplicate.
@@ -1084,7 +1284,9 @@ def derive_batch_tally(
 class BatchTallyPin:
     """The literal tokens a spec's `logContracts.required` pins on its
     BATCH_COMPLETE line. A token given as a regex class rather than a literal
-    (S1.4's ``passed=[1-9][0-9]*``) reads as None = deliberately unpinned."""
+    (``passed=[1-9][0-9]*``, the honest interim form when no live tally has been
+    measured; no committed spec uses one today) reads as None = deliberately
+    unpinned. ``total=`` is required as a literal by the sweep regardless."""
 
     total: Optional[int] = None
     passed: Optional[int] = None
@@ -1201,7 +1403,10 @@ def batch_tally_pin_mismatches(
             "\"%s\")] method(s). BATCH_COMPLETE's total is "
             "allTests.Count(Status != NotRun) over the single RunCategory batch, "
             "so it counts filtered tests too. At scene=%s the source derives "
-            "total=%d = %d scene-skipped + %d batch-skipped + %d executable."
+            "total=%d = %d scene-skipped + %d batch-skipped + %d executable. "
+            "passed= and skipped= are NOT derivable and must be RE-MEASURED off a "
+            "live run of this spec: run-time InGameAssert.Skip decides the split, "
+            "so do not compute them from the derivation above."
             % (pin.total, d.total, pin.category, pin.scene, d.total,
                d.scene_skipped, d.batch_skipped, d.executable))
 
