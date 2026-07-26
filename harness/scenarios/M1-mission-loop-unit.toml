@@ -89,13 +89,32 @@ D14 = ["sandbox", "scene-ksc"]
 # commits trees (CrossTreeDock) removes both via RemoveCommittedTreeById in its finally
 # before the FlushAndQuit save ever runs - so a .prec in the produced save means a
 # synthetic tree LEAKED. Also selects the B1 recording-rules log-validation suppression.
+#
+# THIS PIN ALREADY EARNED ITS KEEP. On the first live run (2026-07-26) it red'd
+# `recordings.count 5 > max 0` on a REAL defect: the produced persistent.sfs carried ZERO
+# RECORDING_TREE / RECORDING nodes (the in-memory teardown works), but five orphan
+# mmis8-xdock-* .prec / .pann / .prec.txt sidecars sat on disk. RecordingStore.CommitTree
+# flushes SaveRecordingFiles per recording; RemoveCommittedTreeById is memory-only and
+# cannot reach them; once their ids leave the store CleanOrphanFiles preserves them
+# forever. Same class as the S0.5 discard residue. Fixed by the shared
+# InGameTestSidecarReaper (known-ids-guarded) wired into every in-game test that drives a
+# real CommitTree; re-flown green 2026-07-26 with this pin unchanged. Do NOT relax it -
+# {0,0} is the only setting that can see this leak, and it counts .prec files on disk,
+# not save nodes.
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 # The batch tally is pinned WHOLE, which hlib.batch_contract_vacuity_gap requires of any
 # RunTests spec: a contract an empty or all-skipped batch could satisfy is rejected at
 # spec-validation time. This scenario is the one MOST at risk of that failure mode - its
-# entire value is that the tests execute - so every token is derived explicitly:
+# entire value is that the tests execute. Every number is MEASURED off the live runs of
+# 2026-07-26 (the first flight and the post-sidecar-fix re-fly emitted the identical
+# line; only the recordings count differed between them):
+#
+#   BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER
+#
+# The pre-flight derivation below was written from the [InGameTest] attributes and the
+# live line confirmed it token for token. It is kept as the explanation of each number:
 #  - total=12: exactly 12 [InGameTest(Category = "Missions")] methods exist
 #    (CrossTreeDockLoopUnitInGameTest 1, JointArrivalHoldInGameTest 2,
 #    JoolConfigHoldInGameTest 2, DescentHandoffVisibilityInGameTest 1,
@@ -114,9 +133,9 @@ count = { min = 0, max = 0 }
 #    orbit/rotation data, none of which the stock-minimal profile produces.
 #  - scene=SPACECENTER: the vessel-less fixture's LoadGame route. Pinning it is what
 #    makes the B10 class (a batch silently running in the wrong scene) impossible here.
-# PENDING-OPERATOR on the first live run: if a stock rebalance ever trips one of those
-# skip guards this reds with the exact numbers to re-derive from - which is the intended
-# behavior, not a flake. Do NOT relax it back to a bare failed=0.
+# The former PENDING-OPERATOR is CLOSED by the 2026-07-26 flights. If a stock rebalance
+# ever trips one of those skip guards this reds with the exact numbers to re-derive from
+# - which is the intended behavior, not a flake. Do NOT relax it back to a bare failed=0.
 required  = ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

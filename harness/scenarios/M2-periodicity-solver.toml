@@ -80,9 +80,15 @@ D14 = ["sandbox", "scene-ksc"]
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap). The REAL numbers,
-# each derived from the [InGameTest] attributes rather than assumed - this category is
-# the one where a naive "total=N passed=N skipped=0" pin would be WRONG:
+# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap). Every number is
+# MEASURED off the first live run, 2026-07-26:
+#
+#   BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER
+#
+# The pre-flight derivation below was written from the [InGameTest] attributes and the
+# live line confirmed it token for token. This category is the one where a naive
+# "total=N passed=N skipped=0" pin would be WRONG, so the derivation is kept as the
+# explanation of WHY each number is what it is:
 #  - total=11: exactly 11 [InGameTest(Category = "Periodicity")] methods exist
 #    (ReaimEndToEndInGameTest 8, CrossParentReaimCanaryInGameTest 1,
 #    ReaimLandingCoincidenceInGameTest 1 - and that last one is FLIGHT-scene).
@@ -102,10 +108,10 @@ count = { min = 0, max = 0 }
 #    stage-B band - none of which the stock-minimal profile produces (the tests' own
 #    comments say "unexpected on stock").
 #  - scene=SPACECENTER: the vessel-less fixture's LoadGame route.
-# PENDING-OPERATOR on the first live run: a stock rebalance tripping one of those guards
-# reds here with the exact number to re-derive from. That is the intended behavior. Do
-# NOT relax this back to a bare failed=0 - the whole point of the scenario is that these
-# solvers actually ran.
+# The former PENDING-OPERATOR is CLOSED by the 2026-07-26 flight. A stock rebalance
+# tripping one of those guards now reds here with the exact number to re-derive from.
+# That is the intended behavior. Do NOT relax this back to a bare failed=0 - the whole
+# point of the scenario is that these solvers actually ran.
 required  = ["BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
