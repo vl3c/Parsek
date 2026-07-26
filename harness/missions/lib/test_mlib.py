@@ -12,6 +12,7 @@ the venv, so the whole suite runs on the base interpreter.
 
 import math
 import unittest
+from dataclasses import replace
 
 import mlib
 from mlib import Action, TelemetrySnapshot
@@ -2826,6 +2827,43 @@ class B5MachineTests(unittest.TestCase):
                                    Action(mlib.ACTION_AP_DISENGAGE),
                                    Action(mlib.ACTION_CANCEL_WARP)])
 
+    def test_b12_flight1_long_aim_warp_no_longer_times_out(self):
+        """THE B12 flight-1 regression cell, replayed from
+        harness/results/b12-flight1.out. Entry ut 475.3, MechJeb put the
+        Minmus correction node at ut 74,208.3, so the aim-warp target is
+        74,193.3 and the wait is 73,733 game seconds against a 4,000 s
+        budget. Flight 1 flaked mid-warp with the GENERIC "phase
+        CORRECTION-BURN timed out"; the fixed machine must hold and keep
+        driving the warp."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=475.337,
+                          warp_to_cmd=74193.288, last_warp_issue_ut=492.668)
+        # The exact frame flight 1 died on: 7,952 game-s into a 4,000 s budget.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=8427.354, body="Kerbin", altitude=8_385_964.0,
+                        node_count=1, node_ut=74208.288, node_dv=13.301,
+                        ap_error=18.461, warping_to=74193.288,
+                        warp_mode="RAILS", warp_rate=10000.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.warp_to_cmd, 74193.288)
+        self.assertNotIn(Action(mlib.ACTION_CANCEL_WARP), actions)
+
+    def test_budget_re_anchors_at_the_aim_warp_arrival(self):
+        """The budget bounds the BURN: it restarts at the warp ARRIVAL, the
+        same seam that re-anchors the no-start clock and the aligned streak."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=475.337,
+                          warp_to_cmd=74193.288, last_warp_issue_ut=492.668)
+        state, _ = mlib.b5_decide(
+            state, snap(ut=74193.5, body="Kerbin", node_count=1,
+                        node_ut=74208.288, node_dv=13.301, ap_error=100.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.corr_budget_anchor_ut, 74193.5)
+        self.assertEqual(state.corr_nostart_anchor_ut, 74193.5)
+        # 73,718 game-s past PHASE ENTRY but only 0.5 s past the anchor: the
+        # pre-fix machine flaked here on the very first post-arrival frame.
+        self.assertFalse(mlib.correction_budget_expired(
+            74194.0, 475.337, 74193.5, 4000.0, None))
+
     def test_plan_phase_holds_rails_warp_between_attempts(self):
         """OPERATOR PR GATE: plan phases ride the legality-clamped
         planWarpFactor (10x) between attempts -- never 1x."""
@@ -3082,6 +3120,40 @@ class B5MachineTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertEqual(state.flake_phase, mlib.B5_TRANSFER_BURN)
+        # NAMED, not generic (B15 flights 1-2). This branch used to surface as
+        # "phase TRANSFER-BURN timed out" while only ~66% of the budget had
+        # been spent, pointing the investigation at the budget when the
+        # stagnation watchdog was what fired.
+        self.assertIsNotNone(state.flake_reason)
+        self.assertIn("burn-stagnation watchdog", state.flake_reason)
+        self.assertIn("NOT the phase budget", state.flake_reason)
+        self.assertIn("apoapsis floor", state.flake_reason)
+
+    def test_transfer_burn_underburn_names_the_ejection_floor_on_b7_lanes(self):
+        """The same give-up on an INTERPLANETARY lane must name the ejection
+        ECCENTRICITY floor, not the apoapsis floor -- an escape burn drives the
+        home-frame apoapsis negative, so the apoapsis number is meaningless
+        there and quoting it is what made B15 flight 1 hard to read."""
+        params = replace(B5_PARAMS, ejection_ecc_floor=1.001,
+                         interplanetary_transfer=True)
+        base = mlib.b5_initial_state(params)
+        state = base.__class__(**{**base.__dict__,
+                                  "phase": mlib.B5_PLAN_TRANSFER,
+                                  "phase_entry_ut": 0.0, "last_plan_ut": 0.0})
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Burned, but only to a still-BOUND orbit: ecc 0.9 is under the 1.001
+        # escape floor, so no transfer exists to coast on. Then wedged static.
+        wedged = dict(apoapsis=900_000.0, eccentricity=0.9, periapsis=76_000.0,
+                      body="Kerbin", node_count=1)
+        for ut in (20.0, 30.0, 160.0):
+            state, _ = mlib.b5_decide(state, snap(ut=ut, **wedged))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("ejection eccentricity floor 1.0010",
+                      state.flake_reason)
+        self.assertNotIn("apoapsis floor", state.flake_reason)
 
     def test_coast_skips_correction_when_disabled(self):
         # courseCorrectPeriapsisMeters=0 disables the rounds entirely: the first
@@ -3332,16 +3404,18 @@ class B5MachineTests(unittest.TestCase):
 
     def test_coast_rails_intent_cancels_active_native_warp_first(self):
         """Never two warp writers: when the machine wants a rails factor but
-        a native warp is still (expected) active -- e.g. the encounter was
-        lost mid-warp -- it emits CANCEL first and the rails command follows
-        on the next poll."""
+        a native warp is still (expected) active, it emits CANCEL first and
+        the rails command follows on the next poll.
+
+        The blind frame here is NOT warping (warp NONE, warping_to NaN) --
+        that is the HONEST "the encounter really is gone" observation. A blind
+        read WHILE warping is the warp's own artifact and now holds instead
+        (test_coast_blind_soi_read_under_warp_holds_the_command, B12 flight
+        2)."""
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
                           warp_to_cmd=500_000.0, last_warp_issue_ut=10.0)
-        # Encounter gone (tts NaN): rails fallback wanted, native active ->
-        # CANCEL only this frame.
         state, actions = mlib.b5_decide(state, snap(
-            ut=20.0, body="Kerbin", altitude=8_000_000.0,
-            warping_to=500_000.0, warp_mode="RAILS", warp_rate=10_000.0))
+            ut=20.0, body="Kerbin", altitude=8_000_000.0))
         self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
         self.assertIsNone(state.warp_to_cmd)
         self.assertEqual(state.warp_cmd, 0)
@@ -3349,6 +3423,20 @@ class B5MachineTests(unittest.TestCase):
         state, actions = mlib.b5_decide(state, snap(
             ut=21.0, body="Kerbin", altitude=8_000_000.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_blind_soi_read_under_warp_holds_the_command(self):
+        """THE B12 flight-2 regression cell. A NaN time_to_soi read while the
+        game IS warping is the warp's own artifact, not a lost encounter:
+        cancelling on it produced 3,602 cancel/re-arm cycles and a 2.7x
+        coast. The armed target is an absolute UT -- HOLD it, emit nothing."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=267_644.669, last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=220_940.094, body="Kerbin", altitude=49_098_338.639,
+            warping_to=267_644.669, warp_mode="RAILS", warp_rate=2.68))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.warp_to_cmd, 267_644.669)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
 
     def test_coast_trigger_prelude_cancels_native_warp(self):
         """Crossing a correction trigger with a native warp active cancels
@@ -3713,6 +3801,264 @@ class B5ParamTests(unittest.TestCase):
                                               node_dv=50.0, ap_error=30.1,
                                               warp_mode="PHYSICS", warp_rate=2.0))
         self.assertEqual(state.aligned_streak, 0)
+
+
+B15_TRIM_PARAMS = replace(B5_PARAMS, park_trim_ecc_max=0.02,
+                          target_periapsis=700000.0, peri_error=150000.0,
+                          circularize_timeout=12000.0,
+                          interplanetary_transfer=True, target_body="Eve",
+                          via_bodies=("Sun", "Mun"), return_body="Sun")
+
+
+def _trim_state(**overrides):
+    """A B5State pinned in CIRCULARIZE with the park trim armed."""
+    base = mlib.b5_initial_state(B15_TRIM_PARAMS)
+    fields = {**base.__dict__, "phase": mlib.B5_CIRCULARIZE,
+              "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class ParkTrimVerdictTests(unittest.TestCase):
+    """The pure park round-out decision. B15 flights 1-3 died because MechJeb's
+    interplanetary ejection planner sizes its burn at the parking orbit's
+    semi-major axis and applies it elsewhere, so an eccentric park under-ejects.
+    MEASURED, both ends from the archive: flight 3's ecc-0.08495 park had the
+    ejection priced at 652.843 m/s, and flight 5's ROUND park had the same
+    planner price the same ejection at 775.873 m/s - a 123.0 m/s shortfall.
+    (The at-infinity v_inf figures that shortfall implies, 128.9 achieved
+    against 723.1 wanted, are DERIVED under a burn-at-periapsis assumption; see
+    `mlib.park_trim_verdict`.) These cells pin the ladder that fixes it and,
+    just as importantly, that it is INERT when unarmed."""
+
+    def test_unarmed_is_off_so_every_flown_lane_is_unchanged(self):
+        for ecc_max in (0.0, -1.0, float("nan")):
+            self.assertEqual(
+                mlib.park_trim_verdict(ecc_max, 0.9, 0, 0, 0),
+                mlib.PARK_TRIM_OFF)
+
+    def test_a_round_enough_park_proceeds(self):
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.001, 0, 0, 0),
+                         mlib.PARK_TRIM_OK)
+        # INCLUSIVE at the threshold: ecc == ecc_max is round enough.
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.02, 0, 0, 0),
+                         mlib.PARK_TRIM_OK)
+
+    def test_an_out_of_round_park_plans_then_executes_then_stops(self):
+        # Flight 3's measured park eccentricity.
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 0, 0, 0),
+                         mlib.PARK_TRIM_PLAN)
+        # Node on the board, this attempt not yet handed over -> execute.
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 1, 1, 0),
+                         mlib.PARK_TRIM_EXECUTE)
+        # Already handed over: the executor owns it, do NOT re-command it every
+        # frame (that is the shape that wedged earlier lanes).
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 1, 1, 1),
+                         mlib.PARK_TRIM_WAIT)
+
+    def test_attempts_are_bounded_and_give_up_is_named(self):
+        self.assertEqual(
+            mlib.park_trim_verdict(0.02, 0.085, 0,
+                                   mlib.PARK_TRIM_MAX_ATTEMPTS,
+                                   mlib.PARK_TRIM_MAX_ATTEMPTS),
+            mlib.PARK_TRIM_GIVEUP)
+
+    def test_an_unread_eccentricity_never_certifies_a_round_park(self):
+        """Fail closed: a NaN orbit read must route to the same ladder as an
+        openly bad one, never be accepted as ok."""
+        self.assertEqual(mlib.park_trim_verdict(0.02, float("nan"), 0, 0, 0),
+                         mlib.PARK_TRIM_PLAN)
+
+    def test_a_round_reading_mid_burn_is_never_ok(self):
+        """B15 FLIGHT 4 REGRESSION, and the reason the node test comes first.
+        A circularize burn sweeps the orbit continuously down through the
+        window, so an eccentricity polled mid-burn can read round while the
+        burn is still running. The first shape of this function tested
+        eccentricity first, fired ok on such a frame, and left CIRCULARIZE with
+        a live node that TRANSFER-BURN then re-burned -- driving the park to
+        778 x 1,014 km, WORSE than the eccentric park the trim exists to fix.
+        A pending node means the orbit is still being written."""
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.0004, 1, 1, 1),
+                         mlib.PARK_TRIM_WAIT)
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.0, 1, 1, 1),
+                         mlib.PARK_TRIM_WAIT)
+
+    def test_an_unconsumed_ascent_node_holds_the_phase(self):
+        """CIRCULARIZE entry with MechJeb's own circularization node still on
+        the board (attempts and execs both 0): hold rather than read an orbit
+        that node is about to change."""
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 1, 0, 0),
+                         mlib.PARK_TRIM_WAIT)
+
+
+class ParkTrimWiringTests(unittest.TestCase):
+    """The CIRCULARIZE wiring: the trim runs only AFTER the periapsis window is
+    met, emits the right actions, and is a no-op when unarmed."""
+
+    def test_unarmed_circularize_is_byte_identical(self):
+        """The pre-trim behaviour every flown lane proved: pe window met ->
+        straight into ORBIT, no actions."""
+        base = mlib.b5_initial_state(B5_PARAMS)
+        state = base.__class__(**{**base.__dict__,
+                                  "phase": mlib.B5_CIRCULARIZE,
+                                  "phase_entry_ut": 0.0})
+        state, actions = mlib.b5_decide(
+            state, snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0,
+                        eccentricity=0.9, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_ORBIT)
+        self.assertEqual(actions, [])
+
+    def test_the_trim_holds_circularize_and_plans_then_burns(self):
+        state = _trim_state()
+        # pe window met but the park is flight-3 eccentric: hold + plan.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1476.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_CIRCULARIZE)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_PLAN_PARK_TRIM])
+        self.assertEqual(state.park_trim_attempts, 1)
+        # MechJeb planned it: hand it over exactly once.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1480.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin", node_count=1))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_EXECUTE_NODES])
+        self.assertEqual(state.park_trim_execs, 1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1490.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [])
+        # Round now -> ORBIT, which fires the transfer plan.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=3000.0, apoapsis=778500.0, periapsis=777900.0,
+                        eccentricity=0.0004, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_ORBIT)
+
+    def test_the_trim_never_runs_before_the_periapsis_window(self):
+        state = _trim_state()
+        state, actions = mlib.b5_decide(
+            state, snap(ut=100.0, apoapsis=700000.0, periapsis=100.0,
+                        eccentricity=0.9, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_CIRCULARIZE)
+        self.assertEqual(actions, [])
+        self.assertEqual(state.park_trim_attempts, 0)
+
+    def test_circularize_is_never_left_with_a_live_node(self):
+        """B15 FLIGHT 4 REGRESSION at the wiring level: the phase must not hand
+        off to ORBIT while a node is pending, however round the orbit reads.
+        That handoff is what let TRANSFER-BURN re-burn the trim node."""
+        state = _trim_state(park_trim_attempts=1, park_trim_execs=1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=2485.0, apoapsis=778183.0, periapsis=777900.0,
+                        eccentricity=0.0002, body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CIRCULARIZE)
+        self.assertEqual(actions, [])
+
+    def test_a_node_nobody_burns_gives_up_by_name(self):
+        """The WAIT path's own bound. A budget expiry here means a node nobody
+        is consuming, which must say so rather than surface as the generic
+        'phase CIRCULARIZE timed out'."""
+        state = _trim_state(park_trim_attempts=1, park_trim_execs=1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=99999.0, apoapsis=778183.0, periapsis=562354.0,
+                        eccentricity=0.085, body="Kerbin", node_count=1))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never cleared", state.flake_reason)
+        self.assertEqual(actions, [])
+
+    def test_exhausted_attempts_flake_with_a_named_reason(self):
+        state = _trim_state(park_trim_attempts=mlib.PARK_TRIM_MAX_ATTEMPTS,
+                            park_trim_execs=mlib.PARK_TRIM_MAX_ATTEMPTS)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=2000.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin"))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_CIRCULARIZE)
+        self.assertIn("park round-out", state.flake_reason)
+        self.assertIn("aimed at nothing", state.flake_reason)
+        self.assertEqual(actions, [])
+
+
+class TransferReachClassifierTests(unittest.TestCase):
+    """The PLAN-TRANSFER diagnostic's pure core. Direction-free by design: the
+    same annulus-overlap expression has to read correctly for B7's OUTWARD
+    Duna transfer and B15's INWARD Eve one."""
+
+    # Stock heliocentric radii (metres), the numbers the live reads produce.
+    EVE_PE, EVE_AP = 9_734_357_699.0, 9_931_011_389.0
+    EVE_SOI = 85_109_365.0
+    DUNA_PE, DUNA_AP = 19_669_121_365.0, 21_783_189_163.0
+
+    def test_flight_3s_measured_eve_leg_reads_beyond(self):
+        """The actual telemetry: a heliocentric leg whose PERIHELION sat above
+        Eve's APHELION. No coast of any length could have encountered Eve, and
+        this is the verdict that says so at plan time. 28.9 SOI radii out, so
+        the SOI term does not rescue it."""
+        verdict, gap = mlib.classify_transfer_reach(
+            12_389_067_761.0, 13_615_196_295.0, self.EVE_PE, self.EVE_AP,
+            self.EVE_SOI)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_BEYOND)
+        self.assertAlmostEqual(gap, 2_458_056_372.0 - self.EVE_SOI, delta=1.0)
+
+    def test_flight_5s_measured_eve_leg_reads_reaches(self):
+        """The SAME lane after the park round-out: perihelion 9.93797e9 m
+        against Eve's 9.93101e9 m aphelion. A bare band comparison calls that
+        6.96e6 m 'beyond' in the same word it used for flight 3's 2.46e9 m,
+        which is why the SOI belongs in the test -- 6.96e6 m is 0.082 of Eve's
+        SOI radius, an intercept by any reading."""
+        verdict, gap = mlib.classify_transfer_reach(
+            9_937_970_000.0, 13_596_000_000.0, self.EVE_PE, self.EVE_AP,
+            self.EVE_SOI)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_REACHES)
+        self.assertEqual(gap, 0.0)
+
+    def test_without_an_soi_reading_the_verdict_only_gets_stricter(self):
+        """A failed SOI read degrades to 0.0, i.e. the bare band comparison.
+        That can be harsher than the truth but never softer, so a fault here
+        cannot turn a bad transfer into a passing verdict."""
+        verdict, gap = mlib.classify_transfer_reach(
+            9_937_970_000.0, 13_596_000_000.0, self.EVE_PE, self.EVE_AP)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_BEYOND)
+        self.assertAlmostEqual(gap, 6_958_611.0, delta=1000.0)
+        # A non-finite SOI takes the same degrade path, never "unknown".
+        for bad in (float("nan"), float("inf"), -1.0):
+            self.assertEqual(
+                mlib.classify_transfer_reach(9_937_970_000.0,
+                                             13_596_000_000.0, self.EVE_PE,
+                                             self.EVE_AP, bad)[0],
+                mlib.TRANSFER_REACH_BEYOND)
+
+    def test_a_correct_inward_eve_transfer_reaches(self):
+        verdict, gap = mlib.classify_transfer_reach(
+            9_800_000_000.0, 13_615_196_295.0, self.EVE_PE, self.EVE_AP,
+            self.EVE_SOI)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_REACHES)
+        self.assertEqual(gap, 0.0)
+
+    def test_an_outward_duna_leg_reads_short_when_it_under_ejects(self):
+        """The SAME expression, the other direction: an under-ejected outward
+        transfer stays inside the target's orbit."""
+        verdict, gap = mlib.classify_transfer_reach(
+            13_600_000_000.0, 18_000_000_000.0, self.DUNA_PE, self.DUNA_AP)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_SHORT)
+        self.assertAlmostEqual(gap, 1_669_121_365.0, delta=1.0)
+
+    def test_a_correct_outward_duna_transfer_reaches(self):
+        verdict, _ = mlib.classify_transfer_reach(
+            13_600_000_000.0, 20_800_000_000.0, self.DUNA_PE, self.DUNA_AP)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_REACHES)
+
+    def test_any_unread_radius_is_unknown_not_a_verdict(self):
+        """An unread conic must not be reported as either a good plan or a bad
+        one -- the diagnostic exists to end guessing, not to add to it."""
+        for args in ((float("nan"), 1.0, 2.0, 3.0),
+                     (1.0, float("inf"), 2.0, 3.0),
+                     (1.0, 2.0, float("nan"), 3.0),
+                     (1.0, 2.0, 3.0, float("nan"))):
+            verdict, gap = mlib.classify_transfer_reach(*args)
+            self.assertEqual(verdict, mlib.TRANSFER_REACH_UNKNOWN)
+            self.assertTrue(math.isnan(gap))
 
 
 class CorrectionPlanClassifierTests(unittest.TestCase):
@@ -6270,6 +6616,3085 @@ class BDockPortResolutionTests(unittest.TestCase):
     def test_normalize_docking_state_empty_is_failclosed(self):
         self.assertEqual(mlib.normalize_docking_state(""), "")
         self.assertEqual(mlib.normalize_docking_state(None), "")
+
+
+# ---------------------------------------------------------------------------
+# ORBIT-mission tail (B11 Mun / B12 Minmus): capture -> park -> commit-in-
+# foreign-SOI. The SAME B5 machine with captureEnabled on, so the first test
+# below is the byte-identical-flyby proof and everything after it exercises a
+# branch that is unreachable without the flag.
+# ---------------------------------------------------------------------------
+
+B11_PARAMS = mlib.B5Params(
+    target_apoapsis=80000.0,
+    target_periapsis=80000.0,
+    apo_error=5000.0,
+    peri_error=5000.0,
+    ascent_timeout=420.0,
+    circularize_timeout=300.0,
+    target_body="Mun",
+    home_body="Kerbin",
+    transfer_min_apoapsis=10_000_000.0,
+    course_correct_periapsis=250000.0,
+    plan_timeout=300.0,
+    plan_retry_seconds=10.0,
+    transfer_burn_timeout=4000.0,
+    coast_timeout=400_000.0,
+    flyby_timeout=300_000.0,
+    coast_warp_factor=6,
+    flyby_warp_factor=5,
+    target_periapsis_floor=10000.0,
+    capture_enabled=True,
+    capture_plan_timeout=300.0,
+    capture_burn_timeout=60000.0,
+    park_min_periapsis=15000.0,
+    park_max_apoapsis=2_000_000.0,
+    park_max_eccentricity=0.25,
+    park_max_angular_velocity=0.05,
+    park_situations=("ORBITING",),
+    park_dwell=180.0,
+    park_debounce=3,
+    park_timeout=600.0,
+    commit_timeout=300.0,
+)
+
+
+def _b11_state(phase, **overrides):
+    """A capture-enabled B5State pinned in ``phase`` with phase_entry_ut=0."""
+    base = mlib.b5_initial_state(B11_PARAMS)
+    fields = {**base.__dict__, "phase": phase, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+def _parked(**kw):
+    """A snapshot that satisfies every PARK conjunct unless overridden."""
+    base = dict(ut=100.0, body="Mun", situation="ORBITING", altitude=1_000_000.0,
+                apoapsis=1_010_000.0, periapsis=990_000.0, eccentricity=0.01,
+                angular_velocity=0.001)
+    base.update(kw)
+    return snap(**base)
+
+
+class B5CaptureDefaultsPreserveFlybyTests(unittest.TestCase):
+    """The whole ORBIT tail is param-gated: with the flyby defaults NONE of it
+    is reachable, so B5/B6/B7 keep their proven behavior. Guards a capture
+    branch leaking into the live-proven flyby machine."""
+
+    def test_capture_params_default_off(self):
+        p = mlib.b5_params_from_dict({})
+        self.assertFalse(p.capture_enabled)
+        self.assertEqual(p.park_max_apoapsis, 0.0)
+        self.assertEqual(p.park_min_periapsis, 0.0)
+
+    def test_flyby_return_terminal_unchanged_when_capture_off(self):
+        """B5's TARGET-FLYBY -> RETURN success terminal still fires on the home
+        body with capture off (the capture branch must not steal it)."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                              altitude=4_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+
+    def test_flyby_assertions_unchanged_when_capture_off(self):
+        """The flyby evaluator still returns exactly its four rows (including
+        returnedToHome) when capture is off, whatever state is passed."""
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS,
+            phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN),
+            min_target_altitude=60000.0, state=_b5_state(mlib.B5_RETURN))
+        self.assertEqual([o.name for o in outcomes],
+                         ["reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "returnedToHome"])
+        self.assertTrue(all(o.met for o in outcomes))
+
+
+class B5CaptureArmingTests(unittest.TestCase):
+    """TARGET-FLYBY in capture mode: arm PLAN-CAPTURE on a debounced run of
+    in-SOI frames with an ABOVE-SURFACE periapsis, never warp toward the SOI
+    exit, and treat a return-body reading as the deterministic failure."""
+
+    def test_debounced_arming_enters_plan_capture_with_the_plan_action(self):
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        frame = snap(ut=10.0, body="Mun", altitude=2_000_000.0,
+                     periapsis=900_000.0, time_to_periapsis=5000.0)
+        for i in range(mlib.CAPTURE_ARM_DEBOUNCE_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, frame)
+            self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY, i)
+            self.assertEqual(state.capture_arm_streak, i + 1)
+            self.assertEqual(state.capture_unarmed_streak, 0)
+        state, actions = mlib.b5_decide(state, frame)
+        self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+        self.assertIn(mlib.ACTION_MJ_PLAN_CAPTURE, [a.kind for a in actions])
+        # The arming streak is cleared on entry so a later re-entry re-earns it.
+        self.assertEqual(state.capture_arm_streak, 0)
+
+    def test_sub_surface_periapsis_never_arms_the_capture(self):
+        """An impact trajectory must NOT arm a capture: the impact-certain
+        terminal owns that outcome. Guards a capture plan being issued for an
+        arrival that is going to hit the ground."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 3):
+            state, actions = mlib.b5_decide(
+                state, snap(ut=10.0, body="Mun", altitude=2_000_000.0,
+                            periapsis=-20000.0, time_to_periapsis=5000.0))
+            self.assertNotIn(mlib.ACTION_MJ_PLAN_CAPTURE, [a.kind for a in actions])
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(state.capture_arm_streak, 0)
+
+    def test_nan_periapsis_fails_closed(self):
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Mun",
+                                              altitude=2_000_000.0,
+                                              periapsis=float("nan"),
+                                              time_to_periapsis=5000.0))
+        self.assertEqual(state.capture_arm_streak, 0)
+
+    def test_arming_requires_periapsis_still_ahead(self):
+        """B12 flight 3 armed AFTER periapsis (alt 41,609 m, vspeed +92 m/s,
+        already climbing away) and produced a 325 x 5.3 km graze. An
+        above-surface periapsis reading alone cannot see which SIDE of
+        periapsis the craft is on; the clock can."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 2):
+            state, actions = mlib.b5_decide(
+                state, snap(ut=10.0, body="Mun", altitude=41_609.0,
+                            vertical_speed=92.0, periapsis=41_000.0,
+                            time_to_periapsis=-120.0))
+            self.assertNotIn(mlib.ACTION_MJ_PLAN_CAPTURE,
+                             [a.kind for a in actions])
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(state.capture_arm_streak, 0)
+
+
+class CaptureArmFailureClassifierTests(unittest.TestCase):
+    """mlib.classify_capture_arm_failure: the three shapes need three DIFFERENT
+    operator responses, so 'capture-never-armed' alone is not enough."""
+
+    def test_non_finite_reads_are_a_dark_clock_not_a_bad_trajectory(self):
+        for pe, ttpe in ((float("nan"), 500.0), (900_000.0, float("nan")),
+                         (float("nan"), float("nan")),
+                         (float("inf"), 500.0)):
+            self.assertEqual(mlib.classify_capture_arm_failure(pe, ttpe),
+                             mlib.CAPTURE_ARM_BLIND, (pe, ttpe))
+
+    def test_sub_surface_periapsis(self):
+        self.assertEqual(mlib.classify_capture_arm_failure(-20_000.0, 500.0),
+                         mlib.CAPTURE_ARM_SUBSURFACE)
+        # A grazing zero is sub-surface too (the arming gate wants pe > 0).
+        self.assertEqual(mlib.classify_capture_arm_failure(0.0, 500.0),
+                         mlib.CAPTURE_ARM_SUBSURFACE)
+
+    def test_past_periapsis(self):
+        self.assertEqual(mlib.classify_capture_arm_failure(41_000.0, -120.0),
+                         mlib.CAPTURE_ARM_PAST_PERIAPSIS)
+        self.assertEqual(mlib.classify_capture_arm_failure(41_000.0, 0.0),
+                         mlib.CAPTURE_ARM_PAST_PERIAPSIS)
+
+    def test_a_ready_frame_classifies_ready(self):
+        """The classifier and the arming gate must agree: a frame the gate
+        would ACCEPT must not classify as a failure shape."""
+        self.assertEqual(mlib.classify_capture_arm_failure(900_000.0, 5000.0),
+                         mlib.CAPTURE_ARM_READY)
+
+    def test_every_verdict_has_an_operator_hint(self):
+        for verdict in (mlib.CAPTURE_ARM_BLIND, mlib.CAPTURE_ARM_SUBSURFACE,
+                        mlib.CAPTURE_ARM_PAST_PERIAPSIS,
+                        mlib.CAPTURE_ARM_READY):
+            self.assertTrue(mlib._CAPTURE_ARM_FAILURE_HINT.get(verdict),
+                            verdict)
+
+
+class CaptureNeverArmedLivenessTests(unittest.TestCase):
+    """LIVENESS: with the periapsis clock dark, capture-mode TARGET-FLYBY had
+    NO bound short of the wall reaper -- the warp refuses to arm (correctly),
+    the arming gate fails closed, the impact terminal needs a FINITE
+    sub-surface periapsis, and flybyTimeoutSeconds is 300,000+ GAME seconds."""
+
+    def _dark(self, **kw):
+        """The reviewer's replayed shape: a descending in-SOI arrival whose
+        periapsis clock reads NaN."""
+        base = dict(ut=10.0, body="Mun", altitude=1_500_000.0,
+                    vertical_speed=-300.0, periapsis=float("nan"),
+                    time_to_periapsis=float("nan"))
+        base.update(kw)
+        return snap(**base)
+
+    def test_a_dark_clock_no_longer_idles_to_the_wall(self):
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.CAPTURE_NEVER_ARMED_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, self._dark(ut=10.0 + i))
+            self.assertFalse(state.done, i)
+            self.assertEqual(state.capture_unarmed_streak, i + 1)
+        state, actions = mlib.b5_decide(state, self._dark(ut=9000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-never-armed", state.flake_reason)
+        self.assertIn(mlib.CAPTURE_ARM_BLIND, state.flake_reason)
+        self.assertIn("read_periapsis=True", state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("capture-never-armed", reason)
+
+    def test_the_message_distinguishes_a_bad_trajectory_from_a_dark_clock(self):
+        """Sub-surface and past-periapsis are FLIGHT outcomes; a dark clock is
+        a MACHINE fault. Naming them identically would send an operator to the
+        wrong half of the system.
+
+        Sub-surface additionally differs in VERDICT CLASS -- it is deterministic
+        so it reds as ASSERT-FAIL and carries loss_reason, not flake_reason --
+        which is why that half reads a different field here."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        # Sub-surface at HIGH altitude: the impact-certain terminal cannot fire
+        # (it needs altitude < IMPACT_WARP_GUARD_ALT), so this run really was
+        # unbounded before the give-up.
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, self._dark(periapsis=-31_800.0, time_to_periapsis=400.0,
+                                  altitude=3 * mlib.IMPACT_WARP_GUARD_ALT))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn(mlib.CAPTURE_ARM_SUBSURFACE, state.loss_reason)
+        self.assertNotIn(mlib.CAPTURE_ARM_BLIND, state.loss_reason)
+
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, self._dark(periapsis=41_000.0, time_to_periapsis=-120.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CAPTURE_ARM_PAST_PERIAPSIS, state.flake_reason)
+
+    def test_the_give_up_leaves_nothing_warped_behind(self):
+        """Every other terminal in the file cancels on the way out; this one
+        shipped returning actions=[] with warp_to_cmd still armed, so the
+        runner drove StopRecording / CommitTree / FlushAndQuit against a
+        warping game. A periapsis clock still ahead of the capture lead is
+        enough to arm the capture warp, so this shape really did leave one
+        running."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        actions = []
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, actions = mlib.b5_decide(
+                state, self._dark(
+                    periapsis=-31_800.0,
+                    time_to_periapsis=(
+                        3 * mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS),
+                    altitude=3 * mlib.IMPACT_WARP_GUARD_ALT))
+            if not state.done:
+                self.assertIsNotNone(state.warp_to_cmd)
+        self.assertTrue(state.done)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
+
+    def test_one_ready_frame_resets_the_run(self):
+        """A merely jittery clock must not end a live mission: the run is
+        CONSECUTIVE."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._dark())
+        state, _ = mlib.b5_decide(
+            state, self._dark(periapsis=900_000.0, time_to_periapsis=5000.0))
+        self.assertEqual(state.capture_unarmed_streak, 0)
+        self.assertEqual(state.capture_arm_streak, 1)
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._dark())
+        self.assertFalse(state.done)
+
+    def test_never_fires_in_flyby_mode(self):
+        """B5/B6/B7 do not read the periapsis clock at all, so a give-up that
+        keyed on it would kill the whole LIVE-PROVEN flyby family. The branch
+        is gated on capture_enabled."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.CAPTURE_NEVER_ARMED_FRAMES * 3):
+            state, _ = mlib.b5_decide(
+                state, snap(ut=10.0 + i, body="Mun", altitude=1_500_000.0,
+                            periapsis=float("nan"),
+                            time_to_periapsis=float("nan")))
+            self.assertFalse(state.done, i)
+        self.assertEqual(state.capture_unarmed_streak, 0)
+
+    def test_the_bound_has_real_margin_over_the_healthy_arm(self):
+        """A healthy arrival arms in CAPTURE_ARM_DEBOUNCE_FRAMES consecutive
+        polls; the give-up must be many times that, and frozen_sample_limit
+        scale (the same order as the blank-body dwell)."""
+        self.assertGreaterEqual(mlib.CAPTURE_NEVER_ARMED_FRAMES,
+                                10 * mlib.CAPTURE_ARM_DEBOUNCE_FRAMES)
+        self.assertLessEqual(mlib.CAPTURE_NEVER_ARMED_FRAMES, 100)
+
+    def _descending_subsurface(self, polls=200):
+        """A PHYSICAL sub-surface arrival: SOI entry high and descending, so
+        the altitude falls frame over frame exactly as it does in flight. The
+        sibling tests pin altitude CONSTANT above the impact guard, which
+        cannot happen with a sub-surface periapsis -- they prove the message,
+        not the ordering. This one steps the real thing."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        ut, alt, vspd = 20_000.0, 2_400_000.0, -700.0
+        for _ in range(polls):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Mun", altitude=alt, vertical_speed=vspd,
+                periapsis=-31_800.0,
+                time_to_periapsis=3_000.0 - (ut - 20_000.0)))
+            if state.done:
+                return state, actions, alt
+            ut += 25.0
+            alt += vspd * 25.0
+            vspd -= 2.0
+        self.fail("a descending sub-surface arrival never terminated")
+
+    def test_a_descending_subsurface_arrival_reds_it_does_not_flake(self):
+        """THE ORDERING BUG (2026-07-26 review). This gate runs BEFORE the
+        IMPACT-CERTAIN EARLY TERMINAL in the same branch and on a sub-surface
+        arrival it ALWAYS wins: the arming verdict is False from the FIRST
+        in-SOI frame so this counter starts immediately, while the impact
+        terminal cannot arm until altitude < IMPACT_WARP_GUARD_ALT plus its own
+        debounce. Shipping it as a FLAKE contradicted the policy the same
+        branch states fifteen lines above the arming gate, and mis-classified a
+        FLIGHT outcome as a MACHINE fault (`autopilot-flake` instead of
+        `mission`). It does not change the retry: hlib retries both."""
+        state, _, alt = self._descending_subsurface()
+        # It really did pre-empt: still far above the impact guard's altitude.
+        self.assertGreater(alt, mlib.IMPACT_WARP_GUARD_ALT)
+        self.assertEqual(state.impact_certain_streak, 0)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIsNone(state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
+        # The operator must read the same diagnosis the impact terminal gives.
+        self.assertIn("impact certain", reason)
+        self.assertIn(mlib.CAPTURE_ARM_SUBSURFACE, reason)
+        self.assertIn("capture-never-armed", reason)
+
+    def test_the_dark_clock_stays_a_retryable_flake(self):
+        """The half that must NOT change class. A dark periapsis clock is a
+        MACHINE fault, not a decided flight outcome, and it is the one shape
+        nothing else in capture mode can end -- so it keeps the fast FLAKE the
+        bound was designed as."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, _ = mlib.b5_decide(state, self._dark(ut=10.0 + i))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIsNone(state.loss_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CAPTURE_ARM_BLIND, reason)
+
+    def test_the_impact_terminal_still_owns_a_late_subsurface_turn(self):
+        """The give-up is NOT the impact terminal relocated. A run reset by a
+        ready frame hands the outcome back to the impact terminal, whose
+        5-frame debounce beats this 30-frame one whenever the arrival has
+        already fallen below the impact guard altitude."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        # Healthy above-surface reads keep the unarmed run at zero...
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Mun", altitude=300_000.0, vertical_speed=-400.0,
+            periapsis=90_000.0, time_to_periapsis=600.0))
+        self.assertEqual(state.capture_unarmed_streak, 0)
+        # ...then the periapsis turns sub-surface at low altitude.
+        for i in range(mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=20.0 + i, body="Mun", altitude=280_000.0 - 1_000.0 * i,
+                vertical_speed=-400.0, periapsis=-5_000.0,
+                time_to_periapsis=500.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("flyby impact certain", state.loss_reason)
+        self.assertLess(state.capture_unarmed_streak,
+                        mlib.CAPTURE_NEVER_ARMED_FRAMES)
+
+    def test_capture_mode_warps_only_to_the_periapsis_bound(self):
+        """The SOI-EXIT native warp is suppressed in capture mode (warping
+        toward the exit is warping toward the failure terminal), and since B12
+        flight 3 the ONLY warp target here is periapsis_ut - the capture lead:
+        the rails stair floored at flybyWarpFactor knew nothing about the
+        periapsis CLOCK and sailed straight past the capture point."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        _, actions = mlib.b5_decide(
+            state, snap(ut=10.0, body="Mun", altitude=2_000_000.0,
+                        periapsis=900_000.0, time_to_soi=8000.0,
+                        time_to_periapsis=5000.0))
+        self.assertEqual(
+            actions,
+            [Action(mlib.ACTION_WARP_TO_UT,
+                    10.0 + 5000.0 - mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS)])
+
+    def test_capture_mode_does_not_warp_at_all_without_a_periapsis_clock(self):
+        """FAIL CLOSED, deliberately breaking the no-1x-coast preference: with
+        no periapsis clock there is no way to prove a warp would not sail past
+        the only capture point on the pass, so the machine does not warp. 1x is
+        slow but correct and the flyby budget bounds it."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        _, actions = mlib.b5_decide(
+            state, snap(ut=10.0, body="Mun", altitude=2_000_000.0,
+                        periapsis=900_000.0, time_to_soi=8000.0))
+        self.assertNotIn(mlib.ACTION_WARP_TO_UT, [a.kind for a in actions])
+        rails = [a.value for a in actions if a.kind == mlib.ACTION_SET_RAILS_WARP]
+        self.assertTrue(all(v == 0.0 for v in rails), actions)
+
+    def test_capture_mode_stops_warping_once_the_bound_has_passed(self):
+        """Past periapsis - lead there is nothing left to capture on this pass:
+        no warp, and an inherited native warp is cancelled."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=99_000.0,
+                           last_warp_issue_ut=0.0)
+        _, actions = mlib.b5_decide(
+            state, snap(ut=10.0, body="Mun", altitude=100_000.0,
+                        periapsis=90_000.0, time_to_periapsis=10.0,
+                        warping_to=99_000.0, warp_mode="RAILS",
+                        warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_return_body_in_capture_mode_is_assert_fail(self):
+        """Reading Kerbin again in capture mode is the FAILURE (B5's success
+        terminal). Guards the free-return silently passing an orbit mission."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                              altitude=4_000_000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("without capturing", state.loss_reason)
+        self.assertNotIn(mlib.B5_RETURN, state.phases_reached)
+
+
+class B5PlanCaptureTests(unittest.TestCase):
+    """PLAN-CAPTURE: hand the node to the AUTOWARPING executor (never the DIY
+    burner -- a capture node sits hours ahead at periapsis), and fail with a
+    NAMED reason rather than idling out the budget."""
+
+    def test_node_hands_off_to_the_node_executor(self):
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=20.0, body="Mun", altitude=1_500_000.0,
+                        periapsis=900_000.0, node_count=1,
+                        time_to_periapsis=5000.0, node_ut=5020.0))
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_MJ_EXECUTE_NODES])
+        self.assertEqual(state.planned_node_count, 1)
+
+    def test_attempt_bound_flakes_with_a_named_reason(self):
+        """PLAN_MAX_ATTEMPTS plans in with no node -> named flake, not the
+        generic phase-timeout wording, and not an idle to the plan budget."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE,
+                           plan_attempts=mlib.PLAN_MAX_ATTEMPTS,
+                           last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(
+            state, snap(ut=100.0, body="Mun", altitude=1_500_000.0,
+                        periapsis=900_000.0, node_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no capture node", state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no capture node", reason)
+
+    def test_leaving_the_soi_mid_plan_is_assert_fail(self):
+        state = _b11_state(mlib.B5_PLAN_CAPTURE)
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin",
+                                              altitude=4_000_000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("left the target SOI", state.loss_reason)
+
+    def test_blank_body_does_not_trip_the_soi_guard(self):
+        """"" is NOT a departure (the blank-body / vessel-lost detectors own
+        it): a transient unreadable SOI must not fail a live mission."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, body="",
+                                              altitude=1_500_000.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+
+
+class CaptureNodeAtPeriapsisTests(unittest.TestCase):
+    """mlib.capture_node_at_periapsis: the machine-side half of the swallowed
+    time-selector defect. The runner's circularize planner sets
+    TimeReference.Periapsis on a SHARED, PERSISTED MechJeb TimeSelector whose
+    setter THROWS on a disallowed reference; a swallowed throw used to leave
+    MechJeb's INHERITED currentTimeRef in place and plan anyway, and the
+    handoff accepted any node_count >= 1 with no gate on WHEN the node was."""
+
+    def test_a_node_at_periapsis_is_accepted(self):
+        self.assertTrue(mlib.capture_node_at_periapsis(
+            node_ut=48_000.0, ut=40_100.0, time_to_periapsis=7_900.0))
+
+    def test_drift_inside_the_tolerance_is_accepted(self):
+        """The node UT and the clock are read on the same frame but some polls
+        AFTER the plan; under the 10x plan hold that is tens of game seconds of
+        conic re-solve noise, an order of magnitude inside the tolerance."""
+        tol = mlib.CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS
+        self.assertTrue(mlib.capture_node_at_periapsis(
+            48_000.0 + tol, 40_100.0, 7_900.0))
+        self.assertTrue(mlib.capture_node_at_periapsis(
+            48_000.0 - tol, 40_100.0, 7_900.0))
+
+    def test_an_apoapsis_referenced_node_is_refused(self):
+        """The plausible WRONG references (apoapsis, an altitude crossing, an
+        X-from-now offset) land tens of minutes to hours away on a Mun/Minmus
+        capture orbit -- an order of magnitude outside the tolerance."""
+        self.assertFalse(mlib.capture_node_at_periapsis(
+            node_ut=52_000.0, ut=40_100.0, time_to_periapsis=7_900.0))
+
+    def test_non_finite_inputs_fail_closed(self):
+        nan = float("nan")
+        self.assertFalse(mlib.capture_node_at_periapsis(nan, 40_100.0, 7_900.0))
+        self.assertFalse(mlib.capture_node_at_periapsis(48_000.0, nan, 7_900.0))
+        self.assertFalse(mlib.capture_node_at_periapsis(48_000.0, 40_100.0, nan))
+
+    def test_the_tolerance_separates_drift_from_a_wrong_reference(self):
+        tol = mlib.CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS
+        self.assertGreaterEqual(tol, 100.0)   # >> the plan-hold read drift
+        self.assertLessEqual(tol, 1800.0)     # << any wrong time reference
+
+
+class CaptureNodeSanityGateTests(unittest.TestCase):
+    """The PLAN-CAPTURE branch wiring of the predicate above: a node planned
+    against MechJeb's inherited time reference must be REFUSED, not flown."""
+
+    def _planning(self, **kw):
+        base = dict(ut=40_100.0, body="Mun", altitude=1_500_000.0,
+                    periapsis=900_000.0, node_count=1, node_ut=48_000.0,
+                    time_to_periapsis=7_900.0)
+        base.update(kw)
+        return snap(**base)
+
+    def _drive(self, state, frame, frames):
+        for _ in range(frames):
+            state, actions = mlib.b5_decide(state, frame)
+        return state, actions
+
+    def test_an_off_periapsis_node_is_refused_and_cleared(self):
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        frame = self._planning(node_ut=52_000.0)
+        # DEBOUNCED: the suspect node is HELD (never handed to the executor)
+        # while the run builds.
+        for i in range(mlib.CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, frame)
+            self.assertFalse(state.done, i)
+            self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+            self.assertEqual(actions, [])
+            self.assertEqual(state.capture_node_bad_streak, i + 1)
+        state, actions = mlib.b5_decide(state, frame)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-node-off-periapsis", state.flake_reason)
+        self.assertNotEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        # The bad node is CLEARED on the way out: nothing may fly it later.
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES])
+
+    def test_one_sane_frame_resets_the_run(self):
+        """A transient node/clock read must not end a live mission."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        for _ in range(mlib.CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._planning(node_ut=52_000.0))
+        state, actions = mlib.b5_decide(state, self._planning())
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_EXECUTE_NODES])
+
+    def test_a_dark_periapsis_clock_refuses_the_node(self):
+        """FAIL CLOSED: with no periapsis clock there is no evidence the node
+        is where the capture needs it, and a capture IS the mission."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        state, _ = self._drive(state,
+                               self._planning(time_to_periapsis=float("nan")),
+                               mlib.CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES)
+        self.assertTrue(state.done)
+        self.assertIn("capture-node-off-periapsis", state.flake_reason)
+
+    def test_a_good_node_still_hands_off(self):
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        state, actions = mlib.b5_decide(state, self._planning())
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_EXECUTE_NODES])
+
+    def test_no_node_yet_is_untouched_by_the_gate(self):
+        """The gate only judges a node that EXISTS: a planning frame with
+        node_count 0 must keep its bounded re-plan cadence."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1,
+                           last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(
+            state, self._planning(ut=20.0, node_count=0,
+                                  node_ut=float("nan"),
+                                  time_to_periapsis=float("nan")))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+
+
+class B5CaptureBurnTests(unittest.TestCase):
+    """CAPTURE-BURN: the exit needs a BOUND orbit, and both wedge watchdogs
+    fail fast with their own names."""
+
+    def _burning(self, **kw):
+        base = dict(ut=200.0, body="Mun", altitude=1_000_000.0,
+                    apoapsis=1_010_000.0, periapsis=990_000.0,
+                    eccentricity=0.01, node_count=0)
+        base.update(kw)
+        return snap(**base)
+
+    def test_consumed_node_plus_bound_orbit_enters_park_with_the_park_config(self):
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-5_000_000.0, burn_entry_pe=900_000.0)
+        state, actions = mlib.b5_decide(state, self._burning())
+        self.assertEqual(state.phase, mlib.B5_PARK)
+        kinds = [a.kind for a in actions]
+        # The written vehicle-configuration contract for the parked, committed
+        # recording: rails to 1x, throttle cut, nodes cleared, attitude held.
+        self.assertEqual(kinds[0], mlib.ACTION_SET_RAILS_WARP)
+        self.assertEqual(actions[0].value, 0.0)
+        self.assertIn(mlib.ACTION_CUT_THROTTLE, kinds)
+        self.assertIn(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES, kinds)
+        self.assertIn(mlib.ACTION_SET_SAS, kinds)
+        self.assertIn(mlib.ACTION_SET_RCS, kinds)
+        # The captured orbit is CARRIED (the frames are discarded by evaluate).
+        self.assertAlmostEqual(state.capture_apoapsis, 1_010_000.0)
+        self.assertAlmostEqual(state.capture_periapsis, 990_000.0)
+        self.assertAlmostEqual(state.capture_eccentricity, 0.01)
+
+    def test_hyperbolic_orbit_is_not_a_capture(self):
+        """A still-hyperbolic approach reads a NEGATIVE apoapsis in the target
+        frame: the exit gate must reject it even with the node consumed.
+        Guards a fly-past being certified as a capture."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(state, self._burning(apoapsis=-4_000_000.0,
+                                                       eccentricity=1.4))
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertFalse(state.done)
+
+    def test_orbit_outside_the_window_is_not_a_capture(self):
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1)
+        # Bound, but apoapsis above the ceiling (a grazing SOI-edge ellipse).
+        state, _ = mlib.b5_decide(state, self._burning(apoapsis=2_200_000.0,
+                                                       periapsis=100_000.0,
+                                                       eccentricity=0.9))
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+
+    def test_nan_orbit_reads_fail_closed(self):
+        self.assertFalse(mlib._b5_capture_achieved(
+            B11_PARAMS, snap(apoapsis=float("nan"), periapsis=900_000.0,
+                             eccentricity=0.01)))
+        self.assertFalse(mlib._b5_capture_achieved(
+            B11_PARAMS, snap(apoapsis=1_000_000.0, periapsis=900_000.0,
+                             eccentricity=float("nan"))))
+
+    def test_no_start_watchdog_flakes_fast_with_its_own_name(self):
+        """LIVENESS: the executor never began (orbit unchanged, static at 1x
+        past burnNoStartSeconds) -> named fast-fail instead of idling the
+        (hours-long) capture budget while the actor is provably dead."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-4_000_000.0, burn_entry_pe=900_000.0,
+                           burn_prev_ap=-4_000_000.0, burn_prev_pe=900_000.0,
+                           burn_static_since=0.0)
+        state, _ = mlib.b5_decide(
+            state, self._burning(ut=B11_PARAMS.burn_nostart_seconds + 1.0,
+                                 apoapsis=-4_000_000.0, periapsis=900_000.0,
+                                 eccentricity=1.3, node_count=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-executor-no-start", state.flake_reason)
+
+    def test_under_burn_watchdog_flakes_with_its_own_name(self):
+        """A burn demonstrably ran (orbit changed since entry), the executor
+        wedged holding the node, and the orbit is still not bound inside the
+        window -> the under-burn name, not the generic timeout."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-9_000_000.0, burn_entry_pe=900_000.0,
+                           burn_prev_ap=-4_000_000.0, burn_prev_pe=900_000.0,
+                           burn_static_since=0.0)
+        state, _ = mlib.b5_decide(
+            state, self._burning(ut=B11_PARAMS.burn_stagnant_seconds + 1.0,
+                                 apoapsis=-4_000_000.0, periapsis=900_000.0,
+                                 eccentricity=1.1, node_count=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture under-burn", state.flake_reason)
+
+    def test_budget_expiry_flakes_with_a_named_reason(self):
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(
+            state, self._burning(ut=B11_PARAMS.capture_burn_timeout + 10.0,
+                                 apoapsis=-4_000_000.0, eccentricity=1.2,
+                                 node_count=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture burn did not complete", state.flake_reason)
+
+
+class CaptureFlybyPeriapsisBoundTests(unittest.TestCase):
+    """mlib.capture_flyby_warp_target: the PURE core of the B12 flight-3 fix.
+    Inside the target SOI in capture mode the ONLY legitimate warp target is
+    periapsis_ut - the capture lead; past it there is nothing to capture."""
+
+    def test_target_is_periapsis_minus_the_lead(self):
+        self.assertAlmostEqual(
+            mlib.capture_flyby_warp_target(time_to_periapsis=5000.0, ut=100.0),
+            100.0 + 5000.0 - mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS)
+
+    def test_no_warp_once_inside_the_lead(self):
+        lead = mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS
+        self.assertIsNone(mlib.capture_flyby_warp_target(lead, 100.0))
+        self.assertIsNone(mlib.capture_flyby_warp_target(lead - 1.0, 100.0))
+
+    def test_no_warp_after_periapsis(self):
+        """B12 flight 3 armed PLAN-CAPTURE while CLIMBING at +92 m/s. Past
+        periapsis the arrived-late re-plan / capture-window-missed backstop
+        owns the outcome, never more warp."""
+        self.assertIsNone(mlib.capture_flyby_warp_target(-500.0, 100.0))
+
+    def test_unreadable_clock_fails_closed_to_no_warp(self):
+        self.assertIsNone(mlib.capture_flyby_warp_target(float("nan"), 100.0))
+        self.assertIsNone(mlib.capture_flyby_warp_target(5000.0, float("nan")))
+
+    def test_lead_covers_mechjebs_own_pre_ignition_hold(self):
+        """The lead must at least cover MechJeb's 600 s WARPALIGN hold plus the
+        plan + ignition lead, or the capture arms with no time to burn."""
+        self.assertGreater(mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS,
+                           mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS)
+
+
+class CaptureFlybyEntryHandoffTests(unittest.TestCase):
+    """COAST -> TARGET-FLYBY must not carry the coast's runaway warp into the
+    target SOI in capture mode (B12 flight 3 crossed at RAILSx10000 and its
+    FIRST flyby poll advanced 3,907 game seconds)."""
+
+    def test_capture_mode_stops_the_inherited_native_warp(self):
+        state = _b11_state(mlib.B5_COAST_TO_TARGET, warp_to_cmd=280_000.0,
+                           last_warp_issue_ut=1000.0)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=268_934.5, body="Mun", altitude=1_902_524.0,
+                        warping_to=280_000.0, warp_mode="RAILS",
+                        warp_rate=10_000.0))
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+        self.assertIsNone(state.warp_to_cmd)
+
+    def test_capture_mode_drops_a_held_rails_factor(self):
+        state = _b11_state(mlib.B5_COAST_TO_TARGET, warp_cmd=6)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=268_934.5, body="Mun", altitude=1_902_524.0,
+                        warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_flyby_missions_keep_the_byte_identical_handoff(self):
+        """B5/B6/B7 pass THROUGH periapsis by design: their transition still
+        emits nothing and the inherited coast warp rides on."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, warp_to_cmd=280_000.0,
+                          warp_cmd=6, last_warp_issue_ut=1000.0)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=268_934.5, body="Mun", altitude=1_902_524.0,
+                        warping_to=280_000.0, warp_mode="RAILS",
+                        warp_rate=10_000.0))
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(actions, [])
+        self.assertEqual(state.warp_to_cmd, 280_000.0)
+
+
+class CoastNativeWarpLatchTests(unittest.TestCase):
+    """mlib.coast_native_warp_hold: the PURE core of the B12 flight-2 fix.
+    The native coast target is an absolute UT; a BLIND time_to_soi read while
+    the game is warping must not revoke it."""
+
+    def _hold(self, **kw):
+        base = dict(time_to_soi=float("nan"), warp_to_cmd=267_644.669,
+                    ut=220_940.0, warp_mode="RAILS", warp_rate=2.68,
+                    warping_to=267_644.669)
+        base.update(kw)
+        return mlib.coast_native_warp_hold(**base)
+
+    def test_blind_read_under_rails_warp_holds(self):
+        self.assertTrue(self._hold())
+
+    def test_blind_read_holds_on_a_live_native_warp_even_before_the_ramp(self):
+        """The frame between warp_to_ut and the rails ramp reads mode NONE at
+        1x while warping_to is already live; that is still a warp frame."""
+        self.assertTrue(self._hold(warp_mode="NONE", warp_rate=1.0))
+
+    def test_blind_read_holds_on_any_rate_above_1x(self):
+        self.assertTrue(self._hold(warp_mode="NONE", warp_rate=2.68,
+                                   warping_to=float("nan")))
+
+    def test_blind_read_while_NOT_warping_does_not_hold(self):
+        """The honest "the encounter really is gone" frame: the existing
+        cancel / no-encounter paths must still own it."""
+        self.assertFalse(self._hold(warp_mode="NONE", warp_rate=1.0,
+                                    warping_to=float("nan")))
+
+    def test_readable_soi_never_holds(self):
+        """A readable frame belongs to the normal policy (retarget through
+        the existing hysteresis, or the inside-the-lead rails handover)."""
+        self.assertFalse(self._hold(time_to_soi=41_650.0))
+
+    def test_no_command_armed_never_holds(self):
+        self.assertFalse(self._hold(warp_to_cmd=None))
+
+    def test_target_reached_never_holds(self):
+        """Arrival owns that frame (_b5_clear_arrived_warp)."""
+        self.assertFalse(self._hold(ut=267_645.0))
+
+    def test_non_finite_ut_fails_closed(self):
+        self.assertFalse(self._hold(ut=float("nan")))
+
+
+class CoastWarpThrashWatchdogTests(unittest.TestCase):
+    """LIVENESS: a warp that cancels and re-arms itself must fast-fail with its
+    own name, not crawl to the wall budget (B12 flight 2 issued warp_to_ut
+    3,603 times and died on the mission budget with no result). Counted at
+    EVERY _b5_native_warp call site since the 2026-07-25 review, and bounded
+    PER PHASE (one warp episode), not per mission."""
+
+    def test_issue_count_accumulates_and_rides_the_machine_line(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=50_000.0))
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_WARP_TO_UT])
+        self.assertEqual(state.phase_warp_issues, 1)
+        self.assertIn("phaseWarpIssues=1",
+                      mlib.format_machine_state(state, 100.0))
+
+    def test_cap_flakes_with_its_own_name(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=50_000.0))
+        # "Leave nothing warped behind": the frame's own warp_to_ut is
+        # DISCARDED and cancelled instead. The shipped version returned []
+        # with warp_to_cmd still armed, so the runner drove StopRecording /
+        # CommitTree / FlushAndQuit against a warping game.
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_THRASH_COAST, state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("coast-warp-thrash", reason)
+
+    def test_the_counter_resets_on_phase_entry(self):
+        """THE fix for the per-mission counter: the failure is ONE warp episode
+        fighting itself. A coast legitimately re-arms once per re-entry (once
+        per correction round), and B7's heliocentric coast runs an asymmetric
+        retarget hysteresis over multi-million-second spans across 2+ rounds
+        whose healthy issue count has never been measured. For COAST this is
+        strictly a RELAXATION of the shipped per-mission bound."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES - 1)
+        # Enter a correction round: the coast counter must not follow it.
+        entered = mlib._b5_enter(state, mlib.B5_PLAN_CORRECTION, 100.0, None)
+        self.assertEqual(entered.phase_warp_issues, 0)
+        back = mlib._b5_enter(entered, mlib.B5_COAST_TO_TARGET, 200.0, None)
+        self.assertEqual(back.phase_warp_issues, 0)
+
+    def test_the_correction_aim_warp_is_counted_with_its_own_name(self):
+        """UNCOUNTED before the review: the aim-then-warp has TWO call sites,
+        the CORRECTION-BURN budget is SUPPRESSED while it is in flight, the
+        runner's stall watchdog only fires when UT FREEZES (a crawling warp
+        advances UT), and a 73,733 game-second aim-warp had no bound but the
+        generic wall reaper."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN,
+                          warp_to_cmd=74_193.288,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES,
+                          last_warp_issue_ut=0.0)
+        # A self-heal frame (the game reports no active warp) re-issues.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=8_427.354, body="Kerbin", altitude=8_000_000.0, node_count=1,
+            node_dv=50.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_THRASH_CORRECTION_AIM, state.flake_reason)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+
+    def test_the_flyby_capture_warp_is_counted_with_its_own_name(self):
+        state = _b11_state(mlib.B5_TARGET_FLYBY,
+                           phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Mun", altitude=2_000_000.0, periapsis=900_000.0,
+            time_to_periapsis=5_000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_THRASH_FLYBY, state.flake_reason)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+
+    def test_every_thrash_terminal_leaves_nothing_warped(self):
+        """The standing terminal rule, asserted at all three call sites at
+        once: a give-up frame never hands the runner a live warp. A held RAILS
+        factor with no native command is dropped with set_rails_warp 0 instead
+        (never two warp writers in one frame)."""
+        coast = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES,
+                          warp_cmd=6)
+        coast, coast_actions = mlib.b5_decide(coast, snap(
+            ut=100.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=50_000.0))
+        flyby = _b11_state(mlib.B5_TARGET_FLYBY,
+                           phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES,
+                           warp_cmd=5)
+        flyby, flyby_actions = mlib.b5_decide(flyby, snap(
+            ut=10.0, body="Mun", altitude=2_000_000.0, periapsis=900_000.0,
+            time_to_periapsis=5_000.0))
+        for state, actions in ((coast, coast_actions), (flyby, flyby_actions)):
+            self.assertTrue(state.done)
+            self.assertIsNone(state.warp_to_cmd)
+            self.assertEqual(state.warp_cmd, 0)
+            self.assertTrue(
+                actions and actions[-1].kind in (mlib.ACTION_CANCEL_WARP,
+                                                 mlib.ACTION_SET_RAILS_WARP),
+                actions)
+
+    def test_stop_all_warp_drops_a_held_rails_factor(self):
+        """The second half of the teardown: with NO native command armed and
+        no warp reported active, a held rails factor still has to come down."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, warp_cmd=6,
+                          warp_to_cmd=None)
+        stopped, actions = mlib._b5_stop_all_warp(
+            state, snap(ut=10.0, body="Kerbin", warping_to=float("nan")))
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        self.assertEqual(stopped.warp_cmd, 0)
+        # Nothing armed and nothing held: emit nothing at all.
+        idle, idle_actions = mlib._b5_stop_all_warp(
+            _b5_state(mlib.B5_COAST_TO_TARGET, warp_cmd=0, warp_to_cmd=None),
+            snap(ut=10.0, body="Kerbin", warping_to=float("nan")))
+        self.assertEqual(idle_actions, [])
+
+    def test_the_three_names_are_distinct(self):
+        """'which warp thrashed' is the first question an operator asks."""
+        names = {mlib.WARP_THRASH_COAST, mlib.WARP_THRASH_CORRECTION_AIM,
+                 mlib.WARP_THRASH_FLYBY}
+        self.assertEqual(len(names), 3)
+
+    def test_cap_is_far_above_every_healthy_call_site(self):
+        """Measured healthy baselines, `action warp_to_ut` counted PER PHASE
+        over the four HEAD flyby logs re-flown 2026-07-25 (B11 / B12 / B5 /
+        B6): COAST-TO-TARGET 1/1/1/1, CORRECTION-BURN 1/1/1/1, TARGET-FLYBY
+        1/1/1/1. That measurement -- not the per-phase reset, which only
+        RELAXES the COAST site and says nothing about the three where the
+        guard is NEW -- is what makes the cap safe for the live-proven lane.
+        The thrash that motivated it issued 3,603 in ONE phase."""
+        self.assertGreaterEqual(mlib.MAX_PHASE_WARP_ISSUES, 100)
+        self.assertLess(mlib.MAX_PHASE_WARP_ISSUES, 3603)
+
+
+class WarpLivenessFloorTests(unittest.TestCase):
+    """mlib.warp_liveness_starved: the complement of the thrash counter. That
+    one bounds a warp being RE-ISSUED; this one bounds a warp armed ONCE that
+    crawls. gameSecondsPerWallSecond was already computed for exactly this
+    shape and nothing consumed it as a give-up."""
+
+    # MEASURED 2026-07-26 from B12 flight 2's own stdout log
+    # (results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log): the
+    # MACHINE-STATE lines are emitted on a >= 5.0 wall-second cadence
+    # (MACHINE_STATE_INTERVAL_SECONDS) and consecutive lines through the final
+    # coast advanced a MEDIAN 7.105 game seconds each (mean 7.071 over 723
+    # deltas, full span 3.813-7.381; the earlier "7.05 to 7.13" wording was the
+    # modal band, not the range, and covers only 275 of the 723). 1.41 is
+    # median/cadence and holds on the mean too. This is the EPISODE ratio,
+    # which is what the floor judges -- NOT the ~39 PER-PHASE average the
+    # warpUtilisation row reports for the same coast (that mean is dominated by
+    # the one successful 146,070 game-second warp burst earlier in the phase).
+    MEASURED_THRASH_RATIO = 1.41
+    MEASURED_THRASH_PHASE_RATIO = 39.0
+
+    # MEASURED 2026-07-26 over all 118 archived per-phase warpUtilisation rows
+    # that issued a warp command in a NATIVE-arming phase: the longest healthy
+    # armed episode in the whole archive.
+    MEASURED_HEALTHY_MAX_WALL = 76.4
+
+    def test_the_measured_thrash_ratio_is_starved(self):
+        """B12 flight 2's thrashing EPISODE read 1.41 game-s per wall-s, and the
+        floor judges it with 3.5x of margin."""
+        self.assertTrue(mlib.warp_liveness_starved(
+            game_seconds=self.MEASURED_THRASH_RATIO * 600.0, wall_seconds=600.0))
+        self.assertLess(self.MEASURED_THRASH_RATIO, mlib.WARP_LIVENESS_MIN_RATIO)
+
+    def test_the_per_phase_average_could_never_have_named_the_defect(self):
+        """WHY this floor computes its own episode-local ratio instead of
+        reading the warpUtilisation row, pinned so nobody "simplifies" it into
+        doing the latter.
+
+        The SAME coast that thrashed at 1.41 reports a per-phase
+        gameSecondsPerWallSecond of ~39, because one successful 146,070
+        game-second warp burst earlier in the phase dominates the mean. Fed the
+        phase number, the floor is silent on the defect it exists for. That is
+        the difference between the phase METRIC (a marker) and this GIVE-UP."""
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=self.MEASURED_THRASH_PHASE_RATIO * 600.0,
+            wall_seconds=600.0))
+        self.assertGreater(self.MEASURED_THRASH_PHASE_RATIO,
+                           mlib.WARP_LIVENESS_MIN_RATIO)
+
+    def test_every_measured_healthy_armed_episode_is_too_short_to_judge(self):
+        """The window's real job. Across the archive the longest episode a
+        NATIVE-arming phase ever ran is 76.4 wall-seconds (COAST-TO-TARGET, B7);
+        the rest of the measured maxima are far shorter. None is judged."""
+        for phase, wall in (("COAST-TO-TARGET", self.MEASURED_HEALTHY_MAX_WALL),
+                            ("CORRECTION-BURN", 69.6),
+                            ("TARGET-FLYBY", 30.2),
+                            ("PLAN-CORRECTION", 3.7),
+                            ("PLAN-CAPTURE", 0.6)):
+            # Judged as if it had advanced NO game time at all: still not
+            # starved, because the window refuses to judge it.
+            self.assertFalse(mlib.warp_liveness_starved(0.0, wall), phase)
+
+    def test_the_window_is_anchored_above_the_measured_healthy_maximum(self):
+        """180.0 is 2.36x the measured healthy maximum. Pinned as a BAND, not a
+        value, so re-tuning stays honest: never at or below what we have flown
+        healthily, never so high it stops bounding anything."""
+        self.assertGreater(mlib.WARP_LIVENESS_MIN_WALL_SECONDS,
+                           2.0 * self.MEASURED_HEALTHY_MAX_WALL)
+        self.assertLess(mlib.WARP_LIVENESS_MIN_WALL_SECONDS, 600.0)
+
+    def test_the_disarm_not_the_window_is_what_saves_the_long_1x_holds(self):
+        """The load-bearing safety fact, measured and pinned so it cannot rot.
+
+        Every one of these is a real archived phase row, and every one WOULD be
+        judged starved if `warp_to_cmd` were ever left armed across it -- past
+        the 180 s window AND under the 5.0 ratio floor. Neither bound protects
+        them. The DISARM does: `_b5_enter_plan_capture` clears the command and
+        the PARK entry clears it again, which is why CAPTURE-BURN reads
+        warpCommands=0 on all ten archived captures. CAPTURE-BURN's own
+        138.0 s @ 1.10 row is the near-miss that shows how little slack there
+        is: 42 seconds short of being judged."""
+        would_fire = (
+            ("REENTRY", 428.4, 1.447),
+            ("DEORBIT", 349.8, 1.000),
+            ("DOCK", 247.1, 0.999),
+            ("MJ-ASCENT", 199.3, 1.330),
+            ("INT-ASCENT", 194.6, 1.547),
+            ("STATION-ASCENT", 194.3, 1.827),
+            ("PARK", 180.4, 0.999),
+        )
+        for phase, wall, ratio in would_fire:
+            self.assertTrue(mlib.warp_liveness_starved(ratio * wall, wall),
+                            "%s no longer models the disarm hazard" % (phase,))
+        # The near-miss: under the window today, and nothing but its length
+        # keeps it there.
+        self.assertFalse(mlib.warp_liveness_starved(1.102 * 138.0, 138.0))
+
+    def test_plan_capture_entry_disarms_the_native_warp(self):
+        """Half of the safety the test above says is load-bearing. If this entry
+        ever stopped clearing the command, CAPTURE-BURN would run its ~642 s
+        pre-ignition hold with the floor ARMED."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=99_999.0)
+        entered, actions = mlib._b5_enter_plan_capture(
+            state, snap(ut=100.0, body="Mun", altitude=1_000_000.0), None)
+        self.assertEqual(entered.phase, mlib.B5_PLAN_CAPTURE)
+        self.assertIsNone(entered.warp_to_cmd)
+        self.assertIn(Action(mlib.ACTION_CANCEL_WARP), actions)
+
+    def test_park_entry_disarms_the_native_warp(self):
+        """The other half: PARK's ~180 s dwell reads ratio 0.999 and sits 0.4 s
+        PAST the judging window, so an armed command carried into it would land
+        squarely inside both bounds."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-5_000_000.0, burn_entry_pe=900_000.0,
+                           warp_to_cmd=99_999.0)
+        parked, _ = mlib.b5_decide(
+            state, snap(ut=200.0, body="Mun", altitude=1_000_000.0,
+                        apoapsis=1_010_000.0, periapsis=990_000.0,
+                        eccentricity=0.01, node_count=0,
+                        node_executor_enabled=0))
+        self.assertEqual(parked.phase, mlib.B5_PARK)
+        self.assertIsNone(parked.warp_to_cmd)
+
+    def test_a_genuinely_warping_phase_is_never_starved(self):
+        """A warping phase reads hundreds to thousands."""
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=1000.0 * 600.0, wall_seconds=600.0))
+        # Even the cheapest legitimate rails factor clears the floor.
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=10.0 * 600.0, wall_seconds=600.0))
+
+    def test_a_short_episode_is_never_judged(self):
+        """A rails ramp is legitimately slow at the start, and a warp whose
+        whole episode completes inside the window must not be judged at all."""
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=1.0, wall_seconds=mlib.WARP_LIVENESS_MIN_WALL_SECONDS - 0.001))
+
+    def test_non_finite_and_non_positive_spans_fail_closed(self):
+        nan = float("nan")
+        self.assertFalse(mlib.warp_liveness_starved(nan, 600.0))
+        self.assertFalse(mlib.warp_liveness_starved(600.0, nan))
+        self.assertFalse(mlib.warp_liveness_starved(600.0, 0.0))
+        self.assertFalse(mlib.warp_liveness_starved(600.0, -5.0))
+
+    def test_the_floor_sits_between_the_measured_defect_and_healthy_warp(self):
+        self.assertGreater(mlib.WARP_LIVENESS_MIN_RATIO, 2.7)  # the B12 rails rate
+        self.assertLess(mlib.WARP_LIVENESS_MIN_RATIO, 10.0)    # cheapest real warp
+
+
+class MjWarpalignHoldConstantTests(unittest.TestCase):
+    """MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS is a DOCUMENTATION constant, and the
+    forensics it records must stay honest even though no code reads it."""
+
+    def test_the_hold_matches_the_decompiled_branch(self):
+        self.assertEqual(mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS, 600.0)
+
+    def test_the_node_clock_guard_does_not_depend_on_the_numeric_relation(self):
+        """THE reason this is not wired as a param-build assertion: the
+        disambiguation uses the NODE's own clock, so it is correct for EVERY
+        burn_nostart_seconds -- including the schema's 60 s floor, far below
+        the 600 s hold. A pre-node frame is never evidence of a dead actor."""
+        for nostart in (60.0, 600.0, 3600.0):
+            params = mlib.b5_params_from_dict({"burnNoStartSeconds": nostart})
+            self.assertEqual(params.burn_nostart_seconds, nostart)
+        # A frame INSIDE MechJeb's own pre-ignition hold classifies HOLD, not
+        # a dead executor, at any nostart bound.
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=21_549.027, ut=21_539.434,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_HOLD)
+
+
+class CorrectionBudgetTests(unittest.TestCase):
+    """mlib.correction_budget_expired + classify_correction_timeout: the PURE
+    core of the B12 flight-1 fix. The CORRECTION-BURN budget bounds the BURN,
+    never the ballistic wait for the node."""
+
+    def test_suppressed_while_the_aim_warp_is_in_flight(self):
+        # B12 flight 1's exact numbers: 7,952 game-s of a 4,000 s budget spent
+        # warping toward a node 73,733 s ahead.
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=8427.354, phase_entry_ut=475.337, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=74193.288))
+
+    def test_expires_normally_with_no_aim_warp(self):
+        """A round that never aim-warped is UNCHANGED: the clock runs from
+        phase entry exactly as it always did (the B5/B6/B7 close-node path)."""
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=4000.0, phase_entry_ut=0.0, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=None))
+        self.assertTrue(mlib.correction_budget_expired(
+            ut=4000.1, phase_entry_ut=0.0, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=None))
+
+    def test_clock_runs_again_once_the_warp_target_is_reached(self):
+        # Target reached but no anchor stamped yet (same frame): the budget is
+        # live again, measured from phase entry.
+        self.assertTrue(mlib.correction_budget_expired(
+            ut=74193.5, phase_entry_ut=475.337, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=74193.288))
+
+    def test_anchor_wins_over_phase_entry(self):
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=74300.0, phase_entry_ut=475.337, budget_anchor_ut=74193.5,
+            budget=4000.0, aim_warp_target=None))
+        self.assertTrue(mlib.correction_budget_expired(
+            ut=78200.0, phase_entry_ut=475.337, budget_anchor_ut=74193.5,
+            budget=4000.0, aim_warp_target=None))
+
+    def test_non_finite_ut_never_expires_the_budget(self):
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=float("nan"), phase_entry_ut=0.0, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=None))
+
+    def test_timeout_names_the_dead_actor(self):
+        """The naming gap B12 flight 1 rode: node pending, burner never
+        started, orbit unchanged."""
+        self.assertEqual(
+            mlib.classify_correction_timeout(False, 1, False),
+            mlib.CORR_TIMEOUT_NO_START)
+        self.assertEqual(
+            mlib.classify_correction_timeout(True, 1, False),
+            mlib.CORR_TIMEOUT_INCOMPLETE)
+        self.assertEqual(
+            mlib.classify_correction_timeout(False, 1, True),
+            mlib.CORR_TIMEOUT_INCOMPLETE)
+        # No node pending is not a dead burner (the node-gone exit owns it).
+        self.assertEqual(
+            mlib.classify_correction_timeout(False, 0, False),
+            mlib.CORR_TIMEOUT_INCOMPLETE)
+
+
+class CorrectionGiveupNamingTests(unittest.TestCase):
+    """Every correction ROUND give-up carries its own name on the machine
+    state (and the machine-diff line), so a round exit is never again
+    indistinguishable from a clean cut in the log."""
+
+    def _burning(self, **kw):
+        base = dict(corr_burn_started=True, min_node_dv=39.0,
+                    burn_static_since=100.0)
+        base.update(kw)
+        return _b5_state(mlib.B5_CORRECTION_BURN, **base)
+
+    def test_cut_reached(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=200.0, body="Kerbin", node_count=1, node_dv=1.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_CUT)
+
+    def test_node_gone(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=200.0, body="Kerbin", node_count=0))
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_NODE_GONE)
+
+    def test_overshoot(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=200.0, body="Kerbin", node_count=1, node_dv=45.0))
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_OVERSHOOT)
+
+    def test_no_progress(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=100.0 + B5_PARAMS.burn_stagnant_seconds + 1.0, body="Kerbin",
+            node_count=1, node_dv=39.0))
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_NO_PROGRESS)
+
+    def test_alignment_no_start(self):
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=B5_PARAMS.burn_nostart_seconds + 1.0, body="Kerbin",
+            node_count=1, node_ut=10.0, node_dv=39.0, ap_error=120.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_ALIGN_NO_START)
+
+    def test_a_fresh_round_clears_the_latch(self):
+        """The latch is per-ROUND, so the next handoff starts clean (else the
+        diff line would not flip on a repeat give-up)."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION,
+                          corr_giveup=mlib.CORR_GIVEUP_CUT,
+                          corr_budget_anchor_ut=123.0)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=20.0, body="Kerbin", node_count=1, node_dv=12.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_NONE)
+        self.assertIsNone(state.corr_budget_anchor_ut)
+
+    def test_named_budget_flake_replaces_the_generic_timeout(self):
+        state = self._burning(phase_entry_ut=0.0, burn_static_since=None)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=B5_PARAMS.transfer_burn_timeout + 10.0, body="Kerbin",
+            node_count=1, node_dv=39.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CORR_TIMEOUT_INCOMPLETE, state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CORR_TIMEOUT_INCOMPLETE, reason)
+
+    def test_never_started_budget_flake_names_the_dead_burner(self):
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=0.0,
+                          corr_budget_anchor_ut=0.0,
+                          corr_nostart_anchor_ut=0.0,
+                          burn_entry_ap=1_000_000.0)
+        # Past the phase budget but INSIDE burnNoStartSeconds is impossible
+        # here (600 < 4000), so drive the budget with the no-start clock
+        # re-anchored by a rails frame each poll.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=B5_PARAMS.transfer_burn_timeout + 10.0, body="Kerbin",
+            apoapsis=1_000_000.0, node_count=1, node_ut=99_999.0, node_dv=13.3,
+            ap_error=120.0, warp_mode="RAILS", warp_rate=50.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CORR_TIMEOUT_NO_START, state.flake_reason)
+
+
+class CaptureNoStartClassifierTests(unittest.TestCase):
+    """mlib.classify_capture_nostart: the PURE core of the B11 flight-1 fix.
+
+    The static-at-1x "no-start" signature is AMBIGUOUS, because MechJeb's own
+    NodeExecutor.StateWarpAlign holds at 1x with an UNCHANGED orbit for up to
+    600 game-seconds BEFORE ignition when the craft is not AlignedAndSettled.
+    The node's own clock disambiguates it."""
+
+    def test_pre_node_frame_holds_instead_of_flaking(self):
+        """THE flight-1 regression cell. Node at 21549.027, the give-up frame
+        at 21539.4 (burnStaticAge 600.18): MechJeb had not reached ignition
+        yet, so this must HOLD, not flake."""
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=21549.027, ut=21539.434,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_HOLD)
+
+    def test_hold_extends_through_the_grace_past_the_node(self):
+        grace = mlib.CAPTURE_BURN_WINDOW_GRACE_SECONDS
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=1000.0 + grace,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_HOLD)
+
+    def test_passed_window_replans_once_then_flakes(self):
+        grace = mlib.CAPTURE_BURN_WINDOW_GRACE_SECONDS
+        late = 1000.0 + grace + 1.0
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=late,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_REPLAN)
+        self.assertEqual(
+            mlib.classify_capture_nostart(
+                node_ut=1000.0, ut=late, node_count=1,
+                replans_done=mlib.MAX_CAPTURE_REPLANS),
+            mlib.CAPTURE_NOSTART_FLAKE)
+
+    def test_no_node_and_unreadable_node_clock_fail_closed_to_the_flake(self):
+        """An unreadable clock is neither "still ahead" nor "window passed":
+        it must burn NO re-plan budget and keep the original no-start name."""
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=2000.0,
+                                          node_count=0, replans_done=0),
+            mlib.CAPTURE_NOSTART_FLAKE)
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=float("nan"), ut=2000.0,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_FLAKE)
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=float("nan"),
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_FLAKE)
+
+    def test_mechjeb_hold_constant_matches_the_default_nostart_bound(self):
+        """The collision that CAUSED flight-1's false positive, pinned so a
+        future bound change cannot silently re-create it: MechJeb's WARPALIGN
+        hold is 600 s and burnNoStartSeconds defaults to 600 s, so the static
+        clock expires at the exact ignition instant."""
+        self.assertEqual(mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS, 600.0)
+        self.assertEqual(mlib.b5_params_from_dict({}).burn_nostart_seconds,
+                         mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS)
+
+
+class CaptureExecutorClassifierTests(unittest.TestCase):
+    """mlib.classify_capture_executor: the OBSERVED (not commanded) executor
+    channel. Returns (verdict, new_disabled_streak)."""
+
+    def test_unread_channel_grants_no_verdict(self):
+        self.assertEqual(
+            mlib.classify_capture_executor(-1, 0, 0, node_count=1),
+            (mlib.CAPTURE_EXEC_UNKNOWN, 0))
+        # An unread channel never accumulates a streak either.
+        self.assertEqual(
+            mlib.classify_capture_executor(-1, 2, 0, node_count=1),
+            (mlib.CAPTURE_EXEC_UNKNOWN, 0))
+
+    def test_observed_enabled_is_running_and_clears_the_streak(self):
+        self.assertEqual(
+            mlib.classify_capture_executor(1, 2, 0, node_count=1),
+            (mlib.CAPTURE_EXEC_RUNNING, 0))
+
+    def test_no_pending_node_is_never_an_executor_fault(self):
+        """The executor legitimately self-disables once it consumes the node
+        (decompiled OnFixedUpdate: !_hasNodes -> Abort()); the consumed /
+        under-burn paths own that frame."""
+        self.assertEqual(
+            mlib.classify_capture_executor(0, 2, 0, node_count=0),
+            (mlib.CAPTURE_EXEC_RUNNING, 0))
+
+    def test_observed_down_debounces_then_reissues_then_dies(self):
+        debounce = mlib.CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES
+        streak = 0
+        for i in range(debounce - 1):
+            verdict, streak = mlib.classify_capture_executor(0, streak, 0,
+                                                             node_count=1)
+            self.assertEqual(verdict, mlib.CAPTURE_EXEC_RUNNING, i)
+            self.assertEqual(streak, i + 1)
+        verdict, streak = mlib.classify_capture_executor(0, streak, 0,
+                                                         node_count=1)
+        self.assertEqual(verdict, mlib.CAPTURE_EXEC_REISSUE)
+        self.assertEqual(streak, 0)
+        # Past the re-issue cap the same debounced observation is terminal,
+        # and the streak is CAPPED (no unbounded gate-line storm).
+        verdict, streak = mlib.classify_capture_executor(
+            0, debounce - 1, mlib.MAX_CAPTURE_EXECUTOR_REISSUES, node_count=1)
+        self.assertEqual(verdict, mlib.CAPTURE_EXEC_DEAD)
+        self.assertEqual(streak, debounce)
+
+
+class B5CaptureExecutorSupervisionTests(unittest.TestCase):
+    """The CAPTURE-BURN branch wiring of the two classifiers above (B11
+    flight 1, 2026-07-24)."""
+
+    def _static(self, ut, **kw):
+        """A static-at-1x, still-hyperbolic capture frame: the exact shape
+        that trips the no-start watchdog."""
+        base = dict(body="Mun", altitude=1_000_000.0, apoapsis=-4_000_000.0,
+                    periapsis=900_000.0, eccentricity=1.3, node_count=1,
+                    node_dv=277.016)
+        base.update(kw)
+        return snap(ut=ut, **base)
+
+    def _armed(self, **kw):
+        """A CAPTURE-BURN state whose static-at-1x clock is already expired."""
+        base = dict(planned_node_count=1, burn_entry_ap=-4_000_000.0,
+                    burn_entry_pe=900_000.0, burn_prev_ap=-4_000_000.0,
+                    burn_prev_pe=900_000.0, burn_static_since=0.0)
+        base.update(kw)
+        return _b11_state(mlib.B5_CAPTURE_BURN, **base)
+
+    def test_flight1_signature_no_longer_flakes(self):
+        """THE regression cell, replayed from harness/results/b11-flight1.out:
+        the executor is OBSERVED armed, the orbit has been static at 1x for
+        600.18 s, and the node is 9.6 s away. Flight 1 flaked here; the fixed
+        machine must stay in CAPTURE-BURN."""
+        state = self._armed(burn_static_since=20939.25)
+        state, actions = mlib.b5_decide(
+            state, self._static(21539.434, node_ut=21549.027,
+                                node_executor_enabled=1))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual(actions, [])
+
+    def test_hold_applies_even_with_the_channel_unread(self):
+        """The node-clock guard does not DEPEND on the new channel: a run that
+        never opted into the read is still protected from the false positive."""
+        state = self._armed(burn_static_since=20939.25)
+        state, _ = mlib.b5_decide(
+            state, self._static(21539.434, node_ut=21549.027))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+
+    def test_observed_down_executor_is_reissued_then_named(self):
+        state = self._armed()
+        debounce = mlib.CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES
+        reissues = 0
+        for _ in range(mlib.MAX_CAPTURE_EXECUTOR_REISSUES):
+            for _ in range(debounce):
+                state, actions = mlib.b5_decide(
+                    state, self._static(100.0, node_ut=9_000.0,
+                                        node_executor_enabled=0))
+            reissues += 1
+            self.assertEqual([a.kind for a in actions],
+                             [mlib.ACTION_MJ_EXECUTE_NODES])
+            self.assertEqual(state.capture_exec_reissues, reissues)
+            self.assertFalse(state.done)
+        for _ in range(debounce):
+            state, actions = mlib.b5_decide(
+                state, self._static(100.0, node_ut=9_000.0,
+                                    node_executor_enabled=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-executor-not-enabled", state.flake_reason)
+
+    def test_reissue_restamps_the_progress_anchor(self):
+        """A fresh executor attempt earns a FULL static window (the
+        flameout-stage re-anchor discipline), never the expired one."""
+        state = self._armed()
+        for _ in range(mlib.CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, self._static(4_242.0, node_ut=9_000.0,
+                                    node_executor_enabled=0))
+        self.assertAlmostEqual(state.burn_static_since, 4_242.0)
+
+    def test_late_arrival_replans_once_then_names_the_missed_window(self):
+        """The craft coasted through the node's window with the node UNBURNED:
+        never fly a stale node -- clear it and re-solve, bounded."""
+        grace = mlib.CAPTURE_BURN_WINDOW_GRACE_SECONDS
+        state = self._armed()
+        state, actions = mlib.b5_decide(
+            state, self._static(1_000.0 + grace + 1.0, node_ut=1_000.0,
+                                node_executor_enabled=1))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+        self.assertEqual(state.capture_replans_done, 1)
+        kinds = [a.kind for a in actions]
+        self.assertEqual(kinds[0], mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)
+        # ONLY the clear on the transition frame: MechJeb's NodeExecutor
+        # self-aborts on the next physics frame ONLY once it OBSERVES an empty
+        # node list, and remove_nodes() + make_nodes() in one fly-loop frame
+        # are two RPCs that can land inside a single 20 ms physics frame -- so
+        # the precondition may never hold, the executor stays engaged across
+        # the re-plan and the next handoff calls execute_all_nodes() on an
+        # already-enabled module (the flights 6-7 poisoned-re-engage family).
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_CAPTURE, kinds)
+        # The plan follows on the NEXT poll through PLAN-CAPTURE's own cadence,
+        # and the skipped emission does NOT consume an attempt.
+        self.assertEqual(state.plan_attempts, 0)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1_000.0 + grace + 2.0, body="Mun",
+                        altitude=1_000_000.0, periapsis=900_000.0,
+                        node_count=0))
+        self.assertIn(mlib.ACTION_MJ_PLAN_CAPTURE, [a.kind for a in actions])
+        self.assertEqual(state.plan_attempts, 1)
+        # A SECOND missed window has no budget left -> the named fast-fail.
+        state = self._armed(capture_replans_done=mlib.MAX_CAPTURE_REPLANS)
+        state, _ = mlib.b5_decide(
+            state, self._static(1_000.0 + grace + 1.0, node_ut=1_000.0,
+                                node_executor_enabled=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-window-missed", state.flake_reason)
+
+    def test_a_real_burn_still_exits_to_park(self):
+        """The supervisor must not intercept the SUCCESS path: an executor
+        that consumed the node into a bound orbit still parks."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-5_000_000.0, burn_entry_pe=900_000.0)
+        state, _ = mlib.b5_decide(
+            state, snap(ut=200.0, body="Mun", altitude=1_000_000.0,
+                        apoapsis=1_010_000.0, periapsis=990_000.0,
+                        eccentricity=0.01, node_count=0,
+                        node_executor_enabled=0))
+        self.assertEqual(state.phase, mlib.B5_PARK)
+
+
+class B5ParkTests(unittest.TestCase):
+    """PARK: the held-dwell gate (the forge_lko pattern re-pointed at a foreign
+    body), the 1x warp self-heal that protects the recorded coverage, and the
+    two distinguishable give-ups."""
+
+    def test_requires_both_the_debounce_and_the_dwell(self):
+        state = _b11_state(mlib.B5_PARK)
+        # In-gate immediately, but the dwell has not elapsed.
+        for _ in range(B11_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        self.assertEqual(state.phase, mlib.B5_PARK)
+        self.assertTrue(state.park_ever_stable)
+        # Dwell elapsed AND still in-gate -> commit.
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_dwell + 1.0))
+        self.assertEqual(state.phase, mlib.B5_ORBIT_COMMIT)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_PARSEK_COMMIT_TREE])
+
+    def test_a_dropped_frame_resets_the_debounce(self):
+        state = _b11_state(mlib.B5_PARK)
+        state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        state, _ = mlib.b5_decide(state, _parked(ut=20.0, situation="FLYING"))
+        self.assertEqual(state.park_stable_streak, 0)
+
+    def test_park_gate_fails_closed_on_unread_tumble(self):
+        """angular_velocity NaN (the runner not opting into the read) must
+        never certify a stabilized ship. Guards a park gate that greens on
+        evidence it does not have."""
+        self.assertFalse(mlib._b5_park_stable(
+            B11_PARAMS, _parked(angular_velocity=float("nan"))))
+
+    def test_park_gate_requires_the_target_body(self):
+        self.assertFalse(mlib._b5_park_stable(B11_PARAMS, _parked(body="Kerbin")))
+
+    def test_park_self_heals_rails_warp_back_to_1x(self):
+        """The park dwell IS the recorded in-foreign-SOI coverage, so a
+        leftover executor rails warp is pulled back to 1x (on change only)."""
+        state = _b11_state(mlib.B5_PARK, warp_cmd=0)
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=10.0, warp_mode=mlib.WARP_RAILS, warp_rate=1000.0))
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        # Settled at 1x: nothing emitted.
+        state, actions = mlib.b5_decide(state, _parked(ut=20.0))
+        self.assertEqual(actions, [])
+
+    def test_park_cancels_a_leftover_native_warp(self):
+        state = _b11_state(mlib.B5_PARK, warp_to_cmd=9999.0)
+        _, actions = mlib.b5_decide(state, _parked(ut=10.0, warping_to=9999.0))
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+
+    def test_never_stabilized_give_up_names_the_readings(self):
+        state = _b11_state(mlib.B5_PARK)
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never reached a stable park", state.flake_reason)
+
+    def test_stabilized_but_not_held_give_up_is_distinct(self):
+        state = _b11_state(mlib.B5_PARK)
+        for _ in range(B11_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertIn("reached the park gate at least once", state.flake_reason)
+        # The wording must say what the code ENFORCES: the dwell is measured
+        # from PHASE ENTRY, not from first stability, so the give-up may not
+        # claim the park "HELD" (or failed to hold) across the whole dwell.
+        self.assertNotIn("HELD", state.flake_reason)
+        self.assertIn("measured from phase entry", state.flake_reason)
+
+    def test_park_stable_streak_is_capped_at_the_debounce_depth(self):
+        """park_stable_streak is a DIFFED field: an uncapped counter emits one
+        gate line + one 21-line window dump per frame of the whole dwell. The
+        cap is behaviour-identical (every gate tests only >= park_debounce)."""
+        state = _b11_state(mlib.B5_PARK)
+        for i in range(B11_PARAMS.park_debounce + 20):
+            prev = state
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0 + i))
+            self.assertLessEqual(state.park_stable_streak,
+                                 B11_PARAMS.park_debounce)
+            if i >= B11_PARAMS.park_debounce:
+                # Past the cap the field stops changing, so it stops emitting.
+                self.assertEqual(
+                    [c for c in mlib.diff_machine_state(prev, state)
+                     if c.startswith("parkStableStreak")], [])
+        self.assertTrue(state.park_ever_stable)
+
+    def test_flake_reason_rides_the_machine_state_line_and_dict(self):
+        """A live status read must be able to show WHY the machine is about to
+        end. The reason reached the RESULT but never the periodic machine-state
+        line, so an operator watching a run saw done/verdict with no cause."""
+        state = _b11_state(mlib.B5_PARK)
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        line = mlib.format_machine_state(state, 700.0)
+        self.assertIn("flakeReason=", line)
+        self.assertIn("never_reached_a_stable_park", line)
+        # ONE token: the reason is a whole sentence carrying '=' characters, and
+        # status.py's parse_kv_tokens splits on whitespace and partitions on
+        # '=' -- an unsanitized reason would inject bogus keys (ut=, nodes=).
+        tokens = [t for t in line.split() if "=" in t]
+        self.assertEqual(len(tokens), len(mlib.MACHINE_STATE_FIELDS) + 1)
+        self.assertEqual(mlib.machine_state_dict(state, 700.0)["flakeReason"],
+                         state.flake_reason)
+
+    def test_machine_state_line_has_no_reason_before_a_give_up(self):
+        state = _b11_state(mlib.B5_PARK)
+        self.assertIn("flakeReason=none", mlib.format_machine_state(state, 10.0))
+
+    def test_leaving_the_soi_during_park_is_assert_fail(self):
+        state = _b11_state(mlib.B5_PARK)
+        state, _ = mlib.b5_decide(state, _parked(ut=10.0, body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("left the target SOI", state.loss_reason)
+
+
+class B5OrbitCommitTests(unittest.TestCase):
+    """ORBIT-COMMIT: the mid-mission command-seam CommitTree is the terminal,
+    and each of its failure tokens names itself."""
+
+    def test_ok_terminates_the_machine(self):
+        state = _b11_state(mlib.B5_ORBIT_COMMIT)
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=10.0, seam_commit_result="OK"))
+        self.assertEqual(state.phase, mlib.B5_ORBIT_COMMITTED)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(state.commit_result, "OK")
+        self.assertEqual(actions, [])
+
+    def test_empty_result_holds_the_phase(self):
+        """"" = not issued / still polling: fail closed, stay in phase until a
+        terminal token or the commit budget."""
+        state = _b11_state(mlib.B5_ORBIT_COMMIT)
+        state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        self.assertEqual(state.phase, mlib.B5_ORBIT_COMMIT)
+        self.assertFalse(state.done)
+
+    def test_seam_error_flakes_with_the_seam_outcome_named(self):
+        for token in ("ERROR", "TIMEOUT"):
+            state = _b11_state(mlib.B5_ORBIT_COMMIT)
+            state, _ = mlib.b5_decide(
+                state, _parked(ut=10.0, seam_commit_result=token))
+            self.assertTrue(state.done, token)
+            self.assertEqual(state.verdict, mlib.MISSION_FLAKE, token)
+            self.assertIn("tree-commit seam returned %s" % token,
+                          state.flake_reason)
+            self.assertEqual(state.commit_result, token)
+
+    def test_commit_budget_expiry_is_named(self):
+        state = _b11_state(mlib.B5_ORBIT_COMMIT)
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.commit_timeout + 1.0))
+        self.assertTrue(state.done)
+        self.assertIn("never answered", state.flake_reason)
+
+
+class B5CaptureEvidenceTests(unittest.TestCase):
+    """The carried evidence the capture assertions read: min-altitude tracking
+    across the whole in-SOI stay, and the six-row capture evaluator."""
+
+    def test_min_altitude_tracks_through_the_capture_phases(self):
+        """For a flyby the closest-approach evidence is TARGET-FLYBY only; for
+        a capture mission it spans the whole in-SOI stay, so the same floor
+        assertion also certifies the PARKED orbit's periapsis."""
+        state = _b11_state(mlib.B5_PARK, min_target_altitude=None)
+        state, _ = mlib.b5_decide(state, _parked(ut=10.0, altitude=980_000.0))
+        self.assertAlmostEqual(state.min_target_altitude, 980_000.0)
+        state, _ = mlib.b5_decide(state, _parked(ut=20.0, altitude=940_000.0))
+        self.assertAlmostEqual(state.min_target_altitude, 940_000.0)
+        state, _ = mlib.b5_decide(state, _parked(ut=30.0, altitude=990_000.0))
+        self.assertAlmostEqual(state.min_target_altitude, 940_000.0)
+
+    def _happy_state(self):
+        return _b11_state(
+            mlib.B5_ORBIT_COMMITTED,
+            phases_reached=(mlib.B5_PRELAUNCH, mlib.B5_ORBIT,
+                            mlib.B5_TARGET_FLYBY, mlib.B5_PLAN_CAPTURE,
+                            mlib.B5_CAPTURE_BURN, mlib.B5_PARK,
+                            mlib.B5_ORBIT_COMMIT, mlib.B5_ORBIT_COMMITTED),
+            capture_apoapsis=1_010_000.0, capture_periapsis=990_000.0,
+            capture_eccentricity=0.01, park_ever_stable=True,
+            commit_result="OK", min_target_altitude=940_000.0)
+
+    def test_capture_mode_returns_six_rows_all_met_on_a_good_flight(self):
+        st = self._happy_state()
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B11_PARAMS, phases_reached=st.phases_reached,
+            min_target_altitude=st.min_target_altitude, state=st)
+        self.assertEqual([o.name for o in outcomes],
+                         ["reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "capturedInTargetOrbit",
+                          "parkedStable", "treeCommitted"])
+        self.assertTrue(all(o.met for o in outcomes), outcomes)
+        # returnedToHome is GONE in capture mode: the mission must not return.
+        self.assertNotIn("returnedToHome", [o.name for o in outcomes])
+
+    def test_captured_row_unmet_without_a_bound_orbit(self):
+        st = self._happy_state()
+        st = st.__class__(**{**st.__dict__, "capture_apoapsis": -4_000_000.0})
+        by_name = {o.name: o for o in mlib.evaluate_b5_assertions(
+            [], B11_PARAMS, phases_reached=st.phases_reached,
+            min_target_altitude=st.min_target_altitude, state=st)}
+        self.assertFalse(by_name["capturedInTargetOrbit"].met)
+
+    def test_committed_row_unmet_without_an_ok_seam_verdict(self):
+        st = self._happy_state()
+        st = st.__class__(**{**st.__dict__, "commit_result": ""})
+        by_name = {o.name: o for o in mlib.evaluate_b5_assertions(
+            [], B11_PARAMS, phases_reached=st.phases_reached,
+            min_target_altitude=st.min_target_altitude, state=st)}
+        self.assertFalse(by_name["treeCommitted"].met)
+
+    def test_capture_rows_degrade_unmet_without_a_state(self):
+        """The shells pass the terminated machine state; a caller that does not
+        must read UNMET, never a fabricated pass (SF-2 fail-closed discipline)."""
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B11_PARAMS,
+            phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_PARK,
+                            mlib.B5_ORBIT_COMMIT, mlib.B5_ORBIT_COMMITTED),
+            min_target_altitude=940_000.0)
+        by_name = {o.name: o.met for o in outcomes}
+        self.assertFalse(by_name["capturedInTargetOrbit"])
+        self.assertFalse(by_name["parkedStable"])
+        self.assertFalse(by_name["treeCommitted"])
+
+    def test_unmet_capture_rows_serialize_as_valid_json(self):
+        """AssertionOutcome.to_dict scrubs a non-finite VALUE but NOT the detail
+        dict, and serialize_mission_result renders with allow_nan=False -- so a
+        mission that never captured (carried readings all None) must still
+        produce a writable result. Guards the exact crash a NaN-filled detail
+        caused on the ASSERT-FAIL path."""
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B11_PARAMS,
+            phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY),
+            min_target_altitude=None, state=_b11_state(mlib.B5_TARGET_FLYBY))
+        result = mlib.build_mission_result(
+            "b11_mun_orbit", mlib.MISSION_ASSERT_FAIL, "left the target SOI",
+            (mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY), 1, 1.0, 50000, outcomes,
+            12.0, "0.5.4", "0.5.4")
+        text = mlib.serialize_mission_result(result)
+        self.assertNotIn("NaN", text)
+        parsed = mlib.parse_mission_result(text)
+        ok, errs = mlib.validate_mission_result(parsed)
+        self.assertTrue(ok, errs)
+
+    def test_orbit_committed_is_a_terminal_phase(self):
+        self.assertIn(mlib.B5_ORBIT_COMMITTED, mlib.B5_PHASES)
+        self.assertIn(mlib.B5_PARK, mlib.B5_PHASES)
+        st = mlib.b5_initial_state(B11_PARAMS)
+        entered = mlib._b5_enter(st, mlib.B5_ORBIT_COMMITTED, 10.0, None)
+        self.assertTrue(entered.done)
+
+
+class B5CaptureParamParseTests(unittest.TestCase):
+    """The spec -> params round trip for the ORBIT-tail keys (the scenario
+    specs are the only place they are set)."""
+
+    def test_orbit_tail_keys_parse(self):
+        p = mlib.b5_params_from_dict({
+            "captureEnabled": True,
+            "capturePlanTimeoutSeconds": 111,
+            "captureBurnTimeoutSeconds": 60000,
+            "parkMinPeriapsisMeters": 15000,
+            "parkMaxApoapsisMeters": 2000000,
+            "parkMaxEccentricity": 0.25,
+            "parkMaxAngularVelocityRadPerSec": 0.04,
+            "parkSituations": ["ORBITING", "SUB_ORBITAL"],
+            "parkDwellSeconds": 180,
+            "parkDebounceFrames": 4,
+            "parkTimeoutSeconds": 600,
+            "commitTimeoutSeconds": 240,
+        })
+        self.assertTrue(p.capture_enabled)
+        self.assertEqual(p.capture_plan_timeout, 111.0)
+        self.assertEqual(p.capture_burn_timeout, 60000.0)
+        self.assertEqual(p.park_min_periapsis, 15000.0)
+        self.assertEqual(p.park_max_apoapsis, 2_000_000.0)
+        self.assertEqual(p.park_max_eccentricity, 0.25)
+        self.assertEqual(p.park_max_angular_velocity, 0.04)
+        self.assertEqual(p.park_situations, ("ORBITING", "SUB_ORBITAL"))
+        self.assertEqual(p.park_dwell, 180.0)
+        self.assertEqual(p.park_debounce, 4)
+        self.assertEqual(p.park_timeout, 600.0)
+        self.assertEqual(p.commit_timeout, 240.0)
+
+    def test_phase_budgets_route_to_the_orbit_tail_params(self):
+        self.assertEqual(mlib._b5_phase_budget(B11_PARAMS, mlib.B5_PLAN_CAPTURE),
+                         B11_PARAMS.capture_plan_timeout)
+        self.assertEqual(mlib._b5_phase_budget(B11_PARAMS, mlib.B5_CAPTURE_BURN),
+                         B11_PARAMS.capture_burn_timeout)
+        self.assertEqual(mlib._b5_phase_budget(B11_PARAMS, mlib.B5_PARK),
+                         B11_PARAMS.park_timeout)
+        self.assertEqual(mlib._b5_phase_budget(B11_PARAMS, mlib.B5_ORBIT_COMMIT),
+                         B11_PARAMS.commit_timeout)
+        self.assertIsNone(mlib._b5_phase_budget(B11_PARAMS,
+                                                mlib.B5_ORBIT_COMMITTED))
+
+    def test_orbit_tail_state_is_observable(self):
+        """The capture / park / commit decision state rides the machine-state
+        line + status file (the operator's only live window into a phase that
+        can sit for minutes)."""
+        st = _b11_state(mlib.B5_PARK, park_stable_streak=2, park_ever_stable=True,
+                        capture_apoapsis=1_010_000.0, commit_result="")
+        d = mlib.machine_state_dict(st, ut=100.0)
+        self.assertEqual(d["parkStableStreak"], 2)
+        self.assertTrue(d["parkEverStable"])
+        self.assertEqual(d["captureAp"], 1_010_000.0)
+        self.assertIn("captureArmStreak", d)
+        line = mlib.format_machine_state(st, ut=100.0)
+        self.assertIn("parkStableStreak=2", line)
+
+
+# ---------------------------------------------------------------------------
+# LANDING-mission tail (b13_mun_landing / b14_minmus_landing): the DESCENT
+# supervisor, the two independent liveness channels, the settled-touchdown gate,
+# the commit-on-the-surface terminal, and the proof that NONE of it is reachable
+# for the flyby / orbit families.
+# ---------------------------------------------------------------------------
+
+B13_PARAMS = mlib.B5Params(
+    target_apoapsis=80000.0,
+    target_periapsis=80000.0,
+    apo_error=5000.0,
+    peri_error=5000.0,
+    ascent_timeout=420.0,
+    circularize_timeout=300.0,
+    target_body="Mun",
+    home_body="Kerbin",
+    transfer_min_apoapsis=10_000_000.0,
+    course_correct_periapsis=250000.0,
+    plan_timeout=300.0,
+    plan_retry_seconds=10.0,
+    transfer_burn_timeout=4000.0,
+    coast_timeout=400_000.0,
+    flyby_timeout=300_000.0,
+    coast_warp_factor=6,
+    flyby_warp_factor=5,
+    target_periapsis_floor=10000.0,
+    capture_enabled=True,
+    capture_plan_timeout=300.0,
+    capture_burn_timeout=60000.0,
+    park_min_periapsis=15000.0,
+    park_max_apoapsis=2_000_000.0,
+    park_max_eccentricity=0.25,
+    park_max_angular_velocity=0.05,
+    park_situations=("ORBITING",),
+    park_dwell=180.0,
+    park_debounce=3,
+    park_timeout=600.0,
+    commit_timeout=300.0,
+    landing_enabled=True,
+    descent_timeout=3000.0,
+    landing_touchdown_speed=0.5,
+    landing_deploy_gears=True,
+    landing_deploy_chutes=False,
+    landing_rcs_adjustment=False,
+    landing_progress_window=900.0,
+    landing_progress_min_drop=500.0,
+    landed_situations=("LANDED", "SPLASHED"),
+    landed_max_vertical_speed=1.0,
+    landed_max_horizontal_speed=1.0,
+    landed_dwell=120.0,
+    landed_debounce=3,
+    landed_timeout=600.0,
+)
+
+
+def _b13_state(phase, **overrides):
+    """A capture+landing-enabled B5State pinned in ``phase`` with entry ut=0."""
+    base = mlib.b5_initial_state(B13_PARAMS)
+    fields = {**base.__dict__, "phase": phase, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+def _descending(**kw):
+    """A DESCENT snapshot with the autopilot OBSERVED enabled and the craft
+    falling, unless overridden."""
+    base = dict(ut=100.0, body="Mun", situation="SUB_ORBITAL",
+                altitude=100_000.0, vertical_speed=-120.0,
+                horizontal_speed=200.0, landing_ap_enabled=1,
+                landing_ap_status="Doing deorbit burn.")
+    base.update(kw)
+    return snap(**base)
+
+
+def _landed(**kw):
+    """A snapshot that satisfies every settled-touchdown conjunct unless
+    overridden."""
+    base = dict(ut=100.0, body="Mun", situation="LANDED", altitude=12.0,
+                vertical_speed=0.0, horizontal_speed=0.02,
+                landing_ap_enabled=0, landing_ap_status="")
+    base.update(kw)
+    return snap(**base)
+
+
+class LandingDefaultsPreserveOrbitAndFlybyTests(unittest.TestCase):
+    """THE REGRESSION THIS WHOLE LANE MUST NOT CAUSE: with landingEnabled off,
+    the LIVE-PROVEN flyby (B5/B6/B7) and orbit (B11/B12) machines must behave
+    exactly as before. Every place the landing change touched SHARED code is
+    pinned here, one cell per touch point, so a leak is named rather than
+    discovered on a re-flight."""
+
+    def test_landing_params_default_off(self):
+        p = mlib.b5_params_from_dict({})
+        self.assertFalse(p.landing_enabled)
+        self.assertFalse(p.landing_deploy_chutes)
+        self.assertFalse(p.landing_rcs_adjustment)
+        self.assertTrue(p.landing_deploy_gears)
+
+    def test_park_exit_still_commits_in_orbit_when_landing_off(self):
+        """TOUCH POINT 1 (the PARK fork). B11/B12's PARK -> ORBIT-COMMIT
+        handoff, with its single CommitTree action, is unchanged."""
+        state = _b11_state(mlib.B5_PARK)
+        for _ in range(B11_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_dwell + 1.0))
+        self.assertEqual(state.phase, mlib.B5_ORBIT_COMMIT)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_PARSEK_COMMIT_TREE])
+        self.assertNotIn(mlib.B5_DESCENT, state.phases_reached)
+
+    def test_vessel_lost_reason_is_byte_identical_outside_the_landing_tail(self):
+        """TOUCH POINT 2 (the named landing loss reason). The generic
+        vessel-lost wording every other mission produces must not move."""
+        for params, helper in ((B5_PARAMS, _b5_state), (B11_PARAMS, _b11_state)):
+            for phase in (mlib.B5_TARGET_FLYBY, mlib.B5_CAPTURE_BURN,
+                          mlib.B5_PARK):
+                state = helper(phase)
+                state, _ = mlib.b5_decide(state, snap(ut=5.0, vessel_lost=True))
+                self.assertEqual(
+                    state.loss_reason,
+                    "vessel-lost (unreadable after repeated telemetry failures)",
+                    "%s/%s" % (params.target_body, phase))
+                self.assertNotIn("landing-vessel-lost", state.loss_reason)
+
+    def test_frozen_detector_still_trips_in_every_non_landing_phase(self):
+        """TOUCH POINT 3 (the frozen-telemetry exemption). The exemption covers
+        ONLY the landed dwell; a stale vessel in any inherited phase must still
+        be caught."""
+        for phase in (mlib.B5_TARGET_FLYBY, mlib.B5_CAPTURE_BURN, mlib.B5_PARK,
+                      mlib.B5_ORBIT_COMMIT, mlib.B5_DESCENT):
+            state = _b13_state(phase)
+            # Periapsis is ABOVE the surface: a sub-surface one would hand the
+            # frame to the impact-certain terminal instead, which is a different
+            # (also correct) give-up and would not exercise this detector.
+            frozen = dict(altitude=1000.0, vertical_speed=-1.0,
+                          apoapsis=5000.0, periapsis=900.0, body="Mun",
+                          situation="SUB_ORBITAL")
+            for i in range(B13_PARAMS.frozen_sample_limit + 2):
+                state, _ = mlib.b5_decide(state, snap(ut=float(i), **frozen))
+                if state.done:
+                    break
+            self.assertTrue(state.done, phase)
+            self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL, phase)
+            self.assertIn("telemetry frozen", state.loss_reason, phase)
+
+    def test_flyby_and_orbit_assertion_rows_are_unchanged(self):
+        """TOUCH POINT 4 (the evaluator fork). Four rows for a flyby, six for an
+        orbit mission -- the landing rows appear ONLY with landingEnabled."""
+        flyby = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS,
+            phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN),
+            min_target_altitude=60000.0, state=_b5_state(mlib.B5_RETURN))
+        self.assertEqual([o.name for o in flyby],
+                         ["reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "returnedToHome"])
+        orbit = mlib.evaluate_b5_assertions(
+            [], B11_PARAMS,
+            phases_reached=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_PARK,
+                            mlib.B5_ORBIT_COMMIT, mlib.B5_ORBIT_COMMITTED),
+            min_target_altitude=60000.0,
+            state=_b11_state(mlib.B5_ORBIT_COMMITTED))
+        self.assertEqual([o.name for o in orbit],
+                         ["reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "capturedInTargetOrbit",
+                          "parkedStable", "treeCommitted"])
+
+    def test_orbit_phase_budget_table_is_unchanged(self):
+        """TOUCH POINT 5 (the budget table). ORBIT-COMMIT still reads
+        commitTimeoutSeconds and the landing phases are untimed for B11."""
+        self.assertEqual(mlib._b5_phase_budget(B11_PARAMS, mlib.B5_ORBIT_COMMIT),
+                         B11_PARAMS.commit_timeout)
+        self.assertEqual(mlib._b5_phase_budget(B11_PARAMS, mlib.B5_DESCENT),
+                         B11_PARAMS.descent_timeout)
+
+    def test_compact_snapshot_line_unchanged_when_the_channel_is_unread(self):
+        """TOUCH POINT 6 (the ring-buffer line). landAP= / hspd= are appended
+        ONLY when their opt-in channel was read, so every pre-landing mission's
+        event-window dump is byte-identical."""
+        line = mlib.format_snapshot_compact(snap(ut=1.0, body="Mun"))
+        self.assertNotIn("landAP=", line)
+        self.assertNotIn("hspd=", line)
+        opted = mlib.format_snapshot_compact(
+            snap(ut=1.0, body="Mun", landing_ap_enabled=0, horizontal_speed=3.0))
+        self.assertIn(" landAP=0", opted)
+        self.assertIn(" hspd=3.000", opted)
+
+    def test_landing_phases_are_unreachable_without_the_flag(self):
+        """The tuple is the vocabulary; the FLAG is the gate. Nothing outside
+        the PARK fork can enter the landing tail."""
+        # Repeated ut on the debounce frames (the B5ParkTests pattern): a
+        # settled park reports bit-identical orbit fields, so ADVANCING ut on
+        # every frame would trip the frozen-telemetry detector instead of
+        # reaching the dwell.
+        state = _b11_state(mlib.B5_PARK)
+        for _ in range(B11_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_dwell + 1.0))
+        self.assertEqual(state.phase, mlib.B5_ORBIT_COMMIT)
+        for landing_phase in (mlib.B5_DESCENT, mlib.B5_LANDED_SETTLE,
+                              mlib.B5_SURFACE_COMMIT, mlib.B5_SURFACE_COMMITTED):
+            self.assertNotIn(landing_phase, state.phases_reached)
+
+
+class LandingAutopilotClassifierTests(unittest.TestCase):
+    """classify_landing_autopilot: the COMMANDED-vs-OBSERVED core. Guards the
+    exact defect family that produced the CAPTURE-BURN executor bug, B1's chute
+    latch and EVA-4's ladder release."""
+
+    def test_observed_enabled_is_running(self):
+        self.assertEqual(
+            mlib.classify_landing_autopilot(1, 0, 0, touched_down=False),
+            (mlib.LANDING_AP_RUNNING, 0))
+
+    def test_unread_channel_grants_no_verdict(self):
+        """-1 is UNREAD: it never proves the module alive AND never proves it
+        dead, so it must not arm the fast-fail."""
+        self.assertEqual(
+            mlib.classify_landing_autopilot(-1, 2, 0, touched_down=False),
+            (mlib.LANDING_AP_UNKNOWN, 0))
+
+    def test_touchdown_reads_as_success_for_an_out_of_order_caller(self):
+        """MechJeb's FinalDescent calls StopLanding on the landed frame, so an
+        OBSERVED False after touchdown is the module reporting success.
+
+        THIS CELL IS THE BACKSTOP, NOT THE LIVE GUARANTEE. `b5_decide` tests
+        touchdown FIRST and leaves DESCENT, so the live path only ever passes
+        touched_down=False and this branch never executes in flight; the live
+        ordering is pinned by
+        LandingDescentTests.test_a_landed_frame_exits_whatever_the_autopilot_reads.
+        What is covered here is the pure function staying correct for a caller
+        that does NOT own that ordering."""
+        self.assertEqual(
+            mlib.classify_landing_autopilot(
+                0, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES, 0,
+                touched_down=True),
+            (mlib.LANDING_AP_RUNNING, 0))
+        # Even past the re-issue budget, where the next verdict would be DEAD.
+        self.assertEqual(
+            mlib.classify_landing_autopilot(
+                0, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1,
+                mlib.MAX_LANDING_AP_REISSUES, touched_down=True),
+            (mlib.LANDING_AP_RUNNING, 0))
+
+    def test_debounced_down_reissues_then_fast_fails(self):
+        streak = 0
+        for _ in range(mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1):
+            verdict, streak = mlib.classify_landing_autopilot(
+                0, streak, 0, touched_down=False)
+            self.assertEqual(verdict, mlib.LANDING_AP_RUNNING)
+        verdict, streak = mlib.classify_landing_autopilot(
+            0, streak, 0, touched_down=False)
+        self.assertEqual(verdict, mlib.LANDING_AP_REISSUE)
+        verdict, streak = mlib.classify_landing_autopilot(
+            0, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1,
+            mlib.MAX_LANDING_AP_REISSUES, touched_down=False)
+        self.assertEqual(verdict, mlib.LANDING_AP_DEAD)
+
+    def test_dead_streak_is_capped_at_the_debounce_depth(self):
+        """An uncapped streak past the re-issue budget emits one Info gate line
+        plus a 21-line window dump per frame (the parkStableStreak lesson)."""
+        _, streak = mlib.classify_landing_autopilot(
+            0, 900, mlib.MAX_LANDING_AP_REISSUES, touched_down=False)
+        self.assertEqual(streak, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES)
+
+
+class LandingProgressVerdictTests(unittest.TestCase):
+    """landing_progress_verdict: the SECOND, independent liveness channel. An
+    autopilot holding a useless attitude reads ENABLED forever, so the observed
+    channel alone cannot bound it."""
+
+    W = 900.0
+    D = 500.0
+
+    def test_window_not_elapsed_decides_nothing(self):
+        self.assertEqual(
+            mlib.landing_progress_verdict(90_000.0, 100_000.0, 100.0,
+                                          self.W, self.D),
+            mlib.LANDING_PROGRESS_PENDING)
+
+    def test_delivered_drop_is_progress(self):
+        self.assertEqual(
+            mlib.landing_progress_verdict(90_000.0, 100_000.0, 901.0,
+                                          self.W, self.D),
+            mlib.LANDING_PROGRESS_OK)
+
+    def test_flat_altitude_over_a_full_window_is_named(self):
+        self.assertEqual(
+            mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                          self.W, self.D),
+            mlib.LANDING_STALL_FLAT)
+
+    def test_rising_altitude_is_a_stall_not_progress(self):
+        self.assertEqual(
+            mlib.landing_progress_verdict(110_000.0, 100_000.0, 901.0,
+                                          self.W, self.D),
+            mlib.LANDING_STALL_FLAT)
+
+    def test_non_finite_altitude_fails_closed_with_its_own_name(self):
+        """FAIL CLOSED: an unreadable altitude is NOT evidence of descent, so it
+        must never buy the descent another window. It gets a DISTINCT name
+        because the operator response is 'fix the channel', not 'fix the
+        trajectory'."""
+        for alt, ref in ((float("nan"), 100_000.0),
+                         (90_000.0, float("nan")),
+                         (90_000.0, None)):
+            self.assertEqual(
+                mlib.landing_progress_verdict(alt, ref, 901.0, self.W, self.D),
+                mlib.LANDING_STALL_BLIND, (alt, ref))
+
+    def test_unreadable_clock_is_pending_not_a_stall(self):
+        """A NaN elapsed cannot prove a window ran out; the descent budget owns
+        that case."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(90_000.0, 100_000.0, float("nan"),
+                                          self.W, self.D),
+            mlib.LANDING_PROGRESS_PENDING)
+
+    # --- The near-ground band, DISARMED (review round 2, 2026-07-26) ---------
+
+    def test_an_anchor_below_min_drop_disarms_the_window(self):
+        """THE UNSATISFIABLE-WINDOW CASE. Below `min_drop` metres AGL there is
+        not `min_drop` left to shed, so the window cannot be met by any craft
+        that is above the surface. Nothing it reports there carries information,
+        so it is DISARMED and `descentTimeoutSeconds` owns the phase."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(150.0, 450.0, 901.0, self.W, self.D,
+                                          -0.4),
+            mlib.LANDING_PROGRESS_UNSATISFIABLE)
+
+    def test_the_band_is_disarmed_WHATEVER_the_vertical_speed_reads(self):
+        """THE CORRECTION THE FLIGHT DATA FORCED. The first cut covered this
+        band with the vertical-speed channel, which requires vspd < 0. B14
+        flight 1's Minmus final descent has 23 frames reading vspd >= 0 (peak
+        +1.305 m/s, runs of up to five), so a rescue conditioned on a negative
+        reading is ABSENT exactly when the hop happens. The band must not depend
+        on that channel at all."""
+        for vspd in (-25.0, -0.4, 0.0, 0.146, 1.305, float("nan"),
+                     float("inf")):
+            self.assertEqual(
+                mlib.landing_progress_verdict(150.0, 450.0, 901.0, self.W,
+                                              self.D, vspd),
+                mlib.LANDING_PROGRESS_UNSATISFIABLE, vspd)
+
+    def test_a_delivered_drop_still_wins_over_the_band(self):
+        """ORDERING PIN, deliberately contrived: the OK test runs BEFORE the
+        band test, so a window that DID deliver its drop is never re-labelled as
+        disarmed. Only reachable with a below-datum altitude, which is why no
+        flight will ever produce it -- the cell exists to stop a future reorder
+        from silently turning a delivered drop into a hold."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(-60.0, 450.0, 901.0, self.W, self.D,
+                                          -0.4),
+            mlib.LANDING_PROGRESS_OK)
+
+    # --- The vertical-speed channel, ABOVE the band --------------------------
+
+    def test_descending_under_the_drop_from_a_high_anchor_is_not_a_stall(self):
+        """What the vertical-speed channel actually is: CORROBORATION above the
+        band. The anchor is high enough that the drop was possible, the window
+        under-delivered anyway, and the craft's own channel says it is
+        descending -- so the give-up is withheld and the operator gets the
+        'these knobs are mis-sized for this body' counter instead."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0, self.W,
+                                          self.D, -0.4),
+            mlib.LANDING_PROGRESS_VSPEED)
+
+    def test_a_genuinely_static_craft_still_flakes(self):
+        """Neither hold may disarm the watchdog ABOVE the band: zero and
+        POSITIVE vertical speeds are not descents, so the FLAT verdict still
+        comes back (and b5_decide then debounces it)."""
+        for vspd in (0.0, 0.5, 12.0):
+            self.assertEqual(
+                mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                              self.W, self.D, vspd),
+                mlib.LANDING_STALL_FLAT, vspd)
+
+    def test_non_finite_vertical_speed_falls_back_to_the_altitude_evidence(self):
+        """An UNREAD vertical speed grants nothing (the -1 / NaN sentinel
+        discipline): the altitude evidence alone decides, exactly as before."""
+        for vspd in (float("nan"), float("inf"), float("-inf")):
+            self.assertEqual(
+                mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                              self.W, self.D, vspd),
+                mlib.LANDING_STALL_FLAT, vspd)
+        # ... and a delivered drop is still OK regardless of the channel.
+        self.assertEqual(
+            mlib.landing_progress_verdict(90_000.0, 100_000.0, 901.0,
+                                          self.W, self.D, float("nan")),
+            mlib.LANDING_PROGRESS_OK)
+
+    def test_the_default_vertical_speed_preserves_the_original_behaviour(self):
+        """The parameter is trailing-defaulted, so every pre-existing caller and
+        cell keeps the altitude-only contract."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                          self.W, self.D),
+            mlib.LANDING_STALL_FLAT)
+
+    def test_blind_beats_both_holds(self):
+        """An unreadable ALTITUDE is a CHANNEL fault and keeps its own name even
+        while the craft is measurably descending: the operator response is 'fix
+        the channel', and a descending craft on a dark altitude channel is still
+        a dark altitude channel. It also beats the near-ground band, because an
+        anchor that cannot be read cannot be tested against the band."""
+        for alt, ref in ((float("nan"), 100_000.0),
+                         (90_000.0, float("nan")),
+                         (90_000.0, None),
+                         (float("nan"), 450.0),
+                         (150.0, None)):
+            self.assertEqual(
+                mlib.landing_progress_verdict(alt, ref, 901.0, self.W, self.D,
+                                              -25.0),
+                mlib.LANDING_STALL_BLIND, (alt, ref))
+
+
+class LandedStableGateTests(unittest.TestCase):
+    """landed_stable: every conjunct fails CLOSED, and the HORIZONTAL one is
+    why the lane pays for an extra telemetry read."""
+
+    def test_settled_landing_passes(self):
+        self.assertTrue(mlib.landed_stable(B13_PARAMS, _landed()))
+
+    def test_wrong_body_fails(self):
+        self.assertFalse(mlib.landed_stable(B13_PARAMS, _landed(body="Kerbin")))
+
+    def test_airborne_situation_fails(self):
+        self.assertFalse(mlib.landed_stable(B13_PARAMS,
+                                            _landed(situation="FLYING")))
+
+    def test_splashed_is_accepted_because_it_is_in_the_param(self):
+        self.assertTrue(mlib.landed_stable(B13_PARAMS,
+                                           _landed(situation="SPLASHED")))
+
+    def test_sliding_lander_fails_on_the_horizontal_conjunct(self):
+        """THE reason the horizontal read exists: a lander on a slope reads
+        situation=LANDED with a vertical speed of ~0 while still moving."""
+        self.assertFalse(mlib.landed_stable(B13_PARAMS,
+                                            _landed(horizontal_speed=4.0)))
+
+    def test_unread_horizontal_speed_fails_closed(self):
+        self.assertFalse(mlib.landed_stable(
+            B13_PARAMS, _landed(horizontal_speed=float("nan"))))
+
+    def test_unread_vertical_speed_fails_closed(self):
+        self.assertFalse(mlib.landed_stable(
+            B13_PARAMS, _landed(vertical_speed=float("nan"))))
+
+    def test_bouncing_lander_fails_on_the_vertical_conjunct(self):
+        self.assertFalse(mlib.landed_stable(B13_PARAMS,
+                                            _landed(vertical_speed=-3.0)))
+
+
+# The five MEASURED consecutive climbing frames from B14 flight 1's Minmus
+# FinalDescent, read off
+# harness/results/2026-07-25_1543_B14-minmus-landing_mission.stdout.log
+# (the longest such run in the flight's 1,330 DESCENT frames). (ut, alt, vspd).
+B14_MEASURED_HOP_FRAMES = (
+    (278_489.7, 92.711, +0.146),
+    (278_490.7, 93.110, +0.603),
+    (278_491.8, 93.984, +1.057),
+    (278_492.8, 95.266, +1.305),
+    (278_493.8, 96.370, +0.697),
+)
+
+
+class LandingStallDebounceDepthTests(unittest.TestCase):
+    """THE DEPTH ITSELF, pinned against measured flight data (review round 2,
+    2026-07-26).
+
+    A debounce whose cells only ever loop `range(DEPTH)` proves the counter
+    exists and says NOTHING about whether the number is big enough - it stays
+    green at depth 1, which is the bug the debounce was added to fix. These
+    cells fix the number instead: a HEALTHY MechJeb final descent was MEASURED
+    producing five consecutive non-descending frames, so the depth must exceed
+    five or the give-up can still fire on a good landing."""
+
+    def test_the_depth_clears_the_measured_healthy_run(self):
+        self.assertGreater(
+            mlib.LANDING_STALL_DEBOUNCE_FRAMES, len(B14_MEASURED_HOP_FRAMES),
+            "LANDING_STALL_DEBOUNCE_FRAMES must exceed the LONGEST MEASURED run "
+            "of non-descending frames on a HEALTHY landing (%d, B14 flight 1 ut "
+            "278,489.7-278,493.8), or `landing-no-progress` can still fire on a "
+            "good descent" % (len(B14_MEASURED_HOP_FRAMES),))
+
+    def test_the_measured_hop_does_not_flake_above_the_disarm_band(self):
+        """THE REGIME THE BAND DISARM DOES NOT COVER: an anchor just above
+        min_drop, so the window is armed, while the craft hops near the ground.
+        Replays the five MEASURED frames verbatim and requires the machine to
+        survive them. Reds at any depth <= 5."""
+        # 550 m anchor against this fixture's 500 m min_drop: ABOVE the band
+        # (so the window is ARMED), and 550 - 96 is under the 500 m drop (so no
+        # re-anchor rescues it either). That narrow strip - min_drop <= ref <
+        # min_drop + alt - is exactly the geometry the band disarm cannot cover,
+        # and the only thing standing in it is the debounce.
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=550.0,
+                           landing_alt_ref_ut=0.0)
+        base = B14_MEASURED_HOP_FRAMES[0][0]
+        for ut, alt, vspd in B14_MEASURED_HOP_FRAMES:
+            snapshot = _descending(
+                ut=B13_PARAMS.landing_progress_window + (ut - base) + 1.0,
+                altitude=alt, vertical_speed=vspd)
+            state, _ = mlib.b5_decide(state, snapshot)
+            self.assertFalse(
+                state.done,
+                "flaked a MEASURED healthy hop frame: ut=%s alt=%s vspd=%s"
+                % (ut, alt, vspd))
+        # The frames DID register as proof-of-no-progress - the cell is not
+        # green because the verdict path was never reached.
+        self.assertEqual(state.landing_stall_streak,
+                         len(B14_MEASURED_HOP_FRAMES))
+
+    def test_the_debounce_is_not_a_free_pass_for_a_real_stall(self):
+        """The depth is a delay, not an exemption: keep feeding proof and the
+        NAMED give-up still arrives."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=550.0,
+                           landing_alt_ref_ut=0.0)
+        ut = B13_PARAMS.landing_progress_window
+        for i in range(mlib.LANDING_STALL_DEBOUNCE_FRAMES):
+            ut += 1.0
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=ut, altitude=96.37 + 0.01 * i,
+                                   vertical_speed=0.0))
+        self.assertTrue(state.done)
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, state.flake_reason)
+
+
+class LandingParkHandoffTests(unittest.TestCase):
+    """PARK -> DESCENT: the ONLY door into the landing tail, and the vehicle
+    configuration handed to MechJeb on the way through."""
+
+    def test_park_dwell_hands_off_to_descent_not_to_the_orbit_commit(self):
+        state = _b13_state(mlib.B5_PARK)
+        for _ in range(B13_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        self.assertEqual(state.phase, mlib.B5_PARK)
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=B13_PARAMS.park_dwell + 1.0))
+        self.assertEqual(state.phase, mlib.B5_DESCENT)
+        self.assertNotIn(mlib.B5_ORBIT_COMMIT, state.phases_reached)
+        self.assertTrue(state.park_ever_stable)
+        self.assertTrue(state.landing_engaged)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES,
+                          mlib.ACTION_MJ_LAND_UNTARGETED])
+        # The configuration the runner writes and reads back, in order.
+        self.assertEqual(actions[1].landing_config,
+                         (0.5, True, False, False))
+
+    def test_no_progress_window_is_anchored_at_the_park_altitude(self):
+        state = _b13_state(mlib.B5_PARK)
+        for _ in range(B13_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B13_PARAMS.park_dwell + 1.0, altitude=141_000.0))
+        self.assertEqual(state.landing_alt_ref, 141_000.0)
+        self.assertEqual(state.landing_alt_ref_ut, B13_PARAMS.park_dwell + 1.0)
+
+    def test_chutes_are_never_armed_for_an_airless_body(self):
+        """Mun and Minmus are AIRLESS. A parachute cannot deploy there, so
+        arming one would be an untrue statement about the vehicle
+        configuration. Guards a default flipping back to MechJeb's own True."""
+        cfg = mlib._b5_landing_config(B13_PARAMS)
+        self.assertFalse(cfg[2])
+        self.assertFalse(mlib.b5_params_from_dict(
+            {"landingEnabled": True,
+             "captureEnabled": True}).landing_deploy_chutes)
+
+
+class LandingDescentTests(unittest.TestCase):
+    """DESCENT: the touchdown exit, the four named give-ups, and the deliberate
+    absence of any warp / attitude action."""
+
+    def test_touchdown_is_observed_and_exits_first(self):
+        """The exit is evaluated BEFORE the autopilot supervisor, because
+        MechJeb disables its own module on the landed frame."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        state, actions = mlib.b5_decide(state, _landed(ut=50.0))
+        self.assertEqual(state.phase, mlib.B5_LANDED_SETTLE)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_SET_RAILS_WARP, mlib.ACTION_CUT_THROTTLE,
+                          mlib.ACTION_MJ_STOP_LANDING, mlib.ACTION_SET_SAS])
+        # The touchdown reading is FROZEN as the assertion's carried evidence.
+        self.assertEqual(state.landed_body, "Mun")
+        self.assertEqual(state.landed_situation, "LANDED")
+        self.assertEqual(state.landed_horizontal_speed, 0.02)
+
+    def test_descent_emits_no_warp_or_attitude_actions(self):
+        """MechJeb's landing states own BOTH. A second writer on either is the
+        cancel/re-arm thrash class that cost B12 flight 2 its wall budget."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        state, actions = mlib.b5_decide(
+            state, _descending(ut=30.0, warp_mode=mlib.WARP_RAILS,
+                               warp_rate=100.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.phase, mlib.B5_DESCENT)
+
+    def test_observed_dead_autopilot_reissues_then_names_itself(self):
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        emitted = []
+        for i in range(1, 30):
+            state, actions = mlib.b5_decide(
+                state, _descending(ut=float(i), landing_ap_enabled=0,
+                                   altitude=100_000.0, vertical_speed=0.0))
+            emitted.extend(a.kind for a in actions)
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_AP_NOT_ENABLED, state.flake_reason)
+        self.assertIn("COMMANDED and never OBSERVED", state.flake_reason)
+        # Bounded re-issues, then the fast-fail; never an unbounded loop.
+        self.assertEqual(emitted.count(mlib.ACTION_MJ_LAND_UNTARGETED),
+                         mlib.MAX_LANDING_AP_REISSUES)
+        self.assertEqual(state.landing_ap_reissues,
+                         mlib.MAX_LANDING_AP_REISSUES)
+
+    def test_a_landed_frame_exits_whatever_the_autopilot_reads(self):
+        """THE LIVE GUARANTEE the classifier's touchdown carve-out only
+        BACKSTOPS. `classify_landing_autopilot` is called with a hardcoded
+        touched_down=False, so nothing inside it can save a perfect landing --
+        the ordering of these two blocks in b5_decide is what does, and the
+        ordering is what a future edit could silently break.
+
+        Seeded ONE frame short of DEAD (debounce all but spent, re-issue budget
+        exhausted) so that if the supervisor ran first, this exact frame would
+        fast-fail `landing-autopilot-not-enabled` on a craft that had just
+        landed. Every reading of the channel must exit instead, including the 0
+        that MechJeb itself writes on the touchdown frame."""
+        seed_streak = mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1
+        # The seed is honest: fed to the supervisor, this state + a 0 reading
+        # IS the fast-fail. Without this line the cell could pass against a
+        # state that was never one frame from DEAD in the first place.
+        self.assertEqual(
+            mlib.classify_landing_autopilot(
+                0, seed_streak, mlib.MAX_LANDING_AP_REISSUES,
+                touched_down=False)[0],
+            mlib.LANDING_AP_DEAD)
+        for ap_enabled in (-1, 0, 1):
+            state = _b13_state(
+                mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                landing_alt_ref_ut=0.0, landing_engaged=True,
+                landing_ap_down_streak=seed_streak,
+                landing_ap_reissues=mlib.MAX_LANDING_AP_REISSUES)
+            state, _ = mlib.b5_decide(
+                state, _landed(ut=50.0, landing_ap_enabled=ap_enabled))
+            self.assertEqual(state.phase, mlib.B5_LANDED_SETTLE, ap_enabled)
+            self.assertFalse(state.done, ap_enabled)
+            self.assertIsNone(state.flake_reason, ap_enabled)
+
+    def test_a_reissue_reanchors_the_no_progress_window(self):
+        """A fresh attempt must earn a FULL no-progress window rather than
+        inheriting the dead one's clock (the capture-executor re-issue
+        discipline). Without the re-anchor a re-issue landing late in a window
+        that the dead autopilot had already spent would be judged on the DEAD
+        module's lack of progress and flake `landing-no-progress` before the
+        recovered descent had a chance to shed anything."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0, landing_engaged=True)
+        # One frame short of the debounce: the window clock is nearly spent and
+        # the anchor is still the stale one.
+        for i in range(1, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES):
+            state, actions = mlib.b5_decide(
+                state, _descending(ut=B13_PARAMS.landing_progress_window - 10.0,
+                                   landing_ap_enabled=0, altitude=99_950.0))
+            self.assertEqual(actions, [])
+            self.assertEqual(state.landing_alt_ref, 100_000.0)
+            self.assertEqual(state.landing_alt_ref_ut, 0.0)
+        # The re-issue frame: the engage goes out AND the window re-anchors on
+        # THIS frame's reading.
+        reissue_ut = B13_PARAMS.landing_progress_window - 5.0
+        state, actions = mlib.b5_decide(
+            state, _descending(ut=reissue_ut, landing_ap_enabled=0,
+                               altitude=99_900.0))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_LAND_UNTARGETED])
+        self.assertEqual(state.landing_ap_reissues, 1)
+        self.assertEqual(state.landing_alt_ref, 99_900.0)
+        self.assertEqual(state.landing_alt_ref_ut, reissue_ut)
+        # ... so the frame that WOULD have closed the stale window decides
+        # nothing: the re-anchored one has barely started.
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=reissue_ut + 20.0, landing_ap_enabled=1,
+                               altitude=99_880.0, vertical_speed=-2.0))
+        self.assertFalse(state.done)
+
+    def test_a_reissue_that_cannot_read_the_frame_keeps_the_old_anchor(self):
+        """FAIL CLOSED on the re-anchor itself: a re-issue frame with an
+        unreadable altitude or UT must KEEP the previous anchor rather than
+        write None/NaN into it, or the named `altitude-unreadable` give-up
+        would be disarmed by the very recovery that is meant to be watched."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0, landing_engaged=True)
+        for _ in range(mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=10.0, landing_ap_enabled=0))
+        state, actions = mlib.b5_decide(
+            state, _descending(ut=float("nan"), landing_ap_enabled=0,
+                               altitude=float("nan")))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_LAND_UNTARGETED])
+        self.assertEqual(state.landing_alt_ref, 100_000.0)
+        self.assertEqual(state.landing_alt_ref_ut, 0.0)
+
+    def test_unread_autopilot_channel_never_fires_the_fast_fail(self):
+        """A run that forgot read_landing must NOT be fast-failed by the
+        supervisor -- the altitude watchdog and the budget own it instead."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        for i in range(1, 20):
+            state, actions = mlib.b5_decide(
+                state, _descending(ut=float(i), landing_ap_enabled=-1,
+                                   altitude=100_000.0 - 100.0 * i))
+            self.assertEqual(actions, [])
+        self.assertFalse(state.done)
+        self.assertEqual(state.landing_ap_reissues, 0)
+
+    def _stall_frames(self, state, snapshot_factory):
+        """Feed frames until the give-up fires, asserting it does NOT fire early.
+        Returns the terminal state. Fails if the depth is never reached."""
+        for i in range(1, mlib.LANDING_STALL_DEBOUNCE_FRAMES + 1):
+            state, _ = mlib.b5_decide(state, snapshot_factory(i))
+            self.assertEqual(state.landing_stall_streak, i, "frame %d" % i)
+            if i < mlib.LANDING_STALL_DEBOUNCE_FRAMES:
+                self.assertFalse(state.done,
+                                 "flaked on frame %d of %d"
+                                 % (i, mlib.LANDING_STALL_DEBOUNCE_FRAMES))
+        self.assertTrue(state.done)
+        return state
+
+    def test_stalled_altitude_names_landing_no_progress(self):
+        """DEBOUNCED (review round 2, 2026-07-26): the give-up used to fire on
+        the FIRST frame past the window, alone among this machine's liveness
+        gates. It now needs LANDING_STALL_DEBOUNCE_FRAMES consecutive frames of
+        proof, and this cell fails if that depth is ever cut."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        state = self._stall_frames(
+            state,
+            lambda i: _descending(
+                ut=B13_PARAMS.landing_progress_window + float(i),
+                altitude=99_900.0, vertical_speed=0.0))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, state.flake_reason)
+        self.assertIn(mlib.LANDING_STALL_FLAT, state.flake_reason)
+        # The give-up CARRIES its own debounce depth, so a log reader never has
+        # to guess whether one frame or five produced it.
+        self.assertIn("on %d consecutive frames"
+                      % mlib.LANDING_STALL_DEBOUNCE_FRAMES, state.flake_reason)
+
+    def test_one_recovered_frame_resets_the_give_up_countdown(self):
+        """THE POINT OF A DEBOUNCE. MechJeb's final descent hops: B14 flight 1
+        read vspd >= 0 on 23 frames in runs of up to five. A run that stops
+        short of the depth must cost NOTHING, so the next window starts the
+        count from zero rather than inheriting it."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        w = B13_PARAMS.landing_progress_window
+        for i in range(1, mlib.LANDING_STALL_DEBOUNCE_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=w + float(i), altitude=99_900.0,
+                                   vertical_speed=0.0))
+        self.assertEqual(state.landing_stall_streak,
+                         mlib.LANDING_STALL_DEBOUNCE_FRAMES - 1)
+        self.assertFalse(state.done)
+        # One frame that DELIVERS the drop: the window re-anchors and the
+        # countdown resets.
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=w + 10.0, altitude=90_000.0,
+                               vertical_speed=-30.0))
+        self.assertEqual(state.landing_stall_streak, 0)
+        self.assertEqual(state.landing_alt_ref, 90_000.0)
+        # ... so proving a stall from here costs a FULL fresh run of frames.
+        state = self._stall_frames(
+            state,
+            lambda i: _descending(ut=w + 10.0 + w + float(i),
+                                  altitude=89_900.0, vertical_speed=0.0))
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, state.flake_reason)
+
+    def test_blind_altitude_names_the_channel_not_the_trajectory(self):
+        """Same debounce, same reason: one unreadable sample is a blip, a dark
+        channel is five in a row. The NAME still separates the two failures."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        state = self._stall_frames(
+            state,
+            lambda i: _descending(
+                ut=B13_PARAMS.landing_progress_window + float(i),
+                altitude=float("nan")))
+        self.assertIn(mlib.LANDING_STALL_BLIND, state.flake_reason)
+
+    def test_a_hopping_final_descent_does_not_flake_the_no_progress_window(self):
+        """THE UNSATISFIABLE-WINDOW CASE, end to end through the machine, WITH
+        THE REAL VERTICAL-SPEED PROFILE (review round 2, 2026-07-26). A window
+        anchored at 450 m AGL cannot deliver B13's 5,000 m of drop by
+        construction. The first fix covered that with a vertical-speed rescue,
+        and this cell replays the shape that breaks it: MechJeb's Minmus final
+        descent HOPS, so the craft climbs on some frames (B14 flight 1: 23 such
+        frames, peak +1.305 m/s, runs of up to five). Frames alternating a
+        descent with a hop must cost NOTHING here."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=450.0,
+                           landing_alt_ref_ut=0.0)
+        # Ten frames past the window, half of them CLIMBING - the exact reading
+        # a vspeed-conditioned rescue does not cover. Polled ~1 s apart, as the
+        # real loop does, so the descent BUDGET is not what keeps this green.
+        ut = B13_PARAMS.landing_progress_window
+        for i in range(10):
+            ut += 1.0
+            vspd = 1.305 if i % 2 else -0.4
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=ut, altitude=96.37 + 0.1 * i,
+                                   vertical_speed=vspd))
+            self.assertFalse(state.done, "flaked at ut=%s vspd=%s" % (ut, vspd))
+        # The disarm is COUNTED, so the log says what actually bounded the tail.
+        self.assertEqual(state.landing_unsat_holds, 10)
+        self.assertEqual(state.landing_vspeed_holds, 0)
+        self.assertEqual(state.landing_stall_streak, 0)
+        # And the anchor was NOT re-stamped, so a craft that climbs back above
+        # the band resumes the same window rather than earning a fresh one.
+        self.assertEqual(state.landing_alt_ref, 450.0)
+        self.assertEqual(state.landing_alt_ref_ut, 0.0)
+
+    def test_the_disarmed_band_is_still_bounded_by_the_descent_budget(self):
+        """THE BOUND WAS REPLACED, NOT REMOVED. A craft that hangs below the
+        band forever is not watched by the drop window any more - so prove the
+        NAMED landing-touchdown-timeout is what ends it, on the budget, rather
+        than the phase running to the generic mission wall reaper."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=450.0,
+                           landing_alt_ref_ut=0.0)
+        ut = 0.0
+        # A creep of 5 cm per poll: below the band, never delivering the drop,
+        # and never twice identical (the frozen-telemetry vessel-lost detector
+        # owns a REALLY dead craft, and this cell is about the live-but-stuck
+        # one the budget is supposed to catch).
+        for i in range(400):
+            ut += 30.0
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=ut, altitude=300.0 - 0.05 * i,
+                                   vertical_speed=-0.002))
+            if state.done:
+                break
+        self.assertTrue(state.done, "the disarmed band never terminated")
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT, state.flake_reason)
+        self.assertNotIn(mlib.LANDING_GIVEUP_NO_PROGRESS, state.flake_reason)
+        self.assertGreaterEqual(ut, B13_PARAMS.descent_timeout)
+
+    def test_a_static_craft_above_the_band_still_flakes(self):
+        """The watchdog is not disarmed where it CAN decide: an anchor high
+        enough to deliver the drop, a craft that is not descending, and the
+        named give-up still arrives - just debounced."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=140_000.0,
+                           landing_alt_ref_ut=0.0)
+        state = self._stall_frames(
+            state,
+            lambda i: _descending(
+                ut=B13_PARAMS.landing_progress_window + float(i),
+                altitude=139_900.0, vertical_speed=0.0))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, state.flake_reason)
+        self.assertIn("vspeedHolds=0", state.flake_reason)
+        self.assertIn("unsatHolds=0", state.flake_reason)
+
+    def test_a_descent_entered_on_one_bad_altitude_frame_heals_its_anchor(self):
+        """The lazy re-anchor used to be gated on landing_alt_ref_ut ALONE, so a
+        DESCENT whose entry frame carried a non-finite altitude kept
+        landing_alt_ref = None FOREVER and flaked `altitude-unreadable` a full
+        window later -- on a channel that recovered on frame two."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=None,
+                           landing_alt_ref_ut=0.0)
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=1.0, altitude=120_000.0))
+        self.assertEqual(state.landing_alt_ref, 120_000.0)
+        # The CLOCK is deliberately NOT re-stamped by the heal.
+        self.assertEqual(state.landing_alt_ref_ut, 0.0)
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=B13_PARAMS.landing_progress_window + 2.0,
+                               altitude=40_000.0))
+        self.assertFalse(state.done)
+
+    def test_a_permanently_dark_altitude_channel_still_reaches_blind(self):
+        """The heal must NOT re-stamp the window clock: doing so would hold
+        `elapsed` at ~0 forever and make the NAMED altitude-unreadable give-up
+        unreachable, which is the fail-closed property BLIND exists for."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=None,
+                           landing_alt_ref_ut=0.0)
+        # Straight to the far side of the window, then poll: the debounce makes
+        # fail-closed SLOWER (LANDING_STALL_DEBOUNCE_FRAMES polls, ~8 game
+        # seconds) but it must still arrive, and still arrive NAMED.
+        ut = B13_PARAMS.landing_progress_window
+        for _ in range(mlib.LANDING_STALL_DEBOUNCE_FRAMES + 2):
+            ut += 1.0
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=ut, altitude=float("nan")))
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertIn(mlib.LANDING_STALL_BLIND, state.flake_reason)
+        # Well inside the descent budget: the NAMED channel give-up wins the
+        # race against landing-touchdown-timeout, which is the whole reason it
+        # has its own name.
+        self.assertLess(ut, B13_PARAMS.descent_timeout)
+
+    def test_a_healthy_descent_rolls_the_window_forward_forever(self):
+        """The window is measured from the ANCHOR, so a real descent re-anchors
+        every time it delivers and never runs one out."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=140_000.0,
+                           landing_alt_ref_ut=0.0)
+        ut = 0.0
+        alt = 140_000.0
+        # THREE windows, deliberately kept inside descentTimeoutSeconds: this
+        # cell proves the window re-anchors, not that the budget is generous.
+        for _ in range(3):
+            ut += B13_PARAMS.landing_progress_window + 5.0
+            alt -= 10_000.0
+            state, _ = mlib.b5_decide(state, _descending(ut=ut, altitude=alt))
+            self.assertFalse(state.done, ut)
+            self.assertEqual(state.landing_alt_ref, alt)
+            self.assertEqual(state.landing_alt_ref_ut, ut)
+
+    def test_budget_expiry_names_landing_touchdown_timeout(self):
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=140_000.0,
+                           landing_alt_ref_ut=0.0)
+        # Descend honestly (so the no-progress watchdog never fires) past the
+        # descent budget.
+        ut = 0.0
+        alt = 140_000.0
+        for _ in range(20):
+            ut += 300.0
+            alt -= 2_000.0
+            state, _ = mlib.b5_decide(state, _descending(ut=ut, altitude=alt))
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT, state.flake_reason)
+
+    def test_a_crash_is_named_landing_vessel_lost_and_assert_fails(self):
+        """A CRASHED landing must read as neither a timeout nor a success."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=42.0, vessel_lost=True,
+                                              body="Mun", altitude=120.0,
+                                              vertical_speed=-180.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn(mlib.LANDING_GIVEUP_VESSEL_LOST, state.loss_reason)
+        self.assertIn("FAILED landing", state.loss_reason)
+        self.assertIsNone(state.flake_reason)
+
+    def test_leaving_the_target_soi_mid_descent_is_assert_fail(self):
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0)
+        state, _ = mlib.b5_decide(state, _descending(ut=5.0, body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("left the target SOI", state.loss_reason)
+
+
+class LandedSettleTests(unittest.TestCase):
+    """LANDED-SETTLE: the held settled dwell that IS the recorded surface
+    coverage, its 1x self-heal, and its two distinguishable give-ups."""
+
+    def test_requires_both_the_debounce_and_the_dwell(self):
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        for _ in range(B13_PARAMS.landed_debounce):
+            state, _ = mlib.b5_decide(state, _landed(ut=10.0))
+        self.assertEqual(state.phase, mlib.B5_LANDED_SETTLE)
+        self.assertTrue(state.landed_ever_stable)
+        state, actions = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.landed_dwell + 1.0))
+        self.assertEqual(state.phase, mlib.B5_SURFACE_COMMIT)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_PARSEK_COMMIT_TREE])
+
+    def test_a_bounce_resets_the_debounce(self):
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        state, _ = mlib.b5_decide(state, _landed(ut=10.0))
+        state, _ = mlib.b5_decide(state, _landed(ut=20.0, situation="FLYING"))
+        self.assertEqual(state.landed_stable_streak, 0)
+
+    def test_streak_is_capped_at_the_debounce_depth(self):
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        for i in range(20):
+            state, _ = mlib.b5_decide(state, _landed(ut=1.0 + i))
+        self.assertEqual(state.landed_stable_streak, B13_PARAMS.landed_debounce)
+
+    def test_settle_self_heals_rails_warp_back_to_1x(self):
+        """The landed dwell IS the recorded surface coverage, so a warp MechJeb
+        left running is pulled back to 1x (on change only)."""
+        state = _b13_state(mlib.B5_LANDED_SETTLE, warp_cmd=0)
+        state, actions = mlib.b5_decide(
+            state, _landed(ut=10.0, warp_mode=mlib.WARP_RAILS, warp_rate=50.0))
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        state, actions = mlib.b5_decide(state, _landed(ut=20.0))
+        self.assertEqual(actions, [])
+
+    def test_never_settled_give_up_names_the_readings(self):
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        state, _ = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.landed_timeout + 1.0,
+                           horizontal_speed=9.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_NEVER_STABLE, state.flake_reason)
+        self.assertIn("never settled after touchdown", state.flake_reason)
+
+    def test_settled_then_lost_give_up_says_so(self):
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        for _ in range(B13_PARAMS.landed_debounce):
+            state, _ = mlib.b5_decide(state, _landed(ut=10.0))
+        state, _ = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.landed_timeout + 1.0,
+                           horizontal_speed=9.0))
+        self.assertTrue(state.done)
+        self.assertIn(mlib.LANDING_GIVEUP_NEVER_STABLE, state.flake_reason)
+        self.assertIn("at least once", state.flake_reason)
+
+    def test_frozen_telemetry_does_not_kill_a_settled_dwell(self):
+        """A settled rigidbody can report BIT-IDENTICAL telemetry while UT
+        ticks -- the exact dead-vessel signature. LANDED-SETTLE is exempt, and
+        this is the ONLY scenario in the suite that polls a stationary craft for
+        minutes, so nothing else has ever been exposed to it."""
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        for i in range(B13_PARAMS.frozen_sample_limit + 5):
+            state, _ = mlib.b5_decide(state, _landed(ut=float(i + 1)))
+            self.assertFalse(state.done, i)
+
+
+class SurfaceCommitTests(unittest.TestCase):
+    """SURFACE-COMMIT: the SAME route-1 seam B11/B12 use, fired while LANDED."""
+
+    def test_ok_reaches_the_surface_committed_terminal(self):
+        state = _b13_state(mlib.B5_SURFACE_COMMIT)
+        state, actions = mlib.b5_decide(
+            state, _landed(ut=5.0, seam_commit_result="OK"))
+        self.assertEqual(state.phase, mlib.B5_SURFACE_COMMITTED)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(state.commit_result, "OK")
+        self.assertEqual(actions, [])
+
+    def test_seam_error_flakes_naming_the_body(self):
+        state = _b13_state(mlib.B5_SURFACE_COMMIT)
+        state, _ = mlib.b5_decide(
+            state, _landed(ut=5.0, seam_commit_result="ERROR"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("landed-on-Mun commit did not happen", state.flake_reason)
+
+    def test_a_silent_seam_flakes_on_its_own_budget(self):
+        state = _b13_state(mlib.B5_SURFACE_COMMIT)
+        state, _ = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.commit_timeout + 1.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never answered", state.flake_reason)
+
+
+class LandingAssertionTests(unittest.TestCase):
+    """The EIGHT landing rows, and the EVA-4 lesson: a mission must not be able
+    to report every assertion met while its actual objective failed."""
+
+    FULL = (mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_PLAN_CAPTURE,
+            mlib.B5_CAPTURE_BURN, mlib.B5_PARK, mlib.B5_DESCENT,
+            mlib.B5_LANDED_SETTLE, mlib.B5_SURFACE_COMMIT,
+            mlib.B5_SURFACE_COMMITTED)
+
+    def _state(self, **kw):
+        base = dict(capture_apoapsis=1_010_000.0, capture_periapsis=990_000.0,
+                    capture_eccentricity=0.01, park_ever_stable=True,
+                    landed_body="Mun", landed_situation="LANDED",
+                    landed_ever_stable=True, landed_vertical_speed=0.0,
+                    landed_horizontal_speed=0.02, commit_result="OK")
+        base.update(kw)
+        return _b13_state(mlib.B5_SURFACE_COMMITTED, **base)
+
+    def _rows(self, phases=None, **kw):
+        return {o.name: o.met for o in mlib.evaluate_b5_assertions(
+            [], B13_PARAMS,
+            phases_reached=(self.FULL if phases is None else phases),
+            min_target_altitude=60000.0, state=self._state(**kw))}
+
+    def test_a_complete_landing_meets_all_eight_rows(self):
+        rows = self._rows()
+        self.assertEqual(
+            list(rows),
+            ["reachedOrbit", "reachedTargetSoi", "flybyPeriapsisFloor",
+             "capturedInTargetOrbit", "parkedStable", "landedOnTargetBody",
+             "landedStable", "treeCommitted"])
+        self.assertTrue(all(rows.values()), rows)
+
+    def test_landing_on_the_wrong_body_cannot_report_ok(self):
+        rows = self._rows(landed_body="Kerbin")
+        self.assertFalse(rows["landedOnTargetBody"])
+
+    def test_never_landing_cannot_report_ok(self):
+        """The machine flaked in DESCENT: LANDED-SETTLE, SURFACE-COMMIT and
+        SURFACE-COMMITTED were never entered, so three rows are unmet."""
+        rows = self._rows(phases=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY,
+                                  mlib.B5_PARK, mlib.B5_DESCENT))
+        self.assertFalse(rows["landedOnTargetBody"])
+        self.assertFalse(rows["landedStable"])
+        self.assertFalse(rows["treeCommitted"])
+
+    def test_landed_but_never_settled_cannot_report_ok(self):
+        rows = self._rows(phases=self.FULL[:-2], landed_ever_stable=False)
+        self.assertTrue(rows["landedOnTargetBody"])
+        self.assertFalse(rows["landedStable"])
+        self.assertFalse(rows["treeCommitted"])
+
+    def test_a_refused_commit_cannot_report_ok(self):
+        rows = self._rows(commit_result="ERROR")
+        self.assertFalse(rows["treeCommitted"])
+
+    def test_parked_stable_requires_descent_not_orbit_commit(self):
+        """In landing mode the ORBIT terminal is never entered, so the row that
+        proves the park dwell completed is DESCENT."""
+        rows = self._rows(phases=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY,
+                                  mlib.B5_PARK))
+        self.assertFalse(rows["parkedStable"])
+        rows = self._rows(phases=(mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY,
+                                  mlib.B5_PARK, mlib.B5_DESCENT))
+        self.assertTrue(rows["parkedStable"])
+
+    def test_landing_rows_carry_the_observed_touchdown_readings(self):
+        outcomes = {o.name: o for o in mlib.evaluate_b5_assertions(
+            [], B13_PARAMS, phases_reached=self.FULL,
+            min_target_altitude=60000.0, state=self._state())}
+        on_body = outcomes["landedOnTargetBody"]
+        self.assertEqual(on_body.value, "Mun")
+        self.assertEqual(on_body.detail["situation"], "LANDED")
+        settled = outcomes["landedStable"]
+        self.assertEqual(settled.detail["touchdownHorizontalSpeed"], 0.02)
+        self.assertEqual(settled.detail["maxHorizontalSpeed"], 1.0)
+
+    def test_the_approach_floor_is_not_broken_by_the_landing(self):
+        """flybyPeriapsisFloor certifies the ARRIVAL and the PARKED orbit only:
+        _B5_IN_TARGET_SOI_PHASES excludes the landing tail, because a landing
+        drives the altitude to ~0 ON PURPOSE."""
+        self.assertNotIn(mlib.B5_DESCENT, mlib._B5_IN_TARGET_SOI_PHASES)
+        self.assertNotIn(mlib.B5_LANDED_SETTLE, mlib._B5_IN_TARGET_SOI_PHASES)
+        state = _b13_state(mlib.B5_DESCENT, min_target_altitude=60000.0)
+        state, _ = mlib.b5_decide(state, _descending(ut=5.0, altitude=12.0))
+        self.assertEqual(state.min_target_altitude, 60000.0)
+
+
+class LandingParamParseTests(unittest.TestCase):
+    """The spec-key -> param mapping, and the phase-budget table."""
+
+    def test_spec_keys_map_to_params(self):
+        p = mlib.b5_params_from_dict({
+            "captureEnabled": True,
+            "landingEnabled": True,
+            "descentTimeoutSeconds": 2500,
+            "landingTouchdownSpeedMps": 0.8,
+            "landingDeployGears": False,
+            "landingDeployChutes": True,
+            "landingRcsAdjustment": True,
+            "landingProgressWindowSeconds": 600,
+            "landingProgressMinDropMeters": 250,
+            "landedSituations": ["LANDED"],
+            "landedMaxVerticalSpeedMps": 0.4,
+            "landedMaxHorizontalSpeedMps": 0.6,
+            "landedDwellSeconds": 90,
+            "landedDebounceFrames": 4,
+            "landedTimeoutSeconds": 500,
+        })
+        self.assertTrue(p.landing_enabled)
+        self.assertEqual(p.descent_timeout, 2500.0)
+        self.assertEqual(p.landing_touchdown_speed, 0.8)
+        self.assertFalse(p.landing_deploy_gears)
+        self.assertTrue(p.landing_deploy_chutes)
+        self.assertTrue(p.landing_rcs_adjustment)
+        self.assertEqual(p.landing_progress_window, 600.0)
+        self.assertEqual(p.landing_progress_min_drop, 250.0)
+        self.assertEqual(p.landed_situations, ("LANDED",))
+        self.assertEqual(p.landed_max_vertical_speed, 0.4)
+        self.assertEqual(p.landed_max_horizontal_speed, 0.6)
+        self.assertEqual(p.landed_dwell, 90.0)
+        self.assertEqual(p.landed_debounce, 4)
+        self.assertEqual(p.landed_timeout, 500.0)
+
+    def test_landing_without_capture_is_rejected_at_spec_load(self):
+        """The whole lane rests on 'landingEnabled implies captureEnabled': the
+        ONLY edge into DESCENT is the capture lane's PARK dwell. Without the
+        assert, `landingEnabled = true, captureEnabled = false` silently
+        degrades to the FLYBY machine -- it flies a fly-past, evaluates the four
+        FLYBY assertion rows and reports MISSION-OK for a scenario whose whole
+        objective is a landing. An implication a design rests on gets asserted,
+        not documented."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict({"landingEnabled": True})
+        self.assertIn("landingEnabled requires captureEnabled", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            mlib.b5_params_from_dict({"landingEnabled": True,
+                                      "captureEnabled": False})
+        # The three legal combinations still load.
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"landingEnabled": True, "captureEnabled": True}).landing_enabled)
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"captureEnabled": True}).capture_enabled)
+        self.assertFalse(mlib.b5_params_from_dict({}).landing_enabled)
+
+    def test_phase_budgets_route_to_the_landing_tail_params(self):
+        self.assertEqual(mlib._b5_phase_budget(B13_PARAMS, mlib.B5_DESCENT),
+                         B13_PARAMS.descent_timeout)
+        self.assertEqual(mlib._b5_phase_budget(B13_PARAMS, mlib.B5_LANDED_SETTLE),
+                         B13_PARAMS.landed_timeout)
+        self.assertEqual(mlib._b5_phase_budget(B13_PARAMS, mlib.B5_SURFACE_COMMIT),
+                         B13_PARAMS.commit_timeout)
+        self.assertIsNone(mlib._b5_phase_budget(B13_PARAMS,
+                                                mlib.B5_SURFACE_COMMITTED))
+
+    def test_named_giveups_are_all_distinct(self):
+        """The standing rule: every give-up gets a DISTINCT NAME, so an
+        operator never has to do post-hoc archaeology to learn which actor
+        died."""
+        names = (mlib.LANDING_GIVEUP_AP_NOT_ENABLED,
+                 mlib.LANDING_GIVEUP_NO_PROGRESS,
+                 mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT,
+                 mlib.LANDING_GIVEUP_NEVER_STABLE,
+                 mlib.LANDING_GIVEUP_VESSEL_LOST)
+        self.assertEqual(len(set(names)), len(names))
+
+    def test_landing_state_is_observable(self):
+        """The landing decision state rides the machine-state line + status
+        file: an operator watching a descent must be able to see COMMANDED and
+        OBSERVED side by side."""
+        st = _b13_state(mlib.B5_DESCENT, landing_engaged=True,
+                        landing_ap_down_streak=2, landed_body="Mun")
+        d = mlib.machine_state_dict(st, ut=100.0)
+        self.assertTrue(d["landingEngaged"])
+        self.assertEqual(d["landingApDownStreak"], 2)
+        self.assertIn("landedEverStable", d)
+        line = mlib.format_machine_state(st, ut=100.0)
+        self.assertIn("landingEngaged=True", line)
+        self.assertIn("landingApDownStreak=2", line)
+        changes = mlib.diff_machine_state(
+            _b13_state(mlib.B5_DESCENT), st)
+        self.assertTrue(any("landingEngaged" in c for c in changes), changes)
 
 
 if __name__ == "__main__":

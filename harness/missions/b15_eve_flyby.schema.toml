@@ -1,0 +1,372 @@
+# Declared param schema for mission b15_eve_flyby -- a COPY of
+# b7_duna_flyby.schema.toml (the mission is a thin alias over the shared
+# body-parameterized B5 machine with B15's five interplanetary keys turned on;
+# run.py resolves <mission>.schema.toml by name, so the alias needs its own
+# file). Keep the shared block in sync with the B5 / B15 schemas.
+#
+# THE "NOTHING HERE IS NEW" RULE, AND ITS ONE EXCEPTION. This file used to say
+# that every key was B7's with only the COMMENTS re-sized for Eve, and that a
+# key appearing here but not in b7_duna_flyby.schema.toml meant the "Eve is a
+# parameter change, not a machine change" claim had stopped being true and had
+# to be RE-ARGUED, not patched. It was re-argued: B15 flights 1-3 proved the
+# claim false, because MechJeb's interplanetary ejection planner is only
+# correct from a ROUND parking orbit and nothing in the shared machine could
+# produce one. So exactly ONE key is new, `parkTrimEccMax`, argued at its own
+# block below and pinned by the rewritten EveLaneIsAParameterChangeTests. The
+# rule still holds for key number two.
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden
+# trajectory (design "Determinism guardrails").
+#
+# The ascent half is B2's ascent params verbatim. B2's eccentricityMax /
+# inclinationErrorDeg / launchSiteLatitude are deliberately ABSENT: like B4/B5,
+# B15 makes no orbital-precision assertions (the parking orbit is a waypoint the
+# ejection burn then deliberately leaves on a HYPERBOLIC escape).
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# THE ONE KEY B15 DECLARES THAT b7_duna_flyby.schema.toml DOES NOT, and it is
+# deliberate. > 0 arms the park ROUND-OUT trim inside CIRCULARIZE: plan + burn
+# a MechJeb circularize-at-apoapsis node until the observed eccentricity is
+# at/below this, bounded by mlib.PARK_TRIM_MAX_ATTEMPTS with a named give-up.
+# Optional; mlib defaults 0.0 (no trim -- the pre-trim CIRCULARIZE, so every
+# already-flown lane is byte-identical). B15: 0.02.
+#
+# It exists because MechJeb's interplanetary ejection planner sizes the burn at
+# the parking orbit's semi-major axis and applies it at a different radius, so
+# an eccentric park silently under-ejects (B15 flights 1-3; derivation on the
+# spec's parkTrimEccMax block and in mlib.park_trim_verdict). The header's
+# "nothing here is new" rule is knowingly broken by this ONE key, which is why
+# it carries this much comment: see the spec and
+# EveLaneIsAParameterChangeTests, which was rewritten to pin exactly this
+# single-key delta rather than deleted.
+[params.parkTrimEccMax]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The
+# machine's SOI gates compare snapshot.body against these. B15: target Eve,
+# home Kerbin.
+[params.targetBodyName]
+required = true
+type = "string"
+
+[params.homeBodyName]
+required = true
+type = "string"
+
+# TRANSFER-BURN exit floor for the moon Hohmann shape (B5/B6). B15 sets
+# ejectionEccFloor > 0 and DISABLES this apoapsis-floor evidence (a hyperbolic
+# escape drives the Kerbin-frame apoapsis negative), but the key stays required
+# for schema symmetry with the shared block; B15 sets it to 0.
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# > 0: after the ejection/TLI burn, plan + execute a MechJeb course correction
+# to this target-flyby periapsis (metres) -- pins the flyby geometry and keeps
+# the periapsis off the terrain. 0 disables the two correction phases.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-window/no-encounter plan throws server-side and leaves the node list
+# empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds). For B15 this must cover
+# the ENTIRE ejection-window wait: OperationInterplanetaryTransfer plans the
+# node at the next Kerbin->Eve window, up to ~1 synodic period ahead, and the
+# NodeExecutor autowarp advances game time to it. The Kerbin-Eve synodic period
+# is ~14,700,000 game s (DERIVED: 1/|1/T_Eve - 1/T_Kerbin| with the stock
+# T_Eve = 5,658,300 s and T_Kerbin = 9,204,000 s, both re-derived from the
+# stock sma + mu and matching the published year lengths to <0.01%), which is
+# SHORTER than the Kerbin-Duna ~19,650,000 B7 sized against. Sized in the B15
+# spec at ~18,000,000; hence the wide max here.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+max = 40000000.0
+
+# COAST-TO-TARGET budget (GAME seconds). The heliocentric Kerbin->Eve transfer
+# coast is DERIVED at ~3,490,000 game s: the Hohmann half-period
+# pi*sqrt(a_t^3/mu_Sun) with a_t = 11,716,262,400 m gives 3,679,880 s, scaled
+# by 0.9485 -- the ratio B7's three green flights MEASURED between their real
+# Sun->Duna coast (6,189,000-6,191,000 game s) and the same formula's
+# 6,524,600. That is ~56% of the Duna coast; sized with margin in the spec.
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit). Eve's SOI is the
+# LARGEST of any inner-system body at ~85.1 Mm radius (1.78x Duna's ~47.9 Mm),
+# so the transit is many game hours. DERIVED via hyperbolic Kepler for the B15
+# geometry (1,700 km periapsis radius): SOI-edge-to-periapsis is ~72,200 game s
+# at v_inf 931 m/s, ~76,800 at the ideal-Hohmann 846. B7 MEASURED 47,214-47,449 s
+# of Duna SOI residence for comparison.
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs. B15 sets coastWarpFactor = 7 (100,000x, legal
+# far from the Sun: Eve's orbit sits ~9.57e9 m above the Sun's surface, five
+# orders of magnitude past the 65,400 km Sun factor-7 limit, so an INWARD
+# transfer is exactly as legal as B7's outward one) for the ejection-window
+# wait and the heliocentric coast. mlib.STOCK_WARP_ALTITUDE_LIMITS already
+# carries Eve -- its table is IDENTICAL to Kerbin's (factor 7 needs >= 600 km
+# altitude) -- so the per-body clamp shapes the arrival legs from committed
+# data with nothing added.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor near periapsis. Optional; mlib defaults 6.
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# AIM-THEN-WARP node-arrival margin (GAME seconds): the correction burn aims
+# first, then natively warps to node UT minus this margin; 1x exists only
+# inside it (nodeWarpLeadSeconds is RETIRED -- delta-review E1). Optional;
+# mlib defaults 15.
+[params.nodeArrivalMarginSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
+
+# PLAN-* phase rails hold factor INDEX (legality-clamped; 2 = 10x). Optional;
+# mlib defaults 2.
+[params.planWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Native-warp SOI lead (GAME seconds): coast/flyby legs warp to the SOI
+# change minus this lead. Optional; mlib defaults 30.
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 3600.0
+
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
+
+# Flyby min-altitude assertion floor (metres above the target body). ON EVE
+# THIS FLOOR MEANS SOMETHING DIFFERENT than it does on the Mun (10 km), Minmus
+# (6 km) or Duna (15 km), where it is a TERRAIN-clearance number just above the
+# peaks. Eve's peaks are only ~7.5 km, but its ATMOSPHERE is 90 km deep -- the
+# deepest in the stock system -- so the hazard that actually bounds the pass is
+# aerocapture / breakup, not ground. B15 therefore sets 100 km: the assertion
+# reads "the pass stayed in VACUUM", which is both the stronger claim and the
+# survivable one. The machine tracks the min finite altitude inside the target
+# SOI; the assertion requires it at/above this floor.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+
+# Correction ROUNDS (ALTITUDE mode, B5/B6): COAST-TO-TARGET enters
+# PLAN-CORRECTION once per entry when the HOME-body altitude crosses that
+# trigger. B15 leaves this EMPTY and uses correctionTriggerTimeToSoiSeconds
+# instead (the heliocentric coast is in Sun SOI, so a Kerbin-altitude trigger
+# can never fire mid-coast).
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+
+# dv cap (m/s) an acceptable course-correction plan must fit under.
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
+# BURN-phase stagnation watchdog (game seconds). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# CORRECTION-BURN no-start watchdog (game seconds). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+
+# DIY correction burner (live finding 8). All optional.
+[params.correctionThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+[params.correctionCutDvMps]
+required = false
+type = "number"
+min = 0.5
+max = 20.0
+
+[params.correctionSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples before the mission
+# declares the vessel lost. mlib.B5Params defaults it to 10. Always an
+# ASSERT-FAIL loss (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# --------------------------------------------------------------------------
+# B15 INTERPLANETARY ADDITIONS (absent / defaulted-off in the B5/B6 schemas).
+# Each defaults in mlib.B5Params to its B5-preserving value, so the Mun/Minmus
+# specs stay byte-identical; B15 turns them on. See
+# docs/dev/design-autotest-b7-duna.md for the machine diff that introduced
+# them. NO further machine diff exists for Eve: these are the SAME five keys,
+# re-valued.
+# --------------------------------------------------------------------------
+
+# Ask MechJeb's ManeuverPlanner for an OperationInterplanetaryTransfer
+# (WaitForPhaseAngle) instead of the moon Hohmann OperationTransfer. The
+# ejection node lands at the next Kerbin->Eve window (up to ~1 synodic ahead).
+# Optional; mlib.B5Params defaults false (moon Hohmann shape, B5/B6). B15: true.
+[params.interplanetaryTransfer]
+required = false
+type = "bool"
+
+# Legal INTERMEDIATE coast SOI body names between home and target. Today's
+# machine reads any foreign body in the coast as the ejected ASSERT-FAIL
+# terminal; a via body is exempted (the craft is expected to pass through it)
+# AND is a legal rails-warp body for the coast. Optional; mlib defaults ()
+# (B5/B6: no intermediate -- Kerbin directly to the Mun/Minmus). B15: ["Sun"].
+[params.viaBodyNames]
+required = false
+type = "list"
+
+# Terminal EXIT SOI body after the flyby. RETURN (the success terminal) fires
+# when body == this AFTER TARGET-FLYBY. Empty string means "use homeBodyName"
+# (the B5/B6 free-return into Kerbin SOI). B15: "Sun" -- an Eve flyby exits into
+# heliocentric space, and a free-return to Kerbin takes years (out of scope).
+# Optional; mlib defaults "" (-> homeBodyName).
+[params.returnBodyName]
+required = false
+type = "string"
+
+# Hyperbolic ejection burn-done evidence: > 0 makes TRANSFER-BURN's exit
+# "the Kerbin-frame eccentricity reached this (an escape trajectory) OR the
+# craft already left the home SOI" instead of the apoapsis floor (an escape
+# burn drives the Kerbin-frame apoapsis negative, so transferMinApoapsisMeters
+# cannot be the evidence). Optional; mlib defaults 0.0 (apoapsis-floor
+# evidence, B5/B6). B15: 1.05 (comfortably > 1, below any physically-plausible
+# reading noise).
+[params.ejectionEccFloor]
+required = false
+type = "number"
+min = 0.0
+max = 100.0
+
+# Correction ROUNDS (TIME-TO-SOI mode, B15). A DESCENDING list of time-to-target-
+# SOI thresholds (GAME seconds): COAST-TO-TARGET enters PLAN-CORRECTION once per
+# entry when the trajectory shows an Eve encounter (finite time_to_soi) AND
+# time_to_soi has fallen at/below that round's threshold. A large first
+# threshold fires the EARLY round right after Sun-SOI entry (fix the ejection
+# error); a small last threshold fires the LATE round a few days before Eve
+# SOI entry (fine-tune the flyby periapsis). Non-empty SELECTS time mode and
+# supersedes correctionTriggerAltsMeters. Optional; mlib defaults () (altitude
+# mode, B5/B6).
+[params.correctionTriggerTimeToSoiSeconds]
+required = false
+type = "list"

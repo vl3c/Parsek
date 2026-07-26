@@ -13,6 +13,14 @@ dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into t
 
 Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
+**The autotest harness runs a DIFFERENT KSP instance.** Harness flights do NOT use the dev instance at `Kerbal Space Program/`; they run the provisioned instance at `automation/stock-minimal/`, which has its own `GameData/Parsek/Plugins/Parsek.dll`. `cd Source/Parsek && dotnet build` deploys ONLY to the dev instance, so verifying that DLL proves nothing about a harness run. To get a C# change into a harness flight:
+
+```bash
+cd harness && python provision/provision.py --profile stock-minimal
+```
+
+Its DEPLOY phase copies this worktree's `Source/Parsek/bin/Debug/Parsek.dll` into the automation instance; then verify `automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll` (not the dev one) carries your new string. The assembly version string is identical across builds, so `Parsek' V<x.y.z>` in the log does NOT discriminate. Skipping this costs a full flight: a 2026-07-25 B12 run flew green but red'd on a required logContract token, which looked exactly like a real Parsek defect until the collected KSP.log showed every commit line present and zero occurrences of the new one.
+
 **Always verify the deployed DLL after building**, especially when working from a worktree or when multiple worktrees exist side-by-side. The post-build copy can silently fail (KSP holding the file, MSBuild reporting "up-to-date" and skipping the copy target, or a concurrent build from a sibling worktree clobbering `GameData/Parsek/Plugins/Parsek.dll` with a different branch's output). When the user reports "I don't see my change in game," the first thing to check is whether the deployed DLL is actually the one you just built.
 
 **Verification recipe:**
