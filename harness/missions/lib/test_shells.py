@@ -2267,12 +2267,24 @@ B15_PARAMS = dict(
     apoErrorMeters=150000,
     periErrorMeters=150000,
     ascentTimeoutSeconds=2400,
-    circularizeTimeoutSeconds=6000,
+    # Raised with the park trim below: CIRCULARIZE now also owns the round-out.
+    circularizeTimeoutSeconds=12000,
+    # The ONE key B7 does not carry. See EveLaneIsAParameterChangeTests.
+    parkTrimEccMax=0.02,
+    # Re-derived from flight 1: an INWARD ejection needs less C3 than an
+    # outward one, so B7/Duna's 1.05 legitimately fails a correct Eve escape
+    # (MEASURED 1.004).
+    ejectionEccFloor=1.001,
+    # Flight 2: an inward ejection transits the Mun's SOI on the way out.
+    viaBodyNames=["Sun", "Mun"],
     courseCorrectPeriapsisMeters=1000000,
     transferBurnTimeoutSeconds=18000000,
     coastTimeoutSeconds=7000000,
     flybyTimeoutSeconds=600000,
     targetPeriapsisFloorMeters=100000,
+    # MEASURED on flight 6 once the corrections fired on the heliocentric leg:
+    # MechJeb prices the Eve phase correction at 378.5 m/s, deterministically.
+    maxCorrectionDvMps=450,
 )
 
 # B16 spec-shaped params: B15's interplanetary set PLUS B11/B12's capture tail.
@@ -2280,6 +2292,9 @@ B15_PARAMS = dict(
 # sets, and test_the_eve_params_are_a_union_of_two_proven_key_sets pins that.
 B16_PARAMS = dict(
     B15_PARAMS,
+    # parkTrimEccMax / circularizeTimeoutSeconds / ejectionEccFloor /
+    # viaBodyNames all ride in from B15_PARAMS: B16's transfer IS B15's, so it
+    # inherits every fix the Eve flights bought.
     courseCorrectPeriapsisMeters=5000000,
     captureEnabled=True,
     capturePlanTimeoutSeconds=300,
@@ -2632,21 +2647,51 @@ class B16EveOrbitShellTests(unittest.TestCase):
 
 
 class EveLaneIsAParameterChangeTests(unittest.TestCase):
-    """THE LANE'S CENTRAL CLAIM, machine-checked. B15/B16 were shipped on the
-    argument that Eve is a PARAMETER change, not a MACHINE change. These cells
-    fail the moment that stops being true, so nobody has to take it on trust --
-    and they double as the existing-families-are-unaffected proof, because they
-    pin that the Eve dicts introduce no key the proven families do not already
-    carry and switch on no behaviour they do not already have."""
+    """THE LANE'S CENTRAL CLAIM, machine-checked -- and REVISED once, on
+    evidence, which is the whole reason this class is worth keeping.
 
-    def test_the_eve_params_are_a_union_of_two_proven_key_sets(self):
-        """B15's key set must be a SUBSET of B7's (three green Duna flights) and
-        B16's must be a subset of B7's plus B11's (five green Mun + six green
-        Minmus flights). A new key here means new machine surface, which is a
-        design decision to be argued in a spec, not smuggled in via a dict."""
-        self.assertEqual(sorted(set(B15_PARAMS) - set(B7_PARAMS)), [])
+    B15/B16 were shipped on the argument that Eve is a PARAMETER change, not a
+    MACHINE change. Three flights refuted it. Two of the three failures really
+    were parameter defects, but the third was not: MechJeb's interplanetary
+    ejection planner is only correct from a ROUND parking orbit, and the shared
+    machine had no way to produce one (CIRCULARIZE only WAITED on a periapsis
+    window; it never acted). So the claim is now the narrower, still-useful
+    one: B15 is B7's key set plus EXACTLY ONE argued key, and B16 adds none of
+    its own beyond that.
+
+    A test that pins a claim should be REWRITTEN when the claim is disproved,
+    not deleted -- deleting it would have quietly retired the guard at the
+    exact moment it did its job. These cells still fail the moment a SECOND
+    key appears, and they still double as the existing-families-are-unaffected
+    proof."""
+
+    # The single machine-surface key B15 adds beyond B7's live-proven set,
+    # argued in B15-eve-flyby.toml and b15_eve_flyby.schema.toml.
+    EVE_ONLY_KEYS = ["parkTrimEccMax"]
+
+    def test_the_eve_params_add_exactly_one_key_to_two_proven_key_sets(self):
+        """B15's key set must be B7's (three green Duna flights) plus exactly
+        the argued Eve-only key, and B16's must add nothing beyond B7's plus
+        B11's (five green Mun + six green Minmus flights) plus that same key.
+        Any OTHER new key means new machine surface, which is a design decision
+        to be argued in a spec, not smuggled in via a dict."""
+        self.assertEqual(sorted(set(B15_PARAMS) - set(B7_PARAMS)),
+                         sorted(self.EVE_ONLY_KEYS))
         self.assertEqual(
-            sorted(set(B16_PARAMS) - (set(B7_PARAMS) | set(B11_PARAMS))), [])
+            sorted(set(B16_PARAMS) - (set(B7_PARAMS) | set(B11_PARAMS))),
+            sorted(self.EVE_ONLY_KEYS))
+
+    def test_the_park_trim_is_armed_on_eve_and_off_on_every_proven_lane(self):
+        """The park round-out trim must be ON for both Eve lanes (their
+        transfers are wrong without it) and OFF for every lane that has already
+        flown green -- that OFF is what makes CIRCULARIZE byte-identical for
+        B5/B6/B7/B11-B14 and keeps their proofs valid."""
+        for params in (B15_PARAMS, B16_PARAMS):
+            self.assertGreater(
+                mlib.b5_params_from_dict(params).park_trim_ecc_max, 0.0)
+        for params in (B5_PARAMS, B7_PARAMS, B11_PARAMS, B13_PARAMS):
+            self.assertEqual(
+                mlib.b5_params_from_dict(params).park_trim_ecc_max, 0.0)
 
     def test_the_eve_lanes_select_the_expected_machine_behaviour(self):
         """The params RESOLVE to what the specs claim: B15 interplanetary with
@@ -2656,10 +2701,70 @@ class EveLaneIsAParameterChangeTests(unittest.TestCase):
         flyby = mlib.b5_params_from_dict(B15_PARAMS)
         self.assertTrue(flyby.interplanetary_transfer)
         self.assertEqual(flyby.target_body, "Eve")
-        self.assertEqual(flyby.via_bodies, ("Sun",))
+        # "Mun" is a COAST-legality entry (flight 2: an inward ejection
+        # transits it). It is deliberately NOT a correction-trigger body --
+        # see test_the_correction_trigger_body_domain_excludes_the_mun.
+        self.assertEqual(flyby.via_bodies, ("Sun", "Mun"))
         self.assertEqual(flyby.return_body, "Sun")
         self.assertFalse(flyby.capture_enabled)
         self.assertFalse(flyby.landing_enabled)
+
+    def _coasting(self, params):
+        base = mlib.b5_initial_state(params)
+        return base.__class__(**{**base.__dict__,
+                                 "phase": mlib.B5_COAST_TO_TARGET,
+                                 "phase_entry_ut": 0.0})
+
+    def test_the_time_mode_round_trigger_ignores_a_moon_soi_clock(self):
+        """B15 FLIGHT 5 REGRESSION, and the sharper half of the via-body
+        coupling. `time_to_soi` is the clock to ANY SOI change, so inside the
+        Mun's SOI it reads the MUN-EXIT time -- a few thousand seconds, which
+        trivially satisfies round 0's 20,000,000 s threshold. Flight 5 burned
+        BOTH correction rounds there on a Mun flyby hyperbola (MechJeb priced
+        the fix at 378.6 m/s against the 200 m/s cap, so both were discarded)
+        and had none left for the heliocentric leg, where the real phase error
+        was. The transfer's GEOMETRY was right by then -- perihelion 0.046 Eve
+        SOI radii off -- and its PHASE was never corrected."""
+        params = mlib.b5_params_from_dict(B15_PARAMS)
+        state = self._coasting(params)
+        in_mun = mlib.TelemetrySnapshot(
+            ut=11_838_936.0, body="Mun", altitude=2_215_441.0,
+            apoapsis=-2_260_732.0, time_to_soi=3_000.0)
+        self.assertFalse(mlib._b5_correction_round_ready(state, in_mun))
+        # The SAME clock value on the heliocentric leg DOES fire it.
+        self.assertTrue(
+            mlib._b5_correction_round_ready(state, replace(in_mun, body="Sun")))
+
+    def test_the_time_mode_round_trigger_is_unchanged_for_b7(self):
+        """The narrowing must be a no-op for the three green Duna flights:
+        B7's return_body is "Sun" and its via list is ("Sun",), so the domain
+        is the same set before and after."""
+        params = mlib.b5_params_from_dict(B7_PARAMS)
+        state = self._coasting(params)
+        frame = mlib.TelemetrySnapshot(ut=5_000_000.0, body="Sun",
+                                       time_to_soi=1_000_000.0)
+        self.assertTrue(mlib._b5_correction_round_ready(state, frame))
+        self.assertEqual(mlib._b5_correction_via_bodies(params),
+                         params.via_bodies)
+
+    def test_the_correction_trigger_body_domain_excludes_the_mun(self):
+        """Widening viaBodyNames to admit the Mun was a COAST decision, but the
+        no-encounter correction trigger read the same list, so flight 3 spent
+        BOTH correction rounds inside the Mun's SOI on a flyby hyperbola (where
+        MechJeb priced the correction at 1464.1 m/s against a 200 m/s cap and
+        both were discarded). The trigger domain is the transfer-parent SOI,
+        and this pins that it stayed IDENTICAL for the already-flown lanes."""
+        self.assertEqual(
+            mlib._b5_correction_via_bodies(mlib.b5_params_from_dict(B15_PARAMS)),
+            ("Sun",))
+        # B7: return_body "Sun", via_bodies ("Sun",) -- unchanged.
+        self.assertEqual(
+            mlib._b5_correction_via_bodies(mlib.b5_params_from_dict(B7_PARAMS)),
+            mlib.b5_params_from_dict(B7_PARAMS).via_bodies)
+        # B5/B6: not interplanetary, so the via list passes straight through.
+        self.assertEqual(
+            mlib._b5_correction_via_bodies(mlib.b5_params_from_dict(B5_PARAMS)),
+            mlib.b5_params_from_dict(B5_PARAMS).via_bodies)
 
         orbit = mlib.b5_params_from_dict(B16_PARAMS)
         self.assertTrue(orbit.interplanetary_transfer)

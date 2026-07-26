@@ -264,7 +264,21 @@ targetPeriapsisMeters      = 700000
 apoErrorMeters             = 150000
 periErrorMeters            = 150000
 ascentTimeoutSeconds       = 2400
-circularizeTimeoutSeconds  = 6000
+# Raised with the park trim below (B15 flight 4): CIRCULARIZE now also owns the
+# round-out, which can plan a node up to another orbital period away and has to
+# burn it. Same value and same reasoning as B15's.
+circularizeTimeoutSeconds  = 12000
+# INHERITED FROM B15, AND B16 CANNOT FLY WITHOUT IT. This lane's transfer IS
+# B15's transfer, so it carries B15's blocker verbatim: MechJeb's
+# interplanetary ejection planner sizes the burn at the parking orbit's
+# SEMI-MAJOR AXIS and applies it at a different radius, so an eccentric park
+# under-ejects and the heliocentric leg never reaches Eve's orbit at all
+# (B15 flights 1-3; full derivation on B15-eve-flyby.toml's parkTrimEccMax
+# block and in mlib.park_trim_verdict). Arming the round-out trim is the fix,
+# and it matters MORE here than on B15: a flyby that arrives off-target merely
+# misses, whereas a capture that arrives off-target has no periapsis to
+# circularize at.
+parkTrimEccMax             = 0.02
 targetBodyName             = "Eve"
 homeBodyName               = "Kerbin"
 transferMinApoapsisMeters  = 0
@@ -320,7 +334,21 @@ returnBodyName             = "Sun"
 # turned 250 km into 956-1,142 km) - so even a 2x overshoot lands at ~10,000 km,
 # still comfortably below the ceiling below.
 courseCorrectPeriapsisMeters = 5000000
-maxCorrectionDvMps         = 200
+# RAISED from B7's 200 to match B15 (flight 6, 2026-07-26). B16's transfer IS
+# B15's, and B15 MEASURED its heliocentric correction at 378.5 / 378.3 m/s once
+# the corrections finally fired in the right place - deterministic across rounds
+# and flights, and under the old cap they were discarded so the coast flew the
+# raw intercept and never encountered Eve. Full derivation on B15's own
+# maxCorrectionDvMps block.
+#
+# PROVISIONAL FOR THIS LANE, and the affordability arithmetic is TIGHTER here
+# than on B15 because B16 must still CAPTURE. From B15's measured ~1,944 m/s at
+# Sun-SOI entry: minus a 378.5 m/s correction leaves ~1,566, minus the DERIVED
+# ~735 m/s capture-to-circular at the 5,000 km park leaves ~830 m/s of margin.
+# It closes, but B16's first flight must re-read both numbers rather than trust
+# them - a correction that lands near this 450 ceiling AND a capture at the top
+# of its derived range would eat the margin.
+maxCorrectionDvMps         = 450
 correctionTriggerAltsMeters       = []
 correctionTriggerTimeToSoiSeconds = [20000000, 500000]
 planTimeoutSeconds         = 300

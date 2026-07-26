@@ -512,6 +512,15 @@ ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
 ACTION_MJ_EXECUTE_CIRCULARIZATION = "mj_execute_circularization"  # value = None
+# Park round-out trim (park_trim_ecc_max > 0): plan a MechJeb circularize node
+# at the next APOAPSIS. Apoapsis, not periapsis, on purpose -- circularizing at
+# periapsis DROPS the park to the periapsis radius, and the interplanetary
+# lanes deliberately park HIGH so the ejection-window wait is rails-warp legal
+# (the stock factor-7 altitude limit). Rounding out at apoapsis can only raise
+# the park, so the warp-legality argument survives the trim by construction.
+# Same set-then-READ-BACK time-reference contract as ACTION_MJ_PLAN_CAPTURE:
+# MechJeb's OperationCircularize TimeSelector is SHARED, PERSISTED state.
+ACTION_MJ_PLAN_PARK_TRIM = "mj_plan_park_trim"              # value = None
 # B4 deorbit/reentry actions. AP_* drive kRPC's NATIVE AutoPilot (vessel.auto_pilot:
 # reference_frame = vessel.orbital_reference_frame, target_direction = (0, -1, 0)
 # = orbital retrograde, engage() / disengage(); surface verified against the
@@ -1370,6 +1379,168 @@ def classify_correction_plan(total_dv: float, cap: float,
     return PLAN_FLY
 
 
+# Park round-out trim (park_trim_ecc_max). Bounded attempts: MechJeb's
+# DeltaVToCircularize is closed-form, so one node should do it and two is
+# already generous. A third would be evidence of something the machine cannot
+# fix by asking again, which is what the named flake is for.
+PARK_TRIM_MAX_ATTEMPTS = 2
+
+# Verdicts of park_trim_verdict.
+PARK_TRIM_OFF = "off"          # the param is not armed -- no trim exists
+PARK_TRIM_OK = "ok"            # the park is round enough; proceed
+PARK_TRIM_PLAN = "plan"        # ask MechJeb for a circularize-at-apoapsis node
+PARK_TRIM_EXECUTE = "execute"  # a node is on the board; hand it to the executor
+PARK_TRIM_WAIT = "wait"        # burning / settling -- hold, the budget bounds it
+PARK_TRIM_GIVEUP = "giveup"    # attempts exhausted and still out of round
+
+
+def park_trim_verdict(ecc_max: float, eccentricity: float, node_count: int,
+                      attempts: int, execs: int,
+                      max_attempts: int = PARK_TRIM_MAX_ATTEMPTS) -> str:
+    """Decide the next park round-out step. Pure; primitives in, verdict out.
+
+    WHY A ROUND PARK IS A REQUIREMENT AND NOT A PREFERENCE. MechJeb's
+    interplanetary ejection planner sizes the burn for the WRONG RADIUS on an
+    eccentric parking orbit. Decompiled MechJeb 2.15.1,
+    `OrbitalManeuverCalculator.DeltaVAndTimeForInterplanetaryTransferEjection`:
+    it computes the required post-burn SPEED as
+
+        v_eject = sqrt(2 * (soiExitEnergy + mu / o.semiMajorAxis))
+
+    -- at the parking orbit's SEMI-MAJOR AXIS -- and then applies it at
+    `burnUT`, which its own ejection geometry places at whatever true anomaly
+    makes the escape asymptote point the right way. On a CIRCULAR park r ==
+    sma and the sizing is exact. On an eccentric one it is not, and the
+    achieved hyperbolic excess comes out as
+
+        v_inf^2 = v_ideal^2 - 2*mu/SOI + 2*mu/sma - 2*mu/r_burn
+
+    Near escape velocity that third-and-fourth-term error is brutal: it is a
+    difference of two large reciprocals scaled by 2*mu, so a park that is only
+    slightly out of round can eat most of the C3 budget. B15 flight 3 MEASURED
+    it -- a 562 x 778 km park (ecc 0.085) turned a 769.6 m/s Eve ejection into
+    a 652.8 m/s one, and 779 m/s of required v_inf into 129, whereupon the
+    heliocentric leg's perihelion missed Eve's orbit by 2.46e9 m and no
+    encounter was ever predicted. MechJeb warns about this itself, but only
+    above ecc 0.2 ("#MechJeb_transfer_errormsg3"), which is far too loose for a
+    low-C3 transfer.
+
+    Verdicts:
+    THE ECCENTRICITY IS ONLY READ WHEN NO NODE IS PENDING, and B15 flight 4
+    is why. The first shape of this function tested eccentricity FIRST, and a
+    circularize-at-apoapsis burn sweeps the orbit CONTINUOUSLY from its starting
+    eccentricity down through zero. The gate therefore fired MID-BURN, on a
+    frame where the instantaneous reading happened to be inside the window
+    (0.085 -> 0.044 -> under 0.02 across three polls), and CIRCULARIZE exited
+    with a live node still on the board. ORBIT then planned the ejection, and
+    TRANSFER-BURN's `execute_all_nodes` re-burned the leftover trim node,
+    driving the park to 778 x 1,014 km -- WORSE than the eccentric park the
+    trim existed to fix. A pending node means the orbit is still being written;
+    reading it is reading a value in flight. So: node first, orbit second.
+
+    Verdicts:
+      - "off":     ecc_max <= 0 (or non-finite). No trim; the caller proceeds
+                   exactly as the pre-trim machine did.
+      - "execute": a node is on the board and THIS attempt has not been handed
+                   to the executor yet -> hand it over. Gated on execs <
+                   attempts precisely so a multi-frame burn re-issues nothing:
+                   commanding the executor every frame while it works is the
+                   shape that wedged earlier lanes.
+      - "wait":    a node is on the board and already executing -> hold. Also
+                   the CIRCULARIZE-entry case where MechJeb's own ascent
+                   circularization node has not been consumed yet (attempts and
+                   execs both 0). Bounded by the phase's game-time budget, with
+                   its own named give-up in _b5_park_trim_step.
+      - "ok":      nothing pending AND the settled eccentricity is finite and
+                   <= ecc_max. Proceed.
+      - "plan":    nothing pending, out of round, attempts remain -> plan one.
+      - "giveup":  nothing pending, out of round, every attempt spent.
+
+    A NON-FINITE eccentricity is NOT treated as ok: an unread orbit must never
+    certify a park as round, so it routes to the same plan/giveup ladder as an
+    openly bad one (fail closed, the standing rule)."""
+    if not _is_finite(ecc_max) or ecc_max <= 0.0:
+        return PARK_TRIM_OFF
+    if node_count > 0:
+        return PARK_TRIM_EXECUTE if execs < attempts else PARK_TRIM_WAIT
+    if _is_finite(eccentricity) and eccentricity <= ecc_max:
+        return PARK_TRIM_OK
+    if attempts >= max_attempts:
+        return PARK_TRIM_GIVEUP
+    return PARK_TRIM_PLAN
+
+
+# Verdicts of classify_transfer_reach (the PLAN-TRANSFER diagnostic).
+TRANSFER_REACH_UNKNOWN = "unknown"
+TRANSFER_REACH_REACHES = "reaches"
+TRANSFER_REACH_SHORT = "short"
+TRANSFER_REACH_BEYOND = "beyond"
+
+
+def classify_transfer_reach(leg_pe: float, leg_ap: float,
+                            target_pe: float, target_ap: float,
+                            target_soi: float = 0.0) -> Tuple[str, float]:
+    """Does a planned transfer leg's conic REACH the target body's orbit?
+    Pure; four RADII (metres from the shared parent's centre) in, a
+    (verdict, gap_metres) pair out.
+
+    This is the diagnostic B15's first three flights did not have. A transfer
+    can be planned, executed, and consumed -- node planned, executor burned it,
+    node gone, a genuinely hyperbolic escape -- and still be aimed at nothing,
+    because "the ejection burned" and "the ejection was the RIGHT SIZE" are
+    different claims. The patched conics then simply never predict an encounter
+    and the mission dies much later on a coast budget, which reads like a
+    budget problem and is not one.
+
+    The test is an ANNULUS OVERLAP, deliberately DIRECTION-FREE: the leg can
+    encounter the target only if the radius band it sweeps, [leg_pe, leg_ap],
+    overlaps the band the target sweeps, [target_pe, target_ap], WIDENED BY THE
+    TARGET'S SOI RADIUS at both ends. One expression covers an OUTWARD transfer
+    (B7: leg_ap must reach up to target_pe) and an INWARD one (B15: leg_pe must
+    reach down to target_ap), so nothing here has to know which way the craft
+    is going.
+
+    THE SOI TERM IS NOT A REFINEMENT, IT IS THE DIFFERENCE BETWEEN A USEFUL
+    VERDICT AND A MISLEADING ONE, and B15 flight 5 is the proof. That flight's
+    corrected ejection put the heliocentric perihelion 6.96e6 m above Eve's
+    aphelion -- 0.082 of Eve's 85.1e6 m SOI radius, i.e. comfortably an
+    intercept. A bare band comparison calls that "beyond" in the same word it
+    uses for flight 3's 2.46e9 m (28.9 SOI radii), and a reader who trusted the
+    word would have gone hunting for a defect in a transfer that was fine.
+    Encounter means "enters the SOI", not "crosses the osculating orbit", so
+    the SOI belongs in the test. Pass 0.0 (the default) when it cannot be read
+    and the verdict degrades to the strict band comparison.
+
+      - "reaches": the widened bands overlap; gap 0.0. NECESSARY, NOT
+                   SUFFICIENT -- reaching the target's orbit is not the same as
+                   arriving when the target is there, which is the phase
+                   problem the correction rounds own. A "reaches" verdict says
+                   only that an encounter is GEOMETRICALLY POSSIBLE.
+      - "short":   the leg stays entirely INSIDE the target's reach; gap = how
+                   much further OUT it must get to graze the SOI.
+      - "beyond":  the leg stays entirely OUTSIDE it; gap = how much further IN
+                   it must get. This is the B15 flight-3 reading: 2.46e9 m
+                   above Eve's aphelion, 28.9 SOI radii, which no amount of
+                   coasting can close.
+      - "unknown": any of the four radii non-finite. Fails to UNKNOWN, never to
+                   a verdict: an unread conic must not be reported as either a
+                   good plan or a bad one. A non-finite SOI is NOT unknown --
+                   it degrades to 0.0, the strict test, which can only ever be
+                   harsher than the truth.
+
+    The returned gap is what a correction actually has to close, so it is the
+    SOI-adjusted number and it is 0.0 whenever the verdict is "reaches"."""
+    if not (_is_finite(leg_pe) and _is_finite(leg_ap)
+            and _is_finite(target_pe) and _is_finite(target_ap)):
+        return TRANSFER_REACH_UNKNOWN, float("nan")
+    soi = target_soi if (_is_finite(target_soi) and target_soi > 0.0) else 0.0
+    if leg_ap < target_pe - soi:
+        return TRANSFER_REACH_SHORT, (target_pe - soi) - leg_ap
+    if leg_pe > target_ap + soi:
+        return TRANSFER_REACH_BEYOND, leg_pe - (target_ap + soi)
+    return TRANSFER_REACH_REACHES, 0.0
+
+
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
 
@@ -1961,6 +2132,22 @@ class B5Params:
     peri_error: float
     ascent_timeout: float
     circularize_timeout: float
+    park_trim_ecc_max: float = 0.0         # > 0 ARMS the park round-out trim:
+                                           # CIRCULARIZE, having met the pe
+                                           # window, plans + burns a MechJeb
+                                           # circularize-at-APOAPSIS until the
+                                           # observed eccentricity is at/below
+                                           # this, bounded by
+                                           # PARK_TRIM_MAX_ATTEMPTS. 0.0 (the
+                                           # default) leaves CIRCULARIZE
+                                           # byte-identical to the pre-trim
+                                           # machine, so every flown lane is
+                                           # untouched. Required by the
+                                           # INTERPLANETARY lanes only -- see
+                                           # park_trim_verdict for why an
+                                           # eccentric park breaks MechJeb's
+                                           # ejection sizing (spec key
+                                           # parkTrimEccMax)
     target_body: str = "Mun"               # transfer target SOI body name
     home_body: str = "Kerbin"              # departure/return SOI body name
     transfer_min_apoapsis: float = 10_000_000.0
@@ -2371,6 +2558,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         peri_error=float(params.get("periErrorMeters", 5000)),
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 420)),
         circularize_timeout=float(params.get("circularizeTimeoutSeconds", 300)),
+        park_trim_ecc_max=float(params.get("parkTrimEccMax", 0.0)),
         target_body=str(params.get("targetBodyName", "Mun")),
         home_body=str(params.get("homeBodyName", "Kerbin")),
         transfer_min_apoapsis=float(params.get("transferMinApoapsisMeters", 10_000_000)),
@@ -3710,6 +3898,13 @@ class B5State:
     # ("OK" / "ERROR" / "TIMEOUT"); "" while never issued or still polling.
     # SHARED by ORBIT-COMMIT and SURFACE-COMMIT (one seam, one verdict).
     commit_result: str = ""
+    # Park round-out trim bookkeeping (park_trim_ecc_max > 0 only). Both stay 0
+    # for every lane that does not arm the trim, so their presence in the
+    # machine-state dump is inert.
+    park_trim_attempts: int = 0    # circularize-at-apoapsis plans ISSUED
+    park_trim_execs: int = 0       # of those, how many were handed to the
+                                   # executor (execs < attempts is the
+                                   # "this attempt still needs burning" edge)
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -3799,6 +3994,73 @@ def _b5_stay_or_flake(state: B5State, snapshot: TelemetrySnapshot,
     return replace(state, peak_apoapsis=peak)
 
 
+def _b5_park_trim_step(state: B5State, snapshot: TelemetrySnapshot,
+                       peak: Optional[float]) -> Tuple[B5State, List[Action]]:
+    """The CIRCULARIZE exit, with the optional park ROUND-OUT trim in front of
+    it. Called only once the periapsis window is already met.
+
+    With ``park_trim_ecc_max`` at its 0.0 default this is exactly the pre-trim
+    line it replaced -- straight into ORBIT, no actions -- so B2/B4/B5/B6/B7/
+    B11-B14 are byte-identical. Armed, it holds CIRCULARIZE while MechJeb
+    rounds the park out, because the interplanetary ejection planner sizes its
+    burn at the parking orbit's SEMI-MAJOR AXIS and applies it at whatever
+    radius its ejection geometry picks; on an eccentric park those differ and
+    the hyperbolic excess collapses (the full derivation, with B15 flight 3's
+    measured numbers, is in ``park_trim_verdict``).
+
+    Bounded on every path: PARK_TRIM_MAX_ATTEMPTS plans, the executor commanded
+    at most once per plan, and the whole thing inside CIRCULARIZE's own
+    ``circularizeTimeoutSeconds`` game-time budget. Exhausting the attempts is
+    a NAMED flake, never a silent proceed -- a lane that armed the trim did so
+    because an out-of-round park breaks its transfer, so quietly continuing on
+    one would just relocate the failure to a coast budget 11.8M game seconds
+    later, which is exactly the archaeology this trim exists to end."""
+    verdict = park_trim_verdict(
+        state.params.park_trim_ecc_max, snapshot.eccentricity,
+        snapshot.node_count, state.park_trim_attempts, state.park_trim_execs)
+    if verdict in (PARK_TRIM_OFF, PARK_TRIM_OK):
+        return _b5_enter(state, B5_ORBIT, snapshot.ut, peak), []
+    if verdict in (PARK_TRIM_PLAN, PARK_TRIM_EXECUTE):
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            # The phase budget expired on this very frame. Commanding MechJeb
+            # on a mission that has already given up is pure noise in the log
+            # and one more RPC against a dead flight.
+            return stayed, []
+        if verdict == PARK_TRIM_PLAN:
+            return (replace(stayed,
+                            park_trim_attempts=state.park_trim_attempts + 1),
+                    [Action(ACTION_MJ_PLAN_PARK_TRIM)])
+        return (replace(stayed, park_trim_execs=state.park_trim_execs + 1),
+                [Action(ACTION_MJ_EXECUTE_NODES)])
+    if verdict == PARK_TRIM_GIVEUP:
+        return _b5_named_flake(
+            state,
+            "park round-out never reached eccentricity <= %.4f after %d "
+            "MechJeb circularize-at-apoapsis attempt(s) (last read %s): an "
+            "eccentric park mis-sizes the interplanetary ejection, so "
+            "proceeding would plan a transfer aimed at nothing"
+            % (state.params.park_trim_ecc_max, state.park_trim_attempts,
+               _obs_fmt(snapshot.eccentricity)),
+            peak), []
+    # PARK_TRIM_WAIT: a node is on the board and the executor owns it. Bounded
+    # by CIRCULARIZE's own game-time budget -- but a budget expiry HERE means
+    # something specific (a node nobody is burning), and the standing rule is
+    # that every give-up names itself rather than surfacing as a generic
+    # "phase CIRCULARIZE timed out".
+    stayed = _b5_stay_or_flake(state, snapshot, peak)
+    if stayed.done and stayed.flake_reason is None:
+        return _b5_named_flake(
+            state,
+            "park round-out node never cleared: %d node(s) still pending after "
+            "%d plan(s) and %d executor hand-off(s), ecc %s -- the trim burn "
+            "was commanded but nothing consumed the node"
+            % (snapshot.node_count, state.park_trim_attempts,
+               state.park_trim_execs, _obs_fmt(snapshot.eccentricity)),
+            peak), []
+    return stayed, []
+
+
 # ---------------------------------------------------------------------------
 # B7 interplanetary helpers (design docs/dev/design-autotest-b7-duna.md,
 # section 5.4). All pure; with the B7 params at their defaults every helper
@@ -3826,6 +4088,35 @@ def _b5_warp_bodies(params: B5Params) -> Tuple[str, ...]:
     extra round too; with via_bodies=() this is exactly (home_body,), the
     pre-B7 gate."""
     return (params.home_body,) + params.via_bodies
+
+
+def _b5_correction_via_bodies(params: B5Params) -> Tuple[str, ...]:
+    """The via SOIs in which a NO-ENCOUNTER mid-course correction is meaningful.
+
+    Not the same list as ``via_bodies``, and B15 flight 3 is why. That flight
+    widened ``viaBodyNames`` to ``["Sun", "Mun"]`` because an inward Eve
+    ejection legitimately transits the Mun's SOI on the way out -- a COAST
+    LEGALITY statement. But the no-encounter early correction trigger reads the
+    same list, so widening it silently made the craft eligible for an
+    interplanetary course correction WHILE INSIDE THE MUN'S SOI, on a Mun
+    flyby hyperbola. Both correction rounds were spent there, and MechJeb
+    priced the "correction" at 1464.1 m/s against a 200 m/s cap, so both were
+    removed and the two rounds bought nothing.
+
+    A correction toward an interplanetary target only makes sense once the
+    craft is in the SOI the TARGET also orbits, which on every interplanetary
+    lane in the suite is exactly ``return_body`` (the transfer's parent, and
+    the body the flyby exits back into). Narrowing to it is a strict subset,
+    so it can only ever REMOVE a firing opportunity that was wrong anyway.
+
+    IDENTICAL for every lane flown to date: B7/Duna has return_body "Sun" and
+    via_bodies ("Sun",), so this returns ("Sun",) unchanged; B5/B6 are not
+    interplanetary and return their (empty) via list, and their no-encounter
+    trigger is inert regardless because it requires time-mode correction
+    triggers. Only B15/B16 see a difference, and only by losing "Mun"."""
+    if params.interplanetary_transfer and params.return_body:
+        return (params.return_body,)
+    return params.via_bodies
 
 
 def _b5_transfer_plan_action(params: B5Params) -> Action:
@@ -3868,18 +4159,36 @@ def _b5_rounds_pending(state: B5State) -> bool:
 
 def _b5_correction_round_ready(state: B5State, snapshot: TelemetrySnapshot) -> bool:
     """True iff the current correction round's trigger has fired this frame.
-    TIME mode (B7): body is a via body AND time_to_soi finite AND <= the round's
-    threshold (fires in heliocentric space, never during the home-SOI escape,
-    and only while a target encounter exists -- which is also
+    TIME mode (B7): body is a CORRECTION via body AND time_to_soi finite AND <=
+    the round's threshold (fires in heliocentric space, never during the
+    home-SOI escape, and only while a target encounter exists -- which is also
     OperationCourseCorrection's precondition).
     ALTITUDE mode (B5/B6): body == home AND altitude finite AND >= the round's
-    threshold. Both NaN-fail-closed."""
+    threshold. Both NaN-fail-closed.
+
+    THE BODY DOMAIN IS `_b5_correction_via_bodies`, NOT `via_bodies`, AND B15
+    FLIGHT 5 IS WHY. `time_to_soi` is the clock to ANY SOI change, not to the
+    TARGET's. B7/Duna never transits a moon on its way out, so during its coast
+    that clock IS the Sun -> Duna transition and the distinction never showed.
+    B15's inward ejection DOES transit the Mun, `viaBodyNames` was widened to
+    ["Sun", "Mun"] to keep that coast legal, and inside the Mun's SOI the clock
+    becomes the MUN-EXIT time -- a few thousand seconds, which trivially
+    satisfies round 0's 20,000,000 s threshold. Flight 5 therefore spent BOTH
+    correction rounds on a Mun flyby hyperbola ~8,400 s after ejection, where
+    MechJeb priced the fix at 378.6 m/s against the 200 m/s cap so both were
+    discarded, and by the time the craft was on the heliocentric leg with a
+    real phase error to fix, `rounds_pending` was already False. The coast then
+    ran to its budget with a transfer whose geometry was RIGHT (perihelion 0.046
+    Eve SOI radii off) and whose PHASE was never corrected.
+
+    Narrowing to the transfer-parent SOI is a strict subset and is IDENTICAL
+    for every lane flown to date (B7: return_body "Sun", via_bodies ("Sun",))."""
     p = state.params
     if not _b5_rounds_pending(state):
         return False
     idx = state.correction_rounds_done
     if p.correction_trigger_time_to_soi:
-        return (snapshot.body in p.via_bodies
+        return (snapshot.body in _b5_correction_via_bodies(p)
                 and _is_finite(snapshot.time_to_soi)
                 and snapshot.time_to_soi <= p.correction_trigger_time_to_soi[idx])
     return (snapshot.body == p.home_body
@@ -5161,7 +5470,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
     if state.phase == B5_CIRCULARIZE:
         target = state.params.target_periapsis
         if _is_finite(snapshot.periapsis) and snapshot.periapsis >= target - state.params.peri_error:
-            return _b5_enter(state, B5_ORBIT, snapshot.ut, peak), []
+            return _b5_park_trim_step(state, snapshot, peak)
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_ORBIT:
@@ -5213,11 +5522,33 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # frame, reproducing the old immediate post-TLI correction).
             return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
         if stuck:
-            # A burn happened, the executor wedged, and the apoapsis floor is
-            # NOT met: the TLI under-burned -- no transfer exists to coast on.
-            # An autopilot failure, so a bounded flake (retry per policy).
-            return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
-                           flake_phase=state.phase, done=True), []
+            # A burn happened, the executor wedged, and the burn-done evidence
+            # is NOT met: the TLI under-burned -- no transfer exists to coast
+            # on. An autopilot failure, so a bounded flake (retry per policy).
+            #
+            # NAMED, because the generic message actively misleads (B15 flights
+            # 1-2, 2026-07-25). This branch surfaced as "phase TRANSFER-BURN
+            # timed out" while only ~66% of transferBurnTimeoutSeconds had been
+            # spent, which sent the investigation at the BUDGET when the
+            # stagnation watchdog was what fired -- and the real defect was an
+            # ejection eccentricity floor calibrated on an outward transfer.
+            # Same class as the CORRECTION-BURN root cause above; the standing
+            # rule is that every give-up names its own actor and shows the
+            # evidence that failed.
+            return _b5_named_flake(
+                state,
+                "transfer-burn under-burn: the executor stopped making "
+                "progress (burn-stagnation watchdog, NOT the phase budget) "
+                "with the burn-done evidence unmet -- %s, ap %s, ecc %s, "
+                "nodes %d, lf %s"
+                % (("ejection eccentricity floor %.4f not reached"
+                    % (state.params.ejection_ecc_floor,))
+                   if state.params.ejection_ecc_floor > 0.0 else
+                   ("apoapsis floor %.0f m not reached"
+                    % (state.params.transfer_min_apoapsis,)),
+                   _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.eccentricity),
+                   snapshot.node_count, _obs_fmt(snapshot.liquid_fuel)),
+                peak), []
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
@@ -5548,9 +5879,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # PLAN_MAX_ATTEMPTS fall-through, keeping the failure bounded.
         # Design Q5's "expected reliable encounter" assumption is REFUTED
         # live; this replaces its accepted-flake posture.
+        # Body domain: the TRANSFER-PARENT SOI, not every via body -- see
+        # _b5_correction_via_bodies. Unchanged for every lane flown to date.
         no_encounter = (bool(state.params.correction_trigger_time_to_soi)
                         and rounds_pending
-                        and snapshot.body in state.params.via_bodies
+                        and snapshot.body in _b5_correction_via_bodies(state.params)
                         and snapshot.node_count == 0
                         and not _is_finite(snapshot.time_to_soi))
         if no_encounter:
@@ -9045,6 +9378,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("phase_entry_ut", "entryUt"),
     ("correction_rounds_done", "rounds"),
     ("plan_attempts", "planAttempts"),
+    # Park round-out trim (interplanetary lanes only; 0/0 everywhere else).
+    ("park_trim_attempts", "parkTrimPlans"),
+    ("park_trim_execs", "parkTrimBurns"),
     ("body_blank_count", "bodyBlank"),
     ("corr_burn_started", "corrBurnStarted"),
     ("aligned_streak", "alignedStreak"),
@@ -9161,6 +9497,13 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
 MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("correction_rounds_done", "rounds"),
     ("plan_attempts", "planAttempts"),
+    # Park round-out trim: at most PARK_TRIM_MAX_ATTEMPTS plans and the same
+    # number of burns, so at most a handful of lines per flight, and every one
+    # of them is the sparse decision event "the park was not round enough to
+    # plan an interplanetary ejection from". 0/0 on every lane that does not
+    # arm the trim, so no other mission's log moves.
+    ("park_trim_attempts", "parkTrimPlans"),
+    ("park_trim_execs", "parkTrimBurns"),
     ("body_blank_count", "bodyBlank"),
     ("corr_burn_started", "corrBurnStarted"),
     ("aligned_streak", "alignedStreak"),

@@ -2,11 +2,18 @@
 # b7_duna_flyby.schema.toml (the mission is a thin alias over the shared
 # body-parameterized B5 machine with B15's five interplanetary keys turned on;
 # run.py resolves <mission>.schema.toml by name, so the alias needs its own
-# file). Keep the shared block in sync with the B5 / B15 schemas; NOTHING in this
-# file is new -- B15 declares exactly the B15 key set, and only the per-key
-# COMMENTS are re-sized for Eve. If a key ever appears here that is not in
-# b7_duna_flyby.schema.toml, the "Eve is a parameter change, not a machine
-# change" claim has stopped being true and should be re-argued, not patched.
+# file). Keep the shared block in sync with the B5 / B15 schemas.
+#
+# THE "NOTHING HERE IS NEW" RULE, AND ITS ONE EXCEPTION. This file used to say
+# that every key was B7's with only the COMMENTS re-sized for Eve, and that a
+# key appearing here but not in b7_duna_flyby.schema.toml meant the "Eve is a
+# parameter change, not a machine change" claim had stopped being true and had
+# to be RE-ARGUED, not patched. It was re-argued: B15 flights 1-3 proved the
+# claim false, because MechJeb's interplanetary ejection planner is only
+# correct from a ROUND parking orbit and nothing in the shared machine could
+# produce one. So exactly ONE key is new, `parkTrimEccMax`, argued at its own
+# block below and pinned by the rewritten EveLaneIsAParameterChangeTests. The
+# rule still holds for key number two.
 #
 # hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
 # every harness/missions/<mission>.schema.toml with tomllib into a registry
@@ -52,6 +59,27 @@ min = 0.0
 required = true
 type = "number"
 min = 0.0
+
+# THE ONE KEY B15 DECLARES THAT b7_duna_flyby.schema.toml DOES NOT, and it is
+# deliberate. > 0 arms the park ROUND-OUT trim inside CIRCULARIZE: plan + burn
+# a MechJeb circularize-at-apoapsis node until the observed eccentricity is
+# at/below this, bounded by mlib.PARK_TRIM_MAX_ATTEMPTS with a named give-up.
+# Optional; mlib defaults 0.0 (no trim -- the pre-trim CIRCULARIZE, so every
+# already-flown lane is byte-identical). B15: 0.02.
+#
+# It exists because MechJeb's interplanetary ejection planner sizes the burn at
+# the parking orbit's semi-major axis and applies it at a different radius, so
+# an eccentric park silently under-ejects (B15 flights 1-3; derivation on the
+# spec's parkTrimEccMax block and in mlib.park_trim_verdict). The header's
+# "nothing here is new" rule is knowingly broken by this ONE key, which is why
+# it carries this much comment: see the spec and
+# EveLaneIsAParameterChangeTests, which was rewritten to pin exactly this
+# single-key delta rather than deleted.
+[params.parkTrimEccMax]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
 
 # Transfer target / home SOI body names (kRPC orbit.body.name values). The
 # machine's SOI gates compare snapshot.body against these. B15: target Eve,

@@ -999,6 +999,66 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan", "operation_transfer.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_PARK_TRIM:
+            # PARK ROUND-OUT (park_trim_ecc_max): MechJeb's circularize
+            # operation aimed at the next APOAPSIS, so the trim can only RAISE
+            # the park and the interplanetary lanes' rails-warp-legality
+            # argument (park above the stock factor-7 altitude limit) survives
+            # it by construction.
+            #
+            # Same SET-then-READ-BACK contract as ACTION_MJ_PLAN_CAPTURE, for
+            # the same reason: OperationCircularize's TimeSelector is SHARED,
+            # PERSISTED MechJeb state (decompiled MechJeb 2.15.1: a single
+            # `static readonly TimeSelector _timeSelector`), its setter THROWS
+            # on a reference the operation does not allow, and a refused set
+            # would leave whatever reference MechJeb inherited -- planning a
+            # perfectly valid circularization at an ARBITRARY UT that the
+            # machine would then accept as a round-out. APOAPSIS is in
+            # OperationCircularize's allowed set (APOAPSIS / PERIAPSIS /
+            # X_FROM_NOW / ALTITUDE), so a refusal here means something is
+            # wrong, not that the request was unreasonable.
+            #
+            # A refusal or a throw leaves node_count at 0, which routes to the
+            # machine's bounded PARK_TRIM_MAX_ATTEMPTS ladder and its named
+            # give-up -- the same throw/log/swallow contract as every other
+            # plan action.
+            try:
+                op = self._mechjeb.maneuver_planner.operation_circularize
+                want = self._mechjeb.TimeReference.apoapsis
+                confirmed = False
+                try:
+                    op.time_selector.time_reference = want
+                    confirmed = (op.time_selector.time_reference == want)
+                    if not confirmed:
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "ParkTrim",
+                            "circularize time-selector READ BACK as %r, not "
+                            "apoapsis: REFUSING to plan (MechJeb kept an "
+                            "inherited time reference)"
+                            % (op.time_selector.time_reference,)))
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "ParkTrim",
+                        "circularize time-selector apoapsis retarget FAILED "
+                        "(%s): REFUSING to plan rather than let MechJeb's "
+                        "inherited time reference place the trim node"
+                        % (exc,)))
+                if confirmed:
+                    op.make_nodes()
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "ParkTrim",
+                        "park round-out plan issued (circularize at apoapsis, "
+                        "time reference READ BACK confirmed); ecc=%.5f "
+                        "ap=%.0f pe=%.0f nodes=%d"
+                        % (float(v.orbit.eccentricity),
+                           float(v.orbit.apoapsis_altitude),
+                           float(v.orbit.periapsis_altitude),
+                           len(control.nodes))))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "ParkTrim",
+                    "park round-out operation_circularize.make_nodes failed: "
+                    "%s" % (exc,)))
         elif kind == mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER:
             # KRPC.MechJeb 0.8.1 maneuver_planner.operation_interplanetary_transfer
             # (pinned source ManeuverPlanner.cs:79 OperationInterplanetaryTransfer
@@ -1011,7 +1071,27 @@ class KrpcMissionControl(MissionControl):
             try:
                 op = self._mechjeb.maneuver_planner.operation_interplanetary_transfer
                 op.wait_for_phase_angle = True
-                op.make_nodes()
+                planned = op.make_nodes()
+                # OBSERVED PLAN DIAGNOSTIC (B15 flight-4, 2026-07-26). The first
+                # three Eve flights were BLIND here: the machine saw only
+                # node_count and node_dv, so a plan that ejected correctly but
+                # was aimed NOWHERE NEAR the target read exactly like a good one,
+                # and the failure only surfaced 11.8M game seconds later as a
+                # coast-budget overrun with `nextBody` never once reading Eve.
+                # This reads the plan's OWN patched-conic chain at plan time and
+                # answers the only question that matters -- DOES THIS TRANSFER
+                # REACH THE TARGET'S ORBIT AT ALL -- for the cost of a handful
+                # of RPCs, once per plan attempt.
+                #
+                # The verdict is an ANNULUS OVERLAP, not a direction test: the
+                # transfer leg reaches the target's orbit iff its own [pe, ap]
+                # radius band overlaps the target's. That is one expression for
+                # BOTH an outward (B7/Duna) and an inward (B15/Eve) transfer,
+                # so it needs no notion of which way the craft is going.
+                # Everything is read defensively -- a diagnostic must never
+                # break a flight, so every failure degrades to a "?" and the
+                # line still prints what it did manage to read.
+                self._log_transfer_plan_diagnostic(sc, planned)
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan",
@@ -1887,6 +1967,143 @@ class KrpcMissionControl(MissionControl):
         except Exception:
             dk = False
         return rv, dk
+
+    # Patched-conic patches the plan diagnostic will walk before giving up.
+    # Kerbin -> (Mun) -> Sun -> target is three or four; 6 is generous headroom
+    # over any real chain and a hard stop against a pathological cycle.
+    _PLAN_CHAIN_MAX_PATCHES = 6
+
+    def _log_transfer_plan_diagnostic(self, sc, planned) -> None:
+        """Emit ONE loud line describing the interplanetary transfer MechJeb
+        just planned, and whether it is aimed at the target at all.
+
+        WHY THIS EXISTS. B15-eve-flyby failed three times with the node planned,
+        the executor burning it, the node consumed and a real hyperbolic escape
+        on the board -- every signal the machine had said the transfer worked.
+        It had not: the ejection was sized ~117 m/s light, which near escape
+        velocity is most of the hyperbolic excess, and the resulting
+        heliocentric leg never came within 2.46e9 m of Eve's orbit. Across 632
+        `nextBody` reads on that flight (547 blank, 24 Kerbin, 35 Mun, 26 Sun)
+        it named Eve exactly zero times, the retry reproduced that verdict, and
+        the mission died 11.8M game seconds later on a coast budget that was
+        never the problem. The plan was observable the whole time; nothing
+        observed it. This does.
+
+        WHAT IT READS. The node's OWN post-burn orbit (`Node.Orbit`) and then
+        the patched-conic chain hanging off it (`Orbit.NextOrbit`), which is the
+        game's own prediction of where this burn sends the craft -- not our
+        arithmetic about where it ought to. From that chain it takes:
+          - the post-burn conic in the departure frame (is this an escape?),
+          - the leg in the TARGET'S PARENT frame (the transfer proper), and
+          - whether any patch lands in the TARGET's own SOI (a real encounter,
+            the strongest possible reading).
+        The leg's radius band is then compared against the target body's own
+        via the pure `mlib.classify_transfer_reach`.
+
+        EVERY READ IS DEFENSIVE AND THE WHOLE THING IS BEST-EFFORT. A
+        diagnostic that can break a flight is worse than no diagnostic: each
+        read degrades to a "?" / NaN sentinel, the verdict degrades to
+        "unknown", and the line still prints whatever it did manage to read.
+        The caller wraps this too, so even an unexpected raise cannot reach the
+        plan action."""
+        target_name = "?"
+        target_pe = target_ap = float("nan")
+        target_soi = 0.0
+        parent_name = "?"
+        try:
+            target = sc.target_body
+            target_name = str(target.name)
+            # kRPC Orbit.Periapsis / Apoapsis are RADII from the parent's
+            # centre -- the same quantity as the leg's, so the comparison
+            # needs no body-radius constant on either side.
+            target_pe = float(target.orbit.periapsis)
+            target_ap = float(target.orbit.apoapsis)
+            parent_name = str(target.orbit.body.name)
+        except Exception:
+            pass
+        try:
+            # Read SEPARATELY so an SOI read fault cannot cost us the orbit
+            # radii too: without the SOI the verdict just gets stricter (0.0
+            # degrades to the bare band comparison), but without the radii
+            # there is no verdict at all.
+            target_soi = float(target.sphere_of_influence)
+        except Exception:
+            target_soi = 0.0
+
+        node_ut = node_dv = float("nan")
+        try:
+            # THE NODES make_nodes() ITSELF RETURNED, never control.nodes[0].
+            # B15 flight 4: a leftover park-trim node was still on the board
+            # when the plan ran, so control.nodes[0] was that node -- the
+            # diagnostic dutifully reported a 69.5 m/s circularization that
+            # never leaves Kerbin and read `reachesTargetOrbit=unknown`. The
+            # return value is the plan, by construction.
+            if not planned:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan",
+                    "interplanetary plan diagnostic: make_nodes returned no "
+                    "nodes -- nothing planned to inspect"))
+                return
+            node = planned[0]
+            node_ut = float(node.ut)
+            node_dv = float(node.delta_v)
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Plan",
+                "interplanetary plan diagnostic: node read failed (%s: %s)"
+                % (type(exc).__name__, str(exc)[:120])))
+            return
+
+        # Walk the plan's patched-conic chain. patches[0] is the post-burn
+        # conic in the departure body's frame; the leg we care about is the
+        # patch whose body is the TARGET'S PARENT.
+        patches = []
+        encountered = False
+        try:
+            orbit = node.orbit
+            for _ in range(self._PLAN_CHAIN_MAX_PATCHES):
+                if orbit is None:
+                    break
+                body_name = str(orbit.body.name)
+                patches.append((body_name,
+                                float(orbit.periapsis),
+                                float(orbit.apoapsis),
+                                float(orbit.eccentricity)))
+                if body_name == target_name:
+                    encountered = True
+                    break
+                orbit = orbit.next_orbit
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Plan",
+                "interplanetary plan diagnostic: conic chain read stopped "
+                "after %d patch(es) (%s: %s); verdict falls back to what was "
+                "read" % (len(patches), type(exc).__name__, str(exc)[:120])))
+
+        leg_pe = leg_ap = float("nan")
+        for body_name, pe, ap, _ecc in patches:
+            if body_name == parent_name:
+                leg_pe, leg_ap = pe, ap
+                break
+
+        verdict, gap = mlib.classify_transfer_reach(
+            leg_pe, leg_ap, target_pe, target_ap, target_soi)
+        chain = " -> ".join(
+            "%s(pe=%.4g ap=%.4g ecc=%.4f)" % (b, pe, ap, ecc)
+            for b, pe, ap, ecc in patches) or "?"
+        # The gap is also reported in SOI radii: "6.96e6 m" means nothing at a
+        # glance, "0.08 SOI" means the transfer is fine and "28.9 SOI" means it
+        # was never aimed at the target.
+        gap_soi = (gap / target_soi) if target_soi > 0.0 else float("nan")
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Plan",
+            "interplanetary plan: target=%s nodeUt=%.3f nodeDv=%.3f | "
+            "conic chain %s | transfer leg (in %s) pe=%.6g ap=%.6g vs %s orbit "
+            "pe=%.6g ap=%.6g soi=%.6g | reachesTargetOrbit=%s gap=%.6g m "
+            "(%.3f SOI) | targetSoiEncounterPredicted=%s"
+            % (target_name, node_ut, node_dv, chain, parent_name,
+               leg_pe, leg_ap, target_name, target_pe, target_ap, target_soi,
+               verdict, gap, gap_soi, "YES" if encountered else "NO")))
 
     def _read_node_executor_enabled(self) -> int:
         """OBSERVED MechJeb NodeExecutor.Enabled as the tri-state int the

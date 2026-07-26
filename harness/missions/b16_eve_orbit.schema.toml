@@ -58,6 +58,25 @@ required = true
 type = "number"
 min = 0.0
 
+# THE ONE KEY B16 DECLARES THAT b7_duna_flyby.schema.toml + b11_mun_orbit.schema.toml
+# DO NOT, shared with B15 and argued there. > 0 arms the park ROUND-OUT trim
+# inside CIRCULARIZE: plan + burn a MechJeb circularize-at-apoapsis node until
+# the observed eccentricity is at/below this, bounded by
+# mlib.PARK_TRIM_MAX_ATTEMPTS with a named give-up. Optional; mlib defaults 0.0
+# (no trim -- the pre-trim CIRCULARIZE, so every already-flown lane is
+# byte-identical). B16: 0.02.
+#
+# B16 CANNOT FLY WITHOUT IT: this lane's transfer IS B15's, and MechJeb's
+# interplanetary ejection planner is only correct from a ROUND park (B15
+# flights 1-3). It matters more here than on B15 -- a flyby that arrives
+# off-target misses, a capture that arrives off-target has nothing to
+# circularize at.
+[params.parkTrimEccMax]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
 # Transfer target / home SOI body names (kRPC orbit.body.name values). The
 # machine's SOI gates compare snapshot.body against these. B16: target Eve,
 # home Kerbin.

@@ -12,6 +12,7 @@ the venv, so the whole suite runs on the base interpreter.
 
 import math
 import unittest
+from dataclasses import replace
 
 import mlib
 from mlib import Action, TelemetrySnapshot
@@ -3119,6 +3120,40 @@ class B5MachineTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertEqual(state.flake_phase, mlib.B5_TRANSFER_BURN)
+        # NAMED, not generic (B15 flights 1-2). This branch used to surface as
+        # "phase TRANSFER-BURN timed out" while only ~66% of the budget had
+        # been spent, pointing the investigation at the budget when the
+        # stagnation watchdog was what fired.
+        self.assertIsNotNone(state.flake_reason)
+        self.assertIn("burn-stagnation watchdog", state.flake_reason)
+        self.assertIn("NOT the phase budget", state.flake_reason)
+        self.assertIn("apoapsis floor", state.flake_reason)
+
+    def test_transfer_burn_underburn_names_the_ejection_floor_on_b7_lanes(self):
+        """The same give-up on an INTERPLANETARY lane must name the ejection
+        ECCENTRICITY floor, not the apoapsis floor -- an escape burn drives the
+        home-frame apoapsis negative, so the apoapsis number is meaningless
+        there and quoting it is what made B15 flight 1 hard to read."""
+        params = replace(B5_PARAMS, ejection_ecc_floor=1.001,
+                         interplanetary_transfer=True)
+        base = mlib.b5_initial_state(params)
+        state = base.__class__(**{**base.__dict__,
+                                  "phase": mlib.B5_PLAN_TRANSFER,
+                                  "phase_entry_ut": 0.0, "last_plan_ut": 0.0})
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Burned, but only to a still-BOUND orbit: ecc 0.9 is under the 1.001
+        # escape floor, so no transfer exists to coast on. Then wedged static.
+        wedged = dict(apoapsis=900_000.0, eccentricity=0.9, periapsis=76_000.0,
+                      body="Kerbin", node_count=1)
+        for ut in (20.0, 30.0, 160.0):
+            state, _ = mlib.b5_decide(state, snap(ut=ut, **wedged))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("ejection eccentricity floor 1.0010",
+                      state.flake_reason)
+        self.assertNotIn("apoapsis floor", state.flake_reason)
 
     def test_coast_skips_correction_when_disabled(self):
         # courseCorrectPeriapsisMeters=0 disables the rounds entirely: the first
@@ -3766,6 +3801,260 @@ class B5ParamTests(unittest.TestCase):
                                               node_dv=50.0, ap_error=30.1,
                                               warp_mode="PHYSICS", warp_rate=2.0))
         self.assertEqual(state.aligned_streak, 0)
+
+
+B15_TRIM_PARAMS = replace(B5_PARAMS, park_trim_ecc_max=0.02,
+                          target_periapsis=700000.0, peri_error=150000.0,
+                          circularize_timeout=12000.0,
+                          interplanetary_transfer=True, target_body="Eve",
+                          via_bodies=("Sun", "Mun"), return_body="Sun")
+
+
+def _trim_state(**overrides):
+    """A B5State pinned in CIRCULARIZE with the park trim armed."""
+    base = mlib.b5_initial_state(B15_TRIM_PARAMS)
+    fields = {**base.__dict__, "phase": mlib.B5_CIRCULARIZE,
+              "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class ParkTrimVerdictTests(unittest.TestCase):
+    """The pure park round-out decision. B15 flights 1-3 died because MechJeb's
+    interplanetary ejection planner sizes its burn at the parking orbit's
+    semi-major axis and applies it elsewhere, so an eccentric park under-ejects
+    (MEASURED: ecc 0.085 turned 769.6 m/s of required ejection into 652.8, and
+    779 m/s of required v_inf into 129). These cells pin the ladder that fixes
+    it and, just as importantly, that it is INERT when unarmed."""
+
+    def test_unarmed_is_off_so_every_flown_lane_is_unchanged(self):
+        for ecc_max in (0.0, -1.0, float("nan")):
+            self.assertEqual(
+                mlib.park_trim_verdict(ecc_max, 0.9, 0, 0, 0),
+                mlib.PARK_TRIM_OFF)
+
+    def test_a_round_enough_park_proceeds(self):
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.001, 0, 0, 0),
+                         mlib.PARK_TRIM_OK)
+        # INCLUSIVE at the threshold: ecc == ecc_max is round enough.
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.02, 0, 0, 0),
+                         mlib.PARK_TRIM_OK)
+
+    def test_an_out_of_round_park_plans_then_executes_then_stops(self):
+        # Flight 3's measured park eccentricity.
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 0, 0, 0),
+                         mlib.PARK_TRIM_PLAN)
+        # Node on the board, this attempt not yet handed over -> execute.
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 1, 1, 0),
+                         mlib.PARK_TRIM_EXECUTE)
+        # Already handed over: the executor owns it, do NOT re-command it every
+        # frame (that is the shape that wedged earlier lanes).
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 1, 1, 1),
+                         mlib.PARK_TRIM_WAIT)
+
+    def test_attempts_are_bounded_and_give_up_is_named(self):
+        self.assertEqual(
+            mlib.park_trim_verdict(0.02, 0.085, 0,
+                                   mlib.PARK_TRIM_MAX_ATTEMPTS,
+                                   mlib.PARK_TRIM_MAX_ATTEMPTS),
+            mlib.PARK_TRIM_GIVEUP)
+
+    def test_an_unread_eccentricity_never_certifies_a_round_park(self):
+        """Fail closed: a NaN orbit read must route to the same ladder as an
+        openly bad one, never be accepted as ok."""
+        self.assertEqual(mlib.park_trim_verdict(0.02, float("nan"), 0, 0, 0),
+                         mlib.PARK_TRIM_PLAN)
+
+    def test_a_round_reading_mid_burn_is_never_ok(self):
+        """B15 FLIGHT 4 REGRESSION, and the reason the node test comes first.
+        A circularize burn sweeps the orbit continuously down through the
+        window, so an eccentricity polled mid-burn can read round while the
+        burn is still running. The first shape of this function tested
+        eccentricity first, fired ok on such a frame, and left CIRCULARIZE with
+        a live node that TRANSFER-BURN then re-burned -- driving the park to
+        778 x 1,014 km, WORSE than the eccentric park the trim exists to fix.
+        A pending node means the orbit is still being written."""
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.0004, 1, 1, 1),
+                         mlib.PARK_TRIM_WAIT)
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.0, 1, 1, 1),
+                         mlib.PARK_TRIM_WAIT)
+
+    def test_an_unconsumed_ascent_node_holds_the_phase(self):
+        """CIRCULARIZE entry with MechJeb's own circularization node still on
+        the board (attempts and execs both 0): hold rather than read an orbit
+        that node is about to change."""
+        self.assertEqual(mlib.park_trim_verdict(0.02, 0.085, 1, 0, 0),
+                         mlib.PARK_TRIM_WAIT)
+
+
+class ParkTrimWiringTests(unittest.TestCase):
+    """The CIRCULARIZE wiring: the trim runs only AFTER the periapsis window is
+    met, emits the right actions, and is a no-op when unarmed."""
+
+    def test_unarmed_circularize_is_byte_identical(self):
+        """The pre-trim behaviour every flown lane proved: pe window met ->
+        straight into ORBIT, no actions."""
+        base = mlib.b5_initial_state(B5_PARAMS)
+        state = base.__class__(**{**base.__dict__,
+                                  "phase": mlib.B5_CIRCULARIZE,
+                                  "phase_entry_ut": 0.0})
+        state, actions = mlib.b5_decide(
+            state, snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0,
+                        eccentricity=0.9, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_ORBIT)
+        self.assertEqual(actions, [])
+
+    def test_the_trim_holds_circularize_and_plans_then_burns(self):
+        state = _trim_state()
+        # pe window met but the park is flight-3 eccentric: hold + plan.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1476.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_CIRCULARIZE)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_PLAN_PARK_TRIM])
+        self.assertEqual(state.park_trim_attempts, 1)
+        # MechJeb planned it: hand it over exactly once.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1480.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin", node_count=1))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_EXECUTE_NODES])
+        self.assertEqual(state.park_trim_execs, 1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1490.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [])
+        # Round now -> ORBIT, which fires the transfer plan.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=3000.0, apoapsis=778500.0, periapsis=777900.0,
+                        eccentricity=0.0004, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_ORBIT)
+
+    def test_the_trim_never_runs_before_the_periapsis_window(self):
+        state = _trim_state()
+        state, actions = mlib.b5_decide(
+            state, snap(ut=100.0, apoapsis=700000.0, periapsis=100.0,
+                        eccentricity=0.9, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_CIRCULARIZE)
+        self.assertEqual(actions, [])
+        self.assertEqual(state.park_trim_attempts, 0)
+
+    def test_circularize_is_never_left_with_a_live_node(self):
+        """B15 FLIGHT 4 REGRESSION at the wiring level: the phase must not hand
+        off to ORBIT while a node is pending, however round the orbit reads.
+        That handoff is what let TRANSFER-BURN re-burn the trim node."""
+        state = _trim_state(park_trim_attempts=1, park_trim_execs=1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=2485.0, apoapsis=778183.0, periapsis=777900.0,
+                        eccentricity=0.0002, body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CIRCULARIZE)
+        self.assertEqual(actions, [])
+
+    def test_a_node_nobody_burns_gives_up_by_name(self):
+        """The WAIT path's own bound. A budget expiry here means a node nobody
+        is consuming, which must say so rather than surface as the generic
+        'phase CIRCULARIZE timed out'."""
+        state = _trim_state(park_trim_attempts=1, park_trim_execs=1)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=99999.0, apoapsis=778183.0, periapsis=562354.0,
+                        eccentricity=0.085, body="Kerbin", node_count=1))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never cleared", state.flake_reason)
+        self.assertEqual(actions, [])
+
+    def test_exhausted_attempts_flake_with_a_named_reason(self):
+        state = _trim_state(park_trim_attempts=mlib.PARK_TRIM_MAX_ATTEMPTS,
+                            park_trim_execs=mlib.PARK_TRIM_MAX_ATTEMPTS)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=2000.0, apoapsis=778181.0, periapsis=562352.0,
+                        eccentricity=0.085, body="Kerbin"))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_CIRCULARIZE)
+        self.assertIn("park round-out", state.flake_reason)
+        self.assertIn("aimed at nothing", state.flake_reason)
+        self.assertEqual(actions, [])
+
+
+class TransferReachClassifierTests(unittest.TestCase):
+    """The PLAN-TRANSFER diagnostic's pure core. Direction-free by design: the
+    same annulus-overlap expression has to read correctly for B7's OUTWARD
+    Duna transfer and B15's INWARD Eve one."""
+
+    # Stock heliocentric radii (metres), the numbers the live reads produce.
+    EVE_PE, EVE_AP = 9_734_357_699.0, 9_931_011_389.0
+    EVE_SOI = 85_109_365.0
+    DUNA_PE, DUNA_AP = 19_669_121_365.0, 21_783_189_163.0
+
+    def test_flight_3s_measured_eve_leg_reads_beyond(self):
+        """The actual telemetry: a heliocentric leg whose PERIHELION sat above
+        Eve's APHELION. No coast of any length could have encountered Eve, and
+        this is the verdict that says so at plan time. 28.9 SOI radii out, so
+        the SOI term does not rescue it."""
+        verdict, gap = mlib.classify_transfer_reach(
+            12_389_067_761.0, 13_615_196_295.0, self.EVE_PE, self.EVE_AP,
+            self.EVE_SOI)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_BEYOND)
+        self.assertAlmostEqual(gap, 2_458_056_372.0 - self.EVE_SOI, delta=1.0)
+
+    def test_flight_5s_measured_eve_leg_reads_reaches(self):
+        """The SAME lane after the park round-out: perihelion 9.93797e9 m
+        against Eve's 9.93101e9 m aphelion. A bare band comparison calls that
+        6.96e6 m 'beyond' in the same word it used for flight 3's 2.46e9 m,
+        which is why the SOI belongs in the test -- 6.96e6 m is 0.082 of Eve's
+        SOI radius, an intercept by any reading."""
+        verdict, gap = mlib.classify_transfer_reach(
+            9_937_970_000.0, 13_596_000_000.0, self.EVE_PE, self.EVE_AP,
+            self.EVE_SOI)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_REACHES)
+        self.assertEqual(gap, 0.0)
+
+    def test_without_an_soi_reading_the_verdict_only_gets_stricter(self):
+        """A failed SOI read degrades to 0.0, i.e. the bare band comparison.
+        That can be harsher than the truth but never softer, so a fault here
+        cannot turn a bad transfer into a passing verdict."""
+        verdict, gap = mlib.classify_transfer_reach(
+            9_937_970_000.0, 13_596_000_000.0, self.EVE_PE, self.EVE_AP)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_BEYOND)
+        self.assertAlmostEqual(gap, 6_958_611.0, delta=1000.0)
+        # A non-finite SOI takes the same degrade path, never "unknown".
+        for bad in (float("nan"), float("inf"), -1.0):
+            self.assertEqual(
+                mlib.classify_transfer_reach(9_937_970_000.0,
+                                             13_596_000_000.0, self.EVE_PE,
+                                             self.EVE_AP, bad)[0],
+                mlib.TRANSFER_REACH_BEYOND)
+
+    def test_a_correct_inward_eve_transfer_reaches(self):
+        verdict, gap = mlib.classify_transfer_reach(
+            9_800_000_000.0, 13_615_196_295.0, self.EVE_PE, self.EVE_AP,
+            self.EVE_SOI)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_REACHES)
+        self.assertEqual(gap, 0.0)
+
+    def test_an_outward_duna_leg_reads_short_when_it_under_ejects(self):
+        """The SAME expression, the other direction: an under-ejected outward
+        transfer stays inside the target's orbit."""
+        verdict, gap = mlib.classify_transfer_reach(
+            13_600_000_000.0, 18_000_000_000.0, self.DUNA_PE, self.DUNA_AP)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_SHORT)
+        self.assertAlmostEqual(gap, 1_669_121_365.0, delta=1.0)
+
+    def test_a_correct_outward_duna_transfer_reaches(self):
+        verdict, _ = mlib.classify_transfer_reach(
+            13_600_000_000.0, 20_800_000_000.0, self.DUNA_PE, self.DUNA_AP)
+        self.assertEqual(verdict, mlib.TRANSFER_REACH_REACHES)
+
+    def test_any_unread_radius_is_unknown_not_a_verdict(self):
+        """An unread conic must not be reported as either a good plan or a bad
+        one -- the diagnostic exists to end guessing, not to add to it."""
+        for args in ((float("nan"), 1.0, 2.0, 3.0),
+                     (1.0, float("inf"), 2.0, 3.0),
+                     (1.0, 2.0, float("nan"), 3.0),
+                     (1.0, 2.0, 3.0, float("nan"))):
+            verdict, gap = mlib.classify_transfer_reach(*args)
+            self.assertEqual(verdict, mlib.TRANSFER_REACH_UNKNOWN)
+            self.assertTrue(math.isnan(gap))
 
 
 class CorrectionPlanClassifierTests(unittest.TestCase):
