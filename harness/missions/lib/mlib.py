@@ -9663,6 +9663,62 @@ def wall_budget_block(now: float, deadline: Optional[float],
             "wallBudgetSeconds": budget}
 
 
+# ---------------------------------------------------------------------------
+# Handoff contracts (EVA-4 fail-open closure, 2026-07-25). Pure.
+# ---------------------------------------------------------------------------
+#
+# Most missions terminate ON the outcome they certify: B1 ends with the craft on
+# the ground, B2 in the target orbit, B5 past the flyby. A HANDOFF mission does
+# not. `eva4_atmo_chute` terminates at EVA-WINDOW with the craft still airborne and
+# crewed, hands off to the seam, and the mission SUBPROCESS EXITS - and the thing
+# the scenario exists to prove ("land the kerbal alive") happens minutes later, to
+# a vessel that did not exist on any frame the mission ever read.
+#
+# That is why flight 3 (2026-07-25) reported `MISSION-OK reason=all telemetry
+# assertions met` over a kerbal who had just been killed by a cut canopy. It is NOT
+# fixable by adding a fifth assertion, which is what the bug entry originally
+# proposed: there is no frame on which the mission machine could evaluate one. The
+# structural gate lives in the harness (hlib.SEAM_VERB_POST_MISSION_ROLE, which
+# makes the post-mission outcome steps red the run). What lives HERE is the other
+# half - the mission stating, in its own machine-readable result, exactly which
+# part of the scenario's contract it did NOT verify and which step owns it, so
+# MISSION-OK can never again be read as end-to-end success by a human or a script.
+#
+# Keyed by mission name. A mission ABSENT from this table declares nothing and its
+# result JSON is byte-identical to before.
+MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
+    "eva4_atmo_chute": {
+        "terminal": EVA4_EVA_WINDOW,
+        "unverifiedByMission": ["kerbalSurvival"],
+        "verifiedBy": ["EvaExit", "EvaChuteDeploy"],
+    },
+}
+
+# What MISSION-OK means for a handoff mission, spelled out in the reason line the
+# result JSON carries and run.py copies into driver.steps. The generic
+# "all telemetry assertions met" is TRUE but reads as end-to-end success.
+HANDOFF_OK_REASON_SUFFIX = ("; handoff mission - %s not verified here, owned by %s")
+
+
+def mission_handoff_contract(mission: str) -> Optional[Dict]:
+    """The handoff contract for ``mission``, or None when the mission terminates on
+    the outcome it certifies (every mission but EVA-4 today)."""
+    contract = MISSION_HANDOFF_CONTRACTS.get(str(mission or ""))
+    return dict(contract) if contract else None
+
+
+def handoff_ok_reason(mission: str, reason: str) -> str:
+    """Extend a MISSION-OK reason with the handoff mission's own disclaimer. A
+    non-handoff mission (or a non-OK reason, handled by the caller) is returned
+    unchanged, so no other mission's result string moves."""
+    contract = MISSION_HANDOFF_CONTRACTS.get(str(mission or ""))
+    if not contract:
+        return reason
+    return str(reason) + HANDOFF_OK_REASON_SUFFIX % (
+        ", ".join(contract["unverifiedByMission"]),
+        ", ".join(contract["verifiedBy"]))
+
+
 def build_mission_result(
     mission: str,
     verdict: str,
@@ -9691,11 +9747,20 @@ def build_mission_result(
     rows = []
     for a in (assertions or []):
         rows.append(a.to_dict() if isinstance(a, AssertionOutcome) else dict(a))
+    # Handoff disclosure (EVA-4). Applied HERE because this is the single place the
+    # result shape is authored, and only on the OK path: a mission that failed
+    # already carries a specific reason and adding "by the way I also do not verify
+    # X" to it would bury the real one. A mission with no contract is untouched, so
+    # every other mission's result stays byte-identical.
+    handoff = mission_handoff_contract(mission)
+    if handoff is not None and verdict == MISSION_OK:
+        reason = handoff_ok_reason(mission, reason)
     return {
         "schema": MISSION_RESULT_SCHEMA,
         "mission": mission,
         "verdict": verdict,
         "reason": reason,
+        **({"handoff": handoff} if handoff is not None else {}),
         "phasesReached": list(phases_reached or []),
         "connect": {
             "attempts": int(connect_attempts),

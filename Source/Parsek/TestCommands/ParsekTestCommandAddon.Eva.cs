@@ -71,6 +71,15 @@ namespace Parsek.TestCommands
         private int evaExitReleaseFireCount;
         private double evaExitSettleSeconds;
         private double evaExitSettleStartedAt;
+        // ----- Post-release STANDOFF (EVA-4 flight-3 canopy-cut mitigation, 2026-07-25) -----
+        // minStandoffMeters=0 (the default, and every scenario but EVA-4) disables the whole
+        // stage: no extra Unity read, no extra poll, an identical completion payload token
+        // ("off"). See TestCommandEvaExit.EvaExitStandoffState for the stock FSM ground truth.
+        private double evaExitMinStandoffMeters;
+        private int evaExitStandoffClearPolls;
+        private double evaExitStandoffStartedAt;
+        private TestCommandEvaExit.EvaExitStandoffState evaExitStandoffState;
+        private bool evaExitStandoffLogged;
 
         // In-memory (non-durable, cleared on process restart) pid of the vessel the LAST
         // EvaExit left from; EvaBoard's default target (F9).
@@ -97,6 +106,7 @@ namespace Parsek.TestCommands
             string kerbalArg = ArgOrNull(cmd, "kerbal");
             bool releaseRequested = string.Equals(ArgOrNull(cmd, "release"), "true", System.StringComparison.OrdinalIgnoreCase);
             double settleSeconds = ParseSettleSeconds(ArgOrNull(cmd, "settleSeconds"));
+            double minStandoff = ParsePositiveDouble(ArgOrNull(cmd, "minStandoffMeters"));
 
             Vessel active = FlightGlobals.ActiveVessel;
             List<string> crewNames = active != null
@@ -185,6 +195,13 @@ namespace Parsek.TestCommands
             evaExitReleaseAttemptCount = 0;
             evaExitSettleSeconds = settleSeconds;
             evaExitSettleStartedAt = -1.0;
+            evaExitMinStandoffMeters = minStandoff;
+            evaExitStandoffClearPolls = 0;
+            evaExitStandoffStartedAt = -1.0;
+            evaExitStandoffState = minStandoff > 0.0
+                ? TestCommandEvaExit.EvaExitStandoffState.Waiting
+                : TestCommandEvaExit.EvaExitStandoffState.Cleared;
+            evaExitStandoffLogged = false;
             SetExecResult(PendingVerdict, null, null);
         }
 
@@ -218,9 +235,19 @@ namespace Parsek.TestCommands
                     && (now - evaExitSettleStartedAt) >= evaExitSettleSeconds;
             }
 
+            // STANDOFF (EVA-4 flight-3 mitigation): hold the exit until the kerbal is
+            // OBSERVABLY clear of every other loaded vessel, so its canopy does not inflate
+            // in contact with the pod it just left. A stumble-grade collision (>3.5 m/s
+            // relative) while the chute is semi-deployed ragdolls the kerbal, and leaving
+            // that FSM state CUTS the canopy irreversibly - which is exactly how flight 3
+            // killed Jebediah 200 ms after the chute opened. Folded in AFTER the release
+            // conjuncts on purpose: the clock starts once the kerbal is actually off the
+            // ladder and free, not while it is still hanging on the hatch.
+            bool standoffSatisfied = EvaluateStandoff(now, baseConjuncts);
+
             EvaExitCompletionDecision decision = TestCommandEvaExit.DecideEvaExitCompletion(
                 elapsed, exists, active, settled, evaExitReleaseRequested, evaExitReleaseApplied,
-                settleElapsed, budget);
+                settleElapsed && standoffSatisfied, budget);
             if (decision == EvaExitCompletionDecision.StillWaiting)
                 return;
 
@@ -231,13 +258,17 @@ namespace Parsek.TestCommands
             // that the release phase concluded (evaExitReleaseApplied): a bounded-exhausted
             // release that never left the ladder reports released=false.
             bool released = evaExitReleaseVerified;
+            // Read BEFORE ClearTwoPhase for the same reason `released` is: the standoff
+            // fields are re-armed wholesale by the next EvaExitImpl, never cleared here.
+            string standoffToken = TestCommandEvaExit.StandoffToken(
+                evaExitMinStandoffMeters, evaExitStandoffState);
             ClearTwoPhase();
 
             if (decision == EvaExitCompletionDecision.CompleteOk)
             {
                 List<KeyValuePair<string, string>> payload =
-                    TestCommandEvaExit.BuildCompletePayload(kerbal, evaPid, released);
-                ParsekLog.Info(Tag, $"evaexit complete kerbal={kerbal ?? string.Empty} evaPid={evaPid.ToString(CultureInfo.InvariantCulture)} released={Bool(released)}");
+                    TestCommandEvaExit.BuildCompletePayload(kerbal, evaPid, released, standoffToken);
+                ParsekLog.Info(Tag, $"evaexit complete kerbal={kerbal ?? string.Empty} evaPid={evaPid.ToString(CultureInfo.InvariantCulture)} released={Bool(released)} standoff={standoffToken}");
                 EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
             }
             else // ExitTimeout
@@ -247,6 +278,99 @@ namespace Parsek.TestCommands
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null, "eva-exit-timeout", dequeueHead: true);
             }
         }
+
+        // One standoff poll (EVA-4 flight-3 canopy-cut mitigation). Returns true when the
+        // exit may complete: immediately when no standoff was requested (every scenario but
+        // EVA-4 - zero extra Unity reads on that path), once the OBSERVED separation has
+        // held for StandoffDebouncePolls, or on the bounded give-up.
+        //
+        // The clock starts only once `baseConjuncts` holds (EVA vessel live, active, scene
+        // settled, ladder release concluded): before that the kerbal is still attached and
+        // "not separated" is not a finding.
+        private bool EvaluateStandoff(double now, bool baseConjuncts)
+        {
+            if (evaExitMinStandoffMeters <= 0.0)
+                return true;
+            if (evaExitStandoffState != TestCommandEvaExit.EvaExitStandoffState.Waiting)
+                return true;
+            if (!baseConjuncts)
+                return false;
+            if (evaExitStandoffStartedAt < 0.0)
+                evaExitStandoffStartedAt = now;
+
+            double nearest = ReadNearestOtherLoadedVesselMetres(evaExitVessel);
+            bool clear = TestCommandEvaExit.StandoffClearThisPoll(nearest, evaExitMinStandoffMeters);
+            evaExitStandoffClearPolls = clear ? evaExitStandoffClearPolls + 1 : 0;
+
+            double waited = now - evaExitStandoffStartedAt;
+            evaExitStandoffState = TestCommandEvaExit.ClassifyStandoff(
+                evaExitMinStandoffMeters, evaExitStandoffClearPolls, waited,
+                TestCommandEvaExit.StandoffMaxWaitSeconds);
+
+            ParsekLog.VerboseRateLimited("TestCommands", "evaexit-standoff",
+                $"evaexit standoff kerbal={evaExitKerbalName ?? string.Empty} " +
+                $"nearest={FormatStandoffMetres(nearest)} " +
+                $"min={evaExitMinStandoffMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"clearPolls={evaExitStandoffClearPolls.ToString(CultureInfo.InvariantCulture)}/" +
+                $"{TestCommandEvaExit.StandoffDebouncePolls.ToString(CultureInfo.InvariantCulture)} " +
+                $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s state={evaExitStandoffState}");
+
+            if (evaExitStandoffState == TestCommandEvaExit.EvaExitStandoffState.Waiting)
+                return false;
+            if (!evaExitStandoffLogged)
+            {
+                evaExitStandoffLogged = true;
+                if (evaExitStandoffState == TestCommandEvaExit.EvaExitStandoffState.GaveUp)
+                    ParsekLog.Warn(Tag,
+                        $"evaexit standoff timeout kerbal={evaExitKerbalName ?? string.Empty} " +
+                        $"nearest={FormatStandoffMetres(nearest)} " +
+                        $"min={evaExitMinStandoffMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                        "(completing anyway: an unchuted kerbal is worse than a contact risk)");
+                else
+                    ParsekLog.Info(Tag,
+                        $"evaexit standoff cleared kerbal={evaExitKerbalName ?? string.Empty} " +
+                        $"nearest={FormatStandoffMetres(nearest)} " +
+                        $"min={evaExitMinStandoffMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s");
+            }
+            return true;
+        }
+
+        // Nearest OTHER loaded vessel, in metres. PositiveInfinity when there is no other
+        // loaded vessel (nothing that can collide); NaN when the EVA vessel itself is
+        // unreadable (the pure gate treats NaN as not-separated, fail-closed). Only LOADED
+        // vessels are considered - an unloaded vessel has no colliders, so it cannot fire
+        // the KerbalEVA collision callback that cuts the canopy.
+        //
+        // Parsek's own ghost map vessels are EXCLUDED: they are proto-only presence vessels
+        // with no colliders, so they cannot stumble a kerbal, and a co-located one would
+        // otherwise pin the standoff at 0 m until the bounded wait expired - silently
+        // reverting the mitigation to the pre-fix behaviour on any save with a playing ghost.
+        private static double ReadNearestOtherLoadedVesselMetres(Vessel eva)
+        {
+            if (eva == null) return double.NaN;
+            List<Vessel> loaded = FlightGlobals.VesselsLoaded;
+            if (loaded == null) return double.PositiveInfinity;
+            Vector3d here = eva.GetWorldPos3D();
+            double nearest = double.PositiveInfinity;
+            int considered = 0;
+            for (int i = 0; i < loaded.Count; i++)
+            {
+                Vessel other = loaded[i];
+                if (other == null || ReferenceEquals(other, eva)) continue;
+                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
+                considered++;
+                double d = Vector3d.Distance(here, other.GetWorldPos3D());
+                if (d < nearest) nearest = d;
+            }
+            return considered == 0 ? double.PositiveInfinity : nearest;
+        }
+
+        private static string FormatStandoffMetres(double v)
+            => double.IsNaN(v) ? "?"
+               : double.IsInfinity(v) ? "none"
+               : v.ToString("F1", CultureInfo.InvariantCulture);
 
         // Evidence-verified ladder let-go (EVA-1 flight-2 release false-positive fix). The old
         // applier fired On_ladderLetGo the instant OnALadder was true (~0.2s after exit) and
@@ -878,7 +1002,14 @@ namespace Parsek.TestCommands
 
         // Parse the optional settleSeconds arg; a missing / unparseable value defaults to 0
         // (the Parsek-agnostic default; opt-in per mission).
-        private static double ParseSettleSeconds(string arg)
+        private static double ParseSettleSeconds(string arg) => ParsePositiveDouble(arg);
+
+        // Shared strictly-positive InvariantCulture double parse for the optional numeric
+        // EvaExit args (settleSeconds, minStandoffMeters). A missing / unparseable / <=0
+        // value reads 0 = the stage is OFF, so a typo can never quietly ENABLE a bounded
+        // wait, only leave it disabled - the direction that keeps every non-declaring
+        // scenario byte-identical.
+        private static double ParsePositiveDouble(string arg)
         {
             if (string.IsNullOrEmpty(arg)) return 0.0;
             if (double.TryParse(arg, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v > 0.0)

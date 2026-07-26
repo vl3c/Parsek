@@ -11,11 +11,19 @@ the venv, so the whole suite runs on the base interpreter.
 """
 
 import math
+import os
+import tomllib
 import unittest
 from dataclasses import replace
 
 import mlib
 from mlib import Action, TelemetrySnapshot
+
+# harness/ root: this file lives at harness/missions/lib/test_mlib.py, so three
+# parents up. Used by the one cell that cross-checks a declared handoff contract
+# against the REAL scenario spec's step list (a contract naming a step the harness
+# does not drive would be a disclosure nobody can act on).
+HARNESS_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def snap(**kw):
@@ -947,6 +955,90 @@ class Eva4AssertionTests(unittest.TestCase):
             # NaN evidence is scrubbed to JSON null.
             self.assertTrue(row["value"] is None
                             or isinstance(row["value"], (float, int, str)))
+
+
+class Eva4HandoffContractTests(unittest.TestCase):
+    """Guards the mission-side half of the EVA-4 fail-open closure (2026-07-25).
+
+    THE DEFECT. `eva4_atmo_chute` returned `MISSION-OK reason=all telemetry
+    assertions met` on the flight where the kerbal's canopy was cut at 1,650 m and
+    the kerbal hit the ground at 109 m/s. Its four assertions are all about the
+    CRAFT and the EVA WINDOW; none is about the kerbal surviving. That is not an
+    oversight in the assertion list - it is structural. The machine's success
+    terminal is EVA-WINDOW, the mission subprocess exits there, and the kerbal EVA
+    vessel is created afterwards by the seam step EvaExit. There is no frame on
+    which a kerbal-survival assertion could be evaluated, so the bug entry's
+    proposed fix ("add a kerbal-survival assertion to the mission machine") is not
+    implementable. What IS implementable is refusing to let MISSION-OK read as
+    end-to-end success.
+
+    These cells fail if the disclosure is dropped, if it starts naming the wrong
+    owning step, or if it leaks onto a mission that terminates on its own outcome."""
+
+    def _ok_result(self, mission="eva4_atmo_chute"):
+        return mlib.build_mission_result(
+            mission, mlib.MISSION_OK, "all telemetry assertions met",
+            [mlib.EVA4_PRELAUNCH, mlib.EVA4_EVA_WINDOW], 1, 0.2, 50000, [], 112.98,
+            "0.5.4", "0.5.4")
+
+    def test_eva4_declares_what_it_did_not_verify_and_who_owns_it(self):
+        row = self._ok_result()["handoff"]
+        self.assertEqual(mlib.EVA4_EVA_WINDOW, row["terminal"])
+        self.assertEqual(["kerbalSurvival"], row["unverifiedByMission"])
+        # BOTH seam steps: EvaExit's verified ladder release is what puts the kerbal
+        # in an FSM state its chute can open from, so a silent EvaExit failure is
+        # equally fatal to the contract.
+        self.assertEqual(["EvaExit", "EvaChuteDeploy"], row["verifiedBy"])
+
+    def test_the_ok_reason_can_no_longer_be_read_as_end_to_end_success(self):
+        reason = self._ok_result()["reason"]
+        self.assertIn("all telemetry assertions met", reason)
+        self.assertIn("handoff mission", reason)
+        self.assertIn("kerbalSurvival", reason)
+        self.assertIn("EvaChuteDeploy", reason)
+
+    def test_a_failed_eva4_keeps_its_own_reason_verbatim(self):
+        # A specific failure reason must not be buried under the disclaimer.
+        res = mlib.build_mission_result(
+            "eva4_atmo_chute", mlib.MISSION_ASSERT_FAIL,
+            "eva-window-missed: altitude 702m fell below the window floor 700m",
+            [], 1, 0.2, 50000, [], 107.0, "0.5.4", "0.5.4")
+        self.assertEqual(
+            "eva-window-missed: altitude 702m fell below the window floor 700m",
+            res["reason"])
+        # The contract block is still disclosed (a reader of a failed run still
+        # needs to know which step owned the rest of the contract).
+        self.assertIn("handoff", res)
+
+    def test_every_other_mission_result_is_byte_identical(self):
+        # B1 terminates ON its outcome (the craft on the ground), so it declares
+        # nothing and its result must not grow a key or move a string.
+        res = mlib.build_mission_result(
+            "b1_pad_hop", mlib.MISSION_OK, "all telemetry assertions met",
+            ["PRELAUNCH"], 1, 0.2, 50000, [], 60.0, "0.5.4", "0.5.4")
+        self.assertNotIn("handoff", res)
+        self.assertEqual("all telemetry assertions met", res["reason"])
+        self.assertIsNone(mlib.mission_handoff_contract("b1_pad_hop"))
+        self.assertEqual("x", mlib.handoff_ok_reason("b1_pad_hop", "x"))
+        self.assertIsNone(mlib.mission_handoff_contract(""))
+        self.assertIsNone(mlib.mission_handoff_contract(None))
+
+    def test_the_declared_owner_steps_are_real_seam_verbs(self):
+        # A contract naming a step the harness cannot drive would be a disclosure
+        # nobody can act on. Cross-checked against the spec's own step list.
+        spec_path = os.path.join(HARNESS_ROOT, "scenarios", "EVA-4-atmo-chute.toml")
+        with open(spec_path, "rb") as fh:
+            spec = tomllib.load(fh)
+        driven = [s.get("cmd") for s in spec["driver"]["steps"] if s.get("cmd")]
+        for verb in mlib.mission_handoff_contract("eva4_atmo_chute")["verifiedBy"]:
+            self.assertIn(verb, driven, verb)
+
+    def test_the_declared_contract_is_serializable(self):
+        text = mlib.serialize_mission_result(self._ok_result())
+        self.assertEqual(["kerbalSurvival"],
+                         mlib.parse_mission_result(text)["handoff"]["unverifiedByMission"])
+        ok, errors = mlib.validate_mission_result(mlib.parse_mission_result(text))
+        self.assertTrue(ok, errors)
 
 
 # ---------------------------------------------------------------------------

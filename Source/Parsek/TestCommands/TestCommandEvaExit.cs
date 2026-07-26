@@ -166,15 +166,120 @@ namespace Parsek.TestCommands
             return LadderReleaseAction.WaitForReceptiveState;
         }
 
-        /// <summary>Terminal completion payload once the EVA vessel is live + active.</summary>
+        /// <summary>
+        /// The state of the optional post-release STANDOFF wait (EVA-4 flight-3 canopy-cut
+        /// defect, 2026-07-25).
+        ///
+        /// STOCK GROUND TRUTH (decompiled KSP 1.12.5): a kerbal whose personal chute has
+        /// reached SEMIDEPLOYED is in <c>KerbalEVA.st_semi_deployed_parachute</c>, and
+        /// <c>On_stumble</c> is registered on that state
+        /// (<c>fsm.AddEventExcluding(On_stumble, st_ragdoll, st_grappled,
+        /// st_clamber_acquireP2, st_clamber_acquireP3)</c>, KerbalEVA.cs:8153) with
+        /// <c>GoToStateOnEvent = st_ragdoll</c>. It is fired from the COLLISION callback
+        /// whenever <c>c.relativeVelocity.sqrMagnitude &gt; stumbleThreshold * stumbleThreshold</c>
+        /// (KerbalEVA.cs:12700, <c>stumbleThreshold = 3.5</c> m/s). Leaving the semi-deployed
+        /// state to anything but <c>st_fully_deployed_parachute</c> runs
+        /// <c>OnSemiDeployedParachuteModeLeft</c> -&gt; <c>evaChute.CutParachute()</c>
+        /// (KerbalEVA.cs:11152-11169), and <c>ragdoll_OnEnter</c> then calls
+        /// <c>AllowRepack(false)</c>, so the cut is terminal. The kerbal free-falls.
+        ///
+        /// On EVA-4 flight 3 that fired 200 ms after the canopy opened, 254 ms after the
+        /// kerbal let go of the pod's hatch ladder, with the pod still essentially in
+        /// contact (the background recorder measured only 90 m of separation 3.8 s later).
+        /// So the mitigation is SEPARATION: hold the exit until the kerbal is observably
+        /// clear of every other loaded vessel, and only then let the chute step run.
+        /// </summary>
+        internal enum EvaExitStandoffState
+        {
+            /// <summary>The kerbal is not yet observably clear: keep polling.</summary>
+            Waiting,
+
+            /// <summary>Clear (or no standoff was requested): the exit may complete.</summary>
+            Cleared,
+
+            /// <summary>The bounded wait expired without the standoff clearing. The exit
+            /// completes ANYWAY, carrying <c>standoff=timeout</c>. Deliberately NON-FATAL:
+            /// the kerbal's chute is its only survival mechanism, and refusing to complete
+            /// would strand it unchuted, which is strictly worse than the pre-fix behaviour
+            /// this mitigates. The give-up is named in the log and on the wire so a run that
+            /// took it is never mistaken for a clean separation.</summary>
+            GaveUp,
+        }
+
+        /// <summary>Consecutive polls the observed standoff must hold before it counts.
+        /// Two, for the same reason every other observed gate in this lane debounces: one
+        /// glitched distance read (a floating-origin shift, a frame where a vessel's
+        /// position has not been updated yet) must not certify separation.</summary>
+        internal const int StandoffDebouncePolls = 2;
+
+        /// <summary>The bounded wait for the standoff, in seconds. Sized from the measured
+        /// separation rate on the EVA-4 profile: a kerbal that lets go at ~-11 m/s and free
+        /// falls away from a pod under full canopy reached 90 m in under 4 s, so a 30 m
+        /// standoff clears in ~2-3 s. 15 s is ~5x that and still small against the altitude
+        /// budget (~165 m of fall), so a run that burns it has a real problem rather than a
+        /// slow frame.</summary>
+        internal const double StandoffMaxWaitSeconds = 15.0;
+
+        /// <summary>
+        /// True iff THIS poll observes the kerbal clear of every other loaded vessel.
+        /// <paramref name="nearestOtherLoadedVesselMeters"/> is
+        /// <c>double.PositiveInfinity</c> when there is no other loaded vessel at all
+        /// (nothing to collide with -&gt; clear) and <c>double.NaN</c> when the distance
+        /// could not be read (fail-closed: an unreadable frame is never separation, and the
+        /// bounded wait above stops that from hanging).
+        /// </summary>
+        internal static bool StandoffClearThisPoll(double nearestOtherLoadedVesselMeters,
+                                                   double minStandoffMeters)
+        {
+            if (minStandoffMeters <= 0.0) return true;   // not requested
+            // Explicit rather than leaning on IEEE (a NaN comparison is already false, so
+            // this line is belt-and-braces): the fail-closed intent is the point, and it
+            // must survive someone rewriting the comparison below into a form where NaN
+            // does NOT fall out false.
+            if (double.IsNaN(nearestOtherLoadedVesselMeters)) return false;
+            return nearestOtherLoadedVesselMeters >= minStandoffMeters;
+        }
+
+        /// <summary>
+        /// Classify the standoff wait. <paramref name="consecutiveClearPolls"/> is the
+        /// caller-owned run of <see cref="StandoffClearThisPoll"/> trues (reset to 0 on any
+        /// non-clear poll, so the debounce is a RUN and not a tally).
+        /// </summary>
+        internal static EvaExitStandoffState ClassifyStandoff(
+            double minStandoffMeters, int consecutiveClearPolls, double elapsed,
+            double maxWaitSeconds)
+        {
+            if (minStandoffMeters <= 0.0) return EvaExitStandoffState.Cleared;
+            if (consecutiveClearPolls >= StandoffDebouncePolls)
+                return EvaExitStandoffState.Cleared;
+            if (elapsed >= maxWaitSeconds) return EvaExitStandoffState.GaveUp;
+            return EvaExitStandoffState.Waiting;
+        }
+
+        /// <summary>The <c>standoff=</c> payload token for a concluded wait: "off" when none
+        /// was requested, "cleared" when it was observed, "timeout" when the bounded wait
+        /// gave up. Never a bare bool - a reader must be able to tell "we never asked" from
+        /// "we asked and gave up".</summary>
+        internal static string StandoffToken(double minStandoffMeters,
+                                             EvaExitStandoffState state)
+        {
+            if (minStandoffMeters <= 0.0) return "off";
+            return state == EvaExitStandoffState.GaveUp ? "timeout" : "cleared";
+        }
+
+        /// <summary>Terminal completion payload once the EVA vessel is live + active.
+        /// <paramref name="standoff"/> is the <see cref="StandoffToken"/> value, so a run
+        /// whose separation never cleared says so on the wire rather than reading identical
+        /// to one that separated cleanly.</summary>
         internal static List<KeyValuePair<string, string>> BuildCompletePayload(
-            string kerbal, uint evaPid, bool released)
+            string kerbal, uint evaPid, bool released, string standoff = "off")
             => new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("kerbal", kerbal ?? string.Empty),
                 new KeyValuePair<string, string>("evaPid",
                     evaPid.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string>("released", released ? "true" : "false"),
+                new KeyValuePair<string, string>("standoff", standoff ?? "off"),
             };
     }
 }

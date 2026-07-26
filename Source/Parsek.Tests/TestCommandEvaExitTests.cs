@@ -289,7 +289,8 @@ namespace Parsek.Tests
             Assert.Equal("Bob Kerman", Val(p, "kerbal"));
             Assert.Equal("12345", Val(p, "evaPid"));
             Assert.Equal("true", Val(p, "released"));
-            Assert.Equal(new[] { "kerbal", "evaPid", "released" }, p.Select(kv => kv.Key).ToArray());
+            Assert.Equal(new[] { "kerbal", "evaPid", "released", "standoff" },
+                         p.Select(kv => kv.Key).ToArray());
         }
 
         [Fact]
@@ -299,6 +300,112 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty, Val(p, "kerbal"));
             Assert.Equal("0", Val(p, "evaPid"));
             Assert.Equal("false", Val(p, "released"));
+            // Default = the stage was never requested. Every scenario but EVA-4.
+            Assert.Equal("off", Val(p, "standoff"));
+        }
+
+        // ----- Post-release standoff (EVA-4 flight-3 canopy-cut mitigation) -----
+        //
+        // THE DEFECT (proved from logs/2026-07-25_1310_EVA-4-atmo-chute/KSP.log + the
+        // decompiled KerbalEVA): the kerbal let go of the pod's hatch ladder at 13:09:53.614,
+        // its chute reached SEMIDEPLOYED at .668, and at .868 - 200 ms later, with the pod
+        // still essentially in contact - the canopy was CUT and the kerbal was in Ragdoll
+        // (the single "Event Stumble not assigned to state Ragdoll" line at .884 is the
+        // NEXT frame of the same contact, rejected because the FSM had already moved).
+        // On_stumble is registered on st_semi_deployed_parachute and goes to st_ragdoll;
+        // leaving that state to anything but full deploy calls evaChute.CutParachute().
+        // So the mitigation is separation before the canopy, and it is measured, not timed.
+
+        [Fact]
+        public void Standoff_ZeroMeans_Off_AndNeverWaits()
+        {
+            // Every non-declaring scenario: the stage is inert whatever the distance reads.
+            Assert.True(TestCommandEvaExit.StandoffClearThisPoll(0.0, 0.0));
+            Assert.True(TestCommandEvaExit.StandoffClearThisPoll(double.NaN, 0.0));
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
+                         TestCommandEvaExit.ClassifyStandoff(0.0, 0, 999.0, 15.0));
+            Assert.Equal("off", TestCommandEvaExit.StandoffToken(
+                0.0, TestCommandEvaExit.EvaExitStandoffState.Cleared));
+        }
+
+        [Theory]
+        [InlineData(0.0, false)]     // in contact - the flight-3 frame
+        [InlineData(29.9, false)]    // just short
+        [InlineData(30.0, true)]     // inclusive bound
+        [InlineData(90.0, true)]     // the measured separation 3.8 s after the cut
+        public void Standoff_ComparesTheObservedDistanceInclusively(double nearest, bool clear)
+            => Assert.Equal(clear, TestCommandEvaExit.StandoffClearThisPoll(nearest, 30.0));
+
+        [Fact]
+        public void Standoff_NoOtherLoadedVessel_ReadsClear()
+        {
+            // PositiveInfinity = nothing that can collide. There is no collider, so there
+            // is no stumble, so there is nothing to wait for.
+            Assert.True(TestCommandEvaExit.StandoffClearThisPoll(
+                double.PositiveInfinity, 30.0));
+        }
+
+        [Fact]
+        public void Standoff_UnreadableDistance_FailsClosed()
+        {
+            // NaN is NOT separation. Fail-closed here is safe because the wait is bounded.
+            Assert.False(TestCommandEvaExit.StandoffClearThisPoll(double.NaN, 30.0));
+        }
+
+        [Fact]
+        public void Standoff_RequiresTheDebounceRun_NotOneGoodFrame()
+        {
+            // One clear poll is not separation: a floating-origin shift or a frame where a
+            // vessel's position has not been updated can read clear once.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Waiting,
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 1, 1.0, 15.0));
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
+                         TestCommandEvaExit.ClassifyStandoff(
+                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 1.0, 15.0));
+        }
+
+        [Fact]
+        public void Standoff_BoundedWait_GivesUpAndSaysSo()
+        {
+            // NON-FATAL by design: an unchuted kerbal is a certain death, a contact risk is
+            // not. The give-up must therefore be visible on the wire instead of terminal.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.GaveUp,
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 15.0, 15.0));
+            Assert.Equal("timeout", TestCommandEvaExit.StandoffToken(
+                30.0, TestCommandEvaExit.EvaExitStandoffState.GaveUp));
+        }
+
+        [Fact]
+        public void Standoff_ClearedBeatsTheBudgetOnTheSamePoll()
+        {
+            // A poll that is BOTH past the bound and debounced-clear is a success, not a
+            // give-up: the separation was actually observed.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
+                         TestCommandEvaExit.ClassifyStandoff(
+                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 99.0, 15.0));
+        }
+
+        [Fact]
+        public void Standoff_TokenDistinguishesNeverAskedFromGaveUp()
+        {
+            // A bare bool would make "we did not ask" and "we asked and it never cleared"
+            // read identically in the collected artifacts.
+            Assert.Equal("off", TestCommandEvaExit.StandoffToken(
+                0.0, TestCommandEvaExit.EvaExitStandoffState.GaveUp));
+            Assert.Equal("cleared", TestCommandEvaExit.StandoffToken(
+                30.0, TestCommandEvaExit.EvaExitStandoffState.Cleared));
+            Assert.Equal("timeout", TestCommandEvaExit.StandoffToken(
+                30.0, TestCommandEvaExit.EvaExitStandoffState.GaveUp));
+        }
+
+        [Fact]
+        public void Standoff_ConstantsAreSizedForTheMeasuredProfile()
+        {
+            // 15 s against a measured ~2-3 s clear for a 30 m standoff (the background
+            // recorder logged 90 m of separation 3.8 s after the flight-3 cut). Guards
+            // against someone shrinking the bound below the physics it has to cover.
+            Assert.True(TestCommandEvaExit.StandoffMaxWaitSeconds >= 10.0);
+            Assert.True(TestCommandEvaExit.StandoffDebouncePolls >= 2);
         }
     }
 }

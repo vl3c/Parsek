@@ -151,7 +151,24 @@ steps = [
   # the safe one ([driver].skipTailOnUnmetMission defaults true).
   # release=true: MANDATORY, see the FSM ground truth above. The seam reports
   # released=VERIFIED-left-the-ladder, never a bare called-the-event bit.
-  { cmd = "EvaExit",        args = { release = "true" },                  expect = "OK", budget = 120 },
+  #
+  # minStandoffMeters=30: MANDATORY TOO, and for a sibling reason - it is the FLIGHT-3
+  # fix (2026-07-25). The kerbal's canopy was cut 200 ms after it opened, 254 ms after
+  # the kerbal let go of the pod's hatch ladder, and the kerbal free-fell to a 109 m/s
+  # impact. STOCK GROUND TRUTH: On_stumble is registered on
+  # KerbalEVA.st_semi_deployed_parachute (fsm.AddEventExcluding, KerbalEVA.cs:8153) with
+  # GoToStateOnEvent = st_ragdoll, and it is fired from the COLLISION callback whenever
+  # c.relativeVelocity exceeds stumbleThreshold = 3.5 m/s (KerbalEVA.cs:12700). Leaving
+  # the semi-deployed state to anything but st_fully_deployed_parachute runs
+  # OnSemiDeployedParachuteModeLeft -> evaChute.CutParachute() (KerbalEVA.cs:11152-11169),
+  # and ragdoll_OnEnter then AllowRepack(false)s it, so the cut is terminal. A canopy that
+  # inflates while the pod it just left is a metre away therefore cuts itself. This holds
+  # the exit until the kerbal is OBSERVABLY 30 m clear of every other loaded vessel
+  # (debounced 2 polls, bounded 15 s, then completes anyway with standoff=timeout on the
+  # wire - an unchuted kerbal is a certain death, a contact risk is not). Measured cost:
+  # the background recorder logged 90 m of separation 3.8 s after the flight-3 cut, so
+  # 30 m clears in ~2-3 s and ~30 m of the ~900 m EVA-band sky.
+  { cmd = "EvaExit",        args = { release = "true", minStandoffMeters = "30" }, expect = "OK", budget = 120 },
   # awaitDown=true: arm the kerbal's chute, hold until the canopy is VERIFIED open, then
   # hold through the descent until LANDED/SPLASHED with the kerbal alive.
   { cmd = "EvaChuteDeploy", args = { awaitDown = "true" },                expect = "OK", budget = 420 },
@@ -303,10 +320,20 @@ count = { min = 3, max = 3 }
 # a good run on a stock detail this scenario does not control. "evachutedeploy canopy
 # verified" is the real proof that the FSM cooperated: it can only appear if the module
 # actually reached SEMIDEPLOYED/DEPLOYED.
+#
+# "evaexit standoff cleared" is the FLIGHT-3 FIX's OWN GATE, added 2026-07-26. It is an
+# Info line emitted by ParsekTestCommandAddon.Eva.cs the moment the standoff wait leaves
+# Waiting for Cleared, so requiring it proves BOTH that the stage ran (a stale DLL or a
+# dropped spec arg logs nothing and reds here rather than needing an operator's eye) and
+# that it actually observed separation. The give-up path logs
+# "evaexit standoff timeout" instead and carries standoff=timeout on the evaexit
+# completion line, so a run that never cleared reds on this missing token - which is the
+# correct signal: a cut canopy after a standoff that never engaged is the original bug.
 required  = ["Recording started",
              "Mid-recording EVA detected",
              "Tree branch created: type=EVA",
              "TrackSection started: env=Atmospheric",
+             "evaexit standoff cleared",
              "evaexit complete",
              "evachutedeploy armed",
              "evachutedeploy canopy verified",

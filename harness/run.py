@@ -1624,6 +1624,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 1. Driver validity (from the response stream + the mission step, M-B1).
     ev = hlib.evaluate_response_stream(drive.response_lines, drive.steps_with_ids)
     mission = drive.mission_step
+    mission_outcome_unmet = False
     if mission is None:
         # Seam-only driver: every seam step gates validity (unchanged M-A5).
         driver_valid = ev.all_expected_met and not drive.boot_crashed and not drive.batch_crashed
@@ -1652,6 +1653,37 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "status": "PASS" if mission["met"] else "FAIL",
             "missionVerdict": mission["missionVerdict"], "subkind": mission["subkind"],
         }
+        # The EVA-4 fail-open closure (2026-07-25). The carve-out above keeps every
+        # post-mission RECORDING step non-gating on driver validity; what it must NOT
+        # do is drop a post-mission OUTCOME step's verdict on the floor. That verdict
+        # is the run's only channel onto the world state the mission handed off, and
+        # on EVA-4 flight 3 it was the ONLY thing that saw the kerbal die. Recorded as
+        # its own verifier row and classified PARSEK-FAIL(mission-outcome) so it reds
+        # structurally, with no dependence on the spec author's log-token regexes.
+        outcome_unmet = hlib.first_unmet_post_mission_outcome(ev.steps, mission_id)
+        detail["missionOutcome"] = {
+            "status": "FAIL" if (outcome_unmet is not None and mission["met"]) else (
+                "SKIPPED" if not mission["met"] else "PASS"),
+            "gatingVerbs": [o.cmd for o in ev.steps
+                            if str(o.step_id) > str(mission_id)
+                            and hlib.post_mission_step_gates(o.cmd)],
+            "firstUnmet": (None if outcome_unmet is None else {
+                "id": outcome_unmet.step_id, "cmd": outcome_unmet.cmd,
+                "expect": outcome_unmet.expect, "verdict": outcome_unmet.verdict,
+                "msg": outcome_unmet.msg}),
+        }
+        # Only a MET mission reaches the classifier branch: an unmet mission is already
+        # driver-INVALID with its own subkind, and re-reporting its skipped/failed tail
+        # as an outcome miss would mask the mission's own reason.
+        mission_outcome_unmet = outcome_unmet is not None and mission["met"]
+        logger.info("Verify", "verify missionOutcome status=%s gating=%d firstUnmet=%s"
+                    % (detail["missionOutcome"]["status"],
+                       len(detail["missionOutcome"]["gatingVerbs"]),
+                       "-" if outcome_unmet is None
+                       else "%s(%s) verdict=%s msg=%s" % (outcome_unmet.cmd,
+                                                          outcome_unmet.step_id,
+                                                          outcome_unmet.verdict,
+                                                          outcome_unmet.msg or "-")))
     detail["driverValidity"] = {
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),
         "allExpectedMet": ev.all_expected_met, "subkind": stage_subkind,
@@ -1721,6 +1753,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         "killed": killed,
         "batch_expected": requires_batch,
         "batch_present": batch_present,
+        # False on every seam-only driver (no mission step -> every step already gates
+        # through all_expected_met) and on every autopilot run whose post-mission
+        # outcome steps all answered.
+        "mission_outcome_unmet": mission_outcome_unmet,
     }
     driver_facts: Dict = {
         "spec_valid": True,
@@ -2640,6 +2676,12 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                       % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
         verify_line = ("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
                        "logValidate, results, anomalySweep, expectations")
+        if is_autopilot:
+            gating = [s.get("cmd") for s in steps
+                      if s.get("cmd") and hlib.post_mission_step_gates(s.get("cmd"))]
+            verify_line += (", missionOutcome(%s -> PARSEK-FAIL(mission-outcome) on an unmet "
+                            "post-mission outcome step)"
+                            % (", ".join(gating) if gating else "no gating verbs"))
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)
