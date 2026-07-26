@@ -114,12 +114,18 @@ TELEMETRY_FIELD_LABELS = (
     # mission that reads neither.
     ("nodeExec", "node executor", "-1/0/1"),
     ("ttPe", "time to periapsis", "s"),
+    # The B13/B14 LANDING opt-ins, appended by the same opt_token mechanism:
+    # the OBSERVED MechJeb LandingAutopilot tri-state the DESCENT supervisor
+    # gates on, and the horizontal speed the settled-touchdown gate reads.
+    ("landAP", "landing autopilot", "-1/0/1"),
+    ("hspd", "horizontal speed", "m/s"),
 )
 
 _NUMERIC_TELEMETRY_KEYS = ("ap", "pe", "ecc", "inc", "alt", "vspd", "nodeDv",
                            "nodeUt", "tts", "warpTo", "lf", "thr", "apErr",
                            "ut",  # trailing ut= token (Phase 2); NaN on old logs
-                           "nodeExec", "ttPe")  # opt-in tail; NaN when absent
+                           "nodeExec", "ttPe",  # opt-in tail; NaN when absent
+                           "landAP", "hspd")    # landing opt-in tail
 
 
 def parse_float(text) -> float:
@@ -641,6 +647,12 @@ PHASE_BUDGET_KEYS = {
     "CAPTURE-BURN": "captureBurnTimeoutSeconds",
     "PARK": "parkTimeoutSeconds",
     "ORBIT-COMMIT": "commitTimeoutSeconds",
+    # B13 / B14 LANDING tail. DESCENT reuses the "DESCENT"/descentTimeoutSeconds
+    # row above (shared with B1 / EVA-4 / B4's suborbital lane), which is exactly
+    # why the landing phase is NAMED DESCENT and its param descentTimeoutSeconds:
+    # the status table, the warp audit and every log grep already know that name.
+    "LANDED-SETTLE": "landedTimeoutSeconds",
+    "SURFACE-COMMIT": "commitTimeoutSeconds",
     # FORGE / FORGE-LKO.
     "LAUNCH": "launchTimeoutSeconds",
     "SEPARATE": "separationTimeoutSeconds",
@@ -1021,6 +1033,65 @@ def derive_heuristic(summary: Dict, params: Dict,
                     "ends on the commit frame." % result)
         return ("ORBIT-COMMIT: mid-mission command-seam CommitTree issued, "
                 "polling the response channel for a result; %s." % remaining())
+
+    # --- LANDING tail (B13 / B14). DESCENT is SHARED with B1 / EVA-4 / B4's
+    # suborbital lane, so the branch is landing-aware only when the landing
+    # machine fields are present (machine_number returns None on a state that
+    # lacks them, which is every other mission).
+    if phase == "DESCENT":
+        down = machine_number(machine, "landingApDownStreak")
+        engaged = machine_flag(machine, "landingEngaged")
+        if down is None and engaged is None:
+            # B1 / EVA-4 / B4 suborbital descent: no landing machine state.
+            if last is None:
+                return "DESCENT: waiting for first telemetry."
+            return ("DESCENT: alt=%s vspd=%s m/s; %s."
+                    % (fmt_meters(last["alt"]), fmt_num(last["vspd"]),
+                       remaining()))
+        ap = last.get("landAP") if last else None
+        ap_text = ("landAP=%s" % fmt_num(ap)) if is_finite(ap) \
+            else "landAP unread"
+        reissues = machine_number(machine, "landingApReissues")
+        if down and down >= 1:
+            return ("DESCENT: MechJeb's LandingAutopilot has read DOWN for %d "
+                    "consecutive frame(s) (%s, reissues=%s) -- the "
+                    "landing-autopilot-not-enabled watchdog owns this; %s."
+                    % (int(down), ap_text,
+                       fmt_num(reissues) if reissues is not None else "0",
+                       remaining()))
+        ref = machine_number(machine, "landingAltRef")
+        return ("DESCENT: MechJeb is flying the untargeted landing (%s, "
+                "engaged=%s). alt=%s vspd=%s m/s, no-progress window anchored "
+                "at %s. MechJeb OWNS the warp here, so a 1x stretch is normal; "
+                "%s."
+                % (ap_text, "?" if engaged is None else engaged,
+                   fmt_meters(last["alt"]) if last else "?",
+                   fmt_num(last["vspd"]) if last else "?",
+                   fmt_meters(ref) if ref is not None else "?", remaining()))
+
+    if phase == "LANDED-SETTLE":
+        stable = machine_number(machine, "landedStableStreak")
+        ever = machine_flag(machine, "landedEverStable")
+        dwell = params.get("landedDwellSeconds")
+        body = (machine or {}).get("landedBody")
+        if stable is None:
+            return ("LANDED-SETTLE: holding the landing for the dwell%s; %s."
+                    % ((" (%ss)" % fmt_num(dwell)) if dwell else "",
+                       remaining()))
+        return ("LANDED-SETTLE: touched down on %s, settle debounce at %d "
+                "frame(s), everStable=%s, dwelling %ss at 1x (a deliberate 1x "
+                "hold -- this dwell IS the recorded surface coverage); %s."
+                % (body or "?", int(stable), "?" if ever is None else ever,
+                   fmt_num(dwell) if dwell else "?", remaining()))
+
+    if phase == "SURFACE-COMMIT":
+        result = (machine or {}).get("commitResult")
+        result = str(result).strip() if result not in (None, "") else ""
+        if result and result not in ("-", "none"):
+            return ("SURFACE-COMMIT: seam CommitTree returned %s; the mission "
+                    "ends on the commit frame." % result)
+        return ("SURFACE-COMMIT: mid-mission command-seam CommitTree issued "
+                "while LANDED, polling the response channel; %s." % remaining())
 
     if phase in ("MJ-ASCENT", "CIRCULARIZE", "ORBIT", "PRELAUNCH"):
         if last is None:

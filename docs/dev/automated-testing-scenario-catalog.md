@@ -133,6 +133,8 @@ its fixture shortcut (synthetic recording or stock Scenario save).
 | B10 | Career passive safety: stock actions only, warp, scene change, cold load | D8(all),D14(career),D16 | fresh career save |
 | B11 | Mun ORBIT: transfer, capture burn, park, commit while parked in the Mun SOI | D1(commit-in-foreign-soi),D3,D4,D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6) |
 | B12 | Minmus ORBIT: the B11 machine on the minmus axis | As B11 with D14 minmus | b2-lko-craft |
+| B13 | Mun LANDING: the B11 machine plus a MechJeb untargeted descent, a settled landed dwell, and a commit ON THE SURFACE | D1(commit-landed-foreign-body),D3,D4(surface-stationary),D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6/B11) |
+| B14 | Minmus LANDING: the B13 machine on the minmus axis | As B13 with D14 minmus and D4(surface-mobile) in place of surface-stationary | b2-lko-craft |
 
 B10 requires almost no flying and covers the historically most destructive
 regressions (R1/R2/R4-R7 below).
@@ -149,6 +151,22 @@ exercises the commit path, the terminal classification, or the
 background-recording handoff for a tree whose recording CLOSES while the vessel
 is in orbit around another body. B11/B12 close and commit exactly there, which
 is why they claim the new D1 `commit-in-foreign-soi` value.
+
+B13/B14 ARE THE ROADMAP'S "Mun/Minmus LANDING missions" ITEM, and they take
+the next free ids for the same reason B11/B12 did. They are the B11/B12 machine
+with one more param, `landingEnabled`, and they exist for an end state neither
+the flyby nor the orbit lane reaches: a recording that ENDS **LANDED ON ANOTHER
+BODY**. B11/B12 close in ORBIT around a foreign body and B1/B4 land on KERBIN,
+so nothing in the suite exercises the `Landed` terminal classification for a
+foreign-body tree, the SURFACE-class TrackSections the environment classifier
+only reaches on an AIRLESS body (`Approach -> Surface*`, unreachable where an
+atmosphere classifies first), the landing-leg part events, or the landed-vessel
+ghost / playback surface. That is why they claim the new D1
+`commit-landed-foreign-body` value and the two previously unclaimed D4 surface
+classes - `surface-stationary` on B13 and `surface-mobile` on B14, each claimed
+by the scenario whose flight MEASURED that class and gated by a class-specific
+log token, because which class a touchdown confirms is `srfSpeed > 0.1` at the
+confirm frame and not a property of the lane.
 
 B8 additional assertion (loop first-run-is-real, D18): after 3 loop cycles
 plus one rewind re-cross of the spawn window, exactly ONE real vessel with
