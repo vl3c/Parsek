@@ -7294,10 +7294,118 @@ class WarpLivenessFloorTests(unittest.TestCase):
     crawls. gameSecondsPerWallSecond was already computed for exactly this
     shape and nothing consumed it as a give-up."""
 
+    # MEASURED 2026-07-26 from B12 flight 2's own stdout log
+    # (results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log): the
+    # MACHINE-STATE lines are emitted on a >= 5.0 wall-second cadence
+    # (MACHINE_STATE_INTERVAL_SECONDS) and consecutive lines through the final
+    # coast advanced 7.05-7.13 game seconds each. This is the EPISODE ratio,
+    # which is what the floor judges -- NOT the ~39 PER-PHASE average the
+    # warpUtilisation row reports for the same coast (that mean is dominated by
+    # the one successful 146,070 game-second warp burst earlier in the phase).
+    MEASURED_THRASH_RATIO = 1.41
+    MEASURED_THRASH_PHASE_RATIO = 39.0
+
+    # MEASURED 2026-07-26 over all 118 archived per-phase warpUtilisation rows
+    # that issued a warp command in a NATIVE-arming phase: the longest healthy
+    # armed episode in the whole archive.
+    MEASURED_HEALTHY_MAX_WALL = 76.4
+
     def test_the_measured_thrash_ratio_is_starved(self):
-        """B12 flight 2's coast read ~1.3 game-s per wall-s."""
+        """B12 flight 2's thrashing EPISODE read 1.41 game-s per wall-s, and the
+        floor judges it with 3.5x of margin."""
         self.assertTrue(mlib.warp_liveness_starved(
-            game_seconds=1.3 * 600.0, wall_seconds=600.0))
+            game_seconds=self.MEASURED_THRASH_RATIO * 600.0, wall_seconds=600.0))
+        self.assertLess(self.MEASURED_THRASH_RATIO, mlib.WARP_LIVENESS_MIN_RATIO)
+
+    def test_the_per_phase_average_could_never_have_named_the_defect(self):
+        """WHY this floor computes its own episode-local ratio instead of
+        reading the warpUtilisation row, pinned so nobody "simplifies" it into
+        doing the latter.
+
+        The SAME coast that thrashed at 1.41 reports a per-phase
+        gameSecondsPerWallSecond of ~39, because one successful 146,070
+        game-second warp burst earlier in the phase dominates the mean. Fed the
+        phase number, the floor is silent on the defect it exists for. That is
+        the difference between the phase METRIC (a marker) and this GIVE-UP."""
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=self.MEASURED_THRASH_PHASE_RATIO * 600.0,
+            wall_seconds=600.0))
+        self.assertGreater(self.MEASURED_THRASH_PHASE_RATIO,
+                           mlib.WARP_LIVENESS_MIN_RATIO)
+
+    def test_every_measured_healthy_armed_episode_is_too_short_to_judge(self):
+        """The window's real job. Across the archive the longest episode a
+        NATIVE-arming phase ever ran is 76.4 wall-seconds (COAST-TO-TARGET, B7);
+        the rest of the measured maxima are far shorter. None is judged."""
+        for phase, wall in (("COAST-TO-TARGET", self.MEASURED_HEALTHY_MAX_WALL),
+                            ("CORRECTION-BURN", 69.6),
+                            ("TARGET-FLYBY", 30.2),
+                            ("PLAN-CORRECTION", 3.7),
+                            ("PLAN-CAPTURE", 0.6)):
+            # Judged as if it had advanced NO game time at all: still not
+            # starved, because the window refuses to judge it.
+            self.assertFalse(mlib.warp_liveness_starved(0.0, wall), phase)
+
+    def test_the_window_is_anchored_above_the_measured_healthy_maximum(self):
+        """180.0 is 2.36x the measured healthy maximum. Pinned as a BAND, not a
+        value, so re-tuning stays honest: never at or below what we have flown
+        healthily, never so high it stops bounding anything."""
+        self.assertGreater(mlib.WARP_LIVENESS_MIN_WALL_SECONDS,
+                           2.0 * self.MEASURED_HEALTHY_MAX_WALL)
+        self.assertLess(mlib.WARP_LIVENESS_MIN_WALL_SECONDS, 600.0)
+
+    def test_the_disarm_not_the_window_is_what_saves_the_long_1x_holds(self):
+        """The load-bearing safety fact, measured and pinned so it cannot rot.
+
+        Every one of these is a real archived phase row, and every one WOULD be
+        judged starved if `warp_to_cmd` were ever left armed across it -- past
+        the 180 s window AND under the 5.0 ratio floor. Neither bound protects
+        them. The DISARM does: `_b5_enter_plan_capture` clears the command and
+        the PARK entry clears it again, which is why CAPTURE-BURN reads
+        warpCommands=0 on all ten archived captures. CAPTURE-BURN's own
+        138.0 s @ 1.10 row is the near-miss that shows how little slack there
+        is: 42 seconds short of being judged."""
+        would_fire = (
+            ("REENTRY", 428.4, 1.447),
+            ("DEORBIT", 349.8, 1.000),
+            ("DOCK", 247.1, 0.999),
+            ("MJ-ASCENT", 199.3, 1.330),
+            ("INT-ASCENT", 194.6, 1.547),
+            ("STATION-ASCENT", 194.3, 1.827),
+            ("PARK", 180.4, 0.999),
+        )
+        for phase, wall, ratio in would_fire:
+            self.assertTrue(mlib.warp_liveness_starved(ratio * wall, wall),
+                            "%s no longer models the disarm hazard" % (phase,))
+        # The near-miss: under the window today, and nothing but its length
+        # keeps it there.
+        self.assertFalse(mlib.warp_liveness_starved(1.102 * 138.0, 138.0))
+
+    def test_plan_capture_entry_disarms_the_native_warp(self):
+        """Half of the safety the test above says is load-bearing. If this entry
+        ever stopped clearing the command, CAPTURE-BURN would run its ~642 s
+        pre-ignition hold with the floor ARMED."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=99_999.0)
+        entered, actions = mlib._b5_enter_plan_capture(
+            state, snap(ut=100.0, body="Mun", altitude=1_000_000.0), None)
+        self.assertEqual(entered.phase, mlib.B5_PLAN_CAPTURE)
+        self.assertIsNone(entered.warp_to_cmd)
+        self.assertIn(Action(mlib.ACTION_CANCEL_WARP), actions)
+
+    def test_park_entry_disarms_the_native_warp(self):
+        """The other half: PARK's ~180 s dwell reads ratio 0.999 and sits 0.4 s
+        PAST the judging window, so an armed command carried into it would land
+        squarely inside both bounds."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-5_000_000.0, burn_entry_pe=900_000.0,
+                           warp_to_cmd=99_999.0)
+        parked, _ = mlib.b5_decide(
+            state, snap(ut=200.0, body="Mun", altitude=1_000_000.0,
+                        apoapsis=1_010_000.0, periapsis=990_000.0,
+                        eccentricity=0.01, node_count=0,
+                        node_executor_enabled=0))
+        self.assertEqual(parked.phase, mlib.B5_PARK)
+        self.assertIsNone(parked.warp_to_cmd)
 
     def test_a_genuinely_warping_phase_is_never_starved(self):
         """A warping phase reads hundreds to thousands."""

@@ -357,12 +357,14 @@ six publish or compare numbers the runner already measured.
    (`MAX_PHASE_WARP_ISSUES` = 500, counted per phase entry and also armed at the
    correction aim-warp and flyby warp sites as `correction-aim-warp-thrash` /
    `flyby-warp-thrash`) plus the per-phase `warpUtilisation` block and the
-   `warp-liveness-starved` floor that consumes `gameSecondsPerWallSecond`
-   (that floor is UNEXERCISED - no archived flight's armed native warp ever
-   reached its 180 wall-second judging window, longest 76.4 s; see the re-fly
-   sweep note under item 2 of the scenario roadmap), but the AUDIT itself
-   remains blind to the class - a real gap in an existing gate, not a new
-   instrument.
+   `warp-liveness-starved` floor, which judges an EPISODE-LOCAL game-s/wall-s
+   ratio computed in the fly loop - NOT the per-phase `gameSecondsPerWallSecond`
+   the block reports (on flight 2 those read 1.41 and ~39 respectively; see the
+   re-fly sweep note under item 2 of the scenario roadmap for why the difference
+   is load-bearing). The floor has never fired in the field and bounds the
+   post-fix residual rather than flight 2's own thrash; its mechanism is covered
+   by `test_shells.WarpLivenessRealMachineTests`. The AUDIT itself remains blind
+   to the class - a real gap in an existing gate, not a new instrument.
 9. ~~B11 / B12 recordings-count windows are PROVISIONAL at {1, 9}~~ **CLOSED
    2026-07-25.** Both are PINNED at `{min 8, max 8}` from
    `verifiers.expectations.observed.recordings.count` on a measured green run
@@ -454,20 +456,57 @@ six publish or compare numbers the runner already measured.
    | B5-mun-flyby | PASS, wall 468.009 s | `flyby-warp-thrash` / `correction-aim-warp-thrash` / `warp-liveness-starved` are new terminals reachable on the flyby family |
    | B6-minmus-flyby | PASS, wall 359.425 s | same |
    None of the three new terminals fired on a healthy flight, so they bound the
-   broken case without narrowing the correct one - but that sentence carries NO
-   weight for `warp-liveness-starved`, which is UNEXERCISED. Measured from
-   `warpUtilisation` across every archived `harness/results/*_mission.json`, no
-   phase that armed a NATIVE warp ever reached the floor's 180 wall-second
-   minimum judging window: the longest is COAST-TO-TARGET at 76.4 s (B7), then
-   CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s, PLAN-CORRECTION 3.7 s,
-   PLAN-CAPTURE 0.6 s. Not one episode was ever even judged, so "it did not
-   fire" is what the window guarantees, not evidence the floor is tuned. What
-   IS verified is that it stays DISARMED where a long deliberate hold happens:
-   CAPTURE-BURN issues `warpCommands=0` on all ten archived captures (B11 runs
-   ~642 wall-s of MechJeb's own pre-ignition hold there) because
-   `_b5_enter_plan_capture` and PARK entry both clear `warp_to_cmd`. The two
-   thrash terminals are on firmer ground - `action warp_to_ut` counts exactly
-   1 per phase on all four flights above, against a cap of 500.
+   broken case without narrowing the correct one. Read that per terminal: for
+   the two THRASH terminals it is real evidence (`action warp_to_ut` counts
+   exactly 1 per phase on all four flights, against a cap of 500), and for
+   `warp-liveness-starved` it is worth nothing, because no archived episode was
+   ever even JUDGED. Measured from `warpUtilisation` across every archived
+   `harness/results/*_mission.json`, no phase that armed a NATIVE warp reached
+   the floor's 180 wall-second minimum window: the longest is COAST-TO-TARGET at
+   76.4 s (B7), then CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s,
+   PLAN-CORRECTION 3.7 s, PLAN-CAPTURE 0.6 s.
+   CLOSED 2026-07-26, and the answer was NOT the one the caveat assumed. Three
+   findings, all from primary evidence:
+   1. **This floor could not have caught B12 flight 2 either, and the window is
+      not why.** Flight 2's thrash CANCELLED the command every other frame
+      (3,603 `warp_to_ut` against 3,602 `cancel_warp`, the
+      `gate warpToCmd <target>->none` / `none-><target>` pair alternating frame
+      by frame), and the fly loop resets the liveness episode the moment
+      `warp_to_cmd` clears. The episode never lasted two frames. The THRASH
+      counter is what bounds that shape; this floor bounds the POST-FIX
+      RESIDUAL, where `coast_native_warp_hold` removed the cancel half of the
+      cycle but a crawling rails rate is untouched by that fix. That shape has
+      never been flown, is reachable, and nothing else in the stack can see it.
+   2. **The floor does not consume `gameSecondsPerWallSecond`**, despite what
+      its own rationale used to say. That is a PER-PHASE average; the floor
+      computes an EPISODE-LOCAL ratio in the fly loop. On flight 2 the two
+      differ by 27x - the phase row reads ~39 (one successful 146,070
+      game-second warp burst earlier in the same phase dominates the mean),
+      the thrashing episode reads 1.41. Fed the phase number a 5.0 floor is
+      silent on the defect it exists for. Both numbers in the docs are correct;
+      they measure different things, and only the episode one is a give-up.
+   3. **The disarm, not the window, is what protects the long 1x holds** - so
+      the window must never be described as that margin. MEASURED, 31 archived
+      phase rows across SEVEN phase names run PAST 180 wall-seconds at a ratio
+      BELOW the 5.0 floor (REENTRY 428.4 s @ 1.45, DEORBIT 349.8 s @ 1.00, DOCK
+      247.1 s @ 1.00, MJ-ASCENT 198.5-199.3 s @ 1.33 across 17 rows, INT-ASCENT
+      194.6 s @ 1.55, STATION-ASCENT 194.3 s @ 1.83, PARK 180.2-180.6 s @ 1.00
+      across 9 rows), and CAPTURE-BURN has been measured at 138.0 s @ 1.10, only
+      42 seconds short of being judged. Every one would FIRE if `warp_to_cmd`
+      were left armed across it. CAPTURE-BURN reads `warpCommands=0` on all ten
+      archived captures because `_b5_enter_plan_capture` clears the command and
+      the PARK entry clears it again; both clears are now pinned by tests.
+   WHAT SHIPPED: no constant changed (180.0 / 5.0 stand, so no frame any flown
+   mission took can move), both are now anchored on the measurement above rather
+   than round, the PROVISIONAL note is gone, and the mechanism is covered by
+   `test_shells.WarpLivenessRealMachineTests` - the REAL b5 machine driven
+   through `fly_loop` on flight 2's post-fix telemetry (same body, same altitude
+   band, same 2.76x rails rate, same measured 1.41 game-s per wall-s), which
+   fires the named give-up while the thrash counter stays at 1 issue of 500.
+   FIELD STATUS stays unflown, and that is now recorded as the CORRECT state
+   rather than a debt: every healthy armed episode we fly is 0.5-76.4 wall-s and
+   finishes far inside the window, and reaching the floor in the field would
+   mean reintroducing the defect.
    ID NOTE: this item was informally called "B8", but B8/B9/B10 are already
    taken in `automated-testing-scenario-catalog.md` section 2 (loop-B7-as-
    mission / crash-rewind-refly / career passive safety) and B3 is the EVA

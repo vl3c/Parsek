@@ -1053,11 +1053,49 @@ WARP_THRASH_FLYBY = "flyby-warp-thrash"
 # is simply not moving. `warpUtilisation.gameSecondsPerWallSecond` was already
 # computed for exactly this shape and nothing consumed it as a give-up.
 #
-# The floor is deliberately far below any legitimate warp and comfortably above
-# the measured pathological one: B12 flight 2's thrashing coast read ~1.3
-# game-s per wall-s (rails rate never escaping ~2.7x), while a genuinely
-# warping phase reads hundreds to thousands. 5.0 is ~4x above the measured
-# defect and ~20x below the cheapest healthy warp.
+# WHICH SHAPE THIS ACTUALLY BOUNDS (corrected 2026-07-26 from flight 2's own
+# gate lines; the earlier wording here implied this floor would have caught B12
+# flight 2, and it would NOT have). Flight 2's coast CANCELLED the command every
+# other frame -- 3,603 `warp_to_ut` against 3,602 `cancel_warp`, with the
+# `gate warpToCmd <target>->none` / `none-><target>` pair alternating frame by
+# frame -- and the fly loop resets the liveness episode the moment
+# `warp_to_cmd` clears. That episode never lasted two frames, so this floor
+# could not have accumulated a judging window regardless of how it was tuned.
+# The THRASH counter is what bounds that shape.
+#
+# What this floor bounds is the POST-FIX RESIDUAL. `coast_native_warp_hold`
+# removed the cancel half of flight 2's cycle (a blind read UNDER WARP now HOLDS
+# the armed command), so the command stays armed continuously. Flight 2's OTHER
+# half -- a rails rate that never escaped 2.76x while the game reported a live
+# warp -- is untouched by that fix. Held command + crawling rate is an episode
+# that accumulates without bound while advancing almost no game time, and
+# nothing else in the stack can see it: the runner's warp-stall watchdog needs
+# UT to FREEZE (a crawl advances it), and a GAME-time phase budget is either
+# advanced by the crawl or, at CORRECTION-BURN, suppressed outright during an
+# aim-warp. That shape has never been flown; it is reachable, it is what this
+# floor is for, and it is covered by driving the REAL b5 machine over flight 2's
+# post-fix telemetry through fly_loop (test_shells.WarpLivenessRealMachineTests).
+#
+# THE RATIO, MEASURED -- AND WHICH RATIO. Read the paragraph above carefully:
+# this floor does NOT consume `warpUtilisation.gameSecondsPerWallSecond`, which
+# is a PER-PHASE average. It computes its own EPISODE-LOCAL ratio in the fly
+# loop, from the frame the command armed. On flight 2 those two numbers differ
+# by a factor of 27 and only one of them can name the defect:
+#
+#   PHASE ratio, COAST-TO-TARGET   151,763 game-s / ~3,890 wall-s = ~39
+#   EPISODE ratio, the thrash      1.41
+#
+# The phase average is ~39 because ONE successful warp burst (ut 74,241.8 ->
+# 220,311.6, 146,070 game-seconds in 7 frames) precedes the thrash inside the
+# same phase and dominates the mean. At ~39 a 5.0 floor could never fire, which
+# is exactly why the phase metric is a MARKER and this is a GIVE-UP: the marker
+# cannot separate flight 2's coast from a healthy one, the episode ratio names
+# it instantly. The episode number is measured off flight 2's MACHINE-STATE
+# lines, emitted on a >= 5.0 wall-second cadence
+# (MACHINE_STATE_INTERVAL_SECONDS), which advanced 7.05 to 7.13 game seconds
+# each through the final coast: 7,204 frames, ut 220,311.6 -> 225,991.7
+# (5,680 game-s). So 5.0 sits ~3.5x above the measured defect and below the
+# cheapest healthy warp. Do not "simplify" this to read the warpUtilisation row.
 #
 # It is armed ONLY while the machine has a NATIVE warp command outstanding
 # (state.warp_to_cmd is not None), so a deliberate 1x phase -- B5's PARK dwell,
@@ -1067,28 +1105,38 @@ WARP_THRASH_FLYBY = "flyby-warp-thrash"
 # WARP_LIVENESS_MIN_WALL_SECONDS is never judged at all.
 WARP_LIVENESS_MIN_RATIO = 5.0
 
-# PROVISIONAL (2026-07-26 review): 180.0 is a round number chosen to sit safely
-# above any warp episode the archive contains, NOT a measured threshold, and
-# the consequence is that THE FLOOR HAS NEVER FIRED ON ANY ARCHIVED FLIGHT --
-# not once, healthy or otherwise. Measured from `warpUtilisation` over every
-# `harness/results/*_mission.json`, the LONGEST wall-clock window of any phase
-# that issued a native warp is COAST-TO-TARGET at 76.4 s (B7, 2026-07-25),
-# then CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s, PLAN-CORRECTION 3.7 s,
-# PLAN-CAPTURE 0.6 s. (PARK runs ~180 s and does emit warp commands, but never
-# a NATIVE one, so it never arms this floor -- see below.) Every one of those
-# is under the 180 s minimum window, so no archived episode was ever even
-# JUDGED. The floor is therefore UNEXERCISED, and its cheapness -- it cannot
-# false-fire on anything we have flown -- is the only property currently
-# demonstrated.
+# THE WINDOW, MEASURED (this replaces the 2026-07-26 PROVISIONAL note). 180.0
+# was picked round; it is now ANCHORED rather than re-tuned, and the VALUE IS
+# UNCHANGED, so no frame any flown mission took can move. Over all 118 archived
+# per-phase `warpUtilisation` rows that issued a warp command in a
+# NATIVE-arming phase, the longest wall-clock window is COAST-TO-TARGET at
+# 76.4 s (B7, 2026-07-25), then CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s,
+# PLAN-CORRECTION 3.7 s, PLAN-CAPTURE 0.6 s. 180.0 is 2.36x that measured
+# healthy maximum: not larger because it does not need to be, not smaller
+# because the maximum comes from ONE lane (B7's heliocentric coast) and an
+# unflown lane may legitimately warp longer.
 #
-# WHAT WOULD CLOSE IT: one flight whose armed native warp legitimately runs
-# past 180 wall-seconds (the natural candidate is a long B7-class heliocentric
-# coast, or any lane whose warp rate is clamped by altitude legality for
-# minutes). Measure that episode's game-s/wall-s and re-anchor BOTH numbers on
-# it -- the window just under the shortest legitimate long warp, the ratio
-# safely under its measured value. Until such a flight exists, treat a
-# `warp-liveness-starved` verdict as unproven in the field and read the
-# episode's actual utilisation from the result JSON before believing it.
+# WHAT THE WINDOW IS NOT, and must never be sold as: the margin protecting the
+# long deliberate 1x holds. MEASURED, 31 archived phase rows across SEVEN phase
+# names run PAST 180 wall-seconds at a ratio BELOW the 5.0 floor -- REENTRY
+# 428.4 s @ 1.45, DEORBIT 349.8 s @ 1.00, DOCK 247.1 s @ 1.00, MJ-ASCENT
+# 198.5-199.3 s @ 1.33 (17 rows), INT-ASCENT 194.6 s @ 1.55, STATION-ASCENT
+# 194.3 s @ 1.83, PARK 180.2-180.6 s @ 1.00 (9 rows) -- and CAPTURE-BURN has
+# been measured at 138.0 s @ 1.10, only 42 seconds short of being judged. Every
+# one of those would FIRE if `warp_to_cmd` were ever left armed across them.
+# Nothing but the DISARM keeps them safe: CAPTURE-BURN reads warpCommands=0 on
+# all ten archived captures because `_b5_enter_plan_capture` clears the command,
+# and the PARK entry clears it again on the way in. Those two clears are
+# load-bearing safety, not bookkeeping -- pinned by
+# test_mlib.WarpLivenessFloorTests so a later edit cannot quietly re-arm them.
+#
+# FIELD STATUS: the floor has never fired on an archived flight, and that is the
+# CORRECT state, not a coverage debt. Every healthy armed episode we have flown
+# is 0.5-76.4 wall-seconds and finishes far inside the window; the shape the
+# floor bounds is unhealthy by construction and reaching it in the field would
+# mean reintroducing the defect. Read a live `warp-liveness-starved` verdict
+# against the episode's actual utilisation in the result JSON before acting on
+# it, the same as any other first-in-the-field terminal.
 WARP_LIVENESS_MIN_WALL_SECONDS = 180.0
 WARP_LIVENESS_GIVEUP = "warp-liveness-starved"
 
