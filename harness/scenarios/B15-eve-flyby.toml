@@ -429,6 +429,11 @@ transferBurnTimeoutSeconds = 18000000
 #   nextBody over the whole flight:  547 '?'  24 Kerbin  35 Mun  26 Sun
 #   nextBody == Eve:                 NEVER, not once, in any phase.
 #
+# CONFIRMED DETERMINISTIC: the harness retry reproduced it exactly - same
+# phase chain, same two correction rounds, coast elapsed 7,006,530 against the
+# same 7,000,000 bound, and again ZERO nextBody=Eve reads. Two independent
+# attempts, ~1,389 s of wall, identical outcome. This is not a window fluke.
+#
 # The patched conics never predicted an Eve encounter at all. A bigger coast
 # budget buys a longer route to the same answer. The transfer SOLUTION is what
 # is wrong, not the budget bound around it.
