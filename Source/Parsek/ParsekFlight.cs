@@ -13141,6 +13141,15 @@ namespace Parsek
             // Finalize all recordings (active + background)
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
 
+            // Name the finalized terminal verdict for every recording the commit is
+            // about to consume. "starting tree commit at UT=" above only proves the
+            // path RAN; it is emitted unconditionally and says nothing about WHERE
+            // the tree ended, so a commit made while parked in a FOREIGN body's SOI
+            // is indistinguishable in the log from one made at Kerbin. These lines
+            // are the log witness for the terminal classification and the terminal
+            // orbit body, which is what the autotest ORBIT lane (B11/B12) asserts.
+            LogCommitTerminalVerdicts(activeTree);
+
             // Identify the active vessel's recording
             string activeRecId = activeTree.ActiveRecordingId;
             Recording activeRec = null;
@@ -13218,6 +13227,81 @@ namespace Parsek
             // hooks in MergeDialog.MergeCommit. Internally gated (test batch,
             // restore window, prompted-once, dismissed) and never throws.
             Logistics.RouteRunPrompt.NotifyTreeCommitted(committedTreeForPrompt);
+        }
+
+        /// <summary>
+        /// Per-recording terminal lines emitted by <see cref="LogCommitTerminalVerdicts"/>
+        /// before it collapses to a single summary. Matches the repo batch-counting
+        /// convention: per-item lines only while the item count is bounded (~20).
+        /// A tree with more leaves than this is a debris storm, not a mission.
+        /// </summary>
+        internal const int CommitTerminalLogLimit = 20;
+
+        /// <summary>
+        /// Formats one committed recording's terminal verdict. Pure and
+        /// <c>internal static</c> so the exact wording is unit-testable without a
+        /// live flight scene (the live call site is <see cref="CommitTreeFlight"/>).
+        /// </summary>
+        internal static string FormatCommitTerminalLine(Recording rec)
+        {
+            string recId = string.IsNullOrEmpty(rec?.RecordingId) ? "(null)" : rec.RecordingId;
+            string terminalState = rec?.TerminalStateValue?.ToString() ?? "(null)";
+            string terminalBody = string.IsNullOrEmpty(rec?.TerminalOrbitBody)
+                ? "(null)"
+                : rec.TerminalOrbitBody;
+            return $"CommitTreeFlight terminal: rec={recId} " +
+                $"terminalState={terminalState} terminalOrbitBody={terminalBody}";
+        }
+
+        /// <summary>
+        /// Formats the summary emitted instead of per-recording lines when a tree
+        /// carries more than <see cref="CommitTerminalLogLimit"/> recordings. Names
+        /// the ROOT recording's verdict so the line still identifies where the tree
+        /// ended.
+        /// </summary>
+        internal static string FormatCommitTerminalSummaryLine(RecordingTree tree)
+        {
+            int total = tree?.Recordings?.Count ?? 0;
+            Recording root = null;
+            if (tree?.Recordings != null && !string.IsNullOrEmpty(tree.RootRecordingId))
+                tree.Recordings.TryGetValue(tree.RootRecordingId, out root);
+
+            string rootId = string.IsNullOrEmpty(root?.RecordingId)
+                ? (string.IsNullOrEmpty(tree?.RootRecordingId) ? "(null)" : tree.RootRecordingId)
+                : root.RecordingId;
+            string rootState = root?.TerminalStateValue?.ToString() ?? "(null)";
+            string rootBody = string.IsNullOrEmpty(root?.TerminalOrbitBody)
+                ? "(null)"
+                : root.TerminalOrbitBody;
+
+            return $"CommitTreeFlight terminal summary: {total} recordings " +
+                $"(over the {CommitTerminalLogLimit} per-line cap), " +
+                $"root rec={rootId} terminalState={rootState} terminalOrbitBody={rootBody}";
+        }
+
+        /// <summary>
+        /// Logs the terminal classification + terminal orbit body of every recording
+        /// in a tree that is about to be committed. One line per recording while the
+        /// set is bounded; a single summary naming the root recording above the cap.
+        /// </summary>
+        internal static void LogCommitTerminalVerdicts(RecordingTree tree)
+        {
+            if (tree?.Recordings == null || tree.Recordings.Count == 0)
+            {
+                ParsekLog.Info("Flight",
+                    "CommitTreeFlight terminal: no recordings in tree " +
+                    $"'{tree?.TreeName ?? "(null)"}'");
+                return;
+            }
+
+            if (tree.Recordings.Count > CommitTerminalLogLimit)
+            {
+                ParsekLog.Info("Flight", FormatCommitTerminalSummaryLine(tree));
+                return;
+            }
+
+            foreach (var kvp in tree.Recordings)
+                ParsekLog.Info("Flight", FormatCommitTerminalLine(kvp.Value));
         }
 
         private void ReserveCrewForLeaves(List<Recording> spawnableLeaves)

@@ -108,11 +108,18 @@ TELEMETRY_FIELD_LABELS = (
     ("situation", "situation", ""),
     ("warp", "warp", ""),
     ("apErr", "autopilot error", "deg"),
+    # The OPT-IN tail the mission appends only when the channel was read
+    # (mission_runner opt_token): the OBSERVED MechJeb NodeExecutor tri-state
+    # and the periapsis clock the capture warp gates on. NaN / absent on every
+    # mission that reads neither.
+    ("nodeExec", "node executor", "-1/0/1"),
+    ("ttPe", "time to periapsis", "s"),
 )
 
 _NUMERIC_TELEMETRY_KEYS = ("ap", "pe", "ecc", "inc", "alt", "vspd", "nodeDv",
                            "nodeUt", "tts", "warpTo", "lf", "thr", "apErr",
-                           "ut")  # trailing ut= token (Phase 2); NaN on old logs
+                           "ut",  # trailing ut= token (Phase 2); NaN on old logs
+                           "nodeExec", "ttPe")  # opt-in tail; NaN when absent
 
 
 def parse_float(text) -> float:
@@ -251,6 +258,9 @@ def summarize_mission_lines(lines: List[str]) -> Dict:
       spawn:          the '[Spawn] mission start ...' kv dict or {}
       verdict:        the '[Verdict] mission verdict=...' kv dict or None
       asserts:        ['assert <name> ... met=...'] result lines
+      machine:        the LAST 'machine phase=... key=value ...' state line as
+                      a raw-string kv dict, or {} (the log-side fallback for
+                      the status file's decoded ``machine`` block)
     Pure: takes lines, returns data; no I/O."""
     transitions: List[Dict] = []
     telemetry: List[Tuple[int, Dict]] = []
@@ -258,6 +268,7 @@ def summarize_mission_lines(lines: List[str]) -> Dict:
     spawn: Dict = {}
     verdict: Optional[Dict] = None
     asserts: List[str] = []
+    machine: Dict = {}
     for index, line in enumerate(lines):
         parsed = parse_log_line(line)
         if parsed is None or parsed["source"] != "Mission":
@@ -266,6 +277,12 @@ def summarize_mission_lines(lines: List[str]) -> Dict:
         telem = parse_telemetry_message(msg)
         if telem is not None:
             telemetry.append((index, telem))
+            continue
+        if msg.startswith("machine "):
+            # mlib.format_machine_state: 'machine phase=X rounds=N ...'. Raw
+            # string values ('-' = the field is absent on this machine, 'none'
+            # = present but unset), decoded lazily by machine_int / machine_str.
+            machine = parse_kv_tokens(msg[len("machine "):])
             continue
         trans = parse_phase_transition(msg)
         if trans is not None:
@@ -290,26 +307,173 @@ def summarize_mission_lines(lines: List[str]) -> Dict:
                            "tag": parsed["tag"], "message": msg})
     return {"transitions": transitions, "telemetry": telemetry,
             "events": events, "spawn": spawn, "verdict": verdict,
-            "asserts": asserts, "line_count": len(lines)}
+            "asserts": asserts, "machine": machine, "line_count": len(lines)}
+
+
+# --- game-time throughput marker (audit finding G2) -------------------------
+#
+# gameSecondsPerWallSecond is THE number that names a warp defect at a glance,
+# and it was end-of-run only with ZERO programmatic consumers. These two
+# thresholds turn it into a per-row marker.
+#
+# MEASURED (mission results, 2026-07-25):
+#   healthy warping coast   B12 COAST-TO-TARGET      25.9 wall / 194,493 game = 7,511
+#   healthy warping coast   B11 COAST-TO-TARGET      25.5 wall /   8,471 game =   333
+#   healthy aim-warp        B6  CORRECTION-BURN      40.0 wall /  73,721 game = 1,844
+#   THE DEFECT (thrash)     B12 flight-2 coast                              ~    40
+#   legitimate 1x hold      B11 CAPTURE-BURN        642.1 wall /   5,112 game =     8
+#   legitimate 1x ascent    every MJ-ASCENT         198.8 wall /     264.5 game =   1.3
+#   legitimate 1x dwell     PARK                    180.4 wall /     180.3 game =   1.0
+#
+# So the ratio ALONE cannot separate broken from legitimate: the thrash (~40)
+# reads HIGHER than MechJeb's deliberate 600 s pre-ignition hold (7.96). The
+# marker is therefore INFORMATIONAL, never a failure and never a give-up -- it
+# answers "where did the wall go", not "is this broken". The BROKEN case is
+# already owned by mlib.warp_liveness_starved, which fast-fails a native warp
+# that is armed and crawling; nothing here duplicates or second-guesses it.
+#
+# LOW_THROUGHPUT_RATIO = 100 sits above the thrash (~40) and below every
+# measured healthy WARPING phase (lowest 333), so "under 100" reads as "this
+# phase was not meaningfully warping".
+LOW_THROUGHPUT_RATIO = 100.0
+# LOW_THROUGHPUT_MIN_WALL_SECONDS = 120 keeps the marker off every sub-second
+# waypoint (CIRCULARIZE / ORBIT / PLAN-* all read ~1.0 over ~0.5 s, where the
+# ratio means nothing).
+LOW_THROUGHPUT_MIN_WALL_SECONDS = 120.0
+#
+# THE ARMING GATE (2026-07-26 review, MINOR-5). Ratio + wall ALONE marked only
+# false positives. MEASURED over the whole archive: a healthy B11 run marked
+# four rows and ALL FOUR were legitimate (MJ-ASCENT 1.33, TRANSFER-BURN 12.3,
+# CAPTURE-BURN 8.0, PARK 1.0); five healthy B12 runs marked the identical two
+# rows every time. ZERO true positives, and the decisive number is that healthy
+# CORRECTION-BURN reads ratio 43.6 while the defect the marker exists for reads
+# ~40 -- indistinguishable BY RATIO. The 120 s wall floor separates those two by
+# DURATION, not by health.
+#
+# What DOES separate them: every false positive issued ZERO warp-ARMING commands
+# (B11 MJ-ASCENT 0, TRANSFER-BURN 0, CAPTURE-BURN 0; PARK's single command is
+# `set_rails_warp value=0.000`, a cancel to 1x), while the thrash issued
+# thousands. So the marker now means "we ARMED a warp and did not get one", and
+# on healthy B11 plus all five healthy B12 runs it fires on ZERO rows.
+#
+# HONESTLY: one archived B12 flake (2026-07-25_0229, CAPTURE-BURN 138 s wall /
+# ratio 1.102) ALSO issued zero warp commands, so the tighter rule would not
+# have caught it either. It was already caught by its own `capture under-burn`
+# assertion, so the marker added nothing there.
+LOW_THROUGHPUT_MIN_ARMED_WARP_COMMANDS = 1
+
+# Action kinds as they appear in the mission log's `action <kind> value=...`
+# line. status.py is stdlib-only and does not import mlib, so these mirror
+# mlib.ACTION_* -- lib/test_status.py pins them against mlib directly.
+ACTION_WARP_TO_UT = "warp_to_ut"
+ACTION_SET_RAILS_WARP = "set_rails_warp"
+ACTION_CANCEL_WARP = "cancel_warp"
+
+
+def is_warp_arming_action(kind: str, value) -> bool:
+    """True when a logged warp action ARMED warp rather than cancelling it.
+    Mirrors ``mlib.is_warp_arming_command`` over the LOG's string value. Pure."""
+    if kind == ACTION_WARP_TO_UT:
+        return True
+    if kind == ACTION_SET_RAILS_WARP:
+        factor = parse_float(value)
+        return is_finite(factor) and factor > 0.0
+    return False
+
+
+def phase_throughput_ratio(game_s, wall_s) -> Optional[float]:
+    """game seconds per wall second for one phase row, or None when the span
+    is unusable (open phase, zero/non-finite wall, unknown game span). Same
+    quantity as the mission result's ``gameSecondsPerWallSecond``. Pure."""
+    if game_s is None or wall_s is None:
+        return None
+    if not (is_finite(game_s) and is_finite(wall_s)) or wall_s <= 0.0:
+        return None
+    return game_s / wall_s
+
+
+def is_low_throughput_phase(ratio, wall_s, armed_warp_commands=0) -> bool:
+    """True when a phase row is worth MARKING: it ARMED a warp, cost real wall
+    time, and bought almost no game time -- i.e. "we asked for warp and did not
+    get it". Still INFORMATIONAL (never a failure, never a give-up; the broken
+    case is owned by mlib.warp_liveness_starved), but no longer a marker whose
+    every measured firing was a false positive. See the threshold block above
+    for the archive numbers that forced the arming gate in. Pure."""
+    if ratio is None or wall_s is None:
+        return False
+    if not (is_finite(ratio) and is_finite(wall_s)):
+        return False
+    armed = armed_warp_commands if isinstance(armed_warp_commands, int) \
+        and not isinstance(armed_warp_commands, bool) else 0
+    if armed < LOW_THROUGHPUT_MIN_ARMED_WARP_COMMANDS:
+        return False
+    return wall_s >= LOW_THROUGHPUT_MIN_WALL_SECONDS and ratio < LOW_THROUGHPUT_RATIO
+
+
+def armed_warp_commands_in_span(summary: Dict, start_index: int,
+                                end_index: int) -> int:
+    """How many warp-ARMING actions the log recorded strictly between two line
+    indices. The LOG-side counterpart of the mission result's
+    ``armedWarpCommands`` -- the LOW marker's arming gate needs it for the
+    closed phase-history rows, which are reconstructed from the log rather than
+    read from the status file. Pure."""
+    count = 0
+    for event in summary["events"]:
+        if not (start_index < event["index"] < end_index):
+            continue
+        action = parse_action_message(event["message"])
+        if action is None:
+            continue
+        if is_warp_arming_action(action["kind"], action["value"]):
+            count += 1
+    return count
 
 
 def build_phase_rows(summary: Dict) -> List[Dict]:
     """Phase history with durations. Each row: {phase, entry_ut, entry_index,
     game_s (None for the open current phase), wall_est_s (telemetry-line
-    count in the phase, ~1/s)}. The pre-first-transition PRELAUNCH stretch is
-    included when a transition exists."""
+    count in the phase, ~1/s), ratio (game_s/wall_est_s or None),
+    armed_warp_cmds (warp-ARMING actions logged inside the phase), low (the
+    G2 low-throughput marker)}. The pre-first-transition PRELAUNCH stretch is
+    included when a transition exists. The OPEN row keeps game_s None but does
+    carry a ratio, estimated via estimate_phase_elapsed_game."""
     transitions = summary["transitions"]
     telemetry = summary["telemetry"]
     rows: List[Dict] = []
+
+    def _row(phase, entry_ut, entry_index, game_s, wall_s, armed) -> Dict:
+        ratio = phase_throughput_ratio(game_s, wall_s)
+        return {"phase": phase, "entry_ut": entry_ut,
+                "entry_index": entry_index, "game_s": game_s,
+                "wall_est_s": wall_s, "ratio": ratio,
+                "armed_warp_cmds": armed,
+                "low": is_low_throughput_phase(ratio, wall_s, armed)}
+
+    # The OPEN (current) phase has no next transition, so its game span is
+    # unknown -- but it is the phase an operator is actually staring at, and a
+    # ratio-less row there is exactly where the thrash hid. Fill the OPEN row's
+    # RATIO from the same estimator the panel already trusts for "time in
+    # phase" (game_s stays None: it is an estimate, not a closed span).
+    def _close_open(row: Dict) -> Dict:
+        est = estimate_phase_elapsed_game(summary)
+        ratio = phase_throughput_ratio(est, row["wall_est_s"])
+        row["ratio"] = ratio
+        row["low"] = is_low_throughput_phase(ratio, row["wall_est_s"],
+                                             row["armed_warp_cmds"])
+        return row
+
     if not transitions:
         if telemetry or summary["spawn"]:
-            rows.append({"phase": "PRELAUNCH", "entry_ut": float("nan"),
-                         "entry_index": 0, "game_s": None,
-                         "wall_est_s": len(telemetry) / TELEMETRY_HZ})
+            rows.append(_close_open(_row(
+                "PRELAUNCH", float("nan"), 0, None,
+                len(telemetry) / TELEMETRY_HZ,
+                armed_warp_commands_in_span(summary, -1,
+                                            summary["line_count"]))))
         return rows
     first = transitions[0]
-    rows.append({"phase": first["from"], "entry_ut": float("nan"),
-                 "entry_index": 0, "game_s": None, "wall_est_s": 0.0})
+    rows.append(_row(first["from"], float("nan"), 0, None, 0.0,
+                     armed_warp_commands_in_span(summary, -1,
+                                                 first["index"])))
     for pos, trans in enumerate(transitions):
         nxt = transitions[pos + 1] if pos + 1 < len(transitions) else None
         game_s = None
@@ -318,9 +482,10 @@ def build_phase_rows(summary: Dict) -> List[Dict]:
         end_index = nxt["index"] if nxt is not None else summary["line_count"]
         wall = sum(1 for i, _t in telemetry
                    if trans["index"] < i < end_index) / TELEMETRY_HZ
-        rows.append({"phase": trans["to"], "entry_ut": trans["ut"],
-                     "entry_index": trans["index"], "game_s": game_s,
-                     "wall_est_s": wall})
+        row = _row(trans["to"], trans["ut"], trans["index"], game_s, wall,
+                   armed_warp_commands_in_span(summary, trans["index"],
+                                               end_index))
+        rows.append(_close_open(row) if nxt is None else row)
     return rows
 
 
@@ -356,6 +521,70 @@ def estimate_phase_elapsed_game(summary: Dict) -> Optional[float]:
     return elapsed if elapsed >= 0.0 else None
 
 
+def format_wall_line(status: Optional[Dict], wall_est_total_s: float,
+                     wall_est_phase_s: float,
+                     spec_budget: Optional[float],
+                     run_budget: Optional[float] = None) -> str:
+    """The MISSION-WALL line (audit finding G1).
+
+    Every budget this panel used to show was GAME time, and the one wall number
+    it printed -- ``wall ~N (telemetry-line est.)`` -- had NO denominator. A
+    B12 run consequently died on ``mission-budget-expired`` after spending 57%
+    of its wall budget in a single phase while every displayed budget read
+    ~7.5% consumed.
+
+    Prefers the REAL numbers the mission now publishes into the status file
+    (``wallElapsedSeconds`` / ``wallBudgetSeconds`` / ``phaseWallSeconds``) and
+    falls back to the telemetry-line-count estimate for an older / stale /
+    missing status file, in which case the denominator still comes from the
+    scenario spec's mission-step budget. Pure.
+
+    TWO deadlines can reap a run and ``_drive_mission_step`` holds both: the
+    MISSION step budget (``driver.steps[].budget``) and the RUN budget
+    (``runtime.budgetSeconds``). The percentage here is against the MISSION
+    budget only, and the mission clock starts when the mission SUBPROCESS
+    spawns -- KSP boot and the pre-mission seam steps burn RUN budget before it,
+    so this percentage always under-reads the run, i.e. it errs in the
+    "looks safer than it is" direction. The ``excl. boot`` token and the trailing
+    ``run budget`` term say so on the line rather than in a comment nobody reads
+    at 3 a.m. (2026-07-26 review, NIT)."""
+    elapsed = None
+    budget = None
+    phase_wall = None
+    if isinstance(status, dict):
+        for key, name in (("wallElapsedSeconds", "elapsed"),
+                          ("wallBudgetSeconds", "budget"),
+                          ("phaseWallSeconds", "phase_wall")):
+            value = status.get(key)
+            if isinstance(value, (int, float)) and math.isfinite(value):
+                if name == "elapsed":
+                    elapsed = float(value)
+                elif name == "budget":
+                    budget = float(value)
+                else:
+                    phase_wall = float(value)
+    measured = elapsed is not None
+    if elapsed is None:
+        elapsed = wall_est_total_s
+    if phase_wall is None:
+        phase_wall = wall_est_phase_s
+    if budget is None and spec_budget is not None and math.isfinite(spec_budget):
+        budget = float(spec_budget)
+
+    suffix = "" if measured else "  (telemetry-line est.)"
+    run_term = ""
+    if isinstance(run_budget, (int, float)) and not isinstance(run_budget, bool) \
+            and math.isfinite(run_budget) and run_budget > 0.0:
+        run_term = " | run budget %s" % fmt_duration(float(run_budget))
+    if budget is not None and budget > 0.0:
+        pct = 100.0 * elapsed / budget
+        return ("mission wall: %s / %s (%.0f%%, excl. boot) | phase wall %s%s%s"
+                % (fmt_duration(elapsed), fmt_duration(budget), pct,
+                   fmt_duration(phase_wall), run_term, suffix))
+    return ("mission wall: %s / budget n/a | phase wall %s%s%s"
+            % (fmt_duration(elapsed), fmt_duration(phase_wall), run_term, suffix))
+
+
 def wall_est_in_current_phase(summary: Dict) -> float:
     """WALL seconds (estimated) in the current phase = telemetry-line count
     since the last transition (rate-limited to ~1 Hz)."""
@@ -370,33 +599,102 @@ def wall_est_in_current_phase(summary: Dict) -> float:
 # gracefully when the TOML or tomllib is unavailable).
 # ---------------------------------------------------------------------------
 
-# Machine phase -> missionParams budget key (GAME seconds). Shared by the
-# B5/B6 flyby machine; the ascent half is shared with B2/B4.
+# Machine phase -> missionParams budget key (GAME seconds). MIRRORS the
+# per-machine ``_*_phase_budget`` dispatchers in missions/lib/mlib.py, which
+# are the authority; a phase name that collides across machines maps to the
+# SAME param key in all of them (ASCENT / MJ-ASCENT / STATION-ASCENT /
+# INT-ASCENT all read ascentTimeoutSeconds, PARK reads parkTimeoutSeconds in
+# both the B5-orbit and FORGE-LKO machines, and so on), so one flat table is
+# sound. Untimed phases (PRELAUNCH, ORBIT, SET-TARGET, RETURN, the terminals)
+# are absent by design -- absent means "no budget", not "unknown".
+#
+# Before the 2026-07-25 telemetry audit this table covered 8 phases and was
+# blind to the entire ORBIT tail, so B11's CAPTURE-BURN -- the single most
+# expensive phase in the longest scenario, 642 wall seconds -- printed
+# "budget n/a".
 PHASE_BUDGET_KEYS = {
+    # Ascent / orbit insertion (B1 / B2 / B4 / B5 / B11 / B12 / EVA-4 /
+    # FORGE-LKO / B-DOCK).
+    "ASCENT": "ascentTimeoutSeconds",
     "MJ-ASCENT": "ascentTimeoutSeconds",
+    "STATION-ASCENT": "ascentTimeoutSeconds",
+    "INT-ASCENT": "ascentTimeoutSeconds",
     "CIRCULARIZE": "circularizeTimeoutSeconds",
+    "STATION-CIRCULARIZE": "circularizeTimeoutSeconds",
+    "INT-CIRCULARIZE": "circularizeTimeoutSeconds",
+    # B1 / EVA-4 suborbital hop.
+    "COAST": "coastTimeoutSeconds",
+    "DESCENT": "descentTimeoutSeconds",
+    # B4 reentry lane (SPLASHDOWN's budget IS the chute-descent wait).
+    "DEORBIT": "deorbitTimeoutSeconds",
+    "REENTRY": "reentryTimeoutSeconds",
+    "SPLASHDOWN": "descentTimeoutSeconds",
+    # B5 / B6 / B7 / B11 / B12 transfer lane.
     "PLAN-TRANSFER": "planTimeoutSeconds",
     "PLAN-CORRECTION": "planTimeoutSeconds",
     "TRANSFER-BURN": "transferBurnTimeoutSeconds",
     "CORRECTION-BURN": "transferBurnTimeoutSeconds",
     "COAST-TO-TARGET": "coastTimeoutSeconds",
     "TARGET-FLYBY": "flybyTimeoutSeconds",
+    # B11 / B12 ORBIT tail (added by the 2026-07-25 audit, finding G3).
+    "PLAN-CAPTURE": "capturePlanTimeoutSeconds",
+    "CAPTURE-BURN": "captureBurnTimeoutSeconds",
+    "PARK": "parkTimeoutSeconds",
+    "ORBIT-COMMIT": "commitTimeoutSeconds",
+    # FORGE / FORGE-LKO.
+    "LAUNCH": "launchTimeoutSeconds",
+    "SEPARATE": "separationTimeoutSeconds",
+    # B-DOCK.
+    "STATION-SEPARATE": "separationTimeoutSeconds",
+    "INT-SEPARATE": "separationTimeoutSeconds",
+    "STATION-COMMIT": "stationCommitTimeoutSeconds",
+    "INT-LAUNCH": "launchTimeoutSeconds",
+    "RENDEZVOUS": "rendezvousTimeoutSeconds",
+    "MATCH-VELOCITY": "matchTimeoutSeconds",
+    "DOCK": "dockTimeoutSeconds",
+    "TRANSFER": "transferTimeoutSeconds",
+    "UNDOCK": "undockTimeoutSeconds",
 }
+
+# The one phase whose budget is NOT the raw key value: B-DOCK's TRANSFER phase
+# runs two transfers, so mlib's _bdock_phase_budget returns 2 * transfer_timeout.
+PHASE_BUDGET_MULTIPLIERS = {"TRANSFER": 2.0}
 
 
 def phase_budget_seconds(phase: str, params: Dict) -> Optional[float]:
     """The GAME-time budget for ``phase`` from a missionParams dict, or None
-    (untimed phase / unknown key)."""
+    (untimed phase / unknown key / key absent from this scenario's params)."""
     key = PHASE_BUDGET_KEYS.get(phase)
     if key is None:
         return None
     value = params.get(key)
-    return float(value) if isinstance(value, (int, float)) else None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return float(value) * PHASE_BUDGET_MULTIPLIERS.get(phase, 1.0)
 
 
-def load_mission_params(scenario_id: str, scenarios_dir: str) -> Dict:
-    """Read [driver.missionParams] from scenarios/<id>.toml; {} on any
-    failure (missing file, py < 3.11 without tomllib, malformed TOML)."""
+def phase_budget_note(phase: str, params: Dict) -> str:
+    """Why the panel is showing no GAME budget for ``phase``.
+
+    "no GAME budget for this phase" is an AFFIRMATIVE claim, and it was false in
+    one of the two cases that reach it (2026-07-26 review, NIT): a phase that IS
+    in the table but whose key this spec omits still gets a budget -- the
+    machine's own ``*_params_from_dict`` default. Saying "no budget" there tells
+    the operator the phase is untimed when it is not. Pure."""
+    key = PHASE_BUDGET_KEYS.get(phase)
+    if key is None:
+        return " (untimed phase: no GAME budget exists for it)"
+    if key not in (params or {}):
+        return (" (GAME budget key %s absent from this spec; the mission machine "
+                "applies its own default)" % key)
+    return (" (GAME budget key %s present but unreadable: %r)"
+            % (key, (params or {}).get(key)))
+
+
+def load_scenario_spec(scenario_id: str, scenarios_dir: str) -> Dict:
+    """Parse scenarios/<id>.toml; {} on any failure (missing file, py < 3.11
+    without tomllib, malformed TOML). The ONLY filesystem read here; the two
+    readers below are pure."""
     path = os.path.join(scenarios_dir, "%s.toml" % scenario_id)
     try:
         import tomllib
@@ -407,9 +705,87 @@ def load_mission_params(scenario_id: str, scenarios_dir: str) -> Dict:
             spec = tomllib.load(fh)
     except (OSError, ValueError):
         return {}
-    driver = spec.get("driver") or {}
+    return spec if isinstance(spec, dict) else {}
+
+
+def mission_params_from_spec(spec: Dict) -> Dict:
+    """[driver.missionParams] out of a parsed scenario spec (GAME-time phase
+    budgets); {} when absent."""
+    driver = (spec or {}).get("driver") or {}
     params = driver.get("missionParams") or {}
     return params if isinstance(params, dict) else {}
+
+
+def mission_wall_budget_seconds(spec: Dict) -> Optional[float]:
+    """The mission step's WALL budget out of [driver] steps, or None.
+
+    This is the denominator the panel needs and never had: it lives in
+    ``driver.steps[].budget`` on the ``phase = "mission"`` row (e.g. 4200 for
+    B12), NOT in ``[driver.missionParams]`` -- which is why a reader that only
+    looked at missionParams could show a wall number with no scale next to it.
+    Pure."""
+    driver = (spec or {}).get("driver") or {}
+    steps = driver.get("steps") or []
+    if not isinstance(steps, list):
+        return None
+    for step in steps:
+        if not isinstance(step, dict) or step.get("phase") != "mission":
+            continue
+        budget = step.get("budget")
+        if isinstance(budget, (int, float)) and not isinstance(budget, bool):
+            return float(budget)
+    return None
+
+
+def run_budget_seconds(spec: Dict) -> Optional[float]:
+    """The RUN budget out of ``[runtime] budgetSeconds``, or None.
+
+    The SECOND deadline that can reap a run (``_drive_mission_step`` holds both
+    kills). The panel showed only the mission-step budget, which is always the
+    smaller of the two, so an operator reading "57% consumed" had no idea how
+    much of the run-level bound was left. Pure."""
+    runtime = (spec or {}).get("runtime") or {}
+    if not isinstance(runtime, dict):
+        return None
+    budget = runtime.get("budgetSeconds")
+    if isinstance(budget, (int, float)) and not isinstance(budget, bool):
+        return float(budget)
+    return None
+
+
+def format_phase_throughput_line(live_warp: Optional[Dict],
+                                 header_phase: str) -> Optional[str]:
+    """The live phase-throughput block, or None when there is nothing to show.
+
+    The block's numbers come from the STATUS FILE's phase; the PHASE header
+    above it comes from the LOG's last transition. Neither used to be labelled,
+    so a real render showed ``PHASE: EVA-WINDOW`` over DESCENT's throughput
+    numbers and the operator read DESCENT's cost as EVA-WINDOW's (2026-07-26
+    review, MINOR-6). The payload already carries ``phaseWarp["phase"]``; when
+    it disagrees with the header, SAY SO on the line. Pure."""
+    if not isinstance(live_warp, dict):
+        return None
+    ratio = live_warp.get("gameSecondsPerWallSecond")
+    warp_phase = live_warp.get("phase")
+    label = "phase throughput"
+    if isinstance(warp_phase, str) and warp_phase and warp_phase != header_phase:
+        label = "phase throughput [status-file phase %s, NOT the %s header above]" \
+            % (warp_phase, header_phase)
+    armed = live_warp.get("armedWarpCommands", 0)
+    low = "  <- LOW (see PHASE HISTORY legend)" \
+        if is_low_throughput_phase(ratio, live_warp.get("wallSeconds"), armed) \
+        else ""
+    return ("%s: %s game-s per wall-s (game %s / wall %s, %s warp cmd, "
+            "%s armed)%s"
+            % (label, fmt_num(ratio), fmt_num(live_warp.get("gameSeconds")),
+               fmt_num(live_warp.get("wallSeconds")),
+               fmt_num(live_warp.get("warpCommands")), fmt_num(armed), low))
+
+
+def load_mission_params(scenario_id: str, scenarios_dir: str) -> Dict:
+    """Read [driver.missionParams] from scenarios/<id>.toml; {} on any
+    failure (missing file, py < 3.11 without tomllib, malformed TOML)."""
+    return mission_params_from_spec(load_scenario_spec(scenario_id, scenarios_dir))
 
 
 # ---------------------------------------------------------------------------
@@ -421,12 +797,59 @@ def _events_since(summary: Dict, entry_index: int) -> List[Dict]:
     return [e for e in summary["events"] if e["index"] > entry_index]
 
 
-def derive_heuristic(summary: Dict, params: Dict) -> str:
+def machine_number(machine: Optional[Dict], key: str) -> Optional[float]:
+    """One numeric field out of a machine-state block, or None.
+
+    Accepts BOTH shapes: the status file's decoded ``machine`` dict (real ints
+    / bools / None) and the log line's raw-string kv dict (mlib renders an
+    absent field as '-' and an unset one as 'none'). Pure."""
+    if not isinstance(machine, dict):
+        return None
+    value = machine.get(key)
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(float(value)) else None
+    text = str(value).strip()
+    if text in ("", "-", "none", "None", "nan"):
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def machine_flag(machine: Optional[Dict], key: str) -> Optional[bool]:
+    """One boolean field out of a machine-state block, or None when absent /
+    unset. Accepts the decoded dict and the raw 'True'/'False' log token."""
+    if not isinstance(machine, dict):
+        return None
+    value = machine.get(key)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text in ("True", "true"):
+        return True
+    if text in ("False", "false"):
+        return False
+    return None
+
+
+def derive_heuristic(summary: Dict, params: Dict,
+                     machine: Optional[Dict] = None) -> str:
     """One plain-English line mapping the tail state to the machine's most
     likely activity, computed from phase + telemetry + the sparse events.
     Mirrors the diagnostic patterns of the B5/B6 live-flight findings
     (docs/dev/todo-and-known-bugs.md): over-cap plan-removal loops that look
-    like a silent 1x hang, executor wedges, warp waits."""
+    like a silent 1x hang, executor wedges, warp waits.
+
+    ``machine`` is the decoded machine-state block (the status file's, when
+    fresh); it falls back to the LAST ``machine ...`` log line so the ORBIT-tail
+    branches work from the log alone."""
+    if machine is None:
+        machine = summary.get("machine") or {}
     if summary["verdict"] is not None:
         v = summary["verdict"]
         return ("RUN FINISHED: verdict=%s reason=%s"
@@ -532,6 +955,72 @@ def derive_heuristic(summary: Dict, params: Dict) -> str:
         return ("TARGET-FLYBY: inside %s SOI, alt=%s, warp=%s -- min-altitude "
                 "evidence sampling through periapsis."
                 % (last["body"], fmt_meters(last["alt"]), last["warp"]))
+
+    # --- ORBIT tail (B11 / B12). Added by the 2026-07-25 audit (G3): these
+    # four phases had NO branch and no budget key, so the single most expensive
+    # phase in the longest scenario printed a bare 'budget n/a'.
+    if phase == "PLAN-CAPTURE":
+        unarmed = machine_number(machine, "captureUnarmedStreak")
+        bad_node = machine_number(machine, "captureNodeBadStreak")
+        replans = machine_number(machine, "captureReplans")
+        detail = ""
+        if bad_node:
+            detail = (" planned node is NOT at periapsis for %d frame(s) "
+                      "(capture-window-missed countdown)" % int(bad_node))
+        elif unarmed:
+            detail = (" capture still unarmed for %d frame(s)" % int(unarmed))
+        return ("PLAN-CAPTURE: planning the capture burn inside the target "
+                "SOI (replans=%s);%s %s."
+                % (fmt_num(replans) if replans is not None else "0",
+                   detail, remaining()))
+
+    if phase == "CAPTURE-BURN":
+        down = machine_number(machine, "captureExecDownStreak") or 0.0
+        reissues = machine_number(machine, "captureExecReissues")
+        node_exec = last.get("nodeExec") if last else None
+        exec_text = ("nodeExec=%s" % fmt_num(node_exec)) \
+            if is_finite(node_exec) else "nodeExec unread"
+        if down >= 1:
+            return ("CAPTURE-BURN: MechJeb's NodeExecutor has read DOWN for %d "
+                    "consecutive frame(s) (%s, reissues=%s) -- the "
+                    "capture-executor-not-enabled / -no-start watchdogs own "
+                    "this; %s."
+                    % (int(down), exec_text,
+                       fmt_num(reissues) if reissues is not None else "0",
+                       remaining()))
+        if last is not None and is_finite(last.get("thr")) and last["thr"] > 0.01:
+            return ("CAPTURE-BURN: BURNING throttle=%s nodeDv=%s m/s remaining "
+                    "(%s)." % (fmt_num(last["thr"]), fmt_num(last["nodeDv"]),
+                               exec_text))
+        return ("CAPTURE-BURN: executor engaged, pre-ignition (%s). NOT a hang: "
+                "MechJeb deliberately holds at 1x with ZERO throttle and an "
+                "UNCHANGED orbit for up to 600 GAME seconds before ignition "
+                "while it aligns -- B11 MEASURED 642 WALL seconds in this "
+                "phase, the most expensive phase in the suite. %s."
+                % (exec_text, remaining()))
+
+    if phase == "PARK":
+        stable = machine_number(machine, "parkStableStreak")
+        ever = machine_flag(machine, "parkEverStable")
+        dwell = params.get("parkDwellSeconds")
+        if stable is None:
+            return ("PARK: holding the captured orbit for the dwell%s; %s."
+                    % ((" (%ss)" % fmt_num(dwell)) if dwell else "",
+                       remaining()))
+        return ("PARK: park-stability debounce at %d frame(s), everStable=%s, "
+                "dwelling %ss at 1x (a deliberate 1x hold -- low game-time "
+                "throughput here is BY DESIGN); %s."
+                % (int(stable), "?" if ever is None else ever,
+                   fmt_num(dwell) if dwell else "?", remaining()))
+
+    if phase == "ORBIT-COMMIT":
+        result = (machine or {}).get("commitResult")
+        result = str(result).strip() if result not in (None, "") else ""
+        if result and result not in ("-", "none"):
+            return ("ORBIT-COMMIT: seam CommitTree returned %s; the mission "
+                    "ends on the commit frame." % result)
+        return ("ORBIT-COMMIT: mid-mission command-seam CommitTree issued, "
+                "polling the response channel for a result; %s." % remaining())
 
     if phase in ("MJ-ASCENT", "CIRCULARIZE", "ORBIT", "PRELAUNCH"):
         if last is None:
@@ -732,7 +1221,12 @@ def render_panel(run_id: str, results_dir: str, scenarios_dir: str,
         lines = lines[:max(0, head)]
     summary = summarize_mission_lines(lines)
     parts = split_run_id(run_id)
-    params = load_mission_params(parts["scenario"], scenarios_dir)
+    spec = load_scenario_spec(parts["scenario"], scenarios_dir)
+    params = mission_params_from_spec(spec)
+    # The WALL denominator lives in driver.steps[].budget, not missionParams
+    # (G1). Read it so the panel has a scale even when the status file is
+    # missing / stale / predates the wall block.
+    spec_wall_budget = mission_wall_budget_seconds(spec)
     rows = build_phase_rows(summary)
     status = None if head is not None \
         else read_status_file(results_dir, run_id, now=now)
@@ -773,11 +1267,21 @@ def render_panel(run_id: str, results_dir: str, scenarios_dir: str,
     budget = phase_budget_seconds(phase, params)
     out.append("")
     out.append("PHASE: %s   (entered ut=%s)" % (phase, fmt_num(entry_ut)))
-    out.append("  time in phase: game ~%s%s / wall ~%s (telemetry-line est.)"
+    out.append("  time in phase: game ~%s%s"
                % (fmt_duration(elapsed_game) if elapsed_game is not None
                   else "n/a",
-                  (" of %s budget" % fmt_duration(budget)) if budget else "",
-                  fmt_duration(wall_est)))
+                  (" of %s GAME budget" % fmt_duration(budget)) if budget
+                  else phase_budget_note(phase, params)))
+    # THE WALL line (G1): every phase budget above is GAME time; this is the
+    # only thing that shows the wall budget the run actually dies on.
+    out.append("  " + format_wall_line(
+        status, len(summary["telemetry"]) / TELEMETRY_HZ, wall_est,
+        spec_wall_budget, run_budget_seconds(spec)))
+    live_warp = (status or {}).get("phaseWarp") \
+        if isinstance(status, dict) else None
+    throughput = format_phase_throughput_line(live_warp, phase)
+    if throughput is not None:
+        out.append("  " + throughput)
     if summary["verdict"] is not None:
         out.append("  VERDICT: %s" % summary["verdict"].get("_raw", ""))
 
@@ -808,20 +1312,41 @@ def render_panel(run_id: str, results_dir: str, scenarios_dir: str,
     else:
         out.append("  none")
 
-    # Phase history.
+    # Phase history. The ratio column is gameSecondsPerWallSecond -- the number
+    # that named two shared-machine warp defects at a glance.
     out.append("")
-    out.append("PHASE HISTORY (game duration / wall est.):")
+    out.append("PHASE HISTORY (game duration / wall est. / game-s per wall-s / "
+               "armed warp cmds):")
     for row in rows:
         game = fmt_duration(row["game_s"]) if row["game_s"] is not None \
             else "(open)"
-        out.append("  %-18s entry ut=%-12s game %-8s wall ~%s"
+        ratio = ("%.1f" % row["ratio"]) if row["ratio"] is not None else "n/a"
+        out.append("  %-18s entry ut=%-12s game %-8s wall ~%-8s ratio %-9s "
+                   "armed %-5d%s"
                    % (row["phase"], fmt_num(row["entry_ut"]), game,
-                      fmt_duration(row["wall_est_s"])))
+                      fmt_duration(row["wall_est_s"]), ratio,
+                      row["armed_warp_cmds"],
+                      " <- LOW" if row["low"] else ""))
+    if any(row["low"] for row in rows):
+        out.append("  LOW = ARMED a warp (>= %d arming command) yet spent >= %ds "
+                   "wall at < %.0f game-s per wall-s: this phase asked for warp "
+                   "and did not get it."
+                   % (LOW_THROUGHPUT_MIN_ARMED_WARP_COMMANDS,
+                      int(LOW_THROUGHPUT_MIN_WALL_SECONDS),
+                      LOW_THROUGHPUT_RATIO))
+        out.append("        INFORMATIONAL, not a failure. The arming gate is "
+                   "what makes it worth reading: ratio + wall alone marked "
+                   "MJ-ASCENT / PARK / CAPTURE-BURN on every healthy run, all "
+                   "false positives. The broken case (a warp armed and "
+                   "crawling) is owned by the warp_liveness_starved give-up.")
 
-    # Heuristic line.
+    # Heuristic line. Prefer the fresh status file's decoded machine block;
+    # derive_heuristic falls back to the last 'machine ...' log line.
     out.append("")
     out.append("WHAT IS IT DOING:")
-    out.append("  " + derive_heuristic(summary, params))
+    out.append("  " + derive_heuristic(
+        summary, params,
+        machine=(status.get("machine") if isinstance(status, dict) else None)))
 
     # Harness-side tail (post-mission steps / pre-mission steps visibility).
     if hlog is not None:

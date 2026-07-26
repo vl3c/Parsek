@@ -45,12 +45,16 @@ REAL_OVERCAP_WARN = (
 
 
 def _telem(phase="PLAN-CORRECTION", tts=1000.0, node_dv="nan", nodes=0,
-           warp="NONEx1.000", thr=0.0, warp_to="nan"):
+           warp="NONEx1.000", thr=0.0, warp_to="nan", ut=None):
+    """A telemetry line. ``ut`` appends the Phase-2 trailing ut= token; omitted
+    (the default) it reproduces a Phase-1 line verbatim, so every pre-existing
+    caller's expectations are unchanged."""
     return ("[Mission][VerboseRateLimited][%s] telemetry ap=1.0 pe=1.0 "
             "ecc=0.5 inc=0.1 alt=100.0 vspd=1.0 body=Kerbin nodes=%d "
             "nodeDv=%s nodeUt=nan tts=%s warpTo=%s lf=10.0 thr=%.3f "
-            "situation=ORBITING warp=%s apErr=nan"
-            % (phase, nodes, node_dv, tts, warp_to, thr, warp))
+            "situation=ORBITING warp=%s apErr=nan%s"
+            % (phase, nodes, node_dv, tts, warp_to, thr, warp,
+               ("" if ut is None else " ut=%s" % ut)))
 
 
 class ParseLogLineTests(unittest.TestCase):
@@ -225,6 +229,12 @@ class BudgetMappingTests(unittest.TestCase):
               "ascentTimeoutSeconds": 420,
               "transferBurnTimeoutSeconds": 4000}
 
+    # The B12 ORBIT-tail params, verbatim from scenarios/B12-minmus-orbit.toml.
+    ORBIT_PARAMS = {"capturePlanTimeoutSeconds": 300,
+                    "captureBurnTimeoutSeconds": 200000,
+                    "parkTimeoutSeconds": 600,
+                    "commitTimeoutSeconds": 300}
+
     def test_plan_phases_share_plan_timeout(self):
         self.assertEqual(
             status.phase_budget_seconds("PLAN-CORRECTION", self.PARAMS), 300)
@@ -234,6 +244,388 @@ class BudgetMappingTests(unittest.TestCase):
     def test_untimed_phase_is_none(self):
         self.assertIsNone(status.phase_budget_seconds("RETURN", self.PARAMS))
         self.assertIsNone(status.phase_budget_seconds("ORBIT", self.PARAMS))
+
+    def test_orbit_tail_phases_resolve(self):
+        """G3: these four printed 'budget n/a' -- including CAPTURE-BURN, the
+        single most expensive phase in the suite (B11 MEASURED 642 wall s)."""
+        self.assertEqual(
+            status.phase_budget_seconds("PLAN-CAPTURE", self.ORBIT_PARAMS), 300)
+        self.assertEqual(
+            status.phase_budget_seconds("CAPTURE-BURN", self.ORBIT_PARAMS),
+            200000)
+        self.assertEqual(
+            status.phase_budget_seconds("PARK", self.ORBIT_PARAMS), 600)
+        self.assertEqual(
+            status.phase_budget_seconds("ORBIT-COMMIT", self.ORBIT_PARAMS), 300)
+
+    def test_ascent_aliases_share_one_key(self):
+        """The flat table is only sound because colliding phase names map to
+        the SAME param key in every machine (mlib's _*_phase_budget)."""
+        for phase in ("ASCENT", "MJ-ASCENT", "STATION-ASCENT", "INT-ASCENT"):
+            self.assertEqual(status.phase_budget_seconds(phase, self.PARAMS),
+                             420, phase)
+
+    def test_bdock_transfer_carries_the_2x_multiplier(self):
+        """mlib._bdock_phase_budget returns 2 * transfer_timeout (TRANSFER runs
+        two transfers); the panel must not show half the real budget."""
+        params = {"transferTimeoutSeconds": 120}
+        self.assertEqual(status.phase_budget_seconds("TRANSFER", params), 240.0)
+
+    def test_key_present_in_table_but_absent_from_params_is_none(self):
+        self.assertIsNone(status.phase_budget_seconds("DOCK", self.PARAMS))
+
+    def test_bool_is_not_a_budget(self):
+        self.assertIsNone(
+            status.phase_budget_seconds("PARK", {"parkTimeoutSeconds": True}))
+
+    def test_the_no_budget_note_distinguishes_untimed_from_key_absent(self):
+        """NIT: '(no GAME budget for this phase)' was an affirmative claim that
+        was FALSE for a phase in the table whose key this spec omits -- the
+        machine still applies its own default there."""
+        self.assertIn("untimed phase",
+                      status.phase_budget_note("ORBIT", self.PARAMS))
+        note = status.phase_budget_note("DOCK", self.PARAMS)
+        self.assertIn("dockTimeoutSeconds", note)
+        self.assertIn("applies its own default", note)
+        self.assertNotIn("untimed", note)
+        bad = status.phase_budget_note("PARK", {"parkTimeoutSeconds": True})
+        self.assertIn("present but unreadable", bad)
+
+    # (params builder, budget dispatcher, phase-constant prefix) per machine
+    # that HAS a phase-budget dispatcher. The panel's flat table mirrors these;
+    # they are the authority.
+    MACHINES = (
+        ("b1_params_from_dict", "_b1_phase_budget", "B1_"),
+        ("eva4_params_from_dict", "_eva4_phase_budget", "EVA4_"),
+        ("b2_params_from_dict", "_b2_phase_budget", "B2_"),
+        ("b4_params_from_dict", "_b4_phase_budget", "B4_"),
+        ("b5_params_from_dict", "_b5_phase_budget", "B5_"),
+        ("bdock_params_from_dict", "_bdock_phase_budget", "BDOCK_"),
+        ("forge_lko_params_from_dict", "_flko_phase_budget", "FLKO_"),
+    )
+
+    @staticmethod
+    def _mlib():
+        sys.path.insert(0, os.path.join(_HARNESS_DIR, "missions", "lib"))
+        try:
+            import mlib
+        finally:
+            sys.path.pop(0)
+        return mlib
+
+    @staticmethod
+    def _sentinels():
+        """A DISTINCT value per table key, so a mis-mapped phase reads a
+        different number rather than coincidentally the right one."""
+        return {key: 1000 + i for i, key in
+                enumerate(sorted(set(status.PHASE_BUDGET_KEYS.values())))}
+
+    def test_the_table_agrees_with_mlib_for_every_phase_of_every_machine(self):
+        """The panel's flat PHASE_BUDGET_KEYS table is a MIRROR of mlib's
+        per-machine ``_*_phase_budget`` dispatchers, which are the authority.
+        Assert it against the authority, in BOTH directions and over EVERY
+        phase constant each machine defines.
+
+        This replaces a substring search over the concatenated scenario TOMLs,
+        which (a) passed on a key that appeared only inside a COMMENT, (b) said
+        nothing about mlib at all, and (c) never checked the REVERSE direction
+        -- a phase mlib budgets that the table omits, which is precisely the G3
+        bug that left B11's CAPTURE-BURN printing 'budget n/a' (2026-07-26
+        review, NIT)."""
+        mlib = self._mlib()
+        sentinels = self._sentinels()
+        checked = 0
+        for builder_name, budget_name, prefix in self.MACHINES:
+            builder = getattr(mlib, builder_name)
+            budget_fn = getattr(mlib, budget_name)
+            params = builder(dict(sentinels))
+            phases = sorted({value for name, value in vars(mlib).items()
+                             if name.startswith(prefix) and isinstance(value, str)})
+            self.assertTrue(phases, prefix)
+            for phase in phases:
+                self.assertEqual(
+                    budget_fn(params, phase),
+                    status.phase_budget_seconds(phase, sentinels),
+                    "%s phase %s: the panel table disagrees with mlib"
+                    % (budget_name, phase))
+                checked += 1
+        self.assertGreater(checked, 50, "expected every machine's phases")
+
+    def test_no_table_key_is_unread_by_any_machine(self):
+        """The forward direction on its own: a key in the table that no
+        machine's dispatcher ever returns is an INVENTED key."""
+        mlib = self._mlib()
+        sentinels = self._sentinels()
+        produced = set()
+        for builder_name, budget_name, prefix in self.MACHINES:
+            params = getattr(mlib, builder_name)(dict(sentinels))
+            budget_fn = getattr(mlib, budget_name)
+            for name, value in vars(mlib).items():
+                if not (name.startswith(prefix) and isinstance(value, str)):
+                    continue
+                got = budget_fn(params, value)
+                if got is not None:
+                    produced.add(round(float(got), 6))
+        unread = sorted(
+            key for key, sentinel in sentinels.items()
+            if float(sentinel) not in produced
+            and float(sentinel) * 2.0 not in produced)   # B-DOCK TRANSFER is 2x
+        self.assertEqual(unread, [],
+                         "table keys no mlib machine reads (invented keys)")
+
+
+class ScenarioSpecReadTests(unittest.TestCase):
+    """G1: the WALL denominator lives in driver.steps[].budget, NOT in
+    [driver.missionParams] -- which is why the panel could show a wall number
+    with no scale beside it."""
+
+    SPEC = {"driver": {
+        "steps": [{"cmd": "LoadGame", "expect": "OK", "budget": 240},
+                  {"cmd": "SetSetting", "expect": "OK"},
+                  {"phase": "mission", "expect": "MISSION-OK", "budget": 4200},
+                  {"cmd": "FlushAndQuit", "expect": "OK"}],
+        "missionParams": {"ascentTimeoutSeconds": 420}}}
+
+    def test_mission_wall_budget_is_the_mission_step_budget(self):
+        self.assertEqual(status.mission_wall_budget_seconds(self.SPEC), 4200.0)
+
+    def test_mission_params_still_read(self):
+        self.assertEqual(
+            status.mission_params_from_spec(self.SPEC)["ascentTimeoutSeconds"],
+            420)
+
+    def test_seam_only_spec_has_no_mission_wall_budget(self):
+        spec = {"driver": {"steps": [{"cmd": "LoadGame", "budget": 240}]}}
+        self.assertIsNone(status.mission_wall_budget_seconds(spec))
+
+    def test_missing_or_malformed_spec_is_none(self):
+        self.assertIsNone(status.mission_wall_budget_seconds({}))
+        self.assertIsNone(status.mission_wall_budget_seconds(
+            {"driver": {"steps": "not-a-list"}}))
+        self.assertIsNone(status.mission_wall_budget_seconds(
+            {"driver": {"steps": [{"phase": "mission"}]}}))
+
+    def test_real_b12_spec_reads_4200(self):
+        spec = status.load_scenario_spec(
+            "B12-minmus-orbit", os.path.join(_HARNESS_DIR, "scenarios"))
+        if not spec:
+            self.skipTest("tomllib unavailable (py < 3.11)")
+        self.assertEqual(status.mission_wall_budget_seconds(spec), 4200.0)
+        self.assertEqual(
+            status.phase_budget_seconds("CAPTURE-BURN",
+                                        status.mission_params_from_spec(spec)),
+            200000)
+
+
+class WallLineTests(unittest.TestCase):
+    """G1: the panel printed 'wall ~N (telemetry-line est.)' with NO
+    denominator, so a run 57% through its WALL budget looked fine next to GAME
+    budgets reading ~7.5% consumed."""
+
+    def test_real_numbers_from_the_status_file_win(self):
+        line = status.format_wall_line(
+            {"wallElapsedSeconds": 2379.0, "wallBudgetSeconds": 4200.0,
+             "phaseWallSeconds": 2379.0},
+            wall_est_total_s=10.0, wall_est_phase_s=5.0, spec_budget=4200.0)
+        self.assertIn("39m39s", line)
+        self.assertIn("1h10m", line)
+        self.assertIn("(57%, excl. boot)", line)
+        self.assertIn("phase wall 39m39s", line)
+        self.assertNotIn("telemetry-line est.", line)
+
+    def test_falls_back_to_the_line_estimate_with_the_spec_denominator(self):
+        line = status.format_wall_line(None, wall_est_total_s=600.0,
+                                       wall_est_phase_s=120.0,
+                                       spec_budget=4200.0)
+        self.assertIn("10m00s", line)
+        self.assertIn("1h10m", line)
+        self.assertIn("(14%, excl. boot)", line)
+        self.assertIn("telemetry-line est.", line)
+
+    def test_the_run_budget_rides_the_line_when_known(self):
+        """NIT: TWO deadlines can reap a run and _drive_mission_step holds
+        both, but the panel showed only the (always smaller) mission budget."""
+        line = status.format_wall_line(
+            {"wallElapsedSeconds": 2379.0, "wallBudgetSeconds": 3000.0,
+             "phaseWallSeconds": 100.0},
+            wall_est_total_s=10.0, wall_est_phase_s=5.0, spec_budget=3000.0,
+            run_budget=3500.0)
+        self.assertIn("run budget 58m20s", line)
+
+    def test_the_run_budget_term_is_omitted_when_unknown(self):
+        line = status.format_wall_line(None, wall_est_total_s=600.0,
+                                       wall_est_phase_s=120.0,
+                                       spec_budget=4200.0, run_budget=None)
+        self.assertNotIn("run budget", line)
+        for bad in (float("nan"), 0.0, -1.0, True, "3500"):
+            self.assertNotIn(
+                "run budget",
+                status.format_wall_line(None, 600.0, 120.0, 4200.0, bad), bad)
+
+    def test_the_percentage_is_flagged_as_excluding_boot(self):
+        """The mission clock starts at subprocess spawn; KSP boot and the
+        pre-mission seam steps burn RUN budget before it, so the percentage
+        always under-reads -- always in the 'looks safer than it is'
+        direction. The line has to say so."""
+        line = status.format_wall_line(
+            {"wallElapsedSeconds": 100.0, "wallBudgetSeconds": 200.0},
+            wall_est_total_s=0.0, wall_est_phase_s=0.0, spec_budget=200.0)
+        self.assertIn("excl. boot", line)
+
+    def test_older_status_file_without_wall_fields_falls_back(self):
+        line = status.format_wall_line({"machine": {}, "snapshot": {}},
+                                       wall_est_total_s=60.0,
+                                       wall_est_phase_s=30.0,
+                                       spec_budget=None)
+        self.assertIn("budget n/a", line)
+        self.assertIn("telemetry-line est.", line)
+
+    def test_non_finite_status_values_are_ignored(self):
+        line = status.format_wall_line(
+            {"wallElapsedSeconds": float("nan"), "wallBudgetSeconds": 4200.0},
+            wall_est_total_s=60.0, wall_est_phase_s=30.0, spec_budget=None)
+        self.assertIn("telemetry-line est.", line)
+        self.assertIn("1h10m", line)
+
+
+class ThroughputMarkerTests(unittest.TestCase):
+    """G2: gameSecondsPerWallSecond is THE number that named two shared-machine
+    warp defects, and it had zero programmatic consumers. Measured references
+    are in the status.py threshold block."""
+
+    def test_ratio_is_game_over_wall(self):
+        self.assertAlmostEqual(
+            status.phase_throughput_ratio(194493.0, 25.9), 7509.4, places=0)
+
+    def test_ratio_none_for_open_or_zero_spans(self):
+        self.assertIsNone(status.phase_throughput_ratio(None, 10.0))
+        self.assertIsNone(status.phase_throughput_ratio(100.0, 0.0))
+        self.assertIsNone(status.phase_throughput_ratio(float("nan"), 10.0))
+
+    # Warp-ARMING command counts as MEASURED in the archive; the marker gates on
+    # them because ratio + wall alone marked only false positives (MINOR-5).
+    THRASH_ARMED = 3603      # B12 flight 2's thrashing coast
+    HEALTHY_ARMED = 0        # every false positive: MJ-ASCENT / TRANSFER-BURN /
+                             # CAPTURE-BURN issued zero, PARK issued one CANCEL
+
+    def test_healthy_warping_coast_is_not_marked(self):
+        self.assertFalse(status.is_low_throughput_phase(7510.0, 25.9, 4))
+        self.assertFalse(status.is_low_throughput_phase(333.0, 25.5, 4))
+
+    def test_the_measured_thrash_is_marked(self):
+        # B12 flight 2: ~40 game-s per wall-s over the whole remaining budget,
+        # with 3,603 warp commands issued -- warp was ARMED and did not happen.
+        self.assertTrue(
+            status.is_low_throughput_phase(40.0, 2400.0, self.THRASH_ARMED))
+
+    def test_the_measured_false_positives_are_no_longer_marked(self):
+        """MINOR-5, the whole point: on a healthy B11 the ratio-only rule marked
+        MJ-ASCENT (1.33 / 199 s), TRANSFER-BURN (12.3 / 129 s), CAPTURE-BURN
+        (8.0 / 642 s) and PARK (1.0 / 180 s) -- four rows, ZERO true positives.
+        All four issued no warp-ARMING command."""
+        for ratio, wall in ((1.33, 198.8), (12.3, 129.0), (7.96, 642.1),
+                            (1.0, 180.4)):
+            self.assertFalse(
+                status.is_low_throughput_phase(ratio, wall, self.HEALTHY_ARMED),
+                "ratio=%s wall=%s" % (ratio, wall))
+
+    def test_a_cancel_only_phase_is_not_marked(self):
+        """PARK's single warp command is `set_rails_warp value=0.000`, a cancel
+        to 1x. Counting it as arming would keep the false positive alive."""
+        self.assertFalse(
+            status.is_warp_arming_action(status.ACTION_SET_RAILS_WARP, "0.000"))
+        self.assertFalse(status.is_low_throughput_phase(1.0, 180.4, 0))
+
+    def test_healthy_correction_burn_is_indistinguishable_by_ratio_alone(self):
+        """The decisive number: healthy CORRECTION-BURN reads 43.6 while the
+        defect reads ~40. Only the arming count separates them."""
+        self.assertFalse(status.is_low_throughput_phase(43.6, 200.0, 0))
+        self.assertTrue(status.is_low_throughput_phase(43.6, 200.0, 12))
+
+    def test_cheap_waypoints_are_never_marked(self):
+        # CIRCULARIZE / ORBIT / PLAN-* all read ~1.0 over ~0.5 s wall.
+        self.assertFalse(status.is_low_throughput_phase(1.0, 0.5, 5))
+        self.assertFalse(status.is_low_throughput_phase(0.5, 1.0, 5))
+
+    def test_wall_boundary(self):
+        floor = status.LOW_THROUGHPUT_MIN_WALL_SECONDS
+        self.assertTrue(status.is_low_throughput_phase(1.0, floor, 1))
+        self.assertFalse(status.is_low_throughput_phase(1.0, floor - 0.1, 1))
+
+    def test_ratio_boundary(self):
+        ceiling = status.LOW_THROUGHPUT_RATIO
+        self.assertFalse(status.is_low_throughput_phase(ceiling, 500.0, 1))
+        self.assertTrue(status.is_low_throughput_phase(ceiling - 0.1, 500.0, 1))
+
+    def test_arming_boundary(self):
+        floor = status.LOW_THROUGHPUT_MIN_ARMED_WARP_COMMANDS
+        self.assertTrue(status.is_low_throughput_phase(1.0, 500.0, floor))
+        self.assertFalse(status.is_low_throughput_phase(1.0, 500.0, floor - 1))
+
+    def test_none_inputs_never_mark(self):
+        self.assertFalse(status.is_low_throughput_phase(None, 500.0, 5))
+        self.assertFalse(status.is_low_throughput_phase(1.0, None, 5))
+
+    def test_unreadable_arming_count_never_marks(self):
+        for bad in (None, "3", True, 1.5):
+            self.assertFalse(status.is_low_throughput_phase(1.0, 500.0, bad), bad)
+
+    def test_the_arming_rule_matches_mlib(self):
+        """status.py is stdlib-only and cannot import mlib at runtime, so the
+        action-kind constants and the arming rule are duplicated. Pin them."""
+        sys.path.insert(0, os.path.join(_HARNESS_DIR, "missions", "lib"))
+        try:
+            import mlib
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(status.ACTION_WARP_TO_UT, mlib.ACTION_WARP_TO_UT)
+        self.assertEqual(status.ACTION_SET_RAILS_WARP, mlib.ACTION_SET_RAILS_WARP)
+        self.assertEqual(status.ACTION_CANCEL_WARP, mlib.ACTION_CANCEL_WARP)
+        for kind, raw, typed in (
+                (mlib.ACTION_WARP_TO_UT, "500.000", 500.0),
+                (mlib.ACTION_CANCEL_WARP, "None", None),
+                (mlib.ACTION_SET_RAILS_WARP, "0.000", 0.0),
+                (mlib.ACTION_SET_RAILS_WARP, "3.000", 3.0)):
+            self.assertEqual(status.is_warp_arming_action(kind, raw),
+                             mlib.is_warp_arming_command(kind, typed),
+                             "%s %s" % (kind, raw))
+
+
+class MachineBlockReadTests(unittest.TestCase):
+    """G3: the ORBIT-tail heuristics read the machine block, which arrives in
+    TWO shapes -- the status file's decoded dict and the log line's raw kv
+    strings ('-' = field absent on this machine, 'none' = present but unset)."""
+
+    def test_decoded_dict_values(self):
+        m = {"captureExecDownStreak": 3, "parkEverStable": True,
+             "commitResult": "OK", "minNodeDv": None}
+        self.assertEqual(status.machine_number(m, "captureExecDownStreak"), 3.0)
+        self.assertTrue(status.machine_flag(m, "parkEverStable"))
+        self.assertIsNone(status.machine_number(m, "minNodeDv"))
+        self.assertIsNone(status.machine_number(m, "absentKey"))
+
+    def test_raw_log_tokens(self):
+        m = {"parkStableStreak": "3", "parkEverStable": "True",
+             "sepSettleStreak": "-", "minNodeDv": "none"}
+        self.assertEqual(status.machine_number(m, "parkStableStreak"), 3.0)
+        self.assertTrue(status.machine_flag(m, "parkEverStable"))
+        self.assertIsNone(status.machine_number(m, "sepSettleStreak"))
+        self.assertIsNone(status.machine_number(m, "minNodeDv"))
+
+    def test_bool_is_not_a_number(self):
+        self.assertIsNone(status.machine_number({"x": True}, "x"))
+
+    def test_machine_line_is_captured_from_the_log(self):
+        lines = [
+            "[Mission][VerboseRateLimited][PARK] machine phase=PARK rounds=2 "
+            "parkStableStreak=3 parkEverStable=True captureExecDownStreak=0 "
+            "commitResult= sepSettleStreak=-",
+        ]
+        summary = status.summarize_mission_lines(lines)
+        self.assertEqual(summary["machine"]["parkStableStreak"], "3")
+        self.assertEqual(summary["machine"]["phase"], "PARK")
+        # A machine line is state, not a sparse event.
+        self.assertEqual(summary["events"], [])
 
 
 class HeuristicTests(unittest.TestCase):
@@ -316,6 +708,187 @@ class HeuristicTests(unittest.TestCase):
         line = status.derive_heuristic(summary, {})
         self.assertIn("NO warp commanded", line)
         self.assertIn("[Warp]", line)
+
+
+class OrbitTailHeuristicTests(unittest.TestCase):
+    """G3: the four ORBIT-tail phases had NO heuristic branch at all, so the
+    most expensive phase in the suite rendered a bare 'PHASE: budget n/a.'."""
+
+    PARAMS = {"capturePlanTimeoutSeconds": 300,
+              "captureBurnTimeoutSeconds": 200000,
+              "parkTimeoutSeconds": 600, "commitTimeoutSeconds": 300,
+              "parkDwellSeconds": 180}
+
+    def _at(self, phase, prev="X", ut=1000.0, **telem):
+        return ["[Mission][Info][%s] phase %s -> %s ut=%s alt=1 ap=1 vsurf=1"
+                % (phase, prev, phase, ut),
+                _telem(phase, tts="nan", **telem)]
+
+    def test_capture_burn_pre_ignition_is_named_not_a_hang(self):
+        lines = self._at("CAPTURE-BURN")
+        lines[-1] = lines[-1] + " nodeExec=1 ttPe=900.0"
+        summary = status.summarize_mission_lines(lines)
+        line = status.derive_heuristic(summary, self.PARAMS,
+                                       machine={"captureExecDownStreak": 0})
+        self.assertIn("NOT a hang", line)
+        self.assertIn("nodeExec=1", line)
+        self.assertIn("600 GAME seconds", line)
+
+    def test_capture_burn_executor_down_streak_is_named(self):
+        summary = status.summarize_mission_lines(self._at("CAPTURE-BURN"))
+        line = status.derive_heuristic(
+            summary, self.PARAMS,
+            machine={"captureExecDownStreak": 4, "captureExecReissues": 1})
+        self.assertIn("read DOWN for 4", line)
+        self.assertIn("reissues=1", line)
+
+    def test_park_names_the_debounce_and_the_deliberate_1x_hold(self):
+        summary = status.summarize_mission_lines(self._at("PARK"))
+        line = status.derive_heuristic(
+            summary, self.PARAMS,
+            machine={"parkStableStreak": 3, "parkEverStable": True})
+        self.assertIn("debounce at 3", line)
+        self.assertIn("BY DESIGN", line)
+        self.assertIn("180", line)
+
+    def test_plan_capture_names_the_window_countdown(self):
+        summary = status.summarize_mission_lines(self._at("PLAN-CAPTURE"))
+        line = status.derive_heuristic(
+            summary, self.PARAMS,
+            machine={"captureNodeBadStreak": 2, "captureReplans": 1})
+        self.assertIn("NOT at periapsis", line)
+        self.assertIn("PLAN-CAPTURE", line)
+
+    def test_orbit_commit_reports_the_seam_result(self):
+        summary = status.summarize_mission_lines(self._at("ORBIT-COMMIT"))
+        self.assertIn("polling the response channel",
+                      status.derive_heuristic(summary, self.PARAMS,
+                                              machine={"commitResult": ""}))
+        self.assertIn("returned OK",
+                      status.derive_heuristic(summary, self.PARAMS,
+                                              machine={"commitResult": "OK"}))
+
+    def test_machine_falls_back_to_the_log_line_when_no_status_file(self):
+        lines = self._at("PARK") + [
+            "[Mission][VerboseRateLimited][PARK] machine phase=PARK "
+            "parkStableStreak=3 parkEverStable=True"]
+        summary = status.summarize_mission_lines(lines)
+        line = status.derive_heuristic(summary, self.PARAMS)  # machine=None
+        self.assertIn("debounce at 3", line)
+
+
+class PhaseRowRatioTests(unittest.TestCase):
+    """G2: the phase-history rows stopped one division short of the number
+    that named the defect."""
+
+    def _lines(self):
+        # A 250 game-second phase sampled twice (~2 wall s) => ratio 125.
+        return [
+            "[Mission][Info][MJ-ASCENT] phase PRELAUNCH -> MJ-ASCENT "
+            "ut=100.0 alt=1 ap=1 vsurf=1",
+            _telem("MJ-ASCENT", tts="nan"),
+            _telem("MJ-ASCENT", tts="nan"),
+            "[Mission][Info][CIRCULARIZE] phase MJ-ASCENT -> CIRCULARIZE "
+            "ut=350.0 alt=1 ap=1 vsurf=1",
+            _telem("CIRCULARIZE", tts="nan"),
+        ]
+
+    def test_rows_carry_the_ratio(self):
+        rows = status.build_phase_rows(
+            status.summarize_mission_lines(self._lines()))
+        ascent = rows[1]
+        self.assertAlmostEqual(ascent["ratio"], 125.0)
+        self.assertFalse(ascent["low"])  # only 2 s of wall
+
+    def test_zero_wall_and_unestimable_open_rows_have_no_ratio(self):
+        rows = status.build_phase_rows(
+            status.summarize_mission_lines(self._lines()))
+        self.assertIsNone(rows[0]["ratio"])   # synthetic PRELAUNCH, 0 wall
+        # The open row here has one sample and no ut= token, so the game-span
+        # estimator cannot resolve it.
+        self.assertIsNone(rows[-1]["ratio"])
+        self.assertIsNone(rows[-1]["game_s"])
+
+    def test_open_row_carries_an_estimated_ratio_and_marks_the_thrash(self):
+        """The OPEN phase is the one an operator is staring at, and it is
+        exactly where the measured B12 coast thrash hid behind 'ratio n/a'.
+        MEASURED: that phase ran ~42 game-s per wall-s over an hour of wall
+        while re-issuing its own warp thousands of times."""
+        lines = ["[Mission][Info][COAST-TO-TARGET] phase X -> COAST-TO-TARGET "
+                 "ut=74228.0 alt=1 ap=1 vsurf=1"]
+        # 200 samples (~200 wall s) advancing UT by 42 s each => ratio ~42,
+        # each one re-arming the native warp (the thrash's signature).
+        for i in range(200):
+            lines.append(_telem("COAST-TO-TARGET", tts="nan",
+                                ut="%0.3f" % (74228.0 + 42.0 * (i + 1))))
+            lines.append("[Mission][Info][COAST-TO-TARGET] action warp_to_ut "
+                         "value=99999.000")
+        rows = status.build_phase_rows(status.summarize_mission_lines(lines))
+        open_row = rows[-1]
+        self.assertIsNone(open_row["game_s"])          # still an open span
+        self.assertAlmostEqual(open_row["ratio"], 42.0, places=0)
+        self.assertEqual(open_row["armed_warp_cmds"], 200)
+        self.assertTrue(open_row["low"])
+
+    def test_a_long_1x_phase_that_never_armed_warp_is_not_marked(self):
+        """MINOR-5: PARK's 180 s dwell at 1x is deliberate, and its ONE warp
+        command is `set_rails_warp value=0.000` -- a CANCEL to 1x. The
+        ratio-only rule marked it on every healthy run; the arming gate does
+        not."""
+        lines = ["[Mission][Info][PARK] phase X -> PARK ut=0.0 alt=1 ap=1 "
+                 "vsurf=1",
+                 "[Mission][Info][PARK] action set_rails_warp value=0.000"]
+        lines += [_telem("PARK", tts="nan") for _ in range(200)]
+        lines += ["[Mission][Info][ORBIT-COMMIT] phase PARK -> ORBIT-COMMIT "
+                  "ut=200.0 alt=1 ap=1 vsurf=1"]
+        rows = status.build_phase_rows(status.summarize_mission_lines(lines))
+        park = [r for r in rows if r["phase"] == "PARK"][0]
+        self.assertAlmostEqual(park["ratio"], 1.0)
+        self.assertEqual(park["armed_warp_cmds"], 0)
+        self.assertFalse(park["low"])
+
+    def test_a_long_1x_phase_that_DID_arm_warp_is_marked(self):
+        lines = ["[Mission][Info][PARK] phase X -> PARK ut=0.0 alt=1 ap=1 "
+                 "vsurf=1",
+                 "[Mission][Info][PARK] action set_rails_warp value=4.000"]
+        lines += [_telem("PARK", tts="nan") for _ in range(200)]
+        lines += ["[Mission][Info][ORBIT-COMMIT] phase PARK -> ORBIT-COMMIT "
+                  "ut=200.0 alt=1 ap=1 vsurf=1"]
+        rows = status.build_phase_rows(status.summarize_mission_lines(lines))
+        park = [r for r in rows if r["phase"] == "PARK"][0]
+        self.assertEqual(park["armed_warp_cmds"], 1)
+        self.assertTrue(park["low"])
+
+    def test_arming_commands_are_attributed_to_their_own_phase(self):
+        lines = ["[Mission][Info][A] phase X -> A ut=0.0 alt=1 ap=1 vsurf=1",
+                 "[Mission][Info][A] action warp_to_ut value=10.000",
+                 _telem("A", tts="nan"),
+                 "[Mission][Info][B] phase A -> B ut=10.0 alt=1 ap=1 vsurf=1",
+                 "[Mission][Info][B] action cancel_warp value=nan",
+                 _telem("B", tts="nan")]
+        rows = status.build_phase_rows(status.summarize_mission_lines(lines))
+        by_phase = {r["phase"]: r for r in rows}
+        self.assertEqual(by_phase["A"]["armed_warp_cmds"], 1)
+        self.assertEqual(by_phase["B"]["armed_warp_cmds"], 0)
+
+
+class OptInTelemetryTailTests(unittest.TestCase):
+    """The opt-in nodeExec= / ttPe= tail the mission appends only when the
+    channel was read; the CAPTURE-BURN heuristic reads nodeExec."""
+
+    def test_tail_parsed_when_present(self):
+        telem = status.parse_telemetry_message(
+            "telemetry ap=1 pe=2 ecc=0 inc=0 alt=5 vspd=0 body=Minmus nodes=0 "
+            "nodeDv=nan nodeUt=nan tts=nan warpTo=nan lf=1 thr=0 "
+            "situation=ORBITING warp=NONEx1.000 apErr=nan ut=10.0 nodeExec=1 "
+            "ttPe=275.822")
+        self.assertEqual(telem["nodeExec"], 1.0)
+        self.assertAlmostEqual(telem["ttPe"], 275.822)
+
+    def test_absent_tail_is_nan_not_an_error(self):
+        telem = status.parse_telemetry_message(REAL_TELEMETRY.split("] ", 2)[-1])
+        self.assertTrue(math.isnan(telem["nodeExec"]))
+        self.assertTrue(math.isnan(telem["ttPe"]))
 
 
 class EventFilterTests(unittest.TestCase):
@@ -405,6 +978,67 @@ class StatusFilePreferredPathTests(unittest.TestCase):
             self._write_run(tmp, stale=True)
             panel = status.render_panel(self.RUN_ID, tmp, tmp)
             self.assertNotIn("LIVE STATUS FILE", panel)
+
+    def test_fresh_status_file_renders_the_real_wall_line(self):
+        """G1 end-to-end: the panel prefers the mission's MEASURED wall numbers
+        over the telemetry-line estimate and shows the denominator."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_run(tmp)
+            payload = self._payload()
+            payload.update({"wallElapsedSeconds": 2379.0,
+                            "wallRemainingSeconds": 1821.0,
+                            "wallBudgetSeconds": 4200.0,
+                            "phaseWallSeconds": 2379.0,
+                            "phaseWarp": {"phase": "PLAN-CORRECTION",
+                                          "wallSeconds": 2379.0,
+                                          "gameSeconds": 95160.0,
+                                          "gameSecondsPerWallSecond": 40.0,
+                                          "warpCommands": 3603,
+                                          "armedWarpCommands": 3603}})
+            with open(path, "w", encoding="ascii") as fh:
+                fh.write(json.dumps(payload))
+            panel = status.render_panel(self.RUN_ID, tmp, tmp)
+            self.assertIn("mission wall: 39m39s / 1h10m (57%, excl. boot)", panel)
+            self.assertIn("phase wall 39m39s", panel)
+            self.assertNotIn("telemetry-line est.", panel)
+            # The live open-phase ratio: this is the measured thrash number,
+            # and it ARMED warp 3,603 times, so the marker fires.
+            self.assertIn("40 game-s per wall-s", panel)
+            self.assertIn("3603 armed", panel)
+            self.assertIn("<- LOW", panel)
+
+    def test_the_throughput_block_names_the_phase_its_numbers_came_from(self):
+        """MINOR-6: the header phase comes from the LOG's last transition and
+        the throughput numbers come from the STATUS FILE's phase. A real render
+        showed 'PHASE: EVA-WINDOW' over DESCENT's numbers with neither
+        labelled, and the operator read one as the other."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_run(tmp)
+            payload = self._payload()
+            payload["phaseWarp"] = {"phase": "DESCENT", "wallSeconds": 61.1,
+                                    "gameSeconds": 61.1,
+                                    "gameSecondsPerWallSecond": 1.0,
+                                    "warpCommands": 0, "armedWarpCommands": 0}
+            with open(path, "w", encoding="ascii") as fh:
+                fh.write(json.dumps(payload))
+            panel = status.render_panel(self.RUN_ID, tmp, tmp)
+            # The log here has no transition, so the header phase is PRELAUNCH.
+            self.assertIn("PHASE: PRELAUNCH", panel)
+            self.assertIn("status-file phase DESCENT, NOT the PRELAUNCH header",
+                          panel)
+
+    def test_the_throughput_block_is_unlabelled_when_the_phases_agree(self):
+        line = status.format_phase_throughput_line(
+            {"phase": "PARK", "wallSeconds": 180.0, "gameSeconds": 180.0,
+             "gameSecondsPerWallSecond": 1.0, "warpCommands": 1,
+             "armedWarpCommands": 0}, "PARK")
+        self.assertTrue(line.startswith("phase throughput: "))
+        self.assertNotIn("NOT the", line)
+        self.assertNotIn("<- LOW", line)   # 1 cancel, 0 armed -> no marker
+
+    def test_no_throughput_block_without_a_payload(self):
+        self.assertIsNone(status.format_phase_throughput_line(None, "PARK"))
+        self.assertIsNone(status.format_phase_throughput_line("nope", "PARK"))
 
     def test_read_status_file_freshness_gate(self):
         with tempfile.TemporaryDirectory() as tmp:

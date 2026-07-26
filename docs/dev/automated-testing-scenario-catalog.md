@@ -18,9 +18,11 @@ report; headline values only here.
 - **D1 Recording lifecycle**: auto-record on launch / on EVA / on
   first-modification-after-switch (all shipped defaults, ParsekSettings.cs),
   manual Gloops ghost-only, stop-on-switch (no Stop decision), commit via
-  revert-merge / scene exit / abort, discard (career rollback), auto-merge,
-  sub-2-point drop, switch-segment (Fly / Switch-To) + no-op auto-discard,
-  scene-exit finalization, ballistic extrapolation, finalization cache.
+  revert-merge / scene exit / abort, commit in a FOREIGN SOI (the recording
+  closes while the vessel is parked in orbit around another body - the B11/B12
+  ORBIT lane), discard (career rollback), auto-merge, sub-2-point drop,
+  switch-segment (Fly / Switch-To) + no-op auto-discard, scene-exit
+  finalization, ballistic extrapolation, finalization cache.
 - **D2 Sampling**: density presets, proximity cadence (BG), structural-event
   snapshots, threshold+debounce recording.
 - **D3 Reference frames** (per TrackSection): absolute, surface/body-fixed,
@@ -129,9 +131,24 @@ its fixture shortcut (synthetic recording or stock Scenario save).
 | B8 | Loop B7 tree as mission, phase-locked | D6(loop),D11(span,phase) | inject committed B7 tree |
 | B9 | Crash A from B5, rewind, re-fly, merge | D9(full),D8(recalc) | inject tree with Crashed sibling + RP |
 | B10 | Career passive safety: stock actions only, warp, scene change, cold load | D8(all),D14(career),D16 | fresh career save |
+| B11 | Mun ORBIT: transfer, capture burn, park, commit while parked in the Mun SOI | D1(commit-in-foreign-soi),D3,D4,D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6) |
+| B12 | Minmus ORBIT: the B11 machine on the minmus axis | As B11 with D14 minmus | b2-lko-craft |
 
 B10 requires almost no flying and covers the historically most destructive
 regressions (R1/R2/R4-R7 below).
+
+B11/B12 ARE THE ROADMAP'S "B8 Mun/Minmus ORBIT missions" ITEM. The roadmap used
+the informal label "B8", which collides with this table's existing B8 (loop the
+B7 tree as a mission) and would also have collided with B9 / B10; B3 is likewise
+taken by the EVA branch. The ORBIT lane is therefore B11 (Mun) + B12 (Minmus),
+and `autotest-status.md`'s roadmap entry names those ids. The lane's whole
+reason to exist is the END STATE, not the flight: every other lunar /
+interplanetary case (B5 Mun flyby, B6 Minmus flyby, B7 Duna flyby) passes
+THROUGH a foreign SOI and comes back or continues, so none of them ever
+exercises the commit path, the terminal classification, or the
+background-recording handoff for a tree whose recording CLOSES while the vessel
+is in orbit around another body. B11/B12 close and commit exactly there, which
+is why they claim the new D1 `commit-in-foreign-soi` value.
 
 B8 additional assertion (loop first-run-is-real, D18): after 3 loop cycles
 plus one rewind re-cross of the spawn window, exactly ONE real vessel with

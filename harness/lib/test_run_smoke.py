@@ -348,7 +348,17 @@ class FakeKspSmokeTests(unittest.TestCase):
         # A PASS does not snapshot heavy diagnostics.
         self.assertFalse(result["collectLogs"]["ran"])
         # The durable result landed.
-        self.assertTrue(os.path.isfile(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])))
+        result_path = os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])
+        self.assertTrue(os.path.isfile(result_path))
+        # ... and it carries the MEASURED recordings count, not just the verdict.
+        # This is the ONLY place a green run's count survives: a PASS runs no
+        # collect-logs and the produced save is transient, so without this the
+        # number needed to pin a provisional count window is gone forever.
+        with open(result_path, "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual({"recordings": {"count": 0}},
+                         persisted["verifiers"]["expectations"]["observed"],
+                         "the measured count must round-trip into results/<runId>.json")
         # S6: the per-invocation harness log file exists and carries the verdict line.
         self.assertTrue(os.path.isfile(self.logger.log_path))
         with open(self.logger.log_path, "r", encoding="utf-8") as fh:
@@ -377,6 +387,12 @@ class FakeKspSmokeTests(unittest.TestCase):
         # Save-reading verifiers are skipped on a torn (killed) save.
         self.assertEqual("SKIPPED", result["verifiers"]["analyzer"]["status"])
         self.assertEqual("SKIPPED", result["verifiers"]["expectations"]["status"])
+        # A KILLED run deliberately does not read the torn save at all
+        # (recordingCount is None), so it carries no measured facets. The
+        # SKIPPED-with-observed contract belongs to the non-killed
+        # short-circuit / driver-INVALID branch -- see
+        # test_loadgame_error_skips_mission_spawn.
+        self.assertNotIn("observed", result["verifiers"]["expectations"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
@@ -639,9 +655,18 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         self.assertEqual("PASS", v["mission"]["status"])
         self.assertEqual("PASS", v["analyzer"]["status"])
         self.assertEqual("PASS", v["expectations"]["status"])
+        # The FLOWN shape records its measured count too (the mission dropped one
+        # .prec), so an orbit-lane operator can pin a provisional window off a
+        # green autopilot run without re-flying to catch the save.
+        self.assertEqual({"recordings": {"count": 1}}, v["expectations"]["observed"])
         # The per-attempt mission-result JSON landed under results/.
         mission_json = os.path.join(run.RESULTS_DIR, "%s_mission.json" % result["runId"])
         self.assertTrue(os.path.isfile(mission_json))
+        # G6: the mission's own wall span rides the harness result, so the
+        # harness-vs-mission residue (KSP boot + verifier chain) is a plain
+        # subtraction rather than an investigation. The fake mission reports 1.
+        self.assertEqual(1, result["missionWallSeconds"])
+        self.assertIsNotNone(result["wallSeconds"])
 
     def test_mission_assert_fail_is_invalid_mission_retryable(self):
         """(b) The mission writes MISSION-ASSERT-FAIL -> INVALID(mission),
@@ -709,6 +734,17 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         self.assertFalse(mission_rows[0]["met"])
         self.assertIsNone(mission_rows[0]["missionVerdict"])
         self.assertIn("LoadGame", mission_rows[0].get("reason", ""))
+        # The expectations verifier is SKIPPED on a driver-INVALID save -- but
+        # it still records the MEASURED facets. `observed` exists so a run's
+        # numbers survive into results/<runId>.json instead of dying with the
+        # transient save, and a run that came back INVALID is exactly the run
+        # whose recording count an operator needs (did the save get ANY
+        # recordings before the driver failed?). recording_count is already
+        # computed for the comparison; it used to be dropped on this branch.
+        exp = result["verifiers"]["expectations"]
+        self.assertEqual("SKIPPED", exp["status"])
+        self.assertEqual({"recordings": {"count": 0}}, exp["observed"],
+                         "the measured count must survive a SKIPPED expectations verifier")
 
 
 class UnmetMissionTailSmokeTests(unittest.TestCase):
@@ -988,6 +1024,102 @@ class ReadMissionVerdictSchemaGateTests(unittest.TestCase):
     def test_no_verdict_is_none(self):
         p = self._write({"schema": run.MISSION_RESULT_SCHEMA})
         self.assertIsNone(run._read_mission_verdict(p))
+
+    def test_mission_wall_seconds_shares_the_schema_gate(self):
+        """G6: the wall read goes through the SAME schema gate as the verdict
+        read, so a future/legacy result cannot leak a mis-scaled duration."""
+        ok = self._write({"schema": run.MISSION_RESULT_SCHEMA,
+                          "verdict": "MISSION-OK", "wallSeconds": 580.826})
+        self.assertAlmostEqual(580.826, run._read_mission_wall_seconds(ok))
+        bad = self._write({"schema": 2, "wallSeconds": 580.826})
+        self.assertIsNone(run._read_mission_wall_seconds(bad))
+        nowall = self._write({"schema": run.MISSION_RESULT_SCHEMA})
+        self.assertIsNone(run._read_mission_wall_seconds(nowall))
+        self.assertIsNone(run._read_mission_wall_seconds(
+            os.path.join(self.tmp, "nope.json")))
+
+
+class ScenarioCostAccountingTests(unittest.TestCase):
+    """G6: each attempt wrote its own result and NOTHING summed them, so
+    B7-duna burning 794 + 776 = 1,570 wall seconds across two INVALID attempts
+    and producing nothing was traceable only as two unrelated summary lines."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-cost-")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        self.lines = []
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "cost_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _drive(self, verdicts, walls):
+        """Run _run_scenario_with_retry over a stubbed run_attempt."""
+        calls = {"n": 0}
+        orig = run.run_attempt
+
+        def fake_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
+                         prior_boot_crashed, logger):
+            i = calls["n"]
+            calls["n"] += 1
+            return {"schema": hlib.SCHEMA_VERSION,
+                    "runId": "2026-07-25_0100_S1%s" % ("_a2" if attempt == 2 else ""),
+                    "scenarioId": "S1", "endedUtc": "2026-07-25T01:00:00Z",
+                    "verdict": verdicts[i],
+                    # A RETRYABLE subkind so attempt 1 actually retries (the
+                    # B7-duna case was INVALID(mission)).
+                    "subkind": "mission" if verdicts[i] == "INVALID" else "",
+                    "note": "",
+                    "wallSeconds": walls[i], "attempt": attempt,
+                    "expectedFail": {"bugId": "", "matched": False}}
+
+        run.run_attempt = fake_attempt
+        try:
+            return run._run_scenario_with_retry(
+                {"id": "S1", "retry": {"policy": "once"}}, self.tmp, self.tmp,
+                None, self.logger), calls["n"]
+        finally:
+            run.run_attempt = orig
+
+    def _summary_lines(self):
+        path = os.path.join(run.RESULTS_DIR, "summary.txt")
+        if not os.path.isfile(path):
+            return []
+        with open(path, "r", encoding="utf-8") as fh:
+            return [l for l in fh.read().splitlines() if l.strip()]
+
+    def test_two_invalid_attempts_sum_into_one_number(self):
+        # The measured B7-duna case: 794 + 776 = 1,570 s for nothing.
+        result, attempts = self._drive(["INVALID", "INVALID"], [794, 776])
+        self.assertEqual(2, attempts)
+        self.assertEqual(1570, result["attemptsWallSeconds"])
+
+    def test_single_attempt_records_its_own_cost(self):
+        result, attempts = self._drive(["PASS", "PASS"], [627, 627])
+        self.assertEqual(1, attempts)
+        self.assertEqual(627, result["attemptsWallSeconds"])
+
+    def test_plain_path_does_not_double_the_rolling_summary(self):
+        """The enrichment re-write must not append a second summary.txt line
+        for every run (write_result(append_summary=False))."""
+        self._drive(["PASS", "PASS"], [627, 627])
+        self.assertEqual(0, len(self._summary_lines()),
+                         "the stubbed run_attempt writes no summary; the cost "
+                         "re-write must not add one either")
+
+    def test_flaked_then_passed_still_records_its_note_line(self):
+        result, attempts = self._drive(["INVALID", "PASS"], [300, 620])
+        self.assertEqual(2, attempts)
+        self.assertEqual("flakedThenPassed", result["note"])
+        self.assertEqual(920, result["attemptsWallSeconds"])
+        summary = self._summary_lines()
+        self.assertEqual(1, len(summary), summary)
+        self.assertIn("note=flakedThenPassed", summary[0])
 
 
 class RequirementsCanonicalizationTests(unittest.TestCase):
@@ -1468,6 +1600,157 @@ class SubprocessScopedRetrySmokeTests(unittest.TestCase):
                          "a triage-only analyzer over an INVALID save must not re-run")
         # No subprocessRetry entry recorded (the triage path never enters the retry seam).
         self.assertEqual([], result["verifiers"].get("subprocessRetry", []))
+
+
+class DurationLedgerIoTests(unittest.TestCase):
+    """The COMMITTED duration ledger's I/O contract (2026-07-26 review,
+    BLOCKER-1 / MAJOR-2 / MAJOR-4).
+
+    ``coverage/duration.json`` is the ONLY committed artifact this refresh
+    writes, and ``results/`` is gitignored and per-checkout -- so a recompute
+    over the local results dir replaces the whole-suite record with whatever
+    this worktree happened to fly. Two things must hold on every run: the merge
+    preserves scenarios this checkout never measured, and an unreadable ledger
+    is never REPLACED by a partial one."""
+
+    SCENARIO = "SMOKE-fake"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-duration-")
+        self._orig_results = run.RESULTS_DIR
+        self._orig_cov = run.COVERAGE_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        run.COVERAGE_DIR = os.path.join(self.tmp, "coverage")
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        os.makedirs(run.COVERAGE_DIR, exist_ok=True)
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "duration_harness.log"))
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        self.spec = _make_spec(self.template, 30, 600)
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        run.COVERAGE_DIR = self._orig_cov
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @property
+    def _path(self):
+        return os.path.join(run.COVERAGE_DIR, "duration.json")
+
+    def _write_ledger(self, text):
+        with open(self._path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+
+    def _seed_pass_result(self, wall, ended, run_id):
+        result = {"schema": hlib.SCHEMA_VERSION, "runId": run_id,
+                  "scenarioId": self.SCENARIO, "verdict": hlib.VERDICT_PASS,
+                  "attempt": 1, "wallSeconds": wall, "startedUtc": ended,
+                  "endedUtc": ended, "note": ""}
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % run_id), "w",
+                  encoding="utf-8", newline="\n") as fh:
+            fh.write(hlib.serialize_result(result))
+
+    def _read_ledger(self):
+        with open(self._path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _log_body(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_one_scenario_checkout_does_not_wipe_the_committed_record(self):
+        """BLOCKER-1, the observed live failure: a fresh worktree that flew ONE
+        scenario overwrote the 24-entry committed ledger with 1 entry."""
+        self._write_ledger(json.dumps({
+            "schema": hlib.SCHEMA_VERSION,
+            "scenarios": {
+                "B11-mun-orbit": {"n": 5, "p50": 1317.0, "p95": 1319.0,
+                                  "last": 1318.0, "lastVsP50": 1.001},
+                "B12-minmus-orbit": {"n": 4, "p50": 627.0, "p95": 627.0,
+                                     "last": 626.0, "lastVsP50": 0.998},
+            }}, sort_keys=True, indent=2) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        scenarios = self._read_ledger()["scenarios"]
+        self.assertEqual(sorted(scenarios),
+                         ["B11-mun-orbit", "B12-minmus-orbit", self.SCENARIO])
+        self.assertEqual(scenarios["B11-mun-orbit"]["n"], 5)
+        self.assertEqual(scenarios["B12-minmus-orbit"]["p50"], 627.0)
+        self.assertEqual(scenarios[self.SCENARIO]["n"], 1)
+
+    def test_a_measured_scenario_accrues_instead_of_being_replaced(self):
+        """MAJOR-2: the summary-only committed entry keeps its n instead of
+        being recomputed down to this checkout's 1, so the regression warn
+        stays armed. Then the NEXT run accrues on top of it."""
+        self._write_ledger(json.dumps({
+            "schema": hlib.SCHEMA_VERSION,
+            "scenarios": {self.SCENARIO: {"n": 5, "p50": 1317.0, "p95": 1319.0,
+                                          "last": 1318.0, "lastVsP50": 1.001}},
+        }, sort_keys=True, indent=2) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        entry = self._read_ledger()["scenarios"][self.SCENARIO]
+        self.assertEqual(entry["n"], 5)
+        self.assertGreaterEqual(entry["n"], hlib.DURATION_MIN_SAMPLES)
+        self.assertEqual(entry["last"], 1400.0)
+        # A second run over the SAME accumulated results dir plus one new PASS.
+        self._seed_pass_result(1290, "2026-07-27T10:00:00Z", "2026-07-27_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        entry = self._read_ledger()["scenarios"][self.SCENARIO]
+        self.assertEqual(entry["n"], 6)
+        self.assertEqual(sorted(entry["samples"].values()), [1290.0, 1400.0])
+
+    def test_an_unparseable_ledger_is_never_replaced_and_reds_loudly(self):
+        """MAJOR-4: the recovery path must not reopen the bug it closes. A
+        partial file (truncate-then-die) must leave the file UNTOUCHED and log
+        an Error, not silently replace 24 scenarios with this run's one."""
+        partial = '{\n  "schema": 1,\n  "scenarios": {\n    "B11-mun-orb'
+        self._write_ledger(partial)
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        with open(self._path, "r", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), partial)
+        body = self._log_body()
+        self.assertIn("[Error][Duration]", body)
+        self.assertIn("SKIPPING the duration write", body)
+
+    def test_a_future_schema_ledger_is_refused_not_overwritten(self):
+        self._write_ledger(json.dumps(
+            {"schema": hlib.SCHEMA_VERSION + 1, "scenarios": {}}) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertEqual(self._read_ledger()["schema"], hlib.SCHEMA_VERSION + 1)
+        self.assertIn("failed the schema gate", self._log_body())
+
+    def test_a_missing_ledger_is_a_legitimate_first_write(self):
+        self.assertFalse(os.path.exists(self._path))
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertEqual(self._read_ledger()["scenarios"][self.SCENARIO]["n"], 1)
+        self.assertNotIn("[Error][Duration]", self._log_body())
+
+    def test_the_write_leaves_no_tmp_behind(self):
+        """The write is tmp + os.replace (MAJOR-4a); a leftover .tmp would mean
+        the rename never happened."""
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertFalse(os.path.exists(self._path + ".tmp"))
+        self.assertTrue(os.path.isfile(self._path))
+
+    def test_a_malformed_entry_cannot_crash_the_end_of_a_flown_suite(self):
+        """MINOR-8: the ledger is committed and hand-editable, and the warn line
+        formats last/p50/p95. Before the fix this raised KeyError out of
+        refresh_coverage_and_flake AFTER the whole suite had flown, so
+        logger.close() never ran."""
+        self._write_ledger(json.dumps({
+            "schema": hlib.SCHEMA_VERSION,
+            "scenarios": {"X": {"n": 5, "lastVsP50": 2.0}}},
+            sort_keys=True, indent=2) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertNotIn("X", self._read_ledger()["scenarios"])
 
 
 class MultiCategoryBatchSmokeTests(unittest.TestCase):

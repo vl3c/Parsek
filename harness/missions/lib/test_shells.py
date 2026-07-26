@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import unittest
+from dataclasses import replace
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
@@ -39,6 +40,8 @@ import b4_reentry             # noqa: E402
 import b5_mun_flyby           # noqa: E402
 import b6_minmus_flyby        # noqa: E402
 import b7_duna_flyby          # noqa: E402
+import b11_mun_orbit          # noqa: E402
+import b12_minmus_orbit       # noqa: E402
 import forge_station          # noqa: E402
 import forge_lko              # noqa: E402
 import bdock_dock_transfer    # noqa: E402
@@ -1742,6 +1745,799 @@ class SeamCommitBridgeTests(unittest.TestCase):
         self._seed_response("id=0002 cmd=SetSetting verdict=OK seq=1")
         c = self._ctrl()
         self.assertIsNone(c._read_seam_response("0003"))
+
+
+# ---------------------------------------------------------------------------
+# ORBIT missions (B11 Mun / B12 Minmus): the SAME B5 shell wiring with
+# captureEnabled, driven end to end over the fake seam -- ascent, transfer,
+# cross-SOI coast, CAPTURE burn, park dwell, mid-mission seam CommitTree, and
+# the commit-in-foreign-SOI terminal.
+# ---------------------------------------------------------------------------
+
+B11_PARAMS = dict(
+    B5_PARAMS,
+    courseCorrectPeriapsisMeters=250000,
+    captureEnabled=True,
+    capturePlanTimeoutSeconds=300,
+    captureBurnTimeoutSeconds=60000,
+    parkMinPeriapsisMeters=15000,
+    parkMaxApoapsisMeters=2000000,
+    parkMaxEccentricity=0.25,
+    parkMaxAngularVelocityRadPerSec=0.05,
+    parkSituations=["ORBITING"],
+    parkDwellSeconds=180,
+    parkDebounceFrames=3,
+    parkTimeoutSeconds=600,
+    commitTimeoutSeconds=300,
+)
+
+# The UT of the scripted arrival PERIAPSIS: the capture burn completes there
+# (the CAPTURE-BURN frame below), the planned capture node sits ON it, and
+# every in-SOI frame's time_to_periapsis is derived from it. One constant so
+# the clock, the node and the burn cannot drift apart in the fixture.
+_ARRIVAL_PERIAPSIS_UT = 48_000.0
+
+
+class B11OrbitShellTests(unittest.TestCase):
+    """B11/B12 shell wiring: the B5 transfer half plus the ORBIT tail
+    (PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED),
+    with the new capture-plan and commit-seam actions flowing end to end."""
+
+    def _transfer_frames(self, body="Mun", transfer_ap=11_500_000.0):
+        """The B5 ascent + transfer + two correction rounds, verbatim in shape;
+        the ORBIT tail replaces B5's flyby/return frames."""
+        return [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, situation="PRE_LAUNCH",
+                 body="Kerbin"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, situation="FLYING",
+                 mj_ascent_complete=True, body="Kerbin"),        # -> CIRCULARIZE
+            snap(ut=140.0, apoapsis=80000, periapsis=79000, altitude=79000.0,
+                 situation="ORBITING", body="Kerbin"),           # -> ORBIT
+            snap(ut=141.0, apoapsis=80001, periapsis=79000, altitude=79001.0,
+                 situation="ORBITING", body="Kerbin"),           # ORBIT -> PLAN (target+plan)
+            snap(ut=150.0, apoapsis=80001, periapsis=79000, altitude=79002.0,
+                 situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> TRANSFER-BURN
+            snap(ut=2200.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=90000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # burn done -> COAST
+            snap(ut=2210.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=93000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 0 -> PLAN-CORRECTION
+            snap(ut=2230.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=95000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN
+            snap(ut=2245.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=97000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # streak 1 -> physics warp
+            snap(ut=2300.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=99000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop warp
+            snap(ut=2302.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=99500.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # warp NONE -> throttle
+            snap(ut=2400.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # -> COAST
+            snap(ut=8000.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_500_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 2 -> PLAN-CORRECTION
+            snap(ut=8010.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_510_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN
+            snap(ut=8025.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_520_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.8),       # streak 1
+            snap(ut=8030.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_525_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop warp
+            snap(ut=8035.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_530_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7),       # warp NONE -> throttle
+            snap(ut=8100.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_600_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # consumed -> COAST
+            snap(ut=40_000.0, apoapsis=-4_000_000.0, periapsis=1_000_000.0,
+                 eccentricity=1.4, altitude=2_100_000.0,
+                 situation="ESCAPING", body=body,
+                 time_to_periapsis=_ARRIVAL_PERIAPSIS_UT - 40_000.0),  # SOI -> TARGET-FLYBY
+        ]
+
+    def _capture_frames(self, body="Mun"):
+        """The ORBIT tail: arm the capture, plan it, burn it, park it, commit
+        it. Altitudes drift frame to frame so the 1x frozen-telemetry detector
+        (which compares bit-identical orbit fields) never trips on the park.
+
+        Every in-SOI frame carries the PERIAPSIS CLOCK, because both live
+        shells build their control with read_periapsis=True: the capture arming
+        gate needs periapsis still AHEAD of us, the capture warp is bounded by
+        that clock, and the PLAN-CAPTURE handoff refuses a node that is not AT
+        the arrival periapsis. A fixture without it is a fixture of a mission
+        that never flies."""
+        arming = [
+            snap(ut=40_000.0 + 10.0 * i, apoapsis=-4_000_000.0,
+                 periapsis=1_000_000.0, eccentricity=1.4,
+                 altitude=2_000_000.0 - 1000.0 * i, situation="ESCAPING",
+                 body=body,
+                 time_to_periapsis=_ARRIVAL_PERIAPSIS_UT - (40_000.0 + 10.0 * i))
+            for i in range(1, mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 1)
+        ]
+        tail = [
+            # PLAN-CAPTURE: the node appears AT the arrival periapsis -> hand
+            # off to the node executor.
+            snap(ut=40_100.0, apoapsis=-4_000_000.0, periapsis=1_000_000.0,
+                 eccentricity=1.4, altitude=1_900_000.0, situation="ESCAPING",
+                 body=body, node_count=1, node_ut=_ARRIVAL_PERIAPSIS_UT,
+                 time_to_periapsis=_ARRIVAL_PERIAPSIS_UT - 40_100.0),
+            # CAPTURE-BURN: node consumed AND the orbit is now BOUND.
+            snap(ut=48_000.0, apoapsis=1_010_000.0, periapsis=990_000.0,
+                 eccentricity=0.01, altitude=1_000_000.0, situation="ORBITING",
+                 body=body, node_count=0, angular_velocity=0.002),
+        ]
+        park_entry_ut = 48_000.0
+        park = [
+            snap(ut=park_entry_ut + 10.0 * i, apoapsis=1_010_000.0 + i,
+                 periapsis=990_000.0 - i, eccentricity=0.01,
+                 altitude=1_000_000.0 - 100.0 * i, situation="ORBITING",
+                 body=body, angular_velocity=0.002)
+            for i in range(1, 4)                                  # debounce 3
+        ]
+        park.append(
+            # Dwell elapsed AND still in-gate -> ORBIT-COMMIT (seam fires).
+            snap(ut=park_entry_ut + 200.0, apoapsis=1_010_010.0,
+                 periapsis=989_990.0, eccentricity=0.01, altitude=999_500.0,
+                 situation="ORBITING", body=body, angular_velocity=0.002))
+        park.append(
+            # The seam answered OK -> ORBIT-COMMITTED terminal.
+            snap(ut=park_entry_ut + 210.0, apoapsis=1_010_020.0,
+                 periapsis=989_980.0, eccentricity=0.01, altitude=999_400.0,
+                 situation="ORBITING", body=body, angular_velocity=0.002,
+                 seam_commit_result="OK"))
+        return arming + tail + park
+
+    def test_b11_happy_path_commits_the_tree_parked_in_the_mun_soi(self):
+        """B11 flies ascent -> transfer -> Mun SOI -> CAPTURE -> PARK ->
+        mid-mission seam CommitTree -> ORBIT-COMMITTED, with all SIX assertions
+        met. Guards the shell mis-wiring the capture plan / commit-seam actions,
+        or terminating on the free-return like B5."""
+        frames = self._transfer_frames() + self._capture_frames()
+        control = FakeMissionControl(frames)
+        code, result = run(b11_mun_orbit.SPEC, B11_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b11_mun_orbit")
+        self.assertEqual(result["phasesReached"][-1], mlib.B5_ORBIT_COMMITTED)
+        kinds = [a.kind for a in control.actions]
+        for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
+                     mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
+                     mlib.ACTION_MJ_PLAN_CAPTURE, mlib.ACTION_CUT_THROTTLE,
+                     mlib.ACTION_SET_SAS, mlib.ACTION_SET_RCS,
+                     mlib.ACTION_PARSEK_COMMIT_TREE):
+            self.assertIn(kind, kinds, kind)
+        # EXACTLY ONE mid-mission commit (a second seam CommitTree with no
+        # active tree returns ERROR and reds the run).
+        commits = [a for a in control.actions
+                   if a.kind == mlib.ACTION_PARSEK_COMMIT_TREE]
+        self.assertEqual(len(commits), 1)
+        # TWO executor handoffs: the TLI and the CAPTURE (both far-node,
+        # autowarp regimes); the corrections fly the DIY burner.
+        executes = [a for a in control.actions
+                    if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
+        self.assertEqual(len(executes), 2)
+        by_name = {a["name"]: a["met"] for a in result["assertions"]}
+        self.assertEqual(set(by_name),
+                         {"reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "capturedInTargetOrbit",
+                          "parkedStable", "treeCommitted"})
+        self.assertTrue(all(by_name.values()), result["assertions"])
+        # NO settle tail (the SF-4 contract): reads stop at the terminal frame.
+        self.assertEqual(control.reads, len(frames))
+        self.assertTrue(control.closed)
+
+    def test_b12_minmus_alias_flies_the_same_machine(self):
+        """b12_minmus_orbit is a thin alias over the same capture-enabled B5
+        machine: the same frame script with body=Minmus and Minmus-sized params
+        flies to MISSION-OK. Guards the alias shell drifting from B11."""
+        params = dict(B11_PARAMS, targetBodyName="Minmus",
+                      transferMinApoapsisMeters=40_000_000,
+                      courseCorrectPeriapsisMeters=20000,
+                      targetPeriapsisFloorMeters=6000,
+                      captureBurnTimeoutSeconds=200000,
+                      parkMinPeriapsisMeters=10000,
+                      parkMaxApoapsisMeters=1500000)
+        frames = (self._transfer_frames(body="Minmus", transfer_ap=46_000_000.0)
+                  + self._capture_frames(body="Minmus"))
+        control = FakeMissionControl(frames)
+        code, result = run(b12_minmus_orbit.SPEC, params, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b12_minmus_orbit")
+        self.assertEqual(result["phasesReached"][-1], mlib.B5_ORBIT_COMMITTED)
+        targets = [a for a in control.actions
+                   if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets,
+                         [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Minmus")])
+
+    def test_flying_past_without_capturing_is_assert_fail(self):
+        """The free-return B5 asserts is the outcome an ORBIT mission must NOT
+        have: reading Kerbin again inside the flyby leg is an ASSERT-FAIL with
+        a named loss reason, never a RETURN pass."""
+        frames = self._transfer_frames() + [
+            snap(ut=45_000.0, apoapsis=12_000_000.0, periapsis=35_000.0,
+                 altitude=4_000_000.0, situation="ORBITING", body="Kerbin"),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b11_mun_orbit.SPEC, B11_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("without capturing", result["reason"])
+        self.assertNotIn(mlib.B5_RETURN, result["phasesReached"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
+
+    def test_commit_seam_error_flakes_naming_the_seam(self):
+        """A seam CommitTree that answers ERROR is driver-INVALID (a retryable
+        FLAKE naming the seam), never a silent pass and never PARSEK-FAIL."""
+        frames = self._transfer_frames() + self._capture_frames()[:-1] + [
+            snap(ut=48_400.0, apoapsis=1_010_020.0, periapsis=989_980.0,
+                 eccentricity=0.01, altitude=999_400.0, situation="ORBITING",
+                 body="Mun", angular_velocity=0.002,
+                 seam_commit_result="ERROR"),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b11_mun_orbit.SPEC, B11_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("tree-commit seam returned ERROR", result["reason"])
+        self.assertNotIn(mlib.B5_ORBIT_COMMITTED, result["phasesReached"])
+
+
+# ---------------------------------------------------------------------------
+# Fly-loop liveness + accounting wiring (2026-07-25 review). These live in the
+# SHELL tests, not mlib's, because they need the WALL clock the pure decision
+# library deliberately does not have.
+# ---------------------------------------------------------------------------
+
+
+class _StepClock:
+    """A wall clock the TEST advances. FakeClock ticks on every READ, which
+    would make a wall-span assertion depend on how many times the loop happens
+    to call clock()."""
+
+    def __init__(self):
+        self.t = 0.0
+
+    def advance(self, dt):
+        self.t += dt
+
+    def __call__(self):
+        return self.t
+
+
+class WarpLivenessFloorWiringTests(unittest.TestCase):
+    """The fly-loop half of the native-warp liveness floor: nothing bounded a
+    warp that was ARMED ONCE and simply crawled. The runner's warp-stall
+    watchdog needs UT to FREEZE (a crawling warp advances UT), and a GAME-time
+    phase budget is either advanced by the crawl or -- for CORRECTION-BURN's
+    aim-warp -- suppressed outright."""
+
+    def _fly(self, ut_per_frame, wall_per_frame, armed=True, frames=600,
+             blind_frames=0):
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET,
+                        phase_entry_ut=0.0,
+                        warp_to_cmd=(1e12 if armed else None))
+
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            # A benign terminal once the scripted frames run out, so a NEGATIVE
+            # cell (the floor must NOT fire) ends cleanly instead of spinning.
+            if seen["n"] >= frames:
+                return replace(st, done=True), []
+            return st, []
+
+        snaps = [snap(ut=(float("nan") if i < blind_frames
+                          else ut_per_frame * i),
+                      body="Kerbin",
+                      altitude=8_000_000.0, warp_mode="RAILS", warp_rate=2.68,
+                      warping_to=1e12)
+                 for i in range(frames)]
+        control = FakeMissionControl(snaps, max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final
+
+    def test_a_crawling_armed_warp_fast_fails_with_its_own_name(self):
+        """B12 flight 2's measured shape: ~1.3 game-s per wall-s while a native
+        warp is armed. Before this the ONLY bound was the generic un-named wall
+        reaper."""
+        final = self._fly(ut_per_frame=1.3, wall_per_frame=1.0)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertIn("running but not warping", final.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(final, [])
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, reason)
+
+    def test_a_genuinely_warping_armed_warp_is_never_touched(self):
+        """A real rails warp reads hundreds to thousands of game-s per wall-s;
+        the floor must not come near it."""
+        final = self._fly(ut_per_frame=1000.0, wall_per_frame=1.0, frames=400)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+    def test_an_unarmed_1x_phase_is_never_judged(self):
+        """THE guard against killing every deliberate 1x phase (B5's PARK
+        dwell, all of B1/B2/B4, the whole FORGE / B-DOCK family): the episode is
+        armed by the machine's OWN outstanding native warp command."""
+        final = self._fly(ut_per_frame=0.5, wall_per_frame=1.0, armed=False)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+    def test_a_blind_ut_on_the_arming_frame_does_not_disarm_the_floor(self):
+        """FAIL-OPEN HOLE (2026-07-26 review). If snapshot.ut read non-finite
+        on the very frame the episode armed, wl_ut_start was never taken -- and
+        no later branch took it, because the judging branch REQUIRES it
+        non-None. The floor stayed disarmed for the whole episode. A liveness
+        guard that fails open on its own arming frame is worse than none, since
+        the roadmap counts it as covering the shape. The re-stamp branch takes
+        the baseline on the first frame that has a real UT."""
+        final = self._fly(ut_per_frame=1.3, wall_per_frame=1.0, blind_frames=3)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+
+    def test_the_re_stamp_does_not_bill_the_blind_frames_against_the_ratio(self):
+        """The re-stamp resets the WALL clock with the UT baseline, so the
+        judged window starts from a frame that has both. A genuinely fast warp
+        that happened to arm on a blind frame must still never be judged
+        starved."""
+        final = self._fly(ut_per_frame=1000.0, wall_per_frame=1.0, frames=400,
+                          blind_frames=3)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+
+class WarpLivenessRealMachineTests(unittest.TestCase):
+    """The floor driven by the REAL b5 machine, not a stub decide.
+
+    WHY THIS EXISTS ON TOP OF WarpLivenessFloorWiringTests (2026-07-26). Those
+    cells pin the fly-loop WIRING with a decide that returns its state
+    unchanged, so ``warp_to_cmd`` stays armed BY CONSTRUCTION. That assumes away
+    the load-bearing question: does the real machine actually HOLD an armed
+    native warp across a starved episode, or does it clear the command and reset
+    the window? For B12 flight 2 the answer was "clears it" -- 3,603
+    ``warp_to_ut`` against 3,602 ``cancel_warp``, the episode never lasting two
+    frames -- which is why this floor could NOT have caught that flight and the
+    thrash counter is what bounds it.
+
+    What the floor DOES bound is the post-fix residual, and that is what these
+    cells fly: ``coast_native_warp_hold`` removed the cancel half of the cycle,
+    so a blind ``time_to_soi`` under warp now HOLDS the command, while flight
+    2's other half (a rails rate that never escaped 2.76x) is untouched by that
+    fix. Held command + crawling rate is an unbounded episode that no other
+    guard can see. The telemetry below is flight 2's own, post-fix: same body,
+    same altitude band, same 2.76x rails rate, same measured 1.41 game-seconds
+    per wall-second."""
+
+    THRASH_RAILS_RATE = 2.76      # measured, flight 2's final coast
+    STARVED_GAME_PER_WALL = 1.41  # measured, ditto (median 7.105 game-s / 5 s)
+    COAST_ALTITUDE = 49_028_969.0
+
+    def _fly_real_machine(self, game_per_wall, frames, wall_per_frame=1.0,
+                          rails_rate=None, control_factory=None):
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        # rounds_done = both correction rounds spent, which is exactly where
+        # flight 2 sat when its coast went bad (its status.json reads
+        # `rounds: 2`). Without it the ALTITUDE trigger for round 0 is 0.0 m and
+        # the machine correctly plans a correction on frame 1 instead of
+        # coasting.
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=0.0,
+                        correction_rounds_done=len(
+                            state.params.correction_trigger_alts))
+        rails_rate = self.THRASH_RAILS_RATE if rails_rate is None else rails_rate
+        # The native target must stay AHEAD for the whole script, else the
+        # machine legitimately disarms on arrival and the cell stops testing the
+        # armed episode.
+        tts = game_per_wall * wall_per_frame * frames * 4.0 + 40_000.0
+
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            # A benign terminal once the script runs out, so a NEGATIVE cell
+            # ends cleanly instead of spinning (same shape as _fly above).
+            if seen["n"] >= frames:
+                return replace(st, done=True), []
+            return mlib.b5_decide(st, snapshot)
+
+        # Frame 0 ARMS the native warp off a readable time_to_soi. Every later
+        # frame is the post-fix blind read under warp that the hold keeps armed.
+        snaps = [snap(ut=0.0, body="Kerbin", altitude=self.COAST_ALTITUDE,
+                      time_to_soi=tts, warp_mode="NONE", warp_rate=1.0)]
+        snaps += [snap(ut=game_per_wall * wall_per_frame * i, body="Kerbin",
+                       altitude=self.COAST_ALTITUDE,
+                       time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=rails_rate, warping_to=tts - 30.0)
+                  for i in range(1, frames)]
+        control = (control_factory or FakeMissionControl)(snaps,
+                                                          max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final, control
+
+    # THE EPISODE-RESET SCRIPT (2026-07-26 review round 2, BLOCKER-2). The one
+    # line that makes the liveness ratio EPISODE-local rather than cumulative is
+    # `if not armed: wl_wall_start = None; wl_ut_start = None` in the fly loop,
+    # and replacing it with `pass` survived the whole mission suite. This script
+    # is what kills that mutation: the real machine ARMS a native warp, ARRIVES
+    # (so the machine itself disarms), holds a long deliberate 1x stretch, then
+    # RE-ARMS and warps for real. Without the reset the stale baseline bills the
+    # 1x hold against the re-armed episode's ratio and the floor false-fires on
+    # a healthy flight -- which is not hypothetical: nine archived PARK rows run
+    # 180.2-180.6 wall-seconds at ratio 0.999, i.e. just past the judging window
+    # and 5x under the floor.
+    HOLD_WALL_SECONDS = 600.0     # the deliberate 1x stretch, ~3.3x the window
+    REARMED_GAME_PER_WALL = 300.0  # the re-armed episode, genuinely warping
+
+    def _fly_disarm_rearm(self, rearmed_game_per_wall=None,
+                          rearmed_frames=250, hold_frames=600,
+                          arm_frames=12, wall_per_frame=1.0):
+        """Three scripted stretches through the REAL b5 coast machine:
+
+        1. ARM: a readable ``time_to_soi`` of 40 s arms a native warp to
+           ``ut + 10`` (soi_lead 30). The machine holds it while UT crawls to
+           the target, then ``_b5_clear_arrived_warp`` DISARMS on arrival -- the
+           machine's own disarm, not a test-injected one.
+        2. HOLD: ``hold_frames`` of deliberate, unarmed 1x (blank encounter, no
+           warp). This is the stretch a stale baseline would bill.
+        3. RE-ARM: a fresh readable ``time_to_soi`` re-arms the native warp and
+           the game warps at ``rearmed_game_per_wall`` game-s per wall-s for
+           ``rearmed_frames`` -- long past WARP_LIVENESS_MIN_WALL_SECONDS, so
+           the episode IS judged rather than skipped.
+        """
+        game_per_wall = (self.REARMED_GAME_PER_WALL
+                         if rearmed_game_per_wall is None
+                         else rearmed_game_per_wall)
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=0.0,
+                        correction_rounds_done=len(
+                            state.params.correction_trigger_alts))
+        total = arm_frames + hold_frames + rearmed_frames
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            if seen["n"] >= total:
+                return replace(st, done=True), []
+            return mlib.b5_decide(st, snapshot)
+
+        common = dict(body="Kerbin", altitude=self.COAST_ALTITUDE)
+        # 1. ARM: target = ut + time_to_soi - soi_lead = 0 + 40 - 30 = 10.
+        snaps = [snap(ut=0.0, time_to_soi=40.0, warp_mode="NONE",
+                      warp_rate=1.0, **common)]
+        snaps += [snap(ut=float(i), time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=2.0, warping_to=10.0, **common)
+                  for i in range(1, arm_frames)]
+        # 2. HOLD: unarmed, un-warped, 1 game-s per wall-s. The altitude walks
+        # (a real 1x coast never repeats a float): these are the only warp_mode
+        # NONE frames in the script, and the frozen-telemetry detector advances
+        # ONLY at 1x, so a bit-identical altitude here would trip vessel-lost at
+        # frame 10 and the script would never reach the re-arm.
+        hold_start = float(arm_frames)
+        snaps += [snap(ut=hold_start + i, time_to_soi=float("nan"),
+                       warp_mode="NONE", warp_rate=1.0, body="Kerbin",
+                       altitude=self.COAST_ALTITUDE + i * 0.5)
+                  for i in range(hold_frames)]
+        # 3. RE-ARM: a readable encounter far enough ahead that the target stays
+        # ahead for the whole stretch, then a genuinely fast warp.
+        rearm_ut = hold_start + hold_frames
+        rearm_tts = game_per_wall * wall_per_frame * rearmed_frames * 4.0 + 40_000.0
+        snaps += [snap(ut=rearm_ut, time_to_soi=rearm_tts, warp_mode="NONE",
+                       warp_rate=1.0, **common)]
+        snaps += [snap(ut=rearm_ut + game_per_wall * wall_per_frame * i,
+                       time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=1000.0,
+                       warping_to=rearm_ut + rearm_tts - 30.0, **common)
+                  for i in range(1, rearmed_frames)]
+        control = FakeMissionControl(snaps, max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final, control
+
+    def test_a_healthy_rearmed_warp_is_judged_on_its_own_episode_not_the_1x_hold(self):
+        """KILLS the `if not armed: pass` mutation. The re-armed warp is fast
+        (300 game-s per wall-s, 60x the floor) and the deliberate 1x hold before
+        it is 600 wall-seconds long. With the reset the episode is judged from
+        the re-arming frame and runs clean; without it the judged window starts
+        600 wall-seconds and ~612 game-seconds earlier, so the FIRST re-armed
+        frame reads ~1.0 game-s/wall-s and the floor kills a healthy flight."""
+        final, control = self._fly_disarm_rearm()
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason or "")
+        # NOT VACUOUS: the machine really did disarm and re-arm, so the reset
+        # branch was genuinely taken (one arm per armed stretch, and the second
+        # can only be issued from a disarmed state).
+        arms = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(arms), 2, control.actions[:12])
+        # And the re-armed episode is long enough to BE judged, so the pass is
+        # not "the window never opened".
+        self.assertGreater(250 * 1.0, mlib.WARP_LIVENESS_MIN_WALL_SECONDS)
+
+    def test_the_rearmed_episode_is_still_judged_after_the_reset(self):
+        """The negative control for the cell above: same script, but the
+        re-armed warp crawls at the measured 1.41 game-s/wall-s. The reset must
+        restart the window, NOT disarm the guard -- so this one still fires."""
+        final, control = self._fly_disarm_rearm(
+            rearmed_game_per_wall=self.STARVED_GAME_PER_WALL)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        arms = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(arms), 2, control.actions[:12])
+
+    def test_the_real_coast_machine_holds_a_starved_warp_until_the_floor_fires(self):
+        """The shape the floor exists for, flown by the real machine: the hold
+        keeps ONE armed command outstanding while the rate crawls, and the floor
+        is the only guard that can end it."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertIn("running but not warping", final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_COAST_TO_TARGET)
+        verdict, reason = mlib.resolve_flight_verdict(final, [])
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, reason)
+
+    def test_the_thrash_counter_cannot_take_the_credit_for_this_shape(self):
+        """The two guards are complements, and this cell proves they do not
+        overlap: the hold means the machine issues the native warp exactly ONCE
+        for the whole episode, so the thrash cap (500) is three orders of
+        magnitude away from firing. Whatever ends this flight, it is not the
+        thrash counter."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        issues = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(issues), 1, control.actions[:8])
+        self.assertEqual(final.phase_warp_issues, 1)
+        self.assertNotIn(mlib.WARP_THRASH_COAST, final.flake_reason)
+
+    def test_the_floor_terminal_tears_the_warp_down_before_returning(self):
+        """LEAVE NOTHING WARPED BEHIND (2026-07-26 review round 2).
+
+        The shipped version returned here with the warp still armed, justified
+        by a comment asserting "nothing drives the game afterwards". That was
+        FALSE: `hlib.plan_unmet_mission_tail` drives the TAIL_ROLE_CLEANUP verbs
+        (StopRecording, FlushAndQuit) after ANY unmet mission, and MISSION-FLAKE
+        is unmet exactly like an ASSERT-FAIL -- so the seam was driven against a
+        rails-warping game, the one thing every MACHINE terminal
+        (`_b5_stop_all_warp`) is careful not to do. This terminal fires ONLY
+        while a warp is armed, so it is the fly-loop terminal that owes the
+        teardown most. It now performs a cancel inline, best-effort, and the
+        returned state stops claiming an armed command."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertEqual(control.actions[-1].kind, mlib.ACTION_CANCEL_WARP)
+        self.assertIsNone(final.warp_to_cmd)
+        self.assertEqual(final.warp_cmd, 0)
+
+    def test_a_teardown_that_raises_never_destroys_the_named_give_up(self):
+        """The reason the teardown is best-effort rather than plain. A cancel
+        that dies on a degraded connection must NOT escape as a post-connect
+        drop: the named `warp-liveness-starved` verdict is the entire value of
+        this terminal, and a generic transport flake would erase it."""
+        class _CancelRaises(FakeMissionControl):
+            def perform(self, action):
+                FakeMissionControl.perform(self, action)
+                if action.kind == mlib.ACTION_CANCEL_WARP:
+                    raise ConnectionResetError("fake: warp socket died on cancel")
+
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600,
+            control_factory=_CancelRaises)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertEqual(control.actions[-1].kind, mlib.ACTION_CANCEL_WARP)
+        # And the state does NOT claim a teardown that did not happen: the
+        # command stays armed when the cancel could not be delivered.
+        self.assertIsNotNone(final.warp_to_cmd)
+
+    def test_the_real_machine_on_a_genuinely_warping_coast_is_never_judged_starved(self):
+        """The negative that matters: the SAME machine, the SAME hold, an armed
+        episode judged well past the 180 s window (300 wall-seconds here), but
+        warping at a real rate. It must run clean."""
+        final, _ = self._fly_real_machine(1000.0, frames=300, rails_rate=1000.0)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason or "")
+
+
+class WarpUtilisationUnwindTests(unittest.TestCase):
+    """_wu_close ran on every NORMAL fly-loop exit and none of the raising
+    ones, so a crashed run silently lost its FINAL phase's warp-utilisation row
+    -- exactly the phase whose warp accounting a post-mortem needs."""
+
+    def test_a_mid_flight_raise_still_closes_the_open_row(self):
+        clock = FakeClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET,
+                        phase_entry_ut=0.0)
+        control = FakeMissionControl(
+            [snap(ut=10.0, body="Kerbin", altitude=8_000_000.0),
+             snap(ut=20.0, body="Kerbin", altitude=8_000_000.0)],
+            raise_on_read_index=2,
+            raise_exc=ConnectionResetError("fake socket died mid-flight"))
+        with self.assertRaises(ConnectionResetError):
+            mission_runner.fly_loop(
+                control, state, lambda st, s: (st, []), log, deadline=1e12,
+                clock=clock, sleep=lambda _s: None, poll_interval=0.0,
+                settle_frames=0, allow_rails_warp=True)
+        rows = list(mission_runner._FLY_LOOP_WARP_UTILISATION)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["phase"], mlib.B5_COAST_TO_TARGET)
+        # A REAL game span, taken from the last finite UT -- not a null.
+        self.assertEqual(rows[0]["gameSeconds"], 10.0)
+
+    def test_the_row_is_not_double_closed(self):
+        """The accumulator no-ops when the row is already closed, so a normal
+        terminal followed by the wrapper's unwind path cannot emit twice."""
+        wu = mission_runner._WarpUtilisation(FakeClock())
+        del mission_runner._FLY_LOOP_WARP_UTILISATION[:]
+        wu.begin("PHASE", 0.0)
+        wu.close(50.0)
+        wu.close(50.0)
+        self.assertEqual(len(mission_runner._FLY_LOOP_WARP_UTILISATION), 1)
+
+
+class _FakeTimeSelector:
+    def __init__(self, accept=True, initial="APOAPSIS"):
+        object.__setattr__(self, "_accept", accept)
+        object.__setattr__(self, "time_reference", initial)
+
+    def __setattr__(self, name, value):
+        if name == "time_reference" and not object.__getattribute__(self, "_accept"):
+            raise RuntimeError("OperationException: reference not allowed")
+        object.__setattr__(self, name, value)
+
+
+class _StickyTimeSelector(_FakeTimeSelector):
+    """Accepts the write and keeps its old value -- indistinguishable from a
+    throw, downstream, which is exactly why the READ BACK is the point."""
+
+    def __setattr__(self, name, value):
+        if name == "time_reference" and hasattr(self, "time_reference"):
+            return
+        object.__setattr__(self, name, value)
+
+
+class CapturePlanTimeSelectorTests(unittest.TestCase):
+    """ACTION_MJ_PLAN_CAPTURE must not plan on a REFUSED time-reference set.
+
+    TimeSelector's setter throws OperationException on a disallowed reference
+    (pinned KRPC.MechJeb Maneuver/TimeSelector.cs:120-124) and its backing
+    currentTimeRef is SHARED, PERSISTED MechJeb state, so the old
+    swallow-and-plan-anyway shape let INHERITED global state place a valid
+    capture node at an arbitrary UT -- the same commanded-vs-OBSERVED gap this
+    branch closed for NodeExecutor.Enabled."""
+
+    class _Op:
+        def __init__(self, selector):
+            self.time_selector = selector
+            self.made = 0
+
+        def make_nodes(self):
+            self.made += 1
+
+    class _Planner:
+        def __init__(self, op):
+            self.operation_circularize = op
+
+    class _TimeReference:
+        periapsis = "PERIAPSIS"
+
+    class _MechJeb:
+        def __init__(self, planner, reference):
+            self.maneuver_planner = planner
+            self.TimeReference = reference
+
+    class _Control:
+        nodes = ()
+
+    class _Vessel:
+        def __init__(self):
+            self.control = CapturePlanTimeSelectorTests._Control()
+
+    class _Sc:
+        def __init__(self, vessel):
+            self.active_vessel = vessel
+
+    class _Conn:
+        def __init__(self, sc):
+            self.space_center = sc
+
+    def _perform_plan_capture(self, selector):
+        op = self._Op(selector)
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True)
+        ctrl._mechjeb = self._MechJeb(self._Planner(op), self._TimeReference)
+        ctrl._conn = self._Conn(self._Sc(self._Vessel()))
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            ctrl.perform(mlib.Action(mlib.ACTION_MJ_PLAN_CAPTURE))
+        finally:
+            mission_runner._stdout_sink = orig
+        return op, lines
+
+    def test_a_confirmed_periapsis_reference_plans(self):
+        op, lines = self._perform_plan_capture(_FakeTimeSelector(accept=True))
+        self.assertEqual(op.made, 1)
+        self.assertEqual(op.time_selector.time_reference, "PERIAPSIS")
+        self.assertTrue(any("READ BACK confirmed" in l for l in lines), lines)
+
+    def test_a_throwing_setter_refuses_to_plan(self):
+        op, lines = self._perform_plan_capture(_FakeTimeSelector(accept=False))
+        self.assertEqual(op.made, 0,
+                         "a refused time-reference set must NOT plan: MechJeb "
+                         "would place the node at its inherited reference")
+        self.assertTrue(any("REFUSING to plan" in l for l in lines), lines)
+
+    def test_a_silently_ignored_setter_refuses_to_plan(self):
+        op, lines = self._perform_plan_capture(_StickyTimeSelector())
+        self.assertEqual(op.made, 0)
+        self.assertTrue(any("READ BACK" in l for l in lines), lines)
+
+
+class DarkChannelWarnTests(unittest.TestCase):
+    """Both opt-in reads degrade to an UNREAD sentinel on a bare
+    `except Exception`, and both sentinels DISABLE machinery downstream --
+    silently. Combined with the capture-never-armed liveness gap that was a
+    SILENT wall kill with nothing in the log naming the channel."""
+
+    def _capture(self, fn):
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            fn()
+        finally:
+            mission_runner._stdout_sink = orig
+        return lines
+
+    def test_node_executor_read_fault_warns_once_and_fails_closed(self):
+        class Boom:
+            @property
+            def node_executor(self):
+                raise RuntimeError("no such attribute on this pin")
+
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True,
+                                                 read_node_executor=True)
+        ctrl._mechjeb = Boom()
+        reads = []
+        lines = self._capture(
+            lambda: [reads.append(ctrl._read_node_executor_enabled())
+                     for _ in range(50)])
+        warns = [l for l in lines if "NodeExecutor.Enabled UNREADABLE" in l]
+        self.assertEqual(len(warns), 1, lines)
+        self.assertIn("Warn", warns[0])
+        # The -1 UNREAD sentinel is still the value: fail CLOSED, but LOUD once.
+        self.assertEqual(set(reads), {-1})
 
 
 if __name__ == "__main__":
