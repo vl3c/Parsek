@@ -53,6 +53,14 @@ D9  = ["reconciliation-bundle"]
 D8  = ["route"]
 D14 = ["sandbox", "scene-flight"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # count.max == 0: the host carries no recordings and every test removes its
 # synthetic ones in finally - a leak into the save reds. Also selects the
@@ -96,8 +104,6 @@ required  = [
   "BATCH_COMPLETE v1 .* failed=0 skipped=0\\b",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (M-A5 S8, mirrors H5): 720 >= 300 LoadGame + 540 RunTests

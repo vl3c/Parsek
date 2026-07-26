@@ -48,6 +48,14 @@ D5  = ["single-node"]
 D14 = ["sandbox", "scene-flight", "kerbin"]
 D16 = ["sidecar-prec"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # The corpus floor (272) is the STRONG assertion: a commit that dropped or
 # corrupted the injected corpus would sink below it and red. The +1 ceiling is
@@ -62,8 +70,6 @@ count = { min = 272, max = 273 }
 # confirms the commit verb succeeded independent of the tolerant count range.
 required  = ["Recording started", "Recording stopped", "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (M-A5 S8): runtime 600 >= 300 LoadGame + 180 StartRecording

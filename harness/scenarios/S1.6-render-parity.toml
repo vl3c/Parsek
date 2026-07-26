@@ -40,11 +40,13 @@ tier = "daily"
 # indistinguishable from "the oracle never looked". Two independent vacuity holes
 # have to be closed, so there are two kinds of required contract:
 #
-#   (a) STRUCTURAL - `passed=[1-9]...`. The batch counts an InGameAssert.Skip as
+#   (a) STRUCTURAL - the PINNED TALLY. The batch counts an InGameAssert.Skip as
 #       NOT-failed, and several parity tests Skip on 5+ preconditions (no Kerbin,
 #       ghost did not create, ghost world position unresolved). An all-skip batch
-#       reads failed=0 and would pass. Requiring a non-zero PASSED count makes
-#       an all-skip batch red.
+#       reads failed=0 and would pass. This was a structural `passed=[1-9][0-9]*`
+#       until the first flight (2026-07-26) measured the real numbers; it is now
+#       the exact measured line, which additionally reds on any silent drift in
+#       the pass/skip split (see the tally note below).
 #
 #   (b) SEMANTIC - the two `[TestRunner]` measurement lines below. These are
 #       emitted only AFTER the test got past every Skip precondition and computed
@@ -55,18 +57,61 @@ tier = "daily"
 #       draw, i.e. only if the comparison can still fail. Without that arm the
 #       zero-drift assertion could be a circle compared with itself.
 #
+# THE PINNED TALLY (measured on the first flight, 2026-07-26, run
+# 2026-07-26_0950_S1.6-render-parity, verdict PASS, every verifier green)
+# ---------------------------------------------------------------------
+#   BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT
+#
+# The 11 skips are fully accounted for; none of them is a parity test standing
+# down. Nine are SCENE ELIGIBILITY, logged by the runner as its own line:
+#   Scene eligibility skip summary: skipped=9 currentScene=FLIGHT byRequiredScene=TRACKSTATION:9
+# The GhostMap category spans both surfaces and this batch runs in FLIGHT (the
+# fixture's FOCUSABLE load route), so the 9 TRACKSTATION-scoped tests are filtered
+# before execution. Pinning `scene=FLIGHT` in the required line is what makes a
+# future FLIGHT/TS host change VISIBLE: move this batch to TRACKSTATION and the
+# split inverts, the pinned line stops matching, and the tally has to be re-derived
+# rather than silently absorbing a different 25 tests.
+#
+# The other TWO are deliberate self-skips, both from the loop-icon warp cluster,
+# both with the same root cause - an isolated single-test subset cannot reconstruct
+# the production multi-stage reseed ordering, so the icon lands where the isolated
+# path puts it, not where a full production frame would:
+#   - LoopBoundaryIconWarpLagTest.StateVectorReseed_CalculatePhysicsStatsResnapsIconOntoConic
+#     (a bare CalculatePhysicsStats did not re-snap CoMD; the packed ghost's CoMD is
+#     owned by the icon-drive Prefix. Seam re-snap covered by the LoopIconWarpLagTests
+#     xUnit gate + IconDrivePrefix_ResnapsCoMDOntoDriverPos.)
+#   - LoopGhostCreationFrameIconTest.FreshLoopGhostIcon_OnRecordedPhaseAtCreation
+#     (the in-create icon-drive Prefix re-snapped the packed CoMD onto the loop-shifted
+#     drive phase, off BOTH recorded and raw-at-live; expected in isolation
+#     post-230a9c346. Bake proven by registeredShift +
+#     DirectorDriveEpochBakePlacesIconOnRecordedPhase.)
+# Neither is a parity assertion and both name the gate that does cover them, so
+# 14 passed is the real eligible-and-executed count, not a floor.
+#
+# RE-PINNING. Adding, removing or re-scoping a GhostMap test moves these numbers
+# and reds this scenario - that is the point, it is a tripwire, not a nuisance.
+# Re-derive from the BATCH_COMPLETE line of a green flight and update the required
+# pattern AND this block together.
+#
 # NOTE ON THE PROBE-LEVEL SUMMARY. The mod also emits
 # `faithful-parity summary sampled=N overTolerance=M skip.<reason>=K` from
 # MapRenderProbe.LateUpdate, which would be the ideal anti-vacuity signal. It is
-# deliberately NOT a required contract here, because on this fixture it will not
-# be emitted at all: that summary is produced only when the per-frame probe walks
-# a LIVE ghost map vessel, and every GhostMap test is SYNCHRONOUS - it creates its
-# ghost and calls RemoveAllGhostVessels (which clears ghostMapVesselPids
-# synchronously) inside a single frame, so LateUpdate never observes one. The
-# fixture's own corpus produces no live map ghosts either (S1.4's log: ghosts=0 on
-# every probe frame). Requiring that line would red this scenario on every flight
-# for a reason that is not a Parsek defect. It IS used as a FORBIDDEN contract
-# below, where a false negative costs nothing.
+# deliberately NOT a required contract here. The pre-flight rationale was that it
+# would not be emitted AT ALL on this fixture; the first flight FALSIFIED that and
+# the real reason is narrower. What actually happens: every GhostMap test is
+# SYNCHRONOUS - it creates its ghost and calls RemoveAllGhostVessels (which clears
+# ghostMapVesselPids synchronously) inside a single frame, so LateUpdate never
+# observes a TEST ghost. But the staged corpus DOES put one live map ghost in front
+# of the probe: on the 2026-07-26 flight, frame 7887 read `ghosts=1 sampled=1` for
+# pid=2906759605 recId=dock-r2-merged, and the probe emitted exactly one summary:
+#   faithful-parity summary sampled=0 overTolerance=0 skip.no-recording-or-segments=1
+# So the line IS emitted, with sampled=0 - it reaches the probe and then skips for
+# want of a covering recorded segment. Requiring its presence would prove nothing
+# (a sampled=0 summary is the vacuous case), and requiring `sampled=[1-9]` would red
+# every flight for a reason that is not a Parsek defect. The correction cuts the
+# other way for the FORBIDDEN contract below, which is now known to be REACHABLE
+# rather than structurally inert: the probe does walk this fixture's corpus ghost,
+# so an overTolerance>0 summary genuinely could fire and would red.
 #
 # WHAT IT DOES NOT PROVE (read this before trusting a green run)
 # -------------------------------------------------------------
@@ -171,14 +216,15 @@ D14 = ["sandbox", "scene-flight"]
 # shows up on the first flight, quarantine it via [expectedFail] keyed to a
 # todo-doc bug id rather than widening this list.
 #
-# PLACEMENT IS LOAD-BEARING, and every other committed spec gets it wrong: run.py
-# reads `expectations.allowedAnomalies`, but a bare `allowedAnomalies = [...]`
-# written after the `[expectations.logContracts]` header is TOML-scoped to
-# `expectations.logContracts.allowedAnomalies` and is NEVER read. That is
-# harmless for the 27 specs declaring `[]` (the default is also `[]`) but it
-# makes S1.4's declared polyline-orbit-overlap exception INERT. Declared HERE, in
-# an explicit `[expectations]` table ahead of the sub-tables, so it actually
-# binds; hlib.validate_spec now warns on the misplaced form.
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, but a
+# bare `allowedAnomalies = [...]` written after an `[expectations.<sub>]` header
+# is TOML-scoped to that sub-table and is NEVER read. Every other committed spec
+# got this wrong until 2026-07-26 - harmless for the 27 declaring `[]` (the
+# default is also `[]`), but it had made S1.4's declared polyline-orbit-overlap
+# exception INERT since its first commit. All 28 were relocated into explicit
+# `[expectations]` tables in the same change, and hlib.validate_spec now REJECTS
+# the misplaced form outright rather than warning about it. Declared HERE, ahead
+# of the sub-tables, so it actually binds.
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -190,13 +236,14 @@ count = { min = 272, max = 272 }
 
 [expectations.logContracts]
 # 1. The gate (mirrors S1.4/H5): the driven category's batch reported no failures.
-# 2. ANTI-VACUITY (structural): a NON-ZERO passed count. Skips are not failures,
-#    so without this an all-skip GhostMap batch reads failed=0 and passes. The
-#    line format is InGameTestRunner.FormatBatchCompleteLine:
+# 2. ANTI-VACUITY (structural): the PINNED TALLY, measured 2026-07-26 (see the
+#    header block for the full 11-skip accounting). Skips are not failures, so
+#    without a positive count contract an all-skip GhostMap batch reads failed=0
+#    and passes. The line format is InGameTestRunner.FormatBatchCompleteLine:
 #    "BATCH_COMPLETE v1 total={0} passed={1} failed={2} skipped={3} category={4} scene={5}".
-#    NOTE the batch runs in FLIGHT, so the 9 TRACKSTATION-scene GhostMap tests are
-#    scene-skipped by design and land in `skipped`, not `failed`; 16 FLIGHT tests
-#    are eligible.
+#    Conjunct 1 is STRICTLY IMPLIED by this one and is kept anyway: run.py reports
+#    which required pattern went missing, so keeping them separate distinguishes
+#    "a test failed" from "the pass/skip split moved" without reading KSP.log.
 # 3+4. ANTI-VACUITY (semantic): the two [TestRunner] measurement lines, emitted by
 #    RenderParitySamplerFixtureTest only after every Skip precondition passed and
 #    a real diff was computed on a LIVE ghost's OrbitDriver.orbit.
@@ -213,7 +260,7 @@ count = { min = 272, max = 272 }
 #    Both are ParsekLog.Info, so they survive with verbose off.
 required = [
   "BATCH_COMPLETE v1 .* failed=0\\b",
-  "BATCH_COMPLETE v1 total=\\d+ passed=[1-9][0-9]* ",
+  "BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ParitySampler_CapturesHandComputedOrbitGeometry: pid=\\d+ .* refDelta=[0-9.]+m",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift: pid=\\d+ loopShift=[0-9.]+ matchedDev=[0-9]+m mismatchedDev=[0-9]+m",
 ]
@@ -222,9 +269,11 @@ required = [
 # per-pid rate limit (MapRenderProbe.cs - `faithfulParityOverCount++` then
 # `if (!PassesParityDriftRateLimit(...)) return;`), so a drift that the 1-per-pid
 # throttle suppresses still shows up in the summary's overTolerance and reds
-# here, while the anomaly sweep would see nothing. Inert on a run where the probe
-# never sampled (see the header note); a false negative costs nothing, a hit is
-# unambiguous.
+# here, while the anomaly sweep would see nothing. The first flight showed the
+# probe DOES reach this summary on this fixture (one corpus ghost walked, sampled=0
+# for want of a covering segment - header note), so this is a live contract rather
+# than the structurally inert one it was written as; a false negative still costs
+# nothing, and a hit is unambiguous.
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",

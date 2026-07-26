@@ -129,10 +129,28 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 # Harness-owned, fixed Tier-C anomaly token set (design verifier 6 / N2). A
 # scenario only ADDS known-benign exceptions via `allowedAnomalies`; it never
 # redefines this set.
+#
+# KNOWN DRIFT from what the mod actually emits, found 2026-07-26 while wiring
+# S1.7 (enumerated in docs/dev/todo-and-known-bugs.md; NOT resolved here because
+# widening the gating set would change many scenarios' verdicts and wants its own
+# decision). `icon-jump` is DEAD: the probe raises the icon-teleport family with
+# `reason=icon-teleport` (MapRenderProbe.cs), so this token matches no emit at
+# all. Five further reasons are emitted and ungated: icon-teleport, icon-off-orbit,
+# unaccounted-drawn-recording, gap-vs-retire, decision-vs-old-truth. Until that is
+# decided, `unlisted_anomaly_reasons` REPORTS every anomaly reason seen that is not
+# in this set, so the drift is visible on every run instead of silent.
 ANOMALY_TOKENS: Tuple[str, ...] = (
     "icon-jump", "line-blink", "parity-drift", "decision-vs-truth",
     "polyline-orbit-overlap", "rigid-seam-tangent-discontinuity", "ledger-vs-truth",
 )
+
+# Both tracers build their Tier-C line the same way: MapRenderTrace.EmitAnomaly ->
+# EmitRaw(phase "Anomaly", "reason=" + Token(reason) + " " + details) and
+# LedgerTrace.FormatAnomaly -> "phase=Anomaly ... reason=" + Token(reason). So an
+# anomaly RAISE is identified by the phase marker plus the reason field - never by
+# the bare token appearing somewhere in KSP.log.
+ANOMALY_LINE_PHASE: str = "phase=Anomaly"
+_ANOMALY_REASON_RE = re.compile(r"\breason=([^\s]+)")
 
 # Log-validator rule codes (consumed contract, design verifier 4).
 LOGVALIDATE_MARKER_PAIRING_RULES: Tuple[str, ...] = (
@@ -1137,24 +1155,41 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # MISPLACED-KEY guard for allowedAnomalies (same class as the
     # skipTailOnUnmetMission guard above, found 2026-07-26). The anomaly sweep
     # reads ``expectations.allowedAnomalies``, but a bare ``allowedAnomalies``
-    # written after the ``[expectations.logContracts]`` header is TOML-scoped to
-    # ``expectations.logContracts.allowedAnomalies`` and is silently never read.
-    # WARN rather than ERROR: every committed spec but one declares ``[]`` there,
-    # which is also the default, so the misplacement is inert for them and
-    # rejecting would invalidate the whole committed set for no behavior change.
-    # It is NOT inert where the list is non-empty - a declared known-benign
-    # exception simply does not apply - so it must be visible.
-    if isinstance(log_contracts, dict) and "allowedAnomalies" in log_contracts:
-        declared = log_contracts.get("allowedAnomalies") or []
-        errors_or_warn = (
-            "expectations.logContracts.allowedAnomalies: allowedAnomalies belongs "
-            "in [expectations], not [expectations.logContracts] (a bare key after "
-            "that header is TOML-scoped to the sub-table, so the anomaly sweep "
-            "never reads it)%s"
-            % ("" if not declared
-               else "; the declared exception(s) %s are currently INERT and the "
-                    "sweep is running with none allowed" % (list(declared),)))
-        warnings.append(errors_or_warn)
+    # written after an ``[expectations.<sub>]`` header is TOML-scoped to that
+    # sub-table and is silently never read.
+    #
+    # ERROR, not WARN. It shipped as a WARN for exactly one commit, while all 28
+    # committed specs still carried the misplaced form and rejecting would have
+    # invalidated the whole set. They were relocated in the same change that
+    # promoted this, so the committed set validates clean and the check can be
+    # hard. A warning is the wrong instrument here for three reasons:
+    #   1. Nothing FAILS on a warning. The misplacement is invisible at exactly
+    #      the moment it matters - a spec author declaring a tolerance believes
+    #      it applies, and a green run then means "the anomaly did not happen",
+    #      not "the anomaly was tolerated". S1.4 carried a dead
+    #      polyline-orbit-overlap exception that way from its first commit.
+    #   2. validate_spec runs BEFORE the KSP launch, so an error costs a fast
+    #      pre-flight rejection with the fix named in the message - never a
+    #      wasted run.
+    #   3. The sub-table a bare key lands in depends on which header precedes it,
+    #      so the trap re-arms every time a spec grows a new [expectations.<sub>]
+    #      block. A hard gate is what makes it unrepeatable.
+    # Checked over EVERY expectations sub-table, not just logContracts: the key
+    # binds to whichever one it was written under.
+    for sub_name, sub in sorted((expectations or {}).items()):
+        if not isinstance(sub, dict) or "allowedAnomalies" not in sub:
+            continue
+        declared = sub.get("allowedAnomalies") or []
+        errors.append(
+            "expectations.%s.allowedAnomalies: allowedAnomalies belongs in "
+            "[expectations], not [expectations.%s] (a bare key after that header "
+            "is TOML-scoped to the sub-table, so the anomaly sweep never reads "
+            "it). Move it into an explicit [expectations] table ahead of the "
+            "sub-tables%s"
+            % (sub_name, sub_name,
+               "" if not declared
+               else "; the declared exception(s) %s are INERT where they sit and "
+                    "the sweep would run with none allowed" % (list(declared),)))
 
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. Structural only; the
@@ -1603,6 +1638,51 @@ def evaluate_expectations(
 # ---------------------------------------------------------------------------
 # Anomaly sweep (design verifier 6 / N2). Pure over pre-grepped hit tokens.
 # ---------------------------------------------------------------------------
+
+
+def _anomaly_reasons(log_text: Optional[str]) -> List[str]:
+    """Every ``reason=`` value on a Tier-C ANOMALY line, in first-seen order.
+
+    Anchored on ``phase=Anomaly`` so only an actual EmitAnomaly raise counts. This
+    is the whole point: the sweep used to be a bare substring search for each token
+    over the entire KSP.log, which made any log line that merely NAMED a token an
+    anomaly hit. It was not hypothetical - S1.7's first flight reddened on
+    ``[Parsek][INFO][TestRunner] SpineDrive parity-drift: sampled=True skip=(none)
+    hasMeas=True maxDev=0.0m tol=1989.4m over=False``, a PhaseSpineSwap test line
+    reporting ZERO drift (``over=False``) whose own diagnostic label happened to be
+    the token. Any test, comment echo or future message naming a token would red an
+    otherwise clean run.
+    """
+    seen: List[str] = []
+    for line in (log_text or "").splitlines():
+        if ANOMALY_LINE_PHASE not in line:
+            continue
+        m = _ANOMALY_REASON_RE.search(line)
+        if m is not None and m.group(1) not in seen:
+            seen.append(m.group(1))
+    return seen
+
+
+def grep_anomaly_tokens(log_text: Optional[str]) -> List[str]:
+    """The harness-owned Tier-C anomaly tokens actually RAISED in ``log_text``.
+
+    Returned in ``ANOMALY_TOKENS`` order so the hit list is deterministic
+    regardless of emit order.
+    """
+    raised = set(_anomaly_reasons(log_text))
+    return [t for t in ANOMALY_TOKENS if t in raised]
+
+
+def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
+    """Anomaly reasons RAISED but absent from ``ANOMALY_TOKENS`` (REPORT-ONLY).
+
+    Non-gating by design. The mod raises several reasons the harness set does not
+    carry (see the ANOMALY_TOKENS note), so a run can contain a real Tier-C raise
+    that the sweep is structurally blind to. Widening the gating set is a decision
+    with verdict consequences for every committed scenario; surfacing the drift is
+    not. Sorted for a stable log line.
+    """
+    return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 
 
 def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequence[str]) -> List[str]:

@@ -1,0 +1,256 @@
+schema = 1
+id = "S1.7-maprender-parity"
+tier = "daily"
+#
+# WHY THIS EXISTS
+# ---------------
+# S1.6 was the first scenario to gate PLAYBACK rather than recording; it drives the
+# in-game `GhostMap` batch. `MapRender` is the STRONGER category for the same goal
+# and was named as S1.6's natural follow-up. 22 tests, ALL Scene = FLIGHT (so no
+# scene-eligibility attrition), covering the decision spine that S1.6 does not
+# touch: the parity BASELINES with the typed PhaseChain spine driving, multi-body
+# concurrent ghosts, the re-aimed-loop lens distinction, the descent / re-stitch /
+# dock-undock / overlap / parent-anchored / BG-on-rails spine cells, the polyline
+# route-line draws, and the marker-draw ownership cells.
+#
+# WHAT IT PROVES
+# --------------
+# On a live FLIGHT scene, with the map-render tracer pinned ON:
+#   1. the in-game MapRender batch runs clean (batchComplete failed=0);
+#   2. the harness-owned Tier-C anomaly sweep is CLEAN with allowedAnomalies = [];
+#   3. the oracle ACTUALLY MEASURED, on the two arms whose measurement lines
+#      survive to KSP.log (see the sink note - this is not the obvious set).
+#
+# THE PINNED TALLY (measured 2026-07-26)
+# --------------------------------------
+# Two flights. Run 2026-07-26_1015 drove a CLEAN batch but classified
+# PARSEK-FAIL(anomaly): the harness anomaly sweep was a bare substring search over
+# KSP.log and matched `SpineDrive parity-drift: ... maxDev=0.0m ... over=False` - a
+# PhaseSpineSwap test diagnostic whose LABEL is the token, reporting the ABSENCE of
+# drift. That log contains ZERO `phase=Anomaly` lines. The sweep is now anchored on
+# the tracers' actual raise shape (`phase=Anomaly ... reason=<token>`), and run
+# 2026-07-26_1021 is the green flight: verdict PASS, every verifier green, the
+# expectations verifier matching the pinned line below.
+#
+#   BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT
+#
+# The single skip is fully accounted for and is NOT a parity test standing down:
+# MapRenderHighWarpCanaryInGameTest carries AllowBatchExecution = false, and the
+# runner logs it by name as `Batch execution skipped 1 single-run-only test(s)`.
+# There are ZERO scene-eligibility skips - all 22 MapRender tests are Scene =
+# FLIGHT, so unlike S1.6 (9 of its 11 skips were TRACKSTATION-scoped) this category
+# loses nothing to the FLIGHT host, and `scene=FLIGHT` is pinned so a host change
+# is still visible. RE-PINNING: adding, removing or re-scoping a MapRender test
+# moves these numbers and reds this scenario - that is the point. Re-derive from
+# the BATCH_COMPLETE line of a green flight and update the required pattern AND
+# this block together.
+#
+# The measurement lines, transcribed from the archived 1015 log (identical in shape
+# on 1021, whose expectations verifier matched all three patterns):
+#   MultiBodyConcurrent Kerbin: pid=2361972787 body=Kerbin sampled=True skip=(none)
+#     hasMeas=True maxDev=0.0m tol=1989.4m over=False
+#   MultiBodyConcurrent Mun:    pid=1693297703 body=Mun    sampled=True skip=(none)
+#     hasMeas=True maxDev=0.0m tol=955.8m over=False
+#   ReaimedLoop_SynthOracle: pid=3494681962 recordedLAN=0 reaimedLAN=70 |
+#     synthDev=0m synthTol=2726m (ZERO) | faithfulDev=1319093m faithfulTol=2701m (FLAGGED)
+# The negative control read 1319093 m against a 2701 m tolerance - ~488x over - on
+# the SAME rendered conic the synthesized lens read as 0 m. Distinct pids and
+# distinct per-body tolerances (1989.4 m Kerbin vs 955.8 m Mun, scale-derived) are
+# themselves evidence the two arms resolved in different body frames.
+#
+# THE SINK TRAP (read before adding a conjunct here)
+# --------------------------------------------------
+# `ParsekLog.Write` returns immediately after calling `TestSinkForTesting` when one
+# is installed - it does NOT tee. So EVERY ParsekLog line a test emits between
+# installing the sink and restoring it in its `finally` is diverted away from
+# Debug.Log and never reaches KSP.log. Four MapRender test FILES install a sink:
+#   FlagOnParityBaselineInGameTest    (both three-oracle flag-on baseline arms)
+#   FailClosedFaithfulInGameTest
+#   ColdLoadClockGuardInGameTest
+#   MapRenderTracerCoverageInGameTest
+# The three-oracle flag-on baselines are the obvious anti-vacuity candidate and
+# they are NOT usable: `FlagOnBaseline_AllThreeModes: ...` is emitted at
+# FlagOnParityBaselineInGameTest.cs:225, INSIDE the try whose finally restores the
+# sink at :243, so the line goes to the test's own capture list. Requiring it would
+# red every flight. Those tests still gate - a failure there reds `failed=0` - they
+# just cannot serve as the log-visible proof that a diff ran.
+#
+# THE ANTI-VACUITY CONJUNCTS
+# --------------------------
+# Two arms emit their measurement OUTSIDE any sink, and both are load-bearing
+# rather than "we ran" markers:
+#
+#   (a) MultiBodyConcurrentGhostsParityInGameTest emits one
+#       `MultiBodyConcurrent <body>:` line per ghost, carrying the probe seam's own
+#       verdict fields. The contract pins `sampled=True skip=(none) hasMeas=True
+#       ... over=False` on BOTH the Kerbin and the Mun arm, so it cannot be
+#       satisfied by a skip (`sampled=False`), by a blind lens (`hasMeas=False`) or
+#       by drift (`over=True`). The MUN arm is the one that matters: parity is
+#       resolved in each ghost's OWN body frame, and ComputeFaithfulOrbitParity
+#       skips with body-mismatch when the rendered body differs from the recorded
+#       covering body - so a cross-frame leak surfaces as `sampled=False`, which
+#       this pattern reds. S1.6 is Kerbin-only and has no equivalent.
+#
+#   (b) ReaimedLoopSynthesizedOracleInGameTest emits `ReaimedLoop_SynthOracle:`
+#       AFTER both oracle blocks, the second of which asserts
+#       `faithful.Result.OverTolerance` is TRUE. That is the LOAD-BEARING NEGATIVE
+#       CONTROL and it is the sharpest one in the codebase: the same rendered conic
+#       must read ZERO through the synthesized lens (rendered == the intended
+#       re-aimed seed) and FLAG through the faithful lens (rendered != the recorded
+#       segment, LAN rotated 70 deg). The line is unreachable unless the two lenses
+#       genuinely disagree, so it proves the comparison can still fail - a
+#       zero-drift assertion that could not fail is the vacuity this whole cell
+#       family exists to rule out.
+#
+# WHAT IT DOES NOT PROVE (read this before trusting a green run)
+# -------------------------------------------------------------
+# - NOTHING the four sinking tests measure is visible here. They gate through
+#   `failed=0` only; their numbers are not in KSP.log and cannot be trended.
+# - NOTHING about high warp. MapRenderHighWarpCanaryInGameTest is
+#   AllowBatchExecution = false and the seam drives RunCategory (the NON-restore
+#   variant, ParsekTestCommandAddon.cs:1497 -> PrepareBatchExecution), so the
+#   canary is marked Skipped and never drives real time-warp here. Drift that only
+#   appears after a warp step-up remains uncovered by any scenario.
+# - NOTHING about live polyline CAPTURE. The polyline lens in the flag-on
+#   baselines is an oracle zero-contract sanity check (a recorded leg arc diffed
+#   against itself); the live CaptureRenderedVsRecordedLegGeometry walk needs a
+#   populated polylineCache from a real map render, which no in-game harness
+#   produces. That walk is still operator-validated only.
+# - NOTHING about re-aim SOLVE correctness. Arm (b) proves the DRAW is faithful to
+#   the seed it was driven from and that the two lenses disagree as designed;
+#   whether the producer's re-aimed seed is the RIGHT arc is a different question.
+# - NOTHING about the 272-recording corpus rendering correctly. The corpus is
+#   staged and its survival is pinned, but every parity test builds its own
+#   synthetic ghosts.
+# - NOTHING across TIME. Every parity assertion samples ONE frame.
+description = "Drive the in-game MapRender batch over the injected corpus fixture with the map-render tracer pinned on; clean anomaly sweep AND proof the parity oracle measured, on the two arms whose measurement lines survive the TestSinkForTesting diversion."
+instanceProfile = "stock-minimal"
+tags = ["playback", "render-parity", "S1.7", "ghost", "map"]
+
+[fixture]
+# S1.6's fixture VERBATIM, which is S1.4's (zero new fixture work). gloops-airshow
+# is SANDBOX and carries two protoVessels with activeVessel = 1 (the mk1-capsule,
+# PRELAUNCH on the LaunchPad), so TestCommandLoadGame.DecideLoadRoute takes the
+# FOCUSABLE route and the batch runs in FLIGHT with a live active vessel - the
+# precondition every MapRender test needs (all 22 are Scene = FLIGHT).
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run (no StartRecording, autoRecordOnLaunch pinned false), so
+# spec_expects_live_recording is False and REC-001/REC-003 are suppressed.
+#
+# SETTINGS, same two as S1.6 and for the same reasons:
+#  - autoRecordOnLaunch=false: the fixture save carries autoRecordOnLaunch=True and
+#    a save-setting-triggered live recording during a driven test would pass a
+#    dropped stop marker silently.
+#  - mapRenderTracing=true: MANDATORY. Every MapRenderTrace emit the Tier-C sweep
+#    greps for early-returns on MapRenderTrace.IsEnabled; with the tracer off the
+#    anomaly sweep is structurally inert. Several MapRender tests force the tracer
+#    on internally via ForceEnabledForTesting, but that is scoped to their own
+#    execution and restored in their finally - it does not arm the sweep over the
+#    rest of the run.
+#
+# RunTests is the single BATCH owner and there is exactly ONE of them: run.py's
+# _driven_category returns the FIRST RunTests category, so a second batch would not
+# be gated by batchComplete at all.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" },    expect = "OK" },
+  { cmd = "RunTests",   args = { category = "MapRender" },                       expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# DELIBERATELY ADDS NO NEW REGISTRY VALUE. S1.7's value is DEPTH on an axis S1.6
+# already opened, not breadth: a second and stronger oracle cluster driving
+# D6 recorded-vs-rendered-parity, with a negative control the GhostMap category
+# does not have. Inventing a token so the coverage ledger grows would be exactly
+# the vacuity this scenario family exists to prevent.
+#
+# NOT claimed, deliberately:
+#  - D14 mun: the Mun arm frames a SYNTHETIC ghost orbit in Mun's reference body
+#    inside a Kerbin FLIGHT scene. That exercises Mun's frame in the render path;
+#    it is not a flight at the Mun and must not be counted as one (B5 owns that).
+#  - D6 self-overlap / loop-period-modes: the overlap and loop spine cells assert
+#    map-render VISIBILITY decisions, not the playback engine's overlap or
+#    loop-period machinery.
+#  - D11 reaim-*: arm (b) checks DRAW fidelity and the lens distinction, not solve
+#    quality.
+D6  = ["recorded-vs-rendered-parity"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and a
+# bare key after an `[expectations.<sub>]` header is TOML-scoped to that sub-table.
+# hlib.validate_spec REJECTS the misplaced form since 2026-07-26.
+#
+# ZERO tolerated anomalies. This batch draws only its own synthetic fixtures, so
+# any Tier-C token is a real signal. If a benign token shows up, quarantine it via
+# [expectedFail] keyed to a todo-doc bug id rather than widening this list - the
+# S1.4 history (a declared exception that sat inert for months and made its green
+# runs unreadable) is exactly what that rule exists to prevent.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected corpus, unchanged. Same 272 pin as S1.4 / S1.6 / H5 on
+# stock-minimal: the MapRender parity tests swap RecordingStore's committed list
+# for their own synthetic recordings and restore it in a finally, so a count drift
+# here means a test leaked a recording into the save or the corpus failed to load.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# 1. The gate (mirrors S1.4 / S1.6 / H5): the driven category's batch reported no
+#    failures.
+# 2. ANTI-VACUITY (structural): the PINNED TALLY, measured 2026-07-26 (see the
+#    header for the skip accounting). Skips are not failures, so without a positive
+#    count contract an all-skip MapRender batch reads failed=0 and passes. Line
+#    format is InGameTestRunner.FormatBatchCompleteLine:
+#    "BATCH_COMPLETE v1 total={0} passed={1} failed={2} skipped={3} category={4} scene={5}".
+#    Conjunct 1 is strictly implied and kept anyway: run.py names which required
+#    pattern went missing, so keeping them separate distinguishes "a test failed"
+#    from "the pass/skip split moved" without reading KSP.log.
+# 3+4. ANTI-VACUITY (semantic), arm (a): BOTH MultiBodyConcurrent lines, each
+#    pinned to sampled=True / skip=(none) / hasMeas=True / over=False. Emitted from
+#    AssertGhostFaithfulInOwnFrame after the real MapRenderProbe.ComputeFaithful-
+#    OrbitParity call on a LIVE ghost's OrbitDriver.orbit. The Mun arm additionally
+#    proves no cross-body frame leak (a leak reads sampled=False, body-mismatch).
+# 5. ANTI-VACUITY (semantic), arm (b): the re-aimed loop line, emitted only after
+#    the FAITHFUL negative control asserted OverTolerance TRUE on the same rendered
+#    conic the SYNTHESIZED lens read as zero. Unreachable unless the comparison can
+#    still fail.
+# All are ParsekLog.Info, so they survive with verbose off.
+required = [
+  "BATCH_COMPLETE v1 .* failed=0\\b",
+  "BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Kerbin: pid=\\d+ body=Kerbin sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Mun: pid=\\d+ body=Mun sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ReaimedLoop_SynthOracle: pid=\\d+ recordedLAN=\\d+ reaimedLAN=\\d+ \\| synthDev=\\d+m synthTol=\\d+m \\(ZERO\\) \\| faithfulDev=\\d+m faithfulTol=\\d+m \\(FLAGGED\\)",
+]
+# The over-tolerance count is STRICTLY STRONGER than the parity-drift anomaly
+# token: MapRenderProbe increments faithfulParityOverCount BEFORE consulting the
+# per-pid rate limit, so a drift the 1-per-pid throttle suppresses still shows up
+# in the summary's overTolerance and reds here, while the anomaly sweep would see
+# nothing. As on S1.6 this is reachable rather than inert - the staged corpus puts
+# a live map ghost in front of the per-frame probe.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 720 >= 300 (LoadGame) + 300 (RunTests) + boot and
+# settle headroom. Two MapRender tests are IEnumerator (the RouteLineDraw pair) and
+# the one long-running coroutine in the category (the high-warp canary, 6 s of held
+# warp plus step-downs) is AllowBatchExecution = false and never executes in a
+# batch, so the 300 s RunTests budget is slack, well under the 540 s deferred cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

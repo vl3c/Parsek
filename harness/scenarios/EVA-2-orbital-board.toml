@@ -86,6 +86,14 @@ D5  = []
 # LoadGame completion.
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # PINNED to the live-proven topology (P3 done). MEASURED on the 2026-07-24 full-PASS flight:
 # 2 .prec files in the run save, corroborated by the commit log
@@ -112,8 +120,6 @@ count = { min = 2, max = 2 }
 required  = ["Auto-record started", "detected boarding from EVA",
              "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # 780 >= 300 LoadGame + 120 EvaExit (incl. the 10 s dwell) + 120 EvaBoard + fast verbs +

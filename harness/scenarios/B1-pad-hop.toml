@@ -210,6 +210,14 @@ D4  = ["atmospheric"]
 D7  = ["chute-two-phase"]
 D14 = ["kerbin"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
 # recording reds. The analyzer (Forbid) over the produced recording is the
@@ -240,8 +248,6 @@ required  = ["Recording started",
              "Part event: ParachuteDeployed 'parachuteSingle",
              "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # WALL clock. RAISED 2026-07-25 with the descent budget: 240 LoadGame + 900 mission

@@ -1242,11 +1242,10 @@ def count_recordings(save_dir: str) -> int:
 
 
 def grep_anomaly_tokens(log_text: str) -> List[str]:
-    hits = []
-    for tok in hlib.ANOMALY_TOKENS:
-        if tok in (log_text or ""):
-            hits.append(tok)
-    return hits
+    # Thin delegate: the matching is a DECISION and lives in hlib (anchored on the
+    # tracers' `phase=Anomaly ... reason=<token>` raise shape, not a bare substring
+    # search over the whole log).
+    return hlib.grep_anomaly_tokens(log_text)
 
 
 # ---------------------------------------------------------------------------
@@ -1795,13 +1794,22 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         allowed = expectations.get("allowedAnomalies", []) or []
         hits = grep_anomaly_tokens(log_text)
         unallowed = hlib.evaluate_anomaly_sweep(hits, allowed)
+        # REPORT-ONLY: anomaly reasons the mod raised that the harness token set
+        # does not carry, so the known ANOMALY_TOKENS drift is visible per-run
+        # rather than a silent fail-open. Never affects the verdict.
+        unlisted = hlib.unlisted_anomaly_reasons(log_text)
         verifiers["anomaly_hit"] = bool(unallowed)
         detail["anomalySweep"] = {"status": "FAIL" if unallowed else "PASS",
-                                  "hits": unallowed, "allowed": list(allowed)}
+                                  "hits": unallowed, "allowed": list(allowed),
+                                  "unlistedReasons": unlisted}
         if unallowed:
             short_circuited = True
         logger.info("Verify", "verify anomalySweep status=%s hits=%s"
                     % (detail["anomalySweep"]["status"], unallowed))
+        if unlisted:
+            logger.warn("Verify", "anomalySweep saw %d raise(s) with reason(s) NOT in the "
+                                  "harness token set (REPORT-ONLY, not gating): %s"
+                        % (len(unlisted), unlisted))
     else:
         detail.setdefault("anomalySweep", {"status": "SKIPPED", "reason": "short-circuit"})
 

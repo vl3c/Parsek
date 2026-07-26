@@ -1,6 +1,26 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-25 (B1-pad-hop DE-LISTED from live-proven: its
+Last updated: 2026-07-26 (PLAYBACK is now gated, twice. S1.6-render-parity
+LIVE-PROVEN on its first flight and S1.7-maprender-parity built and LIVE-PROVEN
+the same day: the production recorded-vs-rendered parity oracle had existed and
+been wired for months with 47 in-game tests asserting through it, and no
+scenario had ever driven either category. Both pin their batch tally WHOLE and
+both carry a load-bearing negative control - a deliberately wrong reference that
+must FLAG on the same draw the correct reference reads as zero - measured at
+~545x tolerance on S1.6 and ~488x on S1.7, so neither zero-drift assertion can
+be a circle compared with itself. S1.7's first flight also exposed a harness
+FALSE POSITIVE: the Tier-C anomaly sweep was a bare substring search over
+KSP.log, so a PhaseSpineSwap test line whose LABEL is `parity-drift` and whose
+body reads `over=False` reddened a run containing ZERO `phase=Anomaly` raises.
+The sweep is now anchored on the tracers' real raise shape, and the same
+investigation found the reverse defect, left UNRESOLVED and now REPORTED per-run:
+the harness token set has drifted from what the mod emits - `icon-jump` is dead
+(the probe raises `reason=icon-teleport`) and five further reasons are ungated.
+Also FIXED: `allowedAnomalies` was misplaced under `[expectations.logContracts]`
+in all 28 pre-existing specs, so S1.4's declared exception had never been in
+force; validate_spec now REJECTS the misplaced form and every spec declares the
+key where run.py reads it, S1.4 keeping the gate strength it actually flew with.
+Prior: 2026-07-25 - B1-pad-hop DE-LISTED from live-proven: its
 2026-07-19/20 PASSes proved the flight but its chute never opened - the
 recordings carry ZERO Parachute* events - and its DOWN terminal gated on the
 machine's own COMMANDED chute latch, so a ~300 m/s terminal-velocity impact was
@@ -103,7 +123,7 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Ten test cases are live-proven green end-to-end, including
+expectations). Twelve test cases are live-proven green end-to-end, including
 Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile. (B1-pad-hop
 was de-listed from live-proven on 2026-07-25: its PASSes proved the flight but
 its chute never opened, and its terminal could not tell the difference. See its
@@ -111,8 +131,9 @@ row below and gate 7.) All
 infrastructure modules are shipped and merged. The FIRST two-vessel lane
 (B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
 IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
-first flight. Coverage stands at 52 of 238 registry cells - breadth (EVA,
-orbit, landing, docking, career-ledger lanes) is the frontier.
+first flight. Coverage stands at 70 of 239 registry cells - breadth (EVA,
+orbit, landing, docking, career-ledger lanes) is the frontier. PLAYBACK is no
+longer a blind spot: S1.6 + S1.7 drive 47 in-game parity tests between them.
 
 ## Infrastructure modules (all SHIPPED and merged)
 
@@ -121,7 +142,7 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 | M-A1 offline analyzer | Recording invariants (INV1-INV9) over any save, RED gate, per-save findings baseline | SHIPPED (#1300/#1302/#1306); AnalyzerVersion 3; core in Parsek.dll so in-game H5 runs the same rules |
 | M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions, EVA) | SHIPPED (#1301); 18 implemented verbs, 11 reserved (M-C1 + M-C2 grew the table) |
 | M-A3 autorun hooks | Unattended in-game test batches (PARSEK_AUTORUN_*) | SHIPPED (#1305) |
-| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316); UNMET-mission tail skip added 2026-07-25 (per-verb `SEAM_VERB_TAIL_ROLE`: after an unmet mission only `cleanup` verbs are driven, so an EVA-4-class world-mutating tail can no longer fire over a flight that never reached its envelope). Settings-sidecar baseline added 2026-07-26: `SetSetting` on a sidecar-tracked setting persists INSTANCE-WIDE and Parsek applies it over every loaded save, so S1.4's `mapRenderTracing=true` had pinned the per-frame render tracer on for every later run; run.py now writes a deterministic tracers-OFF baseline at stage AND at teardown, making tracer state a declared per-scenario property (a scenario that wants it adds its own SetSetting step) |
+| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316); UNMET-mission tail skip added 2026-07-25 (per-verb `SEAM_VERB_TAIL_ROLE`: after an unmet mission only `cleanup` verbs are driven, so an EVA-4-class world-mutating tail can no longer fire over a flight that never reached its envelope). Settings-sidecar baseline added 2026-07-26: `SetSetting` on a sidecar-tracked setting persists INSTANCE-WIDE and Parsek applies it over every loaded save, so S1.4's `mapRenderTracing=true` had pinned the per-frame render tracer on for every later run; run.py now writes a deterministic tracers-OFF baseline at stage AND at teardown, making tracer state a declared per-scenario property (a scenario that wants it adds its own SetSetting step). Anomaly sweep ANCHORED 2026-07-26: `grep_anomaly_tokens` was a bare substring search for each Tier-C token over the whole KSP.log, so any line that merely NAMED a token was a hit - S1.7's first flight reddened PARSEK-FAIL(anomaly) on a test diagnostic reporting `over=False` in a log with ZERO `phase=Anomaly` lines. The matcher moved into hlib and now requires the tracers' actual raise shape (`phase=Anomaly ... reason=<token>`, the one shape both `MapRenderTrace.EmitAnomaly` and `LedgerTrace.FormatAnomaly` produce). Same change adds a REPORT-ONLY `unlistedReasons` channel for the ANOMALY_TOKENS drift (see gates). `allowedAnomalies` misplacement promoted from WARN to ERROR the same day, checked over every `[expectations.<sub>]` table, with all 28 pre-existing specs relocated |
 | M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
 | M-B1 mission library | Pure mission state machines + kRPC runner (flights become deterministic, diagnosable instruments) | SHIPPED (#1313); hardened by the flyby campaign |
 | M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
@@ -130,12 +151,12 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 29 committed scenarios)
+## Test cases (all 30 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (10)
+### Live-proven (12)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
@@ -149,8 +170,10 @@ The "Parsek surface verified" column is the reason the case exists.
 | S0.6-live-record-commit | daily | Commit on top of the injected corpus without corpus loss (the save-hollowing guard class) | D5; D14; D16 sidecar-prec |
 | S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
 | H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
+| S1.6-render-parity | daily | The FIRST cell that gates PLAYBACK rather than recording: drives the in-game `GhostMap` batch so the production recorded-vs-rendered parity oracle (`RenderParityOracle` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`) actually runs unattended, tracer pinned on, `allowedAnomalies = []`. Anti-vacuity is MANDATORY here: a pinned whole tally plus two `[TestRunner]` measurement lines emitted only after a real diff ran on live ghost geometry | D6 recorded-vs-rendered-parity (new registry value); D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-26: first flight = PASS, every verifier green. `total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT`; the 11 skips are 9 TRACKSTATION scene-eligibility + 2 documented loop-icon self-skips. Negative control measured 1049421 m against a 1927 m tolerance (~545x), so the zero-drift assertion provably can still fail. Does NOT cover Recording.Points / TrackSection frames, the flight-scene ghost mesh, anything across time (one frame per assertion), or re-aim solve correctness |
+| S1.7-maprender-parity | daily | S1.6's follow-up over the STRONGER category: drives the in-game `MapRender` batch (22 tests, all Scene = FLIGHT) - the parity baselines with the typed PhaseChain spine driving, multi-body concurrent ghosts, the re-aimed-loop lens distinction, and the descent / re-stitch / dock-undock / overlap / parent-anchored / BG-on-rails spine cells. Anti-vacuity accounts for the SINK TRAP: four MapRender test files install `ParsekLog.TestSinkForTesting`, which diverts rather than tees, so the obvious candidate (the three-oracle flag-on baselines) can never reach KSP.log. Pins the two arms that do: both `MultiBodyConcurrent` lines (`sampled=True skip=(none) hasMeas=True over=False`, the Mun arm doubling as the cross-body-leak proof) and the re-aimed-loop line | D6 recorded-vs-rendered-parity; D14 sandbox/scene-flight - deliberately NO new registry value (depth on an axis S1.6 opened, not breadth). LIVE-PROVEN 2026-07-26: `total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT`, the single skip being the `AllowBatchExecution = false` high-warp canary; zero scene-eligibility attrition. Negative control 1319093 m against 2701 m (~488x). Its first flight also EXPOSED the anomaly-sweep false positive (below) |
 
-### Committed, not yet live-run (15)
+### Committed, not yet live-run (13)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
@@ -159,7 +182,6 @@ The "Parsek surface verified" column is the reason the case exists.
 | FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | None - runnable now on a provisioned instance; harvest tool normalizes the output |
 | FORGE-eva3-pad | operator | (Not a Parsek-surface test) FIXTURE-FORGE (EVA-3 sibling): launch_vessel the Kerbal X onto the pad with THREE named crew + SaveGame -> stamps the eva3-pad-3crew fixture headlessly. Uses the review-follow-up-2 crew (by NAME) + launch_site plumbing | DONE 2026-07-24: forge run + `harvest_bdock_station.py --target-name eva3-pad-3crew` produced the committed eva3-pad-3crew fixture, and EVA-3 flew it to a full PASS (the Kerbal X pad-EVA reachability caveat did NOT materialize) |
 | FORGE-eva2-lko | operator | (Not a Parsek-surface test) FIXTURE-FORGE, the FIRST ORBITAL one (mission `forge_lko`): boots the SAME bdock-forge-base, launch_vessel the Kerbal X with TWO named crew (Valentina + Bob), then flies the LIVE-PROVEN B-DOCK Interceptor-leg shape - MechJeb ascent, circularization with node-executor autowarp EXPLICIT (flight-12 lesson), the two-step separation contract (drop the spent core AND ignite the orbital stage, thrust-verified, cap 2), then a PARK phase that cuts throttle, clears nodes, holds SAS+RCS and requires a HELD stable ~100 km circular orbit (pe >= 75 km, tumble <= 0.05 rad/s) before SaveGame. Crew is gated ON THE PAD (crew_count >= minCrew, fail-closed on the -1 unread sentinel) so an uncrewed stamp flakes in 300 s instead of after a 10-minute flight. autoRecordOnLaunch pinned false so the fixture carries no recordings / trees / ledger state (the stamped .sfs does keep an inert populated `SCENARIO{name=ParsekScenario}` node - `gameStateEventCount=18` + one MILESTONE_STATE row - which is what suppresses PreParsekBackup at load) | DONE 2026-07-24: forge run = MISSION-OK / PASS, 268 s wall, full profile PRELAUNCH -> LAUNCH -> ASCENT -> CIRCULARIZE -> SEPARATE -> PARK -> ORBIT; harvested with `harvest_bdock_station.py --target-name eva2-lko-crewed --expect-situation ORBITING` (the harvest's new optional situation gate, added for this orbital harvest); the `eva2-lko-crewed` fixture is COMMITTED and EVA-2-orbital-board flew it green on its first flight |
-| S1.6-render-parity | daily | The FIRST cell that gates PLAYBACK rather than recording: drives the in-game `GhostMap` batch (25 tests) so the production recorded-vs-rendered parity oracle (`RenderParityOracle` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`) actually runs unattended, with the map-render tracer pinned on and `allowedAnomalies = []`. Carries a MANDATORY anti-vacuity conjunct - a non-zero `passed=` count plus two `[TestRunner]` measurement lines emitted only after a real diff ran on live ghost geometry - because S1.4's archived green anomalySweep sat over a run whose every probe frame read `ghosts=0 sampled=0`. Does NOT cover Recording.Points / TrackSection frames, the flight-scene ghost mesh, anything across time (one frame per assertion), or re-aim solve correctness | D6 recorded-vs-rendered-parity (new registry value); D14 sandbox/scene-flight. First flight pending: the two semantic conjuncts depend on `RenderParitySamplerFixtureTest` not self-skipping in the harness FLIGHT scene, which no run has yet demonstrated |
 | S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
 | B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily |
@@ -212,10 +234,26 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   log-contract tests.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 52 / 238 registry cells covered (the growth metric).
+- Coverage ledger: 70 / 239 registry cells covered (the growth metric).
 
 ## Known gates and latent items (forensics in todo-and-known-bugs.md)
 
+0. ANOMALY_TOKENS has DRIFTED from what the mod raises, and the drift is a
+   FAIL-OPEN. Found 2026-07-26 while anchoring the sweep. `icon-jump` is a DEAD
+   token: `MapRenderProbe` raises the icon-teleport family with
+   `reason=icon-teleport`, so the harness's token can never fire and a real icon
+   teleport - the exact class the map-render wave has been chasing - passes the
+   sweep. Five further reasons are raised and ungated: `icon-teleport`,
+   `icon-off-orbit`, `unaccounted-drawn-recording`, `gap-vs-retire`,
+   `decision-vs-old-truth`. Deliberately NOT resolved in the same change: some are
+   coverage instruments rather than defect signals (`unaccounted-drawn-recording`
+   is the S0 polyline-coverage probe), and widening the gating set moves verdicts
+   on every committed scenario, so it wants its own decision the way
+   `allowedAnomalies` did. Interim: `hlib.unlisted_anomaly_reasons` REPORTS every
+   raised reason absent from the set, run.py warn-logs it and records it in the
+   result JSON as `anomalySweep.unlistedReasons` - non-gating, but the drift is
+   now visible on every run instead of silent. Pinned by
+   `AnomalyGrepAnchoringTests.test_icon_jump_is_a_dead_token_against_what_the_mod_emits`.
 1. B6 20 km / B7 300 km course-correct targets - see the test-case table.
 2. Runner-only kRPC behaviors are LIVE-VERIFIED ONLY (no headless guard can
    exercise MechJeb server state): intercept-only planner flags, executor

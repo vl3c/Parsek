@@ -79,6 +79,14 @@ D18 = ["time-jump-observables", "rewind-strip-respawn-cycle"]
 D8  = ["epoch-isolation", "recalc-engine"]
 D9  = ["rewind-to-separation", "refly-gate"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # Floor only: the tree survives the jump + rewind + merge.
 count = { min = 1 }
@@ -101,8 +109,6 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience="]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
