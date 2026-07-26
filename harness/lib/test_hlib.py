@@ -11,6 +11,7 @@ caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 
 import copy
 import os
+import re
 import sys
 import tomllib
 import unittest
@@ -852,6 +853,337 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = hlib.validate_spec(spec, self.reg, bug_ids=["R1-known"])
         self.assertTrue(v.ok, "a dangling bugId must WARN, not hard-fail")
         self.assertTrue(any("dangling" in w or "not resolvable" in w for w in v.warnings))
+
+
+# ---------------------------------------------------------------------------
+# In-game batch anti-vacuity gate.
+# ---------------------------------------------------------------------------
+
+
+class BatchVacuityGateTests(unittest.TestCase):
+    """The regression this exists for, verbatim from the live instance
+    (2026-07-26): B10-career-passive-safety shipped at daily tier and read GREEN
+    while executing ZERO tests, for as long as it had been running.
+
+        BATCH_COMPLETE v1 total=2 passed=0 failed=0 skipped=2 category=RecordingInvariants scene=SPACECENTER
+        Scene eligibility skip summary: skipped=2 currentScene=SPACECENTER byRequiredScene=FLIGHT:2
+
+    Both RecordingInvariants tests are Scene = FLIGHT; the fresh-career fixture has
+    no VESSEL nodes so LoadGame routes to SPACECENTER; both were scene-skipped; and
+    the spec's only batch contract was ``BATCH_COMPLETE v1 .* failed=0\\b``, which
+    that line satisfies. Fails if the gate ever stops rejecting a contract an empty
+    or all-skipped batch could satisfy, or starts rejecting one that discriminates.
+    """
+
+    def setUp(self):
+        self.reg = load_registry()
+
+    # ----- the pure probe / gap functions -----
+
+    def test_bare_failed_zero_pin_is_a_gap(self):
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 .* failed=0\\b"], "RecordingInvariants")
+        self.assertIsNotNone(gap, "failed=0 alone cannot tell 2 passes from 2 skips")
+        self.assertIn("passed=0", gap)
+
+    def test_the_exact_shipped_b10_line_is_among_the_probes(self):
+        # Not a paraphrase: the literal tally the live instance emitted must be one
+        # of the lines the gate probes for, or the gate would not have caught it.
+        probes = hlib.vacuous_batch_complete_probes(
+            "RecordingInvariants", ["BATCH_COMPLETE v1 .* failed=0\\b"])
+        self.assertIn(
+            "BATCH_COMPLETE v1 total=2 passed=0 failed=0 skipped=2 "
+            "category=RecordingInvariants scene=SPACECENTER", probes)
+
+    def test_failed_and_skipped_zero_pin_is_still_a_gap(self):
+        # H6's pre-fix contract. skipped=0 catches an all-skipped batch but NOT an
+        # EMPTY one (total=0 passed=0 failed=0 skipped=0), which a renamed or
+        # mis-typed category selector produces.
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 .* failed=0 skipped=0\\b"], "RouteRewindTimeline")
+        self.assertIsNotNone(gap)
+        self.assertIn("total=0 passed=0 failed=0 skipped=0", gap)
+
+    def test_total_only_pin_is_a_gap(self):
+        # A total= pin without a passed= pin still accepts the all-skipped tally at
+        # that total -- the reason the rule is not "must mention total=".
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=12 .* failed=0\\b"], "Missions")
+        self.assertIsNotNone(gap)
+        self.assertIn("total=12 passed=0", gap)
+
+    def test_whole_tally_pin_discriminates(self):
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 "
+             "category=Missions scene=SPACECENTER"], "Missions"))
+
+    def test_nonzero_passed_class_pin_discriminates(self):
+        # The weaker but honest form used where the exact split is not yet measured.
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ "
+             "category=GhostPlayback scene=FLIGHT"], "GhostPlayback"))
+
+    def test_pin_above_the_enumeration_bound_still_discriminates(self):
+        # A total larger than the bounded all-skipped sweep is probed at exactly the
+        # value the pattern itself names, so a big-category pin cannot slip through.
+        big = 1024
+        self.assertGreater(big, hlib._BATCH_PROBE_MAX_SKIPPED)
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=%d .* failed=0\\b" % big], "Huge")
+        self.assertIsNotNone(gap)
+        self.assertIn("total=%d passed=0" % big, gap)
+
+    def test_no_batch_complete_pattern_at_all_is_a_gap(self):
+        gap = hlib.batch_contract_vacuity_gap(["Recording started"], "Missions")
+        self.assertIsNotNone(gap)
+        self.assertIn("BATCH_COMPLETE", gap)
+
+    def test_probe_matches_prefixed_and_bare_lines(self):
+        # A contract anchored on the KSP.log prefix and one anchored at line start
+        # must BOTH be exercised; neither anchoring style is a silent exemption.
+        for pat in (r"\[Parsek\]\[INFO\]\[TestRunner\] BATCH_COMPLETE v1 .* failed=0\b",
+                    r"^BATCH_COMPLETE v1 .* failed=0\b"):
+            with self.subTest(pattern=pat):
+                self.assertIsNotNone(hlib.batch_contract_vacuity_gap([pat], "Missions"))
+
+    def test_off_scene_vacuous_batch_is_rejected_by_a_scene_pin(self):
+        # The B10 shape exactly: the spec expected FLIGHT, the fixture delivered
+        # SPACECENTER. A scene-pinned contract reds that even before the counts.
+        probes = hlib.vacuous_batch_complete_probes("RecordingInvariants", [])
+        pinned = ("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                  "category=RecordingInvariants scene=FLIGHT")
+        self.assertTrue(any("scene=SPACECENTER" in p for p in probes))
+        self.assertIsNone(hlib.batch_contract_vacuity_gap([pinned], "RecordingInvariants"))
+
+    # ----- validate_spec wiring -----
+
+    def _spec_with_contract(self, required, base="H5-invariants-corpus.toml"):
+        spec = copy.deepcopy(load_spec(base))
+        spec["expectations"]["logContracts"]["required"] = list(required)
+        return spec
+
+    def test_spec_with_only_failed_zero_is_rejected(self):
+        v = hlib.validate_spec(
+            self._spec_with_contract(["BATCH_COMPLETE v1 .* failed=0\\b"]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("cannot detect a vacuous batch" in e for e in v.errors),
+                        list(v.errors))
+
+    def test_spec_with_total_and_passed_pin_is_accepted(self):
+        v = hlib.validate_spec(
+            self._spec_with_contract([
+                "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                "category=RecordingInvariants scene=FLIGHT"]), self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_spec_with_no_runtests_step_is_unaffected(self):
+        # A seam-only scenario owns no batch, so the gate must not fire on it at all
+        # (and its batchComplete verifier is correctly SKIPPED at run time).
+        spec = copy.deepcopy(load_spec("S0.5-live-record-discard.toml"))
+        self.assertFalse(any((s or {}).get("cmd") == "RunTests"
+                             for s in spec["driver"]["steps"]))
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+        self.assertFalse(any("vacuous" in e for e in v.errors))
+
+    def test_opt_out_requires_a_reason(self):
+        spec = self._spec_with_contract(["BATCH_COMPLETE v1 .* failed=0\\b"])
+        spec["expectations"]["logContracts"][hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any(hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY in e for e in v.errors),
+                        list(v.errors))
+
+    def test_opt_out_with_reason_accepts_the_weak_contract(self):
+        spec = self._spec_with_contract(["BATCH_COMPLETE v1 .* failed=0\\b"])
+        lc = spec["expectations"]["logContracts"]
+        lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "documented reason"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_opt_out_must_be_a_bool(self):
+        spec = self._spec_with_contract([
+            "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+            "category=RecordingInvariants scene=FLIGHT"])
+        spec["expectations"]["logContracts"][hlib.BATCH_VACUITY_OPT_OUT_KEY] = "false"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("must be a bool" in e for e in v.errors), list(v.errors))
+
+    def test_misplaced_opt_out_key_is_rejected_not_silently_ignored(self):
+        # TOML scoping trap: written outside [expectations.logContracts] the flag is
+        # inert, and this one fails UNSAFE (the author thinks they waived the gate).
+        for scope in ("expectations", "root", "driver"):
+            with self.subTest(scope=scope):
+                spec = self._spec_with_contract([
+                    "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                    "category=RecordingInvariants scene=FLIGHT"])
+                target = (spec["expectations"] if scope == "expectations"
+                          else spec if scope == "root" else spec["driver"])
+                target[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+                v = hlib.validate_spec(spec, self.reg)
+                self.assertFalse(v.ok)
+                self.assertTrue(
+                    any("belongs in [expectations.logContracts]" in e for e in v.errors),
+                    list(v.errors))
+
+    def test_opt_out_on_a_batchless_spec_warns_inert(self):
+        spec = copy.deepcopy(load_spec("S0.5-live-record-discard.toml"))
+        spec["expectations"]["logContracts"][hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+        self.assertTrue(any("inert" in w for w in v.warnings), list(v.warnings))
+
+    def test_every_committed_batch_spec_pins_a_nonvacuous_tally(self):
+        """Repo-wide: no committed spec may own a batch it cannot gate. Discovered,
+        never hardcoded, so a scenario added later is covered automatically."""
+        checked = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            selector = next((((s or {}).get("args", {}) or {}).get("category")
+                             for s in steps if (s or {}).get("cmd") == "RunTests"), None)
+            if not any((s or {}).get("cmd") == "RunTests" for s in steps):
+                continue
+            checked.append(name)
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            if lc.get(hlib.BATCH_VACUITY_OPT_OUT_KEY) is True:
+                continue
+            self.assertIsNone(
+                hlib.batch_contract_vacuity_gap(lc.get("required", []) or [], selector),
+                "%s: batch contract accepts a vacuous tally" % name)
+        self.assertTrue(checked, "no committed RunTests spec found - the sweep is inert")
+
+
+class BatchVacuityGateShapeTests(unittest.TestCase):
+    """The three ways a spec could satisfy the gate and STILL admit a vacuous batch,
+    found by adversarial review 2026-07-26 and closed here. Each cell is the
+    reviewer's counterexample verbatim; each must now be REJECTED.
+    """
+
+    def setUp(self):
+        self.reg = load_registry()
+        self.pin = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                    "category=RecordingInvariants scene=FLIGHT"]
+
+    def _h5(self):
+        spec = copy.deepcopy(load_spec("H5-invariants-corpus.toml"))
+        spec["expectations"]["logContracts"]["required"] = list(self.pin)
+        return spec
+
+    def test_second_runtests_step_is_rejected(self):
+        # Dodge 1: validate_spec probed only the FIRST category and batch_owners
+        # counted 1 for any n>0, so a whole-tally pin on the first batch left a
+        # second `RunTests GhostPlayback` batch completely ungated.
+        spec = self._h5()
+        steps = spec["driver"]["steps"]
+        idx = next(i for i, s in enumerate(steps) if (s or {}).get("cmd") == "RunTests")
+        steps.insert(idx + 1, {"cmd": "RunTests", "args": {"category": "GhostPlayback"},
+                               "expect": "OK", "budget": 540})
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("2 RunTests steps declared" in e for e in v.errors), list(v.errors))
+
+    def test_multi_category_selector_is_rejected(self):
+        # Dodge 2: a pin naming ONE constituent rejects the other constituent's
+        # probes for the wrong reason (category-token mismatch), so the gate reported
+        # no gap while category B could run all-skipped.
+        spec = self._h5()
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"]["category"] = "RecordingInvariants,GhostPlayback"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("multi-category" in e for e in v.errors), list(v.errors))
+
+    def test_absent_category_selector_is_rejected(self):
+        # Same class: RunTests with no category is RunAll, i.e. every category at
+        # once, with the same inexpressible per-constituent tally.
+        spec = self._h5()
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"].pop("category", None)
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("absent" in e for e in v.errors), list(v.errors))
+
+    def test_shape_errors_are_waivable_by_the_documented_opt_out(self):
+        # Both shape errors ride the SAME reason-required opt-out as the contract
+        # gate itself: opting out means "this spec's batch cannot be non-vacuity
+        # gated", which is exactly what an unpinnable second batch or aggregate is.
+        for shape in ("multi-selector", "second-step"):
+            with self.subTest(shape=shape):
+                spec = self._h5()
+                if shape == "multi-selector":
+                    for s in spec["driver"]["steps"]:
+                        if (s or {}).get("cmd") == "RunTests":
+                            s["args"]["category"] = "RecordingInvariants,GhostPlayback"
+                else:
+                    steps = spec["driver"]["steps"]
+                    idx = next(i for i, s in enumerate(steps)
+                               if (s or {}).get("cmd") == "RunTests")
+                    steps.insert(idx + 1, {"cmd": "RunTests",
+                                           "args": {"category": "GhostPlayback"},
+                                           "expect": "OK", "budget": 540})
+                lc = spec["expectations"]["logContracts"]
+                lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+                lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "documented shape exception"
+                v = hlib.validate_spec(spec, self.reg)
+                self.assertTrue(v.ok, list(v.errors))
+
+    def test_two_patterns_satisfiable_by_different_lines_is_a_gap(self):
+        # Dodge 3: the gate ANDed its patterns against ONE synthesized probe, but
+        # evaluate_expectations re.searches each pattern over the WHOLE log
+        # independently. `total=42 passed=40` is satisfied by the LogContractTests
+        # decoy line while `.* failed=0` is satisfied by the vacuous tally, so the
+        # contract passed over a batch that executed nothing.
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=40",
+             "BATCH_COMPLETE v1 .* failed=0\\b"], "GhostPlayback")
+        self.assertIsNotNone(gap)
+        self.assertIn("accepted by required pattern", gap)
+
+    def test_a_pattern_only_the_decoy_satisfies_is_not_a_discriminator(self):
+        # The LogContractTests literal is emitted by ParsekLog.Info regardless of the
+        # driven batch, so a pattern matching only IT proves nothing about the batch.
+        self.assertEqual(1, len(hlib._BATCH_DECOY_BODIES))
+        gap = hlib.batch_contract_vacuity_gap(
+            [hlib._BATCH_DECOY_BODIES[0], "BATCH_COMPLETE v1 .* failed=0\\b"],
+            "RecordingInvariants")
+        self.assertIsNotNone(gap)
+
+    def test_the_decoy_line_matches_the_shipped_c_sharp_literal(self):
+        # If LogContractTests.BatchCompleteFormatValid ever changes its numbers, the
+        # decoy this gate models goes stale and the gate silently weakens. Cross-check
+        # against the C# source, normalising away its string-concatenation line breaks.
+        src = os.path.join(os.path.dirname(HARNESS_ROOT), "Source", "Parsek",
+                           "InGameTests", "LogContractTests.cs")
+        self.assertTrue(os.path.isfile(src), src)
+        with open(src, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        # Join C# adjacent-literal concatenation ("a" + "b") and collapse whitespace.
+        joined = re.sub(r'"\s*\+\s*"', "", text)
+        joined = re.sub(r"\s+", " ", joined)
+        for body in hlib._BATCH_DECOY_BODIES:
+            self.assertIn(re.sub(r"\s+", " ", body), joined,
+                          "decoy body is no longer the literal LogContractTests asserts")
+
+    def test_single_strong_pin_still_passes(self):
+        # Guard against over-tightening: the shipped shape must stay accepted.
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 "
+             "category=GhostPlayback scene=FLIGHT"], "GhostPlayback"))
+
+    def test_every_committed_batch_spec_still_validates_clean(self):
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with self.subTest(spec=name):
+                v = hlib.validate_spec(load_spec(name), self.reg)
+                self.assertTrue(v.ok, "%s: %s" % (name, list(v.errors)))
 
 
 # ---------------------------------------------------------------------------

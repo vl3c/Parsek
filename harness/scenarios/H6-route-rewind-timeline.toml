@@ -63,9 +63,9 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # One grep-stable line per behavior the wave shipped, all emitted by PRODUCTION
 # code paths the tests drive (not test-log echoes), plus the batch tally.
-# PENDING-OPERATOR: the first live run must confirm the seven tests PASS from
-# the gloops host (they Skip only on a null CurrentGame / frozen-or-too-slow
-# clock, neither of which this driver produces).
+# The former PENDING-OPERATOR ("the first live run must confirm the seven tests
+# PASS from the gloops host") is CLOSED: the 2026-07-24 first live run was a
+# FULL PASS on attempt 1 with all seven verifiers green.
 #
 # Contract hardening notes (PR #1334 review):
 # - The batch tally pins BOTH failed=0 AND skipped=0 (runner line format:
@@ -73,6 +73,30 @@ count = { min = 0, max = 0 }
 #   pin, a permanently-skipping DormantRoute_MaterializesViaScenarioDrivenTick
 #   (the ONLY production-wiring proof) would stay invisible because the
 #   sibling dormant test emits the same Materialize line.
+# - ANTI-VACUITY (hlib.batch_contract_vacuity_gap): `failed=0 skipped=0` was
+#   still satisfied by an EMPTY batch (`total=0 passed=0 failed=0 skipped=0`,
+#   which a renamed / mis-typed category selector produces), so the tally now
+#   pins total AND passed too. The derivation is closed:
+#   RouteRewindTimelineRuntimeTests declares exactly 7
+#   [InGameTest(Category = Category)] methods, every one scene-agnostic (no
+#   Scene = argument, so RequiredScene == AnyScene) and batch-allowed
+#   (AllowBatchExecution default true), so all 7 are eligible and execute at
+#   whatever scene the batch runs in. The 2026-07-24 live PASS met the
+#   `failed=0 skipped=0` pin over those 7, which fixes passed = total = 7.
+#   Adding a test to the category moves BOTH numbers here, same commit.
+#   EVIDENCE STANDING - this pin is DERIVED, not read off a line. Unlike H5 /
+#   M1 / M2 / S1.4, no archived H6 log carries a whole BATCH_COMPLETE tally:
+#   the 2026-07-24 pin contained no total / passed / category / scene tokens,
+#   so the PASS proves only `failed=0 skipped=0`. total=passed=7 follows from
+#   that plus the attribute count above (skipped=0 over 7 eligible tests forces
+#   passed=7). `category=RouteRewindTimeline` is the driver's own RunTests
+#   argument. `scene=FLIGHT` is the ONE token with no H6-specific evidence at
+#   all: it is inferred from the fixture, gloops-airshow, which carries a
+#   focusable vessel, so TestCommandLoadGame.DecideLoadRoute takes the
+#   Focusable/FLIGHT route - the same rule H5 and S1.4 MEASURED on the same
+#   fixture. Fail mode if the inference is wrong: a loud RED naming the real
+#   scene on the next run, never a false green. Re-pin from the measured line
+#   the first time an H6 run archives a log.
 # - Every LifecycleMarker regex ends in " ut=" so it can only match a genuine
 #   emission line ("... reason=X ut=<UT> seq=..."), never the "SKIPPED - live
 #   UT unresolved" warn line (RouteOrchestrator.cs:3613), which puts
@@ -93,7 +117,7 @@ required  = [
   "Restore: retired 1 free-standing route row\\(s\\)",
   "Restore: dropped 1 pending science subject\\(s\\)",
   "RetireFutureRouteActionsAtRewind: removed 2 free-standing route",
-  "BATCH_COMPLETE v1 .* failed=0 skipped=0\\b",
+  "BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

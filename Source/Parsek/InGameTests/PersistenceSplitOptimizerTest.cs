@@ -155,7 +155,8 @@ namespace Parsek.InGameTests
                 // accumulate orphan .prec / .pann / *.craft / *.txt files per test run.
                 if (sidecarsToCleanup != null && sidecarsToCleanup.Count > 0)
                 {
-                    PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIds(sidecarsToCleanup);
+                    InGameTestSidecarReaper.DeleteSidecarsForIds(
+                        sidecarsToCleanup, "PersistenceSplitOptimizerTest");
                 }
             }
         }
@@ -241,7 +242,8 @@ namespace Parsek.InGameTests
                 // accumulate orphan .prec / .pann / *.craft / *.txt files per test run.
                 if (sidecarsToCleanup != null && sidecarsToCleanup.Count > 0)
                 {
-                    PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIds(sidecarsToCleanup);
+                    InGameTestSidecarReaper.DeleteSidecarsForIds(
+                        sidecarsToCleanup, "PersistenceSplitOptimizerTest");
                 }
             }
         }

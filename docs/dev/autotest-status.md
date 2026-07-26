@@ -1,6 +1,74 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-25 (ORBIT lane REVIEWED by three Opus reviewers and the
+Last updated: 2026-07-26 (VACUOUS-BATCH class found and closed; the first two D11
+scenarios; four of the seven RunTests tallies now MEASURED off live flights and
+the other three honestly labelled; and one real Parsek defect caught by the new
+M1 scenario's very first flight.
+
+B10-career-passive-safety - shipped, daily tier - was proved live to read GREEN
+while executing ZERO tests: its RecordingInvariants batch ran at SPACECENTER,
+where both FLIGHT-scene tests are scene-skipped, and its only contract
+`BATCH_COMPLETE v1 .* failed=0\b` cannot tell `passed=0 skipped=2` from two
+passes. L1-passive-sandbox had the identical shape. Both fixtures are vessel-less
+by design, so the CATEGORY moved to GameActionsHealth (4 scene-agnostic read-only
+tests) rather than papering the pin over a category the fixture can never host.
+The class is closed harness-side: hlib.validate_spec now synthesizes every
+BATCH_COMPLETE line a vacuous batch could emit and REJECTS any spec whose
+contract would accept one - checked by construction, not by a syntactic "must
+mention total=" tautology, with a reason-required opt-out. Scope of that
+guarantee, after review found three ways around the first cut and all three were
+closed: a batch-owning spec must now declare exactly ONE RunTests step naming
+exactly ONE category (a second step ran ungated; a multi-category aggregate
+cannot express per-constituent non-vacuity), and vacuity detection requires ONE
+single required pattern to reject the whole vacuous family plus the known
+batch-independent decoy line, because evaluate_expectations searches each
+pattern over the whole log independently. It still blocks only passed==0 - the
+`passed=[1-9][0-9]*` placeholder form accepts 1-of-42 by design.
+
+NEW: M1-mission-loop-unit and M2-periodicity-solver take D11 from 0/18 to 8/18 by
+running the Missions / Periodicity in-game categories, which needed no fixture
+and had never run because no spec named them; both gate the mission-loop PLAN and
+the periodicity SOLVER, explicitly not the playback.
+
+2026-07-26 ran SIX flights, of which FIVE passed. The one red is M1 flight 1, and
+it is the run that found the sidecar leak below - the pin doing its job, not a
+blemish: B10 PASS, M1 PARSEK-FAIL, M2 PASS, M1 re-fly PASS, L1-passive-sandbox
+PASS, S1.4 PASS (`harness/results/summary.txt`).
+
+MEASURED - exact pin already committed before the flight, so the run's
+expectations PASS matched the whole line: B10 `total=4 passed=4 skipped=0` (the
+vacuity fix proven - the same step used to emit `total=2 passed=0 skipped=2`),
+L1-passive-sandbox `total=4 passed=1 skipped=3`, M2 `total=11 passed=7
+skipped=4`, M1 `total=12 passed=5 skipped=7`. H5's `total=2 passed=2 skipped=0`
+is measured off its own 2026-07-19 archived line.
+
+NOT fully measured, and now labelled as such rather than claimed: S1.4's
+`total=42 passed=40 skipped=2` - the 2026-07-26 run executed the LOOSE
+`passed=[1-9][0-9]*` pin, so it proves total=42 / failed=0 / category / scene but
+not the 40/2 split, and that run archived no log (collectLogs ran=false on a
+PASS). H6's `total=7 passed=7 skipped=0 ... scene=FLIGHT` is DERIVED: the
+2026-07-24 PASS was against a pin carrying only `failed=0 skipped=0`, and the
+scene token has no H6-specific evidence at all (it is inferred from the shared
+gloops-airshow fixture's FLIGHT LoadGame route). Both pins STAY - each fails
+LOUD, never green - and both are re-derivable from the spec comments.
+
+M1's first flight also found a REAL Parsek-side defect and its `recordings.count
+= {0,0}` pin is what caught it: in-game tests that register synthetic trees
+through the real `RecordingStore.CommitTree` were leaving orphan `.prec` /
+`.pann` / `.prec.txt` sidecars in the produced save. `CommitTree` flushes
+`SaveRecordingFiles` per recording; `RemoveCommittedTreeById` is memory-only by
+design; once those ids leave the store `CleanOrphanFiles` preserves the files
+forever - the S0.5 discard-residue shape again. Fixed at the SHARED path: the
+one-test `PersistenceSplitOptimizerTestCleanup` is generalized to
+`InGameTestSidecarReaper` with a known-ids guard, wired into every enumerated
+in-game site that reaches a real commit - the five DIRECT `CommitTree` callers
+plus, after review found them, the four that reach one INDIRECTLY through the
+production merge / live-recording paths (both `MergeDialog` and `SceneExitMerge`
+deferred-merge canaries and the EVA ghost-snapshot canary), all now reaping at
+the shared `RemoveCommittedTreeByIdForRuntimeTest` helper. Re-flown green with
+the pin untouched.
+
+Prior 2026-07-25 (ORBIT lane): REVIEWED by three Opus reviewers and the
 findings applied: two blocking liveness/commanded-vs-observed defects in the new
 capture tail are fixed, the lane's headline claim is now actually VERIFIED by a
 commit-terminal log token instead of only asserted, and all four affected
@@ -47,7 +115,7 @@ written for the ACTIVE tree too, and two never-committed runs produced the same
 8), so it guards recording TOPOLOGY and the commit is guarded by log tokens
 instead.
 
-Prior: B1-pad-hop DE-LISTED from live-proven: its
+Prior 2026-07-25: B1-pad-hop DE-LISTED from live-proven: its
 2026-07-19/20 PASSes proved the flight but its chute never opened - the
 recordings carry ZERO Parachute* events - and its DOWN terminal gated on the
 machine's own COMMANDED chute latch, so a ~300 m/s terminal-velocity impact was
@@ -122,8 +190,10 @@ mission earns its place only by the Parsek recording/ledger/rewind surface it
 exercises. The end goal is the L-track Ledger Accuracy Campaign (grand oracle
 career runs with repeated rewinds, oracle-diffed at every session boundary).
 When prioritizing work, ask "what Parsek defect class does this catch?" -
-that question has already paid: the initiative's first real catches include
-the INV2 double-cover recorder seam defect and the S0.5 orphan-sidecar leak.
+that question has already paid: the initiative's real catches include the
+INV2 double-cover recorder seam defect, the S0.5 orphan-sidecar leak, and
+(2026-07-26, on a brand-new scenario's FIRST flight) the same orphan-sidecar
+class in every in-game test that drives a real `RecordingStore.CommitTree`.
 
 ## Doc map (no duplicate documentation)
 
@@ -150,29 +220,41 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Fourteen test cases are live-proven green end-to-end, including
-Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile and the
-Mun/Minmus ORBIT pair. (B1-pad-hop was de-listed from live-proven on 2026-07-25:
-its PASSes proved the flight but its chute never opened, and its terminal could
-not tell the difference. See its row below and gate 7. Its PASS in the
-2026-07-25 full sweep does NOT re-prove it - that sweep predates the merge of
-the canopy-gated terminal, so it ran the old contract.) All
+expectations). Twenty-three test cases are live-proven green end-to-end (the 19
+rows in the Live-proven table below plus the four EVA cases in their own
+section), including Mun/Minmus/Duna flybys with a certified no-1x-coast warp
+profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair and the Eve
+flyby. (B1-pad-hop was de-listed from live-proven on 2026-07-25: its PASSes
+proved the flight but its chute never opened, and its terminal could not tell
+the difference. See its row below and gate 7. Its PASS in the 2026-07-25 full
+sweep does NOT re-prove it - that sweep predates the merge of the canopy-gated
+terminal, so it ran the old contract. B10 and L1-passive-sandbox were re-proven
+on 2026-07-26 in a corrected batch category, after their earlier greens were
+shown to have executed zero tests; M1 and M2 are new and flew the same day.) All
 infrastructure modules are shipped and merged. The FIRST two-vessel lane
 (B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
 IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
 first flight. The Mun/Minmus ORBIT lane (B11/B12: capture burn, park, and a
 commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
-2026-07-25. Coverage stands at 70 of 239 registry cells claimed by at least one
-scenario, of which 58 have a green run behind them; 12 are claimed but never
-green (every one of them from the two un-flown rewind scenarios plus EVA-4's
-`chute-two-phase`). The 70 is recomputed from
-`hlib.compute_coverage` over the committed specs + registry, not carried
-forward: the "52" this sentence used to print had drifted across many spec
-additions (it predates the EVA, B-DOCK and ORBIT lanes), so the ORBIT lane's
-`commit-in-foreign-soi` cell is only the newest of the additions it was missing.
-`harness/coverage/coverage.{json,txt}` are generated + gitignored, so re-derive
-rather than trusting a number in prose. Breadth (EVA, orbit, landing, docking,
-career-ledger lanes) is the frontier.
+2026-07-25, as is the Mun/Minmus LANDING lane (B13/B14: a recording that ENDS on
+foreign soil and is COMMITTED there); B15-eve-flyby is green and B16-eve-orbit
+is committed but not yet flown. Coverage stands at 82 of 240 registry cells
+claimed by at least one scenario. The 82 is RECOMPUTED from
+`hlib.compute_coverage` over the 36 committed specs + the registry at this
+merge, not carried forward from either side: the "52" this sentence used to
+print had drifted across many spec additions (it predates the EVA, B-DOCK,
+ORBIT, LANDING and EVE lanes), the "70 of 239" the ORBIT lane measured on
+2026-07-25 was already stale by the time the landing and Eve lanes merged (that
+tree alone recomputes to 74 of 240), and the "77 of 238" this branch carried
+predated the orbit/landing registry cells. The claimed-vs-GREEN split is a
+DIFFERENT number and is deliberately not restated here: it needs the run
+archive, and `harness/results/*.json` plus `harness/coverage/coverage.{json,txt}`
+are generated + gitignored, so re-derive it from a full results set rather than
+trusting a number in prose. The last measured split was 2026-07-25's 58 green
+and 12 claimed-but-never-green over that day's 70, and the never-green 12 were
+every cell claimed only by the two un-flown rewind scenarios plus EVA-4's
+`chute-two-phase`. Breadth (EVA, orbit, landing, docking, career-ledger lanes)
+is the frontier.
 
 ## Infrastructure modules (all SHIPPED and merged)
 
@@ -185,21 +267,21 @@ career-ledger lanes) is the frontier.
 | M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
 | M-B1 mission library | Pure mission state machines + kRPC runner (flights become deterministic, diagnosable instruments) | SHIPPED (#1313); hardened by the flyby campaign |
 | M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
-| M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); LIVE-PROVEN 2026-07-23 (career fixtures file-constructed headlessly; 7/7 ledger scenarios green, now daily tier) |
+| M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); LIVE-PROVEN 2026-07-23 (career fixtures file-constructed headlessly; 7/7 ledger scenarios green, now daily tier). Caveat recorded 2026-07-26: the ORACLE half of those 7 was genuine, but L1-passive-sandbox's and B10's in-game BATCH half executed zero tests under the old category - both re-flown green in `GameActionsHealth` on 2026-07-26 |
 | M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 34 committed scenarios)
+## Test cases (all 36 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (15)
+### Live-proven (19)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item |
+| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item. Batch tally pinned WHOLE 2026-07-26: `failed=0 skipped=0` still accepted an EMPTY batch (`total=0 passed=0 ...`), so the pin is now `total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT`. That pin is DERIVED, not measured: the 2026-07-24 PASS was against a contract carrying only `failed=0 skipped=0`, so it proves those two; `total=passed=7` follows from the category's 7 scene-agnostic batch-allowed tests plus skipped=0; and `scene=FLIGHT` is inferred from the gloops-airshow fixture's Focusable/FLIGHT LoadGame route (the rule H5 and S1.4 measured on the same fixture), with no H6-specific evidence. Re-pin from the measured line the first time an H6 run archives a log |
 | B2-lko-ascent | nightly | Ascent-to-orbit recording, orbital checkpoints, 6-booster parent-anchored debris children model | D1; D3 orbital-checkpoint; D4 atmospheric/exo-propulsive; D14 kerbin |
 | B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
 | B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
@@ -207,15 +289,19 @@ The "Parsek surface verified" column is the reason the case exists.
 | B7-duna-flyby | nightly | Multi-SOI interplanetary recording (Kerbin->Sun->Duna->Sun), 100,000x warp recording, SOI-count | As B5 with D14 duna/soi-count/warp-high. **GATE CLOSED 2026-07-25 - B7 AT HEAD IS INTERMITTENT.** The gate ("HEAD's 300 km target has not itself flown; the pass flew 50 km") was paid by flying it. Run 1: both attempts `MISSION-ASSERT-FAIL body='Ike' (expected 'Duna' or exit 'Sun')`, wall 747 s / 735 s. Run 2 (the first full sweep): attempt 1 INVALID on the same Ike capture, attempt 2 PASS, terminal PASS at `attempts=2 wallTotal=1564s`. So it is a FLAKY scenario, not a hard red - the approach always transits Ike's shell, but whether Ike is close enough to capture depends on its phase at arrival. The 300 km target was hit correctly (`pe=310089`); the inbound approach transits Ike's orbital shell and Ike captured the craft (`window[19] body=Duna alt=3,687,346` -> `window[20] body=Ike alt=897,085`). NOT an ORBIT-lane regression: `corrBudgetAnchorUt=none` (the correction re-anchor never engaged, so it ran main's bound) and `phaseWarpIssues=1` (the coast latch worked, which is why it reached Duna at all - every archived pre-fix B7 run stopped at `Kerbin to Sun` and never reached the target SOI). Needs a B7 SPEC decision - accept an Ike encounter as a legitimate Duna-system arrival, or aim to clear Ike's shell - deliberately not taken in the ORBIT lane. Forensics in `todo-and-known-bugs.md` |
 | S0.5-live-record-discard | daily | Live record start/stop marker pairing + DiscardTree returns the store to zero (caught the orphan-sidecar leak) | D1 discard-rollback; D5 single-node; D14 |
 | S0.6-live-record-commit | daily | Commit on top of the injected corpus without corpus loss (the save-hollowing guard class) | D5; D14; D16 sidecar-prec |
-| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
-| H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
+| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf. Batch contract hardened 2026-07-26 (was `failed=0` only) and its PENDING-OPERATOR CLOSED the same day by a live flight: the loose `passed=[1-9][0-9]* skipped=[0-9]+` placeholder is replaced by `total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT`. Evidence standing, PARTLY MEASURED: the run executed the LOOSE pin (the exact one was committed after it), so it proves total=42 / failed=0 / category / scene and passed>=1; the 40/2 split was read off that run's live log, which was not archived (`collectLogs: {ran: false}` on a PASS) and is not re-derivable from any committed artifact. The 2 skips are 1 structural (`AllowBatchExecution=false`, attribute-exact) + 1 fixture-determined self-skip; the other 10 conditional guards did not fire on this corpus. The pin STAYS - a wrong split reds loud with the numbers to re-derive from |
+| H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. Batch tally pinned WHOLE 2026-07-26 from the MEASURED 2026-07-19 line: `total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT` |
+| B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class), now with a batch that genuinely executes | D8 funds/science/reputation/recalc-from-ut0; D14 career/cold-load-ut0/scene-ksc. RE-PROVEN 2026-07-26 in the corrected `GameActionsHealth` category: `total=4 passed=4 failed=0 skipped=0 ... scene=SPACECENTER`, MEASURED. Its earlier "green" runs executed ZERO tests (see the de-listing note in todo-and-known-bugs.md); this is the vacuity fix proven live. D16 schema-gate stays dropped - it was claimed over a save with zero recordings |
+| L1-passive-sandbox | daily | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert); the one scene- and mode-independent suppression-flag assertion actually runs | D8 recalc-engine/orchestrator/ksp-state-patcher; D14 sandbox/scene-ksc. RE-PROVEN 2026-07-26 in the corrected `GameActionsHealth` category (its first flight there): `total=4 passed=1 failed=0 skipped=3 ... scene=SPACECENTER`, MEASURED, and the 3 skips ARE the subject (SANDBOX has no pools). Ledger oracle green, hardDivergences=0 |
 | B11-mun-orbit | nightly | COMMIT-IN-FOREIGN-SOI (the new D1 cell): a recording that ENDS parked in another body's SOI and is COMMITTED there - the commit path, the terminal classification, and the background-recording handoff for a tree whose terminal state is "in orbit around the Mun". Every other lunar/interplanetary case (B5/B6/B7) flies THROUGH an SOI and comes back or continues, so none of them reaches this surface. Machine: the LIVE-PROVEN `mlib.b5_decide` with the new `captureEnabled` param - ascent, transfer, TLI, corrections, warp policy all byte-identical to the 26 B5 flights; NEW is the four-phase tail PLAN-CAPTURE (MechJeb circularize-at-periapsis) -> CAPTURE-BURN (NodeExecutor, autowarp EXPLICIT; done evidence is a BOUND orbit, since a hyperbolic approach reads a NEGATIVE apoapsis) -> PARK (throttle cut, nodes cleared, SAS+RCS held, rails dropped to 1x, 180 game-s held dwell) -> ORBIT-COMMIT (the B-DOCK route-1 mid-mission seam CommitTree) -> ORBIT-COMMITTED. Leaving the target SOI anywhere in that tail is an ASSERT-FAIL, so B5's free-return cannot green this mission | D1 auto-record-launch + commit-in-foreign-soi (the NEW cell); D3 orbital-checkpoint; D4 atmospheric / exo-propulsive / exo-ballistic / cohesive-cross-body-coast; D14 kerbin/mun/warp-rails (D5 bg-recording was CLAIMED and then REMOVED 2026-07-25: `CommitTreeFlight` nulls both `backgroundRecorder` and `PhysicsFramePatch.BackgroundRecorderInstance` before returning, no assertion or token covers a handoff, and `settle_frames = 0` ends the mission on the commit frame - BDOCK-1 is the honest claimant of that cell). LIVE-PROVEN 2026-07-25 (flight 2 FULL PASS attempt 1, all seven verifiers green, wall 1,268 s, analyzer red=0): capture apoapsis flipped -1,560,099 -> +138,789 m at eccentricity 0.000127, all six assertions met, PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED. Its coast issued the native warp ONCE with ZERO cancels, which is why the Mun lane never showed B12 flight 2's coast warp-thrash; the shared fix for that landed after this pass and does not alter any frame this flight took (a coast that never cancels a valid warp is unaffected). CONFIRMATION RE-FLY PAID (flight 3, 2026-07-25): B12 flight 3's periapsis-bound fix CHANGED this mission's flown profile - TARGET-FLYBY now warps to periapsis_ut - 900 instead of riding the rails flyby stair, and the COAST handoff stops the inherited warp - so a LIVE-PROVEN mission owed one flight on the changed profile. It flew FULL PASS again: wall 1,269 s, all six assertions met, capture eccentricity 0.000127 (flight 2 read the same number, so the profile change did not move the capture quality), and TARGET-FLYBY collapsed from 8,213 game seconds to 27 game seconds on 2 warp commands. The lane's re-fly debt is now clear on both axes. FLIGHT 4 (2026-07-25) FULL PASS, wall 1,271 s (`results/2026-07-25_0400_B11-mun-orbit.json`): the COUNT-PIN run - the first B11 pass carrying `verifiers.expectations.observed.recordings.count`, which read 8 and pinned the window to {8, 8}. **FLIGHT 5 (2026-07-25) FULL PASS attempt 1, wall 1,270.195 s - the POST-REVIEW re-fly, and the first flight on which this mission's headline claim is actually VERIFIED.** Owed because the review pass added a `time_to_periapsis > 0` conjunct to the capture arming gate (a frame-level change to a path the green flights took) and because the new commit-terminal token needed its first live proof. Both landed: the token reads `terminalState=Orbiting terminalOrbitBody=Mun` for the parked craft, and the 8-recording topology is now legible instead of merely counted - 1 `Orbiting Mun` (the committed craft), 6 `Destroyed` (the radial boosters), 1 `Orbiting Kerbin` (the flameout-staged ascent core), matching the count-pin derivation exactly. GATED since 2026-07-26 (review round 2): a regression that drops one recording while adding a spurious one still reads 8, so the count alone cannot catch it - and until this round only the Mun row was actually required. Both specs now also require `terminalState=Orbiting terminalOrbitBody=Kerbin` and `terminalState=Destroyed terminalOrbitBody=(null)`, so each of the three topology CLASSES is asserted (the count still owns the total). Measured on the same fixture and launcher in `logs/2026-07-25_1216_B7-duna-flyby/KSP.log`: 8 terminal lines, 1 `Orbiting Kerbin` and 6 `Destroyed (null)`. Flight 1 (2026-07-24) flaked at CAPTURE-BURN on our own no-start watchdog colliding with MechJeb's 600 s pre-ignition WARPALIGN hold; fixed with an OBSERVED NodeExecutor.Enabled channel + a node-clock no-start classifier (forensics in todo-and-known-bugs.md) |
 | B12-minmus-orbit | nightly | Same cells on the minmus axis (a thin alias over the same capture-enabled machine, exactly as B6 is to B5) | D1 auto-record-launch + commit-in-foreign-soi; D3 orbital-checkpoint; D4 atmospheric / exo-propulsive / exo-ballistic / cohesive-cross-body-coast; D14 kerbin/minmus/warp-rails (D5 bg-recording removed 2026-07-25 for the same reason as B11 - nothing gates it). LIVE-PROVEN 2026-07-25 (flight 4 FULL PASS, all six mission assertions met, wall 580 s; flight 5 repeated it at wall 580 s and was the COUNT-PIN run - the first B12 pass carrying `verifiers.expectations.observed.recordings.count`, which read 8 and pinned the window to {8, 8}, `results/2026-07-25_0349_B12-minmus-orbit.json`; **FLIGHT 6 FULL PASS attempt 1, wall 580.826 s - the POST-REVIEW re-fly that first VERIFIES the lane's headline claim**: the new commit-terminal token reads `terminalState=Orbiting terminalOrbitBody=Minmus` for the parked craft, and the 8-recording topology is now legible instead of merely counted - 1 `Orbiting Minmus`, 6 `Destroyed` boosters, 1 `Orbiting Kerbin` core, matching the count-pin derivation exactly. GATED since 2026-07-26 (review round 2): the spec required only the target-body row, so a regression dropping the ascent-core recording and adding a spurious booster would still read 8 and still pass - both specs now also require `terminalState=Orbiting terminalOrbitBody=Kerbin` and `terminalState=Destroyed terminalOrbitBody=(null)`, measured on the same fixture and launcher in `logs/2026-07-25_1216_B7-duna-flyby/KSP.log` (1 and 6 lines). Owed because the review added a `time_to_periapsis > 0` arming conjunct that changes a frame the green flights took. NOTE the flight-6 lesson: its FIRST attempt red'd PARSEK-FAIL on the new token and looked exactly like "the commit records the wrong terminal body", but the flight had run the PREVIOUS DLL - harness flights use the provisioned `automation/stock-minimal` instance, and `dotnet build` only deploys to the dev instance. Run `provision.py --profile stock-minimal` after any C# change; see the note in `.claude/CLAUDE.md`): capture eccentricity 0.00026, PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED, and the two shared-machine warp fixes this mission's own forensics produced both held - COAST-TO-TARGET flew 194,543 game seconds in 26 wall seconds (ratio 7,535) on 3 warp commands, and the periapsis-bounded TARGET-FLYBY armed the capture on the orbit's clock instead of blowing through it. At 580 s wall it is the CHEAPEST of the two orbit cases (B11 costs 1,269 s), which makes the Minmus axis the better default for a fast regression check of the shared capture machine. PRIOR FLIGHTS (the forensics that produced three of the lane's four findings): FLIGHT 3 FLOWN 2026-07-25: the coast fix WORKED (COAST-TO-TARGET 26 wall / 194,704 game = ratio 7,543 on 3 warp commands, down from never-finishing) and the run reached a capture burn. THIRD SHARED-machine defect found, named at a glance by the new warpUtilisation block: TARGET-FLYBY read 2 wall / 8,213 game (ratio 5,341, 2 commands) and blew straight through periapsis - entered at ut 268,934.5 / alt 1,902 km descending at -236 m/s, PLAN-CAPTURE at ut 277,147.5 / alt 41,609 m CLIMBING at +92 m/s. Two compounding causes: the COAST -> TARGET-FLYBY handoff emitted NO warp cleanup so the craft crossed the SOI still running the coast's RAILSx10000 warp (the first flyby poll alone advanced 3,907 game seconds), and capture mode fell through to a rails flyby stair floored at flybyWarpFactor whose distance term knows nothing about the periapsis CLOCK. The late burn produced a bound but wildly eccentric 325 x 5.3 km orbit grazing Minmus, CORRECTLY rejected by the capture window as an under-burn. FIXED: `mlib.capture_flyby_warp_target` - the only legitimate warp target inside the target SOI is `periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900, covering our arming + plan, MechJeb's halfBurnTime ignition lead and its 600 s pre-ignition hold), read from `Orbit.TimeToPeriapsis` via the opt-in `read_periapsis`; past the bound or with the clock unreadable the machine does NOT warp (fail closed, 1x); and the handoff now stops the inherited coast warp. FLIGHT 2: the correction fix WORKED (both rounds cleared, `rounds=2`, round 1's 73,720 game-second aim-warp ran as ONE continuous warp from ut 475.3 to 74,195.7 with no cancel), then INVALID `mission-budget-expired` inside COAST-TO-TARGET at ut 225,990 with 41,655 game seconds still to go. SECOND SHARED-machine defect found: the coast derives its native warp target from `time_to_soi` EVERY poll, and KSP cannot read the patched-conic SOI time while re-patching under a warp ramp - measured over flight 2's COAST frames, tts was finite on 2,451 of 2,451 unwarped frames and NaN on 1,154 of 1,161 warping ones - so the machine cancelled its own warp on the blind read and re-armed on the next unwarped poll: 3,603 `warp_to_ut` issues, 3,602 `cancel_warp`, a rails rate that never escaped ~2.7x, ~40 game-s per wall-s. METASTABLE, which is why it had never been seen: B11 flight 2's Mun coast issued the warp ONCE (0 cancels, 30/30 warping frames finite) and locked in at RAILSx1000. FIXED: `mlib.coast_native_warp_hold` - the target is an ABSOLUTE UT, so a blind read UNDER WARP HOLDS the armed command; only a blind read with the game NOT warping is evidence the encounter is gone. Plus a NAMED `coast-warp-thrash` fast-fail past `MAX_PHASE_WARP_ISSUES` (500; a healthy coast issues 1) and a per-phase `warpUtilisation` block in the mission result whose `gameSecondsPerWallSecond` names this class in one line. Budget RE-DERIVED bottom-up from flight 2's measured spans (~2,280 nominal / ~3,100 worst) and deliberately NOT raised - 4200/4700 stand. FLIGHT 1 (2026-07-25): MISSION-FLAKE at CORRECTION-BURN (wall 286 s), UPSTREAM of the capture tail and in the SHARED B5/B6 machine, not in anything B12-specific. ROOT CAUSE: the no-1x-coast PR (4219832b6) turned the DIY correction burner into AIM-THEN-WARP (aim, then natively warp to `node_ut - nodeArrivalMarginSeconds`, then throttle) but left the phase bounded by `transferBurnTimeoutSeconds` - a GAME-time budget that the warp itself spends. Measured: B11/Mun needs 2,994 s of its 4,000 s budget for that wait (75%, passes), B12/Minmus needs 73,733 s (entry ut 475.3, MechJeb node at ut 74,208.3) and can NEVER pass. FIXED in the shared machine: `mlib.correction_budget_expired` suppresses the budget while an aim-warp is in flight and re-anchors it at the warp ARRIVAL (the same seam that already re-anchors the no-start clock - and a game-time bound cannot bound a STALLED warp anyway, which advances no game time; the runner's warp-stall watchdog + the WALL budget own that), and `mlib.classify_correction_timeout` NAMES the expiry (`correction-burner-no-start` / `correction-burn-incomplete`) so it can never again ride the generic timeout. Every correction round give-up now also carries a `corrGiveup` reason on the machine-diff line. B11 flight 2 passed on this same machine, so no budget number needed changing. Also inherits B11 flight 1's CAPTURE-BURN fix unchanged and `read_node_executor` is on; wall budgets 4200/4700 (raised from 3600/4100 for MechJeb's MEASURED ~600 s pre-ignition hold). Same PROVISIONAL pins; the Minmus-specific one is `captureBurnTimeoutSeconds` 200000 (its SOI edge is ~2,187 km up but arrival speeds are ~5x lower than the Mun's, so the executor's SOI-entry -> periapsis autowarp coast is ~10-20 game hours, not 1-3) |
 | B13-mun-landing | nightly | LANDED-ON-ANOTHER-BODY (the new D1 `commit-landed-foreign-body` cell): a recording that ENDS on Mun soil and is COMMITTED there - the `Landed` terminal classification for a foreign-body tree, SURFACE-class TrackSections OFF Kerbin (the environment classifier's AIRLESS `Approach -> Surface*` path, which cannot occur where an atmosphere classifies first - hence the previously unclaimed D4 `surface-stationary`, the class THIS flight measured), the landing-leg part events, and the landed-vessel ghost / playback surface. B11/B12 end in ORBIT around a foreign body and B1/B4 land on KERBIN, so nothing else in the suite reaches this end state. Machine: the LIVE-PROVEN `mlib.b5_decide` with the new `landingEnabled` param on top of `captureEnabled` - PRELAUNCH through PARK byte-identical to the five B11 flights; NEW is the tail DESCENT (MechJeb `LandUntargeted`; warp-PASSIVE because MechJeb's landing states own the warp through the shared `Core.Node.Autowarp` flag the runner sets explicitly; `DeployGears` true, `DeployChutes` FALSE because the Mun is airless, `RcsAdjustment` false because the stage has no thruster blocks) -> LANDED-SETTLE (throttle cut, autopilot released, SAS held, rails 1x, a held settled dwell gated on target body + landed situation + BOTH speed components) -> SURFACE-COMMIT (the same route-1 mid-mission seam CommitTree) -> SURFACE-COMMITTED. FOUR named DESCENT give-ups on top of the budget: `landing-autopilot-not-enabled` (COMMANDED-vs-OBSERVED off `LandingAutopilot.Enabled`; a landed frame exits DESCENT BEFORE the supervisor runs, because MechJeb disables its own module on the landed frame and a perfect landing must not read as a dead autopilot), `landing-no-progress` (+ a separate `altitude-unreadable` name), `landing-touchdown-timeout`, `landing-vessel-lost` (a crash reads as neither a timeout nor a success) | LIVE-PROVEN 2026-07-25 FOR THE HAPPY PATH: FULL PASS attempt 1, wall 2,747.9 s, all verifiers green. `terminalState=Landed terminalOrbitBody=Mun`, airless `Approach -> SurfaceStationary`, measured count 8 (window PINNED). Most expensive scenario in the suite at 2,825 s harness wall. NOT live-proven: none of the four DESCENT give-ups nor `landed-never-stable` fired on either flight - they carry unit + fly-loop coverage only (see the COVERAGE HONESTY bullet under roadmap item 3) |
 | B14-minmus-landing | nightly | Same cells on the minmus axis (a thin alias over the same landing-enabled machine, exactly as B12 is to B11), except the D4 surface class: B14 claims the previously unclaimed `surface-mobile`, which is what its own flight measured, and B13 keeps `surface-stationary`. NOT redundant for a LANDING: Minmus's ~0.05 g against the Mun's ~0.17 g makes MechJeb's descent-speed policy fly a long slow low-thrust settle instead of a short suicide burn, and the flats make an untargeted landing far more likely to end on level ground | LIVE-PROVEN 2026-07-25 FOR THE HAPPY PATH: FULL PASS attempt 1, wall 2,083.9 s, all verifiers green. `terminalState=Landed terminalOrbitBody=Minmus`, airless `Approach -> SurfaceMobile`, touchdown -0.25 m/s vertical / 0.06 m/s horizontal, measured count 8 (window PINNED). The CHEAPER landing axis, so the better default regression check of the shared landing tail. Same NOT-live-proven list as B13: the give-up ladder never fired here either |
 | B15-eve-flyby | nightly | SECOND interplanetary destination, and the first INWARD transfer: multi-SOI recording Kerbin->Sun->Eve->Sun on the SAME machine and the SAME five params B7 flies. STATED SKEPTICALLY, as the spec does - this largely RE-EXERCISES B7's cross-SOI surface at a different body (a D14 MULTIPLIER, not a new mechanism); what it adds is a stable interplanetary regression subject, since B7 itself is FLAKY (Ike grabs its 300 km approach on roughly half of sweeps), plus the cheap prerequisite for B16. THE THING IT DELIBERATELY DOES NOT CLAIM: Eve's 90 km atmosphere - the one genuinely new Parsek surface Eve could reach - is not touched (the pass is aimed at 1,000 km), would not record if it were (the recorders early-return on `isOnRails` / `packed`), and is NOT ASSERTABLE TODAY at all because no emitted log line pairs an environment class with a body name; a follow-up aerobraking variant needs `body=` added to the `TrackSection started:` format string first, mirroring the B13 `terminalOrbitBody` fix | D1 auto-record-launch; D3 orbital-checkpoint; D4 atmospheric (the KERBIN ascent's cell, NOT an Eve one) / exo-propulsive / exo-ballistic / cohesive-cross-body-coast; D14 kerbin/eve/soi-count/warp-rails/warp-high. NO NEW REGISTRY VALUE - D14 already carries `eve`, so this lane triggers no growth-rule obligation. FLOWN. The "no new mlib code" claim was REFUTED by flights 1-3 and the lane now carries ONE argued param key plus three param-gated machine changes (`EveLaneIsAParameterChangeTests` rewritten, not deleted, to pin the single-key delta). (1) THE INWARD TRANSFER - ANSWERED, and the answer was not the one the spec anticipated. MechJeb plans an inner window fine; what it gets wrong is the EJECTION SIZE, because `DeltaVAndTimeForInterplanetaryTransferEjection` computes the post-burn speed at the park's SEMI-MAJOR AXIS and applies it at whatever radius its ejection geometry picks. On a circular park those coincide; on the 0.085-eccentric park MechJeb's own sloppy high-altitude circularization leaves, they do not, and the SAME planner priced the SAME ejection at 652.843 m/s from that park against 775.873 m/s from flight 5's round one, a MEASURED 123.0 m/s shortfall - the heliocentric leg's perihelion sat 2.46e9 m above Eve's aphelion, so no encounter was ever geometrically possible and `nextBody` never once read Eve. mlib still has no direction anywhere; the defect was a THRESHOLD and a MISSING ACTION, not a sign. Fixed by `parkTrimEccMax` (circularize-at-apoapsis before planning) plus a plan-time `reachesTargetOrbit=` verdict. (2) GILLY, and the answer is that it is NOT Ike: 126 km SOI vs 1,050 km (~69x smaller cross-section), 17-57% of the SOI radius vs 6.7%, 12 deg inclination vs 0.2 deg. Residual risk non-zero; a Gilly capture is a NAMED ASSERT-FAIL, deliberately not whitelisted - and it did NOT occur on the green run. GREEN on flight 7 (2026-07-26): full scenario PASS on attempt 1, every verifier PASS/SKIPPED, analyzer red=0, 86 `nextBody=Eve` reads, flyby periapsis 22,032,532 m against the 100,000 m floor, exit to Sun. Both correction rounds flew (378.32 m/s re-aim then a 3.35 m/s trim), which needed `maxCorrectionDvMps` 200 -> 450 - the 200 was a MOON-transfer calibration, and an interplanetary arrival-PHASE fix is legitimately dearer (measured affordable: ~1,944 m/s remained at Sun-SOI entry). PINS CLOSED: recordings count {8, 8}, mission wall 1,236 s, scenario wall 1,286 s, ejection-window wait 11,827,993 game s (0.80 synodic) |
+| M1-mission-loop-unit | daily | The mission-loop PLAN against LIVE stock ephemerides: cross-tree partner-journey link discovery + include/normalize mutation + the REAL MissionLoopUnitBuilder shared span clock landing member windows on the recorded dock/undock UTs; joint landing+station arrival hold (with the landing-only byte-identical-off control); the resonant Jool inner-three configuration hold; incommensurate Bop failing CLOSED to faithful | D11 partner-journey/land-dock-dual-constraint/arrival-hold/multi-moon-config-hold/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26 - the first spec to claim ANY D11 cell (the dimension was 0/18). LIVE-PROVEN 2026-07-26, and it EARNED ITS KEEP ON FLIGHT 1: batch tally exact (`total=12 passed=5 failed=0 skipped=7`), but its `recordings.count = {0,0}` pin red'd on a real Parsek-side defect - in-game tests driving the real `RecordingStore.CommitTree` left orphan sidecars the memory-only tree teardown could not reach. Fixed via the shared `InGameTestSidecarReaper`; re-flown FULL PASS with the pin untouched. Gates the PLAN, not the playback: no ghost, icon, cycle boundary or elapsed period is observed |
+| M2-periodicity-solver | daily | The periodicity SOLVER against LIVE stock ephemerides: the re-aim feasibility scan over a pinned synodic period, UvLambert transfer synthesis that must actually encounter the target, the window schedule, the eccentric/inclined stage-A un-projection + stage-B tof band (Moho / Eeloo), heliocentric-parking r1==park-end, and deterministic clean declines at the band edge | D11 reaim-lambert/eccentric-inclined-targets/heliocentric-parking-departure/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26, M1's sibling (separate spec because run.py's `_driven_category` reads only the FIRST RunTests category and a per-category line with no aggregate is a defined fault - one batch per spec). LIVE-PROVEN 2026-07-26, full PASS attempt 1; tally MEASURED and deliberately NOT total=passed: `total=11 passed=7 failed=0 skipped=4` (1 FLIGHT-scene member + 3 `AllowBatchExecution=false` diagnostics). Gates the SOLVER, not the playback |
 
-### Committed, not yet live-run (15)
+### Committed, not yet live-run (13)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
@@ -226,8 +312,6 @@ The "Parsek surface verified" column is the reason the case exists.
 | FORGE-eva2-lko | operator | (Not a Parsek-surface test) FIXTURE-FORGE, the FIRST ORBITAL one (mission `forge_lko`): boots the SAME bdock-forge-base, launch_vessel the Kerbal X with TWO named crew (Valentina + Bob), then flies the LIVE-PROVEN B-DOCK Interceptor-leg shape - MechJeb ascent, circularization with node-executor autowarp EXPLICIT (flight-12 lesson), the two-step separation contract (drop the spent core AND ignite the orbital stage, thrust-verified, cap 2), then a PARK phase that cuts throttle, clears nodes, holds SAS+RCS and requires a HELD stable ~100 km circular orbit (pe >= 75 km, tumble <= 0.05 rad/s) before SaveGame. Crew is gated ON THE PAD (crew_count >= minCrew, fail-closed on the -1 unread sentinel) so an uncrewed stamp flakes in 300 s instead of after a 10-minute flight. autoRecordOnLaunch pinned false so the fixture carries no recordings / trees / ledger state (the stamped .sfs does keep an inert populated `SCENARIO{name=ParsekScenario}` node - `gameStateEventCount=18` + one MILESTONE_STATE row - which is what suppresses PreParsekBackup at load) | DONE 2026-07-24: forge run = MISSION-OK / PASS, 268 s wall, full profile PRELAUNCH -> LAUNCH -> ASCENT -> CIRCULARIZE -> SEPARATE -> PARK -> ORBIT; harvested with `harvest_bdock_station.py --target-name eva2-lko-crewed --expect-situation ORBITING` (the harvest's new optional situation gate, added for this orbital harvest); the `eva2-lko-crewed` fixture is COMMITTED and EVA-2-orbital-board flew it green on its first flight |
 | S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
-| B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily |
-| L1-passive-sandbox | daily | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Fixture committed (fresh-sandbox); + seed-baseline no-pools gate must accept an empty-manifest sandbox template (see fixtures README) |
 | L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | First live run (2026-07-23) RED = seam double-debit: the hire verb manually mirrored a stock debit that stock already applies (Funding.onCrewHired via OnCrewmemberHired), charging the pool twice. Fixed (seam AddFunds removed); single cost re-pinned -62113 (seed 500000 -> 437887). Re-run confirms hardDivergences=0 + re-tiers to daily |
 | L1-dismiss-kerbal-career | daily | Dismiss is pool-neutral | Fixture committed (fresh-career, dismiss Bill Kerman); first green live run re-tiers to daily |
 | L1-research-node-career | daily | Research debits science exactly | Fixture committed (fresh-career, basicRocketry=5 verified); first green live run re-tiers to daily |
@@ -269,23 +353,28 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 806 mission-machine + 572 harness + 203 provisioner unittest
-  cells; 18,666 xUnit on the C# side (18,665 passed + 1 skipped: analyzer,
+- Headless: 806 mission-machine + 600 harness + 203 provisioner unittest
+  cells; 18,669 xUnit on the C# side (18,668 passed + 1 skipped: analyzer,
   seam, log contracts, the new route-window delta formatter). Re-measured
-  2026-07-26 from `autotest-eve-missions` (after merging
-  `autotest-landing-missions`, itself carrying `autotest-orbit-missions`);
-  re-measure rather than editing
-  them by memory - `cd harness && python -m unittest discover -s missions/lib -q`
-  (and `-s lib -q`, `-s provision -q`), plus
+  2026-07-26 from `autotest-batch-coverage` AFTER merging `origin/main` (which
+  carried `autotest-orbit-missions` -> `autotest-landing-missions` ->
+  `autotest-eve-missions`); this line inherits SILENTLY through a clean
+  auto-merge and is wrong the moment either side adds a test, so re-measure
+  rather than editing it by memory - `cd harness && python -m unittest discover
+  -s missions/lib -q` (and `-s lib -q`, `-s provision -q`), plus
   `cd Source/Parsek.Tests && dotnet test`.
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
 - In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
   log-contract tests.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 70 / 239 registry cells claimed, 58 of them with a green
-  run behind them (the growth metric). Recomputed from
-  `harness/coverage/coverage.json`, which is generated + gitignored.
+- Coverage ledger: 82 / 240 registry cells claimed (the growth metric),
+  recomputed 2026-07-26 through `hlib.compute_coverage` over the 36 committed
+  specs + the merged registry. The green-backed subset is the OTHER half of
+  this metric and needs the run archive, which is gitignored
+  (`harness/results/*.json`, `harness/coverage/coverage.{json,txt}`), so
+  re-derive it on a checkout that has one; last measured 2026-07-25 at 58 of
+  that day's 70. Never carry either number forward by hand.
 
 ## Run telemetry - what a live run actually shows you
 
