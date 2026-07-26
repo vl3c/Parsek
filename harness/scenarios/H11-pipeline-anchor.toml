@@ -1,0 +1,76 @@
+schema = 1
+id = "H11-pipeline-anchor"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game Pipeline-Anchor category has
+# never been driven by any committed spec. Its seven coroutine cells assert the
+# anchor epsilon stays within tolerance of the recorded geometric offset across the
+# seven anchor situations the recorder can produce: live separation, a Relative
+# section boundary, an orbital checkpoint, an SOI crossing, a loop, a dock, and a
+# suppressed subtree. They resolve positions through the LIVE CelestialBody
+# transforms (Kerbin's bodyTransform rotation at the real Planetarium time), which
+# is the half a headless xUnit fixture has to stub.
+description = "Run the in-game Pipeline-Anchor category unattended: anchor epsilon within tolerance of the recorded geometric offset across live separation, Relative boundary, orbital checkpoint, SOI, loop, dock, and suppressed-subtree cases."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "anchor", "reference-frames", "H11"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: every test builds its own
+# origin + sibling recordings around KSC inline.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Pipeline-Anchor" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the Relative-boundary, loop and orbital-checkpoint cells resolve anchors
+# in exactly the three TrackSection reference frames those names denote (D3), each
+# through the production anchor math rather than a test double. SANDBOX,
+# FLIGHT-scene host (D14). NOT claimed: parent-anchored-debris (no debris recording
+# is built here) or any D5 topology token - the dock and separation cells assert
+# anchor GEOMETRY, not tree structure.
+D3  = ["relative-anchored-nonloop", "relative-loop", "orbital-checkpoint"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=7 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 7
+#    [InGameTest(Category = "Pipeline-Anchor")] methods.
+#  - skipped=0 is DERIVED: all 7 carry Scene = GameScenes.FLIGHT and the batch runs
+#    at FLIGHT; none sets AllowBatchExecution = false; none of the 7 bodies, nor any
+#    helper they call, contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=7 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
+#    LOAD-BEARING: at any other scene all 7 scene-skip.
+# These seven are IEnumerator coroutines that yield across frames, so this batch
+# takes real wall time where H7 / H10 do not. The 540 s RunTests budget is the
+# deferred cap and leaves ample headroom; if a future cell adds a long wait,
+# re-check the budget rather than raising it past the cap.
+required  = ["BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=Pipeline-Anchor scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

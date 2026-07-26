@@ -1,0 +1,89 @@
+schema = 1
+id = "H18-pipeline-smoothing"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game Pipeline-Smoothing category
+# has never been driven by any committed spec. Four cells: a coasting trajectory
+# shows no smoothing jitter, a structural event's flag sample is aligned to the
+# branch point, the child seed's flag parity matches at the branch, and - the one
+# worth the launch - the GameEvents WIRING CONTRACT: onPartCouple, onPartUndock,
+# onVesselsUndocking, onCrewOnEva and onPartJointBreak each carry at least one
+# delegate owned by ParsekFlight or FlightRecorder.
+#
+# That wiring cell is reflection over EventData<T>'s internal listener list on the
+# LIVE GameEvents singletons. There is no headless equivalent: a regression that
+# drops one GameEvents.X.Add(...) call compiles, unit-tests green, and silently
+# stops recording docks or undocks. Nothing else in the suite guards it.
+description = "Run the in-game Pipeline-Smoothing category unattended: coast-jitter suppression, structural-event flag alignment and child-seed parity, and the live GameEvents dock/undock/EVA/joint-break subscription contract."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "smoothing", "gameevents-wiring", "H18"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: each cell builds its own
+# trajectory / branch fixture, and the wiring cell installs and removes one
+# transient FlightRecorder subscription inside a finally.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Pipeline-Smoothing" },           expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the two structural-event cells assert the branch-point flag sample and
+# child-seed parity that structural-event snapshotting produces (D2). SANDBOX,
+# FLIGHT-scene host (D14). NOT claimed: D5 undock-split / dock-merge - the wiring
+# cell proves the SUBSCRIPTION exists, not that a split is recorded correctly; and
+# no D7 token - no part event is actually fired.
+D2  = ["structural-event-snapshots"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
+#    [InGameTest(Category = "Pipeline-Smoothing")] methods.
+#  - skipped=0 is DERIVED, with ONE stated caveat. All 4 carry
+#    Scene = GameScenes.FLIGHT and the batch runs at FLIGHT; none sets
+#    AllowBatchExecution = false; and no cell body contains an InGameAssert.Skip.
+#    The CAVEAT: the wiring cell's private helper AssertHandlerRegistered DOES call
+#    InGameAssert.Skip, on exactly one branch - EventData<T>'s internal `events`
+#    field missing by reflection, i.e. a KSP version renaming it. On the pinned
+#    KSP 1.12.5 that branch is unreachable, so skipped=0 holds; if a KSP upgrade
+#    ever renames the field this reds with skipped=1 and the log names the event,
+#    which is the correct and intended signal, not a flake.
+#  - failed=0 is the ASSERTION. passed=4 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
+#    LOAD-BEARING: at any other scene all 4 scene-skip.
+#
+# The wiring cell logs its own count line, pinned here so a partially-wired run
+# (say 3 of 5 events resolving) reds even if the cell's own assertions are later
+# loosened. "of 5" is the literal the test formats.
+required  = [
+  "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: asserted=5 of 5 GameEvents bindings",
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Pipeline-Smoothing scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

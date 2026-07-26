@@ -1,0 +1,78 @@
+schema = 1
+id = "H17-flight-integration"
+tier = "nightly"
+# BATCH-ONLY scenario over the INJECTED CORPUS, S1.4 / H5 pattern. The in-game
+# FlightIntegration category has never been driven by any committed spec. Four cells:
+# a ghost's world position matches its recorded lat/lon/alt through
+# CelestialBody.GetWorldSurfacePosition, ParsekFlight.Instance is live in the flight
+# scene, the active vessel's body surface API answers, and the Harmony patch is
+# operational.
+#
+# THE CORPUS IS LOAD-BEARING for the first cell. GhostPositionMatchesGeographic
+# scans the store for a surface-ish recording with >= 2 points and, finding none,
+# `yield break`s with a Verbose log rather than an InGameAssert.Skip - so over an
+# empty store it is reported PASSED having asserted nothing. This is the
+# silently-vacuous variant the batch tally structurally cannot detect (the test ran,
+# it passed, it measured nothing). The 272-recording corpus is what gives it a
+# recording to check, and the count pin below is what proves the corpus was there.
+description = "Run the in-game FlightIntegration category over the injected corpus: recorded lat/lon/alt matches GetWorldSurfacePosition, ParsekFlight is live, the surface API answers, and the Harmony patch is operational."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "corpus", "flight-integration", "harmony", "H17"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "FlightIntegration" },            expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: GhostPositionMatchesGeographic resolves a stored surface point through the
+# live body-fixed surface lookup, which is the surface-body-fixed frame contract
+# read back out of a real .prec sidecar (D3, D16). SANDBOX, FLIGHT-scene host (D14).
+# NOT claimed: a D6 playback token - the cell compares a computed world position
+# against the recorded geographic triple; it does not spawn, position or animate a
+# ghost, which is S1.4's job.
+D3  = ["surface-body-fixed"]
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the silently-
+# bailing first cell.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
+#    [InGameTest(Category = "FlightIntegration")] methods.
+#  - skipped=0 is DERIVED: all 4 carry Scene = GameScenes.FLIGHT and the batch runs
+#    at FLIGHT; none sets AllowBatchExecution = false; none of the 4 bodies, nor any
+#    helper they call, contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=4 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
+#    LOAD-BEARING: at any other scene all 4 scene-skip.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=FlightIntegration scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

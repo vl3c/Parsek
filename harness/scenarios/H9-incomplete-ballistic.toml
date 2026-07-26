@@ -1,0 +1,79 @@
+schema = 1
+id = "H9-incomplete-ballistic"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game IncompleteBallistic category
+# has never been driven by any committed spec. It covers the scene-exit tail
+# extrapolator end to end: a plane leaving mid-flight, a suborbital exit at
+# apoapsis, a hyperbolic exit handing off to Kepler, a Mun-flyby patched-conic
+# snapshot, a stripped maneuver node, and the three map-rendering cells that assert
+# the ghost draws a line from the extrapolated segment, continues past the recorded
+# end, and does NOT render foreign-SOI segments.
+description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, and the extrapolated-segment map line."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ballistic", "extrapolation", "scene-exit", "H9"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: every test builds its own
+# ExtrapolationBody dictionary and BallisticStateVector inline.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "IncompleteBallistic" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the five extrapolation / patched-conic cells drive
+# BallisticExtrapolator + PatchedConicSnapshot, the two production components the
+# scene-exit finalizer chains (D1 ballistic-extrapolation,
+# scene-exit-finalization). The run is SANDBOX on the FLIGHT-scene pod host (D14).
+# NOT claimed: a D3 reference-frame token (the fixtures are synthetic state
+# vectors, not authored TrackSections) and no D6 playback token - the three
+# MapRendering_V1_* cells assert over the renderer's INPUT segments, not a live
+# ghost draw, which is S1.7's job.
+D1  = ["ballistic-extrapolation", "scene-exit-finalization"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=8 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 8
+#    [InGameTest(Category = "IncompleteBallistic")] methods. NOTE the file also
+#    hosts Ledger / Rewind / RouteLiveAnchor / SwitchSegment declarations and DOES
+#    contain InGameAssert.Skip call sites - all of them in THOSE categories'
+#    methods, none in an IncompleteBallistic one. A per-file grep would mislead
+#    here; the derivation is per-method-body. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED: all 8 carry Scene = GameScenes.FLIGHT and the batch runs
+#    at FLIGHT; none sets AllowBatchExecution = false; and none of the 8 bodies, nor
+#    any helper they call, contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION.
+#  - passed=8 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route, as H5/S1.4
+#    MEASURED on it) and is LOAD-BEARING: at any other scene all 8 scene-skip.
+required  = ["BATCH_COMPLETE v1 total=8 passed=8 failed=0 skipped=0 category=IncompleteBallistic scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

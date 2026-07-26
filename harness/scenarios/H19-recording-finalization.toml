@@ -1,0 +1,71 @@
+schema = 1
+id = "H19-recording-finalization"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game RecordingFinalization category
+# has never been driven by any committed spec. Three cells drive
+# BackgroundRecorder's finalization-cache apply path over a synthetic tree: a
+# DESTROYED background cache trims the predicted tail back to the stock deletion UT,
+# a STABLE cache finalizes a missing vessel as Orbiting rather than Destroyed, and an
+# ACTIVE CRASH cache appends its tail before failing over. Each asserts on the
+# production log lines through a capture guard, so a silent behavior change in the
+# apply path reds here.
+description = "Run the in-game RecordingFinalization category unattended: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, and active-crash tail append."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "finalization", "background-recorder", "H19"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: each cell builds its own
+# RecordingTree + BackgroundRecorder + finalization cache inline.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RecordingFinalization" },        expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: all three cells drive the finalization cache itself (D1
+# finalization-cache). SANDBOX, FLIGHT-scene host (D14). NOT claimed: D5 bg-recording
+# / bg-on-rails - a BackgroundRecorder is constructed and its cache applied, but no
+# vessel is ever recorded in the background, so the recorder's own sampling path is
+# untouched.
+D1  = ["finalization-cache"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=3 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 3
+#    [InGameTest(Category = "RecordingFinalization")] methods.
+#  - skipped=0 is DERIVED: all 3 carry Scene = GameScenes.FLIGHT and the batch runs
+#    at FLIGHT; none sets AllowBatchExecution = false; none of the 3 bodies, nor any
+#    helper they call, contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=3 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
+#    LOAD-BEARING: at any other scene all 3 scene-skip.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RecordingFinalization scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

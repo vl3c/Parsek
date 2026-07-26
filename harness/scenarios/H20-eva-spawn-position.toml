@@ -1,0 +1,107 @@
+schema = 1
+id = "H20-eva-spawn-position"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. THIS IS THE SPEC THE 2026-07-25 "do not
+# wire EVA batches" decision explicitly deferred to a follow-up
+# (docs/dev/todo-and-known-bugs.md): a DEDICATED batch-only scenario so the
+# batch-safe EVA-adjacent tests execute instead of Skipping, rather than bolting a
+# batch onto the EVA-1/2/3 seam scenarios and coupling their recording-production
+# verification to batch-isolation teardown.
+#
+# THE RECOMMENDATION NAMED TWO CATEGORIES; ONLY ONE OF THEM IS WIREABLE, AND THE
+# REASON IS STRUCTURAL. CrewReservationLive is NOT wired here or anywhere: both of
+# its cells short-circuit on `spawnedCount == 0`, and the corpus injector
+# (SyntheticRecordingTests.CleanSaveStart -> RemoveSpawnedPidLines) strips every
+# `spawnedPid = ` line out of the staged save by construction, so the injected
+# corpus can never contain the spawned-endpoint recordings they need. Running it
+# over the corpus would produce exactly the vacuous
+# `total=2 passed=0 failed=0 skipped=2` line the anti-vacuity gate exists to reject.
+# See docs/dev/autotest-status.md for the full finding.
+#
+# EvaSpawnPosition IS wireable, because its precondition is a MANNED vessel on the
+# ground, which gloops-airshow has: a crewed mk1-capsule with landed = True,
+# splashed = False. Both cells build their own throwaway kerbal + EVA recording and
+# spawn against the live PQS terrain.
+description = "Run the in-game EvaSpawnPosition category unattended from the crewed landed pod host: EVA spawns within tolerance of the recorded endpoint and clear of the parent, and walks back along the trajectory when the endpoint overlaps."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "eva", "spawn-safety", "H20"]
+
+[fixture]
+# gloops-airshow: the mk1-capsule host is crewed (Jebediah), landed = True and
+# splashed = False, which is exactly the precondition set both cells gate on. No
+# injected recordings - each cell authors its own EVA recording and removes it.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "EvaSpawnPosition" },             expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the endpoint cell asserts the spawn lands within 10 m of the recorded
+# endpoint AND >= 50 m off the parent, which is the terrain-corrected surface spawn
+# (D13 terrain-correction). The walkback cell drives
+# TryWalkbackForEndOfRecordingSpawn's raycast-snap branch (D13
+# trajectory-walkback) - see the tally note for why that one cell may self-skip.
+# SANDBOX, FLIGHT-scene host (D14). NOT claimed: D1 auto-record-eva or D5
+# eva-branch - nothing is RECORDED here; a pre-built EVA recording is SPAWNED FROM,
+# which is what EVA-1/2/3 own on the recording side.
+D13 = ["terrain-correction", "trajectory-walkback"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# Each cell authors a throwaway EVA recording and cleans up; the batch's
+# FLIGHT-with-vessel isolation additionally reverts persistent.sfs from the clean
+# .bak after teardown. A non-zero count here is a genuine leak finding, not a spec
+# bug - file it rather than widening this bound.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: total / category / scene are pinned as literals and `passed` cannot
+# be zero, so an empty or all-skipped batch is rejected.
+#
+# THIS IS THE ONE SPEC IN THE H7-H20 GROUP THAT DOES *NOT* PIN THE TALLY WHOLE, AND
+# THAT IS DELIBERATE - writing a whole tally here would be inventing a number that
+# looks measured. The interim form (the one hlib.validate_spec's own error message
+# recommends, and the one S1.4 carried before its first live flight) is used
+# because the split is genuinely underivable:
+#  - total=2 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 2
+#    [InGameTest(Category = "EvaSpawnPosition")] methods. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped is NOT derivable, unlike every other spec in this group. Both cells
+#    carry run-time InGameAssert.Skip guards. The manned / mainBody / solid-ground /
+#    vessel-type guards are all SATISFIED by gloops-airshow from the save file
+#    (crewed, landed, not splashed, type = Ship), but the walkback cell has one
+#    further guard - InGameFixtureMath.WalkbackFixtureCoversParent(trajectoryLength,
+#    clearanceBudget) - whose answer depends on the parent's measured clearance
+#    budget at run time. A capsule is small and it very likely covers, but "likely"
+#    is not a derivation, so the honest floor is skipped >= 0 and passed >= 1.
+#  - failed=0 is the ASSERTION.
+# WHAT THE FIRST LIVE RUN MUST DO: read the BATCH_COMPLETE line and replace this
+# pattern with the whole tally (almost certainly
+# `total=2 passed=2 failed=0 skipped=0`, possibly `passed=1 skipped=1`), then delete
+# this paragraph. Do NOT leave the loose form in place once a number exists - it
+# accepts 1-of-2 by design, which is the weakest pin in the harness.
+required  = ["BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=EvaSpawnPosition scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Both cells are IEnumerator coroutines that spawn a real vessel and wait for it to
+# settle, so this batch takes real wall time. 720 total with the 540 RunTests cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

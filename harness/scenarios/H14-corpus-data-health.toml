@@ -1,0 +1,90 @@
+schema = 1
+id = "H14-corpus-data-health"
+tier = "nightly"
+# BATCH-ONLY scenario over the INJECTED CORPUS, S1.4 / H5 pattern. The in-game
+# DataHealth category has never been driven by any committed spec. Its four cells
+# walk RecordingStore.CommittedRecordings and assert every body name resolves
+# through FlightGlobals, every OrbitSegment names a real body, every recording has
+# a part that PartLoader can resolve, and every time range is sane.
+#
+# THE CORPUS IS LOAD-BEARING, NOT DECORATION. All four cells iterate the store and
+# assert a violation COUNT is zero. Over an EMPTY store each loop body never runs
+# and every assertion passes on zero items: the batch would report
+# total=4 passed=4 skipped=0 while proving nothing. That is the vacuous-pass class
+# one level below the one the anti-vacuity gate catches - the tally is honest, the
+# tests really did execute, and they still measured nothing. Pinning the tally
+# cannot detect it; the FIXTURE is the only defence, so this spec injects the
+# 272-recording corpus and pins the count.
+description = "Walk the injected synthetic corpus through the in-game DataHealth category: every body name resolves, every OrbitSegment body is real, every recording has a PartLoader-resolvable part, and every time range is sane."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "corpus", "data-health", "H14"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host + the 272-recording synthetic corpus (same pair
+# H5 and S1.4 use). injectedRecordings is what makes this batch non-vacuous.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: autoRecordOnLaunch pinned false, so spec_expects_live_recording is
+# False and REC-001/REC-003 are correctly suppressed (the save holds recordings it
+# never recorded live), exactly as in H5.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "DataHealth" },                   expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: loading the corpus reads each recording from its .prec sidecar through
+# the load-time schema-compatibility gate before DataHealth ever sees it (D16),
+# and EveryRecordingHasResolvablePart resolves each stored part name through the
+# live PartLoader - the underscore-to-dot conversion .claude/CLAUDE.md warns about
+# is only observable in a running game. SANDBOX, FLIGHT-scene host (D14). NOT
+# claimed: an invariant-family token (H5 owns the InvariantRegistry sweep; this is
+# a different, narrower set of assertions over the same corpus).
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec", "schema-gate"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected corpus, unchanged (no live recording). Pinned to the same 272 H5 and
+# S1.4 use on stock-minimal; the corpus conditionally appends ReStock+ showcase
+# rows on modded installs, so a profile change moves this number too. This count is
+# the anti-vacuity guard for THIS spec: it is what proves the four store walks had
+# something to walk.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, and the recordings count above closes the
+# second, fixture-level vacuity hole described in the header.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
+#    [InGameTest(Category = "DataHealth")] methods.
+#  - skipped=0 is DERIVED: all 4 are scene-agnostic (no Scene argument, so
+#    FilterSceneEligibleBatchCandidates drops none at any scene); none sets
+#    AllowBatchExecution = false; none of the 4 bodies, nor any helper they call,
+#    contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=4 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route, MEASURED on this
+#    exact fixture by H5 and S1.4). The category is scene-agnostic, so the token
+#    affects the pin's text but not which tests run.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=DataHealth scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,77 @@
+schema = 1
+id = "H16-corpus-spawn-health"
+tier = "nightly"
+# BATCH-ONLY scenario over the INJECTED CORPUS, S1.4 / H5 pattern. The in-game
+# SpawnHealth category has never been driven by any committed spec. Three cells walk
+# RecordingStore.CommittedRecordings: no recording is left with SpawnAbandoned stuck
+# true (it is meant to reset on scene entry), no recording has an out-of-bounds
+# SpawnDeathCount, and no Destroyed recording still carries a spawned-vessel PID.
+#
+# ONE OF THE THREE IS INERT OVER THIS CORPUS, AND THAT IS STATED HERE RATHER THAN
+# DISCOVERED LATER. SpawnedPidConsistency only counts violations among recordings
+# with SpawnedVesselPersistentId != 0, and the corpus writer
+# (SyntheticRecordingTests.CleanSaveStart -> RemoveSpawnedPidLines) STRIPS every
+# `spawnedPid = ` line out of the staged save by construction. So that cell runs,
+# passes, and asserts over an empty subset. The other two are genuinely exercised
+# across all 272 recordings. Fixing the third means teaching the corpus writer to
+# author spawned-endpoint recordings - see the same root cause under
+# CrewReservationLive in docs/dev/autotest-status.md.
+description = "Walk the injected synthetic corpus through the in-game SpawnHealth category: no stuck SpawnAbandoned flag and no out-of-bounds SpawnDeathCount across all committed recordings."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "corpus", "spawn-health", "H16"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SpawnHealth" },                  expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: NoStuckSpawnAbandoned is the three-cycle-abandon flag's reset contract
+# read off real stored state (D13). SANDBOX, FLIGHT-scene host (D14). NOT claimed:
+# pid-dedup - the cell that would cover it (SpawnedPidConsistency) is inert over a
+# corpus with no spawned PIDs, as the header states, so claiming the token would be
+# false coverage.
+D13 = ["three-cycle-abandon"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the two cells that
+# genuinely walk the corpus.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=3 is ATTRIBUTE-EXACT: ExtendedRuntimeTests declares exactly 3
+#    [InGameTest(Category = "SpawnHealth")] methods.
+#  - skipped=0 is DERIVED: all 3 are scene-agnostic; none sets
+#    AllowBatchExecution = false; none of the 3 bodies, nor any helper they call,
+#    contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=3 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route). The category is
+#    scene-agnostic, so the token affects the pin's text but not which tests run.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SpawnHealth scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

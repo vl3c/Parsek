@@ -1,6 +1,30 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-26 (PLAYBACK is now gated, twice. S1.6-render-parity
+Last updated: 2026-07-26 (THE IN-GAME CATEGORY GAP, measured and half closed.
+Parsek ships 539 in-game runtime tests across 97 categories; committed scenarios
+drove EIGHT of those categories, so 89 were written, passed under Ctrl+Shift+T, and
+never executed in any unattended run. The inventory is now DERIVED from the C#
+attributes rather than guessed at, every category triaged A/B/C with the reason
+stated, and 14 categories wired as batch-only specs H7-H20 over the existing
+gloops-airshow fixture: 22 of 97 categories driven, 201 of 539 declarations inside a
+driven category and 179 of them actually batch-executed.
+None has flown - 13 pin their tally WHOLE from a source derivation that closes
+(attribute-exact total, plus a transitive scan proving no reachable
+InGameAssert.Skip), and H20 carries the honest interim form because its split is
+genuinely fixture-measured. Detail + fly order:
+autotest-ingame-category-inventory.md.
+Three findings fell out. (1) The prior FUTURE recommendation to wire
+EvaSpawnPosition AND CrewReservationLive over the injected corpus was half wrong:
+the corpus injector STRIPS every spawnedPid line by construction, so
+CrewReservationLive can only ever emit the vacuous total=2 passed=0 skipped=2 -
+it needs a C# corpus change, not a spec. (2) A FOURTH vacuity trap, invisible to
+the anti-vacuity gate: a test that RUNS, PASSES and asserts over nothing (a store
+walk over an empty store), sometimes behind a silent yield break that reports
+PASSED rather than Skipped. Only the fixture defends against it, so the four
+corpus-backed members pin recordings.count=272. (3) A harness bug:
+hlib._pin_literal_word excluded `-`, making all seven hyphenated Pipeline-*
+categories structurally unpinnable while the runtime parser accepted them fine.
+Prior: 2026-07-26 (PLAYBACK is now gated, twice. S1.6-render-parity
 LIVE-PROVEN on its first flight and S1.7-maprender-parity built and LIVE-PROVEN
 the same day: the production recorded-vs-rendered parity oracle had existed and
 been wired for months with 47 in-game tests asserting through it, and no
@@ -254,6 +278,7 @@ Each fact about this system lives in exactly one place:
 | `harness/README.md` | Harness module mechanics: ownership boundary, how to run, submodule readiness |
 | `todo-and-known-bugs.md` | Finding forensics: the full evidence trail behind every live finding |
 | `harness/coverage/registry.toml` | The machine-readable coverage denominator (authoritative cell list) |
+| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 97 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 PENDING-OPERATOR runbook |
 
 If a status statement appears anywhere else, it is a pointer to this file or
 it is wrong. MAINTENANCE RULE: any PR that changes a module's status,
@@ -321,7 +346,7 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 38 committed scenarios)
+## Test cases (all 52 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -387,6 +412,80 @@ branch with the kerbal's own falling-vessel recording.
 | EVA-3-multi-kerbal | nightly | Two sequential EVA branch points + two board merges in one tree; the F2 quiescence conjunct protects the second exit | Fixture `eva3-pad-3crew` COMMITTED (P2 done, forged 2026-07-24). First flight 2026-07-24: driverValidity PASS (all 4 EVA verbs OK, each exit->board cycle under 0.8 s wall), analyzer red=0, logValidate PASS, anomalySweep PASS; the only red was 2 missing logContract tokens (`detected boarding from EVA`, `Tree board merge completed`) for BOTH cycles. A PARSEK defect FOUND + FIXED: an EVA branch parks the kerbal's recording in BackgroundMap and only the post-switch first-modification watcher promotes it, so a `release=false` exit-then-board inside ~0.18 s left `recorder=null` at the board and BOTH the boarding detection and `HandleTreeBoardMerge` failed closed - the saved tree carried 2 EVA branch points and ZERO Board branch points, kerbal recordings terminal Destroyed instead of Boarded. `OnCrewBoardVessel` now rebinds a background-only EVA recording to the live recorder at the board (`DecideEvaBoardPromotion`, 11 xUnit cells); the seam was deliberately NOT changed (a wait-for-merge there would reclassify a dropped merge as driver INVALID instead of PARSEK-FAIL). Re-flight pending to pin the P3 count window and confirm 2 EVA branches + 2 boarding detections + 2 board merges. Batch autorun evaluated = NOT wired (batchComplete SKIPPED, see EVA-1 spec) ; LIVE-PROVEN 2026-07-24 (flight 2 full PASS after the board-merge data-loss fix; 2 promotions/2 merges/7 recordings) |
 | EVA-4-atmo-chute | nightly | Mid-flight ATMOSPHERIC EVA branch (every other EVA case exits on the ground or in orbit), atmospheric TrackSections on the KERBAL's own falling-vessel recording, the EVA chute captured as a two-phase part event on the kerbal (D7 chute-two-phase, previously unclaimed), and the DOWN terminal applied to a KERBAL recording with the kerbal ALIVE | FLIGHT 1 (2026-07-24) ASSERT-FAILED AS DESIGNED, re-tuned, re-fly pending. The machine, the named-failure design and the diagnostics all worked: `eva-window-missed: altitude 702m fell below the window floor 800m (vspeed -295.2m/s, situation FLYING, craftChute armed)`, phasesReached PRELAUNCH/ASCENT/COAST/DESCENT, apoapsisWindow met (19,879 m), no budget burn (107 s wall). MEASURED profile: peak altitude 11,965 m at ut 60.6; unchuted descent settles at TERMINAL -301 m/s by ~2,700 m; chute armed at 2,382 m / -301 m/s and 5.1 s later at 855 m the rate had moved 4.7 m/s. ROOT CAUSE (recording + decompile, not inference): the pod's `.prec` carries ZERO Parachute* part events, and decompiled `ModuleParachute.cs:1255-1290` gates ACTIVE->SEMIDEPLOYED on `automateSafeDeploy >= deploymentSafeState` while the fixture persists `automateSafeDeploy = 0` (only while SAFE) - which DeploySafe never reads at ~300 m/s in dense air. Arming low was INERT, not late; a craft at terminal velocity never slows on its own. THREE FIXES: (1) ARM WHILE SLOW - the machine now arms on the COAST->DESCENT transition frame itself (falling through into the descent body so there is no one-poll delay; measured entry rates -7.4/-16.9/-26.1/-35.5 m/s, bound 30), i.e. at the apoapsis crossing where DeploySafe is trivially SAFE and Kerbin is already ~0.2 atm; (2) RAISE the stock full-deploy altitude from the fixture's 1000 m to 2500 m via kRPC `Parachute.DeployAltitude` (a PAW tweakable) so the full canopy exists well above the EVA band - the Mk16 animation is ~8 s (`deploymentSpeed = 0.12`); (3) GATE ON OBSERVED STATE - new opt-in `craft_chute_state` telemetry channel (kRPC `ParachuteState`, "" unread = fail-closed) so the window requires the chute to READ Deployed, never the commanded latch that was true for the whole failed flight. Window re-tuned [800,2400]/60 -> [700,2100]/25; descent budget provisionally raised 240 -> 480 s and runtime 1560 -> 1920 s because the semi-deployed rate was not measured yet. A new `craftCanopyObserved` assertion row reports observed-vs-commanded in the result JSON. Same-evidence FINDING SPUN OFF: B1-pad-hop's chute never opens either (its 2026-07-20 recording has zero Parachute* events and ends at 65 m) - B1 passes because its DOWN terminal only checks the COMMANDED latch. NOTE on the failed attempt's artifacts: run.py USED TO drive the remaining seam steps regardless of the mission outcome, so flight 1 DID perform a terminal-velocity hatch EVA after the ASSERT-FAIL (EvaExit at ~356 m / -277 m/s, kerbal chute semi-deployed at 221 m, landed alive, tree committed) - no false PASS (the run classifies INVALID(mission) before the tail and the save is re-staged per attempt), but a window-missed run's collected save/log carried a spurious EVA branch + landing and could burn ~120 + 420 s of deferral budget. FIXED harness-side 2026-07-25 (see the M-A5 row): an UNMET mission step now drives the CLEANUP tail only (StopRecording + FlushAndQuit), so this scenario's EvaExit / EvaChuteDeploy / CommitTree are skipped on a window-missed attempt ; LIVE-PROVEN 2026-07-24 (flight 2 FULL PASS, all seven verifiers: canopy observed Deployed, handoff 1,606 m / -23.2 m/s, kerbal chuted descent steady -4.5 m/s, ParachuteCut at touchdown, down=true situation=LANDED alive=true. All four pins closed: P1 count PINNED 3, P2 `'kerbalEVA` token confirmed, P3 semi-deployed rate MEASURED at about -236 m/s peak with the whole DESCENT phase 61.6 s -> descentTimeoutSeconds trimmed 480 -> 240 (~3.9x margin; step/runtime budgets deliberately left at 900/1920 as wall-clock envelopes), P4 kerbal lands alive. Post-live hardenings: K=2 EVA-window debounce and the RAW-alive CompleteOk conjunct) |
 
+### In-game batch wiring H7-H20, committed, not yet live-run (14)
+
+The gap these close: Parsek ships 539 in-game runtime tests across 97 categories, and
+before this group committed specs drove EIGHT of them. The other 89 were written,
+passed when an operator pressed Ctrl+Shift+T, and never executed in any unattended
+run. Full enumeration, the A/B/C triage behind which 14 were picked, and the
+PENDING-OPERATOR fly order live in
+[`autotest-ingame-category-inventory.md`](autotest-ingame-category-inventory.md).
+
+All 14 are batch-only specs on the S1.4 / H6 shape: LoadGame the committed
+`gloops-airshow` host, pin `autoRecordOnLaunch` false, one `RunTests` step naming one
+category, FlushAndQuit. Driven categories go 8 -> 22 of 97. Declarations inside a
+driven category go 125 -> 201 of 539, and the subset that actually EXECUTES (surviving
+both runner filters at the scene each spec drives) goes 103 -> 179. The two numbers
+differ because three of the eight pre-existing driven categories run at SPACECENTER
+where some of their members are scene-skipped; all 76 declarations the new group adds
+execute.
+
+EVIDENCE STANDING FOR THE WHOLE GROUP, stated once: **no member has ever been flown.**
+Thirteen pin their tally WHOLE from a SOURCE DERIVATION - `total` is attribute-exact,
+`skipped=0` follows from every declaration being scene-eligible at FLIGHT,
+batch-allowed, and free of any `InGameAssert.Skip` reachable from its body or its
+helpers, and `passed` then follows from the `failed=0` assertion. `scene=FLIGHT` is
+inferred from the fixture's Focusable LoadGame route, the rule H5 and S1.4 MEASURED
+on this exact fixture. A wrong derivation reds loudly with the real numbers; it
+cannot read green over nothing. `H20` is the one member whose split is genuinely
+underivable and it carries the honest interim form instead of an invented number.
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| H7-trajectory-math | nightly | Sampling predicate + quaternion helpers against LIVE Unity arithmetic; `ShouldRecordPoint` against the density preset the running game loaded (D2 density-presets/threshold-debounce) | Tally DERIVED not measured: `total=8 passed=8 failed=0 skipped=0 category=TrajectoryMath scene=FLIGHT`. Runbook item 2 |
+| H8-spawn-rotation | nightly | The srfRelRotation-vs-world-rotation spawn-node contract on Kerbin AND Mun; terminal-pose frame preference (D13 surface-orbit-reseed; D14 kerbin/mun) | Tally DERIVED: `total=10 passed=10 failed=0 skipped=0`. The scene inference is load-bearing here (all 10 are FLIGHT-scoped). Runbook item 4 |
+| H9-incomplete-ballistic | nightly | Ballistic tail extrapolation through atmosphere/terrain/SOI, patched-conic snapshot integration, extrapolated-segment map line (D1 ballistic-extrapolation/scene-exit-finalization) | Tally DERIVED: `total=8 passed=8 failed=0 skipped=0`. Runbook item 5 |
+| H10-finalize-backfill | nightly | Terminal-orbit backfill from OrbitSegment, no-overwrite guards, and the four stale-cached-tuple endpoint realignments (D1 finalization-cache) | Tally DERIVED: `total=7 passed=7 failed=0 skipped=0`. Runbook item 6 |
+| H11-pipeline-anchor | nightly | Anchor epsilon vs recorded geometric offset across live separation, Relative boundary, orbital checkpoint, SOI, loop, dock and suppressed subtree, through live body transforms (D3 relative-anchored-nonloop/relative-loop/orbital-checkpoint) | Tally DERIVED: `total=7 passed=7 failed=0 skipped=0`. Seven frame-yielding coroutines, so this is the first budget to re-time. Runbook item 7 |
+| H12-switch-segment | nightly | The Map Switch-To arming PREFIX gate across focus modes + intent arm/clear with no marker leak (D1 switch-segment) | Tally DERIVED: `total=6 passed=6 failed=0 skipped=0`. Runbook item 8 |
+| H13-ksp-api-smoke | nightly | FIXTURE CANARY: loaded-scene / Kerbin / PartLoader / root-path sanity plus `ActiveVesselExists` and `FlightCameraExists`, the only POSITIVE proof that the fixture took the Focusable/FLIGHT route the other 13 infer (D14 only - no Parsek behavior is under test) | Tally DERIVED: `total=6 passed=6 failed=0 skipped=0`. FLY THIS FIRST: a wrong route reds here as `passed=4 skipped=2` naming the real scene, before 13 other runs are wasted. Runbook item 1 |
+| H14-corpus-data-health | nightly | Body names, OrbitSegment bodies, PartLoader part resolution and time ranges across all 272 injected recordings (D16 sidecar-prec/schema-gate) | Tally DERIVED: `total=4 passed=4 failed=0 skipped=0`, plus `recordings.count = 272` which is the real anti-vacuity guard (see the fourth-trap note below). Runbook item 3 |
+| H15-corpus-ghost-visuals | nightly | A ghost mesh built from EVERY recording in the corpus; every stored part name resolved through the live PartLoader (D16 sidecar-craft/sidecar-pcrf) | Tally DERIVED: `total=4 passed=4 failed=0 skipped=0` + count 272. Heaviest batch in the group; the one most likely to need a budget bump. Runbook item 12 |
+| H16-corpus-spawn-health | nightly | Stuck `SpawnAbandoned` and out-of-bounds `SpawnDeathCount` across the corpus (D13 three-cycle-abandon) | Tally DERIVED: `total=3 passed=3 failed=0 skipped=0` + count 272. One of its three cells (`SpawnedPidConsistency`) is INERT over this corpus and the spec says so. Runbook item 13 |
+| H17-flight-integration | nightly | Recorded lat/lon/alt vs `GetWorldSurfacePosition` over the corpus, ParsekFlight liveness, active-vessel surface API, Harmony patch operational (D3 surface-body-fixed; D16 sidecar-prec) | Tally DERIVED: `total=4 passed=4 failed=0 skipped=0` + count 272. Its first cell bails SILENTLY over an empty store, so the count pin is what makes it mean anything. Runbook item 11 |
+| H18-pipeline-smoothing | nightly | Coast-jitter suppression, structural-event flag alignment and child-seed parity, and the LIVE GameEvents subscription contract - a dropped `GameEvents.X.Add(...)` compiles, unit-tests green, and silently stops recording docks (D2 structural-event-snapshots) | Tally DERIVED: `total=4 passed=4 failed=0 skipped=0`, plus the `asserted=5 of 5 GameEvents bindings` line. One caveat stated in the spec: the wiring helper's only Skip branch is a KSP field rename, unreachable on 1.12.5. Runbook item 9 |
+| H19-recording-finalization | nightly | BackgroundRecorder finalization-cache apply: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, active-crash tail append (D1 finalization-cache) | Tally DERIVED: `total=3 passed=3 failed=0 skipped=0`. Runbook item 10 |
+| H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | The ONLY interim pin in the group: `total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+`. Both cells carry run-time Skip guards; gloops-airshow satisfies the crewed / landed / solid-ground / vessel-type ones from the save file, but the walkback cell's `WalkbackFixtureCoversParent` answer is measured at run time. FLY LAST and replace the pattern with the whole tally. Runbook item 14 |
+
+Two findings from building this group, both with full detail in the inventory doc:
+
+- **The FUTURE recommendation was half-wrong, and the data says why.** The 2026-07-25
+  EVA decision recommended a dedicated batch-only scenario over the injected corpus
+  for `EvaSpawnPosition` AND `CrewReservationLive`. `EvaSpawnPosition` shipped as H20.
+  `CrewReservationLive` CANNOT ship that way: both its cells short-circuit on
+  `spawnedCount == 0`, and the corpus injector
+  (`SyntheticRecordingTests.CleanSaveStart` -> `RemoveSpawnedPidLines`) strips every
+  `spawnedPid = ` line out of the staged save by construction, so the corpus is
+  guaranteed to contain zero spawned-endpoint recordings and the batch would emit
+  exactly the vacuous `total=2 passed=0 failed=0 skipped=2`. Unblocking it is a C#
+  corpus-writer change, and the same change makes H16's inert third cell meaningful.
+- **A FOURTH trap, invisible to every existing defence.** `batch_contract_vacuity_gap`
+  catches `passed == 0`. It cannot catch a test that RUNS, PASSES and asserts over
+  nothing - a store walk counting violations passes on zero items, and several tests
+  bail early with a silent `return` / `yield break` plus a Verbose log INSTEAD of an
+  `InGameAssert.Skip`, so they are reported PASSED rather than Skipped. Only the
+  FIXTURE defends against it, which is why the four corpus-backed members pin
+  `recordings.count = 272`.
+
+A harness bug was found and fixed on the way: `hlib._pin_literal_word`'s character
+class excluded `-`, so all seven hyphenated categories (`Pipeline-Anchor`,
+`Pipeline-Smoothing`, `Pipeline-Frame`, `Pipeline-Outlier`, `Pipeline-Terrain`,
+`Pipeline-AnchorPropagate`, `Pipeline-Anchor-BubbleEntry`) were structurally
+unpinnable - `statically_checkable` went False and the sync sweep rejected the spec
+with a message blaming the author. The runtime parser never had the gap (`_BATCH_RE`
+reads a non-space category token), so this was a static-path-only disagreement with
+the line the game actually prints.
+
 ## Mission-machine trust layer
 
 The shared flyby machine (mlib) was hardened by 19+ live findings so that a
@@ -404,15 +503,17 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 806 mission-machine + 726 harness + 203 provisioner unittest
+- Headless: 806 mission-machine + 737 harness + 203 provisioner unittest
   cells; 18,669 xUnit on the C# side (18,668 passed + 1 skipped: analyzer,
   seam, log contracts, the new route-window delta formatter). Re-measured
   2026-07-26 from `autotest-render-parity` AFTER its SECOND merge of
   `origin/main` (which carried `autotest-orbit-missions` ->
   `autotest-landing-missions` -> `autotest-eve-missions` ->
   `autotest-batch-coverage` -> `autotest-tally-gate`); the harness figure
-  moved 664 -> 726 because this merge is the first tree holding both sides'
-  cells. This line inherits SILENTLY through a clean auto-merge and is wrong
+  moved 664 -> 726 because that merge is the first tree holding both sides.
+  cells, then 726 -> 737 on `ingame-test-wiring` (the H7-H20 group's
+  `IngameBatchWiringGroupTests` plus the hyphenated-category pin cells).
+  This line inherits SILENTLY through a clean auto-merge and is wrong
   the moment either side adds a test, so re-measure rather than editing it by
   memory - `cd harness && python -m unittest discover -s missions/lib -q`
   (and `-s lib -q`, `-s provision -q`), plus
@@ -422,7 +523,16 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   log-contract tests. Counted mechanically by
   `hlib.parse_ingame_test_declarations` over `Source/Parsek`, not by hand
   (the hand-and-grep number was 534 / 96: five namespace-qualified
-  declarations were invisible to both).
+  declarations were invisible to both). AUTORUN-ABLE IS NOT THE SAME AS
+  AUTORUN: **22 of the 97 categories are driven by a committed spec** (up from
+  8 before the H7-H20 group). That covers 201 of the 539 declarations, 179 of
+  which actually execute - the gap is the members scene-skipped in the three
+  pre-existing categories that run at SPACECENTER. The remaining 75 categories
+  still run only when an operator presses Ctrl+Shift+T.
+  Per-category eligibility, the A/B/C triage of what is left, and the reason
+  each un-wired category is un-wired live in
+  [`autotest-ingame-category-inventory.md`](autotest-ingame-category-inventory.md);
+  the split is re-derived there, never hand-counted.
 - Spec-vs-source: every batch-owning spec's pinned `BATCH_COMPLETE` tally is
   cross-checked against the C# `[InGameTest]` attributes it describes
   (`CommittedBatchTallySourceSyncTests`), so adding an in-game test to a
@@ -431,9 +541,10 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   does not model reds instead of quietly shrinking a total.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 83 / 241 registry cells claimed (the growth metric),
-  recomputed 2026-07-26 through `hlib.compute_coverage` over the 38 committed
-  specs + the merged registry. The green-backed subset is the OTHER half of
+- Coverage ledger: 97 / 241 registry cells claimed (the growth metric),
+  recomputed 2026-07-26 through `hlib.compute_coverage` over the 52 committed
+  specs + the merged registry (83 / 241 over 38 specs before the H7-H20
+  group). The green-backed subset is the OTHER half of
   this metric and needs the run archive, which is gitignored
   (`harness/results/*.json`, `harness/coverage/coverage.{json,txt}`), so
   re-derive it on a checkout that has one; last measured 2026-07-25 at 58 of
@@ -594,6 +705,14 @@ six publish or compare numbers the runner already measured.
 5. B1 chute re-prove: NO operator session needed - it is a normal unattended
    nightly run. Listed here only because it is the gate that returns B1 to
    live-proven, and because its result pins P1/P2/P3 in the B1 spec.
+6. H7-H20 tally measurement: NO operator session needed either - 14 normal
+   unattended nightly runs. Listed here because every one of the 14 pins carries
+   "DERIVED FROM SOURCE, NEVER MEASURED" until a run confirms it, and because
+   H20's interim pin must be REPLACED by a measured tally rather than merely
+   confirmed. Fly `H13-ksp-api-smoke` first (it is the fixture canary that
+   validates the `scene=FLIGHT` inference all 14 share); the full ordering, the
+   reason for each position and what to do with each result are in
+   `autotest-ingame-category-inventory.md`. About 80 minutes of wall time total.
 
 ## Roadmap (agreed order; each item named by its Parsek utility)
 

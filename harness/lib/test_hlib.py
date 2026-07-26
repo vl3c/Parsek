@@ -1639,6 +1639,54 @@ class BatchTallyPinTests(unittest.TestCase):
         self.assertIsNotNone(pin)
         self.assertFalse(pin.statically_checkable)
 
+    def test_a_hyphenated_category_reads_as_a_pinned_literal(self):
+        # REGRESSION. _pin_literal_word's class used to be [A-Za-z0-9_:]+, which
+        # excluded `-` and therefore made ALL SEVEN of the tree's hyphenated
+        # categories (Pipeline-Anchor, Pipeline-Smoothing, Pipeline-Frame,
+        # Pipeline-Outlier, Pipeline-Terrain, Pipeline-AnchorPropagate,
+        # Pipeline-Anchor-BubbleEntry) structurally unpinnable: category read None,
+        # statically_checkable went False, and the sync sweep rejected the spec
+        # with a message blaming the author. The runtime side never had the gap
+        # (_BATCH_RE reads category=\S+), so this was a static-path-only
+        # disagreement with the line the game actually prints.
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 "
+            "category=Pipeline-Anchor scene=FLIGHT"])
+        self.assertEqual(pin.category, "Pipeline-Anchor")
+        self.assertTrue(pin.statically_checkable)
+        # Two hyphens must survive too - the longest name in the tree.
+        self.assertEqual(
+            hlib.resolve_batch_tally_pin([
+                "BATCH_COMPLETE v1 total=2 category=Pipeline-Anchor-BubbleEntry "
+                "scene=FLIGHT"]).category,
+            "Pipeline-Anchor-BubbleEntry")
+
+    def test_the_runtime_parser_and_the_pin_parser_agree_on_a_hyphen(self):
+        # The two must not disagree about what a category token IS: the pin says
+        # what must appear, the runtime parser reads what did. A hyphen that only
+        # one of them accepts is how a pin silently stops gating.
+        line = ("[LOG 00:00:00.000] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 "
+                "total=4 passed=4 failed=0 skipped=0 category=Pipeline-Smoothing "
+                "scene=FLIGHT")
+        parsed = hlib.parse_batch_complete_line(line)
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 "
+            "category=Pipeline-Smoothing scene=FLIGHT"])
+        self.assertEqual(parsed.category, "Pipeline-Smoothing")
+        self.assertEqual(pin.category, parsed.category)
+
+    def test_a_bracketed_regex_range_is_still_not_a_literal(self):
+        # The safety half of widening the class. `-` is a metacharacter only inside
+        # a character class, and `[` / `]` stay excluded, so a genuine regex token
+        # must keep reading as UNPINNED rather than as a category literally named
+        # "[A-Z]-x" - which would make the sweep report a category that cannot
+        # exist and send the reader hunting for a rename that never happened.
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 "
+            "category=[A-Z]-x scene=FLIGHT"])
+        self.assertIsNone(pin.category)
+        self.assertFalse(pin.statically_checkable)
+
     def test_a_multi_category_aggregate_pin_is_recognized_as_such(self):
         # A future RunTests category = "A,B" spec gates on the UNION line, whose
         # total sums categories the pin never enumerates. It must read as
@@ -1882,6 +1930,207 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
                     pin.category, selector.strip(),
                     "%s drives RunTests category=%r but pins category=%r"
                     % (name, selector, pin.category))
+
+
+class IngameBatchWiringGroupTests(unittest.TestCase):
+    """The H7-H20 in-game batch-wiring group: 14 batch-only specs that each drive one
+    previously-undriven [InGameTest] category over a committed fixture.
+
+    The generic sweeps above already cover these specs as members of "every committed
+    spec". This class asserts the properties that are specific to the GROUP and that
+    a generic sweep cannot state: that the group is exactly this set (so a 15th
+    arrives with its doc row rather than silently), that every member is non-vacuous
+    when probed DIRECTLY rather than through validate_spec, and that each pinned
+    total equals the count derived from the C# attributes for the category the spec
+    actually drives.
+    """
+
+    # id -> (category, total). The total is the ATTRIBUTE-EXACT declaration count,
+    # re-derived below from Source/Parsek rather than trusted from this table; the
+    # table exists so a category rename reds HERE with both names in the message.
+    GROUP = {
+        "H7-trajectory-math":        ("TrajectoryMath", 8),
+        "H8-spawn-rotation":         ("SpawnRotation", 10),
+        "H9-incomplete-ballistic":   ("IncompleteBallistic", 8),
+        "H10-finalize-backfill":     ("FinalizeBackfill", 7),
+        "H11-pipeline-anchor":       ("Pipeline-Anchor", 7),
+        "H12-switch-segment":        ("SwitchSegment", 6),
+        "H13-ksp-api-smoke":         ("KSP", 6),
+        "H14-corpus-data-health":    ("DataHealth", 4),
+        "H15-corpus-ghost-visuals":  ("GhostVisuals", 4),
+        "H16-corpus-spawn-health":   ("SpawnHealth", 3),
+        "H17-flight-integration":    ("FlightIntegration", 4),
+        "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4),
+        "H19-recording-finalization": ("RecordingFinalization", 3),
+        "H20-eva-spawn-position":    ("EvaSpawnPosition", 2),
+    }
+
+    # H20 is the ONE member that does not pin its tally whole: both of its cells
+    # carry run-time InGameAssert.Skip guards whose outcome is fixture-measured, so
+    # it carries the honest interim form until a live run supplies the split. Every
+    # other member's skipped=0 is derivable from the attributes plus a source scan
+    # showing no InGameAssert.Skip reachable from any of its members.
+    INTERIM_PIN_IDS = {"H20-eva-spawn-position"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.decls = load_ingame_test_declarations()
+        cls.specs = {}
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            if spec.get("id") in cls.GROUP:
+                cls.specs[spec["id"]] = spec
+
+    def test_the_group_is_exactly_the_committed_set(self):
+        self.assertEqual(sorted(self.specs), sorted(self.GROUP),
+                         "the H7-H20 group on disk differs from the table in this "
+                         "test; add the new spec here and to the enumeration table "
+                         "in docs/dev/autotest-status.md in the same commit")
+
+    def test_each_drives_exactly_one_named_category(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+                self.assertEqual(1, len(run_tests),
+                                 "%s must own exactly one RunTests batch "
+                                 "(hlib.SINGLE_BATCH_SELECTOR_RULE)" % sid)
+                selector = (run_tests[0].get("args", {}) or {}).get("category")
+                self.assertEqual(self.GROUP[sid][0], selector)
+                self.assertFalse(hlib.is_multi_category_selector(selector))
+
+    def test_none_is_vacuous_when_probed_directly(self):
+        # Probed through batch_contract_vacuity_gap itself, not via validate_spec:
+        # the whole point of the group is that none of them can read GREEN over zero
+        # executed tests, and that property should be asserted against the probe
+        # rather than inherited from another test's pass.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                self.assertNotIn(hlib.BATCH_VACUITY_OPT_OUT_KEY, lc,
+                                 "%s must not opt out of the anti-vacuity gate" % sid)
+                gap = hlib.batch_contract_vacuity_gap(
+                    lc.get("required", []) or [], self.GROUP[sid][0])
+                self.assertIsNone(gap, "%s accepts a vacuous batch: %s" % (sid, gap))
+
+    def test_each_pinned_total_equals_the_source_derivation(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, expected_total = self.GROUP[sid]
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                self.assertTrue(pin.statically_checkable, sid)
+                self.assertEqual(pin.category, category)
+                self.assertEqual(pin.scene, "FLIGHT",
+                                 "%s: every member of this group loads the "
+                                 "gloops-airshow Focusable route" % sid)
+                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                self.assertEqual(derived.total, expected_total,
+                                 "%s: the source now declares %d %s test(s), not %d"
+                                 % (sid, derived.total, category, expected_total))
+                self.assertEqual(pin.total, derived.total)
+                self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, self.decls))
+
+    def test_whole_tally_members_pin_a_derivable_zero_skip(self):
+        # The claim each non-interim member's comment makes: nothing the ATTRIBUTES
+        # control forces a skip at FLIGHT, so skipped=0 is derivable and passed
+        # equals total. If a member later gains a scene-mismatched or
+        # AllowBatchExecution=false declaration, this reds pointing at the member,
+        # which is what the spec's derivation paragraph must then be updated for.
+        for sid, spec in sorted(self.specs.items()):
+            if sid in self.INTERIM_PIN_IDS:
+                continue
+            with self.subTest(spec=sid):
+                category, _ = self.GROUP[sid]
+                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                self.assertEqual(
+                    0, derived.attribute_skipped,
+                    "%s pins skipped=0 but the attributes force %d skip(s): %s %s"
+                    % (sid, derived.attribute_skipped,
+                       derived.scene_skipped_members, derived.batch_skipped_members))
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                self.assertEqual((pin.passed, pin.failed, pin.skipped),
+                                 (derived.total, 0, 0), sid)
+
+    def test_the_interim_pin_member_is_declared_and_deliberately_loose(self):
+        # Guards the OTHER direction: the interim form accepts 1-of-N by design, so
+        # an accidental interim pin is a real weakening. Exactly the declared member
+        # may leave passed / skipped unpinned, and it must still pin total literally.
+        for sid, spec in sorted(self.specs.items()):
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+            loose = pin.passed is None or pin.skipped is None
+            with self.subTest(spec=sid):
+                self.assertEqual(sid in self.INTERIM_PIN_IDS, loose,
+                                 "%s: interim-vs-whole pin state disagrees with "
+                                 "INTERIM_PIN_IDS" % sid)
+                self.assertIsNotNone(pin.total,
+                                     "%s must pin total= even when the split is "
+                                     "unmeasured" % sid)
+
+    def test_each_pin_matches_the_line_the_runner_would_actually_print(self):
+        # END-TO-END round trip, the guard the other cells cannot give: synthesize
+        # the exact BATCH_COMPLETE line InGameTestRunner emits for the derived tally,
+        # and require (a) the spec's pattern MATCHES it, (b) the same pattern REJECTS
+        # the vacuous line for the same category, and (c) hlib's own runtime parser
+        # reads the category back unchanged. (c) is what would have caught the
+        # hyphen defect from the run-time side rather than the static side.
+        prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, total = self.GROUP[sid]
+                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                skipped = derived.attribute_skipped
+                real = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
+                        "skipped=%d category=%s scene=FLIGHT"
+                        % (total, total - skipped, skipped, category))
+                vacuous = (prefix + "BATCH_COMPLETE v1 total=%d passed=0 failed=0 "
+                           "skipped=%d category=%s scene=FLIGHT"
+                           % (total, total, category))
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                batch_pats = [p for p in (lc.get("required", []) or [])
+                              if "BATCH_COMPLETE" in p]
+                self.assertEqual(1, len(batch_pats),
+                                 "%s: expected exactly one BATCH_COMPLETE pattern" % sid)
+                pat = batch_pats[0]
+                self.assertRegex(real, pat,
+                                 "%s: its own pin does not match the line the runner "
+                                 "would print for the derived tally" % sid)
+                self.assertNotRegex(vacuous, pat,
+                                    "%s: its pin ACCEPTS the vacuous line" % sid)
+                parsed = hlib.parse_batch_complete_line(real)
+                self.assertIsNotNone(parsed, sid)
+                self.assertEqual(parsed.category, category,
+                                 "%s: the runtime parser and the pin disagree about "
+                                 "the category token" % sid)
+
+    def test_corpus_backed_members_inject_and_pin_the_corpus(self):
+        # The four members whose category walks RecordingStore would PASS over an
+        # empty store while asserting over zero items (two of them by a silent
+        # `yield break` that is not even reported as a Skip). The tally cannot see
+        # that; only the fixture can. So those four must inject the corpus AND pin a
+        # non-zero recordings count, and the others must pin zero so a leak reds.
+        corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
+                         "H16-corpus-spawn-health", "H17-flight-integration"}
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                fixture = spec.get("fixture", {}) or {}
+                count = ((spec.get("expectations", {}) or {})
+                         .get("recordings", {}) or {}).get("count", {}) or {}
+                if sid in corpus_backed:
+                    self.assertEqual("all-synthetic", fixture.get("injectedRecordings"))
+                    self.assertGreater(count.get("min", 0), 0,
+                                       "%s must pin a non-zero corpus count - it is "
+                                       "the only guard against a store walk over "
+                                       "nothing" % sid)
+                else:
+                    self.assertEqual("none", fixture.get("injectedRecordings"))
+                    self.assertEqual({"min": 0, "max": 0}, count,
+                                     "%s pins no recordings, so a leak into the save "
+                                     "must red" % sid)
 
 
 # ---------------------------------------------------------------------------

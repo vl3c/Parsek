@@ -1,0 +1,85 @@
+schema = 1
+id = "H15-corpus-ghost-visuals"
+tier = "nightly"
+# BATCH-ONLY scenario over the INJECTED CORPUS, S1.4 / H5 pattern. The in-game
+# GhostVisuals category has never been driven by any committed spec. Its four cells
+# build a ghost mesh from EVERY committed recording's snapshot without crashing,
+# drive the incremental (frame-yielding) snapshot build to completion, resolve every
+# stored part name through the live PartLoader, and assert the built ghost has
+# renderers.
+#
+# THE CORPUS IS LOAD-BEARING. Two of the four (GhostHasRenderers,
+# IncrementalSnapshotBuild_YieldsThenCompletes) bail EARLY AND SILENTLY when the
+# store has nothing to build from - a plain return / yield break with a Verbose log,
+# NOT an InGameAssert.Skip - so over an empty store they are reported PASSED while
+# executing no assertion at all. The tally cannot see that; only the fixture can
+# prevent it. Hence the corpus and the pinned count below.
+description = "Build ghost visuals from every recording in the injected synthetic corpus: snapshots build without crashing, the incremental build completes, every part name resolves through PartLoader, and the ghost has renderers."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "corpus", "ghost-visuals", "H15"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostVisuals" },                 expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the four cells read each recording's craft + ghost-geometry sidecars back
+# into a live GhostVisualBuilder mesh and resolve its part names through the real
+# PartLoader (D16 sidecar-craft, sidecar-pcrf - the two sidecars a ghost mesh is
+# built FROM). SANDBOX, FLIGHT-scene host (D14). NOT claimed: any D6 playback token
+# - a mesh is built and inspected, never positioned or played back, which is
+# S1.4's job; and no D7 part-event / FX token - no engine or RCS effect is built
+# here.
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-craft", "sidecar-pcrf"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected corpus, unchanged. This count is the anti-vacuity guard for the two
+# silently-bailing cells named in the header.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, plus the fixture-level guard above.
+#
+# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
+# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+#  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
+#    [InGameTest(Category = "GhostVisuals")] methods.
+#  - skipped=0 is DERIVED: 3 are scene-agnostic and 1 carries
+#    Scene = GameScenes.FLIGHT; the batch runs at FLIGHT, so none is scene-skipped.
+#    None sets AllowBatchExecution = false. None of the 4 bodies, nor any helper
+#    they call, contains an InGameAssert.Skip - note this is exactly why the two
+#    early-bail cells report PASSED rather than Skipped over an empty store, and why
+#    skipped=0 here is a WEAKER signal than it looks. The count pin above is what
+#    carries the weight.
+#  - failed=0 is the ASSERTION. passed=4 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route, MEASURED on it by
+#    H5 and S1.4) and is load-bearing for the one FLIGHT-scoped cell.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=GhostVisuals scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Building a mesh per recording across a 272-recording corpus is the most
+# allocation-heavy batch in this group. 720 total with the 540 RunTests cap;
+# re-time against the first live run rather than assuming this is comfortable.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
