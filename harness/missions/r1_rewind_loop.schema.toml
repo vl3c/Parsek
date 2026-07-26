@@ -84,10 +84,28 @@ required = true
 type = "int"
 min = 0
 
-# FRAME budgets for the three post-ascent phases. Frames, NOT game seconds: past
-# the rewind the game clock runs BACKWARD, so a `ut - phase_entry_ut` budget can
-# never expire and the phase would hang with no named give-up.
+# FRAME budgets for the post-ascent phases. Frames, NOT game seconds: past the
+# rewind the game clock runs BACKWARD, so a `ut - phase_entry_ut` budget can never
+# expire and the phase would hang with no named give-up.
 [params.commitFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# STOP (seam StopRecording) and RECORDER-IDLE (seam RecordingState polling until
+# the reply reads recording=false). Both exist because of the flight-1 failure:
+# `TestCommandDispatcher` REJECTS InvokeRewind with `recording-active` while a
+# recorder is live, and the commit-then-keep-flying promotion re-arms one ~14 ms
+# after CommitTree returns OK. idleFrames bounds the poll; each frame either
+# issues a probe or reads its reply, so it is ~half that many probes.
+[params.stopFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.idleFrames]
 required = false
 type = "int"
 min = 1

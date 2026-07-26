@@ -2162,6 +2162,50 @@ def seam_command_poll_seconds(verb: str) -> float:
         str(verb or ""), SEAM_COMMAND_POLL_SECONDS_DEFAULT)
 
 
+def decode_seam_value(value: str) -> str:
+    """Percent-DECODE one seam response value (the inverse of the C#
+    ``TestCommandProtocol.Encode``, which percent-encodes any byte needing it and
+    leaves the rest literal).
+
+    Exists so a REJECTED verb's ``msg`` - which carries PARSEK's OWN refusal
+    reason verbatim (``recording-active``, ``refly-gate <reason>``, ``unknown-rp``)
+    - can be surfaced in a give-up instead of the harness guessing at a cause. The
+    first live R1 flight red on ``reason=recording-active`` while the mission's
+    give-up text speculated about the RewindPoint, which sent the operator looking
+    in the wrong place.
+
+    Tolerant: a malformed escape (a ``%`` not followed by two hex digits) or a
+    non-UTF-8 byte sequence returns the input unchanged rather than raising - a
+    diagnostic string must never be able to crash the machine that is already
+    reporting a failure."""
+    text = str(value or "")
+    if "%" not in text:
+        return text
+    out = bytearray()
+    i = 0
+    try:
+        raw = text.encode("ascii")
+    except UnicodeEncodeError:
+        return text
+    while i < len(raw):
+        ch = raw[i]
+        if ch == 0x25:  # '%'
+            if i + 2 >= len(raw):
+                return text
+            try:
+                out.append(int(raw[i + 1:i + 3].decode("ascii"), 16))
+            except ValueError:
+                return text
+            i += 3
+            continue
+        out.append(ch)
+        i += 1
+    try:
+        return out.decode("utf-8")
+    except UnicodeDecodeError:
+        return text
+
+
 def format_seam_command_line(command_id: str, verb: str,
                              args: Optional[Tuple[Tuple[str, str], ...]] = None) -> str:
     """The request-channel line for one seam command: ``id=<id> cmd=<verb>``
@@ -3742,7 +3786,44 @@ def _b2_stay_or_flake(state: B2State, snapshot: TelemetrySnapshot) -> B2State:
 # and drives the rewind cycle through the GENERALIZED seam command path:
 #
 #     ASCENT (delegated b2_decide)  ->  COMMIT (seam CommitTree)
+#          ->  STOP (seam StopRecording)  ->  RECORDER-IDLE (seam RecordingState)
 #          ->  REWIND (seam InvokeRewind)  ->  VERIFY  ->  REWOUND (terminal)
+#
+# WHY STOP + RECORDER-IDLE EXIST (flight 1, 2026-07-26, INVALID(autopilot-flake)).
+# The first live run went COMMIT -> REWIND and Parsek's own dispatcher answered
+# `reject id=<step>.rewind cmd=InvokeRewind reason=recording-active`.
+# `TestCommandDispatcher.DecideDispatch` refuses InvokeRewind whenever
+# `state.Recording` (= `ParsekFlight.HasLiveRecorderForTagging()`), deliberately:
+# a re-fly reloads the scene and would SILENTLY DISCARD a live recording.
+#
+# The cause is NOT that CommitTree leaves a recorder running - it does the
+# opposite. `ParsekFlight.CommitTreeFlight` stops the recorder
+# (`recorder?.StopRecording()`) and then NULLS BOTH HANDLES
+# (`activeTree = null; recorder = null`, ParsekFlight.cs), so
+# HasLiveRecorderForTagging is false the instant it returns. What happens is that
+# a NEW recording BEGINS ~14 ms later: CommitTreeFlight leaves the active vessel
+# live and marks its recording `VesselSpawned = true`, and on the next frame
+# `ParsekFlight.TryRestoreCommittedTreeForSpawnedActiveVessel` re-adopts the
+# just-committed tree copy-on-write and starts a fresh `promotion` recording on
+# the surviving stage. Flight-1 log, in order:
+#   22:12:29.393  Recording stopped. 239 points          (CommitTreeFlight)
+#   22:12:29.673  exec id=0003.commit verdict=OK
+#   22:12:29.681  Armed committed-tree restore attempt for 'Kerbal X'
+#   22:12:29.687  Recording started: parts=28, points=0, promotion
+#   22:12:30.402  reject id=0003.rewind reason=recording-active
+# That promotion is CORRECT Parsek behaviour (commit-then-keep-flying), so the
+# machine must adapt to it, not the other way round.
+#
+# The fix is NOT merely "insert a StopRecording in the right order". Ordering is
+# an ASSUMPTION; the machine now carries the dispatcher's gate as an OBSERVED
+# PRECONDITION: after StopRecording it POLLS `RecordingState` and refuses to
+# command the rewind until the reply's payload reads `recording=false`. That
+# reading fails CLOSED by construction: `RecordingState`'s `recording` is
+# `ParsekFlight.Instance != null && recorder.IsRecording`
+# (`RecorderStateSnapshot.CaptureFromParts`: `snap.isRecording = recorder.IsRecording`),
+# which is a SUPERSET of the dispatcher's `activeTree != null && recorder != null
+# && recorder.IsRecording` - so `recording=false` GUARANTEES the dispatcher's
+# gate is open, while a spurious `true` only ever costs another probe.
 #
 # WHY VERIFY EXISTS AT ALL (the single most important thing in this machine).
 # "We wrote InvokeRewind to the channel and the seam answered verdict=OK" is a
@@ -3768,16 +3849,34 @@ def _b2_stay_or_flake(state: B2State, snapshot: TelemetrySnapshot) -> B2State:
 
 R1_ASCENT = "ASCENT"
 R1_COMMIT = "COMMIT"
+R1_STOP = "STOP"
+R1_RECORDER_IDLE = "RECORDER-IDLE"
 R1_REWIND = "REWIND"
 R1_VERIFY = "VERIFY"
 R1_REWOUND = "REWOUND"
-R1_PHASES: Tuple[str, ...] = (R1_ASCENT, R1_COMMIT, R1_REWIND, R1_VERIFY, R1_REWOUND)
+R1_PHASES: Tuple[str, ...] = (R1_ASCENT, R1_COMMIT, R1_STOP, R1_RECORDER_IDLE,
+                              R1_REWIND, R1_VERIFY, R1_REWOUND)
 
-# Per-command tags. Distinct by construction, so the two wire ids
-# ("<reserved>.commit" / "<reserved>.rewind") can never collide -- the C# seam
-# skips duplicate ids, which would make the second command a SILENT no-op.
+# Per-command tags. Distinct by construction, so the wire ids
+# ("<reserved>.commit" / ".stop" / ".state0" / ".rewind") can never collide --
+# the C# seam skips duplicate ids, which would make the later command a SILENT
+# no-op whose poll then expires as a TIMEOUT that looks like a wedged addon.
+# LIVE-CONFIRMED on flight 1: KSP.log carried `id=0003.commit` and
+# `id=0003.rewind` as separate commands, and REWIND did not advance on COMMIT's
+# OK.
 R1_TAG_COMMIT = "commit"
+R1_TAG_STOP = "stop"
 R1_TAG_REWIND = "rewind"
+
+
+def r1_state_probe_tag(probe: int) -> str:
+    """The tag for RecordingState probe ``probe`` (``state0``, ``state1``, ...).
+
+    The recorder-idle poll issues the SAME verb repeatedly, so each probe needs
+    its OWN tag: reusing one tag would reuse one wire id, and the C# seam skips
+    duplicate ids - every probe after the first would be silently dropped and the
+    machine would poll a reply that was never going to come."""
+    return "state%d" % int(probe)
 
 
 @dataclass(frozen=True)
@@ -3803,6 +3902,10 @@ class R1Params:
     # executed at all (no seam configured -> an immediate ERROR token) or the
     # result never rides a snapshot.
     commit_frames: int = 40
+    stop_frames: int = 40
+    # RECORDER-IDLE's bound. Each frame in the phase either issues one
+    # RecordingState probe or reads its reply, so this is ~half that many probes.
+    idle_frames: int = 40
     rewind_frames: int = 40
     verify_frames: int = 40
     # THE OBSERVED GATE: how many seconds the game clock must have run BACKWARD
@@ -3826,6 +3929,8 @@ def r1_params_from_dict(params: Dict) -> R1Params:
         rewind_point_id=str(params.get("rewindPointId", "") or ""),
         rewind_slot=int(params.get("rewindSlot", -1)),
         commit_frames=int(params.get("commitFrames", 40)),
+        stop_frames=int(params.get("stopFrames", 40)),
+        idle_frames=int(params.get("idleFrames", 40)),
         rewind_frames=int(params.get("rewindFrames", 40)),
         verify_frames=int(params.get("verifyFrames", 40)),
         min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
@@ -3847,7 +3952,21 @@ class R1State:
     phases_reached: Tuple[str, ...] = (R1_ASCENT,)
     # Terminal seam tokens, per command. Carried evidence for the assertions.
     commit_result: str = ""
+    stop_result: str = ""
     rewind_result: str = ""
+    # PARSEK's OWN refusal reason for a non-OK rewind, decoded off the response
+    # `msg` payload ("recording-active", "refly-gate <reason>", "unknown-rp").
+    # "" = none read. Flight 1 red with reason=recording-active while the give-up
+    # text speculated about the RewindPoint; this field is what stops that
+    # recurring.
+    rewind_reject_reason: str = ""
+    # RECORDER-IDLE evidence. `state_probe` is the NEXT probe index (each probe
+    # gets its own tag / wire id); `recorder_idle_reading` is the last `recording`
+    # payload value actually read ("" = never read, the fail-closed sentinel);
+    # `recorder_idle_observed` latches only on a read of "false".
+    state_probe: int = 0
+    recorder_idle_reading: str = ""
+    recorder_idle_observed: bool = False
     # OBSERVED pre-rewind stamp, taken on the frame InvokeRewind is emitted.
     pre_rewind_ut: float = float("nan")
     pre_rewind_altitude: float = float("nan")
@@ -3906,9 +4025,49 @@ def _r1_seam_result(snapshot: TelemetrySnapshot, tag: str) -> str:
     return snapshot.seam_command_result or ""
 
 
+def _r1_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
+    """A single payload field of the terminal seam response for ``tag``, or "".
+    Tag-gated for the same fail-closed reason as ``_r1_seam_result``: a payload
+    from the PREVIOUS command must never be read as this one's."""
+    if snapshot.seam_command_tag != tag:
+        return ""
+    for k, v in (snapshot.seam_command_payload or ()):
+        if k == key:
+            return v
+    return ""
+
+
+def _r1_reject_reason(snapshot: TelemetrySnapshot, tag: str) -> str:
+    """Parsek's OWN refusal reason for ``tag``'s response, decoded. "" when the
+    response carried no ``msg``."""
+    return decode_seam_value(_r1_seam_payload(snapshot, tag, "msg"))
+
+
+def _r1_because(reason: str) -> str:
+    """Render a Parsek-supplied refusal reason for a give-up message, or a
+    truthful admission that the seam gave none - never a guess at the cause."""
+    return ("Parsek's reason: %s" % reason) if reason else \
+        "the response carried no msg= reason"
+
+
 def _r1_commit_action() -> Action:
     return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="CommitTree",
                   seam_args=(), seam_tag=R1_TAG_COMMIT)
+
+
+def _r1_stop_action() -> Action:
+    # StopRecording is idempotent-OK by construction: the executor gates on the
+    # SAME `HasLiveRecorderForTagging()` predicate the InvokeRewind dispatch guard
+    # reads, and answers OK with `stopped=<wasLive> idle=<!wasLive>` either way
+    # (ParsekTestCommandAddon.StopRecordingImpl), so issuing it unconditionally is
+    # safe whether or not the post-commit promotion actually re-armed a recorder.
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="StopRecording",
+                  seam_args=(), seam_tag=R1_TAG_STOP)
+
+
+def _r1_state_action(probe: int) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
+                  seam_args=(), seam_tag=r1_state_probe_tag(probe))
 
 
 def _r1_rewind_action(params: R1Params) -> Action:
@@ -3992,22 +4151,21 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
     if state.phase == R1_COMMIT:
         result = _r1_seam_result(snapshot, R1_TAG_COMMIT)
         if result == "OK":
-            # STAMP THE PRE-REWIND OBSERVATION on the same frame the rewind is
-            # commanded. Everything VERIFY compares against is read HERE, before
-            # anything can have moved.
-            st = replace(state, commit_result="OK",
-                         pre_rewind_ut=snapshot.ut,
-                         pre_rewind_altitude=snapshot.altitude,
-                         pre_rewind_situation=snapshot.situation or "",
-                         pre_rewind_body=snapshot.body or "")
-            return (_r1_enter(st, R1_REWIND, snapshot.ut),
-                    [_r1_rewind_action(state.params)])
+            # STOP the recorder before going anywhere near InvokeRewind. The
+            # commit itself already stopped one, but the commit-then-keep-flying
+            # promotion starts a NEW one on the surviving stage ~14 ms later
+            # (see the section header), and the dispatcher refuses InvokeRewind
+            # while any recorder is live.
+            return (_r1_enter(replace(state, commit_result="OK"),
+                              R1_STOP, snapshot.ut),
+                    [_r1_stop_action()])
         if result in ("ERROR", "TIMEOUT"):
             return _r1_flake(
                 replace(state, commit_result=result),
-                "phase %s: the tree-commit seam command returned %s, so there is "
-                "no committed state to rewind FROM"
-                % (R1_COMMIT, result)), []
+                "phase %s: the tree-commit seam command returned %s (%s), so "
+                "there is no committed state to rewind FROM"
+                % (R1_COMMIT, result,
+                   _r1_because(_r1_reject_reason(snapshot, R1_TAG_COMMIT)))), []
         if state.phase_frames > state.params.commit_frames:
             return _r1_flake(
                 state,
@@ -4017,19 +4175,105 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 % (R1_COMMIT, state.params.commit_frames)), []
         return state, []
 
+    if state.phase == R1_STOP:
+        result = _r1_seam_result(snapshot, R1_TAG_STOP)
+        if result == "OK":
+            # StopRecording answering OK is a COMMANDED reading. Do not take it
+            # as proof: go and OBSERVE the recorder state.
+            return (_r1_enter(replace(state, stop_result="OK", state_probe=0),
+                              R1_RECORDER_IDLE, snapshot.ut),
+                    [_r1_state_action(0)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _r1_flake(
+                replace(state, stop_result=result),
+                "phase %s: the StopRecording seam command returned %s (%s); the "
+                "recorder cannot be confirmed stopped, and InvokeRewind is "
+                "refused `recording-active` while one is live"
+                % (R1_STOP, result,
+                   _r1_because(_r1_reject_reason(snapshot, R1_TAG_STOP)))), []
+        if state.phase_frames > state.params.stop_frames:
+            return _r1_flake(
+                state,
+                "phase %s: the StopRecording seam command never answered within "
+                "%d frames" % (R1_STOP, state.params.stop_frames)), []
+        return state, []
+
+    if state.phase == R1_RECORDER_IDLE:
+        # THE DISPATCHER GATE, CARRIED AS AN OBSERVED PRECONDITION. Never command
+        # InvokeRewind until a RecordingState reply has actually READ
+        # `recording=false`. Ordering alone is an assumption; this is a reading.
+        tag = r1_state_probe_tag(state.state_probe)
+        result = _r1_seam_result(snapshot, tag)
+        if result == "OK":
+            reading = _r1_seam_payload(snapshot, tag, "recording")
+            if reading == "false":
+                st = replace(state, recorder_idle_reading=reading,
+                             recorder_idle_observed=True,
+                             # STAMP THE PRE-REWIND OBSERVATION on the same frame
+                             # the rewind is commanded, so VERIFY compares against
+                             # the tightest possible "before".
+                             pre_rewind_ut=snapshot.ut,
+                             pre_rewind_altitude=snapshot.altitude,
+                             pre_rewind_situation=snapshot.situation or "",
+                             pre_rewind_body=snapshot.body or "")
+                return (_r1_enter(st, R1_REWIND, snapshot.ut),
+                        [_r1_rewind_action(state.params)])
+            if reading == "true":
+                # Still recording. Probe again under the frame bound, with a FRESH
+                # tag (a reused tag is a reused wire id the seam would skip).
+                st = replace(state, recorder_idle_reading=reading,
+                             state_probe=state.state_probe + 1)
+                if st.phase_frames > st.params.idle_frames:
+                    return _r1_flake(
+                        st,
+                        "phase %s: StopRecording reported OK but RecordingState "
+                        "still read recording=true after %d frames (%d probe(s)); "
+                        "InvokeRewind would be REJECTED `recording-active`. The "
+                        "commit-then-keep-flying promotion re-arms a recorder on "
+                        "the surviving stage, so something re-started one after "
+                        "the stop"
+                        % (R1_RECORDER_IDLE, st.params.idle_frames,
+                           st.state_probe)), []
+                return st, [_r1_state_action(st.state_probe)]
+            # OK with no readable `recording` field: FAIL CLOSED. An unreadable
+            # recorder state is not permission to command an irreversible rewind.
+            return _r1_flake(
+                replace(state, recorder_idle_reading=reading),
+                "phase %s: the RecordingState reply carried no readable "
+                "`recording` field (read %r), so the recorder cannot be confirmed "
+                "idle; refusing to command InvokeRewind on an unverified gate"
+                % (R1_RECORDER_IDLE, reading)), []
+        if result in ("ERROR", "TIMEOUT"):
+            return _r1_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); the "
+                "recorder-idle precondition could not be observed"
+                % (R1_RECORDER_IDLE, result,
+                   _r1_because(_r1_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > state.params.idle_frames:
+            return _r1_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within "
+                "%d frames" % (R1_RECORDER_IDLE, state.params.idle_frames)), []
+        return state, []
+
     if state.phase == R1_REWIND:
         result = _r1_seam_result(snapshot, R1_TAG_REWIND)
         if result == "OK":
             return _r1_enter(replace(state, rewind_result="OK"),
                              R1_VERIFY, snapshot.ut), []
         if result in ("ERROR", "TIMEOUT"):
+            # Surface PARSEK's OWN reason verbatim. The previous wording guessed
+            # ("the re-fly never started, or its post-load marker never landed")
+            # and on flight 1 that sent the operator hunting the RewindPoint while
+            # the real answer, `recording-active`, was sitting in the response.
+            reason = _r1_reject_reason(snapshot, R1_TAG_REWIND)
             return _r1_flake(
-                replace(state, rewind_result=result),
+                replace(state, rewind_result=result, rewind_reject_reason=reason),
                 "phase %s: the InvokeRewind seam command returned %s for "
-                "rp=%s slot=%d (the re-fly never started, or its post-load "
-                "marker never landed)"
+                "rp=%s slot=%d; %s"
                 % (R1_REWIND, result, state.params.rewind_point_id,
-                   state.params.rewind_slot)), []
+                   state.params.rewind_slot, _r1_because(reason))), []
         if state.phase_frames > state.params.rewind_frames:
             return _r1_flake(
                 state,
@@ -4089,10 +4333,25 @@ def evaluate_r1_assertions(frames, params: R1Params,
         {"required": B2_ORBIT, "leg": "delegated-b2"})
 
     commit_result = str(getattr(st, "commit_result", "") or "")
-    commit_met = commit_result == "OK" and R1_REWIND in phases
+    commit_met = commit_result == "OK" and R1_STOP in phases
     committed = AssertionOutcome(
         "treeCommittedBeforeRewind", commit_met, (commit_result or None),
-        {"required": R1_REWIND, "seamVerb": "CommitTree"})
+        {"required": R1_STOP, "seamVerb": "CommitTree"})
+
+    # The dispatcher's `recording-active` gate, as an assertion row. OBSERVED: the
+    # value is the `recording` field READ off a RecordingState reply, not the
+    # StopRecording verb's own OK (which is carried separately in `detail` so a
+    # reader can see both). Flight 1 (2026-07-26) red exactly here.
+    idle_reading = str(getattr(st, "recorder_idle_reading", "") or "")
+    idle_met = (bool(getattr(st, "recorder_idle_observed", False))
+                and idle_reading == "false"
+                and R1_REWIND in phases)
+    recorder_idle = AssertionOutcome(
+        "recorderIdleBeforeRewind", idle_met, (idle_reading or None),
+        {"required": R1_REWIND, "seamVerb": "RecordingState",
+         "stopSeamResult": str(getattr(st, "stop_result", "") or "") or None,
+         "probes": int(getattr(st, "state_probe", 0)) + 1,
+         "channel": "observed"})
 
     regression = getattr(st, "ut_regression", float("nan"))
     rewound_met = (_is_finite(regression)
@@ -4129,9 +4388,12 @@ def evaluate_r1_assertions(frames, params: R1Params,
         {"required": R1_VERIFY, "seamVerb": "InvokeRewind",
          "rewindPointId": params.rewind_point_id or None,
          "rewindSlot": params.rewind_slot,
+         # Parsek's OWN refusal reason when it declined, so the result JSON names
+         # the cause instead of leaving it to the log.
+         "rejectReason": str(getattr(st, "rewind_reject_reason", "") or "") or None,
          "channel": "commanded"})
 
-    return [orbit, committed, rewound, changed, seam]
+    return [orbit, committed, recorder_idle, rewound, changed, seam]
 
 
 # ---------------------------------------------------------------------------

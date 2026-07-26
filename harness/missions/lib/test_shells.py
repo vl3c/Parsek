@@ -4231,14 +4231,25 @@ class R1RewindLoopShellTests(unittest.TestCase):
                  inclination=0.3, situation="ORBITING"),          # -> B2 ORBIT, R1 COMMIT
         ]
 
+    def _seam(self, tag, result="OK", payload=(), **kw):
+        return snap(seam_command_result=result, seam_command_tag=tag,
+                    seam_command_payload=tuple(payload), **kw)
+
+    def _cycle_frames(self, idle_payload=(("recording", "false"),)):
+        """COMMIT ok -> STOP ok -> the recorder-idle probe -> REWIND ok."""
+        return [
+            self._seam(mlib.R1_TAG_COMMIT, ut=210.0, altitude=80000,
+                       situation="ORBITING", body="Kerbin"),
+            self._seam(mlib.R1_TAG_STOP, ut=211.0, altitude=80000,
+                       situation="ORBITING", body="Kerbin"),
+            self._seam(mlib.r1_state_probe_tag(0), payload=idle_payload,
+                       ut=212.0, altitude=80000, situation="ORBITING", body="Kerbin"),
+            self._seam(mlib.R1_TAG_REWIND, ut=213.0, altitude=80000,
+                       situation="ORBITING", body="Kerbin"),
+        ]
+
     def test_happy_path_writes_mission_ok_with_the_observed_rewind(self):
-        frames = self._ascent_frames() + [
-            # COMMIT reads its own tagged OK -> stamps the pre-rewind observation.
-            snap(ut=210.0, altitude=80000, situation="ORBITING", body="Kerbin",
-                 seam_command_result="OK", seam_command_tag=mlib.R1_TAG_COMMIT),
-            # REWIND reads ITS own tagged OK -> VERIFY.
-            snap(ut=211.0, altitude=80000, situation="ORBITING", body="Kerbin",
-                 seam_command_result="OK", seam_command_tag=mlib.R1_TAG_REWIND),
+        frames = self._ascent_frames() + self._cycle_frames() + [
             # VERIFY: the clock has run BACKWARD and the world state moved.
             snap(ut=60.0, altitude=1200, situation="FLYING", body="Kerbin"),
         ]
@@ -4248,39 +4259,78 @@ class R1RewindLoopShellTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(result["mission"], "r1_rewind_loop")
         self.assertEqual(result["phasesReached"][-1], mlib.R1_REWOUND)
-        # The shell emitted the delegated ascent actions AND both seam commands,
-        # each with its OWN verb + tag (a shared tag would be a duplicate wire id
-        # the C# seam silently skips).
         kinds = [a.kind for a in control.actions]
         self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, kinds)
         self.assertIn(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION, kinds)
-        seam = [a for a in control.actions
-                if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
-        self.assertEqual([(a.seam_verb, a.seam_tag) for a in seam],
+        # FOUR seam commands, each with its OWN verb + tag. Shared tags would be
+        # duplicate wire ids the C# seam silently skips.
+        seam_actions = [a for a in control.actions
+                        if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
+        self.assertEqual([(a.seam_verb, a.seam_tag) for a in seam_actions],
                          [("CommitTree", mlib.R1_TAG_COMMIT),
+                          ("StopRecording", mlib.R1_TAG_STOP),
+                          ("RecordingState", mlib.r1_state_probe_tag(0)),
                           ("InvokeRewind", mlib.R1_TAG_REWIND)])
-        self.assertEqual(seam[1].seam_args, (("rp", "rp_b9_root"), ("slot", "1")))
+        self.assertEqual(len({a.seam_tag for a in seam_actions}), 4)
+        self.assertEqual(seam_actions[-1].seam_args,
+                         (("rp", "rp_b9_root"), ("slot", "1")))
         rows = {a["name"]: a for a in result["assertions"]}
         self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
         self.assertGreater(rows["clockRewound"]["value"], 5.0)
         self.assertEqual(rows["clockRewound"]["channel"], "observed")
+        self.assertEqual(rows["recorderIdleBeforeRewind"]["value"], "false")
 
-    def test_a_seam_ok_with_no_backward_clock_is_assert_fail_not_ok(self):
+    def test_the_rewind_is_never_commanded_while_the_recorder_reads_live(self):
+        """THE FLIGHT-1 REGRESSION, at shell level. Flight 1 went COMMIT -> REWIND
+        with the post-commit promotion recorder live, and Parsek answered
+        `reject cmd=InvokeRewind reason=recording-active`. The machine must not
+        emit InvokeRewind while RecordingState still reads recording=true.
+
+        MUTATION: emit the rewind from the STOP OK branch (an order-only fix with
+        no observation) and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames(
+            idle_payload=(("recording", "true"),))
+        # Every later probe also reads live: the recorder never goes idle.
+        frames += [self._seam(mlib.r1_state_probe_tag(i),
+                              payload=(("recording", "true"),), ut=213.0 + i,
+                              altitude=80000, situation="ORBITING")
+                   for i in range(1, 60)]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("still read recording=true", result["reason"])
+        verbs = [a.seam_verb for a in control.actions
+                 if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
+        self.assertNotIn("InvokeRewind", verbs)
+        self.assertEqual(result["phasesReached"][-1], mlib.R1_RECORDER_IDLE)
+
+    def test_a_seam_ok_with_no_backward_clock_is_not_mission_ok(self):
         """THE anti-vacuity shell cell: InvokeRewind answers OK and the clock keeps
         going FORWARD. The mission must NOT report MISSION-OK."""
-        frames = self._ascent_frames() + [
-            snap(ut=210.0, altitude=80000, situation="ORBITING",
-                 seam_command_result="OK", seam_command_tag=mlib.R1_TAG_COMMIT),
-            snap(ut=211.0, altitude=80000, situation="ORBITING",
-                 seam_command_result="OK", seam_command_tag=mlib.R1_TAG_REWIND),
-        ] + [snap(ut=212.0 + i, altitude=80000, situation="ORBITING")
-             for i in range(60)]
+        frames = self._ascent_frames() + self._cycle_frames()
+        frames += [snap(ut=214.0 + i, altitude=80000, situation="ORBITING")
+                   for i in range(60)]
         control = FakeMissionControl(frames)
         code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
         self.assertNotEqual(result["verdict"], mlib.MISSION_OK, result)
         self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
         self.assertIn("never ran backward", result["reason"])
         self.assertNotEqual(code, 0)
+
+    def test_a_rejected_rewind_reports_parseks_own_reason(self):
+        """FLIGHT-1 DIAGNOSABILITY. The verdict must name what Parsek refused on,
+        not speculate. MUTATION: drop the msg read and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames()[:-1] + [
+            self._seam(mlib.R1_TAG_REWIND, result="ERROR",
+                       payload=(("msg", "recording-active"),),
+                       ut=213.0, altitude=80000, situation="ORBITING"),
+        ]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("Parsek's reason: recording-active", result["reason"])
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertEqual(rows["rewindSeamAccepted"]["rejectReason"], "recording-active")
 
     def test_an_unresolved_rewind_target_flakes_before_any_action_is_performed(self):
         params = dict(R1_PARAMS)
@@ -4293,10 +4343,10 @@ class R1RewindLoopShellTests(unittest.TestCase):
                          "no ascent action may be performed once the target is unresolvable")
         self.assertNotEqual(code, 0)
 
-    def test_a_failed_commit_seam_never_reaches_the_rewind(self):
+    def test_a_failed_commit_seam_never_reaches_the_stop_or_the_rewind(self):
         frames = self._ascent_frames() + [
-            snap(ut=210.0, altitude=80000, situation="ORBITING",
-                 seam_command_result="ERROR", seam_command_tag=mlib.R1_TAG_COMMIT),
+            self._seam(mlib.R1_TAG_COMMIT, result="ERROR", ut=210.0,
+                       altitude=80000, situation="ORBITING"),
         ]
         control = FakeMissionControl(frames)
         _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
@@ -4313,7 +4363,5 @@ class R1RewindLoopShellTests(unittest.TestCase):
         self.assertEqual(r1_rewind_loop.SPEC.max_physics_warp,
                          b2_lko_ascent.SPEC.max_physics_warp)
         self.assertEqual(r1_rewind_loop.SPEC.settle_frames, 0)
-
-
 if __name__ == "__main__":
     unittest.main()

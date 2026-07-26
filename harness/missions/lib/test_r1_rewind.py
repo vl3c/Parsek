@@ -54,6 +54,55 @@ def at_orbit(state):
     return replace(state, ascent=ascent)
 
 
+def seam(tag, result="OK", payload=(), **kw):
+    """A snapshot carrying ONE tagged terminal seam response."""
+    return snap(seam_command_result=result, seam_command_tag=tag,
+                seam_command_payload=tuple(payload), **kw)
+
+
+def drive_to_commit(**over):
+    """Machine parked in COMMIT with the CommitTree command already emitted."""
+    st = at_orbit(mlib.r1_initial_state(r1_params(**over)))
+    st, _ = mlib.r1_decide(st, snap(ut=900.0))
+    assert st.phase == mlib.R1_COMMIT, st.phase
+    return st
+
+
+def drive_to_stop(**over):
+    """COMMIT answered OK -> parked in STOP with StopRecording emitted."""
+    st = drive_to_commit(**over)
+    st, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_COMMIT, ut=910.0))
+    assert st.phase == mlib.R1_STOP, st.phase
+    return st
+
+
+def drive_to_idle(**over):
+    """STOP answered OK -> parked in RECORDER-IDLE with probe 0 emitted."""
+    st = drive_to_stop(**over)
+    st, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_STOP, ut=911.0))
+    assert st.phase == mlib.R1_RECORDER_IDLE, st.phase
+    return st
+
+
+def drive_to_rewind(pre_ut=912.0, pre_alt=80500.0, pre_sit="ORBITING", **over):
+    """Probe 0 read recording=false -> parked in REWIND with InvokeRewind emitted,
+    and the pre-rewind observation stamped at `pre_ut`."""
+    st = drive_to_idle(**over)
+    st, _ = mlib.r1_decide(
+        st, seam(mlib.r1_state_probe_tag(0), payload=(("recording", "false"),),
+                 ut=pre_ut, altitude=pre_alt, situation=pre_sit, body="Kerbin"))
+    assert st.phase == mlib.R1_REWIND, st.phase
+    return st
+
+
+def drive_to_verify(**over):
+    """REWIND answered OK -> parked in VERIFY."""
+    st = drive_to_rewind(**over)
+    st, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_REWIND, ut=913.0))
+    assert st.phase == mlib.R1_VERIFY, st.phase
+    return st
+
+
 # ---------------------------------------------------------------------------
 # Generalized seam command path: the pure wire helpers.
 # ---------------------------------------------------------------------------
@@ -285,47 +334,141 @@ class R1AscentDelegationTests(unittest.TestCase):
 
 class R1SeamPhaseTests(unittest.TestCase):
 
-    def _at_commit(self, **over):
-        st = at_orbit(mlib.r1_initial_state(r1_params(**over)))
-        st, _ = mlib.r1_decide(st, snap(ut=900.0))
-        return st
+    def test_commit_ok_goes_to_stop_not_straight_to_rewind(self):
+        """THE FLIGHT-1 REGRESSION. Flight 1 (2026-07-26) went COMMIT -> REWIND and
+        Parsek answered `reject cmd=InvokeRewind reason=recording-active`: the
+        commit-then-keep-flying promotion re-arms a recorder ~14 ms after the
+        commit returns OK.
 
-    def test_commit_ok_stamps_the_pre_rewind_observation_and_emits_invoke_rewind(self):
-        st = self._at_commit()
-        out, actions = mlib.r1_decide(
-            st, snap(ut=910.0, altitude=80500.0, situation="ORBITING", body="Kerbin",
-                     seam_command_result="OK", seam_command_tag=mlib.R1_TAG_COMMIT))
-        self.assertEqual(out.phase, mlib.R1_REWIND)
+        MUTATION: make the COMMIT OK branch enter R1_REWIND with
+        `_r1_rewind_action(...)` (the pre-fix machine) and this reds."""
+        st = drive_to_commit()
+        out, actions = mlib.r1_decide(st, seam(mlib.R1_TAG_COMMIT, ut=910.0))
+        self.assertEqual(out.phase, mlib.R1_STOP)
         self.assertEqual(out.commit_result, "OK")
-        # The pre-rewind stamp is taken HERE, before anything can have moved.
-        self.assertEqual(out.pre_rewind_ut, 910.0)
+        self.assertEqual([(a.seam_verb, a.seam_tag) for a in actions],
+                         [("StopRecording", mlib.R1_TAG_STOP)])
+
+    def test_no_invoke_rewind_is_ever_emitted_before_a_recorder_idle_reading(self):
+        """The precondition as a whole-run property rather than a per-branch one:
+        walk the chain and assert InvokeRewind is emitted ONLY after a
+        RecordingState reply actually read recording=false.
+
+        MUTATION: move the rewind action to the STOP OK branch (an order-only fix
+        with no observation) and this reds."""
+        st = drive_to_idle()
+        emitted = []
+
+        # Probe 0 says the recorder is STILL LIVE -> must NOT command the rewind.
+        st, actions = mlib.r1_decide(
+            st, seam(mlib.r1_state_probe_tag(0), payload=(("recording", "true"),),
+                     ut=912.0))
+        emitted += [a.seam_verb for a in actions]
+        self.assertNotIn("InvokeRewind", emitted)
+        self.assertEqual(st.phase, mlib.R1_RECORDER_IDLE)
+        self.assertFalse(st.recorder_idle_observed)
+
+        # Probe 1 reads idle -> now, and only now, the rewind is commanded.
+        st, actions = mlib.r1_decide(
+            st, seam(mlib.r1_state_probe_tag(1), payload=(("recording", "false"),),
+                     ut=913.0))
+        emitted += [a.seam_verb for a in actions]
+        self.assertEqual(emitted.count("InvokeRewind"), 1)
+        self.assertTrue(st.recorder_idle_observed)
+        self.assertEqual(st.phase, mlib.R1_REWIND)
+
+    def test_each_recorder_state_probe_gets_a_distinct_tag(self):
+        """A reused tag is a reused wire id, and the C# seam SKIPS DUPLICATE IDS -
+        every probe after the first would be silently dropped and the poll would
+        expire on a reply that was never coming.
+
+        MUTATION: make `r1_state_probe_tag` return a constant and this reds."""
+        st = drive_to_idle()
+        tags = []
+        for i in range(3):
+            st, actions = mlib.r1_decide(
+                st, seam(mlib.r1_state_probe_tag(i),
+                         payload=(("recording", "true"),), ut=912.0 + i))
+            tags += [a.seam_tag for a in actions]
+        self.assertEqual(tags, ["state1", "state2", "state3"])
+        self.assertEqual(len(set(tags)), len(tags))
+
+    def test_a_recorder_that_never_goes_idle_is_a_named_giveup(self):
+        """MUTATION: delete the `recording == "true"` branch's frame bound and this
+        HANGS. The give-up must NAME the promotion and the gate, not just time
+        out."""
+        st = drive_to_idle(idleFrames=3)
+        for i in range(12):
+            st, _ = mlib.r1_decide(
+                st, seam(mlib.r1_state_probe_tag(st.state_probe),
+                         payload=(("recording", "true"),), ut=912.0 + i))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(st.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("still read recording=true", st.flake_reason)
+        self.assertIn("recording-active", st.flake_reason)
+
+    def test_an_unreadable_recording_field_fails_closed(self):
+        """An OK reply whose payload has no `recording` field must NOT be treated
+        as idle. MUTATION: fall through to the rewind on an unreadable field and
+        this reds."""
+        st = drive_to_idle()
+        out, actions = mlib.r1_decide(
+            st, seam(mlib.r1_state_probe_tag(0), payload=(("tree", "t1"),), ut=912.0))
+        self.assertTrue(out.done)
+        self.assertEqual(out.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no readable `recording` field", out.flake_reason)
+        self.assertEqual(actions, [])
+
+    def test_stop_seam_error_is_a_named_giveup_that_names_the_gate(self):
+        st = drive_to_stop()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_STOP, result="ERROR", ut=911.0))
+        self.assertTrue(out.done)
+        self.assertEqual(out.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("StopRecording seam command returned ERROR", out.flake_reason)
+        self.assertIn("recording-active", out.flake_reason)
+
+    def test_stop_silence_is_frame_bounded(self):
+        st = drive_to_stop(stopFrames=3)
+        for _ in range(8):
+            st, _ = mlib.r1_decide(st, snap(ut=911.0))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertIn("StopRecording seam command never answered within 3 frames",
+                      st.flake_reason)
+
+    def test_rewind_stamps_the_pre_rewind_observation_at_the_command_frame(self):
+        """The stamp is taken on the frame the rewind is COMMANDED (the idle
+        reading), not back at the commit, so VERIFY compares against the tightest
+        possible 'before'."""
+        st = drive_to_idle()
+        out, actions = mlib.r1_decide(
+            st, seam(mlib.r1_state_probe_tag(0), payload=(("recording", "false"),),
+                     ut=912.0, altitude=80500.0, situation="ORBITING", body="Kerbin"))
+        self.assertEqual(out.pre_rewind_ut, 912.0)
         self.assertEqual(out.pre_rewind_altitude, 80500.0)
         self.assertEqual(out.pre_rewind_situation, "ORBITING")
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0].seam_verb, "InvokeRewind")
-        self.assertEqual(actions[0].seam_tag, mlib.R1_TAG_REWIND)
-        self.assertEqual(actions[0].seam_args,
-                         (("rp", "rp_b9_root"), ("slot", "1")))
+        self.assertEqual(actions[0].seam_args, (("rp", "rp_b9_root"), ("slot", "1")))
 
     def test_commit_error_is_a_named_giveup(self):
-        st = self._at_commit()
-        out, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="ERROR",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
+        st = drive_to_commit()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_COMMIT, result="ERROR", ut=910.0))
         self.assertTrue(out.done)
         self.assertEqual(out.verdict, mlib.MISSION_FLAKE)
         self.assertIn("tree-commit seam command returned ERROR", out.flake_reason)
         self.assertIn("no committed state to rewind FROM", out.flake_reason)
 
     def test_commit_timeout_is_a_distinctly_named_giveup(self):
-        st = self._at_commit()
-        out, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="TIMEOUT",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
+        st = drive_to_commit()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_COMMIT, result="TIMEOUT", ut=910.0))
         self.assertIn("returned TIMEOUT", out.flake_reason)
 
     def test_commit_silence_is_frame_bounded_with_its_own_name(self):
-        st = self._at_commit(commitFrames=3)
+        st = drive_to_commit(commitFrames=3)
         for _ in range(6):
             st, _ = mlib.r1_decide(st, snap(ut=910.0))
             if st.done:
@@ -333,75 +476,85 @@ class R1SeamPhaseTests(unittest.TestCase):
         self.assertTrue(st.done)
         self.assertIn("never answered within 3 frames", st.flake_reason)
 
-    def test_a_stale_commit_ok_cannot_satisfy_the_rewind_phase(self):
+    def test_a_stale_commit_ok_cannot_satisfy_the_stop_phase(self):
         """THE stale-result fail-open. MUTATION: drop the tag check in
-        _r1_seam_result (`return snapshot.seam_command_result`) and this reds --
-        REWIND would advance on the COMMIT command's OK, reporting a rewind that
-        InvokeRewind never performed."""
-        st = self._at_commit()
-        st, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
-        self.assertEqual(st.phase, mlib.R1_REWIND)
-        # The COMMIT token is still riding the snapshot; REWIND must ignore it.
-        out, _ = mlib.r1_decide(
-            st, snap(ut=911.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
-        self.assertEqual(out.phase, mlib.R1_REWIND)
-        self.assertEqual(out.rewind_result, "")
+        _r1_seam_result and this reds -- STOP would advance on the COMMIT
+        command's OK, reporting a stop StopRecording never performed."""
+        st = drive_to_stop()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_COMMIT, ut=911.0))
+        self.assertEqual(out.phase, mlib.R1_STOP)
+        self.assertEqual(out.stop_result, "")
+        self.assertFalse(out.done)
+
+    def test_a_stale_stop_ok_cannot_satisfy_the_recorder_idle_phase(self):
+        st = drive_to_idle()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_STOP, ut=912.0))
+        self.assertEqual(out.phase, mlib.R1_RECORDER_IDLE)
+        self.assertFalse(out.recorder_idle_observed)
         self.assertFalse(out.done)
 
     def test_rewind_ok_enters_verify_but_is_not_itself_the_terminal(self):
         """MUTATION: make R1_REWIND's OK branch enter R1_REWOUND directly and this
         reds. The whole point of VERIFY is that the seam's OK is a COMMANDED
         reading and must never be the terminal on its own."""
-        st = self._at_commit()
-        st, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
-        out, _ = mlib.r1_decide(
-            st, snap(ut=911.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_REWIND))
+        st = drive_to_rewind()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_REWIND, ut=913.0))
         self.assertEqual(out.phase, mlib.R1_VERIFY)
         self.assertFalse(out.done)
         self.assertIsNone(out.verdict)
 
-    def test_rewind_error_names_the_target(self):
-        st = self._at_commit()
-        st, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
+    def test_a_rejected_rewind_surfaces_parseks_own_reason(self):
+        """FLIGHT-1 DIAGNOSABILITY REGRESSION. The old wording guessed ("the re-fly
+        never started, or its post-load marker never landed") and sent the operator
+        hunting the RewindPoint while the response carried the real answer.
+
+        MUTATION: drop the `msg` read (restore the speculative text) and this
+        reds."""
+        st = drive_to_rewind()
         out, _ = mlib.r1_decide(
-            st, snap(ut=911.0, seam_command_result="ERROR",
-                     seam_command_tag=mlib.R1_TAG_REWIND))
+            st, seam(mlib.R1_TAG_REWIND, result="ERROR",
+                     payload=(("msg", "recording-active"),), ut=913.0))
         self.assertTrue(out.done)
+        self.assertEqual(out.rewind_reject_reason, "recording-active")
+        self.assertIn("Parsek's reason: recording-active", out.flake_reason)
         self.assertIn("rp=rp_b9_root slot=1", out.flake_reason)
+        self.assertNotIn("post-load marker never landed", out.flake_reason)
+
+    def test_a_percent_encoded_reason_is_decoded_in_the_giveup(self):
+        st = drive_to_rewind()
+        encoded = "refly-gate%20Rewind%20point%20is%20marked%20corrupted"
+        out, _ = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_REWIND, result="ERROR",
+                     payload=(("msg", encoded),), ut=913.0))
+        self.assertIn("refly-gate Rewind point is marked corrupted", out.flake_reason)
+
+    def test_a_reasonless_rejection_admits_it_rather_than_guessing(self):
+        st = drive_to_rewind()
+        out, _ = mlib.r1_decide(st, seam(mlib.R1_TAG_REWIND, result="TIMEOUT", ut=913.0))
+        self.assertIn("the response carried no msg= reason", out.flake_reason)
 
     def test_vessel_loss_is_suppressed_in_rewind_only(self):
         """The reload straddle legitimately destroys the active vessel. MUTATION:
-        widen the suppression to `state.phase not in (R1_REWIND, R1_VERIFY)` and
-        LossStillTerminatesInVerify reds -- a blanket fail-open."""
-        st = self._at_commit()
-        st, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
-        self.assertEqual(st.phase, mlib.R1_REWIND)
-        out, _ = mlib.r1_decide(st, snap(ut=911.0, vessel_lost=True))
+        widen the suppression to include R1_VERIFY and LossStillTerminatesInVerify
+        reds -- a blanket fail-open."""
+        st = drive_to_rewind()
+        out, _ = mlib.r1_decide(st, snap(ut=913.0, vessel_lost=True))
         self.assertFalse(out.done)
         self.assertEqual(out.phase, mlib.R1_REWIND)
 
     def test_loss_still_terminates_in_verify(self):
-        st = self._at_commit()
-        st, _ = mlib.r1_decide(
-            st, snap(ut=910.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_COMMIT))
-        st, _ = mlib.r1_decide(
-            st, snap(ut=911.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_REWIND))
-        self.assertEqual(st.phase, mlib.R1_VERIFY)
+        st = drive_to_verify()
         out, _ = mlib.r1_decide(st, snap(ut=200.0, vessel_lost=True))
         self.assertTrue(out.done)
         self.assertEqual(out.verdict, mlib.MISSION_ASSERT_FAIL)
+
+    def test_loss_still_terminates_in_stop_and_recorder_idle(self):
+        """The suppression is ONE phase wide. A craft destroyed while the recorder
+        is being stopped is still a destroyed craft."""
+        for st in (drive_to_stop(), drive_to_idle()):
+            out, _ = mlib.r1_decide(st, snap(ut=911.0, vessel_lost=True))
+            self.assertTrue(out.done, st.phase)
+            self.assertEqual(out.verdict, mlib.MISSION_ASSERT_FAIL)
 
 
 # ---------------------------------------------------------------------------
@@ -411,35 +564,25 @@ class R1SeamPhaseTests(unittest.TestCase):
 
 class R1ObservedVerifyTests(unittest.TestCase):
 
-    def _at_verify(self, pre_ut=910.0, pre_alt=80500.0, pre_sit="ORBITING", **over):
-        st = at_orbit(mlib.r1_initial_state(r1_params(**over)))
-        st, _ = mlib.r1_decide(st, snap(ut=900.0))
-        st, _ = mlib.r1_decide(
-            st, snap(ut=pre_ut, altitude=pre_alt, situation=pre_sit, body="Kerbin",
-                     seam_command_result="OK", seam_command_tag=mlib.R1_TAG_COMMIT))
-        st, _ = mlib.r1_decide(
-            st, snap(ut=pre_ut + 1.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_REWIND))
-        self.assertEqual(st.phase, mlib.R1_VERIFY)
-        return st
+    def _at_verify(self, pre_ut=912.0, **over):
+        return drive_to_verify(pre_ut=pre_ut, **over)
 
     def test_backward_clock_is_the_advance(self):
         st = self._at_verify()
         out, _ = mlib.r1_decide(
-            st, snap(ut=310.0, altitude=1200.0, situation="FLYING", body="Kerbin"))
+            st, snap(ut=312.0, altitude=1200.0, situation="FLYING", body="Kerbin"))
         self.assertEqual(out.phase, mlib.R1_REWOUND)
         self.assertTrue(out.done)
         self.assertIsNone(out.verdict)
         self.assertAlmostEqual(out.ut_regression, 600.0)
-        self.assertEqual(out.post_rewind_ut, 310.0)
+        self.assertEqual(out.post_rewind_ut, 312.0)
 
     def test_a_forward_clock_never_satisfies_the_gate(self):
         """THE anti-commanded cell. MUTATION: replace the gate with
         `if state.rewind_result == "OK"` (i.e. trust the seam's own OK) and this
         reds -- the machine would call a rewind that never moved the clock done."""
-        st = self._at_verify(verifyFrames=4)
-        cur = st
-        for i in range(6):
+        cur = self._at_verify(verifyFrames=4)
+        for i in range(8):
             cur, _ = mlib.r1_decide(
                 cur, snap(ut=1000.0 + i, altitude=80500.0, situation="ORBITING"))
             if cur.done:
@@ -450,13 +593,11 @@ class R1ObservedVerifyTests(unittest.TestCase):
         self.assertIn("COMMANDED reading", cur.flake_reason)
 
     def test_a_sub_floor_regression_never_satisfies_the_gate(self):
-        """MUTATION: change `>=` to `>` -> still passes; change the compare to
-        `regression > 0` (drop the floor) and this reds. A 0.5 s wobble is float
-        noise, not a rewind."""
-        st = self._at_verify(verifyFrames=3)
-        cur = st
-        for _ in range(5):
-            cur, _ = mlib.r1_decide(cur, snap(ut=909.5, altitude=1200.0))
+        """MUTATION: drop the floor (`regression > 0`) and this reds. A 0.5 s
+        wobble is float noise, not a rewind."""
+        cur = self._at_verify(verifyFrames=3)
+        for _ in range(6):
+            cur, _ = mlib.r1_decide(cur, snap(ut=911.5, altitude=1200.0))
             if cur.done:
                 break
         self.assertTrue(cur.done)
@@ -464,16 +605,15 @@ class R1ObservedVerifyTests(unittest.TestCase):
 
     def test_exactly_the_floor_satisfies_the_gate(self):
         st = self._at_verify()
-        out, _ = mlib.r1_decide(st, snap(ut=905.0, altitude=1200.0))
+        out, _ = mlib.r1_decide(st, snap(ut=907.0, altitude=1200.0))
         self.assertEqual(out.phase, mlib.R1_REWOUND)
         self.assertAlmostEqual(out.ut_regression, 5.0)
 
     def test_a_non_finite_clock_never_satisfies_the_gate(self):
         """Fail-closed on an unread channel: NaN must not compare its way into a
         pass. MUTATION: drop the _is_finite guards and this raises or passes."""
-        st = self._at_verify(verifyFrames=2)
-        cur = st
-        for _ in range(4):
+        cur = self._at_verify(verifyFrames=2)
+        for _ in range(5):
             cur, _ = mlib.r1_decide(cur, snap(ut=float("nan"), altitude=1200.0))
             if cur.done:
                 break
@@ -484,13 +624,9 @@ class R1ObservedVerifyTests(unittest.TestCase):
         """THE reason VERIFY counts frames. MUTATION: bound VERIFY with
         `snapshot.ut - phase_entry_ut > budget` and this HANGS (never terminates),
         because after a rewind that difference is negative forever."""
-        st = self._at_verify(verifyFrames=5)
-        cur = st
-        # UT marches BACKWARD every frame but never far enough past the stamp to
-        # satisfy the gate relative to a moving pre stamp... it is fixed, so use a
-        # clock that stays just under the floor while decreasing.
+        cur = self._at_verify(verifyFrames=5)
         for i in range(20):
-            cur, _ = mlib.r1_decide(cur, snap(ut=909.9 - i * 0.01, altitude=1200.0))
+            cur, _ = mlib.r1_decide(cur, snap(ut=911.9 - i * 0.01, altitude=1200.0))
             if cur.done:
                 break
         self.assertTrue(cur.done, "VERIFY must terminate on a FRAME budget")
@@ -506,16 +642,9 @@ class R1AssertionTests(unittest.TestCase):
 
     def _flown(self):
         params = r1_params()
-        st = at_orbit(mlib.r1_initial_state(params))
-        st, _ = mlib.r1_decide(st, snap(ut=900.0))
+        st = drive_to_verify()
         st, _ = mlib.r1_decide(
-            st, snap(ut=910.0, altitude=80500.0, situation="ORBITING", body="Kerbin",
-                     seam_command_result="OK", seam_command_tag=mlib.R1_TAG_COMMIT))
-        st, _ = mlib.r1_decide(
-            st, snap(ut=911.0, seam_command_result="OK",
-                     seam_command_tag=mlib.R1_TAG_REWIND))
-        st, _ = mlib.r1_decide(
-            st, snap(ut=310.0, altitude=1200.0, situation="FLYING", body="Kerbin"))
+            st, snap(ut=312.0, altitude=1200.0, situation="FLYING", body="Kerbin"))
         return params, st
 
     def test_full_cycle_meets_every_row(self):
@@ -524,15 +653,33 @@ class R1AssertionTests(unittest.TestCase):
         self.assertTrue(mlib.all_assertions_met(rows), [r.name for r in rows if not r.met])
         self.assertEqual([r.name for r in rows],
                          ["reachedOrbitBeforeRewind", "treeCommittedBeforeRewind",
-                          "clockRewound", "vesselStateChanged", "rewindSeamAccepted"])
+                          "recorderIdleBeforeRewind", "clockRewound",
+                          "vesselStateChanged", "rewindSeamAccepted"])
 
     def test_the_observed_rows_are_labelled_observed(self):
         params, st = self._flown()
         rows = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}
         self.assertEqual(rows["clockRewound"].detail["channel"], "observed")
         self.assertEqual(rows["vesselStateChanged"].detail["channel"], "observed")
+        self.assertEqual(rows["recorderIdleBeforeRewind"].detail["channel"], "observed")
         # And the seam's own OK is labelled for what it is.
         self.assertEqual(rows["rewindSeamAccepted"].detail["channel"], "commanded")
+
+    def test_the_recorder_idle_row_carries_the_read_value_not_the_stop_verbs_ok(self):
+        """MUTATION: set `idle_met` from `stop_result == "OK"` and this reds. The
+        StopRecording verb's OK is a COMMANDED reading; the row's evidence is the
+        `recording` field READ back off RecordingState."""
+        params, st = self._flown()
+        row = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}[
+            "recorderIdleBeforeRewind"]
+        self.assertEqual(row.value, "false")
+        self.assertEqual(row.detail["stopSeamResult"], "OK")
+        # A state where the stop returned OK but nothing was ever READ must fail.
+        blind = replace(st, recorder_idle_observed=False, recorder_idle_reading="")
+        blind_row = {r.name: r for r in mlib.evaluate_r1_assertions([], params, blind)}[
+            "recorderIdleBeforeRewind"]
+        self.assertFalse(blind_row.met)
+        self.assertEqual(blind_row.detail["stopSeamResult"], "OK")
 
     def test_a_commanded_ok_alone_does_not_meet_the_assertions(self):
         """THE anti-vacuity cell. A state where InvokeRewind returned OK but no
@@ -551,6 +698,17 @@ class R1AssertionTests(unittest.TestCase):
         # The commanded row is still met -- which is exactly why it can never be
         # the only row.
         self.assertTrue({r.name: r for r in rows}["rewindSeamAccepted"].met)
+
+    def test_the_reject_reason_rides_the_commanded_row(self):
+        params = r1_params()
+        st = drive_to_rewind()
+        st, _ = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_REWIND, result="ERROR",
+                     payload=(("msg", "recording-active"),), ut=913.0))
+        row = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}[
+            "rewindSeamAccepted"]
+        self.assertFalse(row.met)
+        self.assertEqual(row.detail["rejectReason"], "recording-active")
 
     def test_a_situation_change_alone_satisfies_the_corroboration_row(self):
         params, st = self._flown()
@@ -582,6 +740,66 @@ class R1AssertionTests(unittest.TestCase):
             st, mlib.evaluate_r1_assertions([], params, st))
         self.assertEqual(verdict, mlib.MISSION_FLAKE)
         self.assertIn("rewind target unresolved", reason)
+
+
+class R1SeamPayloadReaderTests(unittest.TestCase):
+    """`_r1_seam_payload` / `_r1_reject_reason` read a payload field under the SAME
+    tag gate `_r1_seam_result` applies to the token.
+
+    HONEST SCOPE: at every CURRENT call site the two gates are redundant - the
+    payload is only read on a branch the token gate already opened, so no machine
+    path can reach a mismatched-tag payload read, and a machine-level cell cannot
+    discriminate the gate's removal. These cells test the HELPER's contract
+    directly, so a future call site that reads a payload WITHOUT first checking the
+    token (which is what would make the gate load-bearing) inherits a guard that is
+    already proven rather than one that was only ever assumed."""
+
+    def test_payload_is_read_under_the_matching_tag(self):
+        s = seam("rewind", payload=(("rp", "rp_x"), ("slot", "1")))
+        self.assertEqual(mlib._r1_seam_payload(s, "rewind", "rp"), "rp_x")
+        self.assertEqual(mlib._r1_seam_payload(s, "rewind", "slot"), "1")
+
+    def test_a_payload_under_a_different_tag_is_not_read(self):
+        """MUTATION: drop the tag check in _r1_seam_payload and this reds."""
+        s = seam("commit", payload=(("recording", "false"),))
+        self.assertEqual(mlib._r1_seam_payload(s, "rewind", "recording"), "")
+        self.assertEqual(mlib._r1_seam_payload(s, mlib.r1_state_probe_tag(0),
+                                               "recording"), "")
+
+    def test_a_missing_key_reads_empty(self):
+        s = seam("state0", payload=(("tree", "t1"),))
+        self.assertEqual(mlib._r1_seam_payload(s, "state0", "recording"), "")
+
+    def test_reject_reason_decodes_and_is_tag_gated(self):
+        s = seam("rewind", result="ERROR", payload=(("msg", "refly-gate%20nope"),))
+        self.assertEqual(mlib._r1_reject_reason(s, "rewind"), "refly-gate nope")
+        self.assertEqual(mlib._r1_reject_reason(s, "commit"), "")
+
+    def test_because_admits_an_absent_reason_rather_than_guessing(self):
+        self.assertIn("recording-active", mlib._r1_because("recording-active"))
+        self.assertEqual(mlib._r1_because(""), "the response carried no msg= reason")
+
+
+class R1SeamValueDecodeTests(unittest.TestCase):
+    """`decode_seam_value` -- the inverse of the C# TestCommandProtocol.Encode.
+    MUTATION: return the input unchanged and DecodesPercentEscapes reds."""
+
+    def test_decodes_percent_escapes(self):
+        self.assertEqual(
+            mlib.decode_seam_value("refly-gate%20Rewind%20point%20is%20marked%20corrupted"),
+            "refly-gate Rewind point is marked corrupted")
+
+    def test_literal_values_pass_through(self):
+        self.assertEqual(mlib.decode_seam_value("recording-active"), "recording-active")
+        self.assertEqual(mlib.decode_seam_value(""), "")
+        self.assertEqual(mlib.decode_seam_value(None), "")
+
+    def test_malformed_escapes_never_raise(self):
+        for bad in ("%", "%Z", "%ZZ tail", "100%"):
+            self.assertEqual(mlib.decode_seam_value(bad), bad)
+
+    def test_multibyte_utf8_round_trips(self):
+        self.assertEqual(mlib.decode_seam_value("a%C3%A9b"), "a\u00e9b")
 
 
 class R1ParamsTests(unittest.TestCase):

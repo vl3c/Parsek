@@ -1,14 +1,37 @@
 schema = 1
 id = "R1-rewind-loop-flown"
-# tier = "operator", reason (b) EXPENSIVE AND UNFLOWN (hlib TIERS docstring), with
-# the PROMOTE note below. It is NOT reason (a): reason (a) is "PASS is unreachable
-# unattended (RequiresFlight verbs with no flight-entry verb)", and that premise is
-# FALSE at HEAD - see the FLIGHT-ENTRY note. This spec has simply never been flown,
-# and its worst case is ~1,900 s x `retry.policy = "once"` = ~63 min, so a
-# systematic first-flight failure would burn an hour of every nightly until someone
-# sat down with it.
-# PROMOTE TO: nightly, after one green operator run (the cost class matches B2 /
-# EVA-4, both nightly).
+# tier = "operator", reason (b) EXPENSIVE AND NOT YET GREEN (hlib TIERS docstring),
+# with the PROMOTE note below. It is NOT reason (a): reason (a) is "PASS is
+# unreachable unattended (RequiresFlight verbs with no flight-entry verb)", and that
+# premise is FALSE at HEAD - see the FLIGHT-ENTRY note. Its worst case is ~1,900 s x
+# `retry.policy = "once"` = ~63 min, so a systematic failure would burn an hour of
+# every nightly until someone sat down with it.
+# PROMOTE TO: nightly, after one green run (the cost class matches B2 / EVA-4, both
+# nightly).
+#
+# FLIGHT 1 (2026-07-26, run `2026-07-26_2212`): INVALID(autopilot-flake), wall 520 s
+# over 2 attempts. It FOUND A REAL ORDERING DEFECT IN THIS MISSION, which is what a
+# first flight is for. What flew correctly, first try:
+#   - the mission drove `CommitTree` mid-flight through the generalized seam path
+#     (`treeCommittedBeforeRewind value=OK met=True`);
+#   - the delegated B2 ascent reached ORBIT (ap 84,051 / pe 75,784,
+#     `reachedOrbitBeforeRewind met=True`);
+#   - the sub-id scheme worked LIVE: KSP.log carries `id=0003.commit` and
+#     `id=0003.rewind` as separate commands, so REWIND did not advance on COMMIT's
+#     OK and neither was swallowed as a duplicate id;
+#   - `rp_b9_root` RESOLVED FINE (`Keeping session-prov rp=rp_b9_root
+#     bp=bp_b9_root`). The injected-RP caveat below is a SCOPE limit, NOT a blocker,
+#     and it was not what red this flight.
+# What failed: `reject id=0003.rewind cmd=InvokeRewind reason=recording-active`.
+# `TestCommandDispatcher.DecideDispatch` refuses InvokeRewind while a recorder is
+# live (a re-fly reloads the scene and would silently discard it). The machine went
+# COMMIT -> REWIND, and `ParsekFlight.CommitTreeFlight` - which DOES stop the
+# recorder and null both handles - leaves the active vessel live, so
+# `TryRestoreCommittedTreeForSpawnedActiveVessel` starts a fresh `promotion`
+# recording on the surviving 28-part stage 14 ms later. FIXED by inserting STOP
+# (seam StopRecording) + RECORDER-IDLE (seam RecordingState polled until the reply
+# reads `recording=false`) between COMMIT and REWIND - the dispatcher's gate carried
+# as an OBSERVED precondition, not as an ordering assumption.
 tier = "operator"
 #
 # FLIGHT-ENTRY NOTE (corrects the premise S1.5 / S4.1 carried until this lane).
@@ -22,22 +45,28 @@ tier = "operator"
 # and the rewind cycle can be driven after a REAL FLOWN flight, which is what this
 # spec adds over S4.1's fixture-only invoke.
 #
-# WHAT THIS SPEC PROVES:
+# WHAT THIS SPEC PROVES (1 and 2 are LIVE-PROVEN by flight 1; 3-5 are what its
+# next run is for):
 #   1. flight entry + a real MechJeb ascent to LKO (the delegated, live-proven B2
 #      machine - this spec writes no new ascent);
 #   2. a real mid-flight CommitTree issued through the GENERALIZED command-seam
 #      bridge (ACTION_PARSEK_SEAM_COMMAND), i.e. a mission can now drive ANY seam
-#      verb mid-flight, not only CommitTree;
-#   3. a real Rewind-to-Separation invoked FROM FLIGHT, past the five-precondition
+#      verb mid-flight, not only CommitTree. Flight 1 additionally exercised
+#      StopRecording and RecordingState through the same path;
+#   3. that the recorder is OBSERVED idle before the rewind is commanded - the
+#      dispatcher's own `recording-active` gate, carried as a machine precondition
+#      read back off RecordingState rather than assumed by step order;
+#   4. a real Rewind-to-Separation invoked FROM FLIGHT, past the five-precondition
 #      RewindInvoker.CanInvoke gate, across the KSP scene reload;
-#   4. that the rewind ACTUALLY HAPPENED, judged by an OBSERVATION and not by the
+#   5. that the rewind ACTUALLY HAPPENED, judged by an OBSERVATION and not by the
 #      verb's own OK: the game clock RAN BACKWARD (kRPC space_center.ut lower after
 #      the cycle than the value stamped before it), corroborated by the vessel's
 #      situation / altitude changing. See the mission docstring.
 #
-# WHAT THIS SPEC DOES NOT PROVE (be blunt: this is the open gap in the lane).
-# The rewind TARGET is the INJECTED rewind-b9 RewindPoint (rp_b9_root), NOT a
-# RewindPoint this flight authored. It cannot be, for two reasons in the code:
+# WHAT THIS SPEC DOES NOT PROVE - a SCOPE limit, not a blocker (flight 1 confirmed
+# rp_b9_root resolves fine). The rewind TARGET is the INJECTED rewind-b9 RewindPoint
+# (rp_b9_root), NOT a RewindPoint this flight authored. It cannot be, for two
+# reasons in the code:
 #   (a) A Kerbal X ascent authors NO RewindPoint. RP authoring requires a
 #       MULTI-CONTROLLABLE split (ParsekFlight.TryAuthorRewindPointForSplit ->
 #       SegmentBoundaryLogic.IsMultiControllableSplit, controllable =
@@ -114,7 +143,13 @@ rewindSlot                = 1
 # named give-up. The seam bridge blocks inside perform() for the whole poll window,
 # so a terminal token normally lands on the very next frame; 40 frames (~20 s at the
 # 0.5 s poll cadence) is slack, not a wait.
+# stopFrames / idleFrames bound the STOP + RECORDER-IDLE phases added after flight 1
+# (see the FLIGHT 1 note in the header). The idle poll needs only ONE probe on the
+# happy path - StopRecording gates on the same predicate the dispatcher reads - so 40
+# frames is deep slack for a recorder that is slow to settle, not an expected wait.
 commitFrames              = 40
+stopFrames                = 40
+idleFrames                = 40
 rewindFrames              = 40
 verifyFrames              = 40
 # THE OBSERVED GATE. rp_b9_root sits well before the flown ascent's UT, so the

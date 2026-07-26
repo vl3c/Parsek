@@ -363,7 +363,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | FORGE-eva2-lko | operator | (Not a Parsek-surface test) FIXTURE-FORGE, the FIRST ORBITAL one (mission `forge_lko`): boots the SAME bdock-forge-base, launch_vessel the Kerbal X with TWO named crew (Valentina + Bob), then flies the LIVE-PROVEN B-DOCK Interceptor-leg shape - MechJeb ascent, circularization with node-executor autowarp EXPLICIT (flight-12 lesson), the two-step separation contract (drop the spent core AND ignite the orbital stage, thrust-verified, cap 2), then a PARK phase that cuts throttle, clears nodes, holds SAS+RCS and requires a HELD stable ~100 km circular orbit (pe >= 75 km, tumble <= 0.05 rad/s) before SaveGame. Crew is gated ON THE PAD (crew_count >= minCrew, fail-closed on the -1 unread sentinel) so an uncrewed stamp flakes in 300 s instead of after a 10-minute flight. autoRecordOnLaunch pinned false so the fixture carries no recordings / trees / ledger state (the stamped .sfs does keep an inert populated `SCENARIO{name=ParsekScenario}` node - `gameStateEventCount=18` + one MILESTONE_STATE row - which is what suppresses PreParsekBackup at load) | DONE 2026-07-24: forge run = MISSION-OK / PASS, 268 s wall, full profile PRELAUNCH -> LAUNCH -> ASCENT -> CIRCULARIZE -> SEPARATE -> PARK -> ORBIT; harvested with `harvest_bdock_station.py --target-name eva2-lko-crewed --expect-situation ORBITING` (the harvest's new optional situation gate, added for this orbital harvest); the `eva2-lko-crewed` fixture is COMMITTED and EVA-2-orbital-board flew it green on its first flight |
 | S1.5-rewind-loop | nightly (RE-TIERED from operator 2026-07-26) | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | First scheduled nightly run IS its live-prove. Its two operator-tier reasons were both FALSE at HEAD: (1) "the seam has no flight-entry verb" - `LoadGame` IS one (`TestCommandLoadGame.DecideLoadRoute` FOCUS route -> `StartAndFocusVessel`), and `fixtures/saves/gloops-airshow` carries `activeVessel = 1` so it lands in FLIGHT, which EVA-1/2/3 + S0.5/S0.6 have been exploiting nightly since 2026-07-24; (2) the "do not schedule before the integration-fixes PR merges" TimeJump dependency - PR #1322 is MERGED (eb94607dd). Still PENDING-OPERATOR for the crew-re-reservation / resource-reset asserts (sandbox host, no career fixture) |
 | S4.1-rewind-merge | nightly (RE-TIERED from operator 2026-07-26) | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | First scheduled nightly run IS its live-prove. Same corrected flight-entry premise as S1.5; the surviving caveat is PENDING-VERIFIER, not pending-operator: the supersede-relation / tombstone asserts under `[expectations.rewind]` are RESERVED (evaluate_expectations records them SKIPPED) until the M-C2 rewind save-parse verifier lands, so what it gates today is the four re-fly log contracts + the recording-count floor |
-| R1-rewind-loop-flown | operator (PROMOTE to nightly after its first green flight) | FIRST rewind cycle driven from a REAL FLOWN flight: the delegated live-proven B2 ascent machine, a mid-flight CommitTree issued through the NEW verb-agnostic seam bridge (`ACTION_PARSEK_SEAM_COMMAND`), then a real Rewind-to-Separation from FLIGHT judged by an OBSERVATION - the game clock RUNNING BACKWARD (`clockRewound`, corroborated by `vesselStateChanged`), never by InvokeRewind's own OK (which rides as one strictly-additional `rewindSeamAccepted` row). Also the first mission to prove a mission can drive ANY seam verb mid-flight, not only CommitTree | FIRST FLIGHT, and operator-tiered on reason (b): ~1,900 s worst case x `retry.policy = "once"` is ~63 min a night for an unflown lane. HONEST SCOPE, and it is a real gap: the rewind TARGET is the INJECTED `rp_b9_root`, NOT a RewindPoint this flight authored, because (a) an ordinary ascent authors NO RP - `ParsekFlight.TryAuthorRewindPointForSplit` needs a MULTI-CONTROLLABLE split and a dropped booster has no `ModuleCommand` - and (b) nothing can name a live RP anyway: `InvokeRewindImpl` matches `RewindPointId` exactly and live ids are fresh GUIDs (`RewindPointAuthor.cs`), with no seam channel exposing them. So it is a rewind-AFTER-a-flight test, not a rewind-your-own-separation loop. Closing (b) is tracked in todo-and-known-bugs.md |
+| R1-rewind-loop-flown | operator (PROMOTE to nightly after its first green flight) | FIRST rewind cycle driven from a REAL FLOWN flight: the delegated live-proven B2 ascent machine, a mid-flight CommitTree + StopRecording + RecordingState issued through the NEW verb-agnostic seam bridge (`ACTION_PARSEK_SEAM_COMMAND`), the dispatcher's `recording-active` gate carried as an OBSERVED precondition (`recorderIdleBeforeRewind` reads `recording=false` off a RecordingState reply before the rewind is commanded), then a real Rewind-to-Separation from FLIGHT judged by an OBSERVATION - the game clock RUNNING BACKWARD (`clockRewound`, corroborated by `vesselStateChanged`), never by InvokeRewind's own OK (which rides as one strictly-additional `rewindSeamAccepted` row). Also the first mission to prove a mission can drive ANY seam verb mid-flight, not only CommitTree | FLOWN ONCE (2026-07-26, run `2026-07-26_2212`): `INVALID(autopilot-flake)`, wall 520 s / 2 attempts - and it EARNED ITS KEEP ON FLIGHT 1 by finding a real ordering defect in the mission. PROVEN LIVE first try: the generalized seam path drove `CommitTree` mid-flight (`treeCommittedBeforeRewind value=OK met=True`), the delegated ascent reached ORBIT (ap 84,051 / pe 75,784), and the SUB-ID SCHEME WORKED (`id=0003.commit` and `id=0003.rewind` are separate commands in KSP.log - no dedupe swallow, no advance on the wrong OK). FAILED on `reject id=0003.rewind cmd=InvokeRewind reason=recording-active`: `TestCommandDispatcher` refuses InvokeRewind while a recorder is live, and although `CommitTreeFlight` stops the recorder and nulls both handles, `TryRestoreCommittedTreeForSpawnedActiveVessel` starts a fresh `promotion` recording on the surviving stage 14 ms after the commit returns OK. FIXED by adding STOP + RECORDER-IDLE phases (see todo-and-known-bugs.md). NOT the cause, and now cleared: `rp_b9_root` resolved fine (`Keeping session-prov rp=rp_b9_root`). Attempt 1 of that run died `INVALID tooling-venv` because a fresh worktree has no `missions/.venv` - the runbook now leads with `bootstrap_venv.py`. Operator-tiered on reason (b): ~1,900 s worst case x `retry.policy = "once"` is ~63 min a night for a lane that is not yet green. HONEST SCOPE (a limit, not a blocker): the rewind TARGET is the INJECTED `rp_b9_root`, NOT a RewindPoint this flight authored, because (a) an ordinary ascent authors NO RP - `ParsekFlight.TryAuthorRewindPointForSplit` needs a MULTI-CONTROLLABLE split and a dropped booster has no `ModuleCommand` - and (b) nothing can name a live RP anyway: `InvokeRewindImpl` matches `RewindPointId` exactly and live ids are fresh GUIDs (`RewindPointAuthor.cs`), with no seam channel exposing them. So it is a rewind-AFTER-a-flight test, not a rewind-your-own-separation loop. Closing (b) is tracked in todo-and-known-bugs.md |
 | L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | First live run (2026-07-23) RED = seam double-debit: the hire verb manually mirrored a stock debit that stock already applies (Funding.onCrewHired via OnCrewmemberHired), charging the pool twice. Fixed (seam AddFunds removed); single cost re-pinned -62113 (seed 500000 -> 437887). Re-run confirms hardDivergences=0 + re-tiers to daily |
 | L1-dismiss-kerbal-career | daily | Dismiss is pool-neutral | Fixture committed (fresh-career, dismiss Bill Kerman); first green live run re-tiers to daily |
 | L1-research-node-career | daily | Research debits science exactly | Fixture committed (fresh-career, basicRocketry=5 verified); first green live run re-tiers to daily |
@@ -608,15 +608,27 @@ six publish or compare numbers the runner already measured.
 
 ### R1-rewind-loop-flown: PENDING-OPERATOR runbook
 
-Prerequisite (do NOT skip - the harness runs a DIFFERENT KSP instance from the
-dev one, and this lane changed no C#, so this step is only needed if the
-instance is stale relative to `origin/main`):
+**Step 1 - the mission venv (DO NOT SKIP on a fresh worktree).** Every autopilot
+scenario spawns its mission in `harness/missions/.venv`, which is gitignored and
+therefore ABSENT in a newly created worktree. Without it the run dies at
+pre-launch ADMIT with `INVALID tooling-venv (terminal, no KSP boot)` - which is
+exactly what killed attempt 1 of the first R1 flight (2026-07-26). It is cheap
+and idempotent, so run it every time rather than guessing:
+
+```bash
+cd harness && python missions/bootstrap_venv.py
+```
+
+**Step 2 - provision** (the harness runs a DIFFERENT KSP instance from the dev
+one; needed whenever the automation instance is stale relative to the branch
+under test, and always when the branch changed C#):
 
 ```bash
 cd harness && python provision/provision.py --profile stock-minimal
 ```
 
-Fly it (one scenario, explicit `--id`; `operator` tier is in no cadence):
+**Step 3 - fly it** (one scenario, explicit `--id`; `operator` tier is in no
+cadence):
 
 ```bash
 cd harness && python run.py --id R1-rewind-loop-flown
@@ -640,21 +652,34 @@ rewind did not happen):
    returned OK and nothing rewound - that is the exact failure this lane exists
    to make visible, and it reads as `MISSION-ASSERT-FAIL: assertions unmet:
    clockRewound, vesselStateChanged`.
-2. The mission log, in order (`results/<runId>_mission.stdout.log`):
+2. The mission log, in order (`results/<runId>_mission.stdout.log`). Note the
+   FOUR seam commands and the FOUR distinct ids - the STOP + RECORDER-IDLE pair
+   is what flight 1 was missing:
    ```
    [Mission][Info][Seam] seam command written [id=<step>.commit cmd=CommitTree]; polling 120s
    [Mission][Info][Seam] seam command response id=<step>.commit cmd=CommitTree verdict=OK -> OK
-   [Mission][Info][COMMIT] phase COMMIT -> REWIND ...
+   [Mission][Info][COMMIT] phase COMMIT -> STOP ...
+   [Mission][Info][Seam] seam command written [id=<step>.stop cmd=StopRecording]; polling 120s
+   [Mission][Info][Seam] seam command response id=<step>.stop cmd=StopRecording verdict=OK -> OK payload=...stopped=true,idle=false...
+   [Mission][Info][STOP] phase STOP -> RECORDER-IDLE ...
+   [Mission][Info][Seam] seam command written [id=<step>.state0 cmd=RecordingState]; polling 120s
+   [Mission][Info][Seam] seam command response id=<step>.state0 cmd=RecordingState verdict=OK -> OK payload=...recording=false...
+   [Mission][Info][RECORDER-IDLE] phase RECORDER-IDLE -> REWIND ...
    [Mission][Info][Seam] seam command written [id=<step>.rewind cmd=InvokeRewind rp=rp_b9_root slot=1]; polling 420s
    [Mission][Info][Seam] seam command response id=<step>.rewind cmd=InvokeRewind verdict=OK -> OK payload=...rewound=true...
    [Mission][Info][REWIND] phase REWIND -> VERIFY ...
-   [Mission][Info][VERIFY] phase VERIFY -> REWOUND ut=<LOWER than the COMMIT->REWIND ut>
+   [Mission][Info][VERIFY] phase VERIFY -> REWOUND ut=<LOWER than the RECORDER-IDLE->REWIND ut>
    ```
-   The two seam ids MUST differ (`.commit` vs `.rewind`): the C# seam skips
-   duplicate ids, so identical ids mean the second command was never executed.
-   The `ut=` on the last transition line must be LOWER than the one on the
-   `COMMIT -> REWIND` line - that is the backward clock, readable straight off
-   the log without opening the result JSON.
+   `recording=false` on the `state0` reply is the load-bearing token there: it is
+   the dispatcher's own `recording-active` gate, READ rather than assumed. If the
+   log shows `recording=true` probes marching up `state1`, `state2`, ... the
+   post-commit promotion re-armed a recorder that will not stop - capture the
+   KSP.log, that is a Parsek finding.
+   All four seam ids MUST differ (`.commit` / `.stop` / `.state0` / `.rewind`):
+   the C# seam skips duplicate ids, so identical ids mean a command was never
+   executed. The `ut=` on the last transition line must be LOWER than the one on
+   the `RECORDER-IDLE -> REWIND` line - that is the backward clock, readable
+   straight off the log without opening the result JSON.
 3. Parsek's own re-fly milestones in the collected `KSP.log` (these are the
    spec's required logContracts, so a miss reds the run):
    ```
@@ -666,18 +691,27 @@ rewind did not happen):
 4. The run verdict: `results/<runId>.json` PASS with all seven verifiers green,
    `expectations` mismatches 0, `anomalySweep` hits `[]`.
 
-IF IT REDS, the three most likely first-flight causes, in order:
+IF IT REDS: the mission verdict now NAMES the cause. Since the 2026-07-26
+follow-up, a non-OK seam response surfaces PARSEK's own `msg` reason verbatim
+(`Parsek's reason: <reason>`) instead of the machine speculating, and the same
+string rides `assertions[rewindSeamAccepted].rejectReason` in the result JSON.
+Read that first. Known causes, in likelihood order:
+- `Parsek's reason: recording-active` - the flight-1 failure. It should now be
+  unreachable: the machine stops the recorder and OBSERVES `recording=false`
+  before commanding the rewind. If it reappears, something re-armed a recorder
+  between the idle probe and the dispatch, which is a new finding.
 - `REJECTED unknown-rp` on the InvokeRewind response: the `rewind-b9` injection
   did not land in the staged run save (check the `[Stage] inject=rewind-b9` line
   and the inject exit code). The spec composes the preset with the `b2-lko-craft`
   template; `run.py`'s inject step targets the RUN save, not the template.
-- `refly-gate <reason>` on the InvokeRewind response: `RewindInvoker.CanInvoke`
-  declined. The reason is surfaced verbatim; the likely one on this composed
-  fixture is the deep-parse PartLoader precondition over the cloned sidecar
-  vessels.
+  (Flight 1 CLEARED this one: `rp_b9_root` resolved fine.)
+- `Parsek's reason: refly-gate <reason>` - `RewindInvoker.CanInvoke` declined.
+  The reason is verbatim; the likely one on this composed fixture is the
+  deep-parse PartLoader precondition over the cloned sidecar vessels.
 - `rewind-not-observed`: the verb returned OK but the clock never moved back.
   That is a REAL finding, not a harness fault - capture the KSP.log and do not
   "fix" it by relaxing `minUtRegressionSeconds`.
+- `INVALID tooling-venv` with no KSP boot: step 1 was skipped.
 
 ## Roadmap (agreed order; each item named by its Parsek utility)
 
