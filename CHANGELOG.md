@@ -32,6 +32,9 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- The automated-test flight autopilot can now issue any developer test-command mid-flight, not just "commit the mission tree", and a new test flight uses that to rewind a flight while it is still flying. It judges the rewind by watching the game clock actually run backward rather than by trusting the command's own success report. Test-tooling only; no gameplay change.
+- Two rewind test scenarios that were marked "operator only, cannot run unattended" are now on the nightly rotation: the reason given (no way to enter the flight scene) was never true, and the other blocker they cited has since shipped. Test-tooling only; no gameplay change.
+
 - Added two developer-only automated-test scenarios that check PLAYBACK rather than recording: they drive the in-game map-render parity tests, which compare the orbit geometry Parsek actually draws for a ghost against the geometry it recorded, and fail if that comparison never actually ran instead of passing on an empty measurement. Both have now been run end to end. Test-tooling only; no gameplay change.
 - The automated-test harness no longer reports a render anomaly when a test's own diagnostic message merely mentions one by name: it now looks for an actual anomaly report rather than the word appearing anywhere in the log. One scenario was failing on a clean run because of it. Test-tooling only; no gameplay change.
 - A developer-only test scenario that switches a diagnostic tracer on no longer leaves it switched on for every later test run on that install: the harness now resets the shared Parsek settings file to a known state before and after each run, so long unattended flights stop paying for a tracer they never asked for. Test-tooling only; no gameplay change.
