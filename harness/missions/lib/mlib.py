@@ -1013,10 +1013,16 @@ WARP_THRASH_FLYBY = "flyby-warp-thrash"
 # cannot separate flight 2's coast from a healthy one, the episode ratio names
 # it instantly. The episode number is measured off flight 2's MACHINE-STATE
 # lines, emitted on a >= 5.0 wall-second cadence
-# (MACHINE_STATE_INTERVAL_SECONDS), which advanced 7.05 to 7.13 game seconds
-# each through the final coast: 7,204 frames, ut 220,311.6 -> 225,991.7
-# (5,680 game-s). So 5.0 sits ~3.5x above the measured defect and below the
-# cheapest healthy warp. Do not "simplify" this to read the warpUtilisation row.
+# (MACHINE_STATE_INTERVAL_SECONDS). RE-MEASURED 2026-07-26 over the 724
+# final-coast machine-state lines of
+# results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log (the game clock
+# each line carries is lastWarpIssueUt -- the thrash re-issues every frame):
+# 723 deltas, MEDIAN 7.105 game-s, mean 7.071, full span 3.813 to 7.381, and
+# 275 of the 723 fall in the 7.05-7.13 band the earlier wording quoted as if it
+# were the whole range. 1.41 is median/cadence and survives on the mean too;
+# the coast itself is 7,204 frames, ut 220,311.6 -> 225,991.7 (5,680 game-s).
+# So 5.0 sits ~3.5x above the measured defect and below the cheapest healthy
+# warp. Do not "simplify" this to read the warpUtilisation row.
 #
 # It is armed ONLY while the machine has a NATIVE warp command outstanding
 # (state.warp_to_cmd is not None), so a deliberate 1x phase -- B5's PARK dwell,

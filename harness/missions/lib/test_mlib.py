@@ -7298,7 +7298,10 @@ class WarpLivenessFloorTests(unittest.TestCase):
     # (results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log): the
     # MACHINE-STATE lines are emitted on a >= 5.0 wall-second cadence
     # (MACHINE_STATE_INTERVAL_SECONDS) and consecutive lines through the final
-    # coast advanced 7.05-7.13 game seconds each. This is the EPISODE ratio,
+    # coast advanced a MEDIAN 7.105 game seconds each (mean 7.071 over 723
+    # deltas, full span 3.813-7.381; the earlier "7.05 to 7.13" wording was the
+    # modal band, not the range, and covers only 275 of the 723). 1.41 is
+    # median/cadence and holds on the mean too. This is the EPISODE ratio,
     # which is what the floor judges -- NOT the ~39 PER-PHASE average the
     # warpUtilisation row reports for the same coast (that mean is dominated by
     # the one successful 146,070 game-second warp burst earlier in the phase).

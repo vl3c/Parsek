@@ -2699,22 +2699,66 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 log.warn(state.phase, reason)
                 _dump_event_window(log, state.phase, ring, "warp-liveness-flake")
                 _wu_close(float(snapshot.ut))
-                # NO WARP TEARDOWN HERE, deliberately, and this is the one
-                # terminal where that choice needs saying out loud: it fires
-                # only while a warp is live, so it is the fly-loop terminal most
-                # likely to leave one standing. The MACHINE's terminals tear
-                # down (_b5_stop_all_warp) because they return ACTIONS the loop
-                # then performs; a fly-loop terminal would have to
-                # control.perform() inline, and a perform that raises on a
-                # degraded connection escapes as a post-connect drop and
-                # destroys the named reason -- which is the whole point of this
-                # give-up. Both other fly-loop terminals (the wall reaper and
-                # the unexpected-warp flake) return the same way. Nothing drives
-                # the game afterwards: run_mission evaluates, closes, and run.py
-                # kills the process for the retry. Pinned by
+                # LEAVE NOTHING WARPED BEHIND (2026-07-26 review round 2). This
+                # terminal fires ONLY while a native warp is armed, so it is the
+                # one fly-loop terminal guaranteed to end on a warping game --
+                # and the game IS driven afterwards. The shipped comment here
+                # claimed "nothing drives the game afterwards: run_mission
+                # evaluates, closes, and run.py kills the process for the
+                # retry", and that is FALSE: hlib classifies StopRecording and
+                # FlushAndQuit as TAIL_ROLE_CLEANUP (hlib.TAIL_ROLE_CLEANUP,
+                # IMPLEMENTED_SEAM_VERBS) and hlib.plan_unmet_mission_tail
+                # drives those verbs after ANY unmet mission -- MISSION-FLAKE
+                # included, since MISSION_VERDICT_SUBKINDS maps it to
+                # autopilot-flake exactly like an ASSERT-FAIL. Observed in a
+                # live suite run: "mission UNMET verdict=... driving cleanup
+                # [0006:StopRecording, 0008:FlushAndQuit]". Driving the seam
+                # against a rails-warping game is the one thing every machine
+                # terminal is careful not to do (mlib._b5_stop_all_warp), so
+                # this terminal owes the same teardown.
+                #
+                # It is performed INLINE and BEST-EFFORT. The cancel itself is
+                # bounded and near-unraisable by construction (WarpService.cancel
+                # try/excepts the socket close, joins the daemon thread with
+                # WARP_CANCEL_JOIN_SECONDS, and try/excepts the factor reset),
+                # but perform() still reads space_center / active_vessel over the
+                # primary connection, so the whole call sits under a bare except:
+                # an RPC that dies on a degraded connection must NEVER escape as
+                # a post-connect drop and destroy the named give-up, which is the
+                # entire value of this terminal. A failed teardown is logged and
+                # the named verdict is returned anyway.
+                #
+                # HONEST SCOPE: the other two fly-loop terminals (the wall reaper
+                # and the unexpected-warp flake) still return without a teardown.
+                # That is a KNOWN residual, filed in todo-and-known-bugs.md, not
+                # a claim of parity -- the unexpected-warp flake in particular
+                # fires with a warp active by definition. Pinned by
                 # test_shells.WarpLivenessRealMachineTests.
+                torn_down = False
+                try:
+                    control.perform(mlib.Action(mlib.ACTION_CANCEL_WARP))
+                    torn_down = True
+                    log.info(state.phase,
+                             "warp-liveness give-up: cancelled the armed native "
+                             "warp before returning (leave nothing warped behind)")
+                except Exception as exc:  # noqa: BLE001
+                    log.warn(state.phase,
+                             "warp-liveness give-up: warp teardown failed "
+                             "(%s: %s); returning the named give-up anyway"
+                             % (type(exc).__name__, str(exc)[:160]))
                 terminal = dict(verdict=mlib.MISSION_FLAKE,
                                 flake_phase=state.phase, done=True)
+                # The machine's own expectation follows the game, and ONLY when
+                # the cancel actually landed: a terminal that tore the warp down
+                # must not return a state still claiming one is armed
+                # (mlib._b5_stop_all_warp clears exactly these two), and one
+                # whose cancel FAILED must not claim it did. getattr-generic for
+                # the same reason as flake_reason below.
+                if torn_down:
+                    if hasattr(state, "warp_to_cmd"):
+                        terminal["warp_to_cmd"] = None
+                    if hasattr(state, "warp_cmd"):
+                        terminal["warp_cmd"] = 0
                 # Every machine that can arm a native warp carries
                 # flake_reason today; stay getattr-generic anyway so a future
                 # one cannot turn this give-up into a TypeError.

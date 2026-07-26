@@ -427,9 +427,36 @@ count = { min = 8, max = 8 }
 #       KERBIN produced byte-identical evidence to one that ended around the MUN.
 #       Asserting terminalState=Orbiting AND terminalOrbitBody=Mun is what makes
 #       "commit while parked in a FOREIGN body's SOI" a checked claim.
-#       NOT YET FLOWN: the emitting code landed with this spec change and the
-#       token only exists once a rebuilt DLL is deployed. The first flight after
-#       that deploy proves it.
+#       FLOWN AND PROVEN 2026-07-25: results/2026-07-25_0611_B11-mun-orbit.json
+#       is a PASS with mismatches=[] and the token active (mission wall 1270.195
+#       s). The run before the DLL deploy is the counter-example that shows the
+#       token is not decorative: results/2026-07-25_0545_B12-minmus-orbit.json
+#       red'd PARSEK-FAIL with "logContracts.required not matched: CommitTreeFlight
+#       terminal: rec=\w+ terminalState=Orbiting terminalOrbitBody=Minmus", and
+#       the very next run (results/2026-07-25_0600_B12-minmus-orbit.json, mission
+#       wall 580.826 s) passed with it deployed.
+#   "CommitTreeFlight terminal: ... terminalState=Orbiting terminalOrbitBody=Kerbin"
+#   and "... terminalState=Destroyed terminalOrbitBody=(null)" - the OTHER TWO
+#       rows of the 8-recording topology, added 2026-07-26 because the count pin
+#       alone does NOT guard them. count={8,8} is a scalar: a regression that
+#       DROPS the flameout-staged ascent core and ADDS a spurious booster still
+#       reads 8 and still passes every other token here. These two make the
+#       topology claim ("1 in the target SOI + 6 destroyed boosters + 1 core left
+#       in Kerbin orbit") checked rather than merely narrated - presence-only, so
+#       they pin that each CLASS exists, while the count pins the total.
+#       MEASURED, not assumed: logs/2026-07-25_1216_B7-duna-flyby/KSP.log (same
+#       fixture save, same launcher, first archived flight after the terminal
+#       token deployed) emits exactly 8 terminal lines - 1 `SubOrbital Ike`
+#       (B7's own mission craft), 6 `Destroyed (null)`, 1 `Orbiting Kerbin`.
+#       The `(null)` body on a destroyed booster is structural, not incidental:
+#       BackgroundRecorder's v == null branch stamps TerminalState.Destroyed and
+#       never calls CaptureTerminalOrbit, and FormatCommitTerminalLine renders an
+#       empty body as "(null)".
+#       SAME RESIDUAL AS THE COUNT, stated honestly: the Kerbin row IS the
+#       flameout-staged core, so a change that removes that stage removes this
+#       token exactly as it moves the count off 8. It reds alongside the count
+#       window, which is the intended failure mode - re-derive both from a fresh
+#       measured run, never widen either blindly.
 required = [
   "Recording started",
   "Recording stopped",
@@ -437,6 +464,8 @@ required = [
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Mun",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Destroyed terminalOrbitBody=\\(null\\)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

@@ -2866,6 +2866,16 @@ def merge_durations(prior: Dict[str, Dict], fresh_samples: Dict[str, Dict[str, f
     transitional run may under-count by the samples it measured; from the next
     merge on the incremental rule takes over.
 
+    STATE OF THE COMMITTED LEDGER (2026-07-26 review round 2). The first cut of
+    this file shipped SUMMARY-ONLY: all 24 entries lacked ``samples``, so every
+    scenario would have taken the BOOTSTRAP branch on the next run and neither
+    the watermark rule nor the bounded tail was exercised by the artifact the
+    repo actually carries. That is now fixed at the source: ``duration.json``
+    was regenerated through this exact function over the archived
+    ``results/*.json``, so all 24 entries carry their samples and every one of
+    them takes the INCREMENTAL branch from the next merge on. BOOTSTRAP now
+    only covers a genuinely new scenario or a hand-stripped entry.
+
     Entries with no samples on either side are carried forward only when they
     carry the full numeric shape; a hand-edited partial entry is DROPPED (it
     would otherwise reach the warn's format string and KeyError at the end of a
