@@ -2977,3 +2977,12 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         # The block is present with the expected v1 surface.
         self.assertEqual("template", spec["expectations"]["ledger"]["seedFrom"])
         self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
+
+
+# NOTE: MergeDurationsTests was DELETED when the orbit branch's sample-based
+# merge_durations superseded this branch's minimal "keep the richer entry"
+# rule. Its seven cells encoded the OLD contract (summary-only entries,
+# fresh-wins-by-n). DurationLedgerMergeTests above covers every one of those
+# intents and adds the truncation double-count, watermark, idempotence,
+# tail-bound and percentile-recompute cases this class never had.
+

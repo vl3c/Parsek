@@ -1,0 +1,641 @@
+# =============================================================================
+# MISSION PROFILE - full ordered step list with the per-phase VEHICLE
+# CONFIGURATION contract (the standing spec rule: every phase names the vehicle
+# configuration that must hold for that leg, JUST LIKE A REAL SPACE MISSION).
+# The machine (mlib.b5_decide with captureEnabled + landingEnabled) enforces
+# this order.
+#
+# WHY THIS MISSION EXISTS (the Parsek surface, not the rocketry): nothing in the
+# suite today produces a recording that ENDS **LANDED ON ANOTHER BODY**. B11 and
+# B12 end parked in ORBIT around a foreign body; B1 and B4 land on KERBIN. The
+# surfaces this lane buys and nothing else reaches:
+#   * terminal classification `Landed` for a tree that closes on Mun soil;
+#   * SURFACE-class TrackSections OFF Kerbin - the environment classifier's
+#     AIRLESS path (Approach -> SurfaceMobile/SurfaceStationary), which cannot
+#     occur on a body with an atmosphere because EnvironmentDetector.Classify
+#     returns Atmospheric for anything below atmosphereDepth;
+#   * landing-leg part events (3x landingLeg1-2, extended by MechJeb below 1 km);
+#   * the landed-vessel ghost / playback surface the committed recording carries.
+#
+# VEHICLE CONFIGURATION - THE UPPER STAGE IS THE LANDER. Verified part by part
+# from automation/stock-minimal/Ships/VAB/Kerbal X.craft: mk1-3pod, HeatShield2,
+# parachuteLarge, Rockomax16.BW (X200-16), liquidEngine2-2.v2 (Poodle, 250 kN,
+# Isp 350), 3x landingLeg1-2, 2x ladder, 2x solar panel. There is NO separation
+# phase anywhere in this mission and no lander/ascent split: the stack that
+# reaches Mun orbit is the stack that lands, exactly as in B11.
+#
+# DELTA-V (MEASURED at PARK on the last green orbit flights, not estimated):
+# B11 parked at 141 km circular with lf=592.814 remaining; the X200-16 + Poodle
+# stage burns that at Isp 350 for roughly 2,100 m/s. A Mun landing from a 141 km
+# circular park costs ~74 m/s to drop periapsis to -20 km (MechJeb's untargeted
+# deorbit trigger is PeA < -0.1 * bodyRadius) plus the descent burn: call it
+# ~650 m/s all-in. The margin is better than 3x. NOTHING IN THIS SPEC ASSERTS
+# DELTA-V - the derivation is recorded here so a future reader knows the lane was
+# sized against a measured number and not a hope, and so that a fuel-related
+# failure is recognised as a REGRESSION rather than a known-tight budget.
+#
+# LIVENESS PRINCIPLE (standing rule): budgets bound SLOW, liveness watchdogs
+# bound BROKEN. A phase may never idle to its budget while its actor is provably
+# dead, and every give-up gets a DISTINCT NAME. The descent's actor is a MechJeb
+# module we do not own, so it carries FOUR named give-ups on top of its budget.
+#
+#   PRELAUNCH          Kerbal X full stack on the pad, MechJeb autostage armed.
+#   MJ-ASCENT          Full stack; MechJeb autostage drops the 6 radial boosters
+#                      + nose cones during the climb to an 80 km apoapsis.
+#   CIRCULARIZE        Core stage burns to an 80 km circular parking orbit.
+#   ORBIT              One-frame waypoint: target = Mun, ask the ManeuverPlanner
+#                      for the intercept-only Hohmann transfer.
+#   PLAN-TRANSFER      Coasting parking orbit, rails held at planWarpFactor.
+#   TRANSFER-BURN      TLI under MechJeb's NodeExecutor with autowarp.
+#   COAST-TO-TARGET    Unpowered coast, native warp_to_ut to the SOI boundary
+#                      minus soiLeadSeconds; 2 correction rounds triggered here.
+#   PLAN-CORRECTION    Coasting, rails at planWarpFactor, no burn configured.
+#   CORRECTION-BURN    DIY burner: aim-then-warp, physics warp dropped to 0, one
+#                      low-throttle burn.
+#   TARGET-FLYBY       IN MUN SOI, unpowered. Warps ONLY to periapsis_ut - 900.
+#   PLAN-CAPTURE       Coasting inward; MechJeb circularize-at-PERIAPSIS.
+#   CAPTURE-BURN       THE CAPTURE. NodeExecutor with autowarp set EXPLICITLY.
+#                      Done evidence is a BOUND orbit. Budget note: a nominal
+#                      capture spends up to ~600 GAME seconds at 1x in MechJeb's
+#                      own pre-ignition WARPALIGN hold.
+#   PARK               PARKED CONFIGURATION: throttle CUT, nodes CLEARED,
+#                      attitude HELD (SAS + RCS), rails at 1x, held across
+#                      parkDwellSeconds. IDENTICAL to B11 - the orbital coverage
+#                      is still recorded before the descent.
+# ---------------------------------------------------------------------------
+#   DESCENT            THE LANDER, and the only phase that differs from B11
+#                      before the commit. Nodes cleared + aborted, then MechJeb's
+#                      LandingAutopilot is engaged UNTARGETED. Its untargeted
+#                      path (decompiled MuMech.Landing.UntargetedDeorbit) points
+#                      retrograde-horizontal, burns at full throttle until
+#                      PeA < -0.1 * bodyRadius, then hands off to FinalDescent,
+#                      which decelerates on its descent-speed policy and extends
+#                      the landing legs below 1 km AGL (DeployGears).
+#
+#                      CONFIGURATION: DeployGears = TRUE (3 real legs on the
+#                      craft). DeployChutes = FALSE - the Mun is AIRLESS, a
+#                      parachute cannot deploy in vacuum, and arming one would be
+#                      a lie in the config. RcsAdjustment = FALSE - this upper
+#                      stage has NO RCS thruster blocks, so trimming with RCS
+#                      commands a control authority that does not exist.
+#
+#                      WARP: MechJeb owns it. Every landing state calls
+#                      Core.Warp.WarpRegularAtRate / WarpToUT / MinimumWarp gated
+#                      on Core.Node.Autowarp, which is the NodeExecutor's SHARED
+#                      GLOBAL flag - so the runner sets it EXPLICITLY at engage
+#                      (the B-DOCK flight-12 lesson) and the machine issues NO
+#                      warp of its own here. Two warp writers in one phase is the
+#                      cancel/re-arm thrash that cost B12 flight 2 its whole wall
+#                      budget.
+#
+#                      NAMED FAST-FAILS, all four:
+#                        landing-autopilot-not-enabled - COMMANDED-vs-OBSERVED.
+#                          MechJeb LandingAutopilot.Enabled is READ BACK every
+#                          poll (readLanding opt-in); a debounced FALSE before
+#                          touchdown re-issues the engage, bounded, then
+#                          fast-fails in ~3 polls. The three sibling defects in
+#                          this suite (the CAPTURE-BURN executor, B1's chute
+#                          latch, EVA-4's ladder release) were ALL
+#                          commanded-vs-observed, so this is the DEFAULT failure
+#                          mode here, not an edge case. The touchdown carve-out
+#                          is required: MechJeb DISABLES its own module on the
+#                          landed frame (FinalDescent -> StopLanding), so an
+#                          observed FALSE after touchdown is SUCCESS.
+#                        landing-no-progress - the second, independent channel:
+#                          an autopilot holding a useless attitude reads ENABLED
+#                          forever. Surface altitude must drop
+#                          landingProgressMinDropMeters within
+#                          landingProgressWindowSeconds of game time, with a
+#                          SEPARATE altitude-unreadable name for a blind channel
+#                          (fix the channel, not the trajectory). DEBOUNCED over
+#                          LANDING_STALL_DEBOUNCE_FRAMES consecutive frames, and
+#                          DISARMED entirely while the window's anchor sits below
+#                          landingProgressMinDropMeters AGL, where the drop it
+#                          asks for does not exist below the craft - that band is
+#                          bounded by descentTimeoutSeconds instead.
+#                        landing-touchdown-timeout - descentTimeoutSeconds. A
+#                          GAME-time budget is the RIGHT instrument here (unlike
+#                          CORRECTION-BURN's, which the aim-then-warp it bounded
+#                          spent for itself): the deorbit-to-touchdown fall is a
+#                          BALLISTIC duration warp does not shorten. See the
+#                          budget arithmetic below for why 3000 and not more.
+#                        landing-vessel-lost - a CRASH. Distinctly named so a
+#                          lithobraked lander can never read as a generic timeout
+#                          or, worse, as a success.
+#   LANDED-SETTLE      LANDED CONFIGURATION, and the RECORDED surface coverage
+#                      this lane exists for: rails DROPPED to 1x, throttle CUT,
+#                      the landing autopilot RELEASED (StopLanding - idempotent,
+#                      MechJeb stops itself on touchdown, but the dwell must not
+#                      run with a module still holding the thrust/attitude user
+#                      pools), SAS held. Requires landedDebounceFrames
+#                      consecutive settled frames (target body + landed situation
+#                      + BOTH speed components under their floors) HELD across
+#                      landedDwellSeconds. NAMED give-up landed-never-stable
+#                      separates "never settled" from "settled but not in-gate at
+#                      the end of the dwell". Same WORDING CAVEAT as B11's PARK:
+#                      the dwell is measured from PHASE ENTRY, not from first
+#                      stability.
+#   SURFACE-COMMIT     Unchanged landed configuration; the mid-mission command-
+#                      seam CommitTree fires (the SAME B-DOCK route-1 reserved-id
+#                      bridge B11/B12 use, fired while LANDED). NAMED fast-fail
+#                      on the seam's own ERROR/TIMEOUT.
+#   SURFACE-COMMITTED  TERMINAL: the tree is committed while the vessel is LANDED
+#                      ON THE MUN. No settle tail (SF-4).
+#
+# THE FAILURE THAT IS NOT A SUCCESS: from TARGET-FLYBY onward, reading Kerbin (or
+# any other real body) as the SOI is an ASSERT-FAIL. And a run cannot report
+# MISSION-OK unless it actually landed: landedOnTargetBody requires the OBSERVED
+# touchdown situation AND the OBSERVED body; landedStable requires the settled
+# gate to have been met; a crash terminates on loss_reason BEFORE the assertions
+# are consulted. (This is the EVA-4 lesson applied - that scenario's flight 1
+# could report a met assertion set while its actual objective had failed.)
+# =============================================================================
+schema = 1
+id = "B13-mun-landing"
+# LIVE-PROVEN: FULL PASS on flight 1 (2026-07-25, attempt 1, wall 2,747.9 s;
+# `results/2026-07-25_1626_B13-mun-landing.json`). The four first-flight pins
+# this spec shipped as PROVISIONAL are CLOSED from that flight's measured data
+# (recordings count, descentTimeoutSeconds, the settled-speed floors, the landed
+# dwell); each knob below states what was measured and what margin remains.
+#
+# ID NOTE: B8/B9/B10 are taken in docs/dev/automated-testing-scenario-catalog.md
+# section 2 and B3 is the EVA branch; the ORBIT lane took B11/B12, so the LANDING
+# lane is B13 (Mun) + B14 (Minmus).
+tier = "nightly"
+description = "Mun LANDING / commit-on-the-surface: the LIVE-PROVEN B11 ascent, transfer, capture and park, then MechJeb's UNTARGETED landing autopilot flown down to Mun soil, a held settled dwell, and a mid-mission command-seam CommitTree that closes the tree WHILE LANDED ON ANOTHER BODY."
+instanceProfile = "stock-minimal"
+tags = ["B13", "landing", "mechjeb", "mun", "cross-soi", "capture", "commit-on-surface"]
+
+[fixture]
+# The SAME committed Kerbal X fixture B2/B4/B5/B6/B11/B12 fly (no new fixture, no
+# forge run): the ascent, transfer and capture halves are byte-for-byte the B11
+# mission path, and the upper stage IS the lander (see the vehicle configuration
+# block above).
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b13_mun_landing"
+
+# `steps` MUST stay in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] header (a key after the sub-table header would be
+# scoped to driver.missionParams.steps and the spec would validate as having
+# zero steps).
+#
+# COMMIT ACCOUNTING - read this before adding a CommitTree step. There is
+# EXACTLY ONE commit: the MID-MISSION one the machine fires from SURFACE-COMMIT
+# via ACTION_PARSEK_COMMIT_TREE (route 1, reusing the mission step's own reserved
+# id on the seam channel). There is deliberately NO post-mission CommitTree: the
+# seam's CommitTreeImpl returns ERROR with `no-active-tree` when no tree is live,
+# and after the mid-mission commit that is the expected state. Same
+# FIRST-FLIGHT-TO-CONFIRM as B11: if the flight shows Parsek opening a FRESH tree
+# for the still-landed vessel after the commit, add a post-mission step THEN - a
+# wrong guess reds the run either way.
+#
+# BUDGET ARITHMETIC. The inherited half is MEASURED, the descent half is DERIVED
+# and marked as such.
+#   ascent -> PARK exit    ~1,270 wall (MEASURED: B11 flights 3/4/5 flew the
+#                           IDENTICAL configuration in 1,269 / 1,271 / 1,270 s
+#                           wall, and this mission's only divergence from B11
+#                           starts at the PARK exit)
+#   DESCENT                ~1,400-1,700 GAME seconds, DERIVED from two-body
+#                           mechanics and warp-independent: from a 141 km
+#                           circular Mun park (r = 341 km) MechJeb's untargeted
+#                           deorbit drops periapsis to -20 km (a = 260.5 km,
+#                           e = 0.309), and the coast from apoapsis to the
+#                           surface radius is 1,367 s by Kepler's equation, plus
+#                           the final deceleration. MEASURED on flight 1: 1,353.9
+#                           GAME seconds, and the WALL cost matched it 1:1 -
+#                           `warp=NONEx1.000` on ALL 1,303 DESCENT telemetry
+#                           samples. MechJeb's landing states DO call
+#                           WarpRegularAtRate / WarpToUT when Core.Node.Autowarp
+#                           is set (the runner sets it explicitly), but under the
+#                           installed 2.15.1 pin they never did on this profile,
+#                           so the warped branch is FICTION here and the
+#                           pessimistic 1:1 case is the only one that happens.
+#   LANDED-SETTLE          ~120 wall (landedDwellSeconds of GAME time at 1x -
+#                           this dwell IS the recorded surface coverage, so it is
+#                           deliberately NOT warped). MEASURED 120.1.
+#   SURFACE-COMMIT         <1 wall typical, 120 wall worst (the runner's
+#                           SEAM_COMMIT_POLL_SECONDS bound). MEASURED 0.6.
+# => ~3,100 wall for the (only observed) unwarped descent; MEASURED 2,747.9 on
+# flight 1. WORST case additionally inherits B11's own bounded stale-node re-plan
+# (+90 s window grace, a re-planned coast, a SECOND ~600 s pre-ignition hold)
+# => ~3,900. missionBudget 5000 (WALL) is ~1.8x the measured run, ~1.6x
+# the unwarped estimate and ~1.3x that absolute worst. This makes B13 the most
+# expensive scenario in the suite by a wide margin (B11 is 1,317 s at p50,
+# BDOCK-1 2,164 s), which is stated here rather than hidden: the honest
+# expectation is that a nightly rotation cannot afford B13 and B14 on the same
+# night as BDOCK-1.
+# runtime 5600 >= 240 LoadGame + ~5 SetSetting + 5000 mission + ~60 FlushAndQuit
+# + ~295 margin: the post-mission seam steps must survive a FULL-budget mission
+# (SF-5). Phase budgets in missionParams are GAME time.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5000 },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent + transfer + ORBIT-tail params = B11-mun-orbit's LIVE-PROVEN values
+# VERBATIM (validated against b13_mun_landing.schema.toml). Every value is a
+# tolerance / threshold / budget, never a golden trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the in-SOI APPROACH and the PARKED orbit. It does
+# NOT cover the descent: mlib's _B5_IN_TARGET_SOI_PHASES deliberately excludes
+# the landing tail, because a landing drives the altitude to ~0 ON PURPOSE and
+# including it would make this mission's own objective fail its own assertion.
+targetPeriapsisFloorMeters = 10000
+
+# --- ORBIT TAIL (inherited from B11 unchanged) ------------------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# GAME seconds the stable park is HELD before the DESCENT. Kept at B11's 180 so
+# the orbital half of this recording carries the SAME parked-in-foreign-SOI
+# coverage the ORBIT lane certifies, rather than trimming it to buy wall time
+# for the descent. The two dwells are independent knobs on purpose.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- LANDING TAIL -----------------------------------------------------------
+landingEnabled             = true
+# DESCENT budget (GAME seconds). CLOSED FROM MEASUREMENT on flight 1 (2026-07-25,
+# FULL PASS): the DESCENT phase transitions read ut=21,734.3 (PARK -> DESCENT) and
+# ut=23,088.3 (DESCENT -> LANDED-SETTLE), a span of 1,353.9 game seconds. B14
+# measured 1,381.3 s on the Minmus axis, so 1,381.3 is the worst measured case
+# across both bodies.
+#   MEASURED worst case 1,381.3 s -> 2200 leaves 1.59x margin.
+# Trimmed from the shipped-provisional 3000 (2.17x) because the derived value was
+# never the constraint - the wall reaper was: at 1x, game seconds ARE wall seconds,
+# and with ~1,270 wall already spent on the inherited half a descent budget above
+# ~3,700 would let the GENERIC mission wall reaper fire before the NAMED
+# landing-touchdown-timeout. 2200 keeps a comfortable distance from BOTH bounds.
+# It is deliberately NOT trimmed harder: 1.5x is the smallest margin this suite
+# accepts on a single-sample measurement, and the descent runs entirely at 1x
+# (warp=NONEx1.000 on all 1,303 DESCENT samples), so a slower physics frame rate
+# does not stretch it but a different arrival periapsis does.
+descentTimeoutSeconds      = 2200
+# MechJeb's own default touchdown speed.
+landingTouchdownSpeedMps   = 0.5
+# 3x landingLeg1-2 on the upper stage - a real part-event surface.
+landingDeployGears         = true
+# FALSE, and this is not a tuning choice: the Mun is AIRLESS. A stock
+# ModuleParachute cannot deploy without dynamic pressure, so arming one here
+# would be an untrue statement about the vehicle configuration in the one
+# document whose job is to state it truthfully.
+landingDeployChutes        = false
+# FALSE: the Kerbal X upper stage carries NO RCS thruster blocks (mk1-3pod,
+# HeatShield2, parachuteLarge, Rockomax16.BW, liquidEngine2-2.v2, 3x
+# landingLeg1-2, 2 ladders, 2 solar panels), so RCS trim is authority that does
+# not exist.
+landingRcsAdjustment       = false
+# landing-no-progress window (GAME seconds). Sized ABOVE the worst-case
+# pre-deorbit attitude flip: MechJeb points retrograde-horizontal before the
+# deorbit burn, and near-antiparallel convergence on the Kerbal X pod wheel is
+# the ~340 s the correction burner's burnNoStartSeconds was sized against. A
+# CIRCULAR park's altitude is flat by construction during that flip, so a window
+# shorter than it would fire on a perfectly healthy descent. 900 s is ~2.6x that
+# flip and leaves room for TWO full windows inside the 2200 s budget (it left
+# room for three against the shipped-provisional 3000; the budget was trimmed
+# from measurement, this window was not). MEASURED on flight 1, off the periodic
+# machine-state lines: the descent ran 1,353.9 game seconds and closed exactly
+# ONE window - the anchor moved from (134,586.028 m, ut 21,734.345) to
+# (64,963.521 m, ut 22,634.365) and never again. Touchdown came 453.9 s later
+# with 446.1 s of the second window still unspent, so the second window is
+# headroom, not a working part of the profile.
+landingProgressWindowSeconds = 900
+# Metres of surface-altitude drop the window must deliver.
+# CLOSED FROM MEASUREMENT on flight 1 (2026-07-25): the first window opened at
+# alt 134,586.028 m (ut 21,734.345) and closed at alt 64,963.521 m (ut
+# 22,634.365), a MEASURED drop of 69,622.5 m. B14 measured 21,730.6 m on the
+# tighter Minmus axis, so 21,730.6 is the worst measured case across both
+# bodies.
+#   MEASURED worst case 21,730.6 m -> 5000 leaves 4.35x margin.
+# Raised from the shipped-provisional 500 because 500 m is 0.7% of the drop the
+# autopilot actually delivers: a MechJeb that shed 500 m in 900 s would be
+# catastrophically broken and the gate would still pass it. 5000 still bounds
+# BROKEN, not SLOW - a healthy descent clears it in the first 3 minutes.
+#
+# WHAT GUARDS THE LAST 5,000 m, since this window cannot (review round 2,
+# 2026-07-26). Below min_drop metres AGL the window is UNSATISFIABLE by
+# construction - there is not that much altitude left to shed - so
+# `mlib.landing_progress_verdict` DISARMS it whenever the ANCHOR sits in that
+# band and `descentTimeoutSeconds` owns the phase there instead. The first cut
+# tried to cover the band with the craft's own vertical speed instead, and the
+# flight data killed that: on B14 flight 1's Minmus final descent MechJeb hops,
+# and 23 of the 1,330 DESCENT frames read vspd >= 0 (peak +1.305 m/s, runs of up
+# to five), so a rescue conditioned on a NEGATIVE reading is absent exactly when
+# it would be needed. Above the band the give-up is also DEBOUNCED
+# (LANDING_STALL_DEBOUNCE_FRAMES = 8, chosen to clear that measured 5-frame
+# healthy run). NEITHER guard has ever been exercised live: both flights'
+# anchors stayed far above the band (64,963.5 m / 16,099.0 m), so they carry
+# cell coverage only.
+landingProgressMinDropMeters = 5000
+# LANDED is what the Mun will read; SPLASHED is kept because hard-coding it away
+# would make the machine wrong for any body that has an ocean, and it costs
+# nothing here.
+landedSituations           = ["LANDED", "SPLASHED"]
+# Settled-touchdown gate. BOTH conjuncts, both fail CLOSED on a non-finite read.
+# The HORIZONTAL floor is the load-bearing one: a lander sitting on a slope and
+# sliding reads situation=LANDED with a vertical speed of ~0.
+#
+# VERTICAL stays 1.0, and that is a decision, not an oversight. MEASURED
+# touchdown vertical speed: -0.279 m/s (B13 flight 1) / -0.253 m/s (B14 flight
+# 1), so 1.0 already carries 3.6x margin, and vertical speed is the axis a
+# slightly harder touchdown moves FIRST. Tightening it would buy nothing (a
+# bounce is already caught) and risk false-flaking a good landing.
+#
+# HORIZONTAL tightened 1.0 -> 0.5. 1.0 m/s is 3.6 km/h - a real slide, which is
+# precisely what this conjunct exists to catch, so it was certifying the failure
+# it was written to reject. MEASURED horizontal speed across both flights'
+# LANDED-SETTLE dwells (116 telemetry samples each):
+#   worst sample anywhere in the dwell   0.195 m/s (B13 touchdown frame)
+#   worst GATE-EVALUATED sample          0.052 m/s (B13, first frame after entry
+#                                        - the touchdown frame itself is the
+#                                        phase-entry frame and is never gate-
+#                                        evaluated by construction)
+#   both dwells settle to 0.000-0.004 within ~6 frames
+#   -> 0.5 leaves 2.6x margin on the worst sample, 9.6x on the worst evaluated
+#      one, and is still 2x tighter than what shipped.
+# NOT the 0.25 a first reading of the data suggests: 0.25 would leave only 1.28x
+# over B13's 0.195 m/s touchdown-frame reading, which is far too thin for a
+# single-sample basis on an axis where a bouncier touchdown moves the first
+# evaluated frame directly. A real slide is not slow: on the Mun a craft sliding
+# downhill accelerates at up to 1.63 m/s^2, so it exceeds 0.5 m/s within a
+# fraction of a second and cannot hide under this floor for a 120 s dwell.
+landedMaxVerticalSpeedMps  = 1.0
+landedMaxHorizontalSpeedMps = 0.5
+# GAME seconds the settled landing is HELD before the commit. This dwell IS the
+# recorded landed-on-another-body coverage the whole lane exists for, and the
+# machine holds 1x through it, so 120 game-s ~= 120 wall-s of direct cost.
+# Shorter than PARK's 180 deliberately: a landed craft is static, so a shorter
+# dwell still yields SurfaceStationary TrackSections, whereas the orbital dwell
+# has to cover enough arc to be a useful playback fixture.
+# CLOSED FROM MEASUREMENT on flight 1 (2026-07-25): the dwell ran ut 23,088.3 ->
+# 23,208.4 = 120.1 game seconds (B14: 120.5), the committed recording carries the
+# Approach -> SurfaceStationary transition, and the surface coverage was
+# sufficient. Left at 120.
+landedDwellSeconds         = 120
+landedDebounceFrames       = 3
+# LANDED-SETTLE budget (GAME seconds) = the dwell + 480 s of settle slack. At 1x
+# that is a 10-minute wall worst case, so the NAMED landed-never-stable give-up
+# always fires before the 5000 s mission wall budget could reap the run
+# generically.
+landedTimeoutSeconds       = 600
+
+# Coverage. The ascent / transfer / capture cells are B11's; the NEW cells are
+# D1 commit-landed-foreign-body (added to harness/coverage/registry.toml in this
+# same change per the registry growth rule) and D4 surface-stationary, which no
+# committed scenario claimed before this lane. B14 claims D4 surface-MOBILE, not
+# surface-stationary: each spec claims the class its OWN flight measured, and
+# each gates it with a class-specific token (see the logContract note), so
+# neither can be satisfied by the other's reading.
+#
+# WHY EACH CLAIM IS GATED (the standing rule: do NOT claim a cell nothing gates -
+# the reason D5 bg-recording was REMOVED from B11/B12):
+#   D1 auto-record-launch          autoRecordOnLaunch is pinned true and the
+#                                  "Recording started" logContract fails without it.
+#   D1 commit-in-foreign-soi       the machine ASSERT-FAILs on any real foreign
+#                                  body reading anywhere in the capture/landing
+#                                  tail, and the SOI-crossing token is required.
+#   D1 commit-landed-foreign-body  the landedOnTargetBody assertion (OBSERVED
+#                                  situation AND OBSERVED body at touchdown) plus
+#                                  the required terminalState=Landed commit token.
+#   D3 orbital-checkpoint          the capture + park produce the on-rails orbital
+#                                  checkpoint sections, as in B11.
+#   D4 atmospheric / exo-*         the Kerbin ascent and the cross-SOI coast, as
+#                                  in B11.
+#   D4 surface-stationary          TWO required tokens: the class-agnostic
+#                                  Approach|Exo* -> Surface* one proves an
+#                                  AIRLESS-body touchdown by construction, and a
+#                                  second `-> SurfaceStationary` one gates THIS
+#                                  spec's claimed class specifically (see the
+#                                  logContract note). landedStable proves the
+#                                  craft then held still through the dwell.
+#   D14 kerbin / mun / warp-rails  as in B11.
+#
+# DELIBERATELY NOT CLAIMED, though the recording will carry them: D7 gear (the
+# landing legs DO produce GearDeployed part events - FlightRecorder
+# CheckGearTransition - but nothing in the harness reads part events, so there is
+# no gate), D3 surface-body-fixed (the reference frame of the authored surface
+# sections is not asserted anywhere), D13 terrain-correction. Claim them when a
+# verifier exists that actually looks.
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi", "commit-landed-foreign-body"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast",
+       "surface-stationary"]
+D14 = ["kerbin", "mun", "warp-rails"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. This spec shipped it that way (under
+# [expectations.logContracts]) - harmless today, because an absent key already
+# means "none allowed", but INVALID once the sibling render-parity change
+# promotes the misplaced form to a spec error. These are NEW files that change
+# never touches, so a clean merge would leave them silently INVALID; the key is
+# moved here now.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED at {8, 8} FROM MEASUREMENT. The provisional {8, 9} window this spec
+# shipped with is CLOSED (see the flight note below); what follows is the
+# derivation the measurement confirmed, kept because it is what makes a future
+# count change readable as a REGRESSION rather than as noise.
+#
+# WHY 8 IS THE TOPOLOGY: this mission flies the SAME craft, the SAME ascent and
+# the SAME transfer as B11/B12, and a LANDING ADDS NO VESSEL - nothing
+# separates, nothing decouples, the lander IS the upper stage. B11 flight 4 and
+# B12 flight 5 both MEASURED exactly 8:
+#   +1  the root/main recording
+#   +6  the six radial boosters (each drops as its own parent-anchored child)
+#   +1  the FLAMEOUT-STAGED ascent core
+#   = 8
+# The one-slot allowance the window shipped with covered the single thing a
+# landing can plausibly add that an orbit cannot - a fragment shed on touchdown
+# (a leg, the heat shield, the inert chute) becoming its own recording. Flight 1
+# shed none, so the allowance is gone. The window was never a floor: {1, 9} style
+# windows were closed out of this suite for blinding the only numeric guard to
+# the regression class it exists to catch.
+#
+# READ THIS FIRST - THE COUNT IS COMMIT-BLIND. `run.py count_recordings` counts
+# `.prec` sidecars, and ParsekScenario's OnSave writes sidecars for the ACTIVE
+# (uncommitted) tree too. MEASURED on B11/B12: runs that never committed still
+# produced exactly 8. This window guards recording TOPOLOGY only; the commit is
+# guarded by the logContract tokens below.
+# PINNED from measurement on FLIGHT 1 (2026-07-25, FULL PASS attempt 1, wall
+# 2,747.9 s): verifiers.expectations.observed.recordings.count read exactly 8,
+# so the touchdown-fragment allowance was never needed. That count, plus
+# `verifiers.expectations.status = PASS` with `mismatches = []`, is the whole of
+# what the archive carries. The per-recording terminal breakdown this note used
+# to quote (1 Landed/Mun, 6 Destroyed, 1 Orbiting/Kerbin) came from reading the
+# live log during the run and is NOT re-verifiable - `collectLogs.ran = false`,
+# so no KSP.log was kept. The DERIVATION above says why 8 is the topology; the
+# breakdown is a recollection until a run archives its log. Same caveat as
+# B11/B12/B14: the count is COMMIT-BLIND, so it guards recording TOPOLOGY while
+# the log tokens guard the landed terminal.
+count = { min = 8, max = 8 }
+
+[expectations.logContracts]
+# Every token below is sourced from the ACTUAL emitting ParsekLog call site.
+#
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario asserts (live-proven across B1/B2/B4/B5/B6/B7/B11/B12).
+#   "SOI change boundary suppressed in tree mode: Kerbin to Mun" -
+#       ParsekFlight.HandleSoiChangeSplit. THE foreground Kerbin -> Mun crossing
+#       for the ACTIVE vessel; without it the lane could green a mission that
+#       never left Kerbin's SOI. Present exactly once per B11 flight.
+#   "CommitTreeFlight: starting tree commit at UT=" - ParsekFlight.cs, logged
+#       unconditionally the moment the commit path is entered.
+#   "committree committed=true" - ParsekTestCommandAddon.cs, the seam verb's
+#       success branch. Proves the MID-MISSION seam commit reached its OK result.
+#   "CommitTreeFlight terminal: rec=\w+ terminalState=Landed terminalOrbitBody=Mun" -
+#       ParsekFlight.LogCommitTerminalVerdicts via FormatCommitTerminalLine, one
+#       line per committed recording. THIS is what makes the LANDED terminal
+#       classification AND ITS BODY a checked claim instead of an inference from
+#       the mission phase list.
+#
+#       *** THIS TOKEN NEEDED A PARSEK FIX TO BE WRITABLE - FROM CODE READING
+#       *** AND CELLS, NOT FROM THESE TWO FLIGHTS (review round 2, 2026-07-26)
+#       WHAT IS AND IS NOT DEMONSTRATED, stated up front because the paragraph
+#       below reads like a live proof and is not one. The flights CANNOT
+#       discriminate the fix: both craft orbited the SAME body they then landed
+#       on, so even a stale TerminalOrbitBody would have produced a
+#       byte-identical token. What flight 1 proves is that the post-fix line is
+#       WRITABLE and MATCHES; that the resolver's PRECEDENCE is right rests on
+#       the code read below plus the nine xUnit cells. No pre-fix landed flight
+#       was ever flown, and no KSP.log from either flight was archived
+#       (`collectLogs.ran = false` on both result JSONs), so there is no
+#       before/after log to point at.
+#       The first cut of this spec could NOT name the body. Read the emitting
+#       code as it was:
+#         - ParsekFlight.CaptureTerminalOrbit writes TerminalOrbitBody ONLY for
+#           situations ORBITING / SUB_ORBITAL / FLYING / ESCAPING - a LANDED
+#           vessel returns early;
+#         - the finalizer's terminal-orbit refresh is gated on
+#           UsesTerminalOrbitMetadata, which covers Orbiting / SubOrbital /
+#           Docked and EXCLUDES Landed;
+#         - a landed recording's body goes to rec.TerminalPosition.body
+#           (CaptureTerminalPosition), which NO log line printed.
+#       CONFIRMED against a real flight, not just the source:
+#       logs/2026-07-25_1216_B7-duna-flyby/KSP.log shows
+#       `terminalState=Destroyed terminalOrbitBody=(null)` for all six boosters
+#       and a body only on the Orbiting / SubOrbital lines.
+#       So the ONE fact this whole lane exists to prove - that a recording ended
+#       on MUN - was absent from every log line, which is exactly the class of
+#       gap that let the orbit lane's commit claim ship unverified until review.
+#       FIXED in this same lane: FormatCommitTerminalLine resolves the terminal
+#       body TERMINAL-STATE-AWARE - TerminalPosition.body first for the SURFACE
+#       terminals (Landed / Splashed), TerminalOrbitBody first for everything
+#       else, each falling back to the other. The state-awareness is not
+#       decoration: NOTHING ever CLEARS TerminalOrbitBody (CaptureTerminalOrbit,
+#       CopyTerminalOrbitFromSegment and the ballistic scene-exit finalizer only
+#       ever write it), so a craft that orbited the Mun, came home and landed on
+#       KERBIN would print `terminalState=Landed terminalOrbitBody=Mun` under an
+#       orbit-body-first rule - confidently wrong in the one line an operator
+#       reads to answer "where did this recording end". Covered by nine cells in
+#       Source/Parsek.Tests/CommitTerminalVerdictLoggingTests.cs (landed names
+#       its body; Mun / Minmus / Kerbin mutually distinguishable; orbit body wins
+#       for a NON-surface terminal; Landed and Splashed both prefer the surface
+#       body over a stale orbit body; a landed recording with only an orbit body
+#       still names it; the surface-terminal predicate covers exactly Landed +
+#       Splashed; the over-cap summary line uses the same precedence; a landed
+#       recording with no body at all still renders the (null) token).
+#       REQUIRES a rebuild + provision.py before this spec can go green - the
+#       deployed automation DLL must carry the resolver.
+#       MATCHED LIVE on flight 1 (2026-07-25, FULL PASS): the archived result
+#       JSON records `verifiers.expectations.status = PASS` with
+#       `mismatches = []`, which is exactly the claim that every required token
+#       above - including this one - matched at least once. The per-recording
+#       terminal breakdown this note used to quote is NOT re-verifiable: no
+#       KSP.log was collected on either flight (`collectLogs.ran = false`), so
+#       treat any statement about WHICH recording carried WHICH terminal as an
+#       unarchived recollection until a run keeps its log.
+#   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface..."
+#       EnvironmentDetector.ConfirmTransition, ParsekLog.Info("Environment", ...).
+#       THE token that proves SURFACE-class TrackSections OFF KERBIN, and it is
+#       discriminating BY CONSTRUCTION: EnvironmentDetector.Classify returns
+#       Atmospheric for anything below atmosphereDepth, so on Kerbin a descent
+#       ALWAYS enters the surface classes through Atmospheric and never from a
+#       vacuum class. Reading a vacuum class immediately before a surface class
+#       is only possible on an AIRLESS body. The PREDECESSOR alternation is there
+#       because the exact pre-touchdown class depends on ComputeApproachAltitude
+#       and on whether the engine is lit on the last sampled frame; all three
+#       alternatives carry the same proof. Verified shape against
+#       logs/2026-07-25_1216_B7-duna-flyby/KSP.log:
+#       "Environment transition: SurfaceStationary -> SurfaceMobile at UT=38.24".
+#
+#       The SUCCESSOR alternation stays too, and that is a decision (review round
+#       2, 2026-07-26): which surface class the confirmed transition lands in is
+#       NOT structural. EnvironmentDetector.Classify picks SurfaceMobile vs
+#       SurfaceStationary purely on `srfSpeed > 0.1` at the confirm frame, which
+#       is why the SAME machine measured `Approach -> SurfaceStationary` here and
+#       `Approach -> SurfaceMobile` on B14. Pinning a class into THIS token would
+#       turn the airless proof into a coin flip.
+#
+#   "Environment transition: \w+ -> SurfaceStationary at UT=" - the SAME emitter,
+#       gating the D4 class this spec CLAIMS. It exists because the token above
+#       accepts either class, so on its own it would let a run that only ever
+#       produced SurfaceMobile mark `surface-stationary` covered - the mis-claim
+#       B14 shipped with and this round removed. ANY predecessor is accepted on
+#       purpose: the class is proven whether it is reached at touchdown (what
+#       flight 1 measured, `Approach -> SurfaceStationary`) or later in the
+#       settled dwell (`SurfaceMobile -> SurfaceStationary`), and flight 1's own
+#       line satisfies both tokens at once, so this adds a gate without adding an
+#       unverified requirement. If a future flight flips the class and this reds,
+#       move the D4 claim with it - do NOT loosen the token back.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Mun",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Mun",
+  "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
+  "Environment transition: \\w+ -> SurfaceStationary at UT=",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 5600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

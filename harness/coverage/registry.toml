@@ -28,9 +28,25 @@ schema = 1
 # orthogonal, so a future scenario could legitimately claim BOTH
 # `commit-in-foreign-soi` and `commit-scene-exit` for a single commit; that is
 # not double-counting.
+#
+# "commit-landed-foreign-body" (added with the B13/B14 Mun+Minmus LANDING lane,
+# per the growth rule): committing a tree whose recording CLOSES while the vessel
+# is LANDED ON another body. DISTINCT from "commit-in-foreign-soi" on the axis
+# that matters to Parsek - the TERMINAL CLASSIFICATION. An in-foreign-SOI commit
+# closes with terminalState=Orbiting and terminal ORBIT metadata; a landed commit
+# closes with terminalState=Landed and a terminal SURFACE POSITION instead
+# (ParsekFlight.CaptureTerminalOrbit only fires for ORBITING / SUB_ORBITAL /
+# FLYING / ESCAPING, and UsesTerminalOrbitMetadata excludes Landed), which is a
+# different commit-time code path, a different ghost/playback surface and a
+# different set of recorded TrackSection classes. B13/B14 legitimately claim BOTH:
+# a landed craft IS inside the foreign SOI, and both facts are gated (the machine
+# ASSERT-FAILs on leaving the target SOI anywhere in the tail, and the landed
+# terminal is gated by the landedOnTargetBody assertion + the airless
+# Approach -> Surface* log token).
 values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
           "manual-gloops", "stop-on-switch", "commit-revert-merge", "commit-scene-exit",
-          "commit-abort", "commit-in-foreign-soi", "discard-rollback", "auto-merge",
+          "commit-abort", "commit-in-foreign-soi", "commit-landed-foreign-body",
+          "discard-rollback", "auto-merge",
           "sub-2-point-drop", "switch-segment", "switch-segment-noop-discard",
           "scene-exit-finalization", "ballistic-extrapolation", "finalization-cache"]
 
