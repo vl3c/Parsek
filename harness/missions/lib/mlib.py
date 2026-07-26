@@ -1200,14 +1200,45 @@ LANDING_AP_UNKNOWN = "unknown"     # channel unread: no evidence either way
 LANDING_AP_REISSUE = "reissue"     # observed down, re-issue budget left
 LANDING_AP_DEAD = "dead"           # observed down past the re-issue cap
 
+# Consecutive DESCENT frames that must PROVE no progress before
+# `landing-no-progress` fires. Every other liveness gate in this machine is
+# debounced (AP-down 3, capture-executor-down 3, capture-arm 3, park-stable 3,
+# landed-stable 3, impact-certain 5) and this one was NOT: it flaked on the
+# FIRST frame past the window.
+#
+# EIGHT, not the house 3, and the floor under it is MEASURED rather than
+# picked. B14 flight 1's archived telemetry
+# (`harness/results/2026-07-25_1543_B14-minmus-landing_mission.stdout.log`)
+# shows MechJeb's Minmus FinalDescent hopping and settling: 23 of the 1,330
+# DESCENT frames read a vertical speed >= 0 (the craft genuinely GAINS
+# altitude, peak +1.305 m/s), and the LONGEST CONSECUTIVE run of them is FIVE
+# (ut 278,489.7 -> 278,493.8, alt climbing 92.711 -> 96.370 m), with six
+# further runs of three. A HEALTHY landing therefore produces five consecutive
+# non-descending frames, so any depth <= 5 would still name it "provably not
+# descending" whenever the window happens to be elapsed with an anchor just
+# above the disarm band (min_drop < ref < min_drop + a few hundred metres, the
+# one geometry the band disarm does not cover). 8 is 1.6x the measured worst
+# healthy run; the cost is 3 extra polls, ~3 game seconds against a 900 s
+# window. Pinned by LandingStallDebounceDepthTests, which replays those five
+# measured frames.
+LANDING_STALL_DEBOUNCE_FRAMES = 8
+
 # landing_progress_verdict verdicts.
 LANDING_PROGRESS_PENDING = "pending"      # the window has not elapsed yet
 LANDING_PROGRESS_OK = "descending"        # the window's drop was delivered
+# The ANCHOR sits below min_drop metres AGL, so the window demands a drop that
+# does not exist below the craft. DISARMED: the give-up is withheld outright and
+# `descentTimeoutSeconds` owns the phase, because no reading of the altitude
+# channel in that band can distinguish a slow lander from a stuck one. See the
+# reasoning in ``landing_progress_verdict``.
+LANDING_PROGRESS_UNSATISFIABLE = "window-unsatisfiable-agl"
 # The window under-delivered, but the craft is MEASURABLY descending on the
 # independent vertical-speed channel. HOLD, do not flake and do not re-anchor:
 # a craft with a finite NEGATIVE vertical speed is not stalled by any reading of
-# the word, so the altitude-drop window has no business calling it one. See the
-# reasoning in ``landing_progress_verdict``.
+# the word, so the altitude-drop window has no business calling it one. This is
+# a CORROBORATION channel, not the near-ground guard -- see
+# ``landing_progress_verdict``, which quotes the flight frames that prove the
+# vertical-speed channel is NOT reliably negative near the ground.
 LANDING_PROGRESS_VSPEED = "descending-under-drop"
 LANDING_STALL_BLIND = "altitude-unreadable"    # cannot prove progress
 LANDING_STALL_FLAT = "altitude-not-decreasing"  # proved NO progress
@@ -3776,16 +3807,34 @@ class B5State:
     # runs it out exactly once.
     landing_alt_ref: Optional[float] = None
     landing_alt_ref_ut: Optional[float] = None
-    # Frames on which an ELAPSED window under-delivered its drop but the craft's
-    # own vertical speed was finite and NEGATIVE, so the give-up was WITHHELD
-    # (``LANDING_PROGRESS_VSPEED``). Non-zero means the drop window is running
-    # against a genuinely slow-but-descending profile -- the operator signal that
+    # Consecutive DESCENT frames whose ELAPSED window PROVED no progress
+    # (``LANDING_STALL_FLAT``) or could not be read at all
+    # (``LANDING_STALL_BLIND``). ``landing-no-progress`` fires at
+    # ``LANDING_STALL_DEBOUNCE_FRAMES``; any PENDING / OK / disarmed / vspeed
+    # frame resets it, because the claim the give-up makes is about a SUSTAINED
+    # observation. Bounded IN THE MACHINE (the phase ends on the frame that
+    # reaches the depth), so it is safe as a DIFF field.
+    landing_stall_streak: int = 0
+    # Frames on which an ELAPSED window under-delivered its drop from an anchor
+    # HIGH enough to deliver it, while the craft's own vertical speed was finite
+    # and NEGATIVE, so the give-up was WITHHELD (``LANDING_PROGRESS_VSPEED``).
+    # Non-zero means the drop window is running against a genuinely
+    # slow-but-descending profile -- the operator signal that
     # ``landingProgressMinDropMeters`` / ``landingProgressWindowSeconds`` are
     # mis-sized for this body, not that anything is broken. Rides the periodic
     # machine-state line and the status file ONLY (deliberately NOT a DIFF field:
-    # it can increment on consecutive frames near the ground, and an uncapped
-    # diffed counter is the ~180-360-extra-Info-lines trap PARK already paid for).
+    # it can increment on consecutive frames, and an uncapped diffed counter is
+    # the ~180-360-extra-Info-lines trap PARK already paid for).
     landing_vspeed_holds: int = 0
+    # Frames on which the window was DISARMED because its anchor sat below
+    # ``landingProgressMinDropMeters`` AGL (``LANDING_PROGRESS_UNSATISFIABLE``).
+    # Non-zero says "the last stretch of this descent was watched by
+    # descentTimeoutSeconds, not by the drop window" -- which is the honest
+    # answer to "what bounded the final descent", and the number an operator
+    # needs before believing the drop window guarded anything near the ground.
+    # Same surfaces as landing_vspeed_holds, and NOT a DIFF field for the same
+    # reason.
+    landing_unsat_holds: int = 0
     # Consecutive in-gate LANDED-SETTLE frames, and the latch that the landing
     # was EVER settled (so the give-up separates "never settled" from "settled
     # but not in-gate at the end of the dwell" -- the PARK / forge_lko pattern).
@@ -4994,32 +5043,57 @@ def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
       unreadable). Nothing is decided; the caller HOLDS.
       ``LANDING_PROGRESS_OK``      - the window delivered at least ``min_drop``
       metres of surface-altitude drop. The caller RE-ANCHORS the window.
-      ``LANDING_PROGRESS_VSPEED``  - the window under-delivered, but the craft's
-      OWN vertical speed is finite and NEGATIVE. The caller HOLDS and does NOT
-      re-anchor, so the accumulated drop keeps counting toward the same anchor.
+      ``LANDING_PROGRESS_UNSATISFIABLE`` - the ANCHOR is below ``min_drop``
+      metres AGL, so the window asks for a drop that does not exist below the
+      craft. The watchdog is DISARMED for this window; the caller HOLDS and does
+      NOT re-anchor.
+      ``LANDING_PROGRESS_VSPEED``  - the window under-delivered from an anchor
+      that COULD have delivered, but the craft's OWN vertical speed is finite
+      and NEGATIVE. The caller HOLDS and does NOT re-anchor, so the accumulated
+      drop keeps counting toward the same anchor.
       ``LANDING_STALL_BLIND``      - the altitude (now or at the anchor) is not
       finite. FAIL CLOSED: an unreadable altitude is NOT evidence of descent, so
       it must never buy the descent another window. It gets its OWN name
       because the operator response differs completely from a real stall -- fix
       the channel, not the trajectory.
       ``LANDING_STALL_FLAT``       - a full window elapsed with finite altitudes,
-      the drop was not delivered, and the vertical-speed channel does not show a
-      descent either. The descent is provably not descending.
+      the anchor was high enough for the drop to be possible, the drop was not
+      delivered, and the vertical-speed channel does not show a descent either.
+      The descent is provably not descending.
 
-    WHY THE VERTICAL-SPEED RESCUE EXISTS (reviewer finding, 2026-07-26). The
-    drop window is UNSATISFIABLE BY CONSTRUCTION below ``min_drop`` metres AGL:
-    there is not that much altitude left to shed. The specs command
-    ``landingTouchdownSpeedMps = 0.5`` and MechJeb's ``FinalDescent`` holds
-    roughly that near the ground, so a lander whose window happens to re-anchor
-    a few hundred metres up and then takes longer than the window to touch down
-    averages under the commanded descent rate -- exactly what we ASKED FOR --
-    and the pre-fix code named it "provably not descending" on the FIRST frame
-    past the window, with no debounce and no second window. B13/B14 escaped only
-    by geometry (their single closed window ended at 64.4 km / 16.1 km altitude,
-    hundreds of seconds before touchdown), not by any guard. A craft with a
-    finite negative vertical speed is descending; the give-up must not claim
-    otherwise. SLOW is still bounded -- by ``descentTimeoutSeconds``, which is
-    the instrument for slow. This watchdog bounds BROKEN.
+    THE NEAR-GROUND BAND IS DISARMED, NOT RESCUED (review round 2, 2026-07-26).
+    Below ``min_drop`` metres AGL the window is UNSATISFIABLE BY CONSTRUCTION:
+    there is not that much altitude left to shed, so no outcome in that band
+    carries information and the only thing the gate can produce there is a false
+    give-up. The first cut tried to cover the band with the vertical-speed
+    channel instead ("the craft is descending, so withhold"), and THE FLIGHT
+    DATA SAYS THAT DOES NOT HOLD: on B14 flight 1's Minmus final descent
+    (`harness/results/2026-07-25_1543_B14-minmus-landing_mission.stdout.log`)
+    MechJeb hops and settles, and 23 of the 1,330 DESCENT frames read a vertical
+    speed >= 0 -- the craft physically CLIMBS, peak +1.305 m/s, in runs of up to
+    FIVE consecutive frames (ut 278,489.7 -> 278,493.8, alt 92.711 -> 96.370 m).
+    A rescue that requires a negative vertical speed is absent on exactly those
+    frames, so with a below-``min_drop`` anchor and an elapsed window the old
+    code would have flaked a HEALTHY landing. The band is therefore disarmed
+    outright, and the vertical-speed channel is kept only as what it actually is
+    -- a corroboration channel ABOVE the band, where a genuinely descending
+    craft that under-delivers means the knobs are mis-sized for the body.
+
+    WHAT ACTUALLY KEPT B13/B14 GREEN was neither guard: it was anchor geometry.
+    MEASURED from the machine-state lines of both flights, each descent closed
+    exactly ONE window and then touched down with the next one still running:
+    B13 re-anchored at alt 64,963.5 m (ut 22,634.365) and landed 453.9 s later
+    with 446.1 s of the 900 s window unspent; B14 re-anchored at alt 16,099.0 m
+    (ut 278,100.482) and landed 481.2 s later with 418.8 s unspent. Both anchors
+    are far ABOVE the 5,000 m band, so neither the disarm nor the vertical-speed
+    channel has ever been exercised live -- they are covered by cells only, and
+    must not be read as flight-proven.
+
+    SLOW is still bounded, and not by this gate: ``descentTimeoutSeconds`` is the
+    instrument for slow (2,200 game s against MEASURED descents of 1,353.9 /
+    1,381.3 s). This watchdog bounds BROKEN, and it now takes
+    ``LANDING_STALL_DEBOUNCE_FRAMES`` consecutive frames of proof to fire, like
+    every other liveness gate in this machine.
 
     The window is measured from the ANCHOR, not from phase entry, so a healthy
     descent rolls it forward indefinitely and only a genuine stall ever runs one
@@ -5030,13 +5104,20 @@ def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
         return LANDING_PROGRESS_PENDING
     if ref_altitude is None or not (_is_finite(altitude)
                                     and _is_finite(ref_altitude)):
-        # BLIND stays AHEAD of the vertical-speed rescue on purpose: an
-        # unreadable altitude is a CHANNEL fault, and the operator response is
-        # "fix the channel". A descending craft on a dark altitude channel is
-        # still a dark altitude channel.
+        # BLIND stays AHEAD of both holds on purpose: an unreadable altitude is
+        # a CHANNEL fault, and the operator response is "fix the channel". A
+        # descending craft on a dark altitude channel is still a dark altitude
+        # channel, and an anchor that cannot be read cannot be tested against
+        # the near-ground band either.
         return LANDING_STALL_BLIND
     if (ref_altitude - altitude) >= min_drop:
         return LANDING_PROGRESS_OK
+    if ref_altitude < min_drop:
+        # DISARMED, and ahead of the vertical-speed channel deliberately: in this
+        # band the drop test cannot be satisfied by any craft above the surface,
+        # so a VSPEED hold here would count a "the knobs are mis-sized" signal
+        # that is really "the gate does not apply".
+        return LANDING_PROGRESS_UNSATISFIABLE
     if _is_finite(vertical_speed) and vertical_speed < 0.0:
         return LANDING_PROGRESS_VSPEED
     return LANDING_STALL_FLAT
@@ -5118,6 +5199,7 @@ def _b5_enter_descent(state: B5State, snapshot: TelemetrySnapshot,
         entered,
         landing_engaged=True,
         landing_ap_down_streak=0,
+        landing_stall_streak=0,
         landing_alt_ref=(float(snapshot.altitude)
                          if _is_finite(snapshot.altitude) else None),
         landing_alt_ref_ut=(float(snapshot.ut) if _is_finite(snapshot.ut)
@@ -6504,6 +6586,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                             landing_alt_ref_ut=(float(snapshot.ut)
                                                 if _is_finite(snapshot.ut)
                                                 else state.landing_alt_ref_ut),
+                            # The give-up debounce is re-anchored with the window
+                            # for the same reason: the fresh attempt is judged on
+                            # ITS OWN frames, not on the dead module's.
+                            landing_stall_streak=0,
                             peak_apoapsis=peak),
                     [Action(ACTION_MJ_LAND_UNTARGETED,
                             landing_config=_b5_landing_config(state.params))])
@@ -6537,28 +6623,53 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             snapshot.vertical_speed)
         if progress == LANDING_PROGRESS_OK:
             state = replace(state, landing_alt_ref=float(snapshot.altitude),
-                            landing_alt_ref_ut=float(snapshot.ut))
+                            landing_alt_ref_ut=float(snapshot.ut),
+                            landing_stall_streak=0)
+        elif progress == LANDING_PROGRESS_UNSATISFIABLE:
+            # DISARMED: the anchor is below min_drop AGL, so the window asks for
+            # a drop that does not exist below the craft. HOLD and DO NOT
+            # re-anchor (re-anchoring would restart a clock that decides
+            # nothing); descentTimeoutSeconds owns the phase from here.
+            state = replace(state,
+                            landing_unsat_holds=state.landing_unsat_holds + 1,
+                            landing_stall_streak=0)
         elif progress == LANDING_PROGRESS_VSPEED:
             # HOLD, and DO NOT re-anchor: the accumulated drop keeps counting
             # toward the SAME anchor, so the window still resolves OK the moment
             # the craft has actually shed min_drop. Only the counter moves.
             state = replace(state,
-                            landing_vspeed_holds=state.landing_vspeed_holds + 1)
+                            landing_vspeed_holds=state.landing_vspeed_holds + 1,
+                            landing_stall_streak=0)
         elif progress in (LANDING_STALL_FLAT, LANDING_STALL_BLIND):
-            return _b5_named_flake(
-                state,
-                "phase %s: %s (%s) -- surface altitude went %s -> %s over %.0f "
-                "game seconds, less than the %.0f m the window requires, and "
-                "the independent vertical-speed channel did not show a descent "
-                "either (apEnabled=%d status=%s vspd=%s thr=%s ut=%s "
-                "vspeedHolds=%d)"
-                % (B5_DESCENT, LANDING_GIVEUP_NO_PROGRESS, progress,
-                   _obs_fmt(state.landing_alt_ref), _obs_fmt(snapshot.altitude),
-                   elapsed, state.params.landing_progress_min_drop,
-                   snapshot.landing_ap_enabled,
-                   snapshot.landing_ap_status or "?",
-                   _obs_fmt(snapshot.vertical_speed), _obs_fmt(snapshot.throttle),
-                   _obs_fmt(snapshot.ut), state.landing_vspeed_holds), peak), []
+            # DEBOUNCED like every other liveness gate here. One frame is not a
+            # sustained observation: MechJeb's final descent measurably hops (see
+            # LANDING_STALL_DEBOUNCE_FRAMES for the flight frames), and a single
+            # unreadable altitude sample is a blip, not a dark channel.
+            stall = state.landing_stall_streak + 1
+            state = replace(state, landing_stall_streak=stall)
+            if stall >= LANDING_STALL_DEBOUNCE_FRAMES:
+                return _b5_named_flake(
+                    state,
+                    "phase %s: %s (%s on %d consecutive frames) -- surface "
+                    "altitude went %s -> %s over %.0f game seconds, less than "
+                    "the %.0f m the window requires from an anchor high enough "
+                    "to deliver it, and the independent vertical-speed channel "
+                    "did not show a descent either (apEnabled=%d status=%s "
+                    "vspd=%s thr=%s ut=%s vspeedHolds=%d unsatHolds=%d)"
+                    % (B5_DESCENT, LANDING_GIVEUP_NO_PROGRESS, progress, stall,
+                       _obs_fmt(state.landing_alt_ref),
+                       _obs_fmt(snapshot.altitude),
+                       elapsed, state.params.landing_progress_min_drop,
+                       snapshot.landing_ap_enabled,
+                       snapshot.landing_ap_status or "?",
+                       _obs_fmt(snapshot.vertical_speed),
+                       _obs_fmt(snapshot.throttle),
+                       _obs_fmt(snapshot.ut), state.landing_vspeed_holds,
+                       state.landing_unsat_holds), peak), []
+        else:
+            # PENDING (window not elapsed, or an unreadable clock). The streak is
+            # a CONSECUTIVE-frame claim, so anything that is not proof resets it.
+            state = replace(state, landing_stall_streak=0)
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return _b5_named_flake(
@@ -9404,11 +9515,18 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landing_ap_reissues", "landingApReissues"),
     ("landing_alt_ref", "landingAltRef"),
     ("landing_alt_ref_ut", "landingAltRefUt"),
-    # The vertical-speed RESCUE counter. Here and NOT in MACHINE_DIFF_FIELDS on
-    # purpose (see the field's own comment): non-zero is the operator's signal
-    # that the drop window is mis-sized for this body, which is a tuning read,
-    # not a per-frame gate event.
+    # The two WITHHELD-give-up counters. Here and NOT in MACHINE_DIFF_FIELDS on
+    # purpose (see the fields' own comments): non-zero is the operator's signal
+    # that the drop window is mis-sized for this body (vspeed) or that it was
+    # disarmed near the ground (unsat), which are tuning reads, not per-frame
+    # gate events.
     ("landing_vspeed_holds", "landingVspeedHolds"),
+    ("landing_unsat_holds", "landingUnsatHolds"),
+    # The no-progress DEBOUNCE run. Bounded in the machine at
+    # LANDING_STALL_DEBOUNCE_FRAMES (the phase ends on the frame that reaches
+    # it), so a live status read can watch the give-up count down instead of
+    # only seeing it arrive.
+    ("landing_stall_streak", "landingStallStreak"),
     ("landed_stable_streak", "landedStableStreak"),
     ("landed_ever_stable", "landedEverStable"),
     ("landed_body", "landedBody"),
@@ -9541,6 +9659,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landing_engaged", "landingEngaged"),
     ("landing_ap_down_streak", "landingApDownStreak"),
     ("landing_ap_reissues", "landingApReissues"),
+    # The no-progress debounce run, bounded at LANDING_STALL_DEBOUNCE_FRAMES by
+    # the machine (the phase ends on the frame that reaches it), exactly like
+    # landing_ap_down_streak above. A give-up that used to arrive with no
+    # warning now counts down in the log.
+    ("landing_stall_streak", "landingStallStreak"),
     ("landed_stable_streak", "landedStableStreak"),
     ("landed_ever_stable", "landedEverStable"),
     ("landed_body", "landedBody"),

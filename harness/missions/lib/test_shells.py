@@ -2828,34 +2828,18 @@ class LandingEngageTests(unittest.TestCase):
                         lines)
 
 
-class LandingAutopilotLadderFlightTests(unittest.TestCase):
-    """The DESCENT autopilot supervision ladder, driven through the REAL fly
-    loop: debounce -> bounded re-issue -> distinctly named DEAD fast-fail.
+class _LandingDescentFlightFixture:
+    """Shared fly-loop fixtures for the two DESCENT give-up ladders below.
 
-    WHY THIS CLASS EXISTS. B13 and B14 both PASSED on their first flight with
-    `LandingAutopilot.Enabled` reading 1 on every polled DESCENT frame, so
-    NEITHER flight emitted a single `landingApDownStreak` or
-    `landingApReissues` line -- the ladder has never executed against real
-    MechJeb, and the machine-diff CHANNEL it reports through has never been
-    seen carrying a non-zero value on any surface. These cells do not create a
-    live proof and must not be read as one. What they do is bound what a live
-    firing could still surprise us with to MechJeb's own behaviour, by pinning
-    everything on OUR side of the seam end to end: the debounce DEPTH (the
-    existing all-disabled cells cannot tell a 3-frame debounce from a 1-frame
-    one), the re-issue ACTION reaching the seam with the spec's vehicle
-    configuration, the bound on how many times it can, the give-up NAME, and
-    the gate lines an operator would grep for when it fires for real.
+    A MIXIN, not a base test case, deliberately: making one ladder class
+    inherit the other would re-run every one of its cells under a second name
+    and inflate the suite count with duplicates that measure nothing new."""
 
-    Driven through ``mission_runner.fly_loop`` rather than ``b5_decide``
-    directly because the gate lines are emitted by the LOOP (``diff_machine_state``
-    -> ``log.info``), not by the machine: an mlib-only cell proves the state
-    field moved and says nothing about whether anybody would ever see it.
-    """
-
-    # The ladder is entered ALREADY ENGAGED: the PARK -> DESCENT entry engage is
-    # covered end to end by B13LandingShellTests, and starting past it makes
+    # Both ladders are entered ALREADY ENGAGED: the PARK -> DESCENT entry engage
+    # is covered end to end by B13LandingShellTests, and starting past it makes
     # every ACTION_MJ_LAND_UNTARGETED the loop performs a RE-ISSUE, so the bound
-    # is asserted against a count that means only one thing.
+    # is asserted against a count that means only one thing. The no-progress
+    # window is anchored at 100,000 m / ut 0 by the same call.
     def _descent_state(self, params=None):
         p = mlib.b5_params_from_dict(dict(params or B13_PARAMS))
         return replace(mlib.b5_initial_state(p),
@@ -2920,6 +2904,37 @@ class LandingAutopilotLadderFlightTests(unittest.TestCase):
                            landing_ap_enabled=0,
                            seam_commit_result="OK"))
         return frames
+
+class LandingAutopilotLadderFlightTests(_LandingDescentFlightFixture,
+                                       unittest.TestCase):
+    """The DESCENT autopilot supervision ladder, driven through the REAL fly
+    loop: debounce -> bounded re-issue -> distinctly named DEAD fast-fail.
+
+    WHY THIS CLASS EXISTS. B13 and B14 both PASSED on their first flight with
+    `LandingAutopilot.Enabled` reading 1 on every DESCENT frame THE SUPERVISOR
+    EVALUATED -- not on every polled frame, which is a claim the archived
+    telemetry contradicts: `landAP=0` appears on B13's PARK -> DESCENT entry
+    frame (ut 21,734.345, decided in PARK, before the engage went out) and on
+    the TOUCHDOWN frame of BOTH flights (B13 ut 23,088.285, B14 ut 278,581.702),
+    which is MechJeb disabling its own module on the landed frame and is exactly
+    what the touchdown-before-supervisor ordering exists for. So NEITHER flight
+    emitted a single `landingApDownStreak` or
+    `landingApReissues` line -- the ladder has never executed against real
+    MechJeb, and the machine-diff CHANNEL it reports through has never been
+    seen carrying a non-zero value on any surface. These cells do not create a
+    live proof and must not be read as one. What they do is bound what a live
+    firing could still surprise us with to MechJeb's own behaviour, by pinning
+    everything on OUR side of the seam end to end: the debounce DEPTH (the
+    existing all-disabled cells cannot tell a 3-frame debounce from a 1-frame
+    one), the re-issue ACTION reaching the seam with the spec's vehicle
+    configuration, the bound on how many times it can, the give-up NAME, and
+    the gate lines an operator would grep for when it fires for real.
+
+    Driven through ``mission_runner.fly_loop`` rather than ``b5_decide``
+    directly because the gate lines are emitted by the LOOP (``diff_machine_state``
+    -> ``log.info``), not by the machine: an mlib-only cell proves the state
+    field moved and says nothing about whether anybody would ever see it.
+    """
 
     # The exact frame count the ladder needs: (debounce) frames per rung, one
     # rung per re-issue plus the final DEAD rung. Derived from the constants
@@ -3061,6 +3076,80 @@ class LandingAutopilotLadderFlightTests(unittest.TestCase):
         self.assertEqual(
             [a.kind for a in control.actions].count(
                 mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+
+
+class LandingNoProgressDebounceFlightTests(_LandingDescentFlightFixture,
+                                          unittest.TestCase):
+    """The SECOND DESCENT give-up's debounce, driven through the REAL fly loop
+    (review round 2, 2026-07-26).
+
+    `landing-no-progress` used to fire on the FIRST frame past the window, and
+    the countdown it now runs is only useful if an operator can SEE it: the
+    depth lives in mlib, but the `gate landingStallStreak` lines are emitted by
+    the LOOP (`diff_machine_state` -> `log.info`). An mlib-only cell proves the
+    field moved and says nothing about whether anybody would ever read it --
+    the same reason the autopilot ladder above is flown rather than decided.
+
+    Shares the ladder's fixture mixin deliberately: same `_descent_state`
+    (anchored at 100,000 m / ut 0), same `_fly`, same `_gates`, same 10
+    game-second frame spacing."""
+
+    def _stalled(self, i, **kw):
+        """A frame PAST the no-progress window that proves nothing moved: the
+        window opened at ut 0 / 100,000 m, so ut > 900 with a flat altitude is
+        an elapsed window that under-delivered, from an anchor high enough that
+        the band disarm does not apply."""
+        base = dict(ut=B13_PARAMS["landingProgressWindowSeconds"] + 10.0 * i,
+                    altitude=99_950.0 + 0.01 * i, vertical_speed=0.0)
+        base.update(kw)
+        return self._descending(i, **base)
+
+    def test_the_countdown_reaches_the_log_then_names_the_giveup(self):
+        depth = mlib.LANDING_STALL_DEBOUNCE_FRAMES
+        frames = [self._stalled(i) for i in range(1, depth + 1)]
+        final, control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, final.flake_reason)
+        # One gate line per step of the countdown, so the give-up is visible
+        # coming rather than only on arrival.
+        self.assertEqual(self._gates(lines, "landingStallStreak"),
+                         ["%d->%d" % (n, n + 1) for n in range(depth)])
+        # It fired on the ladder's own frame, not on the descent budget.
+        self.assertEqual(control.reads, depth)
+        self.assertNotIn(mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT,
+                         final.flake_reason)
+
+    def test_a_hop_short_of_the_depth_costs_the_landing_nothing(self):
+        """THE MEASURED CASE: B14 flight 1's Minmus final descent produced FIVE
+        consecutive non-descending frames on a HEALTHY landing. A run that stops
+        short of the depth must leave no trace but the reset, and the flight
+        must still land and commit."""
+        depth = mlib.LANDING_STALL_DEBOUNCE_FRAMES
+        frames = [self._stalled(i) for i in range(1, depth)]
+        # ... then one frame that delivers the drop, and a normal tail.
+        frames.append(self._stalled(depth, altitude=99_000.0,
+                                    vertical_speed=-50.0))
+        frames += self._landing_tail(200)
+        final, _control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_SURFACE_COMMITTED)
+        streaks = self._gates(lines, "landingStallStreak")
+        self.assertIn("0->1", streaks)
+        self.assertIn("%d->0" % (depth - 1), streaks)
+        self.assertNotIn("%d->%d" % (depth - 1, depth), streaks)
+
+    def test_a_healthy_descent_leaves_the_countdown_silent(self):
+        """The shape both live flights flew: every window delivered its drop, so
+        the channel emits nothing at all. That silence is only evidence of a
+        healthy descent because the two cells above prove the channel speaks."""
+        frames = [self._descending(i) for i in range(1, 12)]
+        frames += self._landing_tail(12)
+        final, _control, lines = self._fly(frames)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.landing_stall_streak, 0)
+        self.assertEqual(self._gates(lines, "landingStallStreak"), [])
 
 
 if __name__ == "__main__":

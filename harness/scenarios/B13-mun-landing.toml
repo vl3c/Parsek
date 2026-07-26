@@ -107,7 +107,12 @@
 #                          landingProgressMinDropMeters within
 #                          landingProgressWindowSeconds of game time, with a
 #                          SEPARATE altitude-unreadable name for a blind channel
-#                          (fix the channel, not the trajectory).
+#                          (fix the channel, not the trajectory). DEBOUNCED over
+#                          LANDING_STALL_DEBOUNCE_FRAMES consecutive frames, and
+#                          DISARMED entirely while the window's anchor sits below
+#                          landingProgressMinDropMeters AGL, where the drop it
+#                          asks for does not exist below the craft - that band is
+#                          bounded by descentTimeoutSeconds instead.
 #                        landing-touchdown-timeout - descentTimeoutSeconds. A
 #                          GAME-time budget is the RIGHT instrument here (unlike
 #                          CORRECTION-BURN's, which the aim-then-warp it bounded
@@ -326,26 +331,39 @@ landingRcsAdjustment       = false
 # shorter than it would fire on a perfectly healthy descent. 900 s is ~2.6x that
 # flip and leaves room for TWO full windows inside the 2200 s budget (it left
 # room for three against the shipped-provisional 3000; the budget was trimmed
-# from measurement, this window was not). MEASURED on flight 1: the descent ran
-# 1,353.9 game seconds and closed exactly ONE window, at 64.4 km altitude, ~454 s
-# before touchdown - so the second window is headroom, not a working part of the
-# profile.
+# from measurement, this window was not). MEASURED on flight 1, off the periodic
+# machine-state lines: the descent ran 1,353.9 game seconds and closed exactly
+# ONE window - the anchor moved from (134,586.028 m, ut 21,734.345) to
+# (64,963.521 m, ut 22,634.365) and never again. Touchdown came 453.9 s later
+# with 446.1 s of the second window still unspent, so the second window is
+# headroom, not a working part of the profile.
 landingProgressWindowSeconds = 900
 # Metres of surface-altitude drop the window must deliver.
 # CLOSED FROM MEASUREMENT on flight 1 (2026-07-25): the first window opened at
-# alt 134,586.0 m (ut 21,734.3) and closed at alt 64,963.5 m (ut 22,634.4), a
-# MEASURED drop of 69,622.5 m. B14 measured 21,749.8 m on the tighter Minmus
-# axis, so 21,749.8 is the worst measured case across both bodies.
-#   MEASURED worst case 21,749.8 m -> 5000 leaves 4.35x margin.
+# alt 134,586.028 m (ut 21,734.345) and closed at alt 64,963.521 m (ut
+# 22,634.365), a MEASURED drop of 69,622.5 m. B14 measured 21,730.6 m on the
+# tighter Minmus axis, so 21,730.6 is the worst measured case across both
+# bodies.
+#   MEASURED worst case 21,730.6 m -> 5000 leaves 4.35x margin.
 # Raised from the shipped-provisional 500 because 500 m is 0.7% of the drop the
 # autopilot actually delivers: a MechJeb that shed 500 m in 900 s would be
 # catastrophically broken and the gate would still pass it. 5000 still bounds
 # BROKEN, not SLOW - a healthy descent clears it in the first 3 minutes.
-# NOTE the interaction with the vertical-speed rescue in
-# `mlib.landing_progress_verdict`: below min_drop metres AGL the window is
-# UNSATISFIABLE by construction, so the verdict withholds the give-up whenever
-# the craft's own vertical speed is finite and NEGATIVE. That is what makes a
-# 5,000 m drop requirement safe on a final descent that only has 450 m left.
+#
+# WHAT GUARDS THE LAST 5,000 m, since this window cannot (review round 2,
+# 2026-07-26). Below min_drop metres AGL the window is UNSATISFIABLE by
+# construction - there is not that much altitude left to shed - so
+# `mlib.landing_progress_verdict` DISARMS it whenever the ANCHOR sits in that
+# band and `descentTimeoutSeconds` owns the phase there instead. The first cut
+# tried to cover the band with the craft's own vertical speed instead, and the
+# flight data killed that: on B14 flight 1's Minmus final descent MechJeb hops,
+# and 23 of the 1,330 DESCENT frames read vspd >= 0 (peak +1.305 m/s, runs of up
+# to five), so a rescue conditioned on a NEGATIVE reading is absent exactly when
+# it would be needed. Above the band the give-up is also DEBOUNCED
+# (LANDING_STALL_DEBOUNCE_FRAMES = 8, chosen to clear that measured 5-frame
+# healthy run). NEITHER guard has ever been exercised live: both flights'
+# anchors stayed far above the band (64,963.5 m / 16,099.0 m), so they carry
+# cell coverage only.
 landingProgressMinDropMeters = 5000
 # LANDED is what the Mun will read; SPLASHED is kept because hard-coding it away
 # would make the machine wrong for any body that has an ocean, and it costs
@@ -401,8 +419,11 @@ landedTimeoutSeconds       = 600
 
 # Coverage. The ascent / transfer / capture cells are B11's; the NEW cells are
 # D1 commit-landed-foreign-body (added to harness/coverage/registry.toml in this
-# same change per the registry growth rule) and D4 surface-stationary (which no
-# committed scenario claims today).
+# same change per the registry growth rule) and D4 surface-stationary, which no
+# committed scenario claimed before this lane. B14 claims D4 surface-MOBILE, not
+# surface-stationary: each spec claims the class its OWN flight measured, and
+# each gates it with a class-specific token (see the logContract note), so
+# neither can be satisfied by the other's reading.
 #
 # WHY EACH CLAIM IS GATED (the standing rule: do NOT claim a cell nothing gates -
 # the reason D5 bg-recording was REMOVED from B11/B12):
@@ -418,10 +439,13 @@ landedTimeoutSeconds       = 600
 #                                  checkpoint sections, as in B11.
 #   D4 atmospheric / exo-*         the Kerbin ascent and the cross-SOI coast, as
 #                                  in B11.
-#   D4 surface-stationary          the required Approach|Exo* -> Surface* token is
-#                                  an AIRLESS-body touchdown by construction (see
-#                                  the logContract note), and landedStable proves
-#                                  the craft then held still through the dwell.
+#   D4 surface-stationary          TWO required tokens: the class-agnostic
+#                                  Approach|Exo* -> Surface* one proves an
+#                                  AIRLESS-body touchdown by construction, and a
+#                                  second `-> SurfaceStationary` one gates THIS
+#                                  spec's claimed class specifically (see the
+#                                  logContract note). landedStable proves the
+#                                  craft then held still through the dwell.
 #   D14 kerbin / mun / warp-rails  as in B11.
 #
 # DELIBERATELY NOT CLAIMED, though the recording will carry them: D7 gear (the
@@ -436,6 +460,17 @@ D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast",
        "surface-stationary"]
 D14 = ["kerbin", "mun", "warp-rails"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. This spec shipped it that way (under
+# [expectations.logContracts]) - harmless today, because an absent key already
+# means "none allowed", but INVALID once the sibling render-parity change
+# promotes the misplaced form to a spec error. These are NEW files that change
+# never touches, so a clean merge would leave them silently INVALID; the key is
+# moved here now.
+allowedAnomalies = []
 
 [expectations.recordings]
 # PINNED at {8, 8} FROM MEASUREMENT. The provisional {8, 9} window this spec
@@ -465,12 +500,15 @@ D14 = ["kerbin", "mun", "warp-rails"]
 # guarded by the logContract tokens below.
 # PINNED from measurement on FLIGHT 1 (2026-07-25, FULL PASS attempt 1, wall
 # 2,747.9 s): verifiers.expectations.observed.recordings.count read exactly 8,
-# so the touchdown-fragment allowance was never needed. Topology confirmed by
-# the commit-terminal lines: 1 Landed/Mun (the lander), 6 Destroyed (the radial
-# boosters), 1 Orbiting/Kerbin (the flameout-staged ascent core) - identical to
-# B11 except the ROOT terminal, which is the whole point of this lane. Same
-# caveat as B11/B12/B14: the count is COMMIT-BLIND, so it guards recording
-# TOPOLOGY while the log tokens guard the landed terminal.
+# so the touchdown-fragment allowance was never needed. That count, plus
+# `verifiers.expectations.status = PASS` with `mismatches = []`, is the whole of
+# what the archive carries. The per-recording terminal breakdown this note used
+# to quote (1 Landed/Mun, 6 Destroyed, 1 Orbiting/Kerbin) came from reading the
+# live log during the run and is NOT re-verifiable - `collectLogs.ran = false`,
+# so no KSP.log was kept. The DERIVATION above says why 8 is the topology; the
+# breakdown is a recollection until a run archives its log. Same caveat as
+# B11/B12/B14: the count is COMMIT-BLIND, so it guards recording TOPOLOGY while
+# the log tokens guard the landed terminal.
 count = { min = 8, max = 8 }
 
 [expectations.logContracts]
@@ -492,7 +530,18 @@ count = { min = 8, max = 8 }
 #       classification AND ITS BODY a checked claim instead of an inference from
 #       the mission phase list.
 #
-#       *** THIS TOKEN NEEDED A PARSEK FIX TO BE WRITABLE AT ALL ***
+#       *** THIS TOKEN NEEDED A PARSEK FIX TO BE WRITABLE - FROM CODE READING
+#       *** AND CELLS, NOT FROM THESE TWO FLIGHTS (review round 2, 2026-07-26)
+#       WHAT IS AND IS NOT DEMONSTRATED, stated up front because the paragraph
+#       below reads like a live proof and is not one. The flights CANNOT
+#       discriminate the fix: both craft orbited the SAME body they then landed
+#       on, so even a stale TerminalOrbitBody would have produced a
+#       byte-identical token. What flight 1 proves is that the post-fix line is
+#       WRITABLE and MATCHES; that the resolver's PRECEDENCE is right rests on
+#       the code read below plus the nine xUnit cells. No pre-fix landed flight
+#       was ever flown, and no KSP.log from either flight was archived
+#       (`collectLogs.ran = false` on both result JSONs), so there is no
+#       before/after log to point at.
 #       The first cut of this spec could NOT name the body. Read the emitting
 #       code as it was:
 #         - ParsekFlight.CaptureTerminalOrbit writes TerminalOrbitBody ONLY for
@@ -529,8 +578,14 @@ count = { min = 8, max = 8 }
 #       recording with no body at all still renders the (null) token).
 #       REQUIRES a rebuild + provision.py before this spec can go green - the
 #       deployed automation DLL must carry the resolver.
-#       MATCHED LIVE on flight 1 (2026-07-25, FULL PASS): the committed tree
-#       printed 1 Landed/Mun, 6 Destroyed/(null) and 1 Orbiting/Kerbin.
+#       MATCHED LIVE on flight 1 (2026-07-25, FULL PASS): the archived result
+#       JSON records `verifiers.expectations.status = PASS` with
+#       `mismatches = []`, which is exactly the claim that every required token
+#       above - including this one - matched at least once. The per-recording
+#       terminal breakdown this note used to quote is NOT re-verifiable: no
+#       KSP.log was collected on either flight (`collectLogs.ran = false`), so
+#       treat any statement about WHICH recording carried WHICH terminal as an
+#       unarchived recollection until a run keeps its log.
 #   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface..."
 #       EnvironmentDetector.ConfirmTransition, ParsekLog.Info("Environment", ...).
 #       THE token that proves SURFACE-class TrackSections OFF KERBIN, and it is
@@ -538,12 +593,32 @@ count = { min = 8, max = 8 }
 #       Atmospheric for anything below atmosphereDepth, so on Kerbin a descent
 #       ALWAYS enters the surface classes through Atmospheric and never from a
 #       vacuum class. Reading a vacuum class immediately before a surface class
-#       is only possible on an AIRLESS body. The alternation is there because the
-#       exact pre-touchdown class depends on ComputeApproachAltitude and on
-#       whether the engine is lit on the last sampled frame; all three
+#       is only possible on an AIRLESS body. The PREDECESSOR alternation is there
+#       because the exact pre-touchdown class depends on ComputeApproachAltitude
+#       and on whether the engine is lit on the last sampled frame; all three
 #       alternatives carry the same proof. Verified shape against
 #       logs/2026-07-25_1216_B7-duna-flyby/KSP.log:
 #       "Environment transition: SurfaceStationary -> SurfaceMobile at UT=38.24".
+#
+#       The SUCCESSOR alternation stays too, and that is a decision (review round
+#       2, 2026-07-26): which surface class the confirmed transition lands in is
+#       NOT structural. EnvironmentDetector.Classify picks SurfaceMobile vs
+#       SurfaceStationary purely on `srfSpeed > 0.1` at the confirm frame, which
+#       is why the SAME machine measured `Approach -> SurfaceStationary` here and
+#       `Approach -> SurfaceMobile` on B14. Pinning a class into THIS token would
+#       turn the airless proof into a coin flip.
+#
+#   "Environment transition: \w+ -> SurfaceStationary at UT=" - the SAME emitter,
+#       gating the D4 class this spec CLAIMS. It exists because the token above
+#       accepts either class, so on its own it would let a run that only ever
+#       produced SurfaceMobile mark `surface-stationary` covered - the mis-claim
+#       B14 shipped with and this round removed. ANY predecessor is accepted on
+#       purpose: the class is proven whether it is reached at touchdown (what
+#       flight 1 measured, `Approach -> SurfaceStationary`) or later in the
+#       settled dwell (`SurfaceMobile -> SurfaceStationary`), and flight 1's own
+#       line satisfies both tokens at once, so this adds a gate without adding an
+#       unverified requirement. If a future flight flips the class and this reds,
+#       move the D4 claim with it - do NOT loosen the token back.
 required = [
   "Recording started",
   "Recording stopped",
@@ -552,10 +627,9 @@ required = [
   "committree committed=true",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Mun",
   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
+  "Environment transition: \\w+ -> SurfaceStationary at UT=",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 budgetSeconds = 5600
