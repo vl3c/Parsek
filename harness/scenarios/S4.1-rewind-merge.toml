@@ -75,6 +75,14 @@ D9 = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-
       "head-tip-split", "supersede-relation", "terminal-kind-classify", "merge-journal"]
 D8 = ["recalc-engine"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # Floor only: the merged fork must leave at least the surviving tree visible. A
 # re-fly that lost the committed corpus would sink below 1 and red. (No ceiling:
@@ -97,8 +105,6 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience="]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 # RESERVED block (hlib evaluate_expectations records these SKIPPED until the M-C2
 # rewind verifier lands). Documents the re-fly-specific asserts a save-parse

@@ -53,6 +53,14 @@ steps = [
 D8  = ["recalc-engine", "orchestrator", "ksp-state-patcher"]
 D14 = ["sandbox", "scene-ksc"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 count = { min = 0, max = 0 }
 
@@ -84,7 +92,6 @@ count = { min = 0, max = 0 }
 #    scene-mismatch defect impossible to repeat silently.
 required  = ["BATCH_COMPLETE v1 total=4 passed=1 failed=0 skipped=3 category=GameActionsHealth scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-allowedAnomalies = []
 
 # EMPTY manifest (like B10): expected == seed. All pools absent in Sandbox, so the oracle
 # asserts nothing on the pools and PASSES on the facet-skip path. The empty-manifest

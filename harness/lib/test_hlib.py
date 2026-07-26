@@ -2441,6 +2441,367 @@ class AnomalySweepTests(unittest.TestCase):
         self.assertEqual(hits, [])
 
 
+class AnomalyGrepAnchoringTests(unittest.TestCase):
+    """The sweep must match an actual EmitAnomaly RAISE, not a token appearing
+    anywhere in KSP.log.
+
+    Found by S1.7's first flight (2026-07-26), which reddened PARSEK-FAIL(anomaly)
+    on a line that reports the ABSENCE of drift. The old grep was
+    `if tok in log_text` over the whole file."""
+
+    # The exact line that reddened S1.7's first flight. A PhaseSpineSwap test
+    # diagnostic whose LABEL is the token; over=False, maxDev=0.0m.
+    FALSE_POSITIVE = ("[Parsek][INFO][TestRunner] SpineDrive parity-drift: sampled=True"
+                      " skip=(none) hasMeas=True maxDev=0.0m tol=1989.4m over=False")
+    # The real shape, from MapRenderTrace.EmitAnomaly -> EmitRaw.
+    REAL_RAISE = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoOrbitLine"
+                  " pid=123 recId=r1 frame=7887 currentUT=21.500 effUT=21.500"
+                  " reason=parity-drift maxDev=91234m tol=1927m")
+
+    def test_a_token_named_in_an_ordinary_log_line_is_not_a_hit(self):
+        self.assertEqual([], hlib.grep_anomaly_tokens(self.FALSE_POSITIVE))
+
+    def test_a_real_raise_is_a_hit(self):
+        self.assertEqual(["parity-drift"], hlib.grep_anomaly_tokens(self.REAL_RAISE))
+
+    def test_the_false_positive_does_not_mask_a_real_raise_in_the_same_log(self):
+        log = self.FALSE_POSITIVE + "\n" + self.REAL_RAISE + "\n"
+        self.assertEqual(["parity-drift"], hlib.grep_anomaly_tokens(log))
+
+    def test_ledger_trace_raises_match_too(self):
+        # LedgerTrace.FormatAnomaly builds the same phase=Anomaly ... reason= shape.
+        line = ("[Parsek][WARN][LedgerTrace] phase=Anomaly recalcSeq=3 resource=funds"
+                " id=pool reason=ledger-vs-truth target=10 actual=20")
+        self.assertEqual(["ledger-vs-truth"], hlib.grep_anomaly_tokens(line))
+
+    def test_a_reason_prefix_does_not_match_a_longer_token(self):
+        # reason=icon-teleport must not satisfy a search for a different token, and
+        # the field is read whole rather than by substring.
+        line = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1"
+                " reason=icon-teleport TELEPORT dPos=900m")
+        self.assertEqual([], hlib.grep_anomaly_tokens(line))
+
+    def test_hits_come_back_in_registry_order_not_emit_order(self):
+        log = "\n".join(
+            "[Parsek][INFO][MapRenderTrace] phase=Anomaly pid=1 reason=" + t
+            for t in ("ledger-vs-truth", "parity-drift", "line-blink"))
+        self.assertEqual(["line-blink", "parity-drift", "ledger-vs-truth"],
+                         hlib.grep_anomaly_tokens(log))
+
+    def test_unlisted_reasons_are_reported_not_gated(self):
+        # The known ANOMALY_TOKENS drift: these are RAISED by the mod and absent
+        # from the harness set, so they must surface without changing the verdict.
+        log = "\n".join(
+            "[Parsek][INFO][MapRenderTrace] phase=Anomaly pid=1 reason=" + t
+            for t in ("icon-teleport", "gap-vs-retire", "parity-drift"))
+        self.assertEqual(["parity-drift"], hlib.grep_anomaly_tokens(log))
+        self.assertEqual(["gap-vs-retire", "icon-teleport"],
+                         hlib.unlisted_anomaly_reasons(log))
+
+    def test_icon_jump_is_a_dead_token_against_what_the_mod_emits(self):
+        # Pins the drift rather than papering over it: MapRenderProbe raises the
+        # icon-teleport family with reason=icon-teleport, so the harness's
+        # `icon-jump` token can never fire. Gating is unchanged here deliberately
+        # (reconciling it is a per-token defect-vs-instrument call); the
+        # report-only channel is what makes it visible. Delete this cell when the
+        # set is reconciled.
+        self.assertIn("icon-jump", hlib.ANOMALY_TOKENS)
+        line = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1"
+                " reason=icon-teleport TELEPORT dPos=900m = 42x expected(21m)")
+        self.assertEqual([], hlib.grep_anomaly_tokens(line))
+        self.assertEqual(["icon-teleport"], hlib.unlisted_anomaly_reasons(line))
+
+    def test_empty_and_none_are_clean(self):
+        for empty in (None, "", "\n\n"):
+            self.assertEqual([], hlib.grep_anomaly_tokens(empty))
+            self.assertEqual([], hlib.unlisted_anomaly_reasons(empty))
+
+
+# ---------------------------------------------------------------------------
+# The ungated-reason ground truth, DERIVED FROM SOURCE.
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = os.path.dirname(HARNESS_ROOT)
+PARSEK_SRC_DIR = os.path.join(REPO_ROOT, "Source", "Parsek")
+DOCS_DEV_DIR = os.path.join(REPO_ROOT, "docs", "dev")
+AUTOTEST_STATUS_DOC = os.path.join(DOCS_DEV_DIR, "autotest-status.md")
+TODO_DOC = os.path.join(DOCS_DEV_DIR, "todo-and-known-bugs.md")
+
+# A reason token: lowercase words joined by hyphens. Deliberately requires a
+# hyphen so it cannot match a bare word, and forbids spaces / `=` so it cannot
+# match a formatted `details` string.
+_REASON_TOKEN_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)+\Z")
+
+# Reason-argument POSITION (0-based) per tracer signature. Both are checked by
+# qualifier so the LedgerTrace `resource` argument (which is also a hyphenated
+# literal on the tech-node / subject-science call sites) can never be mistaken
+# for a reason.
+#   MapRenderTrace.EmitAnomaly(surface, pidKey, currentUT, effUT, reason, details, recId)
+#   LedgerTrace.EmitAnomaly(resource, id, reason, details)
+_REASON_ARG_INDEX = {"MapRenderTrace": 4, "LedgerTrace": 2, "": 4}
+
+
+def _split_top_level_args(blob):
+    """Split a C# argument list on TOP-LEVEL commas (paren/bracket/brace depth 0,
+    outside string and char literals)."""
+    args, depth, i, start = [], 0, 0, 0
+    in_str = in_chr = False
+    while i < len(blob):
+        c = blob[i]
+        if in_str:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+        elif in_chr:
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_chr = False
+        elif c == '"':
+            in_str = True
+        elif c == "'":
+            in_chr = True
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            args.append(blob[start:i])
+            start = i + 1
+        i += 1
+    args.append(blob[start:])
+    return args
+
+
+def _anomaly_const_map():
+    path = os.path.join(PARSEK_SRC_DIR, "MapRenderTrace.cs")
+    with open(path, encoding="utf-8-sig") as fh:
+        src = fh.read()
+    return dict(re.findall(r'internal const string (Anomaly\w+)\s*=\s*"([^"]+)"', src))
+
+
+def _production_anomaly_raises():
+    """Walk every `EmitAnomaly(` call site under Source/Parsek EXCLUDING
+    InGameTests/, and return {reason: [producer file:line, ...]}.
+
+    The call sites are matched by paren balancing (the calls are multi-line), the
+    reason is taken by ARGUMENT POSITION for the qualifier's signature, and a
+    `MapRenderTrace.Anomaly*` constant is resolved through the const map. Bare
+    `EmitAnomaly(` inside MapRenderTrace.cs itself is the four thin
+    cutover-hardening wrappers, which share the MapRenderTrace signature."""
+    consts = _anomaly_const_map()
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(PARSEK_SRC_DIR):
+        dirnames[:] = [d for d in dirnames if d != "InGameTests"]
+        for filename in sorted(filenames):
+            if not filename.endswith(".cs"):
+                continue
+            path = os.path.join(dirpath, filename)
+            with open(path, encoding="utf-8-sig") as fh:
+                src = fh.read()
+            for m in re.finditer(r"(?:(\w+)\.)?EmitAnomaly\s*\(", src):
+                qualifier = m.group(1) or ""
+                if qualifier not in _REASON_ARG_INDEX:
+                    continue
+                i, depth = m.end(), 1
+                while i < len(src) and depth:
+                    if src[i] == "(":
+                        depth += 1
+                    elif src[i] == ")":
+                        depth -= 1
+                    i += 1
+                args = _split_top_level_args(src[m.end():i - 1])
+                idx = _REASON_ARG_INDEX[qualifier]
+                if idx >= len(args):
+                    continue
+                arg = args[idx].strip()
+                literal = re.fullmatch(r'"([^"]*)"', arg)
+                if literal:
+                    reason = literal.group(1)
+                elif arg.split(".")[-1] in consts:
+                    reason = consts[arg.split(".")[-1]]
+                else:
+                    continue
+                if not _REASON_TOKEN_RE.match(reason):
+                    continue
+                rel = os.path.relpath(path, os.path.dirname(HARNESS_ROOT))
+                producer = "%s:%d" % (rel.replace(os.sep, "/"),
+                                      src.count("\n", 0, m.start()) + 1)
+                out.setdefault(reason, []).append(producer)
+    return out
+
+
+class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
+    """The ungated-reason list is the DECISION INPUT for the deferred
+    ANOMALY_TOKENS reconciliation, so it must not be hand-maintained prose.
+
+    The 2026-07-26 first pass listed 5 of the 9 ungated reasons - it missed the
+    four cutover-hardening raises (clock-not-ready / retire-not-held /
+    anchor-resolve-fail / factory-parity), which reach EmitAnomaly through thin
+    MapRenderTrace wrappers rather than at the guard site. An incomplete
+    enumeration understates a fail-open, which is exactly the thing the list
+    exists to size, so it is now derived from the C# source here."""
+
+    def setUp(self):
+        self.assertTrue(os.path.isdir(PARSEK_SRC_DIR),
+                        "Source/Parsek must be present: this gate is a source scan, "
+                        "and skipping it would make the enumeration unmeasured again")
+        self.raised = _production_anomaly_raises()
+
+    def test_scanner_sees_the_known_raise_sites(self):
+        # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
+        # every set assertion below trivially true.
+        self.assertGreaterEqual(len(self.raised), 15)
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:753",
+                      self.raised.get("icon-teleport", []))
+        self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
+                      self.raised.get("ledger-vs-truth", []))
+        # The LedgerTrace `resource` argument is also hyphenated on two call sites;
+        # positional resolution must not mistake it for a reason.
+        self.assertNotIn("tech-node", self.raised)
+        self.assertNotIn("subject-science", self.raised)
+
+    def test_raised_set_partitions_exactly_into_gated_plus_documented_ungated(self):
+        gated_live = set(hlib.ANOMALY_TOKENS) - set(hlib.ANOMALY_TOKENS_DEAD)
+        documented_ungated = {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED}
+        self.assertEqual(set(), gated_live & documented_ungated)
+        self.assertEqual(
+            gated_live | documented_ungated, set(self.raised),
+            "a production EmitAnomaly reason is neither gated by ANOMALY_TOKENS nor "
+            "listed in ANOMALY_REASONS_RAISED_UNGATED (or a listed one no longer "
+            "exists) - re-derive the todo-doc table in the same change")
+
+    def test_the_ungated_count_is_nine_not_five(self):
+        self.assertEqual(9, len(hlib.ANOMALY_REASONS_RAISED_UNGATED))
+        for reason in ("clock-not-ready", "retire-not-held", "anchor-resolve-fail",
+                       "factory-parity"):
+            self.assertIn(reason, {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED},
+                          "the four wrapper-routed raises the first pass missed")
+            self.assertIn(reason, self.raised)
+
+    def test_dead_token_is_raised_by_nothing(self):
+        for dead in hlib.ANOMALY_TOKENS_DEAD:
+            self.assertIn(dead, hlib.ANOMALY_TOKENS)
+            self.assertNotIn(dead, self.raised,
+                             "%s is gated but raised by nothing - if a producer "
+                             "appeared, it is no longer dead" % (dead,))
+
+    def test_status_doc_reports_the_same_nine(self):
+        # autotest-status.md is declared the single status authority for this
+        # system, and its gate-0 list is what a reader acts on. It said FIVE for
+        # one commit; keep it tied to the source-derived tuple.
+        with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
+            body = fh.read()
+        for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
+            self.assertIn("`%s`" % (reason,), body,
+                          "gate 0 omits the ungated reason %s" % (reason,))
+        self.assertNotIn("five further reasons are ungated", body.lower())
+
+    def test_todo_doc_table_lists_every_raised_reason(self):
+        # The todo-doc table is the DECISION INPUT for the deferred reconciliation
+        # (the PR that defers it says so explicitly), so an incomplete table is the
+        # defect, not a cosmetic slip.
+        with open(TODO_DOC, encoding="utf-8") as fh:
+            body = fh.read()
+        start = body.index("## The harness anomaly token set has drifted")
+        entry = body[start:body.index("\n## ", start + 10)]
+        for reason in sorted(self.raised):
+            self.assertIn("| `%s` |" % (reason,), entry,
+                          "the ground-truth table omits %s" % (reason,))
+
+    def test_documented_producers_are_real_file_line_pairs(self):
+        # The guard site (where the decision is made) is what the table names; for
+        # the four wrapper-routed raises that is NOT the EmitAnomaly line, so this
+        # checks the cited file:line rather than reusing the scanner's output.
+        root = os.path.dirname(HARNESS_ROOT)
+        for reason, producer in hlib.ANOMALY_REASONS_RAISED_UNGATED:
+            rel, _, lineno = producer.rpartition(":")
+            path = os.path.join(root, rel.replace("/", os.sep))
+            self.assertTrue(os.path.isfile(path), producer)
+            with open(path, encoding="utf-8-sig") as fh:
+                lines = fh.read().split("\n")
+            window = "\n".join(lines[max(0, int(lineno) - 1):int(lineno) + 8])
+            self.assertRegex(
+                window, r"EmitAnomaly|Emit(ClockNotReady|RetireNotHeld|"
+                        r"AnchorResolveFail|FactoryParity)",
+                "%s (%s) does not name an anomaly raise" % (reason, producer))
+
+
+class AutotestStatusScenarioCountTests(unittest.TestCase):
+    """`autotest-status.md` is the declared single status authority for this
+    system, so a count in it that its own table contradicts is the exact class of
+    error the doc rules exist to prevent.
+
+    It happened twice in one day: the live-proven section grew by two and the
+    not-yet-live-run header was decremented to 13 while its table still had 14
+    rows, which also broke the stated 30-scenario total. This cell re-derives all
+    of it - per-section header counts, their sum, and the sum against the number
+    of committed spec files - so the next drift reds here instead of in review."""
+
+    HEADER_RE = re.compile(r"^### (?P<name>.+?)\((?P<count>\d+)\)")
+    TOTAL_RE = re.compile(r"^## Test cases \(all (?P<count>\d+) committed scenarios\)")
+    SEPARATOR_RE = re.compile(r"^\|[\s\-|]+\|$")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
+            cls.lines = fh.read().split("\n")
+
+    def _sections(self):
+        """{section header line: (declared count, counted table rows)}."""
+        out, current = {}, None
+        for line in self.lines:
+            header = self.HEADER_RE.match(line)
+            if line.startswith("## "):
+                # An H2 CLOSES the open H3 section. The doc carries non-scenario
+                # tables after the last counted section (`## Run telemetry`), and
+                # without this the EVA section swallowed all seven of its rows
+                # and read 11. Found by this cell on the 2026-07-26 merge, which
+                # is the first tree to hold both the counter and that section.
+                current = None
+                continue
+            if line.startswith("### "):
+                current = line if header else None
+                if header:
+                    out[line] = [int(header.group("count")), 0]
+                continue
+            if current is None or not line.startswith("| "):
+                continue
+            if line.startswith("| Test case") or self.SEPARATOR_RE.match(line):
+                continue
+            out[current][1] += 1
+        return out
+
+    def test_every_section_header_matches_its_table(self):
+        sections = self._sections()
+        self.assertGreaterEqual(len(sections), 3, "no counted sections parsed")
+        for header, (declared, counted) in sorted(sections.items()):
+            self.assertEqual(declared, counted,
+                             "%s declares %d but has %d table rows"
+                             % (header.strip(), declared, counted))
+
+    def test_the_sections_sum_to_the_stated_total(self):
+        total = None
+        for line in self.lines:
+            m = self.TOTAL_RE.match(line)
+            if m:
+                total = int(m.group("count"))
+                break
+        self.assertIsNotNone(total, "the 'Test cases (all N ...)' header is missing")
+        self.assertEqual(total, sum(c for _, c in self._sections().values()))
+
+    def test_the_stated_total_matches_the_committed_spec_files(self):
+        committed = [n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")]
+        total = next(int(self.TOTAL_RE.match(l).group("count"))
+                     for l in self.lines if self.TOTAL_RE.match(l))
+        self.assertEqual(len(committed), total,
+                         "the status doc's scenario total disagrees with "
+                         "harness/scenarios/")
+
+
 # ---------------------------------------------------------------------------
 # Admission reuse over provlib.
 # ---------------------------------------------------------------------------
@@ -4016,3 +4377,497 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
 # intents and adds the truncation double-count, watermark, idempotence,
 # tail-bound and percentile-recompute cases this class never had.
 
+
+class SettingsSidecarBaselineTests(unittest.TestCase):
+    """The tracer-leak fix (pure half).
+
+    THE REGRESSION. `SetSetting` on a sidecar-tracked setting persists
+    INSTANCE-WIDE (GameData/Parsek/PluginData/settings.cfg) and Parsek applies
+    that file OVER every loaded save, so S1.4's `mapRenderTracing=true` left the
+    per-frame map/TS render tracer pinned on for every subsequent run on the
+    automation instance - including multi-thousand-second flights that never
+    declared it, whose anomaly sweep then gated on a tracer they did not ask for.
+    Verified live: the instance's sidecar contained exactly
+    `mapRenderTracing = True`.
+    """
+
+    def test_baseline_body_pins_every_tracer_off(self):
+        body = hlib.render_settings_sidecar_baseline()
+        values = hlib.parse_settings_sidecar(body)
+        self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+        for key in hlib.TRACER_SETTING_KEYS:
+            self.assertEqual("False", values[key], key)
+
+    def test_baseline_body_is_its_own_fixed_point(self):
+        # Re-reading the file the harness wrote must report ZERO tracers on, so a
+        # second (teardown) write never logs a phantom "cleared leaked" line.
+        body = hlib.render_settings_sidecar_baseline()
+        self.assertEqual([], hlib.settings_sidecar_tracers_on(body))
+
+    def test_baseline_writes_no_key_the_mod_does_not_read(self):
+        # The five OTHER sidecar-tracked settings must stay UNSET so the fixture's
+        # own GameParameters keep governing them (a stored value would override
+        # every save on the instance, which is the bug being fixed).
+        values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
+        for key in ("writeReadableSidecarMirrors", "autoBackupExistingSaves",
+                    "showCommittedFutureOverlays", "blockCommittedActions",
+                    "showRouteLines"):
+            self.assertNotIn(key, values, key)
+
+    def test_leaked_tracer_is_detected_in_the_real_leaked_shape(self):
+        # The EXACT body observed on the live automation instance after S1.4.
+        self.assertEqual(["mapRenderTracing"],
+                         hlib.settings_sidecar_tracers_on("mapRenderTracing = True\n"))
+
+    def test_all_three_tracers_reported_in_declaration_order(self):
+        body = ("ledgerTracing = True\nmapRenderTracing = true\n"
+                "ghostRenderTracing = True\n")
+        self.assertEqual(["ghostRenderTracing", "mapRenderTracing", "ledgerTracing"],
+                         hlib.settings_sidecar_tracers_on(body))
+
+    def test_absent_or_false_or_garbage_is_not_on(self):
+        for body in (None, "", "mapRenderTracing = False\n",
+                     "mapRenderTracing = \n", "mapRenderTracing\n",
+                     "// mapRenderTracing = True\n", "mapRenderTracing = yes\n"):
+            self.assertEqual([], hlib.settings_sidecar_tracers_on(body), repr(body))
+
+    def test_parser_tolerates_config_flavoured_wrapper_lines(self):
+        # A hand-written file may carry the node-name wrapper even though
+        # ConfigNode.Save does not; the parser must still find the values.
+        body = "PARSEK_SETTINGS\n{\n\tmapRenderTracing = True\n}\n"
+        self.assertEqual(["mapRenderTracing"], hlib.settings_sidecar_tracers_on(body))
+
+    def test_relpath_matches_the_mod_side_location(self):
+        # ParsekSettingsPersistence.GetFilePath: GameData/Parsek/PluginData/settings.cfg
+        self.assertEqual(("GameData", "Parsek", "PluginData", "settings.cfg"),
+                         hlib.SETTINGS_SIDECAR_RELPATH)
+
+
+# The three gating lines TRANSCRIBED VERBATIM from the first S1.6 flight
+# (2026-07-26, run 2026-07-26_0950_S1.6-render-parity, verdict PASS). These are
+# not hand-rendered from the C# format strings any more - they are what KSP
+# actually wrote - so a format-string edit that breaks the contract is caught
+# here rather than on the next flight.
+MEASURED_PARITY_SAMPLER_LINE = (
+    "[Parsek][INFO][TestRunner] ParitySampler_CapturesHandComputedOrbitGeometry:"
+    " pid=2905038605 sma=800000 ecc=0.00 iconR=800000 orbitAtLiveR=800000"
+    " iconOnLineDelta=0m refDelta=0.0m")
+MEASURED_LOOP_SHIFT_LINE = (
+    "[Parsek][INFO][TestRunner]"
+    " SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift:"
+    " pid=2279670454 loopShift=1100.0 matchedDev=0m mismatchedDev=1049421m"
+    " tol=1927m")
+MEASURED_BATCH_LINE = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=25 passed=14 failed=0"
+    " skipped=11 category=GhostMap scene=FLIGHT")
+# The runner's own accounting for 9 of the 11 skips (the other 2 are documented
+# self-skips from the loop-icon warp cluster; see the spec header).
+MEASURED_SCENE_SKIP_LINE = (
+    "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=9"
+    " currentScene=FLIGHT byRequiredScene=TRACKSTATION:9")
+
+
+class RenderParityScenarioTests(unittest.TestCase):
+    """S1.6-render-parity's ANTI-VACUITY conjunct, pinned.
+
+    The whole point of that scenario is that a green anomaly sweep over ZERO
+    parity samples must NOT read as a pass: S1.4's archived result showed
+    `anomalySweep: {hits: [], status: PASS}` on a run where every probe frame
+    logged `ghosts=0 sampled=0`. These cells fail if the conjunct is weakened or
+    silently dropped, which is exactly how such a guard rots.
+    """
+
+    def setUp(self):
+        self.spec = load_spec("S1.6-render-parity.toml")
+        self.required = self.spec["expectations"]["logContracts"]["required"]
+        self.forbidden = self.spec["expectations"]["logContracts"]["forbidden"]
+
+    def test_spec_validates(self):
+        v = hlib.validate_spec(self.spec, load_registry())
+        self.assertTrue(v.ok, "S1.6 must validate; errors=%s" % (v.errors,))
+
+    def test_drives_exactly_one_runtests_batch(self):
+        # run.py's _driven_category returns the FIRST RunTests category, so a
+        # second batch would not be gated by batchComplete at all.
+        steps = self.spec["driver"]["steps"]
+        run_tests = [s for s in steps if s.get("cmd") == "RunTests"]
+        self.assertEqual(1, len(run_tests))
+        self.assertEqual("GhostMap", run_tests[0]["args"]["category"])
+        self.assertEqual("GhostMap", run._driven_category(self.spec))
+
+    def test_pins_the_map_render_tracer_on(self):
+        # Every MapRenderTrace emit the anomaly sweep greps for early-returns on
+        # MapRenderTrace.IsEnabled; without this SetSetting the sweep is inert.
+        tracer = [s for s in self.spec["driver"]["steps"]
+                  if s.get("cmd") == "SetSetting"
+                  and s.get("args", {}).get("name") == "mapRenderTracing"]
+        self.assertEqual(1, len(tracer))
+        self.assertEqual("true", tracer[0]["args"]["value"])
+
+    def test_anti_vacuity_pins_the_measured_tally(self):
+        # An InGameAssert.Skip is not a failure, so an all-skip batch reads
+        # failed=0. This conjunct was a structural `passed=[1-9][0-9]*` until the
+        # first flight (2026-07-26) measured the real split; it now pins that line
+        # verbatim, so it also reds when the pass/skip split drifts silently.
+        pat = next((p for p in self.required if "passed=" in p), None)
+        self.assertIsNotNone(pat, "the structural anti-vacuity conjunct is gone")
+        self.assertIsNotNone(re.search(pat, MEASURED_BATCH_LINE),
+                             "the pinned tally must match the flown line")
+        for bad, why in (
+                ("BATCH_COMPLETE v1 total=25 passed=0 failed=0 skipped=25 "
+                 "category=GhostMap scene=FLIGHT", "an all-skip batch"),
+                ("BATCH_COMPLETE v1 total=25 passed=13 failed=0 skipped=12 "
+                 "category=GhostMap scene=FLIGHT", "a test that flipped to Skip"),
+                ("BATCH_COMPLETE v1 total=26 passed=15 failed=0 skipped=11 "
+                 "category=GhostMap scene=FLIGHT", "a newly added GhostMap test"),
+                ("BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 "
+                 "category=GhostMap scene=TRACKSTATION", "a FLIGHT/TS host change")):
+            self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
+
+    def test_anti_vacuity_requires_the_two_measurement_lines(self):
+        # These are emitted by RenderParitySamplerFixtureTest ONLY after every Skip
+        # precondition passed and a real diff ran on live ghost geometry. The
+        # second is unreachable unless the phase-MISMATCHED negative control also
+        # flagged drift, so it is the anti-tautology proof, not a "we ran" marker.
+        joined = "\n".join(self.required)
+        self.assertIn("ParitySampler_CapturesHandComputedOrbitGeometry", joined)
+        self.assertIn("SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift", joined)
+
+    def test_required_patterns_match_the_flown_log(self):
+        # The FLOWN lines, verbatim (see the module constants above) - not lines
+        # hand-rendered from the C# format strings. Every required pattern must
+        # match this log and no forbidden pattern may.
+        log = "\n".join((MEASURED_PARITY_SAMPLER_LINE, MEASURED_LOOP_SHIFT_LINE,
+                         MEASURED_SCENE_SKIP_LINE, MEASURED_BATCH_LINE)) + "\n"
+        for pat in self.required:
+            self.assertIsNotNone(re.search(pat, log),
+                                 "required pattern never matches the flown line: %s" % pat)
+        for pat in self.forbidden:
+            self.assertIsNone(re.search(pat, log),
+                              "forbidden pattern matches a CLEAN log: %s" % pat)
+
+    def test_the_negative_control_arm_is_what_makes_the_second_line_load_bearing(self):
+        # SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift emits only if
+        # BOTH arms measured: the phase-matched one within tolerance AND the raw
+        # epoch control OVER it. The flown line shows matchedDev=0m against
+        # mismatchedDev=1049421m at tol=1927m, so the mismatched arm is ~545x the
+        # tolerance - the comparison provably can still fail, which is what stops
+        # the zero-drift assertion being a circle compared with itself.
+        pat = next(p for p in self.required if "LoopShiftedGhost" in p)
+        self.assertIsNotNone(re.search(pat, MEASURED_LOOP_SHIFT_LINE))
+        # A line whose control ALSO read zero must not satisfy the contract's
+        # intent; pin the flown numbers so a future re-pin cannot quietly drop it.
+        self.assertIn("mismatchedDev=1049421m", MEASURED_LOOP_SHIFT_LINE)
+        self.assertIn("tol=1927m", MEASURED_LOOP_SHIFT_LINE)
+
+    def test_the_skipped_count_is_fully_accounted_for(self):
+        # 11 skips = 9 scene-eligibility (TRACKSTATION tests filtered out of a
+        # FLIGHT batch) + 2 documented loop-icon self-skips. If a future flight
+        # moves `skipped`, the pinned tally reds and this accounting is the thing
+        # that has to be re-derived alongside it.
+        self.assertIn("skipped=11", MEASURED_BATCH_LINE)
+        self.assertIn("skipped=9", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("byRequiredScene=TRACKSTATION:9", MEASURED_SCENE_SKIP_LINE)
+        header = open(os.path.join(SCENARIOS_DIR, "S1.6-render-parity.toml"),
+                      encoding="utf-8").read()
+        for name in ("StateVectorReseed_CalculatePhysicsStatsResnapsIconOntoConic",
+                     "FreshLoopGhostIcon_OnRecordedPhaseAtCreation"):
+            self.assertIn(name, header,
+                          "the spec header must NAME the non-scene skip %s" % (name,))
+
+    def test_forbidden_over_tolerance_catches_a_rate_limited_drift(self):
+        # MapRenderProbe increments faithfulParityOverCount BEFORE the per-pid rate
+        # limit, so a throttled drift still shows here while the anomaly sweep sees
+        # no parity-drift token at all.
+        drifted = ("[Parsek][VERBOSE][MapRenderTrace] faithful-parity summary"
+                   " sampled=3 overTolerance=1 skip.no-covering-segment=2\n")
+        clean = ("[Parsek][VERBOSE][MapRenderTrace] faithful-parity summary"
+                 " sampled=3 overTolerance=0 skip.no-covering-segment=2\n")
+        pat = next(p for p in self.forbidden if "overTolerance" in p)
+        self.assertIsNotNone(re.search(pat, drifted))
+        self.assertIsNone(re.search(pat, clean))
+
+    def test_tolerates_no_anomaly_and_reuses_the_s14_fixture_verbatim(self):
+        self.assertEqual([], self.spec["expectations"]["allowedAnomalies"])
+        s14 = load_spec("S1.4-injected-playback.toml")
+        self.assertEqual(s14["fixture"]["saveTemplate"],
+                         self.spec["fixture"]["saveTemplate"])
+        self.assertEqual(s14["fixture"]["injectedRecordings"],
+                         self.spec["fixture"]["injectedRecordings"])
+        self.assertEqual(s14["expectations"]["recordings"]["count"],
+                         self.spec["expectations"]["recordings"]["count"])
+
+    def test_allowed_anomalies_is_declared_where_run_py_reads_it(self):
+        # The MISPLACED-KEY trap every other committed spec fell into until
+        # 2026-07-26: a bare `allowedAnomalies` after the
+        # [expectations.logContracts] header is TOML-scoped to that sub-table, and
+        # run.py reads expectations.allowedAnomalies - so the declaration is
+        # silently ignored. validate_spec now rejects it outright.
+        exp = self.spec["expectations"]
+        self.assertIn("allowedAnomalies", exp,
+                      "allowedAnomalies must sit in [expectations] to bind")
+        self.assertNotIn("allowedAnomalies", exp.get("logContracts", {}),
+                         "allowedAnomalies leaked into [expectations.logContracts]")
+        v = hlib.validate_spec(self.spec, load_registry())
+        self.assertFalse([m for m in v.errors + v.warnings if "allowedAnomalies" in m],
+                         "S1.6 must not trip the misplaced-key guard: %s"
+                         % (v.errors + v.warnings,))
+
+
+# The gating lines TRANSCRIBED VERBATIM from S1.7's archived first-flight log
+# (2026-07-26, run 2026-07-26_1015; run 2026-07-26_1021 on the fixed anomaly sweep
+# is the green flight and its expectations verifier matched every pattern below).
+S17_MEASURED_KERBIN_LINE = (
+    "[Parsek][INFO][TestRunner] MultiBodyConcurrent Kerbin: pid=2361972787"
+    " body=Kerbin sampled=True skip=(none) hasMeas=True maxDev=0.0m tol=1989.4m"
+    " over=False")
+S17_MEASURED_MUN_LINE = (
+    "[Parsek][INFO][TestRunner] MultiBodyConcurrent Mun: pid=1693297703"
+    " body=Mun sampled=True skip=(none) hasMeas=True maxDev=0.0m tol=955.8m"
+    " over=False")
+S17_MEASURED_REAIM_LINE = (
+    "[Parsek][INFO][TestRunner] ReaimedLoop_SynthOracle: pid=3494681962"
+    " recordedLAN=0 reaimedLAN=70 | synthDev=0m synthTol=2726m (ZERO) |"
+    " faithfulDev=1319093m faithfulTol=2701m (FLAGGED)")
+S17_MEASURED_BATCH_LINE = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
+    " skipped=1 category=MapRender scene=FLIGHT")
+# The runner's accounting for the single skip.
+S17_MEASURED_BATCH_SKIP_LINE = (
+    "[Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)")
+
+
+class MapRenderParityScenarioTests(unittest.TestCase):
+    """S1.7-maprender-parity: the same anti-vacuity discipline as S1.6 over the
+    STRONGER category, with the sink trap accounted for.
+
+    The obvious anti-vacuity candidate - the three-oracle flag-on baselines - is
+    UNUSABLE: `ParsekLog.Write` returns right after calling `TestSinkForTesting`
+    instead of teeing, and `FlagOnParityBaselineInGameTest` emits its
+    `FlagOnBaseline_AllThreeModes` line inside the try whose finally restores the
+    sink, so it never reaches KSP.log. These cells pin the arms that DO survive.
+    """
+
+    def setUp(self):
+        self.spec = load_spec("S1.7-maprender-parity.toml")
+        self.required = self.spec["expectations"]["logContracts"]["required"]
+        self.forbidden = self.spec["expectations"]["logContracts"]["forbidden"]
+
+    def test_spec_validates(self):
+        v = hlib.validate_spec(self.spec, load_registry())
+        self.assertTrue(v.ok, "S1.7 must validate; errors=%s" % (v.errors,))
+        self.assertEqual([], list(v.warnings), "S1.7 must validate warning-free")
+
+    def test_drives_exactly_one_maprender_batch(self):
+        steps = self.spec["driver"]["steps"]
+        run_tests = [s for s in steps if s.get("cmd") == "RunTests"]
+        self.assertEqual(1, len(run_tests))
+        self.assertEqual("MapRender", run_tests[0]["args"]["category"])
+        self.assertEqual("MapRender", run._driven_category(self.spec))
+
+    def test_pins_the_map_render_tracer_on(self):
+        tracer = [s for s in self.spec["driver"]["steps"]
+                  if s.get("cmd") == "SetSetting"
+                  and s.get("args", {}).get("name") == "mapRenderTracing"]
+        self.assertEqual(1, len(tracer))
+        self.assertEqual("true", tracer[0]["args"]["value"])
+
+    def test_required_patterns_match_the_flown_log(self):
+        log = "\n".join((S17_MEASURED_KERBIN_LINE, S17_MEASURED_MUN_LINE,
+                         S17_MEASURED_REAIM_LINE, S17_MEASURED_BATCH_SKIP_LINE,
+                         S17_MEASURED_BATCH_LINE)) + "\n"
+        for pat in self.required:
+            self.assertIsNotNone(re.search(pat, log),
+                                 "required pattern never matches the flown line: %s" % pat)
+        for pat in self.forbidden:
+            self.assertIsNone(re.search(pat, log),
+                              "forbidden pattern matches a CLEAN log: %s" % pat)
+
+    def test_the_pinned_tally_reds_on_any_drift(self):
+        pat = next(p for p in self.required if "passed=" in p)
+        self.assertIsNotNone(re.search(pat, S17_MEASURED_BATCH_LINE))
+        for bad, why in (
+                ("BATCH_COMPLETE v1 total=22 passed=0 failed=0 skipped=22 "
+                 "category=MapRender scene=FLIGHT", "an all-skip batch"),
+                ("BATCH_COMPLETE v1 total=22 passed=20 failed=0 skipped=2 "
+                 "category=MapRender scene=FLIGHT", "a test that flipped to Skip"),
+                ("BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 "
+                 "category=MapRender scene=FLIGHT", "a newly added MapRender test"),
+                ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "
+                 "category=MapRender scene=TRACKSTATION", "a FLIGHT/TS host change")):
+            self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
+
+    def test_both_multibody_arms_are_pinned_and_a_skip_cannot_satisfy_them(self):
+        # sampled=True / skip=(none) / hasMeas=True / over=False are all pinned, so
+        # neither a precondition skip, a blind lens nor drift can satisfy the
+        # contract. The MUN arm is the cross-body-leak proof: parity resolves in
+        # each ghost's OWN body frame and ComputeFaithfulOrbitParity skips with
+        # body-mismatch when the rendered body differs, so a leak reads
+        # sampled=False.
+        for body in ("Kerbin", "Mun"):
+            pat = next((p for p in self.required
+                        if "MultiBodyConcurrent " + body in p), None)
+            self.assertIsNotNone(pat, "the %s multi-body arm is not pinned" % (body,))
+            good = (S17_MEASURED_KERBIN_LINE if body == "Kerbin"
+                    else S17_MEASURED_MUN_LINE)
+            self.assertIsNotNone(re.search(pat, good))
+            for repl, why in ((("sampled=True", "sampled=False"), "a skipped sample"),
+                              (("hasMeas=True", "hasMeas=False"), "a blind lens"),
+                              (("over=False", "over=True"), "measured drift")):
+                self.assertIsNone(re.search(pat, good.replace(*repl)),
+                                  "%s must NOT satisfy the %s arm" % (why, body))
+
+    def test_the_two_multibody_arms_resolved_in_different_body_frames(self):
+        # Distinct pids and distinct scale-derived tolerances are themselves the
+        # evidence that two separate ghosts resolved against two separate bodies.
+        self.assertIn("pid=2361972787", S17_MEASURED_KERBIN_LINE)
+        self.assertIn("pid=1693297703", S17_MEASURED_MUN_LINE)
+        self.assertIn("tol=1989.4m", S17_MEASURED_KERBIN_LINE)
+        self.assertIn("tol=955.8m", S17_MEASURED_MUN_LINE)
+
+    def test_the_reaim_arm_carries_the_load_bearing_negative_control(self):
+        # ReaimedLoop_SynthOracle emits only AFTER the FAITHFUL block asserted
+        # OverTolerance TRUE on the same rendered conic the SYNTHESIZED lens read as
+        # zero, so the line is unreachable unless the two lenses genuinely disagree.
+        # 1319093 m against a 2701 m tolerance is ~488x over.
+        pat = next(p for p in self.required if "ReaimedLoop_SynthOracle" in p)
+        self.assertIsNotNone(re.search(pat, S17_MEASURED_REAIM_LINE))
+        self.assertIn("(ZERO)", S17_MEASURED_REAIM_LINE)
+        self.assertIn("(FLAGGED)", S17_MEASURED_REAIM_LINE)
+        self.assertIn("faithfulDev=1319093m", S17_MEASURED_REAIM_LINE)
+        self.assertIn("faithfulTol=2701m", S17_MEASURED_REAIM_LINE)
+
+    def test_the_sink_trap_is_documented_and_the_sinking_arms_are_not_pinned(self):
+        # A future author's first instinct is the three-oracle flag-on baseline.
+        # The header must say why it cannot be used, and the contract must not
+        # reference it (requiring it would red every flight).
+        header = open(os.path.join(SCENARIOS_DIR, "S1.7-maprender-parity.toml"),
+                      encoding="utf-8").read()
+        self.assertIn("TestSinkForTesting", header)
+        self.assertIn("FlagOnParityBaselineInGameTest", header)
+        for pat in self.required + self.forbidden:
+            self.assertNotIn("FlagOnBaseline", pat,
+                             "a sink-diverted line can never satisfy a contract")
+
+    def test_reuses_the_s16_fixture_verbatim(self):
+        s16 = load_spec("S1.6-render-parity.toml")
+        for key in ("saveTemplate", "injectedRecordings"):
+            self.assertEqual(s16["fixture"][key], self.spec["fixture"][key])
+        self.assertEqual(s16["expectations"]["recordings"]["count"],
+                         self.spec["expectations"]["recordings"]["count"])
+        self.assertEqual([], self.spec["expectations"]["allowedAnomalies"])
+
+    def test_claims_no_new_registry_value(self):
+        # S1.7's value is DEPTH on an axis S1.6 already opened, not breadth.
+        # Inventing a token so the coverage ledger grows would be the same vacuity
+        # this scenario family exists to prevent.
+        s16 = load_spec("S1.6-render-parity.toml")
+        s16_vals = {(d, v) for d, vs in s16["dimensionsCovered"].items() for v in vs}
+        s17_vals = {(d, v) for d, vs in self.spec["dimensionsCovered"].items() for v in vs}
+        self.assertEqual(set(), s17_vals - s16_vals,
+                         "S1.7 must not claim a dimension value S1.6 does not")
+
+
+class MisplacedAllowedAnomaliesRejectionTests(unittest.TestCase):
+    """Found 2026-07-26 while wiring S1.6: EVERY committed spec wrote
+    `allowedAnomalies` after the `[expectations.logContracts]` header, which TOML
+    scopes to `expectations.logContracts.allowedAnomalies` - a key run.py never
+    reads (it reads `expectations.allowedAnomalies`). Inert for the 27 specs
+    declaring `[]`, but it had made S1.4's declared polyline-orbit-overlap
+    exception silently INERT since its first commit.
+
+    It shipped as a WARN for one commit only, because rejecting would have
+    invalidated the whole committed set. All 28 were relocated in the change that
+    promoted this to an ERROR, so the gate is now hard: nothing FAILS on a
+    warning, and the failure mode this guards against is precisely a spec author
+    believing a declared tolerance applies when it does not."""
+
+    def _spec_with(self, block):
+        spec = load_spec("S1.6-render-parity.toml")
+        spec["expectations"] = block
+        return spec
+
+    def test_misplaced_empty_list_is_rejected(self):
+        # Even the inert `[]` form is rejected: it is the template a future author
+        # copies, and the sub-table it lands in depends on the preceding header.
+        spec = self._spec_with({"logContracts": {
+            "required": ["BATCH_COMPLETE v1 .* failed=0"], "allowedAnomalies": []}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok, "a misplaced key must REJECT, not merely warn")
+        hit = [e for e in v.errors if "allowedAnomalies" in e]
+        self.assertEqual(1, len(hit))
+        self.assertIn("[expectations.logContracts]", hit[0])
+
+    def test_the_error_names_the_exact_required_placement(self):
+        # This error is what every in-flight sibling PR that ADDS a spec will hit
+        # the moment this lands (they all write the key under
+        # [expectations.logContracts]), so the message has to carry the fix, not
+        # just the diagnosis: the literal table, the literal key line, and the
+        # ordering requirement relative to the sub-tables.
+        spec = self._spec_with({"logContracts": {
+            "required": ["BATCH_COMPLETE v1 .* failed=0"], "allowedAnomalies": []}})
+        msg = [e for e in hlib.validate_spec(spec, load_registry()).errors
+               if "allowedAnomalies" in e][0]
+        self.assertIn("[expectations]", msg)
+        self.assertIn("allowedAnomalies = []", msg)
+        self.assertIn("BEFORE", msg)
+
+    def test_misplaced_nonempty_list_names_the_inert_exceptions(self):
+        spec = self._spec_with({"logContracts": {
+            "required": ["BATCH_COMPLETE v1 .* failed=0"],
+            "allowedAnomalies": ["polyline-orbit-overlap"]}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        hit = [e for e in v.errors if "allowedAnomalies" in e]
+        self.assertEqual(1, len(hit))
+        self.assertIn("polyline-orbit-overlap", hit[0])
+        self.assertIn("INERT", hit[0])
+
+    def test_any_expectations_subtable_is_checked_not_just_log_contracts(self):
+        # The key binds to whichever sub-table header precedes it, so the trap
+        # re-arms as specs grow new [expectations.<sub>] blocks. Checking only
+        # logContracts would let the next one through.
+        spec = self._spec_with({
+            "recordings": {"count": {"min": 0, "max": 0}, "allowedAnomalies": []},
+            "logContracts": {"required": ["BATCH_COMPLETE v1 .* failed=0"]}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.recordings.allowedAnomalies" in e
+                            for e in v.errors), v.errors)
+
+    def test_correct_placement_is_silent(self):
+        spec = self._spec_with({
+            "allowedAnomalies": ["polyline-orbit-overlap"],
+            "logContracts": {"required": ["BATCH_COMPLETE v1 .* failed=0"]}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertEqual([], [m for m in v.errors + v.warnings
+                              if "allowedAnomalies" in m])
+
+    def test_no_committed_spec_still_carries_the_misplaced_key(self):
+        # The relocation is complete, and every committed spec declares the key
+        # where run.py reads it. A spec that regresses fails validate_spec now,
+        # but this cell names the offender instead of just reddening a run.
+        tripped, undeclared = [], []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            exp = load_spec(name).get("expectations", {}) or {}
+            for sub_name, sub in exp.items():
+                if isinstance(sub, dict) and "allowedAnomalies" in sub:
+                    tripped.append("%s -> expectations.%s" % (name, sub_name))
+            if "allowedAnomalies" not in exp:
+                undeclared.append(name)
+        self.assertEqual([], tripped, "misplaced allowedAnomalies still committed")
+        self.assertEqual([], undeclared,
+                         "every spec declares allowedAnomalies where it binds")
+
+    def test_s14_kept_the_gate_strength_it_actually_flew_with(self):
+        # S1.4's polyline-orbit-overlap exception was never in force, so its green
+        # runs prove the overlap did not OCCUR, not that it was tolerated.
+        # Relocating it as-declared would have widened the gate on zero evidence;
+        # it is relocated as [] instead, and the history is recorded in the spec.
+        s14 = load_spec("S1.4-injected-playback.toml")
+        self.assertEqual([], s14["expectations"]["allowedAnomalies"])
+        body = open(os.path.join(SCENARIOS_DIR, "S1.4-injected-playback.toml"),
+                    encoding="utf-8").read()
+        self.assertIn("polyline-orbit-overlap", body,
+                      "the dead exception must stay documented, not vanish")
+        self.assertIn("NEVER", body)

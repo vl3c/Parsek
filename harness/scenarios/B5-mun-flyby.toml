@@ -136,6 +136,14 @@ D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "mun", "warp-rails"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # Main ascent recording + up to 6 dropped Kerbal X boosters recorded as
 # parent-anchored debris children + 1 LES-tower margin (same WATCH-4 rationale
@@ -148,8 +156,6 @@ count = { min = 1, max = 9 }
 [expectations.logContracts]
 required  = ["Recording started", "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 budgetSeconds = 2900

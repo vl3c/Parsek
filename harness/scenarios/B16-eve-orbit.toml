@@ -482,6 +482,16 @@ D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "eve", "soi-count", "warp-rails", "warp-high"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. This spec shipped it that way (under
+# [expectations.logContracts]) - harmless in isolation, because an absent key
+# already means "none allowed", but INVALID once the render-parity change
+# promotes the misplaced form to a spec error. Relocated here when the two
+# branches merged (2026-07-26); B13/B14 pre-applied the same move to themselves.
+allowedAnomalies = []
+
 [expectations.recordings]
 # PROVISIONAL WINDOW, not a pin - identical reasoning to B15, and for the same
 # reason: this lane has never flown.
@@ -554,8 +564,6 @@ required = [
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Eve",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 budgetSeconds = 4700

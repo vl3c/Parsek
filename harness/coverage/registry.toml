@@ -74,7 +74,8 @@ values = ["single-node", "undock-split", "staging-debris-ttl", "staging-debris-p
 values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry-soft-caps",
           "zone-transitions", "watch-mode-retarget-explosion-hold", "spawn-at-end-pid-dedup",
           "ghost-map-presence", "non-orbital-polyline", "reentry-fx", "attitude-preservation",
-          "soi-crossing-playback", "time-jump", "commnet-relay", "ghost-audio"]
+          "soi-crossing-playback", "time-jump", "commnet-relay", "ghost-audio",
+          "recorded-vs-rendered-parity"]
 
 [D7]  # part events
 values = ["decouple-stage-destroy", "engine-fx-legacy", "engine-fx-effects",

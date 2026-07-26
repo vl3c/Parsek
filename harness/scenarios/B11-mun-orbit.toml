@@ -343,6 +343,16 @@ D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "mun", "warp-rails"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. This spec shipped it that way (under
+# [expectations.logContracts]) - harmless in isolation, because an absent key
+# already means "none allowed", but INVALID once the render-parity change
+# promotes the misplaced form to a spec error. Relocated here when the two
+# branches merged (2026-07-26); B13/B14 pre-applied the same move to themselves.
+allowedAnomalies = []
+
 [expectations.recordings]
 # PINNED EXACTLY at 8 from a MEASURED green run (2026-07-25): flight 4
 # (wall 1,271 s, results/2026-07-25_0400_B11-mun-orbit.json) reported
@@ -468,8 +478,6 @@ required = [
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Destroyed terminalOrbitBody=\\(null\\)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 budgetSeconds = 3500

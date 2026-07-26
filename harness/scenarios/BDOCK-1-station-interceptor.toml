@@ -194,6 +194,14 @@ D8  = ["route"]
 D10 = ["candidate-detection", "ksc-origin", "dock-producer", "delivery", "pickup", "mixed-direction", "resource-cargo"]
 D14 = ["kerbin", "warp-rails", "scene-flight", "sandbox"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # Two trees (Station TB + Interceptor TA), each ascent drops launch clamps / boosters
 # / nose cones as parent-anchored debris children, and TA additionally gains the merged
@@ -219,8 +227,6 @@ required = [
   "Route window delta:",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 budgetSeconds = 6900

@@ -1,9 +1,41 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-26 (VACUOUS-BATCH class found and closed; the first two D11
-scenarios; four of the seven RunTests tallies now MEASURED off live flights and
-the other three honestly labelled; and one real Parsek defect caught by the new
-M1 scenario's very first flight.
+Last updated: 2026-07-26 (PLAYBACK is now gated, twice. S1.6-render-parity
+LIVE-PROVEN on its first flight and S1.7-maprender-parity built and LIVE-PROVEN
+the same day: the production recorded-vs-rendered parity oracle had existed and
+been wired for months with 47 in-game tests asserting through it, and no
+scenario had ever driven either category. Both pin their batch tally WHOLE and
+both carry a load-bearing negative control - a deliberately wrong reference that
+must FLAG on the same draw the correct reference reads as zero - measured at
+~545x tolerance on S1.6 and ~488x on S1.7, so neither zero-drift assertion can
+be a circle compared with itself. S1.7's first flight also exposed a harness
+FALSE POSITIVE: the Tier-C anomaly sweep was a bare substring search over
+KSP.log, so a PhaseSpineSwap test line whose LABEL is `parity-drift` and whose
+body reads `over=False` reddened a run containing ZERO `phase=Anomaly` raises.
+The sweep is now anchored on the tracers' real raise shape, and the same
+investigation found the reverse defect, left UNRESOLVED and now REPORTED per-run:
+the harness token set has drifted from what the mod emits - `icon-jump` is dead
+(the probe raises `reason=icon-teleport`) and NINE further reasons are ungated.
+That enumeration is now derived from the C# source by a harness test rather than
+hand-listed, after the first pass counted five and missed the four raises that
+reach EmitAnomaly through MapRenderTrace's cutover-hardening wrappers.
+Also FIXED: `allowedAnomalies` was misplaced under `[expectations.logContracts]`
+in all 28 pre-existing specs, so S1.4's declared exception had never been in
+force; validate_spec now REJECTS the misplaced form and every spec declares the
+key where run.py reads it, S1.4 keeping the gate strength it actually flew with.
+The first 2026-07-26 merge of main brought four more specs written against the
+old shape (B11 / B12 / B15 / B16; B13 and B14 had pre-moved their own key in
+anticipation of exactly this collision) and they were relocated in that merge
+commit. The second merge the same day (batch-coverage + tally-gate) needed no
+relocation: main still carries the misplaced form in 32 of its own 36 specs
+because it has never received this branch, the auto-merge kept the relocated
+side on every one of them, and M1 / M2 were authored with the key already in
+`[expectations]`. All 38 committed specs declare it where it binds; the scan
+that proves it is `test_no_committed_spec_still_carries_the_misplaced_key`.
+Prior: 2026-07-26 (batch coverage) - VACUOUS-BATCH class found and closed; the
+first two D11 scenarios; four of the seven RunTests tallies now MEASURED off
+live flights and the other three honestly labelled; and one real Parsek defect
+caught by the new M1 scenario's very first flight.
 
 B10-career-passive-safety - shipped, daily tier - was proved live to read GREEN
 while executing ZERO tests: its RecordingInvariants batch ran at SPACECENTER,
@@ -234,7 +266,7 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Twenty-three test cases are live-proven green end-to-end (the 19
+expectations). Twenty-five test cases are live-proven green end-to-end (the 21
 rows in the Live-proven table below plus the four EVA cases in their own
 section), including Mun/Minmus/Duna flybys with a certified no-1x-coast warp
 profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair and the Eve
@@ -244,7 +276,8 @@ the difference. See its row below and gate 7. Its PASS in the 2026-07-25 full
 sweep does NOT re-prove it - that sweep predates the merge of the canopy-gated
 terminal, so it ran the old contract. B10 and L1-passive-sandbox were re-proven
 on 2026-07-26 in a corrected batch category, after their earlier greens were
-shown to have executed zero tests; M1 and M2 are new and flew the same day.) All
+shown to have executed zero tests; M1 and M2 are new and flew the same day, and
+S1.6 and S1.7 are the two render-parity cases this branch flew.) All
 infrastructure modules are shipped and merged. The FIRST two-vessel lane
 (B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
 IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
@@ -252,23 +285,25 @@ first flight. The Mun/Minmus ORBIT lane (B11/B12: capture burn, park, and a
 commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
 2026-07-25, as is the Mun/Minmus LANDING lane (B13/B14: a recording that ENDS on
 foreign soil and is COMMITTED there); B15-eve-flyby is green and B16-eve-orbit
-is committed but not yet flown. Coverage stands at 82 of 240 registry cells
-claimed by at least one scenario. The 82 is RECOMPUTED from
-`hlib.compute_coverage` over the 36 committed specs + the registry at this
+is committed but not yet flown. PLAYBACK is no longer a blind spot either:
+S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 83 of
+241 registry cells claimed by at least one scenario. The 83 is RECOMPUTED from
+`hlib.compute_coverage` over the 38 committed specs + the registry at this
 merge, not carried forward from either side: the "52" this sentence used to
 print had drifted across many spec additions (it predates the EVA, B-DOCK,
 ORBIT, LANDING and EVE lanes), the "70 of 239" the ORBIT lane measured on
 2026-07-25 was already stale by the time the landing and Eve lanes merged (that
-tree alone recomputes to 74 of 240), and the "77 of 238" this branch carried
-predated the orbit/landing registry cells. The claimed-vs-GREEN split is a
-DIFFERENT number and is deliberately not restated here: it needs the run
-archive, and `harness/results/*.json` plus `harness/coverage/coverage.{json,txt}`
-are generated + gitignored, so re-derive it from a full results set rather than
-trusting a number in prose. The last measured split was 2026-07-25's 58 green
-and 12 claimed-but-never-green over that day's 70, and the never-green 12 were
-every cell claimed only by the two un-flown rewind scenarios plus EVA-4's
-`chute-two-phase`. Breadth (EVA, orbit, landing, docking, career-ledger lanes)
-is the frontier.
+tree alone recomputes to 74 of 240), the "77 of 238" the batch-coverage lane
+carried predated the orbit/landing registry cells, and the two sides of THIS
+merge printed 75 of 241 and 82 of 240 - each right only for its own tree. The
+claimed-vs-GREEN split is a DIFFERENT number and is deliberately not restated
+here: it needs the run archive, and `harness/results/*.json` plus
+`harness/coverage/coverage.{json,txt}` are generated + gitignored, so re-derive
+it from a full results set rather than trusting a number in prose. The last
+measured split was 2026-07-25's 58 green and 12 claimed-but-never-green over
+that day's 70, and the never-green 12 were every cell claimed only by the two
+un-flown rewind scenarios plus EVA-4's `chute-two-phase`. Breadth (EVA, orbit,
+landing, docking, career-ledger lanes) is the frontier.
 
 ## Infrastructure modules (all SHIPPED and merged)
 
@@ -277,7 +312,7 @@ is the frontier.
 | M-A1 offline analyzer | Recording invariants (INV1-INV9) over any save, RED gate, per-save findings baseline | SHIPPED (#1300/#1302/#1306); AnalyzerVersion 3; core in Parsek.dll so in-game H5 runs the same rules |
 | M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions, EVA) | SHIPPED (#1301); 18 implemented verbs, 11 reserved (M-C1 + M-C2 grew the table) |
 | M-A3 autorun hooks | Unattended in-game test batches (PARSEK_AUTORUN_*) | SHIPPED (#1305) |
-| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316); UNMET-mission tail skip added 2026-07-25 (per-verb `SEAM_VERB_TAIL_ROLE`: after an unmet mission only `cleanup` verbs are driven, so an EVA-4-class world-mutating tail can no longer fire over a flight that never reached its envelope) |
+| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316); UNMET-mission tail skip added 2026-07-25 (per-verb `SEAM_VERB_TAIL_ROLE`: after an unmet mission only `cleanup` verbs are driven, so an EVA-4-class world-mutating tail can no longer fire over a flight that never reached its envelope). Settings-sidecar baseline added 2026-07-26: `SetSetting` on a sidecar-tracked setting persists INSTANCE-WIDE and Parsek applies it over every loaded save, so S1.4's `mapRenderTracing=true` had pinned the per-frame render tracer on for every later run; run.py now writes a deterministic tracers-OFF baseline at stage AND at teardown, making tracer state a declared per-scenario property (a scenario that wants it adds its own SetSetting step). Anomaly sweep ANCHORED 2026-07-26: `grep_anomaly_tokens` was a bare substring search for each Tier-C token over the whole KSP.log, so any line that merely NAMED a token was a hit - S1.7's first flight reddened PARSEK-FAIL(anomaly) on a test diagnostic reporting `over=False` in a log with ZERO `phase=Anomaly` lines. The matcher moved into hlib and now requires the tracers' actual raise shape (`phase=Anomaly ... reason=<token>`, the one shape both `MapRenderTrace.EmitAnomaly` and `LedgerTrace.FormatAnomaly` produce). Same change adds a REPORT-ONLY `unlistedReasons` channel for the ANOMALY_TOKENS drift (see gates). `allowedAnomalies` misplacement promoted from WARN to ERROR the same day, checked over every `[expectations.<sub>]` table, with all 28 pre-existing specs relocated |
 | M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
 | M-B1 mission library | Pure mission state machines + kRPC runner (flights become deterministic, diagnosable instruments) | SHIPPED (#1313); hardened by the flyby campaign |
 | M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
@@ -286,12 +321,12 @@ is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 36 committed scenarios)
+## Test cases (all 38 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (19)
+### Live-proven (21)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
@@ -314,6 +349,8 @@ The "Parsek surface verified" column is the reason the case exists.
 | B15-eve-flyby | nightly | SECOND interplanetary destination, and the first INWARD transfer: multi-SOI recording Kerbin->Sun->Eve->Sun on the SAME machine and the SAME five params B7 flies. STATED SKEPTICALLY, as the spec does - this largely RE-EXERCISES B7's cross-SOI surface at a different body (a D14 MULTIPLIER, not a new mechanism); what it adds is a stable interplanetary regression subject, since B7 itself is FLAKY (Ike grabs its 300 km approach on roughly half of sweeps), plus the cheap prerequisite for B16. THE THING IT DELIBERATELY DOES NOT CLAIM: Eve's 90 km atmosphere - the one genuinely new Parsek surface Eve could reach - is not touched (the pass is aimed at 1,000 km), would not record if it were (the recorders early-return on `isOnRails` / `packed`), and is NOT ASSERTABLE TODAY at all because no emitted log line pairs an environment class with a body name; a follow-up aerobraking variant needs `body=` added to the `TrackSection started:` format string first, mirroring the B13 `terminalOrbitBody` fix | D1 auto-record-launch; D3 orbital-checkpoint; D4 atmospheric (the KERBIN ascent's cell, NOT an Eve one) / exo-propulsive / exo-ballistic / cohesive-cross-body-coast; D14 kerbin/eve/soi-count/warp-rails/warp-high. NO NEW REGISTRY VALUE - D14 already carries `eve`, so this lane triggers no growth-rule obligation. FLOWN. The "no new mlib code" claim was REFUTED by flights 1-3 and the lane now carries ONE argued param key plus three param-gated machine changes (`EveLaneIsAParameterChangeTests` rewritten, not deleted, to pin the single-key delta). (1) THE INWARD TRANSFER - ANSWERED, and the answer was not the one the spec anticipated. MechJeb plans an inner window fine; what it gets wrong is the EJECTION SIZE, because `DeltaVAndTimeForInterplanetaryTransferEjection` computes the post-burn speed at the park's SEMI-MAJOR AXIS and applies it at whatever radius its ejection geometry picks. On a circular park those coincide; on the 0.085-eccentric park MechJeb's own sloppy high-altitude circularization leaves, they do not, and the SAME planner priced the SAME ejection at 652.843 m/s from that park against 775.873 m/s from flight 5's round one, a MEASURED 123.0 m/s shortfall - the heliocentric leg's perihelion sat 2.46e9 m above Eve's aphelion, so no encounter was ever geometrically possible and `nextBody` never once read Eve. mlib still has no direction anywhere; the defect was a THRESHOLD and a MISSING ACTION, not a sign. Fixed by `parkTrimEccMax` (circularize-at-apoapsis before planning) plus a plan-time `reachesTargetOrbit=` verdict. (2) GILLY, and the answer is that it is NOT Ike: 126 km SOI vs 1,050 km (~69x smaller cross-section), 17-57% of the SOI radius vs 6.7%, 12 deg inclination vs 0.2 deg. Residual risk non-zero; a Gilly capture is a NAMED ASSERT-FAIL, deliberately not whitelisted - and it did NOT occur on the green run. GREEN on flight 7 (2026-07-26): full scenario PASS on attempt 1, every verifier PASS/SKIPPED, analyzer red=0, 86 `nextBody=Eve` reads, flyby periapsis 22,032,532 m against the 100,000 m floor, exit to Sun. Both correction rounds flew (378.32 m/s re-aim then a 3.35 m/s trim), which needed `maxCorrectionDvMps` 200 -> 450 - the 200 was a MOON-transfer calibration, and an interplanetary arrival-PHASE fix is legitimately dearer (measured affordable: ~1,944 m/s remained at Sun-SOI entry). PINS CLOSED: recordings count {8, 8}, mission wall 1,236 s, scenario wall 1,286 s, ejection-window wait 11,827,993 game s (0.80 synodic) |
 | M1-mission-loop-unit | daily | The mission-loop PLAN against LIVE stock ephemerides: cross-tree partner-journey link discovery + include/normalize mutation + the REAL MissionLoopUnitBuilder shared span clock landing member windows on the recorded dock/undock UTs; joint landing+station arrival hold (with the landing-only byte-identical-off control); the resonant Jool inner-three configuration hold; incommensurate Bop failing CLOSED to faithful | D11 partner-journey/land-dock-dual-constraint/arrival-hold/multi-moon-config-hold/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26 - the first spec to claim ANY D11 cell (the dimension was 0/18). LIVE-PROVEN 2026-07-26, and it EARNED ITS KEEP ON FLIGHT 1: batch tally exact (`total=12 passed=5 failed=0 skipped=7`), but its `recordings.count = {0,0}` pin red'd on a real Parsek-side defect - in-game tests driving the real `RecordingStore.CommitTree` left orphan sidecars the memory-only tree teardown could not reach. Fixed via the shared `InGameTestSidecarReaper`; re-flown FULL PASS with the pin untouched. Gates the PLAN, not the playback: no ghost, icon, cycle boundary or elapsed period is observed |
 | M2-periodicity-solver | daily | The periodicity SOLVER against LIVE stock ephemerides: the re-aim feasibility scan over a pinned synodic period, UvLambert transfer synthesis that must actually encounter the target, the window schedule, the eccentric/inclined stage-A un-projection + stage-B tof band (Moho / Eeloo), heliocentric-parking r1==park-end, and deterministic clean declines at the band edge | D11 reaim-lambert/eccentric-inclined-targets/heliocentric-parking-departure/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26, M1's sibling (separate spec because run.py's `_driven_category` reads only the FIRST RunTests category and a per-category line with no aggregate is a defined fault - one batch per spec). LIVE-PROVEN 2026-07-26, full PASS attempt 1; tally MEASURED and deliberately NOT total=passed: `total=11 passed=7 failed=0 skipped=4` (1 FLIGHT-scene member + 3 `AllowBatchExecution=false` diagnostics). Gates the SOLVER, not the playback |
+| S1.6-render-parity | daily | The FIRST cell that gates PLAYBACK rather than recording: drives the in-game `GhostMap` batch so the production recorded-vs-rendered parity oracle (`RenderParityOracle` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`) actually runs unattended, tracer pinned on, `allowedAnomalies = []`. Anti-vacuity is MANDATORY here: a pinned whole tally plus two `[TestRunner]` measurement lines emitted only after a real diff ran on live ghost geometry | D6 recorded-vs-rendered-parity (new registry value); D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-26: first flight = PASS, every verifier green. `total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT`; the 11 skips are 9 TRACKSTATION scene-eligibility + 2 documented loop-icon self-skips. Negative control measured 1049421 m against a 1927 m tolerance (~545x), so the zero-drift assertion provably can still fail. FLOWN TWICE: flight 1 (run `2026-07-26_0950`) MEASURED the tally while the spec still carried the loose `passed=[1-9][0-9]*` conjunct, so the exact line was a transcription; flight 2 (run `2026-07-26_1207`, PASS, expectations mismatches=0, anomalySweep hits=[] unlistedReasons=[], log archived at `logs/2026-07-26_1207_S1.6-render-parity/KSP.log`) ran the spec AS COMMITTED and is what actually EVALUATED the exact pin, both measurement lines and both forbidden patterns. Caveat on flight 2: the instance's deployed DLL was a sibling worktree's build whose GhostMap surface is identical to main's (25 attributes, 16 FLIGHT + 9 TRACKSTATION in both), so the pin is not yet evaluated against a main-built DLL. Does NOT cover Recording.Points / TrackSection frames, the flight-scene ghost mesh, anything across time (one frame per assertion), or re-aim solve correctness |
+| S1.7-maprender-parity | daily | S1.6's follow-up over the STRONGER category: drives the in-game `MapRender` batch (22 tests, all Scene = FLIGHT) - the parity baselines with the typed PhaseChain spine driving, multi-body concurrent ghosts, the re-aimed-loop lens distinction, and the descent / re-stitch / dock-undock / overlap / parent-anchored / BG-on-rails spine cells. Anti-vacuity accounts for the SINK TRAP: four MapRender test files install `ParsekLog.TestSinkForTesting`, which diverts rather than tees, so the obvious candidate (the three-oracle flag-on baselines) can never reach KSP.log. Pins the two arms that do: both `MultiBodyConcurrent` lines (`sampled=True skip=(none) hasMeas=True over=False`, the Mun arm doubling as the cross-body-leak proof) and the re-aimed-loop line | D6 recorded-vs-rendered-parity; D14 sandbox/scene-flight - deliberately NO new registry value (depth on an axis S1.6 opened, not breadth). LIVE-PROVEN 2026-07-26: `total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT`, the single skip being the `AllowBatchExecution = false` high-warp canary; zero scene-eligibility attrition. Negative control 1319093 m against 2701 m (~488x). Its first flight also EXPOSED the anomaly-sweep false positive (below) |
 
 ### Committed, not yet live-run (13)
 
@@ -367,16 +404,18 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 806 mission-machine + 664 harness + 203 provisioner unittest
+- Headless: 806 mission-machine + 726 harness + 203 provisioner unittest
   cells; 18,669 xUnit on the C# side (18,668 passed + 1 skipped: analyzer,
   seam, log contracts, the new route-window delta formatter). Re-measured
-  2026-07-26 from `autotest-tally-gate` AFTER merging `origin/main` (which
-  carried `autotest-orbit-missions` -> `autotest-landing-missions` ->
-  `autotest-eve-missions` -> `autotest-batch-coverage`); this line inherits
-  SILENTLY through a clean
-  auto-merge and is wrong the moment either side adds a test, so re-measure
-  rather than editing it by memory - `cd harness && python -m unittest discover
-  -s missions/lib -q` (and `-s lib -q`, `-s provision -q`), plus
+  2026-07-26 from `autotest-render-parity` AFTER its SECOND merge of
+  `origin/main` (which carried `autotest-orbit-missions` ->
+  `autotest-landing-missions` -> `autotest-eve-missions` ->
+  `autotest-batch-coverage` -> `autotest-tally-gate`); the harness figure
+  moved 664 -> 726 because this merge is the first tree holding both sides'
+  cells. This line inherits SILENTLY through a clean auto-merge and is wrong
+  the moment either side adds a test, so re-measure rather than editing it by
+  memory - `cd harness && python -m unittest discover -s missions/lib -q`
+  (and `-s lib -q`, `-s provision -q`), plus
   `cd Source/Parsek.Tests && dotnet test`.
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
 - In-game: 539 runtime tests / 97 categories (autorun-able), H5 invariants,
@@ -392,8 +431,8 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   does not model reds instead of quietly shrinking a total.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 82 / 240 registry cells claimed (the growth metric),
-  recomputed 2026-07-26 through `hlib.compute_coverage` over the 36 committed
+- Coverage ledger: 83 / 241 registry cells claimed (the growth metric),
+  recomputed 2026-07-26 through `hlib.compute_coverage` over the 38 committed
   specs + the merged registry. The green-backed subset is the OTHER half of
   this metric and needs the run archive, which is gitignored
   (`harness/results/*.json`, `harness/coverage/coverage.{json,txt}`), so
@@ -420,6 +459,39 @@ six publish or compare numbers the runner already measured.
 
 ## Known gates and latent items (forensics in todo-and-known-bugs.md)
 
+0. ANOMALY_TOKENS has DRIFTED from what the mod raises, and the drift is a
+   FAIL-OPEN. Found 2026-07-26 while anchoring the sweep. `icon-jump` is a DEAD
+   token: `MapRenderProbe` raises the icon-teleport family with
+   `reason=icon-teleport`, so the harness's token can never fire and a real icon
+   teleport - the exact class the map-render wave has been chasing - passes the
+   sweep. NINE further reasons are raised and ungated: `icon-teleport`,
+   `icon-off-orbit`, `unaccounted-drawn-recording`, `gap-vs-retire`,
+   `decision-vs-old-truth`, `clock-not-ready`, `retire-not-held`,
+   `anchor-resolve-fail` and `factory-parity`. (The first version of this gate
+   said FIVE. The four it missed are the cutover-hardening raises, which reach
+   `EmitAnomaly` through thin `MapRenderTrace` wrappers rather than at their guard
+   site in `ShadowRenderDriver` / `AnchorFrameResolver`, so they do not show up in
+   a grep for `EmitAnomaly` call sites. They emit the same `phase=Anomaly ...
+   reason=<token>` line as any direct raise. The list is now DERIVED FROM SOURCE
+   by `AnomalyGroundTruthEnumerationTests` and pinned in
+   `hlib.ANOMALY_REASONS_RAISED_UNGATED`, so the count cannot drift silently
+   again.) Deliberately NOT resolved in the same change: the call is per token -
+   some are coverage instruments rather than defect signals
+   (`unaccounted-drawn-recording` is the S0 polyline-coverage probe;
+   `factory-parity` is a shadow comparator that never drives a draw), and the one
+   that most likely SHOULD be gated (`icon-teleport`) would widen S1.4 without
+   anyone knowing whether it fires there - every S1.4 flight predates the
+   `unlistedReasons` channel, so its next nightly is the measurement that should
+   decide the rename. NOTE what the deferral is not:
+   an earlier wording said widening "moves verdicts on every committed scenario",
+   which stopped being true in this same change - only S1.4, S1.6 and S1.7 arm the
+   map tracer now, so only those three could move. Interim:
+   `hlib.unlisted_anomaly_reasons` REPORTS every raised reason absent from the set,
+   run.py warn-logs it and records it in the result JSON as
+   `anomalySweep.unlistedReasons` - non-gating, but the drift is now visible on
+   every run instead of silent. Pinned by
+   `AnomalyGrepAnchoringTests.test_icon_jump_is_a_dead_token_against_what_the_mod_emits`
+   plus `AnomalyGroundTruthEnumerationTests`.
 1. B6 20 km / B7 300 km course-correct targets - see the test-case table.
 2. Runner-only kRPC behaviors are LIVE-VERIFIED ONLY (no headless guard can
    exercise MechJeb server state): intercept-only planner flags, executor

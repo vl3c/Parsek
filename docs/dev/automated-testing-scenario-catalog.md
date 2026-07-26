@@ -41,7 +41,10 @@ report; headline values only here.
   (2.3km/50km/120km), watch mode + retarget + explosion hold, spawn-at-end
   (PID dedup), ghost map presence (TS icons, orbit lines, targeting),
   non-orbital polyline, reentry FX, attitude preservation, SOI-crossing
-  playback, time-jump, CommNet relay, ghost audio.
+  playback, time-jump, CommNet relay, ghost audio, recorded-vs-rendered parity
+  (the RenderParityOracle lens: the geometry actually rendered - the live
+  OrbitDriver.orbit driving the icon and the orbit line - diffed against the
+  recorded OrbitSegment).
 - **D7 Part events (28 types)**: decouple/stage/destroy, engine FX
   (legacy + EFFECTS + Waterfall fallback), RCS, chute 2-phase/cut, shroud,
   fairing, panels/antennas/radiators, gear, bays, lights, dock/undock,

@@ -237,6 +237,14 @@ D5  = ["eva-branch"]          # asserted: "Tree branch created: type=EVA"
 D7  = ["chute-two-phase"]     # asserted: both kerbalEVA Part-event lines below
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # P1 - PINNED FROM THE FLIGHT-2 PASS (2026-07-24), replacing the pre-flight provisional
 # {min 2, max 10} window. MEASURED: exactly 3 .prec in saves/b1-pad-craft/Parsek/
@@ -309,8 +317,6 @@ required  = ["Recording started",
              "Recording stopped",
              "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (S0.6 / B1 pattern), WALL clock.

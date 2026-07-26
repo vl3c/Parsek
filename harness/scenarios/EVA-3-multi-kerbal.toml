@@ -56,6 +56,14 @@ D2  = ["structural-event-snapshots"]   # asserted by the [Pipeline-Smoothing] to
 D5  = ["eva-branch"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # PINNED to the live-proven topology (P3 done). MEASURED on the 2026-07-24 flight-2 full PASS:
 # 7 .prec files in the run save. Derivation, which the measurement matches exactly: root pod 1,
@@ -80,8 +88,6 @@ required  = ["Tree branch created: type=EVA", "\\[Pipeline-Smoothing\\]",
              "detected boarding from EVA", "Tree board merge completed",
              "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]", "dropping recorder data"]
-
-allowedAnomalies = []
 
 [runtime]
 # 960 >= 300 LoadGame + 4 x 120 EVA verbs + fast verbs + 60 margin (S0.6 pattern).

@@ -31,6 +31,14 @@ steps = [
 D8  = ["science", "recalc-engine", "orchestrator", "ksp-state-patcher", "action-blocking"]
 D14 = ["career"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # Recording-free run (no flight): count.max == 0 selects the REC-001/003 log-validation
 # suppression, exactly as B10.
@@ -45,7 +53,6 @@ count = { min = 0, max = 0 }
 # (not a guard-patch line) proves the stock action was NOT blocked.
 required  = ["kscaction action=research-node .* applied=true", "Game state: TechResearched"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-allowedAnomalies = []
 
 # Ledger-oracle (M-B2, chain slot 8). Its PRESENCE activates the oracle: pre-launch seed
 # baseline over the staged fixture, accumulate the ONE declared manifest entry, compute

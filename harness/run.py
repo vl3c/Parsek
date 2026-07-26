@@ -632,6 +632,62 @@ CHANNEL_FILES = (
 RESULTS_FILE = "parsek-test-results.txt"
 
 
+def settings_sidecar_path(instance_dir: str) -> str:
+    """The instance-wide Parsek settings sidecar SetSetting writes through."""
+    return os.path.join(instance_dir, *hlib.SETTINGS_SIDECAR_RELPATH)
+
+
+def reset_settings_sidecar(instance_dir: str, logger: HarnessLogger, phase: str) -> bool:
+    """Write the deterministic tracers-OFF baseline into the instance's Parsek
+    settings sidecar. Returns True when the file is left holding the baseline.
+
+    WHY (see hlib's section comment for the full contract): `SetSetting` on any of
+    the eight sidecar-tracked settings persists INSTANCE-WIDE, and Parsek applies
+    the sidecar OVER each loaded save, so without this one scenario's
+    `mapRenderTracing=true` silently pins the per-frame render tracer on for every
+    later run on the instance. Called TWICE per attempt - at STAGE (so the run
+    starts from a declared state) and at TEARDOWN in the per-attempt finally (so
+    the instance is left clean even when the budget watchdog killed KSP). Both
+    calls write the SAME baseline rather than restoring a captured prior state:
+    restoring the prior state would faithfully preserve a previous run's
+    contamination, which is the bug.
+
+    Never raises: a sidecar the harness could not write is a WARNED degradation,
+    not a reason to fail a scenario that has nothing to do with it. A run whose
+    teardown never executes at all (the harness process itself killed) is healed
+    by the next run's stage call.
+    """
+    path = settings_sidecar_path(instance_dir)
+    prior_text = ""
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                prior_text = fh.read()
+        except OSError:
+            prior_text = ""
+    was_on = hlib.settings_sidecar_tracers_on(prior_text)
+    baseline = hlib.render_settings_sidecar_baseline()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".harness-tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(baseline)
+        os.replace(tmp, path)
+    except Exception as exc:  # noqa: BLE001 - see below
+        # Deliberately BROAD: the teardown call runs inside run_attempt's finally,
+        # where ANY escaping exception would replace the attempt's real verdict
+        # with a settings-file error. Housekeeping must never be the reason a
+        # result is lost, so every failure degrades to a warning.
+        logger.warn("Settings", "settings-sidecar reset FAILED phase=%s path=%s (%s: %s); "
+                                "a stale tracer flag may leak into this or a later run"
+                    % (phase, path, type(exc).__name__, exc))
+        return False
+    logger.info("Settings", "settings-sidecar baseline written phase=%s tracers=off%s"
+                % (phase,
+                   (" (cleared leaked: %s)" % ",".join(was_on)) if was_on else ""))
+    return True
+
+
 def _is_strictly_inside(child_path: str, parent_path: str) -> bool:
     """True iff realpath(child) is strictly BELOW realpath(parent) (never equal,
     never a sibling/escape). Case-normalized for Windows; a cross-drive pair (which
@@ -727,6 +783,12 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             results_rotated = True
         except OSError:
             pass
+
+    # (6) pin the instance-wide Parsek settings sidecar to the tracers-OFF
+    # baseline so this run starts from a DECLARED tracer state instead of
+    # inheriting whichever SetSetting a previous scenario persisted. The matching
+    # teardown write lives in run_attempt's finally.
+    reset_settings_sidecar(instance_dir, logger, "stage")
 
     logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d results-rotated=%s"
                 % (run_save_name, save_template, inj, len(craft), results_rotated))
@@ -1221,11 +1283,10 @@ def count_recordings(save_dir: str) -> int:
 
 
 def grep_anomaly_tokens(log_text: str) -> List[str]:
-    hits = []
-    for tok in hlib.ANOMALY_TOKENS:
-        if tok in (log_text or ""):
-            hits.append(tok)
-    return hits
+    # Thin delegate: the matching is a DECISION and lives in hlib (anchored on the
+    # tracers' `phase=Anomaly ... reason=<token>` raise shape, not a bare substring
+    # search over the whole log).
+    return hlib.grep_anomaly_tokens(log_text)
 
 
 # ---------------------------------------------------------------------------
@@ -1774,13 +1835,22 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         allowed = expectations.get("allowedAnomalies", []) or []
         hits = grep_anomaly_tokens(log_text)
         unallowed = hlib.evaluate_anomaly_sweep(hits, allowed)
+        # REPORT-ONLY: anomaly reasons the mod raised that the harness token set
+        # does not carry, so the known ANOMALY_TOKENS drift is visible per-run
+        # rather than a silent fail-open. Never affects the verdict.
+        unlisted = hlib.unlisted_anomaly_reasons(log_text)
         verifiers["anomaly_hit"] = bool(unallowed)
         detail["anomalySweep"] = {"status": "FAIL" if unallowed else "PASS",
-                                  "hits": unallowed, "allowed": list(allowed)}
+                                  "hits": unallowed, "allowed": list(allowed),
+                                  "unlistedReasons": unlisted}
         if unallowed:
             short_circuited = True
         logger.info("Verify", "verify anomalySweep status=%s hits=%s"
                     % (detail["anomalySweep"]["status"], unallowed))
+        if unlisted:
+            logger.warn("Verify", "anomalySweep saw %d raise(s) with reason(s) NOT in the "
+                                  "harness token set (REPORT-ONLY, not gating): %s"
+                        % (len(unlisted), unlisted))
     else:
         detail.setdefault("anomalySweep", {"status": "SKIPPED", "reason": "short-circuit"})
 
@@ -2186,6 +2256,13 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                               verdict, admission_rec, drive, facts, run_save_name,
                               instance_dir, logger, run_id=run_id)
     finally:
+        # Leave the instance's tracer settings in the declared baseline state no
+        # matter HOW this attempt ended - PASS, verifier red, budget-watchdog
+        # process-tree kill, or an exception on any path after the lock. Without
+        # this a scenario's `SetSetting mapRenderTracing=true` stays persisted
+        # instance-wide and every later flight silently pays the per-frame tracer
+        # cost and gets gated by an anomaly sweep it never declared.
+        reset_settings_sidecar(instance_dir, logger, "teardown")
         release_run_lock(lock_path)
 
 

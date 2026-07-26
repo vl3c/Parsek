@@ -43,6 +43,14 @@ steps = [
 D14 = ["sandbox", "scene-flight"]
 D16 = ["sidecar-prec", "schema-gate"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # The injected corpus, unchanged (no live recording). Pinned to the same 272 S1.4
 # uses on stock-minimal; a load that lost recordings reds. Update alongside corpus
@@ -74,8 +82,6 @@ count = { min = 272, max = 272 }
 required  = ["RecordingInvariants walk: recordings=306 trees=276\\b",
              "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (M-A5 S8): runtime 720 >= 300 LoadGame + 540 RunTests ceiling

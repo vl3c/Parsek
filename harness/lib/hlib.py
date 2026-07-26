@@ -144,10 +144,66 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 # Harness-owned, fixed Tier-C anomaly token set (design verifier 6 / N2). A
 # scenario only ADDS known-benign exceptions via `allowedAnomalies`; it never
 # redefines this set.
+#
+# KNOWN DRIFT from what the mod actually emits, found 2026-07-26 while wiring
+# S1.7. `icon-jump` is DEAD: the probe raises the icon-teleport family with
+# `reason=icon-teleport` (MapRenderProbe.cs), so this token matches no emit at
+# all. The ungated remainder is ANOMALY_REASONS_RAISED_UNGATED below - NINE
+# reasons, not the five the first pass listed (the four cutover-hardening raises
+# reached through MapRenderTrace's thin wrappers were missed; corrected after
+# review 2026-07-26, and the enumeration is now DERIVED FROM SOURCE by
+# AnomalyGroundTruthEnumerationTests rather than hand-maintained).
+#
+# NOT resolved here because the per-token call (defect signal vs instrumentation
+# signal) has to be made one token at a time and wants its own change - see the
+# todo-doc entry. Note what the deferral is NOT: after this same change's
+# settings-sidecar baseline only three specs arm the map tracer (S1.4, S1.6,
+# S1.7), so widening the set can only move THEIR verdicts, not "every committed
+# scenario's". Until it is decided, `unlisted_anomaly_reasons` REPORTS every
+# anomaly reason seen that is not in this set, so the drift is visible on every
+# run instead of silent.
 ANOMALY_TOKENS: Tuple[str, ...] = (
     "icon-jump", "line-blink", "parity-drift", "decision-vs-truth",
     "polyline-orbit-overlap", "rigid-seam-tangent-discontinuity", "ledger-vs-truth",
 )
+
+# GROUND TRUTH: every `reason=` token the mod raises from PRODUCTION code (outside
+# `Source/Parsek/InGameTests/`) that ANOMALY_TOKENS does not gate. Each entry is
+# (reason, producer file:line) where the producer is the DECISION site - for the
+# four cutover-hardening raises that is the guard site, which calls a thin
+# once-per-event MapRenderTrace wrapper that calls EmitAnomaly, so the emitted
+# line is shaped exactly like a direct raise.
+#
+# This tuple is the decision input for the deferred reconciliation, so it is
+# pinned against the C# source by AnomalyGroundTruthEnumerationTests: that test
+# walks every EmitAnomaly call site under Source/Parsek (excluding InGameTests/),
+# resolves the reason argument by position for both tracer signatures, and
+# requires the derived set to partition EXACTLY into ANOMALY_TOKENS-minus-dead
+# plus this tuple. A new raise site that nobody gates therefore reds the harness
+# suite instead of quietly widening the fail-open.
+ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
+    ("icon-teleport", "Source/Parsek/MapRenderProbe.cs:753"),
+    ("icon-off-orbit", "Source/Parsek/MapRenderProbe.cs:834"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:437"),
+    ("gap-vs-retire", "Source/Parsek/MapRender/GhostRenderReconciler.cs:240"),
+    ("decision-vs-old-truth", "Source/Parsek/MapRender/GhostRenderReconciler.cs:260"),
+    ("clock-not-ready", "Source/Parsek/MapRender/ShadowRenderDriver.cs:316"),
+    ("retire-not-held", "Source/Parsek/MapRender/ShadowRenderDriver.cs:394"),
+    ("anchor-resolve-fail", "Source/Parsek/MapRender/AnchorFrameResolver.cs:87"),
+    ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+)
+
+# `icon-jump` is in ANOMALY_TOKENS but no producer raises it (see above). Named so
+# the dead-token tests and the source-derived enumeration agree on one constant.
+ANOMALY_TOKENS_DEAD: Tuple[str, ...] = ("icon-jump",)
+
+# Both tracers build their Tier-C line the same way: MapRenderTrace.EmitAnomaly ->
+# EmitRaw(phase "Anomaly", "reason=" + Token(reason) + " " + details) and
+# LedgerTrace.FormatAnomaly -> "phase=Anomaly ... reason=" + Token(reason). So an
+# anomaly RAISE is identified by the phase marker plus the reason field - never by
+# the bare token appearing somewhere in KSP.log.
+ANOMALY_LINE_PHASE: str = "phase=Anomaly"
+_ANOMALY_REASON_RE = re.compile(r"\breason=([^\s]+)")
 
 # Log-validator rule codes (consumed contract, design verifier 4).
 LOGVALIDATE_MARKER_PAIRING_RULES: Tuple[str, ...] = (
@@ -2201,6 +2257,50 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 "step whose UNMET outcome could skip a tail)"
                 % (SKIP_TAIL_ON_UNMET_MISSION_KEY,))
 
+    # MISPLACED-KEY guard for allowedAnomalies (same class as the
+    # skipTailOnUnmetMission guard above, found 2026-07-26). The anomaly sweep
+    # reads ``expectations.allowedAnomalies``, but a bare ``allowedAnomalies``
+    # written after an ``[expectations.<sub>]`` header is TOML-scoped to that
+    # sub-table and is silently never read.
+    #
+    # ERROR, not WARN. It shipped as a WARN for exactly one commit, while all 28
+    # committed specs still carried the misplaced form and rejecting would have
+    # invalidated the whole set. They were relocated in the same change that
+    # promoted this, so the committed set validates clean and the check can be
+    # hard. A warning is the wrong instrument here for three reasons:
+    #   1. Nothing FAILS on a warning. The misplacement is invisible at exactly
+    #      the moment it matters - a spec author declaring a tolerance believes
+    #      it applies, and a green run then means "the anomaly did not happen",
+    #      not "the anomaly was tolerated". S1.4 carried a dead
+    #      polyline-orbit-overlap exception that way from its first commit.
+    #   2. validate_spec runs BEFORE the KSP launch, so an error costs a fast
+    #      pre-flight rejection with the fix named in the message - never a
+    #      wasted run.
+    #   3. The sub-table a bare key lands in depends on which header precedes it,
+    #      so the trap re-arms every time a spec grows a new [expectations.<sub>]
+    #      block. A hard gate is what makes it unrepeatable.
+    # Checked over EVERY expectations sub-table, not just logContracts: the key
+    # binds to whichever one it was written under.
+    for sub_name, sub in sorted((expectations or {}).items()):
+        if not isinstance(sub, dict) or "allowedAnomalies" not in sub:
+            continue
+        declared = sub.get("allowedAnomalies") or []
+        errors.append(
+            "expectations.%s.allowedAnomalies: allowedAnomalies belongs in "
+            "[expectations], not [expectations.%s] (a bare key after that header "
+            "is TOML-scoped to the sub-table, so the anomaly sweep never reads "
+            "it). REQUIRED PLACEMENT: delete the key from under "
+            "[expectations.%s] and write it in an explicit [expectations] table "
+            "declared BEFORE every [expectations.<sub>] header, i.e. exactly "
+            "`[expectations]` then `allowedAnomalies = %s` then the sub-tables%s"
+            % (sub_name, sub_name, sub_name,
+               # json renders a TOML-valid array (double quotes); repr() would
+               # emit single quotes, which TOML rejects.
+               json.dumps(list(declared)),
+               "" if not declared
+               else "; the declared exception(s) %s are INERT where they sit and "
+                    "the sweep would run with none allowed" % (list(declared),)))
+
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. Structural only; the
     # per-entry manifest validation runs at run time (oracle.parse_manifest_entries).
@@ -2376,6 +2476,99 @@ def admit_instance(
     if diff:
         return AdmissionDecision(False, "drift", diff)
     return AdmissionDecision(True, "", tuple())
+
+
+# ---------------------------------------------------------------------------
+# Instance settings-sidecar baseline (the tracer-leak fix). Pure.
+#
+# THE LEAK. `SetSetting` does NOT only mutate the live per-save GameParameters:
+# eight of the sixteen whitelisted settings (Parsek's SettingWhitelist
+# PersistenceRoute.GameParametersPlusSidecar) are ALSO written to the
+# INSTANCE-WIDE `GameData/Parsek/PluginData/settings.cfg`, and Parsek's
+# ParsekScenario.OnLoad applies that sidecar OVER whatever the loaded save
+# carries. So one scenario's `SetSetting mapRenderTracing=true` silently pins the
+# per-frame map/TS render tracer ON for EVERY later run on that instance -
+# including multi-thousand-second autopilot flights that never asked for it, and
+# whose anomaly sweep then gates on a tracer they did not declare. This was
+# observed live: the automation instance's sidecar held exactly
+# `mapRenderTracing = True` after S1.4.
+#
+# THE SECOND HALF OF THE LEAK. EIGHT of the eleven committed fixture saves ALSO
+# carry `mapRenderTracing = True` inside their own GameParameters ParsekSettings
+# node (they were harvested from a dev save with tracing on). The three that do
+# NOT carry the key at all are fresh-career, fresh-sandbox and fresh-science.
+# So for the eight, even a pristine sidecar would leave the tracer on for every
+# flight off that fixture. Deleting the sidecar therefore does NOT fix it; only
+# an explicit stored OFF does, because the sidecar is the layer that WINS over
+# the save.
+#
+# THE FIX. run.py writes this deterministic baseline (the three diagnostic
+# tracers pinned OFF) into the sidecar at STAGE, before launch, and again at
+# TEARDOWN in the per-attempt finally. A scenario that wants a tracer declares it
+# with its own SetSetting step, which is honoured for that run and reverted after
+# it. Idempotent and self-healing: a run killed hard enough to skip teardown is
+# cleaned by the next run's stage. Only the three tracer keys are written, so the
+# other five sidecar-tracked settings stay unset and the fixture's own values
+# continue to govern them.
+# ---------------------------------------------------------------------------
+
+# Path of the sidecar RELATIVE to the instance directory (the shell joins it).
+SETTINGS_SIDECAR_RELPATH: Tuple[str, ...] = (
+    "GameData", "Parsek", "PluginData", "settings.cfg")
+
+# The diagnostic tracer flags, pinned OFF. Values are written exactly as Parsek's
+# ParsekSettingsPersistence.Save emits them (bool.ToString() -> "True"/"False");
+# its reader is bool.TryParse, which accepts either casing.
+TRACER_SETTING_KEYS: Tuple[str, ...] = (
+    "ghostRenderTracing", "mapRenderTracing", "ledgerTracing")
+
+
+def render_settings_sidecar_baseline() -> str:
+    """The exact settings.cfg body the harness stages: the three tracer flags
+    pinned False, nothing else.
+
+    The file format is ConfigNode CONTENTS ONLY (no node-name wrapper) - that is
+    what ConfigNode.Save writes and what ConfigNode.Load expects back, and it is
+    the shape the live instance's leaked file had.
+    """
+    return "".join("%s = False\n" % key for key in TRACER_SETTING_KEYS)
+
+
+def parse_settings_sidecar(text: Optional[str]) -> Dict[str, str]:
+    """Parse a settings.cfg body into {key: raw-value}.
+
+    Tolerant on purpose (this only ever feeds a LOG line, never a decision that
+    could red a run): blank lines, comment lines and brace lines are ignored, and
+    a duplicate key keeps the LAST occurrence, matching ConfigNode.GetValue's
+    single-value read being last-write-wins for our single-writer file.
+    """
+    out: Dict[str, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("//") or line in ("{", "}"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            out[key] = value.strip()
+    return out
+
+
+def settings_sidecar_tracers_on(text: Optional[str]) -> List[str]:
+    """The tracer keys the given sidecar body leaves switched ON, in
+    TRACER_SETTING_KEYS order.
+
+    Used to make the leak VISIBLE in the harness log when the baseline is
+    written: an empty list means the instance was already clean, a non-empty one
+    names exactly which tracer a previous run (or a hand edit) left on. Anything
+    other than a parseable true is treated as not-on, mirroring the mod's
+    bool.TryParse-or-default read.
+    """
+    values = parse_settings_sidecar(text)
+    return [k for k in TRACER_SETTING_KEYS
+            if values.get(k, "").strip().lower() == "true"]
 
 
 # ---------------------------------------------------------------------------
@@ -2600,6 +2793,51 @@ def evaluate_expectations(
 # ---------------------------------------------------------------------------
 # Anomaly sweep (design verifier 6 / N2). Pure over pre-grepped hit tokens.
 # ---------------------------------------------------------------------------
+
+
+def _anomaly_reasons(log_text: Optional[str]) -> List[str]:
+    """Every ``reason=`` value on a Tier-C ANOMALY line, in first-seen order.
+
+    Anchored on ``phase=Anomaly`` so only an actual EmitAnomaly raise counts. This
+    is the whole point: the sweep used to be a bare substring search for each token
+    over the entire KSP.log, which made any log line that merely NAMED a token an
+    anomaly hit. It was not hypothetical - S1.7's first flight reddened on
+    ``[Parsek][INFO][TestRunner] SpineDrive parity-drift: sampled=True skip=(none)
+    hasMeas=True maxDev=0.0m tol=1989.4m over=False``, a PhaseSpineSwap test line
+    reporting ZERO drift (``over=False``) whose own diagnostic label happened to be
+    the token. Any test, comment echo or future message naming a token would red an
+    otherwise clean run.
+    """
+    seen: List[str] = []
+    for line in (log_text or "").splitlines():
+        if ANOMALY_LINE_PHASE not in line:
+            continue
+        m = _ANOMALY_REASON_RE.search(line)
+        if m is not None and m.group(1) not in seen:
+            seen.append(m.group(1))
+    return seen
+
+
+def grep_anomaly_tokens(log_text: Optional[str]) -> List[str]:
+    """The harness-owned Tier-C anomaly tokens actually RAISED in ``log_text``.
+
+    Returned in ``ANOMALY_TOKENS`` order so the hit list is deterministic
+    regardless of emit order.
+    """
+    raised = set(_anomaly_reasons(log_text))
+    return [t for t in ANOMALY_TOKENS if t in raised]
+
+
+def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
+    """Anomaly reasons RAISED but absent from ``ANOMALY_TOKENS`` (REPORT-ONLY).
+
+    Non-gating by design. The mod raises several reasons the harness set does not
+    carry (see the ANOMALY_TOKENS note), so a run can contain a real Tier-C raise
+    that the sweep is structurally blind to. Widening the gating set is a decision
+    with verdict consequences for every committed scenario; surfacing the drift is
+    not. Sorted for a stable log line.
+    """
+    return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 
 
 def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequence[str]) -> List[str]:

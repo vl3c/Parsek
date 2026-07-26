@@ -14,6 +14,126 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Playback was never gated, and the parity oracle had been measuring nothing [BUILT, branch `autotest-render-parity`]
+
+Found 2026-07-26 while wiring the first playback scenario. Two independent problems, both about the same blind spot.
+
+**1. Nothing gated PLAYBACK.** Every committed scenario verifies RECORDING (a flight happens, Parsek writes a recording, the analyzer / invariants / ledger oracle judge what was written). Whether the geometry Parsek RENDERS for a committed recording matches what it RECORDED had no automated gate, even though the oracle for it has existed and been production-wired for months (`Source/Parsek/MapRender/RenderParityOracle.cs` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`, diffing the live `OrbitDriver.orbit` that drives the icon and the orbit line against the recorded `OrbitSegment`, body-relative, scale-derived tolerance) and 25 in-game `GhostMap` tests assert through it. No scenario had ever driven that category: the only categories any spec drives were `GhostPlayback`, `RecordingInvariants` and `RouteRewindTimeline`.
+
+Fix: `harness/scenarios/S1.6-render-parity.toml` (daily, sandbox), reusing S1.4's `gloops-airshow` fixture and injected corpus verbatim (zero new fixture work). It pins `mapRenderTracing` on, drives ONE `RunTests category = "GhostMap"` batch (run.py's `_driven_category` returns the FIRST RunTests category, so a second batch would not be gated at all), and gates on `failed=0` plus a clean anomaly sweep with `allowedAnomalies = []`.
+
+**2. The oracle was measuring NOTHING, and a green sweep could not tell.** S1.4's last flight logged 552 `[MapRenderTrace]` probe frames, every one reading `ghosts=0 sampled=0`, ZERO `faithful-parity summary` lines - and the archived result still read `anomalySweep: {hits: [], status: PASS}`, indistinguishable from a run where the oracle looked and found nothing wrong. The batch also counts an `InGameAssert.Skip` as not-failed, and several parity tests skip on 5+ preconditions, so an all-skip batch reads `failed=0`.
+
+Fix: S1.6 carries a MANDATORY anti-vacuity conjunct in two parts. Structural - a required `BATCH_COMPLETE` contract, so an all-skip batch reds. Semantic - two required `[Parsek][INFO][TestRunner]` measurement lines that `RenderParitySamplerFixtureTest` emits only AFTER every skip precondition passed and a real diff ran on live ghost geometry: `ParitySampler_CapturesHandComputedOrbitGeometry ... refDelta=<m>` (the recorded reference and the rendered orbit were both sampled through the production capture and compared) and `SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift ... mismatchedDev=<m>` (unreachable unless the deliberately phase-MISMATCHED negative control ALSO flagged drift, so it proves the comparison can still fail). Plus a forbidden `faithful-parity summary sampled=N overTolerance=[1-9]...`, which is strictly stronger than the `parity-drift` anomaly token because `MapRenderProbe` increments `faithfulParityOverCount` BEFORE consulting the per-pid rate limit.
+
+**FIRST FLIGHT 2026-07-26: PASS, every verifier green, and the oracle demonstrably measured.**
+
+```
+BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT
+Scene eligibility skip summary: skipped=9 currentScene=FLIGHT byRequiredScene=TRACKSTATION:9
+ParitySampler_CapturesHandComputedOrbitGeometry: pid=2905038605 sma=800000 ecc=0.00
+  iconR=800000 orbitAtLiveR=800000 iconOnLineDelta=0m refDelta=0.0m
+SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift: pid=2279670454
+  loopShift=1100.0 matchedDev=0m mismatchedDev=1049421m tol=1927m
+```
+
+The negative control is the load-bearing number: the phase-mismatched arm read 1049421 m against a 1927 m tolerance, ~545x over, so the zero-drift assertion is provably not a circle compared with itself. The structural conjunct was `passed=[1-9][0-9]*` while the numbers were unknown and is now the exact measured line, which additionally reds on a silent pass/skip drift. All 11 skips are accounted for: 9 are the TRACKSTATION-scoped GhostMap tests filtered out of a FLIGHT batch (pinning `scene=FLIGHT` is what keeps a future host change visible), and 2 are documented self-skips from the loop-icon warp cluster (`StateVectorReseed_CalculatePhysicsStatsResnapsIconOntoConic`, `FreshLoopGhostIcon_OnRecordedPhaseAtCreation`) - neither a parity assertion, both naming the xUnit gate that covers them.
+
+**Correction the flight forced:** the probe-level `faithful-parity summary` was documented as never emitted at all on this fixture. That was wrong. Frame 7887 read `ghosts=1 sampled=1` for a CORPUS ghost (pid=2906759605, recId=dock-r2-merged) and the probe emitted exactly one summary: `sampled=0 overTolerance=0 skip.no-recording-or-segments=1`. The line IS emitted; it reaches the probe and then skips for want of a covering recorded segment. It is still correctly excluded as a REQUIRED contract (a `sampled=0` summary proves nothing, and requiring `sampled=[1-9]` would red every flight for a non-defect), but the correction cuts the other way for the FORBIDDEN `overTolerance` contract, which is now known to be REACHABLE rather than structurally inert. The synchronous-test reasoning still holds for TEST ghosts - every `GhostMap` test creates its ghost and calls `RemoveAllGhostVessels` inside one frame, so `LateUpdate` never observes one; it was the claim about the corpus that was wrong.
+
+**What S1.6 does NOT prove** (stated in the spec header too): nothing about `Recording.Points` / `TrackSection.frames` / `bodyFixedFrames` (the parity fixtures author 2-point recordings whose TrajectoryPoints are explicitly non-load-bearing; the geometry comes from the OrbitSegment elements); nothing about the flight-scene ghost mesh or `IGhostPositioner`; nothing across TIME (every parity assertion samples ONE frame, and the high-warp canary that would cover a warp step-up is `AllowBatchExecution = false`); nothing about re-aim SOLVE correctness (the synthesized arms check DRAW fidelity only). Follow-up: the same shape over `category = "MapRender"` (22 more tests).
+
+New registry value `D6 recorded-vs-rendered-parity` (growth rule), synced into the catalog markdown.
+
+**Follow-up SHIPPED on the same branch: `S1.7-maprender-parity`, the same shape over the stronger category.** 22 in-game `MapRender` tests, all `Scene = FLIGHT` (so zero scene-eligibility attrition, unlike S1.6 where 9 of 11 skips were TRACKSTATION-scoped): the parity baselines with the typed PhaseChain spine driving, multi-body concurrent ghosts, the re-aimed-loop lens distinction, and the descent / re-stitch / dock-undock / overlap / parent-anchored / BG-on-rails spine cells. LIVE-PROVEN 2026-07-26, `total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT`; the single skip is `MapRenderHighWarpCanaryInGameTest`, which carries `AllowBatchExecution = false` and is excluded because the seam drives `RunCategory` (the non-restore variant, `ParsekTestCommandAddon.cs:1497` -> `PrepareBatchExecution`), so no batch ever drives real high warp.
+
+**The SINK TRAP, which changed which arms S1.7 can gate on.** The obvious anti-vacuity candidate is the three-oracle flag-on baseline (`FlagOnParityBaselineInGameTest`, the faithful + synthesized + polyline lens run in one test). It is UNUSABLE, and the reason generalizes: `ParsekLog.Write` calls `TestSinkForTesting(line)` and then RETURNS - it does not tee to `Debug.Log`. So every ParsekLog line a test emits between installing a sink and restoring it in its `finally` is diverted away from KSP.log entirely. `FlagOnBaseline_AllThreeModes: ...` is emitted at `FlagOnParityBaselineInGameTest.cs:225`, inside the try whose finally restores the sink at `:243`, so it lands in the test's own capture list and never reaches the log. Four MapRender test files install a sink (`FlagOnParityBaselineInGameTest`, `FailClosedFaithfulInGameTest`, `ColdLoadClockGuardInGameTest`, `MapRenderTracerCoverageInGameTest`); requiring any of their measurement lines would red every flight. They still gate through `failed=0` - their numbers just cannot serve as the log-visible proof that a diff ran, and cannot be trended.
+
+S1.7 therefore pins the two arms that emit OUTSIDE any sink, both load-bearing rather than "we ran" markers:
+
+- `MultiBodyConcurrentGhostsParityInGameTest` emits one line per ghost carrying the probe seam's own verdict fields, pinned as `sampled=True skip=(none) hasMeas=True ... over=False` on BOTH arms - so neither a precondition skip, a blind lens nor drift can satisfy it. The Mun arm is the one S1.6 has no equivalent for: parity resolves in each ghost's OWN body frame and `ComputeFaithfulOrbitParity` skips with body-mismatch when the rendered body differs from the recorded covering body, so a cross-frame leak surfaces as `sampled=False`. Measured `Kerbin: pid=2361972787 ... tol=1989.4m over=False` / `Mun: pid=1693297703 ... tol=955.8m over=False` - distinct pids and distinct scale-derived tolerances are themselves evidence the two resolved in different frames.
+- `ReaimedLoopSynthesizedOracleInGameTest` emits `ReaimedLoop_SynthOracle: pid=3494681962 recordedLAN=0 reaimedLAN=70 | synthDev=0m synthTol=2726m (ZERO) | faithfulDev=1319093m faithfulTol=2701m (FLAGGED)` AFTER both oracle blocks, the second of which asserts `faithful.Result.OverTolerance` is TRUE. That is the sharpest negative control in the codebase: the SAME rendered conic must read ZERO through the synthesized lens (rendered == the intended re-aimed seed) and FLAG through the faithful lens (rendered != the recorded segment, LAN rotated 70 deg). ~488x over tolerance, so the two lenses provably disagree and the comparison can still fail.
+
+S1.7 claims NO new registry value, deliberately - `D6 recorded-vs-rendered-parity` + `D14 sandbox/scene-flight`, exactly S1.6's set. Its value is depth on an axis S1.6 opened, not breadth; inventing a token so the coverage ledger grows would be the same vacuity this scenario family exists to prevent. Also not claimed: `D14 mun` (the Mun arm frames a synthetic ghost orbit in Mun's reference body inside a Kerbin FLIGHT scene - that exercises Mun's frame in the render path, but it is not a flight at the Mun and B5 owns that cell).
+
+## The Tier-C anomaly sweep matched any log line that NAMED a token [FIXED, branch `autotest-render-parity`]
+
+Found 2026-07-26 by S1.7's own first flight, which classified `PARSEK-FAIL(anomaly)` on a run whose in-game batch was completely clean (`failed=0`, `perCategory=1`) and whose KSP.log contains **zero** `phase=Anomaly` lines.
+
+`run.grep_anomaly_tokens` was `if tok in log_text` for each of the seven harness-owned Tier-C tokens, over the entire log. The single hit was:
+
+```
+[Parsek][INFO][TestRunner] SpineDrive parity-drift: sampled=True skip=(none) hasMeas=True maxDev=0.0m tol=1989.4m over=False
+```
+
+A `PhaseSpineSwapInGameTest` diagnostic whose LABEL happens to be the token and whose body reports the ABSENCE of drift (`maxDev=0.0m`, `over=False`). Any test, comment echo or future message naming a token would red an otherwise clean run - and the more thoroughly a category tests the anomaly machinery, the more likely it is to name one, so the bug got worse exactly where the sweep mattered most.
+
+Fix: the matching moved into `hlib` (it is a DECISION; run.py keeps only a thin delegate) and is now anchored on the raise shape both tracers actually produce - `MapRenderTrace.EmitAnomaly` -> `EmitRaw(phase "Anomaly", "reason=" + Token(reason) + ...)` and `LedgerTrace.FormatAnomaly` -> `"phase=Anomaly ... reason=" + Token(reason)`. A hit now requires `phase=Anomaly` on the line AND the token as the whole `reason=` field. Hits are returned in `ANOMALY_TOKENS` order so the list is deterministic regardless of emit order. Covered by `AnomalyGrepAnchoringTests`, which pins the exact false-positive line, the real raise shape for both tracers, that a false positive cannot mask a real raise in the same log, and that a `reason=` prefix cannot satisfy a different token.
+
+## The harness anomaly token set has drifted from what the mod raises [REPORTED, NOT RESOLVED - wants a decision]
+
+Found 2026-07-26 while anchoring the sweep above; the fix for that bug made this one visible rather than causing it. `hlib.ANOMALY_TOKENS` is described as the fixed harness-owned Tier-C set, but it no longer matches the `reason=` values the mod emits.
+
+Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISED_UNGATED` carries the ungated half, and `AnomalyGroundTruthEnumerationTests` walks every `EmitAnomaly` call site under `Source/Parsek` excluding `InGameTests/`, resolves the reason argument by position for both tracer signatures, and requires the derived set to partition exactly into gated-minus-dead plus that tuple. So a new raise site nobody gates reds the harness suite instead of silently widening the fail-open.
+
+| Raised reason | In ANOMALY_TOKENS? | Producer (decision site) |
+|---|---|---|
+| `parity-drift` | yes | `MapRenderProbe.cs:1193`, `:1449`, `:1627` (via `MapRenderTrace.AnomalyParityDrift`) |
+| `line-blink` | yes | `MapRenderProbe.cs:647` |
+| `decision-vs-truth` | yes | `MapRenderProbe.cs:579` |
+| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:599` |
+| `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
+| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
+| `icon-teleport` | **NO** | `MapRenderProbe.cs:753` |
+| `icon-off-orbit` | **NO** | `MapRenderProbe.cs:834` |
+| `unaccounted-drawn-recording` | **NO** | `MapRenderProbe.cs:437` |
+| `gap-vs-retire` | **NO** | `MapRender/GhostRenderReconciler.cs:240` |
+| `decision-vs-old-truth` | **NO** | `MapRender/GhostRenderReconciler.cs:260` |
+| `clock-not-ready` | **NO** | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1342`) |
+| `retire-not-held` | **NO** | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1365`) |
+| `anchor-resolve-fail` | **NO** | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1391`) |
+| `factory-parity` | **NO** | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1416`) |
+
+That is NINE ungated reasons, not five. **The first version of this table listed five**, and the four it missed are the last four rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace.cs:1294` `EmitRaw(true, "Anomaly", ...)`), so all four are genuinely ungated. Understating the ungated count understates the size of the fail-open, which is the one thing this entry exists to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
+
+And `icon-jump` is in the set but is raised by nothing - it is a DEAD token. That one matters most: the icon-teleport family is precisely the defect class the map-render wave has spent months chasing, and the sweep has never been able to see it. Before the anchoring fix the token would occasionally "hit" by matching prose (`MapRenderHighWarpCanaryInGameTest`'s own description text contains `icon-jump`), which is a false positive dressed as coverage, not a gate.
+
+NOT resolved here, deliberately, because reconciling the set is a per-token decision (defect signal vs instrumentation signal) rather than a mechanical rename:
+- `unaccounted-drawn-recording` is documented in `.claude/CLAUDE.md` as the S0 polyline-COVERAGE instrument, not a defect signal - gating it would red runs for an instrumentation gap.
+- `factory-parity` is the same shape: a shadow-only PhaseFactory comparator that never drives a draw, so a fire is a build-bug signal, not a rendered regression.
+- `gap-vs-retire` / `decision-vs-old-truth` / `icon-off-orbit` / `retire-not-held` / `anchor-resolve-fail` / `clock-not-ready` each need a call on whether a raise is a defect or an expected transient.
+- `icon-teleport` is the one that most likely SHOULD be gated (renaming `icon-jump` -> `icon-teleport`). What blocks doing it here is that nobody knows whether it FIRES on a green run: the only tracer-armed scenario that walks the real 272-tree corpus is S1.4, and every S1.4 flight so far predates the `unlistedReasons` channel, so no archived result records whether an icon-teleport raise happened. Gating it blind could red a live-proven daily on the strength of a rename. S1.4's next nightly is the measurement - `anomalySweep.unlistedReasons` in its result JSON answers it for free - and the rename should follow that number, not precede it.
+
+**What the deferral is NOT.** An earlier draft of this entry justified it with "adding any of them WIDENS the gate for every committed scenario at once, and several run with the tracer armed". That is no longer true after the sidecar baseline in this same change: exactly three specs arm the map tracer (`S1.4`, `S1.6`, `S1.7` each carry `SetSetting mapRenderTracing=true`) and the baseline pins it OFF for the other 27, so every `MapRenderTrace` emit early-returns on `IsEnabled` elsewhere and widening the set can only move those three scenarios' verdicts. The reasons above are the real ones; the blast-radius claim was overstated and is retracted here.
+
+Interim so it is not a silent fail-open: `hlib.unlisted_anomaly_reasons` returns every raised reason absent from the set, run.py warn-logs it (`anomalySweep saw N raise(s) with reason(s) NOT in the harness token set (REPORT-ONLY, not gating)`) and records it in the result JSON under `anomalySweep.unlistedReasons`. Non-gating by construction. Pinned by `AnomalyGrepAnchoringTests.test_icon_jump_is_a_dead_token_against_what_the_mod_emits` (written to be DELETED when the set is reconciled) and by `AnomalyGroundTruthEnumerationTests` (which stays, and is what keeps this table honest).
+
+## The harness leaked a diagnostic tracer across every later run [FIXED, branch `autotest-render-parity`]
+
+Found 2026-07-26. `SetSetting` does not only mutate the live per-save GameParameters: eight of the sixteen whitelisted settings (Parsek's `SettingWhitelist` `PersistenceRoute.GameParametersPlusSidecar`) are ALSO written to the INSTANCE-WIDE `GameData/Parsek/PluginData/settings.cfg`, and `ParsekScenario.OnLoad` applies that sidecar OVER whatever the loaded save carries. So S1.4's `SetSetting mapRenderTracing=true` pinned the per-frame map/TS render tracer ON for every later run on the automation instance - including multi-thousand-second landing flights that never declared it, which paid the tracer cost and were gated by an anomaly sweep they never asked for. Confirmed on the live instance: the sidecar contained exactly `mapRenderTracing = True`.
+
+Second half of the same problem, found while fixing it: EIGHT of the eleven committed fixture saves also carry `mapRenderTracing = True` inside their own GameParameters `ParsekSettings` node (they were harvested from a dev save with tracing on), so the tracer had in fact been on for those fixtures' flights even BEFORE S1.4 first ran. Deleting the sidecar therefore does not fix it; only an explicit stored OFF does, because the sidecar is the layer that wins over the save. (An earlier draft said EVERY fixture save; it is 8 of 11. The three without the key are `fresh-career`, `fresh-sandbox` and `fresh-science` - the synthesised career/sandbox/science templates, which were not harvested from the dev save. Immaterial to the fix, which pins the tracer OFF regardless of what the save carries, but it was stated as universal.)
+
+Fix (harness-side, no rebuild or re-provision needed): `run.reset_settings_sidecar` writes a deterministic tracers-OFF baseline (`ghostRenderTracing` / `mapRenderTracing` / `ledgerTracing` = False, and nothing else, so the other five tracked settings stay unset and the fixture's own values keep governing them) into the sidecar at STAGE, before launch, and again at TEARDOWN in `run_attempt`'s `finally`. Both calls write the SAME baseline rather than restoring a captured prior state - restoring the prior state would faithfully preserve the previous run's contamination. Robust to a budget-watchdog process-tree kill (the finally still runs) and self-healing if the harness process itself dies (the next run's stage call cleans it). The clearing is logged by name, so the leak is visible rather than silently clobbered. Pure half plus tests in `hlib` (`render_settings_sidecar_baseline` / `parse_settings_sidecar` / `settings_sidecar_tracers_on`); shell half driven end to end over the fake-KSP seam.
+
+CONSEQUENCE to be aware of: this de-arms the INCIDENTAL map-render anomaly sweep for the 27 scenarios that never declared a tracer (their `allowedAnomalies` gate becomes structurally inert, because every `MapRenderTrace` emit early-returns on `IsEnabled`). That is the intended correction - tracer state is now a declared per-scenario property - but any scenario that wants the sweep armed must add its own `SetSetting mapRenderTracing=true` step, as S1.4 and S1.6 do.
+
+## `allowedAnomalies` is misplaced in every committed scenario spec [FIXED, branch `autotest-render-parity`]
+
+Found 2026-07-26. `run.py` reads `expectations.allowedAnomalies`, but all 28 pre-existing specs write a bare `allowedAnomalies = [...]` AFTER the `[expectations.logContracts]` header, which TOML scopes to `expectations.logContracts.allowedAnomalies` - a key nothing reads. Same class as the `skipTailOnUnmetMission` misplaced-key trap.
+
+Inert for the 27 specs declaring `[]` (the default is also `[]`, so the sweep behaves identically), but NOT inert for S1.4-injected-playback, whose declared `polyline-orbit-overlap` exception has never applied: S1.4 has been running with NO anomaly allowed. Its green runs therefore prove that overlap did not occur, not that it was tolerated.
+
+**Decision (2026-07-26): promote the validator to an ERROR, and relocate the key WITHOUT activating S1.4's dead exception.** The alternative was to move the key as-declared in all 28 and accept that S1.4 gains a tolerance that has never been in force. Rejected, for three reasons.
+
+1. *A warning does not fail anything.* The failure mode is a spec author believing a declared tolerance applies when it does not, and a green run then meaning "the anomaly did not happen" rather than "the anomaly was tolerated". A warning is invisible at exactly the moment that matters; it had already been printed for one commit and changed nothing.
+2. *An error is cheap and loud.* `validate_spec` runs BEFORE the KSP launch, so a misplaced key costs a fast pre-flight rejection with the fix named in the message - never a wasted run. The reason it shipped as a WARN was that all 28 specs still carried the misplaced form; relocating them in the same change removes that constraint entirely.
+3. *The trap re-arms.* Which sub-table a bare key lands in depends on whichever `[expectations.<sub>]` header precedes it, so the hazard returns every time a spec grows a new sub-table. Only a hard gate makes it unrepeatable. The check now covers EVERY expectations sub-table, not just `logContracts`.
+
+And the widening it avoids: activating S1.4's `polyline-orbit-overlap` exception would blind a live-proven scenario to a class of anomaly it currently catches, on the strength of a comment rather than a flight. The evidence points the other way - the overlap has never been observed. So all 28 specs get an explicit `[expectations]` table carrying `allowedAnomalies = []` ahead of their sub-tables, S1.4 included, with the original comment and the history preserved in the file. Every spec keeps exactly the gate strength it has actually been flying with, so no confirming flight is required - none of them changes behavior. If the overlap ever does fire, S1.4 reds, it gets an entry here, and it is quarantined via `[expectedFail]` or re-declared WITH the flight that shows it.
+
+Implemented in `hlib.validate_spec` (error, per sub-table, naming the inert exceptions when the list is non-empty) plus the 28 spec relocations; covered by `MisplacedAllowedAnomaliesRejectionTests`, which also pins that no committed spec still carries the misplaced form and that S1.4's list is empty while its history stays documented.
+
 ## A shipped daily scenario read GREEN while executing ZERO tests [FIXED, branch `autotest-batch-coverage`]
 
 Proved live on the real automation instance 2026-07-26. `B10-career-passive-safety` (tier `daily`) passed every run while its in-game batch executed nothing:
