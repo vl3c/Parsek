@@ -11,6 +11,7 @@ caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 
 import copy
 import os
+import re
 import sys
 import tomllib
 import unittest
@@ -1126,6 +1127,134 @@ class BatchVacuityGateTests(unittest.TestCase):
                 hlib.batch_contract_vacuity_gap(lc.get("required", []) or [], selector),
                 "%s: batch contract accepts a vacuous tally" % name)
         self.assertTrue(checked, "no committed RunTests spec found - the sweep is inert")
+
+
+class BatchVacuityGateShapeTests(unittest.TestCase):
+    """The three ways a spec could satisfy the gate and STILL admit a vacuous batch,
+    found by adversarial review 2026-07-26 and closed here. Each cell is the
+    reviewer's counterexample verbatim; each must now be REJECTED.
+    """
+
+    def setUp(self):
+        self.reg = load_registry()
+        self.pin = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                    "category=RecordingInvariants scene=FLIGHT"]
+
+    def _h5(self):
+        spec = copy.deepcopy(load_spec("H5-invariants-corpus.toml"))
+        spec["expectations"]["logContracts"]["required"] = list(self.pin)
+        return spec
+
+    def test_second_runtests_step_is_rejected(self):
+        # Dodge 1: validate_spec probed only the FIRST category and batch_owners
+        # counted 1 for any n>0, so a whole-tally pin on the first batch left a
+        # second `RunTests GhostPlayback` batch completely ungated.
+        spec = self._h5()
+        steps = spec["driver"]["steps"]
+        idx = next(i for i, s in enumerate(steps) if (s or {}).get("cmd") == "RunTests")
+        steps.insert(idx + 1, {"cmd": "RunTests", "args": {"category": "GhostPlayback"},
+                               "expect": "OK", "budget": 540})
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("2 RunTests steps declared" in e for e in v.errors), list(v.errors))
+
+    def test_multi_category_selector_is_rejected(self):
+        # Dodge 2: a pin naming ONE constituent rejects the other constituent's
+        # probes for the wrong reason (category-token mismatch), so the gate reported
+        # no gap while category B could run all-skipped.
+        spec = self._h5()
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"]["category"] = "RecordingInvariants,GhostPlayback"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("multi-category" in e for e in v.errors), list(v.errors))
+
+    def test_absent_category_selector_is_rejected(self):
+        # Same class: RunTests with no category is RunAll, i.e. every category at
+        # once, with the same inexpressible per-constituent tally.
+        spec = self._h5()
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"].pop("category", None)
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("absent" in e for e in v.errors), list(v.errors))
+
+    def test_shape_errors_are_waivable_by_the_documented_opt_out(self):
+        # Both shape errors ride the SAME reason-required opt-out as the contract
+        # gate itself: opting out means "this spec's batch cannot be non-vacuity
+        # gated", which is exactly what an unpinnable second batch or aggregate is.
+        for shape in ("multi-selector", "second-step"):
+            with self.subTest(shape=shape):
+                spec = self._h5()
+                if shape == "multi-selector":
+                    for s in spec["driver"]["steps"]:
+                        if (s or {}).get("cmd") == "RunTests":
+                            s["args"]["category"] = "RecordingInvariants,GhostPlayback"
+                else:
+                    steps = spec["driver"]["steps"]
+                    idx = next(i for i, s in enumerate(steps)
+                               if (s or {}).get("cmd") == "RunTests")
+                    steps.insert(idx + 1, {"cmd": "RunTests",
+                                           "args": {"category": "GhostPlayback"},
+                                           "expect": "OK", "budget": 540})
+                lc = spec["expectations"]["logContracts"]
+                lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+                lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "documented shape exception"
+                v = hlib.validate_spec(spec, self.reg)
+                self.assertTrue(v.ok, list(v.errors))
+
+    def test_two_patterns_satisfiable_by_different_lines_is_a_gap(self):
+        # Dodge 3: the gate ANDed its patterns against ONE synthesized probe, but
+        # evaluate_expectations re.searches each pattern over the WHOLE log
+        # independently. `total=42 passed=40` is satisfied by the LogContractTests
+        # decoy line while `.* failed=0` is satisfied by the vacuous tally, so the
+        # contract passed over a batch that executed nothing.
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=40",
+             "BATCH_COMPLETE v1 .* failed=0\\b"], "GhostPlayback")
+        self.assertIsNotNone(gap)
+        self.assertIn("accepted by required pattern", gap)
+
+    def test_a_pattern_only_the_decoy_satisfies_is_not_a_discriminator(self):
+        # The LogContractTests literal is emitted by ParsekLog.Info regardless of the
+        # driven batch, so a pattern matching only IT proves nothing about the batch.
+        self.assertEqual(1, len(hlib._BATCH_DECOY_BODIES))
+        gap = hlib.batch_contract_vacuity_gap(
+            [hlib._BATCH_DECOY_BODIES[0], "BATCH_COMPLETE v1 .* failed=0\\b"],
+            "RecordingInvariants")
+        self.assertIsNotNone(gap)
+
+    def test_the_decoy_line_matches_the_shipped_c_sharp_literal(self):
+        # If LogContractTests.BatchCompleteFormatValid ever changes its numbers, the
+        # decoy this gate models goes stale and the gate silently weakens. Cross-check
+        # against the C# source, normalising away its string-concatenation line breaks.
+        src = os.path.join(os.path.dirname(HARNESS_ROOT), "Source", "Parsek",
+                           "InGameTests", "LogContractTests.cs")
+        self.assertTrue(os.path.isfile(src), src)
+        with open(src, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        # Join C# adjacent-literal concatenation ("a" + "b") and collapse whitespace.
+        joined = re.sub(r'"\s*\+\s*"', "", text)
+        joined = re.sub(r"\s+", " ", joined)
+        for body in hlib._BATCH_DECOY_BODIES:
+            self.assertIn(re.sub(r"\s+", " ", body), joined,
+                          "decoy body is no longer the literal LogContractTests asserts")
+
+    def test_single_strong_pin_still_passes(self):
+        # Guard against over-tightening: the shipped shape must stay accepted.
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 "
+             "category=GhostPlayback scene=FLIGHT"], "GhostPlayback"))
+
+    def test_every_committed_batch_spec_still_validates_clean(self):
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with self.subTest(spec=name):
+                v = hlib.validate_spec(load_spec(name), self.reg)
+                self.assertTrue(v.ok, "%s: %s" % (name, list(v.errors)))
 
 
 # ---------------------------------------------------------------------------

@@ -590,6 +590,31 @@ def resolve_batch_complete(
 # same `considered` set, InGameTestRunner.RunBatch). So `passed == 0 and failed == 0`
 # forces `total == skipped`: the empty batch (all zero) and the all-skipped batch are
 # the SAME one-parameter family, enumerated over `skipped`.
+#
+# EXACTLY WHAT THE GATE GUARANTEES, and the three ways it could be dodged before the
+# 2026-07-26 review hardening closed them. The probe family covers ONE batch driven by
+# ONE named category, so the guarantee only holds when the spec drives exactly that:
+#   1. TWO RunTests steps - only the FIRST category was probed (and `batch_owners`
+#      counts 1 for any n > 0), so a whole-tally pin on the first left the second
+#      batch entirely ungated. CLOSED by SINGLE_BATCH_SELECTOR_RULE below: more than
+#      one RunTests step is an ERROR.
+#   2. A MULTI-category selector ("all" or "A,B") - the run-time gate is the
+#      `category=multi:<n>` AGGREGATE, whose tally sums every constituent, so an
+#      aggregate pin cannot express "category B was not vacuous" and a
+#      single-constituent pin trivially rejects the OTHER constituent's probes for
+#      the wrong reason (category-token mismatch). Per-constituent non-vacuity is NOT
+#      expressible on this contract surface at all. CLOSED FAIL-CLOSED by
+#      SINGLE_BATCH_SELECTOR_RULE: a batch-owning spec must name exactly one
+#      category; a multi or absent selector is an ERROR.
+#   3. TWO BATCH_COMPLETE patterns satisfied by DIFFERENT log lines -
+#      `evaluate_expectations` re.searches each required pattern over the whole log
+#      independently, so ANDing them against one synthesized probe was too weak.
+#      CLOSED in batch_contract_vacuity_gap: discrimination now requires ONE single
+#      pattern to reject the entire vacuous family.
+# What the gate still does NOT do, stated plainly: it blocks only `passed == 0`. The
+# `passed=[1-9][0-9]*` form its own error message recommends accepts 1-of-42. That
+# form is for a spec whose exact split has not been measured yet; pin the whole tally
+# as soon as a live run gives you one.
 # ---------------------------------------------------------------------------
 
 # The opt-out lives in [expectations.logContracts] beside the contract it exempts.
@@ -597,6 +622,14 @@ def resolve_batch_complete(
 # is REQUIRED and a spec author has to write down why the batch cannot be pinned.
 BATCH_VACUITY_OPT_OUT_KEY = "batchVacuityOptOut"
 BATCH_VACUITY_OPT_OUT_REASON_KEY = "batchVacuityOptOutReason"
+
+# The shape the anti-vacuity guarantee is defined over. Quoted verbatim in the
+# validate_spec errors so a rejected spec author reads the reason, not just the rule.
+SINGLE_BATCH_SELECTOR_RULE = (
+    "a batch-owning spec must drive exactly ONE RunTests step naming exactly ONE "
+    "category: the vacuity probe is built for a single named category, and neither a "
+    "second batch nor a multi-category aggregate can be pinned non-vacuously on the "
+    "current contract surface")
 
 # Every scene token InGameTestRunner can print (HighLogic.LoadedScene.ToString()).
 # The B10 defect WAS a scene surprise (the spec assumed FLIGHT, the fixture routed to
@@ -613,6 +646,22 @@ _BATCH_PROBE_SCENES: Tuple[str, ...] = (
 # the spec's own patterns mention is added on top, so a pattern that pins a total
 # ABOVE the bound is still probed at exactly the value it pins.
 _BATCH_PROBE_MAX_SKIPPED = 256
+
+# DECOY BATCH_COMPLETE-shaped lines that a KSP.log can carry REGARDLESS of what the
+# driven batch did. `evaluate_expectations` re.searches each required pattern over the
+# WHOLE log, so a pattern satisfied by one of these is satisfied even when the real
+# batch was vacuous - which is why the discrimination test below must reject these too,
+# not only the synthesized vacuous tallies.
+#
+# There is exactly one today: LogContractTests.BatchCompleteFormatValid (in-game
+# category "LogContracts") pushes this literal through ParsekLog.Info to pin the H3
+# format. It asserts the exact string, so it is stable, not a moving target. ANY new
+# code path that prints a BATCH_COMPLETE-shaped line outside InGameTestRunner's batch
+# end MUST be added here or the gate silently weakens.
+_BATCH_DECOY_BODIES: Tuple[str, ...] = (
+    "BATCH_COMPLETE v1 total=42 passed=40 failed=1 skipped=1 "
+    "category=RecordingInvariants scene=FLIGHT",
+)
 
 # The probes carry the real KSP.log line prefix so a contract that anchors on
 # "\[Parsek\]\[INFO\]\[TestRunner\]" is exercised as written; a BARE probe is swept
@@ -632,22 +681,19 @@ def _batch_probe_skipped_counts(patterns: Sequence[str]) -> List[int]:
 
 
 def _batch_probe_categories(selector: Optional[str]) -> Tuple[str, ...]:
-    """Category tokens the GATING BATCH_COMPLETE line could carry for ``selector``.
+    """Category token the GATING BATCH_COMPLETE line carries for ``selector``.
 
-    Single category -> that exact token. No category (RunTests with no arg ->
-    InGameTestRunner.RunAll) -> the literal "all" the runner stamps as
-    currentBatchSelector. A multi-category selector gates on the
-    ``category=multi:<n>`` AGGREGATE (resolve_batch_complete), so the aggregate token
-    for the declared count is probed alongside each constituent.
+    ONE token, always. A batch-owning spec is required by ``validate_spec`` to name
+    exactly one category on exactly one RunTests step (see
+    ``SINGLE_BATCH_SELECTOR_RULE`` and the module note above for why), so the probe
+    family is single-category by construction. A None/empty selector is the RunAll shape the
+    runner stamps as ``all``; ``validate_spec`` rejects THAT on a batch-owning spec
+    too, and the token is kept here only so a direct caller of the pure function
+    gets a defined answer.
     """
     if not selector:
         return ("all",)
-    s = selector.strip()
-    if not is_multi_category_selector(s):
-        return (s,)
-    toks = tuple(t.strip() for t in s.split(",") if t.strip()) if s != "all" else ()
-    n = len(toks) if toks else 1
-    return ("multi:%d" % n, "all") + toks
+    return (selector.strip(),)
 
 
 def vacuous_batch_complete_probes(
@@ -675,13 +721,22 @@ def vacuous_batch_complete_probes(
 def batch_contract_vacuity_gap(
     required_patterns: Sequence[str], selector: Optional[str]
 ) -> Optional[str]:
-    """The first vacuous BATCH_COMPLETE line this contract would ACCEPT, or None.
+    """A vacuous BATCH_COMPLETE line this contract would ACCEPT, or None.
 
-    A log body is accepted by ``evaluate_expectations`` when EVERY required pattern
-    re.search-matches it, so the batch contract detects vacuity iff, for each probe,
-    at least ONE BATCH_COMPLETE-naming pattern fails to match. Returns the offending
-    probe line (so the error message can quote the exact tally that would have passed)
-    or None when the contract discriminates.
+    THE DISCRIMINATION TEST IS PER-PATTERN, NOT PER-LINE, and that is load-bearing.
+    ``evaluate_expectations`` applies each required pattern with ``re.search`` over
+    the WHOLE log body INDEPENDENTLY - two patterns may be satisfied by two
+    DIFFERENT lines. So it is NOT enough that no single probe satisfies every
+    pattern at once: the log of a vacuous run contains other BATCH_COMPLETE-shaped
+    text (``LogContractTests.BatchCompleteFormatValid`` pushes a literal
+    ``BATCH_COMPLETE v1 total=42 passed=40 failed=1 skipped=1 ...`` through
+    ParsekLog.Info), so a second pattern can be satisfied by a decoy while the first
+    is satisfied by the vacuous tally. The contract therefore detects vacuity IFF
+    at least ONE required pattern rejects the ENTIRE vacuous family on its own.
+
+    Returns a probe line the contract would let through (so the error message can
+    quote the exact tally that would have passed) or None when some single pattern
+    discriminates.
 
     Patterns that do not name BATCH_COMPLETE are IGNORED here: they are satisfied by
     other log lines that a vacuous batch still emits, so they can never be the thing
@@ -700,10 +755,32 @@ def batch_contract_vacuity_gap(
             continue
     if not compiled:
         return "<every BATCH_COMPLETE pattern is an invalid regex>"
-    for probe in vacuous_batch_complete_probes(selector, batch_patterns):
+    probes = vacuous_batch_complete_probes(selector, batch_patterns)
+    # A vacuous run's log carries the vacuous tally AND any batch-independent decoy,
+    # and a pattern satisfied by EITHER is satisfied. So the discriminating pattern
+    # must reject the union.
+    decoys = [p for body in _BATCH_DECOY_BODIES
+              for p in (_BATCH_PROBE_PREFIX + body, body)]
+    admissible = probes + decoys
+    for rx in compiled:
+        if not any(rx.search(line) is not None for line in admissible):
+            # This ONE pattern rejects every line a vacuous run could offer it, so no
+            # combination of log lines can satisfy the contract over a vacuous batch.
+            return None
+    # Every pattern admits at least one vacuous tally. Quote the strongest evidence:
+    # a probe the WHOLE contract accepts if one exists, else the first vacuous line
+    # any single pattern accepts (the others being satisfiable by other log lines).
+    for probe in probes:
         if all(rx.search(probe) is not None for rx in compiled):
             return probe
-    return None
+    for rx in compiled:
+        for line in admissible:
+            if rx.search(line) is not None:
+                return ("%s  [accepted by required pattern %r; every OTHER "
+                        "BATCH_COMPLETE pattern here can be satisfied by a DIFFERENT "
+                        "log line, so the contract as a whole does not reject it]"
+                        % (line, rx.pattern))
+    return None  # pragma: no cover - unreachable: the loop above found a match
 
 
 # ---------------------------------------------------------------------------
@@ -2012,6 +2089,32 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                         "(a key outside that table is silently ignored)" % (scope_name, key))
     if batch_owners > 0:
         selector = run_tests_selector if run_tests_steps > 0 else (autorun or {}).get("tests")
+        # SHAPE GATE (2026-07-26 review). The probe family is built for ONE batch
+        # driven by ONE named category; outside that shape the anti-vacuity
+        # guarantee simply does not hold, so the shape itself is enforced rather
+        # than left as an unstated precondition. See the SINGLE_BATCH_SELECTOR_RULE
+        # note above the probe helpers for the two dodges this closes.
+        if opt_out is not True and run_tests_steps > 1:
+            errors.append(
+                "driver.steps: %d RunTests steps declared -- %s. Only the FIRST "
+                "category is resolved (run.py::_driven_category) and probed, so every "
+                "later batch would run UNGATED. Split the extra batch into its own "
+                "scenario spec. Deliberate exception: set "
+                "expectations.logContracts.%s = true with a %s."
+                % (run_tests_steps, SINGLE_BATCH_SELECTOR_RULE,
+                   BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
+        if opt_out is not True and (not selector or is_multi_category_selector(selector)):
+            errors.append(
+                "driver: batch selector %r is %s -- %s. The gating line for a "
+                "multi-category run is the category=multi:<n> AGGREGATE, whose tally "
+                "sums the constituents, so 'category B executed nothing' is not "
+                "expressible. Name one category per spec. Deliberate exception: set "
+                "expectations.logContracts.%s = true with a %s."
+                % (selector,
+                   "absent (RunTests with no category runs ALL categories)"
+                   if not selector else "multi-category",
+                   SINGLE_BATCH_SELECTOR_RULE,
+                   BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
         if opt_out is True:
             if not isinstance(opt_out_reason, str) or not opt_out_reason.strip():
                 errors.append(

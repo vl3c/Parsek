@@ -72,6 +72,12 @@ D11 = ["reaim-lambert", "eccentric-inclined-targets", "heliocentric-parking-depa
        "fail-closed-to-faithful"]
 D14 = ["sandbox", "scene-ksc"]
 
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py:1733 reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. This table must stay AHEAD of the sub-tables below.
+allowedAnomalies = []
+
 [expectations.recordings]
 # count.max == 0: nothing is injected and every Periodicity test is a pure planner call
 # over explicit inputs - no RecordingStore / MissionStore / RouteStore mutation at all -
@@ -90,19 +96,24 @@ count = { min = 0, max = 0 }
 # "total=N passed=N skipped=0" pin would be WRONG, so the derivation is kept as the
 # explanation of WHY each number is what it is:
 #  - total=11: exactly 11 [InGameTest(Category = "Periodicity")] methods exist
-#    (ReaimEndToEndInGameTest 8, CrossParentReaimCanaryInGameTest 1,
+#    (ReaimEndToEndInGameTest 9, CrossParentReaimCanaryInGameTest 1,
 #    ReaimLandingCoincidenceInGameTest 1 - and that last one is FLIGHT-scene).
-#    BATCH_COMPLETE's total is `allTests.Count(Status != NotRun)`, which counts every
-#    filtered test too.
+#    Re-derive with `grep -c 'Category = "Periodicity"'` over those three files; the
+#    9 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
+#    `allTests.Count(Status != NotRun)`, which counts every filtered test too.
 #  - skipped=4, from TWO different filters applied in order by RunCategory:
 #      * FilterSceneEligibleBatchCandidates first drops the 1 Scene = GameScenes.FLIGHT
 #        member (S4Restitch_RotatedDeorbitPoint_MeetsRecordedSiteAtTrigger, which needs a
 #        real landing site);
 #      * PrepareBatchExecution then drops the 3 that declare AllowBatchExecution = false
-#        (Reaim_KerbinTo{Moho,Eeloo,Duna}_FeasibilitySweep_Diagnostic - measurement
-#        artifacts, single-run-only by design).
+#        (Reaim_KerbinTo{Moho,Eeloo,Duna}_FeasibilitySweep_Diagnostic at
+#        ReaimEndToEndInGameTest.cs:572/581/752 - measurement artifacts, single-run-only
+#        by design).
 #    Both filters mark the test Skipped, so all 4 land in the skipped tally.
-#  - passed=7: the remaining 7 batch-eligible SPACECENTER tests execute. Their
+#  - passed=7: the remaining 7 batch-eligible SPACECENTER tests execute - the other 6 of
+#    ReaimEndToEndInGameTest's 9 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
+#    ObservedEdgeDeparture, KerbinToMoho / KerbinToEeloo StructuralContract,
+#    ParkingDeparture) plus the CrossParentReaimCanary. Their
 #    InGameAssert.Skip guards fire only on a non-stock body graph, degenerate live orbit
 #    data, or a fixture offset that stock eccentricity drift has pushed outside the
 #    stage-B band - none of which the stock-minimal profile produces (the tests' own
@@ -114,8 +125,6 @@ count = { min = 0, max = 0 }
 # point of the scenario is that these solvers actually ran.
 required  = ["BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 # Budget arithmetic (M-A5 S8, mirrors M1/H5/H6): 720 >= 300 LoadGame + 540 RunTests
