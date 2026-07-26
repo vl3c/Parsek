@@ -2102,6 +2102,135 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
         self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
 
 
+class WarpLivenessRealMachineTests(unittest.TestCase):
+    """The floor driven by the REAL b5 machine, not a stub decide.
+
+    WHY THIS EXISTS ON TOP OF WarpLivenessFloorWiringTests (2026-07-26). Those
+    cells pin the fly-loop WIRING with a decide that returns its state
+    unchanged, so ``warp_to_cmd`` stays armed BY CONSTRUCTION. That assumes away
+    the load-bearing question: does the real machine actually HOLD an armed
+    native warp across a starved episode, or does it clear the command and reset
+    the window? For B12 flight 2 the answer was "clears it" -- 3,603
+    ``warp_to_ut`` against 3,602 ``cancel_warp``, the episode never lasting two
+    frames -- which is why this floor could NOT have caught that flight and the
+    thrash counter is what bounds it.
+
+    What the floor DOES bound is the post-fix residual, and that is what these
+    cells fly: ``coast_native_warp_hold`` removed the cancel half of the cycle,
+    so a blind ``time_to_soi`` under warp now HOLDS the command, while flight
+    2's other half (a rails rate that never escaped 2.76x) is untouched by that
+    fix. Held command + crawling rate is an unbounded episode that no other
+    guard can see. The telemetry below is flight 2's own, post-fix: same body,
+    same altitude band, same 2.76x rails rate, same measured 1.41 game-seconds
+    per wall-second."""
+
+    THRASH_RAILS_RATE = 2.76      # measured, flight 2's final coast
+    STARVED_GAME_PER_WALL = 1.41  # measured, ditto (7.05-7.13 game-s / 5 s)
+    COAST_ALTITUDE = 49_028_969.0
+
+    def _fly_real_machine(self, game_per_wall, frames, wall_per_frame=1.0,
+                          rails_rate=None):
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        # rounds_done = both correction rounds spent, which is exactly where
+        # flight 2 sat when its coast went bad (its status.json reads
+        # `rounds: 2`). Without it the ALTITUDE trigger for round 0 is 0.0 m and
+        # the machine correctly plans a correction on frame 1 instead of
+        # coasting.
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=0.0,
+                        correction_rounds_done=len(
+                            state.params.correction_trigger_alts))
+        rails_rate = self.THRASH_RAILS_RATE if rails_rate is None else rails_rate
+        # The native target must stay AHEAD for the whole script, else the
+        # machine legitimately disarms on arrival and the cell stops testing the
+        # armed episode.
+        tts = game_per_wall * wall_per_frame * frames * 4.0 + 40_000.0
+
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            # A benign terminal once the script runs out, so a NEGATIVE cell
+            # ends cleanly instead of spinning (same shape as _fly above).
+            if seen["n"] >= frames:
+                return replace(st, done=True), []
+            return mlib.b5_decide(st, snapshot)
+
+        # Frame 0 ARMS the native warp off a readable time_to_soi. Every later
+        # frame is the post-fix blind read under warp that the hold keeps armed.
+        snaps = [snap(ut=0.0, body="Kerbin", altitude=self.COAST_ALTITUDE,
+                      time_to_soi=tts, warp_mode="NONE", warp_rate=1.0)]
+        snaps += [snap(ut=game_per_wall * wall_per_frame * i, body="Kerbin",
+                       altitude=self.COAST_ALTITUDE,
+                       time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=rails_rate, warping_to=tts - 30.0)
+                  for i in range(1, frames)]
+        control = FakeMissionControl(snaps, max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final, control
+
+    def test_the_real_coast_machine_holds_a_starved_warp_until_the_floor_fires(self):
+        """The shape the floor exists for, flown by the real machine: the hold
+        keeps ONE armed command outstanding while the rate crawls, and the floor
+        is the only guard that can end it."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertIn("running but not warping", final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_COAST_TO_TARGET)
+        verdict, reason = mlib.resolve_flight_verdict(final, [])
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, reason)
+
+    def test_the_thrash_counter_cannot_take_the_credit_for_this_shape(self):
+        """The two guards are complements, and this cell proves they do not
+        overlap: the hold means the machine issues the native warp exactly ONCE
+        for the whole episode, so the thrash cap (500) is three orders of
+        magnitude away from firing. Whatever ends this flight, it is not the
+        thrash counter."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        issues = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(issues), 1, control.actions[:8])
+        self.assertEqual(final.phase_warp_issues, 1)
+        self.assertNotIn(mlib.WARP_THRASH_COAST, final.flake_reason)
+
+    def test_the_floor_terminal_leaves_the_warp_standing_like_every_fly_loop_terminal(self):
+        """Pins a deliberate ASYMMETRY this coverage surfaced, so nobody
+        "fixes" one side of it in isolation.
+
+        MACHINE-level terminals tear the warp down (`_b5_stop_all_warp`, the
+        "leave nothing warped behind" rule the 2026-07-26 review added to the
+        thrash family) because the machine returns ACTIONS and the fly loop
+        performs them before driving the seam. FLY-LOOP-level terminals do not,
+        and all three behave identically: the wall reaper, the unexpected-warp
+        flake, and this floor all return a done state with the warp still
+        armed. That is the right call here rather than an oversight -- a
+        teardown would have to `control.perform` from inside the give-up
+        branch, and a perform that raises on a degraded connection would escape
+        as a post-connect drop and DESTROY the named reason, which is the entire
+        value of the terminal. Nothing drives the game after a fly-loop
+        terminal: run_mission evaluates, closes the connection, and run.py kills
+        the process for the retry."""
+        final, _ = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertIsNotNone(final.warp_to_cmd)
+
+    def test_the_real_machine_on_a_genuinely_warping_coast_is_never_judged_starved(self):
+        """The negative that matters: the SAME machine, the SAME hold, an armed
+        episode judged well past the 180 s window (300 wall-seconds here), but
+        warping at a real rate. It must run clean."""
+        final, _ = self._fly_real_machine(1000.0, frames=300, rails_rate=1000.0)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason or "")
+
+
 class WarpUtilisationUnwindTests(unittest.TestCase):
     """_wu_close ran on every NORMAL fly-loop exit and none of the raising
     ones, so a crashed run silently lost its FINAL phase's warp-utilisation row

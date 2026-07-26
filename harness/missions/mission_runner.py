@@ -2699,6 +2699,20 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 log.warn(state.phase, reason)
                 _dump_event_window(log, state.phase, ring, "warp-liveness-flake")
                 _wu_close(float(snapshot.ut))
+                # NO WARP TEARDOWN HERE, deliberately, and this is the one
+                # terminal where that choice needs saying out loud: it fires
+                # only while a warp is live, so it is the fly-loop terminal most
+                # likely to leave one standing. The MACHINE's terminals tear
+                # down (_b5_stop_all_warp) because they return ACTIONS the loop
+                # then performs; a fly-loop terminal would have to
+                # control.perform() inline, and a perform that raises on a
+                # degraded connection escapes as a post-connect drop and
+                # destroys the named reason -- which is the whole point of this
+                # give-up. Both other fly-loop terminals (the wall reaper and
+                # the unexpected-warp flake) return the same way. Nothing drives
+                # the game afterwards: run_mission evaluates, closes, and run.py
+                # kills the process for the retry. Pinned by
+                # test_shells.WarpLivenessRealMachineTests.
                 terminal = dict(verdict=mlib.MISSION_FLAKE,
                                 flake_phase=state.phase, done=True)
                 # Every machine that can arm a native warp carries
