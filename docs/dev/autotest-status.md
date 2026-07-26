@@ -25,6 +25,20 @@ batch-independent decoy line, because evaluate_expectations searches each
 pattern over the whole log independently. It still blocks only passed==0 - the
 `passed=[1-9][0-9]*` placeholder form accepts 1-of-42 by design.
 
+SECOND ORDER: pinning the tally whole makes each pin a hardcoded copy of a number
+that lives in C#, so CommittedBatchTallySourceSyncTests now cross-checks every
+pinned tally against the [InGameTest] attributes in Source/Parsek - total exactly,
+skipped as a floor (run-time InGameAssert.Skip guards are not statically
+derivable, which is why L1-passive-sandbox legitimately pins skipped=3 over a
+category whose attributes force 0). Adding an in-game test to a pinned category
+now reds locally instead of on the next nightly. The same sweep also asserts
+RECOGNITION completeness: any `InGameTest` / `InGameTestAttribute` token sitting
+in an attribute bracket that the strict parse did not claim (a stacked
+`[Obsolete(...), InGameTest(...)]` list, the explicit `Attribute` suffix, a
+namespace-qualified name, or a `[method: ...]` target) is reported as UNCLAIMED
+and reds, so a form the parser does not model can never silently shrink a
+category total.
+
 NEW: M1-mission-loop-unit and M2-periodicity-solver take D11 from 0/18 to 8/18 by
 running the Missions / Periodicity in-game categories, which needed no fixture
 and had never run because no spec named them; both gate the mission-loop PLAN and
@@ -353,19 +367,29 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 806 mission-machine + 600 harness + 203 provisioner unittest
+- Headless: 806 mission-machine + 664 harness + 203 provisioner unittest
   cells; 18,669 xUnit on the C# side (18,668 passed + 1 skipped: analyzer,
   seam, log contracts, the new route-window delta formatter). Re-measured
-  2026-07-26 from `autotest-batch-coverage` AFTER merging `origin/main` (which
+  2026-07-26 from `autotest-tally-gate` AFTER merging `origin/main` (which
   carried `autotest-orbit-missions` -> `autotest-landing-missions` ->
-  `autotest-eve-missions`); this line inherits SILENTLY through a clean
+  `autotest-eve-missions` -> `autotest-batch-coverage`); this line inherits
+  SILENTLY through a clean
   auto-merge and is wrong the moment either side adds a test, so re-measure
   rather than editing it by memory - `cd harness && python -m unittest discover
   -s missions/lib -q` (and `-s lib -q`, `-s provision -q`), plus
   `cd Source/Parsek.Tests && dotnet test`.
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
-- In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
-  log-contract tests.
+- In-game: 539 runtime tests / 97 categories (autorun-able), H5 invariants,
+  log-contract tests. Counted mechanically by
+  `hlib.parse_ingame_test_declarations` over `Source/Parsek`, not by hand
+  (the hand-and-grep number was 534 / 96: five namespace-qualified
+  declarations were invisible to both).
+- Spec-vs-source: every batch-owning spec's pinned `BATCH_COMPLETE` tally is
+  cross-checked against the C# `[InGameTest]` attributes it describes
+  (`CommittedBatchTallySourceSyncTests`), so adding an in-game test to a
+  pinned category fails locally instead of on the next nightly. The same
+  sweep asserts RECOGNITION completeness, so an attribute spelling the parse
+  does not model reds instead of quietly shrinking a total.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
 - Coverage ledger: 82 / 240 registry cells claimed (the growth metric),

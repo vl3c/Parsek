@@ -444,6 +444,87 @@ That is deliberate - it is the placeholder for an unmeasured split - but it is n
 guarantee that the batch did meaningful work, and it should be tightened to the whole
 tally the first time a live run produces one.
 
+**Batch-tally SOURCE SYNC (added 2026-07-26).** Pinning the tally whole makes `total=N`
+a hardcoded copy of a number that lives in C#, so a second gate keeps the two in step:
+`hlib.parse_ingame_test_declarations` reads every `[InGameTest(...)]` attribute out of
+the `Source/Parsek` tree, `derive_batch_tally` models `RunCategory`'s two filters over
+them, `resolve_batch_tally_pin` reads the literal tokens a spec pins (merged across all
+of its BATCH_COMPLETE-naming patterns), and `batch_tally_pin_mismatches` reports every
+contradiction. Without it, adding one in-game test to a pinned category reds that
+category's daily scenario on its next NIGHTLY run rather than locally.
+
+The filters are modelled IN THE RUNNER'S ORDER (`FilterSceneEligibleBatchCandidates` on
+scene, then `PrepareBatchExecution` on `AllowBatchExecution=false` over what survived),
+because a test failing both must be counted ONCE, in the scene bucket, exactly as the
+runner counts it. What that buys, and what it cannot:
+
+| Token | Check | Why |
+|---|---|---|
+| `total` | `==` derived | EXACT: `allTests.Count(Status != NotRun)` counts filtered tests, so it is the category's method count |
+| `skipped` | `>=` scene-skipped + batch-skipped | FLOOR only: a test clearing both filters can still `InGameAssert.Skip` on live fixture state, which no static read predicts (`L1-passive-sandbox` pins `skipped=3` over a category whose attributes force 0) |
+| `passed`+`failed` | `<=` batch-eligible | CEILING: more cannot run than are eligible |
+| all four | `passed+failed+skipped == total` | the runner recounts all three over one `considered` set |
+
+A token written as a regex class rather than a literal is left unchecked (the honest
+interim form when no live tally has been measured; no committed spec uses one today).
+This makes a literal `total=` a spec-authoring REQUIREMENT for a single-category
+batch owner, over and above the anti-vacuity rule (which a `passed=[1-9][0-9]*` pin
+alone would satisfy): `total` is the only token derivable exactly, and the only one
+that catches an added or removed test. `batchVacuityOptOut` waives that requirement
+along with the vacuity probe, but does NOT waive the agreement check - literal
+numbers written anyway are still expected to be true. A `category=multi:<n>`
+aggregate pin (a future multi-category selector) is out of scope, not failed: the
+union total spans categories the pin never enumerates. The literal `all` token IS in
+scope: it is what `RunAll` stamps when a spec drives `RunTests` with no category, and
+its batch spans every declaration in the assembly, so the derivation runs the two
+filters over all of them rather than looking up a category named "all".
+
+**The residual, stated rather than papered over.** `skipped` being a floor and
+`passed+failed` a ceiling leaves a NEAR-vacuous pin expressible: `total=42 passed=1
+failed=0 skipped=41` satisfies the exact total, the floor, the ceiling and the
+runner's own sum, and the anti-vacuity probes above only cover the `passed=0 failed=0`
+family, so nothing static reds it. This gate does not close that and cannot: run-time
+`InGameAssert.Skip` is unbounded, and a legitimate spec (`L1-passive-sandbox`) pins a
+skipped count its attributes do not force, so no static rule can separate the two.
+Only a MEASURED tally off a live run distinguishes them, which is why every committed
+pin carries one and why the mismatch message says `passed`/`skipped` must be
+RE-MEASURED, never recomputed from the derivation.
+
+**Two failure modes, two checks.** The parse masks comment bodies and string-literal
+interiors in one offset-preserving pass, which is what makes it survive multi-line
+argument lists, `Category = <const>` indirection (`RouteRewindTimelineRuntimeTests`),
+and `Description` values containing commas or attribute-shaped text. A RECOGNISED form
+whose `Category`/`Scene` will not resolve is REPORTED with an `<unresolved:...>`
+marker, never dropped. But a form never recognised at all would simply be ABSENT, and
+that is the one way the gate fails open - so `unclaimed_ingame_attribute_tokens` is a
+second, independent scan: every occurrence of the attribute name inside an attribute
+bracket that looks like a use and that the parse claims nothing for is reported, and
+the sweep asserts the list is empty.
+
+That check paid for itself immediately. The parse originally anchored on `[`
+immediately followed by the name, and the tree already carried five
+`[Parsek.InGameTests.InGameTest(...)]` declarations (4 `Ledger`, 1 `Rewind`, all in
+`IncompleteBallisticRuntimeTests.cs`) that it silently dropped - and that a raw
+`[InGameTest(` grep drops identically, so the two agreeing on 534 corroborated
+nothing. The parse now models the attribute-section grammar instead: an optional
+`method:` target, an optional namespace/type qualifier, C#'s optional `Attribute`
+suffix, and position anywhere in a comma-separated bracket. The corrected assembly
+total is **539 declarations across 97 categories**; no PINNED category moved, so no
+committed spec was wrong.
+
+Two deliberate placements. It is a TEST-SUITE sweep, not a `validate_spec` rule,
+because `validate_spec` runs inside `run.py` against a provisioned instance where the
+C# tree need not exist - the harness gates a shipped DLL, not a checkout. And the
+`scene=` token is taken from the PIN, not derived from the fixture's `VESSEL` nodes
+through `DecideLoadRoute`, so a spec pinning the wrong scene stays self-consistent here;
+the anti-vacuity gate plus a live run are what pin the route. Sweep:
+`CommittedBatchTallySourceSyncTests` in `harness/lib/test_hlib.py`, discovered over
+every committed spec rather than hardcoded. Discovery mirrors `validate_spec`'s own
+"exactly one BATCH owner" rule - a `RunTests` step XOR a `[driver.autorun]` block,
+with the same selector resolution (first `RunTests` category, else `autorun.tests`).
+Matching only `cmd == "RunTests"` would leave an autorun-owned spec carrying a pinned
+tally that the anti-vacuity rule validates and this one never looks at.
+
 ### Dimension registry: `harness/coverage/registry.toml`
 
 A committed materialization of catalog section 1, the single source of truth for
