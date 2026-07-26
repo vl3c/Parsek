@@ -159,4 +159,24 @@ budgetSeconds = 1680
 policy = "once"
 
 [expectedFail]
-bugId = ""
+# S4.1 IS the dedicated rewind-then-teardown case: LoadGame -> InvokeRewind ->
+# AnswerMergeDialog -> RecordingState -> FlushAndQuit, with NO flying between,
+# which is exactly the reproduction for R1-EMPTY-PROVISIONAL (found by R1 flight
+# 2, 2026-07-26; written up in docs/dev/todo-and-known-bugs.md). The re-fly
+# session's provisional accumulates zero Points, so
+# `SupersedeCommit.ValidateSupersedeTarget` refuses the supersede batch and - on
+# a DEBUG DLL, which is what the automation instance runs - `AppendRelations`
+# THROWS, `MergeDialog` catches it and logs at ERROR, and this spec's
+# `logContracts.forbidden = ["\[Parsek\]\[ERROR\]"]` reds the run.
+#
+# That contract is CORRECT and stays. Marking the known finding here is what
+# keeps S4.1 on the nightly as the standing regression test instead of either
+# redding the sweep every night or - much worse - being "fixed" by relaxing the
+# forbidden-ERROR pattern, which would have hidden the find in the first place.
+#
+# subkind pins the SIGNATURE: only a PARSEK-FAIL(expectation) demotes to
+# EXPECTED-FAIL. A different failure still reds as PARSEK-FAIL, and the day the
+# finding is fixed this run reports XPASS ("expected-fail bugId=... unexpectedly
+# passed") - at which point DELETE both keys below.
+bugId   = "R1-EMPTY-PROVISIONAL"
+subkind = "expectation"

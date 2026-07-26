@@ -32,6 +32,30 @@ id = "R1-rewind-loop-flown"
 # (seam StopRecording) + RECORDER-IDLE (seam RecordingState polled until the reply
 # reads `recording=false`) between COMMIT and REWIND - the dispatcher's gate carried
 # as an OBSERVED precondition, not as an ordering assumption.
+#
+# FLIGHT 2 (2026-07-26, run `2026-07-26_2237`): THE REWIND WORKED. `MISSION-OK`,
+# wall 207 s, all seven phases reached, every assertion met including both observed
+# ones - `clockRewound value=267.832` (the game clock genuinely ran BACKWARD) and
+# `vesselStateChanged value=PRE_LAUNCH` (the craft went back to the pad).
+# `recorderIdleBeforeRewind value=false` held, and it is what unblocked the rewind.
+# driverValidity / analyzer(red=0) / logValidate / anomalySweep all PASS.
+#
+# The RUN still classified PARSEK-FAIL on `expectations`, 1 mismatch: the forbidden
+# `[Parsek][ERROR]` pattern matched exactly one line -
+# `TryCommitReFlySupersede: orchestrator threw InvalidOperationException:
+# AppendRelations invariant violation: provisional=rec_aa59a4... reason=empty Points`.
+# THAT IS A REAL PARSEK FINDING (R1-EMPTY-PROVISIONAL, written up in
+# docs/dev/todo-and-known-bugs.md - the autotest lane's first Parsek find), and the
+# forbidden-ERROR contract is what caught it, so that contract STAYS.
+#
+# The mission-side cause was that R1 rewound and then tore down without ever flying
+# again - only HALF a loop. The re-fly session's provisional recording accumulated
+# ZERO Points, and a zero-point provisional is exactly what
+# `SupersedeCommit.ValidateSupersedeTarget` refuses to write supersede rows for.
+# CLOSED by adding the second flight: REWOUND is now a waypoint that throttles up
+# and stages the rewound craft, RELAUNCH requires MEASURED altitude gain, and
+# LOOP-POINTS requires a RecordingState reply to read `points > 0`. A loop is
+# rewind THEN FLY AGAIN.
 tier = "operator"
 #
 # FLIGHT-ENTRY NOTE (corrects the premise S1.5 / S4.1 carried until this lane).
@@ -61,7 +85,15 @@ tier = "operator"
 #   5. that the rewind ACTUALLY HAPPENED, judged by an OBSERVATION and not by the
 #      verb's own OK: the game clock RAN BACKWARD (kRPC space_center.ut lower after
 #      the cycle than the value stamped before it), corroborated by the vessel's
-#      situation / altitude changing. See the mission docstring.
+#      situation / altitude changing. See the mission docstring. LIVE-PROVEN by
+#      flight 2 (`clockRewound value=267.832`);
+#   6. THE LOOP: that the rewound craft FLIES AGAIN and that the second flight is
+#      RECORDED - measured altitude gain (`postRewindFlightObserved`) plus a
+#      `points > 0` read off RecordingState (`postRewindPointsRecorded`) - and
+#      that the merge then actually WROTE the supersede relation (the
+#      `Added [1-9][0-9]* supersede relations` logContract below). Without this
+#      leg the re-fly provisional stays empty and the merge writes nothing, which
+#      is the R1-EMPTY-PROVISIONAL finding.
 #
 # WHAT THIS SPEC DOES NOT PROVE - a SCOPE limit, not a blocker (flight 1 confirmed
 # rp_b9_root resolves fine). The rewind TARGET is the INJECTED rewind-b9 RewindPoint
@@ -156,6 +188,18 @@ verifyFrames              = 40
 # regression is minutes; 5 s is a floor against float noise, never a tuned target.
 minUtRegressionSeconds    = 5.0
 minAltitudeChangeMeters   = 1000.0
+# CLOSING THE LOOP (the second flight). Flight 2 rewound perfectly and still red
+# the run: R1 tore down without re-flying, so the re-fly provisional carried ZERO
+# Points and the merge refused to write supersede rows. The relaunch gate is a
+# FLOOR on MEASURED altitude gain, not a target: 100 m is unreachable for a craft
+# sitting on the pad with a dead engine, and trivial for one under thrust. The
+# rewound craft is PRE_LAUNCH on the pad (flight 2 measured
+# `vesselStateChanged value=PRE_LAUNCH`), so a full-throttle stage activation is
+# all the leg needs - this is a LOOP test, not a second ascent.
+relaunchThrottle              = 1.0
+relaunchMinAltitudeGainMeters = 100.0
+relaunchFrames                = 240
+loopPointsFrames              = 40
 
 [dimensionsCovered]
 # HONEST. The flown half: the recorder starts on the pad launch (D1
@@ -200,10 +244,25 @@ count = { min = 1 }
 # distinguishes a real end-to-end re-fly from a verb that merely returned. The
 # cutoff-carrying restore line and the unconditional pendingScience= count fire on
 # every successful invoke.
+#
+# THE LOOP-CLOSED CONTRACT (added after flight 2). The mission can observe that
+# the second flight happened and was recorded, but the SUPERSEDE ROW is written
+# by the post-mission AnswerMergeDialog merge, outside the mission's telemetry.
+# The only channel that observes it is this log line, and the count is pinned
+# NON-ZERO on purpose: `Added 0 supersede relations` is exactly what a refused
+# batch would emit, so `[1-9][0-9]*` is the difference between "the merge ran"
+# and "the merge actually wrote the relation". Flight 2's KSP.log contains NO
+# `Added ...` line at all - the invariant check refused the batch first.
 required  = ["Recording started",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-             "Restored: recs=.* pendingScience="]
+             "Restored: recs=.* pendingScience=",
+             "Added [1-9][0-9]* supersede relations for subtree rooted at"]
+# The forbidden-ERROR contract STAYS as-is. It did its job on flight 2: it caught
+# `TryCommitReFlySupersede: orchestrator threw InvalidOperationException:
+# AppendRelations invariant violation ... reason=empty Points`, which is a real
+# Parsek finding (written up in docs/dev/todo-and-known-bugs.md). Relaxing it
+# would have hidden the find. Closing the loop is what stops R1 tripping it.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

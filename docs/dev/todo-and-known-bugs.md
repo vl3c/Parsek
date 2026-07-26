@@ -14,6 +14,47 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## R1-EMPTY-PROVISIONAL: a rewind with no re-flight throws in Debug, silently writes nothing in Release [FOUND by R1 flight 2, 2026-07-26 - the autotest lane's FIRST Parsek find. REPORTED, NOT FIXED]
+
+**How it was found.** `R1-rewind-loop-flown` flight 2 (run `2026-07-26_2237`) rewound CORRECTLY - `MISSION-OK`, all seven phases, `clockRewound value=267.832`, craft back at `PRE_LAUNCH` - and the RUN still classified `PARSEK-FAIL` on the spec's `logContracts.forbidden = ["\[Parsek\]\[ERROR\]"]`. Exactly one such line:
+
+```
+[Parsek][WARN][Supersede] AppendRelations invariant violation:
+    provisional=rec_aa59a4edefa2415fb84f01e517863442 reason=empty Points
+    -- refusing to write supersede rows in this batch
+[Parsek][ERROR][MergeDialog] TryCommitReFlySupersede: orchestrator threw
+    InvalidOperationException: AppendRelations invariant violation:
+    provisional=rec_aa59a4edefa2415fb84f01e517863442 reason=empty Points
+    - journal will drive recovery on next load
+```
+
+**Reproduction (normal play, no harness needed):** rewind from flight via Re-Fly, then conclude WITHOUT flying the new attempt (leave the scene / quit). The re-fly session's provisional recording accumulates zero trajectory points, and the merge hits the invariant.
+
+**Code.** `SupersedeCommit.ValidateSupersedeTarget` (`SupersedeCommit.cs:2498`) requires a supersede target to have playable payload (Points / OrbitSegments / TrackSections) AND a non-null terminal state; a zero-point provisional returns `reason=empty Points`. `AppendRelations` (`SupersedeCommit.cs:226-237`) then:
+
+```csharp
+ParsekLog.Warn(Tag, "AppendRelations invariant violation: ... refusing to write supersede rows in this batch");
+#if DEBUG
+    throw new InvalidOperationException(...);
+#else
+    return new List<string>();
+#endif
+```
+
+**VERDICT: the REFUSAL is correct; its CLASSIFICATION as an invariant violation is not.** Refusing is right, and the code says why: a zero-point placeholder cannot validly replace a real origin, and "the placeholder-redirect bug class shipped twice in 2026-04 (items 5, 568)". A supersede row pointing at a trajectory-less recording would poison ERS. Nothing about the refusal is wrong.
+
+What IS wrong is that a REACHABLE, LEGITIMATE user action (rewind then stop playing) is modelled as a "this cannot happen" invariant. Three consequences, all evidenced:
+
+1. **The two builds take different control paths on a reachable condition.** Debug throws; Release returns an empty list and the orchestrator carries on to Tombstone / Finalize / Durable1Done / RpReap / marker-clear and reports success. The shipped behaviour is therefore never the behaviour under test. That asymmetry is the defect, independent of which end state is preferable.
+2. **In Debug the recovery does not converge.** The throw lands at `MergeJournalOrchestrator.RunMerge` step 2, AFTER `DurableSave("split")`, so the journal is persisted at `phase = Split`. Confirmed in the run's own save (`logs/2026-07-26_2237_.../saves/b2-lko-craft/persistent.sfs`): `MERGE_JOURNAL { phase = Split }` with ZERO `SUPERSEDE` rows and the marker still active. On the next load `RunFinisher` treats any post-Begin phase as drive-forward and calls `CompleteFromPostDurable`, whose `Split` block falls through into the `Supersede` block and re-runs `AppendRelations` against the SAME empty provisional - same invariant, same throw, and `RunFinisher` logs "drive-forward FAILED at phase=Split ... Save is mid-merge and may be inconsistent" and re-throws. The input never changes, so **every subsequent load repeats it**. The ERROR line's own promise, "journal will drive recovery on next load", is false for this specific condition.
+3. **In Release there is no data loss.** No rows are written, the merge otherwise completes, the marker and journal clear. The pre-rewind recordings simply stay un-superseded - which for "I rewound and never re-flew" is arguably the correct end state. So this is NOT a dropped-rows corruption bug; it is a mis-modelled no-op plus a stuck-journal bug that only Debug builds can hit.
+
+**Honest fix (NOT applied here - this lane is harness-side and cannot fly a C# change to validate it):** give the condition a NAMED, non-throwing outcome. `AppendRelations` should distinguish "the provisional is empty because nothing was re-flown" (a legitimate no-op: log at Info/Verbose, return an empty list, let the merge complete in BOTH builds) from "the provisional is empty for a reason that should be impossible" (the placeholder-redirect class the `#if DEBUG` throw was written for). The caller then stops logging a user action at ERROR, and the journal stops getting stranded at `Split`. Whoever takes this should also decide whether a no-re-flight conclusion ought to reach the merge orchestrator at all, or be short-circuited earlier by the dialog.
+
+**Standing regression coverage (so this does not become untested).** R1 now closes the loop by re-flying, which deliberately routes AROUND this condition - so two guards keep it exercised:
+- SCENARIO: **`S4.1-rewind-merge` is the dedicated rewind-then-teardown case** - `LoadGame -> InvokeRewind -> AnswerMergeDialog -> RecordingState -> FlushAndQuit`, with no flying between, which is precisely the reproduction. It carries `expectedFail.bugId = "R1-EMPTY-PROVISIONAL"` with `subkind = "expectation"`, so on a Debug DLL it demotes to EXPECTED-FAIL (tracked, does not red the nightly), a DIFFERENT failure still reds as PARSEK-FAIL, and the day the finding is fixed it reports XPASS loudly and the key must be removed.
+- MACHINE: `R1LoopClosureTests.test_a_rewind_without_a_second_flight_does_not_evaluate_green` pins the flight-2 shape at unit level, and the shell cell `test_a_rewind_with_no_second_flight_is_not_mission_ok` pins it end to end.
+
 ## Rewind-in-flight: a verb-agnostic seam bridge, the R1 rewind-loop mission, and two wrongly-operator-tiered scenarios [BUILT, branch `rewind-loop-lane`]
 
 Three things, one of which is a correction to what this doc and two scenario headers asserted.

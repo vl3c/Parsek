@@ -138,3 +138,40 @@ min = 0.001
 required = false
 type = "number"
 min = 0.0
+
+# ---- closing the loop (the SECOND flight) ----
+#
+# A rewind that is never flown again is only HALF a loop, and it is the half that
+# leaves the re-fly's provisional recording EMPTY - which makes
+# SupersedeCommit.ValidateSupersedeTarget refuse to write any supersede rows
+# (`reason=empty Points`). Flight 2 (2026-07-26) rewound perfectly and still red
+# the run on exactly that. These four drive the relaunch and gate it on two
+# OBSERVED facts: the craft CLIMBED, and the climb was RECORDED.
+
+[params.relaunchThrottle]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# A FLOOR, not a target altitude: metres gained over the post-rewind reading
+# before the relaunch counts as powered flight. A craft sitting on the pad with a
+# dead engine can never cross it, which is the whole point - "we sent throttle" is
+# a commanded reading, climbing is an observed one.
+[params.relaunchMinAltitudeGainMeters]
+required = false
+type = "number"
+min = 1.0
+
+[params.relaunchFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# Bound on the post-rewind RecordingState poll (`points > 0`).
+[params.loopPointsFrames]
+required = false
+type = "int"
+min = 1
+max = 10000

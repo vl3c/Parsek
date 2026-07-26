@@ -4248,21 +4248,33 @@ class R1RewindLoopShellTests(unittest.TestCase):
                        situation="ORBITING", body="Kerbin"),
         ]
 
-    def test_happy_path_writes_mission_ok_with_the_observed_rewind(self):
-        frames = self._ascent_frames() + self._cycle_frames() + [
-            # VERIFY: the clock has run BACKWARD and the world state moved.
-            snap(ut=60.0, altitude=1200, situation="FLYING", body="Kerbin"),
+    def _loop_frames(self, points="120"):
+        """The post-rewind half: the observed backward clock, the REWOUND
+        waypoint, the climb, and the recorded-points probe."""
+        return [
+            # VERIFY: the clock ran BACKWARD and the craft is back on the pad.
+            snap(ut=60.0, altitude=100, situation="PRE_LAUNCH", body="Kerbin"),
+            # REWOUND waypoint (relaunch commanded on entry).
+            snap(ut=61.0, altitude=100, situation="PRE_LAUNCH", body="Kerbin"),
+            # RELAUNCH: the craft actually climbs.
+            snap(ut=70.0, altitude=900, situation="FLYING", body="Kerbin"),
+            # LOOP-POINTS: the climb was RECORDED.
+            self._seam(mlib.r1_loop_probe_tag(0), payload=(("points", points),),
+                       ut=71.0, altitude=1000, situation="FLYING", body="Kerbin"),
         ]
+
+    def test_happy_path_writes_mission_ok_with_the_observed_rewind(self):
+        frames = self._ascent_frames() + self._cycle_frames() + self._loop_frames()
         control = FakeMissionControl(frames)
         code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
         self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
         self.assertEqual(code, 0)
         self.assertEqual(result["mission"], "r1_rewind_loop")
-        self.assertEqual(result["phasesReached"][-1], mlib.R1_REWOUND)
+        self.assertEqual(result["phasesReached"][-1], mlib.R1_LOOP_CLOSED)
         kinds = [a.kind for a in control.actions]
         self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, kinds)
         self.assertIn(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION, kinds)
-        # FOUR seam commands, each with its OWN verb + tag. Shared tags would be
+        # FIVE seam commands, each with its OWN verb + tag. Shared tags would be
         # duplicate wire ids the C# seam silently skips.
         seam_actions = [a for a in control.actions
                         if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
@@ -4270,15 +4282,66 @@ class R1RewindLoopShellTests(unittest.TestCase):
                          [("CommitTree", mlib.R1_TAG_COMMIT),
                           ("StopRecording", mlib.R1_TAG_STOP),
                           ("RecordingState", mlib.r1_state_probe_tag(0)),
-                          ("InvokeRewind", mlib.R1_TAG_REWIND)])
-        self.assertEqual(len({a.seam_tag for a in seam_actions}), 4)
-        self.assertEqual(seam_actions[-1].seam_args,
+                          ("InvokeRewind", mlib.R1_TAG_REWIND),
+                          ("RecordingState", mlib.r1_loop_probe_tag(0))])
+        self.assertEqual(len({a.seam_tag for a in seam_actions}), 5)
+        self.assertEqual(seam_actions[3].seam_args,
                          (("rp", "rp_b9_root"), ("slot", "1")))
+        # The relaunch was actually commanded on the rewound craft.
+        self.assertIn(mlib.ACTION_SET_THROTTLE, kinds)
         rows = {a["name"]: a for a in result["assertions"]}
         self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
         self.assertGreater(rows["clockRewound"]["value"], 5.0)
         self.assertEqual(rows["clockRewound"]["channel"], "observed")
         self.assertEqual(rows["recorderIdleBeforeRewind"]["value"], "false")
+        self.assertEqual(rows["postRewindPointsRecorded"]["value"], 120)
+        self.assertGreater(rows["postRewindFlightObserved"]["value"], 100.0)
+
+    def test_a_rewind_with_no_second_flight_is_not_mission_ok(self):
+        """THE FLIGHT-2 SHAPE, end to end. Flight 2 rewound correctly and the RUN
+        still red because R1 tore down without re-flying: the re-fly provisional
+        carried zero Points and the merge refused to write supersede rows
+        (`AppendRelations invariant violation ... reason=empty Points`). The
+        mission must not call that a closed loop.
+
+        MUTATION: make R1_REWOUND the terminal again (the machine flight 2 flew)
+        and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames() + [
+            snap(ut=60.0, altitude=100, situation="PRE_LAUNCH", body="Kerbin"),
+        ]
+        # The craft never leaves the pad, however long we wait.
+        frames += [snap(ut=61.0 + i, altitude=100, situation="PRE_LAUNCH",
+                        body="Kerbin") for i in range(300)]
+        control = FakeMissionControl(frames)
+        code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertNotEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertIn("never climbed", result["reason"])
+        self.assertNotIn(mlib.R1_LOOP_CLOSED, result["phasesReached"])
+        self.assertNotEqual(code, 0)
+        # The rewind half still REPORTS as met, so the diagnosis is unambiguous.
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(rows["clockRewound"]["met"])
+        self.assertFalse(rows["postRewindFlightObserved"]["met"])
+        self.assertFalse(rows["postRewindPointsRecorded"]["met"])
+
+    def test_a_second_flight_that_records_nothing_is_not_a_closed_loop(self):
+        """Flying is not the same as being RECORDED, and it is the RECORDING that
+        must be non-empty for the merge to write supersede rows.
+
+        MUTATION: drop the `points > 0` test in LOOP-POINTS and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames() + self._loop_frames(
+            points="0")
+        frames += [self._seam(mlib.r1_loop_probe_tag(i), payload=(("points", "0"),),
+                              ut=72.0 + i, altitude=1000, situation="FLYING")
+                   for i in range(1, 80)]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("points=0", result["reason"])
+        self.assertNotIn(mlib.R1_LOOP_CLOSED, result["phasesReached"])
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(rows["postRewindFlightObserved"]["met"])
+        self.assertFalse(rows["postRewindPointsRecorded"]["met"])
 
     def test_the_rewind_is_never_commanded_while_the_recorder_reads_live(self):
         """THE FLIGHT-1 REGRESSION, at shell level. Flight 1 went COMMIT -> REWIND
@@ -4363,5 +4426,7 @@ class R1RewindLoopShellTests(unittest.TestCase):
         self.assertEqual(r1_rewind_loop.SPEC.max_physics_warp,
                          b2_lko_ascent.SPEC.max_physics_warp)
         self.assertEqual(r1_rewind_loop.SPEC.settle_frames, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

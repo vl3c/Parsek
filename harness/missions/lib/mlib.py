@@ -3787,7 +3787,26 @@ def _b2_stay_or_flake(state: B2State, snapshot: TelemetrySnapshot) -> B2State:
 #
 #     ASCENT (delegated b2_decide)  ->  COMMIT (seam CommitTree)
 #          ->  STOP (seam StopRecording)  ->  RECORDER-IDLE (seam RecordingState)
-#          ->  REWIND (seam InvokeRewind)  ->  VERIFY  ->  REWOUND (terminal)
+#          ->  REWIND (seam InvokeRewind) ->  VERIFY  ->  REWOUND
+#          ->  RELAUNCH  ->  LOOP-POINTS (seam RecordingState)
+#          ->  LOOP-CLOSED (terminal)
+#
+# WHY THE LOOP HAS A SECOND FLIGHT (flight 2, 2026-07-26). Flight 2 rewound
+# correctly - MISSION-OK, `clockRewound value=267.832`, the craft back at
+# PRE_LAUNCH - and the RUN still classified PARSEK-FAIL, because a rewind that is
+# never flown again is only HALF a loop. R1 tore down immediately, so the re-fly
+# session's provisional recording accumulated ZERO Points, and the merge refused
+# to write supersede rows:
+#   [Parsek][WARN][Supersede] AppendRelations invariant violation:
+#       provisional=rec_aa59a4... reason=empty Points
+#   [Parsek][ERROR][MergeDialog] TryCommitReFlySupersede: orchestrator threw ...
+# So REWOUND is now a one-frame WAYPOINT that commands a second flight, and two
+# further OBSERVED gates close the loop: RELAUNCH requires the rewound craft to
+# have physically CLIMBED (altitude gained over the post-rewind reading - a dead
+# engine cannot produce it), and LOOP-POINTS requires a RecordingState reply to
+# read `points > 0` - i.e. that the second flight was actually RECORDED. Flying
+# and being recorded are different facts, and it is the RECORDING that has to be
+# non-empty for the merge to write anything.
 #
 # WHY STOP + RECORDER-IDLE EXIST (flight 1, 2026-07-26, INVALID(autopilot-flake)).
 # The first live run went COMMIT -> REWIND and Parsek's own dispatcher answered
@@ -3854,8 +3873,12 @@ R1_RECORDER_IDLE = "RECORDER-IDLE"
 R1_REWIND = "REWIND"
 R1_VERIFY = "VERIFY"
 R1_REWOUND = "REWOUND"
+R1_RELAUNCH = "RELAUNCH"
+R1_LOOP_POINTS = "LOOP-POINTS"
+R1_LOOP_CLOSED = "LOOP-CLOSED"
 R1_PHASES: Tuple[str, ...] = (R1_ASCENT, R1_COMMIT, R1_STOP, R1_RECORDER_IDLE,
-                              R1_REWIND, R1_VERIFY, R1_REWOUND)
+                              R1_REWIND, R1_VERIFY, R1_REWOUND, R1_RELAUNCH,
+                              R1_LOOP_POINTS, R1_LOOP_CLOSED)
 
 # Per-command tags. Distinct by construction, so the wire ids
 # ("<reserved>.commit" / ".stop" / ".state0" / ".rewind") can never collide --
@@ -3877,6 +3900,13 @@ def r1_state_probe_tag(probe: int) -> str:
     duplicate ids - every probe after the first would be silently dropped and the
     machine would poll a reply that was never going to come."""
     return "state%d" % int(probe)
+
+
+def r1_loop_probe_tag(probe: int) -> str:
+    """The tag for the post-rewind points probe ``probe`` (``loop0``, ...). A
+    SEPARATE family from ``state*`` so a LOOP-POINTS probe can never collide with
+    a RECORDER-IDLE probe id even at the same index."""
+    return "loop%d" % int(probe)
 
 
 @dataclass(frozen=True)
@@ -3917,6 +3947,20 @@ class R1Params:
     # the pre-rewind altitude for the world state (not merely the clock) to read
     # as having changed. Metres.
     min_altitude_change: float = 100.0
+    # ---- CLOSING THE LOOP (post-rewind re-fly) ----
+    # A rewind alone is only half a loop. These drive the SECOND flight: throttle
+    # up + stage on the rewound craft, then require that it actually LEFT THE
+    # GROUND and that the re-fly's provisional recording actually ACCUMULATED
+    # POINTS. Without this leg the provisional stays empty, which is the exact
+    # condition that made flight 2 red (see the section header).
+    relaunch_throttle: float = 1.0
+    # Metres of altitude gained over the post-rewind reading before the relaunch
+    # counts as powered flight. Not a target altitude - a floor that a craft
+    # sitting on the pad with a dead engine can never cross.
+    relaunch_min_altitude_gain: float = 100.0
+    relaunch_frames: int = 240
+    # Bound on the post-rewind RecordingState poll (points > 0).
+    loop_points_frames: int = 40
 
 
 def r1_params_from_dict(params: Dict) -> R1Params:
@@ -3935,6 +3979,11 @@ def r1_params_from_dict(params: Dict) -> R1Params:
         verify_frames=int(params.get("verifyFrames", 40)),
         min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
         min_altitude_change=float(params.get("minAltitudeChangeMeters", 100.0)),
+        relaunch_throttle=float(params.get("relaunchThrottle", 1.0)),
+        relaunch_min_altitude_gain=float(
+            params.get("relaunchMinAltitudeGainMeters", 100.0)),
+        relaunch_frames=int(params.get("relaunchFrames", 240)),
+        loop_points_frames=int(params.get("loopPointsFrames", 40)),
     )
 
 
@@ -3967,6 +4016,17 @@ class R1State:
     state_probe: int = 0
     recorder_idle_reading: str = ""
     recorder_idle_observed: bool = False
+    # ---- LOOP-CLOSING evidence (the SECOND flight) ----
+    # Peak altitude gain observed over post_rewind_altitude during RELAUNCH. NaN
+    # = never measured (fail-closed: an unread channel grants no flight).
+    relaunch_altitude_gain: float = float("nan")
+    relaunch_situation: str = ""
+    # The `points` value READ back off a post-rewind RecordingState reply. -1 =
+    # never read (the fail-closed sentinel, same discipline as crew_count): a
+    # mission that could not read the count must never satisfy a points gate with
+    # a fabricated 0-or-more.
+    loop_probe: int = 0
+    loop_points_read: int = -1
     # OBSERVED pre-rewind stamp, taken on the frame InvokeRewind is emitted.
     pre_rewind_ut: float = float("nan")
     pre_rewind_altitude: float = float("nan")
@@ -4000,7 +4060,10 @@ def _r1_enter(state: R1State, new_phase: str, ut: float) -> R1State:
         phase_entry_ut=entry,
         phase_frames=0,
         phases_reached=state.phases_reached + (new_phase,),
-        done=(new_phase == R1_REWOUND),
+        # LOOP-CLOSED, not REWOUND. A rewind that is never flown again is only
+        # half a loop -- and it is the half that leaves the re-fly's provisional
+        # recording EMPTY, which is what flight 2 (2026-07-26) exposed.
+        done=(new_phase == R1_LOOP_CLOSED),
     )
 
 
@@ -4068,6 +4131,24 @@ def _r1_stop_action() -> Action:
 def _r1_state_action(probe: int) -> Action:
     return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
                   seam_args=(), seam_tag=r1_state_probe_tag(probe))
+
+
+def _r1_loop_action(probe: int) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
+                  seam_args=(), seam_tag=r1_loop_probe_tag(probe))
+
+
+def _r1_parse_int(raw: str) -> Optional[int]:
+    """Parse a payload integer, or None when it is absent / unparseable. None is
+    the FAIL-CLOSED answer: a points gate must never be satisfied by a value the
+    mission could not actually read."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
 
 
 def _r1_rewind_action(params: R1Params) -> Action:
@@ -4294,7 +4375,13 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                          post_rewind_situation=snapshot.situation or "",
                          post_rewind_body=snapshot.body or "",
                          ut_regression=regression)
-            return _r1_enter(st, R1_REWOUND, snapshot.ut), []
+            # REWOUND is now a one-frame WAYPOINT, not the terminal: it commands
+            # the second flight. Throttle up + activate the stage, exactly as a
+            # player pressing space would (the same pair B1/B2's PRELAUNCH uses),
+            # which is also what arms auto-record-on-launch again.
+            return (_r1_enter(st, R1_REWOUND, snapshot.ut),
+                    [Action(ACTION_SET_THROTTLE, state.params.relaunch_throttle),
+                     Action(ACTION_ACTIVATE_STAGE)])
         if state.phase_frames > state.params.verify_frames:
             return _r1_flake(
                 replace(state, ut_regression=regression),
@@ -4306,6 +4393,86 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 % (R1_VERIFY, state.params.verify_frames,
                    _obs_fmt(state.pre_rewind_ut), _obs_fmt(snapshot.ut),
                    _obs_fmt(regression), state.params.min_ut_regression)), []
+        return state, []
+
+    if state.phase == R1_REWOUND:
+        # One-frame waypoint: the relaunch was commanded on entry. Hand straight
+        # over to RELAUNCH, which does the OBSERVING.
+        return _r1_enter(state, R1_RELAUNCH, snapshot.ut), []
+
+    if state.phase == R1_RELAUNCH:
+        # OBSERVED: the rewound craft actually LEFT THE GROUND under power.
+        # "We sent throttle + stage" is a commanded reading; altitude gained over
+        # the post-rewind reading is not something a dead engine can produce.
+        gain = float("nan")
+        if _is_finite(state.post_rewind_altitude) and _is_finite(snapshot.altitude):
+            gain = snapshot.altitude - state.post_rewind_altitude
+        best = gain
+        if _is_finite(state.relaunch_altitude_gain) and _is_finite(gain):
+            best = max(state.relaunch_altitude_gain, gain)
+        elif not _is_finite(best):
+            best = state.relaunch_altitude_gain
+        st = replace(state, relaunch_altitude_gain=best,
+                     relaunch_situation=snapshot.situation or state.relaunch_situation)
+        if _is_finite(best) and best >= state.params.relaunch_min_altitude_gain:
+            return (_r1_enter(replace(st, loop_probe=0), R1_LOOP_POINTS, snapshot.ut),
+                    [_r1_loop_action(0)])
+        if st.phase_frames > st.params.relaunch_frames:
+            return _r1_flake(
+                st,
+                "phase %s: the rewound craft never climbed %.0f m within %d "
+                "frames (best gain=%s m, situation=%s). The rewind put the craft "
+                "back but the second flight never happened, so the re-fly's "
+                "provisional would carry no trajectory - which is exactly the "
+                "empty-provisional condition this leg exists to avoid"
+                % (R1_RELAUNCH, st.params.relaunch_min_altitude_gain,
+                   st.params.relaunch_frames, _obs_fmt(best),
+                   st.relaunch_situation or "?")), []
+        return st, []
+
+    if state.phase == R1_LOOP_POINTS:
+        # OBSERVED: the second flight was actually RECORDED. Flying is not the
+        # same as being recorded, and it is the RECORDING that has to be
+        # non-empty for the merge to write supersede rows.
+        tag = r1_loop_probe_tag(state.loop_probe)
+        result = _r1_seam_result(snapshot, tag)
+        if result == "OK":
+            raw = _r1_seam_payload(snapshot, tag, "points")
+            points = _r1_parse_int(raw)
+            if points is None:
+                return _r1_flake(
+                    state,
+                    "phase %s: the RecordingState reply carried no readable "
+                    "`points` field (read %r), so the post-rewind recording "
+                    "cannot be confirmed non-empty"
+                    % (R1_LOOP_POINTS, raw)), []
+            st = replace(state, loop_points_read=points)
+            if points > 0:
+                return _r1_enter(st, R1_LOOP_CLOSED, snapshot.ut), []
+            st = replace(st, loop_probe=st.loop_probe + 1)
+            if st.phase_frames > st.params.loop_points_frames:
+                return _r1_flake(
+                    st,
+                    "phase %s: the craft flew after the rewind but RecordingState "
+                    "still read points=0 after %d frames (%d probe(s)). The "
+                    "re-fly's provisional recording is EMPTY, and an empty "
+                    "provisional makes the merge refuse to write supersede rows "
+                    "(SupersedeCommit.ValidateSupersedeTarget: `empty Points`)"
+                    % (R1_LOOP_POINTS, st.params.loop_points_frames,
+                       st.loop_probe)), []
+            return st, [_r1_loop_action(st.loop_probe)]
+        if result in ("ERROR", "TIMEOUT"):
+            return _r1_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); the "
+                "post-rewind point count could not be observed"
+                % (R1_LOOP_POINTS, result,
+                   _r1_because(_r1_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > state.params.loop_points_frames:
+            return _r1_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within "
+                "%d frames" % (R1_LOOP_POINTS, state.params.loop_points_frames)), []
         return state, []
 
     return _r1_flake(state, "phase %s: unreachable machine phase" % state.phase), []
@@ -4381,6 +4548,31 @@ def evaluate_r1_assertions(frames, params: R1Params,
          "minAltitudeChangeMeters": params.min_altitude_change,
          "channel": "observed"})
 
+    # ---- THE LOOP HALF. A rewind that is never re-flown is not a loop, and it
+    # leaves the re-fly provisional empty (flight 2, 2026-07-26). Both rows are
+    # OBSERVED: one that the craft physically climbed after the rewind, one that
+    # the climb was actually RECORDED.
+    gain = getattr(st, "relaunch_altitude_gain", float("nan"))
+    flew_met = (_is_finite(gain)
+                and gain >= params.relaunch_min_altitude_gain
+                and R1_LOOP_POINTS in phases)
+    reflew = AssertionOutcome(
+        "postRewindFlightObserved", flew_met, gain,
+        {"required": R1_LOOP_POINTS,
+         "minAltitudeGainMeters": params.relaunch_min_altitude_gain,
+         "situation": str(getattr(st, "relaunch_situation", "") or "") or None,
+         "channel": "observed"})
+
+    points_read = int(getattr(st, "loop_points_read", -1))
+    points_met = points_read > 0 and R1_LOOP_CLOSED in phases
+    recorded = AssertionOutcome(
+        "postRewindPointsRecorded", points_met, points_read,
+        {"required": R1_LOOP_CLOSED, "seamVerb": "RecordingState",
+         "probes": int(getattr(st, "loop_probe", 0)) + 1,
+         # -1 is the UNREAD sentinel, kept raw: the sentinel IS the diagnosis
+         # when a run never managed to read the count.
+         "channel": "observed"})
+
     rewind_result = str(getattr(st, "rewind_result", "") or "")
     seam_met = rewind_result == "OK"
     seam = AssertionOutcome(
@@ -4393,7 +4585,7 @@ def evaluate_r1_assertions(frames, params: R1Params,
          "rejectReason": str(getattr(st, "rewind_reject_reason", "") or "") or None,
          "channel": "commanded"})
 
-    return [orbit, committed, recorder_idle, rewound, changed, seam]
+    return [orbit, committed, recorder_idle, rewound, changed, reflew, recorded, seam]
 
 
 # ---------------------------------------------------------------------------

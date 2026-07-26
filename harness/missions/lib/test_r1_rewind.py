@@ -103,6 +103,38 @@ def drive_to_verify(**over):
     return st
 
 
+def drive_to_relaunch(post_ut=312.0, post_alt=100.0, post_sit="PRE_LAUNCH", **over):
+    """The backward clock was OBSERVED -> through the REWOUND waypoint into
+    RELAUNCH, with the relaunch actions already emitted."""
+    st = drive_to_verify(**over)
+    st, _ = mlib.r1_decide(
+        st, snap(ut=post_ut, altitude=post_alt, situation=post_sit, body="Kerbin"))
+    assert st.phase == mlib.R1_REWOUND, st.phase
+    st, _ = mlib.r1_decide(
+        st, snap(ut=post_ut + 1.0, altitude=post_alt, situation=post_sit))
+    assert st.phase == mlib.R1_RELAUNCH, st.phase
+    return st
+
+
+def drive_to_loop_points(post_alt=100.0, **over):
+    """The rewound craft CLIMBED -> parked in LOOP-POINTS with probe 0 emitted."""
+    st = drive_to_relaunch(post_alt=post_alt, **over)
+    st, _ = mlib.r1_decide(
+        st, snap(ut=320.0, altitude=post_alt + 500.0, situation="FLYING"))
+    assert st.phase == mlib.R1_LOOP_POINTS, st.phase
+    return st
+
+
+def drive_to_loop_closed(points=42, **over):
+    """The second flight was RECORDED -> terminal LOOP-CLOSED."""
+    st = drive_to_loop_points(**over)
+    st, _ = mlib.r1_decide(
+        st, seam(mlib.r1_loop_probe_tag(0), payload=(("points", str(points)),),
+                 ut=321.0, altitude=700.0, situation="FLYING"))
+    assert st.phase == mlib.R1_LOOP_CLOSED, st.phase
+    return st
+
+
 # ---------------------------------------------------------------------------
 # Generalized seam command path: the pure wire helpers.
 # ---------------------------------------------------------------------------
@@ -569,13 +601,19 @@ class R1ObservedVerifyTests(unittest.TestCase):
 
     def test_backward_clock_is_the_advance(self):
         st = self._at_verify()
-        out, _ = mlib.r1_decide(
+        out, actions = mlib.r1_decide(
             st, snap(ut=312.0, altitude=1200.0, situation="FLYING", body="Kerbin"))
         self.assertEqual(out.phase, mlib.R1_REWOUND)
-        self.assertTrue(out.done)
-        self.assertIsNone(out.verdict)
         self.assertAlmostEqual(out.ut_regression, 600.0)
         self.assertEqual(out.post_rewind_ut, 312.0)
+        # REWOUND is a WAYPOINT, not the terminal: a rewind that is never flown
+        # again is half a loop, and it is the half that leaves the re-fly's
+        # provisional empty (flight 2). MUTATION: set `done` on REWOUND and this
+        # reds.
+        self.assertFalse(out.done)
+        self.assertIsNone(out.verdict)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_SET_THROTTLE, mlib.ACTION_ACTIVATE_STAGE])
 
     def test_a_forward_clock_never_satisfies_the_gate(self):
         """THE anti-commanded cell. MUTATION: replace the gate with
@@ -641,11 +679,9 @@ class R1ObservedVerifyTests(unittest.TestCase):
 class R1AssertionTests(unittest.TestCase):
 
     def _flown(self):
-        params = r1_params()
-        st = drive_to_verify()
-        st, _ = mlib.r1_decide(
-            st, snap(ut=312.0, altitude=1200.0, situation="FLYING", body="Kerbin"))
-        return params, st
+        """The WHOLE loop: ascent, commit, stop, idle, rewind, observed backward
+        clock, second flight, recorded points."""
+        return r1_params(), drive_to_loop_closed()
 
     def test_full_cycle_meets_every_row(self):
         params, st = self._flown()
@@ -654,7 +690,8 @@ class R1AssertionTests(unittest.TestCase):
         self.assertEqual([r.name for r in rows],
                          ["reachedOrbitBeforeRewind", "treeCommittedBeforeRewind",
                           "recorderIdleBeforeRewind", "clockRewound",
-                          "vesselStateChanged", "rewindSeamAccepted"])
+                          "vesselStateChanged", "postRewindFlightObserved",
+                          "postRewindPointsRecorded", "rewindSeamAccepted"])
 
     def test_the_observed_rows_are_labelled_observed(self):
         params, st = self._flown()
@@ -740,6 +777,173 @@ class R1AssertionTests(unittest.TestCase):
             st, mlib.evaluate_r1_assertions([], params, st))
         self.assertEqual(verdict, mlib.MISSION_FLAKE)
         self.assertIn("rewind target unresolved", reason)
+
+
+class R1LoopClosureTests(unittest.TestCase):
+    """The SECOND flight. Flight 2 (2026-07-26) rewound correctly and still red
+    the run: R1 tore down without re-flying, so the re-fly session's provisional
+    recording carried ZERO Points and `SupersedeCommit.ValidateSupersedeTarget`
+    refused to write any supersede rows (`reason=empty Points`). A rewind that is
+    never flown again is half a loop."""
+
+    def test_rewound_is_a_waypoint_that_commands_a_second_flight(self):
+        """MUTATION: make `_r1_enter` terminal on R1_REWOUND (the pre-fix
+        machine, which is exactly what flight 2 flew) and this reds."""
+        st = drive_to_verify()
+        out, actions = mlib.r1_decide(
+            st, snap(ut=312.0, altitude=100.0, situation="PRE_LAUNCH"))
+        self.assertEqual(out.phase, mlib.R1_REWOUND)
+        self.assertFalse(out.done, "REWOUND must not be the terminal")
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_THROTTLE, 1.0),
+                          (mlib.ACTION_ACTIVATE_STAGE, None)])
+
+    def test_the_relaunch_gate_is_measured_altitude_not_the_commanded_throttle(self):
+        """MUTATION: advance RELAUNCH on `state.phase_frames > 0` (i.e. trust the
+        throttle command) and this reds. Sending throttle is COMMANDED; climbing
+        is OBSERVED."""
+        st = drive_to_relaunch(post_alt=100.0)
+        # Sitting on the pad with the throttle commanded open: no climb, no
+        # advance, no matter how many frames.
+        for _ in range(5):
+            st, _ = mlib.r1_decide(st, snap(ut=313.0, altitude=100.0,
+                                            situation="PRE_LAUNCH"))
+            self.assertEqual(st.phase, mlib.R1_RELAUNCH)
+            self.assertFalse(st.done)
+        # A real climb advances it.
+        out, actions = mlib.r1_decide(
+            st, snap(ut=320.0, altitude=650.0, situation="FLYING"))
+        self.assertEqual(out.phase, mlib.R1_LOOP_POINTS)
+        self.assertAlmostEqual(out.relaunch_altitude_gain, 550.0)
+        self.assertEqual([(a.seam_verb, a.seam_tag) for a in actions],
+                         [("RecordingState", "loop0")])
+
+    def test_a_sub_floor_climb_never_satisfies_the_relaunch_gate(self):
+        st = drive_to_relaunch(post_alt=100.0, relaunchFrames=3)
+        for _ in range(8):
+            st, _ = mlib.r1_decide(st, snap(ut=313.0, altitude=150.0,
+                                            situation="FLYING"))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(st.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never climbed", st.flake_reason)
+        self.assertIn("empty-provisional condition", st.flake_reason)
+
+    def test_flying_is_not_enough_the_flight_must_be_RECORDED(self):
+        """THE flight-2 condition, as a machine gate. The craft climbed, but the
+        recording is still empty -> the merge would refuse supersede rows. This
+        MUST NOT reach the terminal.
+
+        MUTATION: advance LOOP-POINTS on any OK reply (drop the `points > 0`
+        test) and this reds."""
+        st = drive_to_loop_points()
+        cur = st
+        for i in range(80):
+            cur, _ = mlib.r1_decide(
+                cur, seam(mlib.r1_loop_probe_tag(cur.loop_probe),
+                          payload=(("points", "0"),), ut=321.0 + i, altitude=700.0))
+            if cur.done:
+                break
+        self.assertTrue(cur.done)
+        self.assertEqual(cur.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.R1_LOOP_CLOSED, cur.phases_reached)
+        self.assertIn("points=0", cur.flake_reason)
+        self.assertIn("empty Points", cur.flake_reason)
+
+    def test_recorded_points_close_the_loop(self):
+        st = drive_to_loop_closed(points=137)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertEqual(st.phase, mlib.R1_LOOP_CLOSED)
+        self.assertEqual(st.loop_points_read, 137)
+        self.assertEqual(
+            st.phases_reached,
+            (mlib.R1_ASCENT, mlib.R1_COMMIT, mlib.R1_STOP, mlib.R1_RECORDER_IDLE,
+             mlib.R1_REWIND, mlib.R1_VERIFY, mlib.R1_REWOUND, mlib.R1_RELAUNCH,
+             mlib.R1_LOOP_POINTS, mlib.R1_LOOP_CLOSED))
+
+    def test_an_unreadable_points_field_fails_closed(self):
+        """MUTATION: treat an unparseable `points` as 0-and-keep-probing (or as
+        success) and this reds. An unread count is not evidence of a recording."""
+        st = drive_to_loop_points()
+        out, _ = mlib.r1_decide(
+            st, seam(mlib.r1_loop_probe_tag(0), payload=(("tree", "t1"),), ut=321.0))
+        self.assertTrue(out.done)
+        self.assertEqual(out.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no readable `points` field", out.flake_reason)
+        self.assertEqual(out.loop_points_read, -1)
+
+    def test_loop_probes_use_their_own_tag_family(self):
+        """`loop*` never collides with the RECORDER-IDLE `state*` family even at
+        the same index. MUTATION: reuse `r1_state_probe_tag` for the loop probes
+        and this reds."""
+        self.assertNotEqual(mlib.r1_loop_probe_tag(0), mlib.r1_state_probe_tag(0))
+        st = drive_to_loop_points()
+        tags = []
+        for i in range(3):
+            st, actions = mlib.r1_decide(
+                st, seam(mlib.r1_loop_probe_tag(i), payload=(("points", "0"),),
+                         ut=321.0 + i, altitude=700.0))
+            tags += [a.seam_tag for a in actions]
+        self.assertEqual(tags, ["loop1", "loop2", "loop3"])
+
+    def test_the_unread_points_sentinel_is_minus_one_not_zero(self):
+        """The row demands a POSITIVE read. -1 (never read) and 0 (read, empty)
+        are different diagnoses and neither is evidence of a recording.
+
+        The machine cannot currently reach LOOP-CLOSED with a non-positive count
+        (it only enters on `points > 0`), so the last two cases are CONSTRUCTED:
+        they pin the ROW's contract so a future path into LOOP-CLOSED that skips
+        the read inherits a proven guard instead of an assumed one. MUTATION:
+        `points_read >= 0` and this reds on the zero case."""
+        params = r1_params()
+        st = drive_to_relaunch()
+        self.assertEqual(st.loop_points_read, -1)
+        rows = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}
+        self.assertFalse(rows["postRewindPointsRecorded"].met)
+        self.assertEqual(rows["postRewindPointsRecorded"].value, -1)
+
+        closed = drive_to_loop_closed(points=7)
+        for bogus in (0, -1):
+            blind = replace(closed, loop_points_read=bogus)
+            row = {r.name: r
+                   for r in mlib.evaluate_r1_assertions([], params, blind)}[
+                       "postRewindPointsRecorded"]
+            self.assertFalse(row.met, "points=%d must not satisfy the row" % bogus)
+            self.assertEqual(row.value, bogus)
+
+    def test_the_loop_rows_are_observed_and_both_required(self):
+        params, st = r1_params(), drive_to_loop_closed(points=42)
+        rows = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}
+        self.assertEqual(rows["postRewindFlightObserved"].detail["channel"], "observed")
+        self.assertEqual(rows["postRewindPointsRecorded"].detail["channel"], "observed")
+        self.assertEqual(rows["postRewindPointsRecorded"].value, 42)
+        self.assertTrue(rows["postRewindFlightObserved"].met)
+
+    def test_a_rewind_without_a_second_flight_does_not_evaluate_green(self):
+        """ITEM 4 / anti-vacuity: the flight-2 shape (rewind, then teardown) must
+        NEVER read as a closed loop. This is the machine-level guard that keeps
+        the finding tested now that R1's happy path routes around it; the
+        SCENARIO-level guard is S4.1, which drives rewind-then-teardown with no
+        flying at all.
+
+        MUTATION: drop either loop row from evaluate_r1_assertions and this
+        reds."""
+        params = r1_params()
+        st = drive_to_verify()
+        st, _ = mlib.r1_decide(st, snap(ut=312.0, altitude=100.0,
+                                        situation="PRE_LAUNCH"))
+        rows = mlib.evaluate_r1_assertions([], params, st)
+        self.assertFalse(mlib.all_assertions_met(rows))
+        unmet = {r.name for r in rows if not r.met}
+        self.assertIn("postRewindFlightObserved", unmet)
+        self.assertIn("postRewindPointsRecorded", unmet)
+        # The rewind half is genuinely met -- which is the point: the run is only
+        # unmet on the LOOP half, so the diagnosis is unambiguous.
+        met = {r.name for r in rows if r.met}
+        self.assertIn("clockRewound", met)
+        self.assertIn("vesselStateChanged", met)
 
 
 class R1SeamPayloadReaderTests(unittest.TestCase):
