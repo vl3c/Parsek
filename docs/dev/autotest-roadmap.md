@@ -377,6 +377,34 @@ its own spec comment says so, and its window is `count = { min = 1, max = 8 }`: 
 total loss of the debris population still PASSES. The parent-anchored contract is one
 of the most intricate in the codebase and nothing asserts it was produced.
 
+This is SYSTEMIC, not a B2 quirk. Measured over the committed specs 2026-07-26,
+SEVEN live-proven scenarios carry a recording-count window whose lower bound
+admits the main recording alone:
+
+| Scenario | window | span |
+|---|---|---|
+| B1-pad-hop | {1, 6} | 5 |
+| B2-lko-ascent | {1, 8} | 7 |
+| B4-reentry-splashdown | {1, 9} | 8 |
+| B5-mun-flyby | {1, 9} | 8 |
+| B6-minmus-flyby | {1, 9} | 8 |
+| B7-duna-flyby | {1, 8} | 7 |
+| BDOCK-1-station-interceptor | {2, 20} | 18 |
+
+Every one of them would still read PASS if Parsek stopped writing child /
+debris recordings entirely. The wide MAX is defensible and deliberately
+reasoned - B2's own comment sources it to real staging-timing variance under
+MechJeb autostage, and widening beats redding on nondeterminism. The wide MIN
+is the defect: it turns a population contract into "the main recording exists".
+
+The fix is NOT simply to tighten the windows, which would re-introduce the
+nondeterminism the width was chosen to absorb. It is to assert the POPULATION
+separately from the COUNT - the log tokens below are deterministic even when the
+sidecar tally is not - and to tighten `min` only as far as the deterministic
+part of each flight supports. B11/B12 show a tight `{8, 8}` pin is reachable
+once a flight has been measured, so the tight-pin pattern already exists in the
+committed set; these seven predate it.
+
 Tokens verified present in source:
 
 | Token | Site | Closes |
