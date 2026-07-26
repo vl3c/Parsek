@@ -24,11 +24,13 @@ import os
 import sys
 import threading
 import time
+import tomllib
 import unittest
 from dataclasses import replace
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
+_HARNESS = os.path.dirname(_MISSIONS)                    # harness/
 if _MISSIONS not in sys.path:
     sys.path.insert(0, _MISSIONS)
 
@@ -44,6 +46,8 @@ import b11_mun_orbit          # noqa: E402
 import b12_minmus_orbit       # noqa: E402
 import b13_mun_landing        # noqa: E402
 import b14_minmus_landing     # noqa: E402
+import b15_eve_flyby         # noqa: E402
+import b16_eve_orbit         # noqa: E402
 import forge_station          # noqa: E402
 import forge_lko              # noqa: E402
 import bdock_dock_transfer    # noqa: E402
@@ -100,7 +104,7 @@ B1_PARAMS = {
     "landedSituations": ["LANDED", "SPLASHED"],
     "ascentTimeoutSeconds": 90,
     "coastTimeoutSeconds": 180,
-    "descentTimeoutSeconds": 240,
+    "descentTimeoutSeconds": 360,
 }
 
 B2_PARAMS = {
@@ -125,15 +129,22 @@ B5_PARAMS = {
     "targetBodyName": "Mun",
     "homeBodyName": "Kerbin",
     "transferMinApoapsisMeters": 10000000,
-    "courseCorrectPeriapsisMeters": 60000,
+    "courseCorrectPeriapsisMeters": 250000,
     "planTimeoutSeconds": 300,
-    "planRetrySeconds": 30,
+    "planRetrySeconds": 10,
     "transferBurnTimeoutSeconds": 4000,
     "coastTimeoutSeconds": 400000,
     "flybyTimeoutSeconds": 300000,
     "coastWarpFactor": 6,
     "flybyWarpFactor": 5,
     "targetPeriapsisFloorMeters": 10000,
+    "correctionTriggerAltsMeters": [0, 6000000],
+    "maxCorrectionDvMps": 300,
+    "flybyMaxWarpFactor": 6,
+    "nodeArrivalMarginSeconds": 15,
+    "planWarpFactor": 2,
+    "soiLeadSeconds": 30,
+    "flipPhysicsWarpFactor": 1,
 }
 
 # B7 spec-shaped params (mirrors harness/scenarios/B7-duna-flyby.toml): the
@@ -143,10 +154,10 @@ B5_PARAMS = {
 B7_PARAMS = {
     "targetApoapsisMeters": 700000,
     "targetPeriapsisMeters": 700000,
-    "apoErrorMeters": 15000,
-    "periErrorMeters": 15000,
-    "ascentTimeoutSeconds": 1200,
-    "circularizeTimeoutSeconds": 600,
+    "apoErrorMeters": 150000,
+    "periErrorMeters": 150000,
+    "ascentTimeoutSeconds": 2400,
+    "circularizeTimeoutSeconds": 6000,
     "targetBodyName": "Duna",
     "homeBodyName": "Kerbin",
     "transferMinApoapsisMeters": 0,
@@ -154,7 +165,7 @@ B7_PARAMS = {
     "interplanetaryTransfer": True,
     "viaBodyNames": ["Sun"],
     "returnBodyName": "Sun",
-    "courseCorrectPeriapsisMeters": 50000,
+    "courseCorrectPeriapsisMeters": 300000,
     "maxCorrectionDvMps": 200,
     "correctionTriggerAltsMeters": [],
     "correctionTriggerTimeToSoiSeconds": [20000000, 500000],
@@ -182,10 +193,14 @@ B4_PARAMS = {
     "circularizeTimeoutSeconds": 300,
     "deorbitPeriapsisMeters": 25000,
     "retroSettleSeconds": 10,
+    # DELIBERATE FIXTURE DIVERGENCE from the B4 spec's 70000 (see
+    # MissionParamsMatchTheSpecsTests._VALUE_DIVERGENCES): the scripted
+    # reentry frames below are written around a 45,000 m warp threshold, and
+    # the spec value would leave the warp hop unfired in the fake flight.
     "warpAboveAltMeters": 45000,
     "warpHopSeconds": 120,
     "chuteDeployAltMeters": 3000,
-    "deorbitTimeoutSeconds": 300,
+    "deorbitTimeoutSeconds": 600,
     "reentryTimeoutSeconds": 3600,
     "descentTimeoutSeconds": 600,
     "landedSituations": ["LANDED", "SPLASHED"],
@@ -1997,16 +2012,16 @@ class B11OrbitShellTests(unittest.TestCase):
 B13_PARAMS = dict(
     B11_PARAMS,
     landingEnabled=True,
-    descentTimeoutSeconds=3000,
+    descentTimeoutSeconds=2200,
     landingTouchdownSpeedMps=0.5,
     landingDeployGears=True,
     landingDeployChutes=False,
     landingRcsAdjustment=False,
     landingProgressWindowSeconds=900,
-    landingProgressMinDropMeters=500,
+    landingProgressMinDropMeters=5000,
     landedSituations=["LANDED", "SPLASHED"],
     landedMaxVerticalSpeedMps=1.0,
-    landedMaxHorizontalSpeedMps=1.0,
+    landedMaxHorizontalSpeedMps=0.5,
     landedDwellSeconds=120,
     landedDebounceFrames=3,
     landedTimeoutSeconds=600,
@@ -2245,6 +2260,754 @@ class B13LandingShellTests(B11OrbitShellTests):
             self.assertTrue(control._read_docking, shell.MISSION_NAME)
             self.assertTrue(control._read_node_executor, shell.MISSION_NAME)
             self.assertTrue(control._read_periapsis, shell.MISSION_NAME)
+
+
+# ---------------------------------------------------------------------------
+# B15 / B16 EVE lane (2026-07-26). The lane's CENTRAL CLAIM is that Eve needed
+# NO new machine code -- it is B7's five interplanetary params and B11/B12's
+# capture tail, re-valued. These cells exist to make that claim checkable
+# instead of asserted, and to prove the two families it builds on are untouched.
+# ---------------------------------------------------------------------------
+
+
+# B15 spec-shaped params (mirrors harness/scenarios/B15-eve-flyby.toml): B7's
+# key set with Eve values. The 100 km flyby floor is NOT a terrain number here
+# (Eve's peaks are ~7.5 km) -- it is the VACUUM floor above Eve's 90 km
+# atmosphere, which is why it is an order of magnitude above B7's 15 km.
+B15_PARAMS = dict(
+    B7_PARAMS,
+    targetBodyName="Eve",
+    apoErrorMeters=150000,
+    periErrorMeters=150000,
+    ascentTimeoutSeconds=2400,
+    # Raised with the park trim below: CIRCULARIZE now also owns the round-out.
+    circularizeTimeoutSeconds=12000,
+    # The ONE key B7 does not carry. See EveLaneIsAParameterChangeTests.
+    parkTrimEccMax=0.02,
+    # Re-derived from flight 1: an INWARD ejection needs less C3 than an
+    # outward one, so B7/Duna's 1.05 legitimately fails a correct Eve escape
+    # (MEASURED 1.004).
+    ejectionEccFloor=1.001,
+    # Flight 2: an inward ejection transits the Mun's SOI on the way out.
+    viaBodyNames=["Sun", "Mun"],
+    courseCorrectPeriapsisMeters=1000000,
+    transferBurnTimeoutSeconds=18000000,
+    coastTimeoutSeconds=7000000,
+    flybyTimeoutSeconds=600000,
+    targetPeriapsisFloorMeters=100000,
+    # MEASURED on flight 6 once the corrections fired on the heliocentric leg:
+    # MechJeb prices the Eve phase correction at 378.5 m/s, deterministically.
+    maxCorrectionDvMps=450,
+)
+
+# B16 spec-shaped params: B15's interplanetary set PLUS B11/B12's capture tail.
+# This dict IS the lane's claim -- it is a pure union of two live-proven key
+# sets, and test_the_eve_params_are_a_union_of_two_proven_key_sets pins that.
+B16_PARAMS = dict(
+    B15_PARAMS,
+    # parkTrimEccMax / circularizeTimeoutSeconds / ejectionEccFloor /
+    # viaBodyNames all ride in from B15_PARAMS: B16's transfer IS B15's, so it
+    # inherits every fix the Eve flights bought.
+    courseCorrectPeriapsisMeters=5000000,
+    captureEnabled=True,
+    capturePlanTimeoutSeconds=300,
+    captureBurnTimeoutSeconds=400000,
+    parkMinPeriapsisMeters=500000,
+    parkMaxApoapsisMeters=13000000,
+    parkMaxEccentricity=0.25,
+    parkMaxAngularVelocityRadPerSec=0.05,
+    parkSituations=["ORBITING"],
+    parkDwellSeconds=180,
+    parkDebounceFrames=3,
+    parkTimeoutSeconds=600,
+    commitTimeoutSeconds=300,
+)
+
+# The UT of the scripted EVE arrival periapsis. Same role as
+# _ARRIVAL_PERIAPSIS_UT in the B11 fixture: the capture burn completes there,
+# the planned node sits ON it, and every in-SOI frame's time_to_periapsis is
+# derived from it, so the clock / node / burn cannot drift apart.
+_EVE_PERIAPSIS_UT = 8_100_000.0
+
+
+class B15EveFlybyShellTests(unittest.TestCase):
+    """B15 shell wiring: the SAME interplanetary machine B7 flies, aimed INWARD
+    at Eve. Guards the alias shell drifting from B7's wiring and guards the
+    inward direction accidentally mattering to mlib (it must not: every gate in
+    the coast / ejection path is a name comparison, a scalar clock or an
+    eccentricity threshold, none of which has a sign)."""
+
+    def _frames(self, target="Eve", exit_body="Sun"):
+        """Kerbin -> Sun -> Eve -> Sun, the B7 frame shape with Eve numbers.
+        The in-SOI frame's altitude is 1,050 km: ABOVE the 100 km vacuum floor,
+        which on Eve means the pass stayed out of the 90 km atmosphere."""
+        return [
+            snap(ut=0.0, situation="PRE_LAUNCH", body="Kerbin"),
+            snap(ut=300.0, apoapsis=690_000.0, periapsis=10_000.0,
+                 situation="FLYING", mj_ascent_complete=True,
+                 body="Kerbin"),                                 # -> CIRCULARIZE
+            snap(ut=400.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 altitude=699_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # -> ORBIT
+            snap(ut=401.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 altitude=699_100.0, situation="ORBITING",
+                 body="Kerbin"),                                 # ORBIT -> PLAN (interplanetary)
+            snap(ut=405.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 altitude=699_200.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> TRANSFER-BURN
+            snap(ut=4_968_000.0, apoapsis=-40_000_000.0,
+                 periapsis=695_000.0, eccentricity=1.4, altitude=800_000.0,
+                 situation="ESCAPING", body="Kerbin",
+                 node_count=0),                                  # hyperbolic -> COAST
+            snap(ut=5_066_000.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_000_000.0,
+                 time_to_soi=3_490_000.0),                       # helio: round 0 (20M) fires
+            snap(ut=5_066_010.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_000_100.0, node_count=1),        # node -> CORRECTION-BURN
+            snap(ut=5_066_020.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_000_200.0, node_count=1,
+                 node_dv=80.0, ap_error=1.5),                    # streak 1 -> flip phys warp
+            snap(ut=5_066_040.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_000_300.0, node_count=1,
+                 node_dv=80.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop phys warp
+            snap(ut=5_066_042.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_000_400.0, node_count=1,
+                 node_dv=80.0, ap_error=1.1),                    # warp NONE -> throttle
+            snap(ut=5_066_070.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_000_500.0, node_count=1,
+                 node_dv=1.5, ap_error=1.0),                     # dv <= cut -> cut triple, COAST
+            snap(ut=8_050_000.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_001_000.0,
+                 time_to_soi=499_995.0),                         # trigger 500k -> round 1
+            snap(ut=8_050_010.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_002_000.0, node_count=1),        # node -> CORRECTION-BURN
+            snap(ut=8_050_020.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_003_000.0, node_count=1,
+                 node_dv=10.0, ap_error=1.4),                    # streak 1 -> flip phys warp
+            snap(ut=8_050_040.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_004_000.0, node_count=1,
+                 node_dv=10.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop phys warp
+            snap(ut=8_050_042.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_005_000.0, node_count=1,
+                 node_dv=10.0, ap_error=1.1),                    # warp NONE -> throttle
+            snap(ut=8_050_060.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_006_000.0, node_count=0),        # node consumed -> cut pair, COAST
+            snap(ut=8_060_000.0, situation="ESCAPING", body=target,
+                 altitude=80_000_000.0),                         # Eve SOI -> TARGET-FLYBY
+            snap(ut=_EVE_PERIAPSIS_UT, situation="ESCAPING", body=target,
+                 altitude=1_050_000.0, periapsis=1_000_000.0,
+                 warp_mode="RAILS", warp_rate=10_000.0),         # periapsis area (min-alt evidence)
+            snap(ut=8_200_000.0, situation="ORBITING", body=exit_body,
+                 altitude=9_500_010_000.0),                      # Sun exit -> RETURN terminal
+        ]
+
+    def test_b15_eve_alias_flies_the_interplanetary_machine_inward(self):
+        """The whole B15 claim in one cell: the SAME shared machine and the SAME
+        five interplanetary params, aimed at an INNER planet, reach MISSION-OK.
+        The shell must emit the INTERPLANETARY plan (never the moon Hohmann),
+        exit the ejection on the hyperbolic ecc gate, coast Kerbin -> Sun with
+        time-to-SOI correction rounds, fly the Eve pass and terminate RETURN on
+        the Sun exit."""
+        control = FakeMissionControl(self._frames())
+        code, result = run(b15_eve_flyby.SPEC, B15_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b15_eve_flyby")
+        kinds = [a.kind for a in control.actions]
+        self.assertIn(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER, kinds)
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_TRANSFER, kinds)
+        targets = [a for a in control.actions
+                   if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets,
+                         [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Eve")])
+        # Both time-triggered rounds flew the DIY burner, exactly as B7's do.
+        points = [a for a in control.actions
+                  if a.kind == mlib.ACTION_AP_POINT_NODE]
+        self.assertEqual(len(points), 2)
+        by_name = {a["name"]: a for a in result["assertions"]}
+        self.assertEqual(by_name["returnedToHome"]["value"], "Sun")
+        self.assertEqual(by_name["reachedTargetSoi"]["value"], "Eve")
+        self.assertTrue(all(a["met"] for a in result["assertions"]),
+                        result["assertions"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
+        # NO settle tail (the SF-4 contract shared with B5/B6/B7).
+        self.assertEqual(control.reads, len(self._frames()))
+        self.assertTrue(control.closed)
+
+    def test_a_pass_inside_eves_atmosphere_fails_the_vacuum_floor(self):
+        """On Eve the flyby floor is a VACUUM floor, not a terrain floor: a pass
+        whose min sampled altitude lands inside the 90 km atmosphere must FAIL
+        the assertion, because at Eve that is an aerocapture, not a flyby.
+        Guards someone harmonising targetPeriapsisFloorMeters back down to a
+        Duna-style terrain number."""
+        frames = list(self._frames())
+        frames[19] = snap(ut=_EVE_PERIAPSIS_UT, situation="ESCAPING",
+                          body="Eve", altitude=60_000.0, periapsis=55_000.0,
+                          warp_mode="RAILS", warp_rate=10_000.0)
+        control = FakeMissionControl(frames)
+        code, result = run(b15_eve_flyby.SPEC, B15_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        by_name = {a["name"]: a for a in result["assertions"]}
+        self.assertFalse(by_name["flybyPeriapsisFloor"]["met"])
+        self.assertEqual(by_name["flybyPeriapsisFloor"]["floor"], 100000)
+
+    def test_gilly_is_not_a_legal_body_and_reads_as_an_ejection(self):
+        """GILLY IS DELIBERATELY ABSENT from viaBodyNames. The B7 lane learned
+        the hard way that a moon can grab an arrival (Ike ate B7 on 1 of 2
+        sweeps); the DESIGNED response is a NAMED ASSERT-FAIL, never a silent
+        pass. This cell pins that choice: if someone fixes the Gilly risk by
+        adding it to viaBodyNames, this test fails and says why."""
+        frames = self._frames()[:19] + [
+            snap(ut=8_070_000.0, altitude=90_000.0, situation="ESCAPING",
+                 body="Gilly")]
+        control = FakeMissionControl(frames)
+        code, result = run(b15_eve_flyby.SPEC, B15_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("ejected", result["reason"])
+        self.assertIn("Gilly", result["reason"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
+
+
+class B16EveOrbitShellTests(unittest.TestCase):
+    """B16 shell wiring, and the FIRST cell anywhere that flies B7's
+    interplanetary param group and B11/B12's capture tail in the SAME mission.
+    That union is the whole reason B16 needed no new machine code, so it is
+    worth a fixture of its own rather than a parameter tweak on an existing
+    one."""
+
+    def _transfer_frames(self):
+        """B15's interplanetary ascent + transfer + two heliocentric correction
+        rounds, ending on the Eve SOI entry frame with HYPERBOLIC elements and
+        the periapsis CLOCK the capture arming gate reads."""
+        base = B15EveFlybyShellTests._frames(self)[:18]
+        return base + [
+            snap(ut=8_060_000.0, apoapsis=-9_000_000.0, periapsis=5_000_000.0,
+                 eccentricity=1.9, altitude=80_000_000.0,
+                 situation="ESCAPING", body="Eve",
+                 time_to_periapsis=_EVE_PERIAPSIS_UT - 8_060_000.0),
+        ]
+
+    def _capture_frames(self):
+        """The ORBIT tail at Eve: arm the capture, plan it, burn it, park it,
+        commit it. Altitudes drift frame to frame so the 1x frozen-telemetry
+        detector never trips on the park, and every in-SOI frame carries the
+        periapsis clock (the shell builds its control with read_periapsis=True,
+        and a fixture without it is a fixture of a mission that never flies).
+
+        The parked orbit is a ~5,000 km circular Eve park: INSIDE the spec's
+        13,000 km apoapsis ceiling, which is what keeps a committed recording
+        clear of Gilly's 14,175 km periapsis shell."""
+        arming = [
+            snap(ut=8_060_000.0 + 10.0 * i, apoapsis=-9_000_000.0,
+                 periapsis=5_000_000.0, eccentricity=1.9,
+                 altitude=79_000_000.0 - 1_000_000.0 * i, situation="ESCAPING",
+                 body="Eve",
+                 time_to_periapsis=_EVE_PERIAPSIS_UT - (8_060_000.0 + 10.0 * i))
+            for i in range(1, mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 1)
+        ]
+        tail = [
+            # PLAN-CAPTURE: the node appears AT the arrival periapsis -> hand
+            # off to the node executor.
+            snap(ut=8_060_100.0, apoapsis=-9_000_000.0, periapsis=5_000_000.0,
+                 eccentricity=1.9, altitude=70_000_000.0, situation="ESCAPING",
+                 body="Eve", node_count=1, node_ut=_EVE_PERIAPSIS_UT,
+                 time_to_periapsis=_EVE_PERIAPSIS_UT - 8_060_100.0),
+            # CAPTURE-BURN: node consumed AND the orbit is now BOUND.
+            snap(ut=_EVE_PERIAPSIS_UT, apoapsis=5_010_000.0,
+                 periapsis=4_990_000.0, eccentricity=0.002,
+                 altitude=5_000_000.0, situation="ORBITING", body="Eve",
+                 node_count=0, angular_velocity=0.002),
+        ]
+        park = [
+            snap(ut=_EVE_PERIAPSIS_UT + 10.0 * i, apoapsis=5_010_000.0 + i,
+                 periapsis=4_990_000.0 - i, eccentricity=0.002,
+                 altitude=5_000_000.0 - 100.0 * i, situation="ORBITING",
+                 body="Eve", angular_velocity=0.002)
+            for i in range(1, 4)                                  # debounce 3
+        ]
+        park.append(
+            # Dwell elapsed AND still in-gate -> ORBIT-COMMIT (seam fires).
+            snap(ut=_EVE_PERIAPSIS_UT + 200.0, apoapsis=5_010_010.0,
+                 periapsis=4_989_990.0, eccentricity=0.002,
+                 altitude=4_999_500.0, situation="ORBITING", body="Eve",
+                 angular_velocity=0.002))
+        park.append(
+            # The seam answered OK -> ORBIT-COMMITTED terminal.
+            snap(ut=_EVE_PERIAPSIS_UT + 210.0, apoapsis=5_010_020.0,
+                 periapsis=4_989_980.0, eccentricity=0.002,
+                 altitude=4_999_400.0, situation="ORBITING", body="Eve",
+                 angular_velocity=0.002, seam_commit_result="OK"))
+        return arming + tail + park
+
+    def test_b16_commits_the_tree_parked_in_the_eve_soi(self):
+        """The union claim, end to end: INTERPLANETARY plan + hyperbolic
+        ejection + heliocentric coast + CAPTURE + PARK + mid-mission seam
+        CommitTree -> ORBIT-COMMITTED, all SIX assertions met. Guards the two
+        param groups interfering with each other, which is the ONE risk in a
+        spec that adds no machine code."""
+        frames = self._transfer_frames() + self._capture_frames()
+        control = FakeMissionControl(frames)
+        code, result = run(b16_eve_orbit.SPEC, B16_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b16_eve_orbit")
+        self.assertEqual(result["phasesReached"][-1], mlib.B5_ORBIT_COMMITTED)
+        kinds = [a.kind for a in control.actions]
+        for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
+                     mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER,
+                     mlib.ACTION_MJ_EXECUTE_NODES, mlib.ACTION_MJ_PLAN_CAPTURE,
+                     mlib.ACTION_CUT_THROTTLE, mlib.ACTION_SET_SAS,
+                     mlib.ACTION_SET_RCS, mlib.ACTION_PARSEK_COMMIT_TREE):
+            self.assertIn(kind, kinds, kind)
+        # The INTERPLANETARY plan, never the moon Hohmann: the capture tail must
+        # not drag B11's transfer shape in with it.
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_TRANSFER, kinds)
+        # EXACTLY ONE mid-mission commit (a second seam CommitTree with no
+        # active tree returns ERROR and reds the run).
+        commits = [a for a in control.actions
+                   if a.kind == mlib.ACTION_PARSEK_COMMIT_TREE]
+        self.assertEqual(len(commits), 1)
+        # TWO executor handoffs: the EJECTION and the CAPTURE; both correction
+        # rounds fly the DIY burner.
+        executes = [a for a in control.actions
+                    if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
+        self.assertEqual(len(executes), 2)
+        by_name = {a["name"]: a["met"] for a in result["assertions"]}
+        self.assertEqual(set(by_name),
+                         {"reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "capturedInTargetOrbit",
+                          "parkedStable", "treeCommitted"})
+        self.assertTrue(all(by_name.values()), result["assertions"])
+        # returnedToHome must NOT be in the set: in capture mode the return body
+        # is the FAILURE body, so awarding an assertion for reaching it would be
+        # awarding one for the mission failing.
+        self.assertNotIn("returnedToHome", by_name)
+        self.assertEqual(control.reads, len(frames))
+        self.assertTrue(control.closed)
+
+    def test_flying_past_eve_into_the_sun_is_assert_fail(self):
+        """B15's heliocentric exit is exactly the outcome B16 must NOT have.
+        With returnBodyName = Sun, reading Sun inside the flyby leg is the NAMED
+        left-the-target-SOI-without-capturing ASSERT-FAIL, never a RETURN pass.
+        This is the cell that pins why returnBodyName is set at all."""
+        frames = self._transfer_frames() + [
+            snap(ut=8_070_000.0, situation="ORBITING", body="Sun",
+                 altitude=9_500_010_000.0),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b16_eve_orbit.SPEC, B16_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("without capturing", result["reason"])
+        self.assertNotIn(mlib.B5_RETURN, result["phasesReached"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
+
+    def test_a_park_above_the_gilly_ceiling_is_not_a_capture(self):
+        """The apoapsis ceiling is LOAD-BEARING TWICE on this body: it certifies
+        capture (a hyperbolic approach reads a NEGATIVE apoapsis) AND it is the
+        Gilly exclusion (13,000 km altitude sits just under Gilly's 14,175 km
+        periapsis radius). An orbit whose apoapsis reaches into Gilly's shell
+        must NOT be accepted, so a committed recording can never be parked in a
+        moon's path.
+
+        WHERE THE REJECTION ACTUALLY HAPPENS, verified here rather than assumed:
+        the ceiling is ALSO the CAPTURE-BURN done-evidence bound, so an
+        over-ceiling orbit is caught by the NAMED `capture under-burn` give-up
+        (a MISSION-FLAKE, the standing verdict for a named give-up) BEFORE PARK
+        is ever entered - the run never reaches the assertion row at all. The
+        assertion row stays unmet as the backstop. Both facts are pinned, so a
+        future change that moves the enforcement point cannot pass silently."""
+        frames = self._transfer_frames() + self._capture_frames()
+        bad = []
+        for f in frames:
+            if f.body == "Eve" and f.situation == "ORBITING":
+                f = snap(**{**f.__dict__, "apoapsis": 20_000_000.0,
+                            "eccentricity": 0.24})
+            bad.append(f)
+        control = FakeMissionControl(bad)
+        code, result = run(b16_eve_orbit.SPEC, B16_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("capture under-burn", result["reason"])
+        # The reason QUOTES the ceiling, so an operator reading the red does not
+        # have to open the spec to learn why a bound orbit was refused.
+        self.assertIn("ap<=13000000", result["reason"])
+        self.assertNotIn(mlib.B5_PARK, result["phasesReached"])
+        self.assertIn(mlib.B5_CAPTURE_BURN, result["phasesReached"])
+        by_name = {a["name"]: a for a in result["assertions"]}
+        self.assertFalse(by_name["capturedInTargetOrbit"]["met"])
+        self.assertEqual(by_name["capturedInTargetOrbit"]["maxApoapsis"],
+                         13000000)
+
+    def test_the_b16_shell_opts_into_the_capture_telemetry(self):
+        """The three capture-tail channels are OPT-IN and every one fails CLOSED
+        at its unread sentinel, so a shell copied from B15 (which needs none of
+        them) would arm no capture and observe no executor. Guards exactly that
+        copy."""
+        control = b16_eve_orbit.make_control()
+        self.assertTrue(control._read_docking)
+        self.assertTrue(control._read_node_executor)
+        self.assertTrue(control._read_periapsis)
+        # ...and B15 is a FLYBY: it must NOT have quietly acquired them.
+        flyby = b15_eve_flyby.make_control()
+        self.assertFalse(flyby._read_docking)
+        self.assertFalse(flyby._read_node_executor)
+        self.assertFalse(flyby._read_periapsis)
+
+
+class EveLaneIsAParameterChangeTests(unittest.TestCase):
+    """THE LANE'S CENTRAL CLAIM, machine-checked -- and REVISED once, on
+    evidence, which is the whole reason this class is worth keeping.
+
+    B15/B16 were shipped on the argument that Eve is a PARAMETER change, not a
+    MACHINE change. Three flights refuted it. Two of the three failures really
+    were parameter defects, but the third was not: MechJeb's interplanetary
+    ejection planner is only correct from a ROUND parking orbit, and the shared
+    machine had no way to produce one (CIRCULARIZE only WAITED on a periapsis
+    window; it never acted). So the claim is now the narrower, still-useful
+    one: B15 is B7's key set plus EXACTLY ONE argued key, and B16 adds none of
+    its own beyond that.
+
+    A test that pins a claim should be REWRITTEN when the claim is disproved,
+    not deleted -- deleting it would have quietly retired the guard at the
+    exact moment it did its job. These cells still fail the moment a SECOND
+    key appears, and they still double as the existing-families-are-unaffected
+    proof."""
+
+    # The single machine-surface key B15 adds beyond B7's live-proven set,
+    # argued in B15-eve-flyby.toml and b15_eve_flyby.schema.toml.
+    EVE_ONLY_KEYS = ["parkTrimEccMax"]
+
+    def test_the_eve_params_add_exactly_one_key_to_two_proven_key_sets(self):
+        """B15's key set must be B7's (three green Duna flights) plus exactly
+        the argued Eve-only key, and B16's must add nothing beyond B7's plus
+        B11's (five green Mun + six green Minmus flights) plus that same key.
+        Any OTHER new key means new machine surface, which is a design decision
+        to be argued in a spec, not smuggled in via a dict."""
+        self.assertEqual(sorted(set(B15_PARAMS) - set(B7_PARAMS)),
+                         sorted(self.EVE_ONLY_KEYS))
+        self.assertEqual(
+            sorted(set(B16_PARAMS) - (set(B7_PARAMS) | set(B11_PARAMS))),
+            sorted(self.EVE_ONLY_KEYS))
+
+    def test_the_park_trim_is_armed_on_eve_and_off_on_every_proven_lane(self):
+        """The park round-out trim must be ON for both Eve lanes (their
+        transfers are wrong without it) and OFF for every lane that has already
+        flown green -- that OFF is what makes CIRCULARIZE byte-identical for
+        B5/B6/B7/B11-B14 and keeps their proofs valid."""
+        for params in (B15_PARAMS, B16_PARAMS):
+            self.assertGreater(
+                mlib.b5_params_from_dict(params).park_trim_ecc_max, 0.0)
+        for params in (B5_PARAMS, B7_PARAMS, B11_PARAMS, B13_PARAMS):
+            self.assertEqual(
+                mlib.b5_params_from_dict(params).park_trim_ecc_max, 0.0)
+
+    def test_the_eve_lanes_select_the_expected_machine_behaviour(self):
+        """The params RESOLVE to what the specs claim: B15 interplanetary with
+        the capture and landing tails OFF, B16 interplanetary WITH capture and
+        the landing tail still OFF. Guards a copy-paste that switches on a
+        family this lane never intended to fly."""
+        flyby = mlib.b5_params_from_dict(B15_PARAMS)
+        self.assertTrue(flyby.interplanetary_transfer)
+        self.assertEqual(flyby.target_body, "Eve")
+        # "Mun" is a COAST-legality entry (flight 2: an inward ejection
+        # transits it). It is deliberately NOT a correction-trigger body --
+        # see test_the_correction_trigger_body_domain_excludes_the_mun.
+        self.assertEqual(flyby.via_bodies, ("Sun", "Mun"))
+        self.assertEqual(flyby.return_body, "Sun")
+        self.assertFalse(flyby.capture_enabled)
+        self.assertFalse(flyby.landing_enabled)
+
+        orbit = mlib.b5_params_from_dict(B16_PARAMS)
+        self.assertTrue(orbit.interplanetary_transfer)
+        self.assertTrue(orbit.capture_enabled)
+        self.assertFalse(orbit.landing_enabled)
+        self.assertEqual(orbit.correction_trigger_alts, ())
+        self.assertEqual(orbit.correction_trigger_time_to_soi,
+                         (20000000.0, 500000.0))
+
+    def _coasting(self, params, phase_entry_ut=0.0):
+        base = mlib.b5_initial_state(params)
+        return base.__class__(**{**base.__dict__,
+                                 "phase": mlib.B5_COAST_TO_TARGET,
+                                 "phase_entry_ut": phase_entry_ut})
+
+    def test_the_time_mode_round_trigger_ignores_a_moon_soi_clock(self):
+        """B15 FLIGHT 5 REGRESSION, and the sharper half of the via-body
+        coupling. `time_to_soi` is the clock to ANY SOI change, so inside the
+        Mun's SOI it reads the MUN-EXIT time -- a few thousand seconds, which
+        trivially satisfies round 0's 20,000,000 s threshold. Flight 5 burned
+        BOTH correction rounds there on a Mun flyby hyperbola (MechJeb priced
+        the fix at 378.6 m/s against the 200 m/s cap, so both were discarded)
+        and had none left for the heliocentric leg, where the real phase error
+        was. The transfer's GEOMETRY was right by then -- perihelion 0.046 Eve
+        SOI radii off -- and its PHASE was never corrected."""
+        params = mlib.b5_params_from_dict(B15_PARAMS)
+        state = self._coasting(params)
+        in_mun = mlib.TelemetrySnapshot(
+            ut=11_838_936.0, body="Mun", altitude=2_215_441.0,
+            apoapsis=-2_260_732.0, time_to_soi=3_000.0)
+        self.assertFalse(mlib._b5_correction_round_ready(state, in_mun))
+        # The SAME clock value on the heliocentric leg DOES fire it.
+        self.assertTrue(
+            mlib._b5_correction_round_ready(state, replace(in_mun, body="Sun")))
+
+    def test_the_time_mode_round_trigger_is_unchanged_for_b7(self):
+        """The narrowing must be a no-op for the three green Duna flights:
+        B7's return_body is "Sun" and its via list is ("Sun",), so the domain
+        is the same set before and after."""
+        params = mlib.b5_params_from_dict(B7_PARAMS)
+        state = self._coasting(params)
+        frame = mlib.TelemetrySnapshot(ut=5_000_000.0, body="Sun",
+                                       time_to_soi=1_000_000.0)
+        self.assertTrue(mlib._b5_correction_round_ready(state, frame))
+        self.assertEqual(mlib._b5_correction_via_bodies(params),
+                         params.via_bodies)
+
+    def test_the_correction_trigger_body_domain_excludes_the_mun(self):
+        """Widening viaBodyNames to admit the Mun was a COAST decision, but the
+        no-encounter correction trigger read the same list, so flight 3 spent
+        BOTH correction rounds inside the Mun's SOI on a flyby hyperbola (where
+        MechJeb priced the correction at 1464.1 m/s against a 200 m/s cap and
+        both were discarded). The trigger domain is the transfer-parent SOI,
+        and this pins that it stayed IDENTICAL for the already-flown lanes."""
+        self.assertEqual(
+            mlib._b5_correction_via_bodies(mlib.b5_params_from_dict(B15_PARAMS)),
+            ("Sun",))
+        # B7: return_body "Sun", via_bodies ("Sun",) -- unchanged.
+        self.assertEqual(
+            mlib._b5_correction_via_bodies(mlib.b5_params_from_dict(B7_PARAMS)),
+            mlib.b5_params_from_dict(B7_PARAMS).via_bodies)
+        # B5/B6: not interplanetary, so the via list passes straight through.
+        self.assertEqual(
+            mlib._b5_correction_via_bodies(mlib.b5_params_from_dict(B5_PARAMS)),
+            mlib.b5_params_from_dict(B5_PARAMS).via_bodies)
+
+    def test_the_return_body_is_a_member_of_the_via_bodies_on_every_lane(self):
+        """THE PRECONDITION `_b5_correction_via_bodies`' SAFETY ARGUMENT RESTS
+        ON, pinned because the code does not enforce it. That docstring claims
+        the narrowing "is a strict subset, so it can only ever REMOVE a firing
+        opportunity" -- true ONLY while `return_body` is itself a member of
+        `via_bodies`. A future interplanetary lane whose `returnBodyName` sits
+        OUTSIDE `viaBodyNames` would make the narrowing ADD a body, inverting
+        the argument from "can only remove" to "can also grant a correction
+        round in an SOI the coast never even declared legal". This cell fails
+        the moment such a spec is written."""
+        for name, params in (("B7", B7_PARAMS), ("B15", B15_PARAMS),
+                             ("B16", B16_PARAMS)):
+            resolved = mlib.b5_params_from_dict(params)
+            self.assertTrue(resolved.interplanetary_transfer, name)
+            self.assertIn(
+                resolved.return_body, resolved.via_bodies,
+                "%s: returnBodyName %r is outside viaBodyNames %r, so the "
+                "correction-domain narrowing would ADD a firing opportunity "
+                "instead of removing one -- re-argue "
+                "_b5_correction_via_bodies before shipping this lane"
+                % (name, resolved.return_body, resolved.via_bodies))
+            # And therefore the narrowing really is a subset, not just for
+            # these three by inspection.
+            self.assertTrue(
+                set(mlib._b5_correction_via_bodies(resolved))
+                <= set(resolved.via_bodies), name)
+
+    def test_the_correction_approach_warp_reads_the_same_narrowed_domain(self):
+        """THE ASYMMETRY THE NARROWING CREATED, closed. Both correction
+        TRIGGERS were narrowed to the transfer-parent SOI, but the
+        correction-approach WARP branch went on reading the raw `via_bodies`.
+        For B7 the two lists are equal so nothing moved; for B15/B16 a craft
+        inside the Mun's SOI entered that branch and computed
+        dt = 3,086 - 20,000,000, which fails `dt > soi_lead`, so
+        `rails_factor_for_time` returned 0 on the non-positive input and the
+        floor-2 stair pinned the transit at 10x. MEASURED on flight 7: 317 of
+        318 Mun frames at RAILSx10, ~3,086 game s over ~308 wall s. Matched to
+        the trigger domain, the Mun transit takes the SOI native-warp branch
+        instead (warp to the boundary minus soi_lead)."""
+        params = mlib.b5_params_from_dict(B15_PARAMS)
+        # phase_entry_ut just behind the frame: the flight-7 UTs are 11.8M, and
+        # a phase entered at 0 would flake on the coast budget before the warp
+        # policy is ever reached.
+        state = self._coasting(params, phase_entry_ut=11_838_000.0)
+        in_mun = mlib.TelemetrySnapshot(
+            ut=11_838_936.0, body="Mun", altitude=2_215_441.0,
+            time_to_soi=3_086.0, node_count=0)
+        _after, actions = mlib.b5_decide(state, in_mun)
+        self.assertIn(
+            mlib.Action(mlib.ACTION_WARP_TO_UT,
+                        11_838_936.0 + 3_086.0 - params.soi_lead),
+            actions,
+            "the Mun transit must warp natively to the SOI boundary, not "
+            "crawl the floor-2 rails stair: %r" % (actions,))
+        self.assertFalse(
+            any(a.kind == mlib.ACTION_SET_RAILS_WARP for a in actions),
+            actions)
+
+    def test_the_correction_approach_warp_is_unchanged_for_b7(self):
+        """The no-op proof for the three green Duna flights: B7's via list IS
+        its correction domain, so the same heliocentric frame produces the same
+        native trigger-approach warp before and after."""
+        params = mlib.b5_params_from_dict(B7_PARAMS)
+        state = self._coasting(params, phase_entry_ut=900_000.0)
+        frame = mlib.TelemetrySnapshot(
+            ut=1_000_000.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=25_000_000.0, node_count=0)
+        _after, actions = mlib.b5_decide(state, frame)
+        # dt = 25e6 - 20e6 = 5e6 > soi_lead, so the trigger approach owns it.
+        self.assertIn(
+            mlib.Action(mlib.ACTION_WARP_TO_UT, 1_000_000.0 + 5_000_000.0),
+            actions, actions)
+
+    def test_gilly_is_absent_from_every_eve_legal_body_list(self):
+        """The Gilly decision, pinned at the param level as well as the frame
+        level: Gilly must never be a via body or a return body on either lane,
+        because either would turn a Gilly capture into a silent PASS."""
+        for params in (B15_PARAMS, B16_PARAMS):
+            resolved = mlib.b5_params_from_dict(params)
+            self.assertNotIn("Gilly", resolved.via_bodies)
+            self.assertNotEqual(resolved.return_body, "Gilly")
+
+    def test_the_moon_and_landing_families_are_untouched_by_the_eve_lane(self):
+        """The existing-families-are-unaffected cell. B5/B6 (moon flyby),
+        B11/B12 (moon orbit) and B13/B14 (moon landing) must still resolve to
+        their own shapes with the Eve keys nowhere in sight. mlib gained nothing
+        for Eve, so this is the assertion that says so out loud."""
+        moon_flyby = mlib.b5_params_from_dict(B5_PARAMS)
+        self.assertFalse(moon_flyby.interplanetary_transfer)
+        self.assertEqual(moon_flyby.via_bodies, ())
+        self.assertEqual(moon_flyby.return_body, "")
+        self.assertEqual(moon_flyby.ejection_ecc_floor, 0.0)
+        self.assertFalse(moon_flyby.capture_enabled)
+
+        moon_orbit = mlib.b5_params_from_dict(B11_PARAMS)
+        self.assertFalse(moon_orbit.interplanetary_transfer)
+        self.assertTrue(moon_orbit.capture_enabled)
+        self.assertFalse(moon_orbit.landing_enabled)
+        # The moon lanes keep ALTITUDE-mode correction triggers; only the
+        # interplanetary lanes use the time-to-SOI mode.
+        self.assertEqual(moon_orbit.correction_trigger_time_to_soi, ())
+        self.assertNotEqual(moon_orbit.correction_trigger_alts, ())
+
+        moon_landing = mlib.b5_params_from_dict(B13_PARAMS)
+        self.assertTrue(moon_landing.landing_enabled)
+        self.assertFalse(moon_landing.interplanetary_transfer)
+
+
+class MissionParamsMatchTheSpecsTests(unittest.TestCase):
+    """THE `*_PARAMS` DICTS ABOVE ARE ONLY WORTH ANYTHING IF THEY MATCH THE
+    SPECS THEY CLAIM TO MIRROR, and until this class existed nothing checked
+    that.
+
+    Every one of those dicts says "spec-shaped params (mirrors
+    harness/scenarios/<id>.toml)". They are also the DATA the lane-level claims
+    are proved over -- `EveLaneIsAParameterChangeTests` computes
+    `set(B15_PARAMS) - set(B7_PARAMS)` and concludes the Eve lane adds exactly
+    one key of machine surface. That conclusion is about the SHIPPED specs, so
+    it is only true if `B7_PARAMS`'s key set is the B7 spec's key set. Nothing
+    enforced that, and the drift was real: when this class was written
+    `B11_PARAMS` was missing SEVEN keys the B11 spec carries and `B7_PARAMS`
+    carried FIVE stale values (an `apoErrorMeters` of 15,000 against the spec's
+    150,000, and so on). All of it is fixed above; this cell is what keeps it
+    fixed.
+
+    THE DIVERGENCE TABLES BELOW ARE EXACT-MATCH, NOT AN ALLOWLIST CEILING. A
+    divergence that DISAPPEARS fails this test just as loudly as a new one, so
+    the tables cannot quietly rot into a list of things nobody checks. Each
+    entry names why the fixture dict deliberately differs."""
+
+    _PAIRS = (
+        ("B1_PARAMS", "B1-pad-hop"),
+        ("B2_PARAMS", "B2-lko-ascent"),
+        ("B4_PARAMS", "B4-reentry-splashdown"),
+        ("B5_PARAMS", "B5-mun-flyby"),
+        ("B7_PARAMS", "B7-duna-flyby"),
+        ("B11_PARAMS", "B11-mun-orbit"),
+        ("B13_PARAMS", "B13-mun-landing"),
+        ("B15_PARAMS", "B15-eve-flyby"),
+        ("B16_PARAMS", "B16-eve-orbit"),
+    )
+
+    # spec id -> (keys the spec has and the dict does not,
+    #             keys the dict has and the spec does not)
+    _KEY_DIVERGENCES = {
+        # `launchSiteLatitude` is OPTIONAL in b2_lko_ascent.schema.toml and the
+        # B2 spec omits it (mlib defaults it to 0.0). The fixture sets it
+        # EXPLICITLY, to the same 0.0, so the optional-key parse path is
+        # exercised by a fake flight instead of only by a schema unit test.
+        # Behaviourally identical to the spec; kept deliberately.
+        "B2-lko-ascent": ((), ("launchSiteLatitude",)),
+    }
+
+    # spec id -> {key: (fixture value, spec value)}
+    _VALUE_DIVERGENCES = {
+        # The scripted B4 reentry frames are written around a 45,000 m warp
+        # threshold; at the spec's 70,000 the fake flight's warp hop never
+        # fires and B4ShellTests' happy path stops asserting it. A FIXTURE
+        # number, not a stale copy of a spec number.
+        "B4-reentry-splashdown": {"warpAboveAltMeters": (45000, 70000)},
+    }
+
+    @staticmethod
+    def _spec_params(spec_id):
+        path = os.path.join(_HARNESS, "scenarios", spec_id + ".toml")
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)["driver"]["missionParams"]
+
+    def _diff(self, dict_name, spec_id):
+        fixture = globals()[dict_name]
+        spec = self._spec_params(spec_id)
+        missing = tuple(sorted(set(spec) - set(fixture)))
+        extra = tuple(sorted(set(fixture) - set(spec)))
+        values = {k: (fixture[k], spec[k])
+                  for k in sorted(set(fixture) & set(spec))
+                  if fixture[k] != spec[k]}
+        return missing, extra, values
+
+    def test_every_fixture_dict_carries_exactly_its_specs_keys(self):
+        """The load-bearing half: KEY SETS. A key in the spec but not the
+        fixture means the fixture proves nothing about that param; a key in the
+        fixture but not the spec means the fixture is testing a param the lane
+        does not actually ship. Either way the subset arithmetic other cells
+        run over these dicts is arithmetic over the wrong data."""
+        for dict_name, spec_id in self._PAIRS:
+            with self.subTest(spec=spec_id):
+                missing, extra, _values = self._diff(dict_name, spec_id)
+                expected = self._KEY_DIVERGENCES.get(spec_id, ((), ()))
+                self.assertEqual(
+                    (missing, extra), expected,
+                    "%s key set drifted from %s.toml. Sync the dict, or add "
+                    "the divergence to _KEY_DIVERGENCES with the reason."
+                    % (dict_name, spec_id))
+
+    def test_every_fixture_dict_carries_exactly_its_specs_values(self):
+        """The weaker half, kept honest rather than skipped. A fake flight may
+        legitimately need a different NUMBER than the shipped spec (see
+        _VALUE_DIVERGENCES), but every such case must be a named decision, not
+        a value someone forgot to update when the spec moved."""
+        for dict_name, spec_id in self._PAIRS:
+            with self.subTest(spec=spec_id):
+                _missing, _extra, values = self._diff(dict_name, spec_id)
+                expected = self._VALUE_DIVERGENCES.get(spec_id, {})
+                self.assertEqual(
+                    values, expected,
+                    "%s values drifted from %s.toml. Sync the dict, or add "
+                    "the divergence to _VALUE_DIVERGENCES with the reason."
+                    % (dict_name, spec_id))
+
+    def test_the_two_eve_dicts_are_byte_for_byte_their_specs(self):
+        """CALLED OUT SEPARATELY because the Eve lane's central claim is
+        computed over B15_PARAMS / B16_PARAMS: they must carry NO divergence of
+        either kind, so `set(B15_PARAMS) - set(B7_PARAMS) == {parkTrimEccMax}`
+        is a statement about the shipped specs and not about two dicts that
+        happen to live in a test file."""
+        for dict_name, spec_id in (("B15_PARAMS", "B15-eve-flyby"),
+                                   ("B16_PARAMS", "B16-eve-orbit")):
+            with self.subTest(spec=spec_id):
+                self.assertEqual(self._diff(dict_name, spec_id), ((), (), {}))
+                self.assertNotIn(spec_id, self._KEY_DIVERGENCES)
+                self.assertNotIn(spec_id, self._VALUE_DIVERGENCES)
 
 
 # ---------------------------------------------------------------------------
@@ -2757,6 +3520,152 @@ class CapturePlanTimeSelectorTests(unittest.TestCase):
         op, lines = self._perform_plan_capture(_StickyTimeSelector())
         self.assertEqual(op.made, 0)
         self.assertTrue(any("READ BACK" in l for l in lines), lines)
+
+
+class InterplanetaryPlanDiagnosticIsolationTests(unittest.TestCase):
+    """THE FIFTH SHARED CHANGE, and the only one that is NOT param-gated.
+
+    The Eve lane's four machine changes are all gated behind a param B7 does
+    not set, so B7/Duna is byte-identical. The plan diagnostic is not: it runs
+    on EVERY `ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER`, B7's included. It is
+    inert by construction (read-only kRPC reads, and the machine keys on
+    `node_count`, which a log line cannot change) -- but it was originally
+    written INSIDE the try that wraps `make_nodes()`, so a raise from its own
+    unguarded tail (the patches loop, the %-format, the sink) would have been
+    reported as "operation_interplanetary_transfer.make_nodes failed", a false
+    plan-FAILURE message on a plan that SUCCEEDED. That is precisely the
+    misleading-message class this lane exists to eliminate, and it would have
+    landed on B7's path.
+
+    These cells pin the split: a raising diagnostic costs the observability
+    line and NOTHING else."""
+
+    class _Op:
+        def __init__(self, nodes):
+            self._nodes = nodes
+            self.made = 0
+            self.wait_for_phase_angle = False
+
+        def make_nodes(self):
+            self.made += 1
+            return self._nodes
+
+    class _Planner:
+        def __init__(self, op):
+            self.operation_interplanetary_transfer = op
+
+    class _MechJeb:
+        def __init__(self, planner):
+            self.maneuver_planner = planner
+
+    class _Control:
+        def __init__(self, nodes):
+            self.nodes = nodes
+
+    class _Vessel:
+        def __init__(self, nodes):
+            self.control = InterplanetaryPlanDiagnosticIsolationTests._Control(nodes)
+
+    class _Sc:
+        def __init__(self, vessel):
+            self.active_vessel = vessel
+            self.target_body = None
+
+    class _Conn:
+        def __init__(self, sc):
+            self.space_center = sc
+
+    def _perform(self, diagnostic):
+        """Run the plan action with `_log_transfer_plan_diagnostic` replaced by
+        `diagnostic`. Returns (op, control, log lines)."""
+        planned = ["node-0"]
+        op = self._Op(planned)
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True)
+        ctrl._mechjeb = self._MechJeb(self._Planner(op))
+        vessel = self._Vessel(planned)
+        ctrl._conn = self._Conn(self._Sc(vessel))
+        ctrl._log_transfer_plan_diagnostic = diagnostic
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            ctrl.perform(
+                mlib.Action(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER))
+        finally:
+            mission_runner._stdout_sink = orig
+        return op, vessel.control, lines
+
+    def test_a_raising_diagnostic_does_not_corrupt_the_plan_verdict(self):
+        """The node the planner made STAYS on the board and `make_nodes` is
+        called exactly once. The machine reads `node_count`; the diagnostic
+        cannot touch it, and after the split it cannot make the runner behave
+        as though the plan had thrown either."""
+        def boom(sc, planned):
+            raise RuntimeError("patches walk blew up")
+
+        op, control, _lines = self._perform(boom)
+        self.assertEqual(op.made, 1)
+        self.assertEqual(len(control.nodes), 1,
+                         "a diagnostic fault must never remove the plan")
+        self.assertTrue(op.wait_for_phase_angle)
+
+    def test_a_raising_diagnostic_does_not_corrupt_the_plan_MESSAGE(self):
+        """The load-bearing half. The log must NOT say the plan failed -- it
+        must name the diagnostic and say the plan succeeded, or the next
+        investigation is sent at the planner instead of at this function."""
+        def boom(sc, planned):
+            raise RuntimeError("patches walk blew up")
+
+        _op, _control, lines = self._perform(boom)
+        self.assertFalse(
+            any("make_nodes failed" in l for l in lines),
+            "a diagnostic fault reported as a plan failure is the exact "
+            "misleading message this lane exists to remove: %r" % (lines,))
+        self.assertTrue(
+            any("plan diagnostic raised" in l and "PLAN ITSELF SUCCEEDED" in l
+                for l in lines), lines)
+        self.assertTrue(any("RuntimeError" in l for l in lines), lines)
+
+    def test_a_genuinely_failing_plan_still_reports_a_plan_failure(self):
+        """The other direction: splitting the try must not have made a REAL
+        `make_nodes` throw quiet. It still reports as a plan failure, and the
+        diagnostic is never reached."""
+        class Boom:
+            wait_for_phase_angle = False
+            made = 0
+
+            def make_nodes(self):
+                raise RuntimeError("no transfer window")
+
+        op = Boom()
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True)
+        ctrl._mechjeb = self._MechJeb(self._Planner(op))
+        ctrl._conn = self._Conn(self._Sc(self._Vessel([])))
+        called = []
+        ctrl._log_transfer_plan_diagnostic = lambda sc, planned: called.append(1)
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            ctrl.perform(
+                mlib.Action(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER))
+        finally:
+            mission_runner._stdout_sink = orig
+        self.assertEqual(called, [], "no plan, nothing to diagnose")
+        self.assertTrue(
+            any("operation_interplanetary_transfer.make_nodes failed" in l
+                for l in lines), lines)
+
+    def test_a_healthy_plan_still_runs_the_diagnostic_once(self):
+        """The happy path is unchanged: one plan, one diagnostic call, with the
+        nodes `make_nodes` RETURNED (never `control.nodes`, the flight-4
+        leftover-node lesson)."""
+        seen = []
+        _op, _control, lines = self._perform(
+            lambda sc, planned: seen.append(planned))
+        self.assertEqual(seen, [["node-0"]])
+        self.assertFalse(any("failed" in l or "raised" in l for l in lines),
+                         lines)
 
 
 class DarkChannelWarnTests(unittest.TestCase):
