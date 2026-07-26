@@ -534,12 +534,16 @@ six publish or compare numbers the runner already measured.
    and needs its own diagnosis from a B4 recording (check for `Parachute*` part
    events) before anyone concludes either way. Any new assertion over a
    part-module state must read the module, not the command.
-   THIRD INSTANCE FOUND 2026-07-25 (the first full sweep): EVA-4's chute opened
-   and then CUT itself, the kerbal fell from -11 to -109 m/s and died, and the
-   MISSION still returned `MISSION-OK reason=all telemetry assertions met` -
-   none of its four assertions covers kerbal survival, which is that mission's
-   stated purpose. DIAGNOSED 2026-07-26 and it is NOT a third instance of THIS
-   class: `EvaChuteDeploy` already had the observed channel, already debounced
+   NOT A THIRD INSTANCE - a SIBLING class, found 2026-07-25 by the first full
+   sweep and diagnosed 2026-07-26. (An earlier revision of this item opened
+   "THIRD INSTANCE FOUND" and then contradicted itself two sentences later;
+   the retraction is kept visible because this item is the canonical triage
+   index for the class and a reader who counts EVA-4 as a member would apply
+   the wrong prescription.) EVA-4's chute opened and then CUT itself, the
+   kerbal fell from -11 to -109 m/s and died, and the MISSION still returned
+   `MISSION-OK reason=all telemetry assertions met` - none of its four
+   assertions covers kerbal survival, which is that mission's stated purpose.
+   It is NOT an instance of THIS class: `EvaChuteDeploy` already had the observed channel, already debounced
    it (3 consecutive gone-reads) and already fast-failed on a distinctly named
    give-up (`eva-chute-kerbal-lost`). The observation was made, was correct, and
    was durably recorded (`driver.steps[6].verdict = ERROR`,

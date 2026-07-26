@@ -9702,9 +9702,15 @@ HANDOFF_OK_REASON_SUFFIX = ("; handoff mission - %s not verified here, owned by 
 
 def mission_handoff_contract(mission: str) -> Optional[Dict]:
     """The handoff contract for ``mission``, or None when the mission terminates on
-    the outcome it certifies (every mission but EVA-4 today)."""
+    the outcome it certifies (every mission but EVA-4 today).
+
+    Returns a DEEP copy: a shallow one would alias the module constant's nested lists
+    into every result dict, so a caller that mutated a returned ``verifiedBy`` would
+    rewrite the contract for the rest of the process."""
     contract = MISSION_HANDOFF_CONTRACTS.get(str(mission or ""))
-    return dict(contract) if contract else None
+    if not contract:
+        return None
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in contract.items()}
 
 
 def handoff_ok_reason(mission: str, reason: str) -> str:
@@ -9747,14 +9753,17 @@ def build_mission_result(
     rows = []
     for a in (assertions or []):
         rows.append(a.to_dict() if isinstance(a, AssertionOutcome) else dict(a))
-    # Handoff disclosure (EVA-4). Applied HERE because this is the single place the
-    # result shape is authored, and only on the OK path: a mission that failed
-    # already carries a specific reason and adding "by the way I also do not verify
-    # X" to it would bury the real one. A mission with no contract is untouched, so
-    # every other mission's result stays byte-identical.
+    # Handoff disclosure (EVA-4). The REASON is extended by the caller
+    # (mission_runner.run_mission), immediately before the `[Verdict]` log emit, because
+    # that log line - not this dict - is what a human and `harness/status.py` read;
+    # extending it only here would fix the JSON and leave the operator-facing line
+    # unchanged. `handoff_ok_reason` is idempotent-by-construction only in the sense
+    # that the caller applies it exactly once, so this builder does NOT re-apply it.
+    # What the builder owns is the machine-readable BLOCK, on every verdict: a reader of
+    # a FAILED run still needs to know which step owned the rest of the contract.
+    # A mission with no contract is untouched, so every other mission's result stays
+    # byte-identical.
     handoff = mission_handoff_contract(mission)
-    if handoff is not None and verdict == MISSION_OK:
-        reason = handoff_ok_reason(mission, reason)
     return {
         "schema": MISSION_RESULT_SCHEMA,
         "mission": mission,

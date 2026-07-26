@@ -413,6 +413,44 @@ def post_mission_step_gates(cmd: str) -> bool:
     return SEAM_VERB_POST_MISSION_ROLE.get(str(cmd or "")) == POST_MISSION_ROLE_OUTCOME
 
 
+# The seam's own verdict families, and what an unmet post-mission OUTCOME step means.
+# The C# executors already draw the line this needs: a REFUSAL that had NO side effect
+# rides "REJECTED" (`no-crew`, `kerbal-not-aboard`, `not-near-target`, `unknown-target`,
+# `eva-chute-unavailable` ...), while a real terminal after the verb acted rides "ERROR"
+# (`eva-exit-timeout`, `board-timeout`, `eva-chute-kerbal-lost` ...). Only the second
+# family is a FLIGHT OUTCOME.
+#
+# Without this split every one of the ~30 terminals the four outcome verbs can emit
+# collapses to "the flight failed after handoff": a typo in a post-mission EvaBoard's
+# targetPid would report PARSEK-FAIL(mission-outcome), never be retried, and be filed
+# against the mod - while the SAME typo on a pre-mission step reports INVALID(driver-arg)
+# and retries once. Same fault, same classification, wherever it sits in the step list.
+SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"
+
+
+def classify_post_mission_outcome_miss(step: "StepOutcome") -> Tuple[bool, str]:
+    """Classify an UNMET post-mission outcome step as (is_flight_outcome, driver_subkind).
+
+    ``(True, "")``  -> a genuine flight outcome; the caller reds PARSEK-FAIL(mission-outcome).
+    ``(False, sk)`` -> a refusal / tooling / never-answered miss; the caller treats it as a
+    driver-stage failure with subkind ``sk``, exactly as it would pre-mission.
+
+    A ``msg`` the M-C1 refusal table recognises wins over the verdict family, so a verb
+    that reports a known gate decline is classified by its REASON however it spells its
+    verdict."""
+    refusal = classify_seam_refusal_subkind(getattr(step, "msg", ""))
+    if refusal:
+        return False, refusal
+    verdict = getattr(step, "verdict", None)
+    if verdict is None:
+        return False, "driver-stage"          # never answered
+    if verdict == "TIMEOUT":
+        return False, "seam-timeout"          # the seam never reached a terminal
+    if verdict == SEAM_VERDICT_OUTCOME_TERMINAL:
+        return True, ""
+    return False, "driver-verdict-mismatch"   # REJECTED, or an unexpected verdict
+
+
 def first_unmet_post_mission_outcome(
     steps: Sequence["StepOutcome"], mission_step_id: Optional[str]
 ) -> Optional["StepOutcome"]:
@@ -3324,6 +3362,15 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     "mission-outcome",
 )
 
+# Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
+# `[expectedFail] bugId = "..."` with no `subkind` matches ANY PARSEK-FAIL, which is
+# the documented v1 adaptation - but EXPECTED-FAIL is GREEN (it sets lastGreen in
+# compute_coverage and exits 0), so a scenario quarantined for one Parsek defect would
+# silently absorb an unrelated subject death too. A quarantine must never be able to
+# turn "the flight killed the kerbal it existed to save" green; demoting that requires
+# spelling the subkind out.
+NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
+
 # INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
 # stages (design). Everything else (admission, instance-locked/busy, fixture-*,
 # spec-invalid, boot-crash-repeated) is a terminal INVALID.
@@ -3415,7 +3462,13 @@ def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
     if base_verdict != VERDICT_PARSEK_FAIL:
         return False
     if not ef_subkind:
-        return True
+        # bugId-only demotion, EXCEPT for the subkinds in NEVER_BUGID_ONLY_SUBKINDS. A
+        # quarantine key is a statement about ONE tracked Parsek defect; letting it also
+        # swallow "the flight killed its own subject" would re-open the exact fail-open
+        # this subkind exists to close - and EXPECTED-FAIL is in GREEN_VERDICTS, sets
+        # lastGreen in compute_coverage, and exits 0. Demoting a subject death requires
+        # naming it explicitly (subkind = "mission-outcome").
+        return base_subkind not in NEVER_BUGID_ONLY_SUBKINDS
     return base_subkind == ef_subkind
 
 

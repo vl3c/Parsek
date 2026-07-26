@@ -323,7 +323,7 @@ namespace Parsek.Tests
             Assert.True(TestCommandEvaExit.StandoffClearThisPoll(0.0, 0.0));
             Assert.True(TestCommandEvaExit.StandoffClearThisPoll(double.NaN, 0.0));
             Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
-                         TestCommandEvaExit.ClassifyStandoff(0.0, 0, 999.0, 15.0));
+                         TestCommandEvaExit.ClassifyStandoff(0.0, 0, 999.0, 8.0, 1650.0, 500.0));
             Assert.Equal("off", TestCommandEvaExit.StandoffToken(
                 0.0, TestCommandEvaExit.EvaExitStandoffState.Cleared));
         }
@@ -358,10 +358,11 @@ namespace Parsek.Tests
             // One clear poll is not separation: a floating-origin shift or a frame where a
             // vessel's position has not been updated can read clear once.
             Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Waiting,
-                         TestCommandEvaExit.ClassifyStandoff(30.0, 1, 1.0, 15.0));
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 1, 1.0, 8.0, 1650.0, 500.0));
             Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
                          TestCommandEvaExit.ClassifyStandoff(
-                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 1.0, 15.0));
+                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 1.0, 8.0,
+                             1650.0, 500.0));
         }
 
         [Fact]
@@ -370,7 +371,7 @@ namespace Parsek.Tests
             // NON-FATAL by design: an unchuted kerbal is a certain death, a contact risk is
             // not. The give-up must therefore be visible on the wire instead of terminal.
             Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.GaveUp,
-                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 15.0, 15.0));
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 8.0, 8.0, 1650.0, 500.0));
             Assert.Equal("timeout", TestCommandEvaExit.StandoffToken(
                 30.0, TestCommandEvaExit.EvaExitStandoffState.GaveUp));
         }
@@ -382,7 +383,8 @@ namespace Parsek.Tests
             // give-up: the separation was actually observed.
             Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
                          TestCommandEvaExit.ClassifyStandoff(
-                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 99.0, 15.0));
+                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 99.0, 8.0,
+                             1650.0, 500.0));
         }
 
         [Fact]
@@ -412,13 +414,85 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Standoff_ConstantsAreSizedForTheMeasuredProfile()
+        public void Standoff_TheWallClockBoundStaysInsideItsMeasuredFreeFallCost()
         {
-            // 15 s against a measured ~2-3 s clear for a 30 m standoff (the background
-            // recorder logged 90 m of separation 3.8 s after the flight-3 cut). Guards
-            // against someone shrinking the bound below the physics it has to cover.
-            Assert.True(TestCommandEvaExit.StandoffMaxWaitSeconds >= 10.0);
+            // BOTH directions, because the first draft only guarded one and got the other
+            // badly wrong. FLOOR: the bound must still cover the measured clear time (a 30 m
+            // standoff was reached ~2.3 s after release on this profile), or the mitigation
+            // gives up before it can engage. CEILING: the kerbal is UNCHUTED for the whole
+            // stage, so the bound is paid in FREE FALL - measured on the flight-3 log at
+            // ~1,016 m per 15 s. An earlier revision sized this against "~165 m" (15 s x the
+            // ladder-attached -11 m/s) and was wrong by ~6x, which is how a bound long
+            // enough to fly the kerbal into the ground came to look cheap. 10 s of free fall
+            // from a standing-ish start is already ~600 m, which is most of EVA-4's
+            // [700, 2100] m window, so the wall clock alone must never be the safety bound.
+            Assert.True(TestCommandEvaExit.StandoffMaxWaitSeconds >= 5.0);
+            Assert.True(TestCommandEvaExit.StandoffMaxWaitSeconds <= 10.0);
             Assert.True(TestCommandEvaExit.StandoffDebouncePolls >= 2);
+        }
+
+        [Fact]
+        public void Standoff_GivesUpAtTheAltitudeFloorWhateverTheClockSays()
+        {
+            // THE BLOCKER THIS CLOSES: the mission may hand off anywhere in its EVA window
+            // (EVA-4's floor is 700 m). Bounded by wall clock ALONE, a low handoff plus a
+            // standoff that never clears flies the kerbal into the ground with the canopy
+            // never armed - strictly worse than the collision the stage exists to avoid.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.GaveUp,
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 1.0, 8.0, 480.0, 500.0));
+            // Above the floor and inside the clock: still waiting.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Waiting,
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 1.0, 8.0, 520.0, 500.0));
+            // Inclusive at the floor.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.GaveUp,
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 1.0, 8.0, 500.0, 500.0));
+        }
+
+        [Fact]
+        public void Standoff_NoFloorRequested_IsWallClockOnly()
+        {
+            // floor=0 keeps the pre-floor behaviour for any caller that does not declare one.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Waiting,
+                         TestCommandEvaExit.ClassifyStandoff(30.0, 0, 1.0, 8.0, 3.0, 0.0));
+        }
+
+        [Fact]
+        public void Standoff_UnreadableAltitudeDoesNotAbandonTheStage()
+        {
+            // An unreadable frame must not be mistaken for "out of sky"; the wall clock
+            // still bounds the stage, so failing OPEN here cannot hang it.
+            foreach (double alt in new[] { double.NaN, double.PositiveInfinity })
+                Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Waiting,
+                             TestCommandEvaExit.ClassifyStandoff(30.0, 0, 1.0, 8.0, alt, 500.0));
+        }
+
+        [Fact]
+        public void Standoff_ClearedBeatsTheAltitudeFloorToo()
+        {
+            // A poll that both satisfies the debounce and sits under the floor is a success:
+            // the separation really was observed.
+            Assert.Equal(TestCommandEvaExit.EvaExitStandoffState.Cleared,
+                         TestCommandEvaExit.ClassifyStandoff(
+                             30.0, TestCommandEvaExit.StandoffDebouncePolls, 1.0, 8.0,
+                             100.0, 500.0));
+        }
+
+        [Fact]
+        public void Standoff_DebounceIsARunAndResetsOnAnyNonClearPoll()
+        {
+            // The run-vs-tally contract, which lived in an untestable applier line until it
+            // was extracted. As a TALLY ("+= clear ? 1 : 0") every ClassifyStandoff assertion
+            // still passes while the debounce silently degrades to "any two clear polls ever
+            // observed" - certifying exactly the glitched single-frame read it exists to
+            // reject.
+            int run = 0;
+            run = TestCommandEvaExit.AdvanceStandoffClearPolls(run, true);
+            Assert.Equal(1, run);
+            run = TestCommandEvaExit.AdvanceStandoffClearPolls(run, false);
+            Assert.Equal(0, run);
+            run = TestCommandEvaExit.AdvanceStandoffClearPolls(run, true);
+            run = TestCommandEvaExit.AdvanceStandoffClearPolls(run, true);
+            Assert.Equal(TestCommandEvaExit.StandoffDebouncePolls, run);
         }
     }
 }

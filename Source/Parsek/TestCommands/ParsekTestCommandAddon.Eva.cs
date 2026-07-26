@@ -76,6 +76,10 @@ namespace Parsek.TestCommands
         // stage: no extra Unity read, no extra poll, an identical completion payload token
         // ("off"). See TestCommandEvaExit.EvaExitStandoffState for the stock FSM ground truth.
         private double evaExitMinStandoffMeters;
+        // The "arm now or never" altitude. The kerbal is UNCHUTED for the whole standoff,
+        // so waiting costs SKY; the wall clock alone cannot know how much is left below a
+        // given handoff. 0 = no floor (the stage is bounded by the wall clock only).
+        private double evaExitStandoffFloorMeters;
         private int evaExitStandoffClearPolls;
         private double evaExitStandoffStartedAt;
         private TestCommandEvaExit.EvaExitStandoffState evaExitStandoffState;
@@ -107,6 +111,7 @@ namespace Parsek.TestCommands
             bool releaseRequested = string.Equals(ArgOrNull(cmd, "release"), "true", System.StringComparison.OrdinalIgnoreCase);
             double settleSeconds = ParseSettleSeconds(ArgOrNull(cmd, "settleSeconds"));
             double minStandoff = ParsePositiveDouble(ArgOrNull(cmd, "minStandoffMeters"));
+            double standoffFloor = ParsePositiveDouble(ArgOrNull(cmd, "standoffFloorAltMeters"));
 
             Vessel active = FlightGlobals.ActiveVessel;
             List<string> crewNames = active != null
@@ -196,6 +201,7 @@ namespace Parsek.TestCommands
             evaExitSettleSeconds = settleSeconds;
             evaExitSettleStartedAt = -1.0;
             evaExitMinStandoffMeters = minStandoff;
+            evaExitStandoffFloorMeters = standoffFloor;
             evaExitStandoffClearPolls = 0;
             evaExitStandoffStartedAt = -1.0;
             evaExitStandoffState = minStandoff > 0.0
@@ -304,12 +310,16 @@ namespace Parsek.TestCommands
 
             double nearest = ReadNearestOtherLoadedVesselMetres(evaExitVessel);
             bool clear = TestCommandEvaExit.StandoffClearThisPoll(nearest, evaExitMinStandoffMeters);
-            evaExitStandoffClearPolls = clear ? evaExitStandoffClearPolls + 1 : 0;
+            evaExitStandoffClearPolls = TestCommandEvaExit.AdvanceStandoffClearPolls(
+                evaExitStandoffClearPolls, clear);
 
             double waited = now - evaExitStandoffStartedAt;
+            // The kerbal is UNCHUTED and free-falling for this whole stage, so the altitude
+            // floor - not the wall clock - is what guarantees the chute step still has sky.
+            double altitude = evaExitVessel != null ? evaExitVessel.altitude : double.NaN;
             evaExitStandoffState = TestCommandEvaExit.ClassifyStandoff(
                 evaExitMinStandoffMeters, evaExitStandoffClearPolls, waited,
-                TestCommandEvaExit.StandoffMaxWaitSeconds);
+                TestCommandEvaExit.StandoffMaxWaitSeconds, altitude, evaExitStandoffFloorMeters);
 
             ParsekLog.VerboseRateLimited("TestCommands", "evaexit-standoff",
                 $"evaexit standoff kerbal={evaExitKerbalName ?? string.Empty} " +
@@ -317,7 +327,10 @@ namespace Parsek.TestCommands
                 $"min={evaExitMinStandoffMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"clearPolls={evaExitStandoffClearPolls.ToString(CultureInfo.InvariantCulture)}/" +
                 $"{TestCommandEvaExit.StandoffDebouncePolls.ToString(CultureInfo.InvariantCulture)} " +
-                $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s state={evaExitStandoffState}");
+                $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                $"alt={FormatStandoffMetres(altitude)} " +
+                $"floor={evaExitStandoffFloorMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"state={evaExitStandoffState}");
 
             if (evaExitStandoffState == TestCommandEvaExit.EvaExitStandoffState.Waiting)
                 return false;
@@ -330,13 +343,17 @@ namespace Parsek.TestCommands
                         $"nearest={FormatStandoffMetres(nearest)} " +
                         $"min={evaExitMinStandoffMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                        $"alt={FormatStandoffMetres(altitude)} " +
+                        $"floor={evaExitStandoffFloorMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"bound={(waited >= TestCommandEvaExit.StandoffMaxWaitSeconds ? "wall-clock" : "altitude-floor")} " +
                         "(completing anyway: an unchuted kerbal is worse than a contact risk)");
                 else
                     ParsekLog.Info(Tag,
                         $"evaexit standoff cleared kerbal={evaExitKerbalName ?? string.Empty} " +
                         $"nearest={FormatStandoffMetres(nearest)} " +
                         $"min={evaExitMinStandoffMeters.ToString("F1", CultureInfo.InvariantCulture)} " +
-                        $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        $"waited={waited.ToString("F1", CultureInfo.InvariantCulture)}s " +
+                        $"alt={FormatStandoffMetres(altitude)}");
             }
             return true;
         }
@@ -347,10 +364,20 @@ namespace Parsek.TestCommands
         // vessels are considered - an unloaded vessel has no colliders, so it cannot fire
         // the KerbalEVA collision callback that cuts the canopy.
         //
+        // Measured to the nearest PART, not to Vessel.GetWorldPos3D(). That property returns
+        // the vessel's centre of MASS, and the collision this stage exists to avoid happens
+        // at a HULL. For EVA-4's Mk1 pod the difference is a metre or two and would not
+        // matter, but EvaExit is a generic seam verb (EVA-1/2/3 and both FORGE specs drive
+        // it): measured to the CoM, a kerbal leaving a docking port at the end of a 60 m
+        // station reads "30 m clear" while still inside the truss, and the mitigation
+        // becomes a silent no-op on exactly the vessel where it matters most.
+        //
         // Parsek's own ghost map vessels are EXCLUDED: they are proto-only presence vessels
         // with no colliders, so they cannot stumble a kerbal, and a co-located one would
-        // otherwise pin the standoff at 0 m until the bounded wait expired - silently
-        // reverting the mitigation to the pre-fix behaviour on any save with a playing ghost.
+        // otherwise pin the standoff at 0 m until a bound expired - silently reverting the
+        // mitigation to the pre-fix behaviour on any save with a playing ghost. That set is
+        // known-incomplete, which is the safe direction: a MISSED ghost only makes the
+        // standoff hold longer, never certify early.
         private static double ReadNearestOtherLoadedVesselMetres(Vessel eva)
         {
             if (eva == null) return double.NaN;
@@ -365,10 +392,31 @@ namespace Parsek.TestCommands
                 if (other == null || ReferenceEquals(other, eva)) continue;
                 if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
                 considered++;
-                double d = Vector3d.Distance(here, other.GetWorldPos3D());
+                double d = NearestPartDistance(here, other);
                 if (d < nearest) nearest = d;
             }
             return considered == 0 ? double.PositiveInfinity : nearest;
+        }
+
+        // Distance from a world point to the nearest PART of a vessel, falling back to the
+        // vessel's CoM when it has no readable parts (an in-flight teardown frame). Bounded
+        // work: only loaded vessels reach here, and only while a standoff wait is open.
+        private static double NearestPartDistance(Vector3d from, Vessel other)
+        {
+            List<Part> parts = other.parts;
+            if (parts == null || parts.Count == 0)
+                return Vector3d.Distance(from, other.GetWorldPos3D());
+            double nearest = double.PositiveInfinity;
+            for (int i = 0; i < parts.Count; i++)
+            {
+                Part p = parts[i];
+                if (p == null || p.transform == null) continue;
+                double d = Vector3d.Distance(from, (Vector3d)p.transform.position);
+                if (d < nearest) nearest = d;
+            }
+            return double.IsInfinity(nearest)
+                ? Vector3d.Distance(from, other.GetWorldPos3D())
+                : nearest;
         }
 
         private static string FormatStandoffMetres(double v)

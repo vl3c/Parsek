@@ -991,11 +991,18 @@ class Eva4HandoffContractTests(unittest.TestCase):
         self.assertEqual(["EvaExit", "EvaChuteDeploy"], row["verifiedBy"])
 
     def test_the_ok_reason_can_no_longer_be_read_as_end_to_end_success(self):
-        reason = self._ok_result()["reason"]
+        # The reason extension is applied by the CALLER (mission_runner, immediately
+        # before the `[Verdict]` log emit) rather than by build_mission_result, because
+        # that log line is the channel `harness/status.py` and a watching human read -
+        # extending only the JSON would leave the operator-facing line unchanged. The
+        # emit-site wiring is pinned by test_shells.Eva4HandoffDisclosureEmitTests.
+        reason = mlib.handoff_ok_reason("eva4_atmo_chute", "all telemetry assertions met")
         self.assertIn("all telemetry assertions met", reason)
         self.assertIn("handoff mission", reason)
         self.assertIn("kerbalSurvival", reason)
         self.assertIn("EvaChuteDeploy", reason)
+        # The builder must NOT re-apply it (that would double the clause).
+        self.assertEqual("all telemetry assertions met", self._ok_result()["reason"])
 
     def test_a_failed_eva4_keeps_its_own_reason_verbatim(self):
         # A specific failure reason must not be buried under the disclaimer.

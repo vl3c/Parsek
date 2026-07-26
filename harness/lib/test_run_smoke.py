@@ -837,6 +837,24 @@ class PostMissionOutcomeSmokeTests(unittest.TestCase):
         self.assertEqual("PASS", row["status"])
         self.assertIsNone(row["firstUnmet"])
 
+    def test_a_refusal_is_a_retryable_driver_fault_not_a_parsek_defect(self):
+        """A post-mission SPEC fault (here a typo'd kerbal name -> EvaExit answers
+        REJECTED msg=kerbal-not-aboard) must classify exactly as the same refusal
+        would pre-mission: retryable driver-stage INVALID, never PARSEK-FAIL filed
+        against the mod. Fails if the gate collapses every outcome-verb terminal into
+        one cause."""
+        result = self._run("autopilot-evarefused")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertNotEqual("mission-outcome", result["subkind"])
+        self.assertIn(result["subkind"], hlib.RETRYABLE_INVALID_SUBKINDS)
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertTrue(hlib.should_retry(v, attempt=1, retry_policy="once"))
+        # The row still NAMES it, with the classification it took.
+        row = result["verifiers"]["missionOutcome"]
+        self.assertEqual("EvaExit", row["firstUnmet"]["cmd"])
+        self.assertFalse(row["firstUnmet"]["flightOutcome"])
+        self.assertTrue(row["firstUnmet"]["driverSubkind"])
+
 
 class UnmetMissionTailSmokeTests(unittest.TestCase):
     """The unmet-mission tail, driven end to end over the fake KSP + fake mission

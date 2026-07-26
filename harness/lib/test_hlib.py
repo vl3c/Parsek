@@ -3853,6 +3853,65 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
         r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
         self.assertEqual("mission-outcome", r.subkind)
 
+    def test_a_quarantine_key_cannot_turn_a_dead_subject_green(self):
+        # An `[expectedFail] bugId` with no subkind matches ANY PARSEK-FAIL (the
+        # documented v1 adaptation), and EXPECTED-FAIL is GREEN: it is in
+        # GREEN_VERDICTS, sets lastGreen in compute_coverage, and exits 0. So a
+        # scenario quarantined for one unrelated Parsek defect would have silently
+        # absorbed the next subject death - re-opening this PR's own fail-open through
+        # the back door. Demoting a subject death must be spelled out.
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": "BUG-1", "signature_matched":
+                                         hlib.expected_fail_signature_matched(
+                                             "PARSEK-FAIL", "mission-outcome", "")},
+                                  1, "once")
+        self.assertEqual("PARSEK-FAIL", r.verdict)
+        self.assertNotIn(r.verdict, hlib.GREEN_VERDICTS)
+        # Every OTHER PARSEK-FAIL subkind still demotes bugId-only, unchanged.
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "expectation", ""))
+        self.assertFalse(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "mission-outcome", ""))
+        # ... and an EXPLICIT subkind still demotes it (quarantining a known-flaky
+        # subject death stays possible, it just has to be named).
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "mission-outcome", "mission-outcome"))
+
+    def test_a_refusal_is_a_driver_fault_not_a_flight_outcome(self):
+        # The four outcome verbs emit ~30 terminals and most are NOT "the flight failed
+        # after handoff". The seam already draws the line: a no-side-effect refusal
+        # rides REJECTED, a real terminal rides ERROR. Without the split, a typo'd
+        # targetPid on a POST-mission EvaBoard reports PARSEK-FAIL(mission-outcome) and
+        # is never retried, while the SAME typo pre-mission reports INVALID(driver-arg)
+        # and retries once.
+        cases = [
+            # (verdict, msg, expect_flight_outcome, expect_driver_subkind)
+            ("ERROR", "eva-chute-kerbal-lost", True, ""),
+            ("ERROR", "eva-exit-timeout", True, ""),
+            ("REJECTED", "no-crew", False, "driver-verdict-mismatch"),
+            ("REJECTED", "kerbal-not-aboard", False, "driver-verdict-mismatch"),
+            ("REJECTED", "unknown-target", False, "driver-arg"),   # the M-C1 table wins
+            ("TIMEOUT", "", False, "seam-timeout"),
+            (None, "", False, "driver-stage"),                     # never answered
+        ]
+        for verdict, msg, want_outcome, want_subkind in cases:
+            step = _outcome("0007", "EvaChuteDeploy", False, verdict=verdict, msg=msg)
+            is_outcome, subkind = hlib.classify_post_mission_outcome_miss(step)
+            self.assertEqual(want_outcome, is_outcome, (verdict, msg))
+            self.assertEqual(want_subkind, subkind, (verdict, msg))
+            # Whatever the classification, the miss is never silently dropped.
+            self.assertTrue(is_outcome or bool(subkind), (verdict, msg))
+
+    def test_every_driver_subkind_it_can_emit_is_retryable(self):
+        # A spec/fixture fault routed to the driver stage must retry-once exactly like
+        # its pre-mission twin; a subkind outside the retry set would strand it.
+        for verdict, msg in (("REJECTED", "no-crew"), ("REJECTED", "unknown-target"),
+                             ("TIMEOUT", ""), (None, "")):
+            _, subkind = hlib.classify_post_mission_outcome_miss(
+                _outcome("0007", "EvaBoard", False, verdict=verdict, msg=msg))
+            self.assertIn(subkind, hlib.RETRYABLE_INVALID_SUBKINDS, (verdict, msg))
+
     def test_a_clean_run_is_untouched(self):
         # Every other scenario in the suite: no post-mission outcome step, or all of
         # them met. The fact defaults False and the verdict stays PASS.

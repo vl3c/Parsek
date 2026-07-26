@@ -3676,6 +3676,17 @@ def run_mission(
         log.verbose("Connect", "disconnect (finally) closed=%s" % (closed,))
 
     wall_seconds = clock() - wall_start
+    # HANDOFF DISCLOSURE, applied HERE and not inside build_mission_result. A handoff
+    # mission (EVA-4) certifies only the state it handed off, and the rest of the
+    # scenario's contract is owned by a later seam step - but this log line is the
+    # channel a human and `harness/status.py` actually read (its _VERDICT_RE parses
+    # exactly this format, and run.py folds it into the harness log). Extending only the
+    # result JSON would have left the operator-facing line reading
+    # "reason=all telemetry assertions met" over a dead kerbal, byte-identical to the
+    # 2026-07-25 line this exists to stop being misread. One source of truth, both
+    # channels: build_mission_result now receives the already-extended reason.
+    if verdict == mlib.MISSION_OK:
+        reason = mlib.handoff_ok_reason(spec.name, reason)
     log.info("Verdict", "mission verdict=%s reason=%s phasesReached=%s wall=%ss"
              % (verdict, reason, phases_reached, _fmt(wall_seconds)))
 

@@ -170,24 +170,36 @@ namespace Parsek.TestCommands
         /// The state of the optional post-release STANDOFF wait (EVA-4 flight-3 canopy-cut
         /// defect, 2026-07-25).
         ///
-        /// STOCK GROUND TRUTH (decompiled KSP 1.12.5): a kerbal whose personal chute has
-        /// reached SEMIDEPLOYED is in <c>KerbalEVA.st_semi_deployed_parachute</c>, and
-        /// <c>On_stumble</c> is registered on that state
-        /// (<c>fsm.AddEventExcluding(On_stumble, st_ragdoll, st_grappled,
-        /// st_clamber_acquireP2, st_clamber_acquireP3)</c>, KerbalEVA.cs:8153) with
-        /// <c>GoToStateOnEvent = st_ragdoll</c>. It is fired from the COLLISION callback
-        /// whenever <c>c.relativeVelocity.sqrMagnitude &gt; stumbleThreshold * stumbleThreshold</c>
-        /// (KerbalEVA.cs:12700, <c>stumbleThreshold = 3.5</c> m/s). Leaving the semi-deployed
-        /// state to anything but <c>st_fully_deployed_parachute</c> runs
-        /// <c>OnSemiDeployedParachuteModeLeft</c> -&gt; <c>evaChute.CutParachute()</c>
-        /// (KerbalEVA.cs:11152-11169), and <c>ragdoll_OnEnter</c> then calls
-        /// <c>AllowRepack(false)</c>, so the cut is terminal. The kerbal free-falls.
+        /// STOCK GROUND TRUTH (decompiled KSP 1.12.5): <c>On_stumble</c> is registered on
+        /// EVERY kerbal FSM state except ragdoll / grappled / clamber-P2 / clamber-P3
+        /// (<c>fsm.AddEventExcluding(...)</c>, KerbalEVA.cs:8153) with
+        /// <c>GoToStateOnEvent = st_ragdoll</c> (:8151), and is fired from exactly one site
+        /// - the COLLISION callback, whenever
+        /// <c>c.relativeVelocity.sqrMagnitude &gt; stumbleThreshold * stumbleThreshold</c>
+        /// (KerbalEVA.cs:12700, <c>stumbleThreshold = 3.5</c> m/s).
         ///
-        /// On EVA-4 flight 3 that fired 200 ms after the canopy opened, 254 ms after the
-        /// kerbal let go of the pod's hatch ladder, with the pod still essentially in
-        /// contact (the background recorder measured only 90 m of separation 3.8 s later).
-        /// So the mitigation is SEPARATION: hold the exit until the kerbal is observably
-        /// clear of every other loaded vessel, and only then let the chute step run.
+        /// BOTH canopy states are exposed, and this is the correction that matters most
+        /// here: leaving <c>st_semi_deployed_parachute</c> for anything but
+        /// <c>st_fully_deployed_parachute</c> runs <c>OnSemiDeployedParachuteModeLeft</c>
+        /// -&gt; <c>evaChute.CutParachute()</c> (KerbalEVA.cs:11152-11169), AND leaving
+        /// <c>st_fully_deployed_parachute</c> runs <c>OnFullyDeployedParachuteModeLeft</c>
+        /// -&gt; <c>evaChute.CutParachute()</c> with NO exclusion at all (KerbalEVA.cs:11219,
+        /// wired at :7244). <c>ragdoll_OnEnter</c> then calls <c>AllowRepack(false)</c>
+        /// (:4497) and <c>ragdoll_OnLeave</c> re-allows repack only when
+        /// <c>LandedOrSplashed</c>, so a mid-air cut is terminal either way.
+        ///
+        /// So a FULL canopy is NOT safe from this, and raising the module's
+        /// <c>deployAltitude</c> to collapse the semi-deployed window (the technique that
+        /// works for the CRAFT chute) does NOT fix it. The operative variable is PROXIMITY
+        /// AT CANOPY TIME, not how long the canopy spends semi-deployed - which is why the
+        /// mitigation is SEPARATION and why it must not be traded away for a deployAltitude
+        /// tweak.
+        ///
+        /// On EVA-4 flight 3 the stumble fired 200 ms after the canopy opened, 254 ms after
+        /// the kerbal let go of the pod's hatch ladder. The kerbal's own recording carries a
+        /// pod-anchored <c>ReferenceFrame.Relative</c> section, so the separation is
+        /// MEASURED rather than inferred: 0.82 m at <c>ParachuteSemiDeployed</c> and 1.50 m
+        /// at the cut, with nothing else within kilometres.
         /// </summary>
         internal enum EvaExitStandoffState
         {
@@ -197,12 +209,13 @@ namespace Parsek.TestCommands
             /// <summary>Clear (or no standoff was requested): the exit may complete.</summary>
             Cleared,
 
-            /// <summary>The bounded wait expired without the standoff clearing. The exit
-            /// completes ANYWAY, carrying <c>standoff=timeout</c>. Deliberately NON-FATAL:
-            /// the kerbal's chute is its only survival mechanism, and refusing to complete
-            /// would strand it unchuted, which is strictly worse than the pre-fix behaviour
-            /// this mitigates. The give-up is named in the log and on the wire so a run that
-            /// took it is never mistaken for a clean separation.</summary>
+            /// <summary>A bound expired without the standoff clearing (the wall clock, or
+            /// the altitude floor). The exit completes ANYWAY, carrying
+            /// <c>standoff=timeout</c>. Deliberately NON-FATAL: the kerbal's chute is its
+            /// only survival mechanism, and refusing to complete would strand it unchuted,
+            /// which is strictly worse than the pre-fix behaviour this mitigates. The
+            /// give-up is named in the log and on the wire so a run that took it is never
+            /// mistaken for a clean separation.</summary>
             GaveUp,
         }
 
@@ -212,13 +225,32 @@ namespace Parsek.TestCommands
         /// position has not been updated yet) must not certify separation.</summary>
         internal const int StandoffDebouncePolls = 2;
 
-        /// <summary>The bounded wait for the standoff, in seconds. Sized from the measured
-        /// separation rate on the EVA-4 profile: a kerbal that lets go at ~-11 m/s and free
-        /// falls away from a pod under full canopy reached 90 m in under 4 s, so a 30 m
-        /// standoff clears in ~2-3 s. 15 s is ~5x that and still small against the altitude
-        /// budget (~165 m of fall), so a run that burns it has a real problem rather than a
-        /// slow frame.</summary>
-        internal const double StandoffMaxWaitSeconds = 15.0;
+        /// <summary>Advance the caller-owned debounce RUN: increment on a clear poll, RESET
+        /// to zero on any non-clear one. Extracted from the applier so the run-vs-tally
+        /// contract is unit-testable - rewritten as a tally ("any two clear polls ever
+        /// seen") the debounce would certify exactly the glitched single-frame read it
+        /// exists to reject, and every assertion over
+        /// <see cref="ClassifyStandoff"/> would still pass.</summary>
+        internal static int AdvanceStandoffClearPolls(int previousClearPolls, bool clearThisPoll)
+            => clearThisPoll ? previousClearPolls + 1 : 0;
+
+        /// <summary>The bounded WALL-CLOCK wait for the standoff, in seconds.
+        ///
+        /// SIZED FROM THE MEASURED SEPARATION, AND FROM THE MEASURED COST OF WAITING. The
+        /// kerbal is UNCHUTED for this whole stage (the chute is armed by the NEXT seam
+        /// step, EvaChuteDeploy), so it is in FREE FALL, not the ~-11 m/s it left the ladder
+        /// at. Measured on the flight-3 log itself: alt 1650.4 m at elapsed=0.0s down to
+        /// 634.3 m at elapsed=15.0s, i.e. ~1,016 m in 15 s. An earlier revision of this
+        /// comment sized the bound against "~165 m of fall" (15 s x the ladder-attached
+        /// rate) and was wrong by ~6x, which is how a 15 s bound came to look cheap.
+        ///
+        /// 8 s is ~3.5x the measured clear time (a 30 m standoff was reached ~2.3 s after
+        /// release on this profile) and costs ~400 m of free fall. It is deliberately NOT
+        /// the primary safety bound - <see cref="ClassifyStandoff"/>'s altitude floor is,
+        /// because wall clock alone cannot know how much sky is left below the handoff.
+        /// DO NOT raise this without re-deriving the free-fall cost against the scenario's
+        /// own EVA-window floor.</summary>
+        internal const double StandoffMaxWaitSeconds = 8.0;
 
         /// <summary>
         /// True iff THIS poll observes the kerbal clear of every other loaded vessel.
@@ -242,17 +274,35 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Classify the standoff wait. <paramref name="consecutiveClearPolls"/> is the
-        /// caller-owned run of <see cref="StandoffClearThisPoll"/> trues (reset to 0 on any
-        /// non-clear poll, so the debounce is a RUN and not a tally).
+        /// caller-owned run of <see cref="StandoffClearThisPoll"/> trues (advanced by
+        /// <see cref="AdvanceStandoffClearPolls"/>, so the debounce is a RUN and not a tally).
+        ///
+        /// TWO give-up bounds, and the ALTITUDE FLOOR is the load-bearing one. The kerbal is
+        /// unchuted and free-falling for this whole stage, so waiting costs SKY, and the
+        /// wall clock has no idea how much of it is left: this mission may hand off anywhere
+        /// in its EVA window (EVA-4's is [700, 2100] m), and at the low end an 8 s wait
+        /// alone would put the kerbal into the ground BEFORE the wall clock ever expired -
+        /// with the canopy never armed, which is strictly worse than the collision this
+        /// stage exists to avoid. <paramref name="floorMeters"/> (0 = no floor) is the
+        /// "arm now or never" altitude: below it the stage gives up immediately whatever the
+        /// clock says, so the chute step still gets usable sky.
+        ///
+        /// Cleared is checked FIRST, so a poll that both satisfies the debounce and trips a
+        /// bound is a success - the separation really was observed.
         /// </summary>
         internal static EvaExitStandoffState ClassifyStandoff(
             double minStandoffMeters, int consecutiveClearPolls, double elapsed,
-            double maxWaitSeconds)
+            double maxWaitSeconds, double altitudeMeters, double floorMeters)
         {
             if (minStandoffMeters <= 0.0) return EvaExitStandoffState.Cleared;
             if (consecutiveClearPolls >= StandoffDebouncePolls)
                 return EvaExitStandoffState.Cleared;
             if (elapsed >= maxWaitSeconds) return EvaExitStandoffState.GaveUp;
+            // A non-finite altitude read is NOT a give-up: an unreadable frame must not
+            // abandon the stage, and the wall clock still bounds it.
+            if (floorMeters > 0.0 && !double.IsNaN(altitudeMeters)
+                && !double.IsInfinity(altitudeMeters) && altitudeMeters <= floorMeters)
+                return EvaExitStandoffState.GaveUp;
             return EvaExitStandoffState.Waiting;
         }
 
@@ -262,10 +312,15 @@ namespace Parsek.TestCommands
         /// able to tell "we never asked" from "we asked and gave up".
         ///
         /// "waiting" is only reachable on the <see cref="EvaExitCompletionDecision.ExitTimeout"/>
-        /// path (the standoff cannot itself cause that timeout - it gives up first - so this
-        /// says the exit died of something else while the stage was mid-flight). The OK path
-        /// only ever sees off / cleared / timeout, because it is not reached until the stage
-        /// has concluded.</summary>
+        /// path. USUALLY that means the exit died of something else while the stage was
+        /// mid-flight, because the standoff's own bounds are far shorter than the EvaExit
+        /// budget - but not unconditionally: the standoff clock starts at
+        /// <c>baseConjuncts</c> while the budget clock starts at dispatch, so an exit whose
+        /// base conjuncts are first satisfied inside the last few seconds of its budget can
+        /// legitimately time out with the stage still Waiting. Either way the token says so
+        /// rather than claiming an observation that was never made. The OK path only ever
+        /// sees off / cleared / timeout, because it is not reached until the stage has
+        /// concluded.</summary>
         internal static string StandoffToken(double minStandoffMeters,
                                              EvaExitStandoffState state)
         {

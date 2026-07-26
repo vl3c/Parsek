@@ -1562,11 +1562,28 @@ That last line is the whole diagnosis and it is the ONLY occurrence of `Stumble`
 
 So the exit was collision-driven and the cut is a CONSEQUENCE of the FSM transition, not its cause. The logged `Event Stumble not assigned to state Ragdoll` is the SECOND frame of that same contact, arriving after the FSM had already moved (the first frame fired from a state where the event IS registered, so it produced no warning line).
 
-WHAT IT HIT is INFERRED, not proved - KSP logs no collider identity, so this half cannot be settled from the archive. The inference is the parent pod, and it is strong: the kerbal released that pod's hatch ladder 254 ms before the cut and had not separated (`[Parsek][VERBOSE][BgRecorder] Background point sampled: pid=2905720181 ... dist=90m` at 13:09:57.707, i.e. only 90 m 3.8 s LATER, while free-falling away from it). A semi-deployed canopy brakes the kerbal hard within a couple of physics frames while the pod continues at its own rate, which is exactly how a >3.5 m/s closing velocity appears between two objects that started together.
+WHAT IT HIT is MEASURED (corrected 2026-07-26; an earlier revision of this entry called it inferred and unprovable). KSP logs no collider identity, but Parsek's own recording supplies the geometry: the kerbal's `.prec` carries a `ReferenceFrame.Relative` section ANCHORED TO THE POD (`ref = 1`, `anchorRecordingId = 4cc22361...`), and per the RELATIVE contract its `lat/lon/alt` fields are anchor-local METRES. Parsed, they give the pod-relative separation directly:
 
-WHY THIS RUN AND NOT FLIGHT 1 OR 2: the exposure is the LENGTH of the semi-deployed window while the kerbal is still adjacent to the pod. `ModuleEvaChute`'s stock `deployAltitude` is 1000 m, so an EVA at 1,650 m must sit SEMI-deployed for ~650 m. Flight 1 (the window-missed tail) exited at 356 m: `Part event: ParachuteSemiDeployed` at 22:09:49.166 and `ParachuteDeployed` at 22:09:49.826 - a 0.66 s semi window, and `OnSemiDeployedParachuteModeLeft` returns EARLY for a transition to full deploy, so there was almost nothing to hit. Flight 2 had the long window and got lucky. That is the intermittency.
+| UT | event | separation from the pod |
+| --- | --- | --- |
+| 123.38 - 124.04 | on the hatch ladder | 0.78 -> 0.71 m |
+| 124.20 | ladder let-go | ~0.8 m |
+| 124.26 | `ParachuteSemiDeployed` | **0.82 m** |
+| 124.48 | `ParachuteCut` / Stumble | **1.50 m** |
+| 124.70 / 124.92 | | 2.88 / 4.91 m |
 
-FIX (b): a bounded, OBSERVED pre-chute STANDOFF on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30). The exit does not complete until the kerbal has read at least that far from every other LOADED vessel for `StandoffDebouncePolls` (2) consecutive polls, so the canopy inflates with nothing in reach. Bounded at `StandoffMaxWaitSeconds` (15) and NON-FATAL on expiry: it completes anyway carrying `standoff=timeout` on the wire and a Warn line, because an unchuted kerbal is a certain death while a contact risk is not - the mitigation must never be able to make the outcome worse than the bug it mitigates. Off (`standoff=off`, zero extra Unity reads) for every scenario that does not declare it. Parsek's own ghost map vessels are excluded from the distance read (proto-only, no colliders, so they cannot stumble a kerbal - and a co-located one would otherwise pin the standoff at 0 m until the bound expired, silently reverting the mitigation on any save with a playing ghost). The spec makes the fix self-proving: `evaexit standoff cleared` is a REQUIRED `logContracts` token, so a stale DLL, a dropped arg, or a standoff that never cleared reds the run rather than flying the un-mitigated profile unnoticed.
+The kerbal was 0.8 m from the pod when its canopy inflated, and nothing else was within kilometres. (`[Parsek][VERBOSE][BgRecorder] Background point sampled: pid=2905720181 ... dist=90m` at 13:09:57.707 is the same story 3.8 s later.) A semi-deployed canopy brakes the kerbal hard within a couple of physics frames while the pod continues at its own rate, which is exactly how a >3.5 m/s closing velocity appears between two objects that started together.
+
+WHY THIS RUN AND NOT FLIGHT 1 OR 2 - and a CORRECTION (2026-07-26). An earlier revision of this entry said the exposure is the LENGTH of the semi-deployed window, because `ModuleEvaChute`'s stock `deployAltitude` is 1000 m so a 1,650 m EVA must sit SEMI-deployed for ~650 m while flight 1's 356 m exit went semi -> full in 0.66 s (`ParachuteSemiDeployed` 22:09:49.166, `ParachuteDeployed` 22:09:49.826). **That reasoning is WRONG and it is dangerous wrong.** `OnFullyDeployedParachuteModeLeft` (KerbalEVA.cs:11219, wired at :7244) calls `evaChute.CutParachute()` UNCONDITIONALLY - no state exclusion at all - and `On_stumble` is registered on `st_fully_deployed_parachute` too. A stumble out of a FULL canopy cuts it exactly like a stumble out of a semi one.
+
+So a full canopy is NOT safe from this, and raising the EVA chute's `deployAltitude` - the technique already proven on the CRAFT chute at `craftChuteFullDeployAltMeters = 2500` - would NOT have fixed it. The operative variable is PROXIMITY AT CANOPY TIME, which is what the separation table above measures and what the fix targets. The intermittency is simply whether a stumble-grade contact happens while the pod is still within reach; flight 1 exited a co-moving pod at terminal velocity and flight 2 got lucky.
+
+This correction is recorded rather than quietly patched because the wrong version is actively hazardous: a maintainer reading it would apply the `deployAltitude` knob, conclude the hazard was gone, and drop the standoff.
+
+FIX (b): a bounded, OBSERVED pre-chute STANDOFF on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30). The exit does not complete until the kerbal has read at least that far from every other LOADED vessel for `StandoffDebouncePolls` (2) consecutive polls, so the canopy inflates with nothing in reach. TWO bounds, both NON-FATAL on expiry (it completes anyway carrying `standoff=timeout` on the wire plus a Warn line naming which bound fired, because an unchuted kerbal is a certain death while a contact risk is not - the mitigation must never be able to make the outcome worse than the bug it mitigates):
+
+- `StandoffMaxWaitSeconds` = 8 s, ~3.5x the ~2.3 s the 30 m clear actually took.
+- `standoffFloorAltMeters` (EVA-4: 500 m), and THIS is the load-bearing one. The first draft had only the wall clock, at 15 s, justified in a code comment as "~165 m of fall" - which is 15 s x the LADDER-ATTACHED -11 m/s. The kerbal is UNCHUTED for the whole stage (the chute is armed by the NEXT step), so the bound is paid in FREE FALL: the flight-3 log itself measures 1650.4 m at elapsed=0.0s down to 634.3 m at elapsed=15.0s, i.e. ~1,016 m - a 6.2x error. Since the mission may hand off anywhere in [700, 2100] m, a wall-clock-only bound would have flown a low handoff into the ground with the canopy never armed, at t ~ 11.5 s, 3.5 s before the give-up ever fired. That is strictly worse than the collision the stage exists to avoid, i.e. the fix as first written violated its own stated rule. Found in panel review, not in flight. Off (`standoff=off`, zero extra Unity reads) for every scenario that does not declare it. Parsek's own ghost map vessels are excluded from the distance read (proto-only, no colliders, so they cannot stumble a kerbal - and a co-located one would otherwise pin the standoff at 0 m until the bound expired, silently reverting the mitigation on any save with a playing ghost). The spec makes the fix self-proving: `evaexit standoff cleared` is a REQUIRED `logContracts` token, so a stale DLL, a dropped arg, or a standoff that never cleared reds the run rather than flying the un-mitigated profile unnoticed.
 
 **ROOT CAUSE (a), THE FAIL-OPEN - a mission that reports OK while its subject dies. ESTABLISHED, and the fix proposed in the original entry is NOT implementable.**
 
@@ -1583,21 +1600,37 @@ FIX (a), in two halves:
 
 **PENDING-OPERATOR RUNBOOK (both fixes are headless-proven; neither has flown).**
 
-Everything above was diagnosed and fixed from the committed artifacts - no KSP was launched. What is proven: 12 hlib cells, 4 fake-KSP smoke cells (including one driving a deliberately BLINDED expectations block, so the only thing that can red it is the outcome step's verdict), 7 mlib cells, 12 xUnit cells; all four harness suites and the 18,680-case xUnit suite green; mutation-checked (see below). What is NOT proven: that a 30 m standoff actually prevents the collision in the live game.
+Everything above was diagnosed and fixed from the committed artifacts - no KSP was launched. What is proven (counts MEASURED off the suites, not restated): 15 hlib cells, 5 fake-KSP smoke cells (one drives a deliberately BLINDED expectations block, so the only thing that can red it is the outcome step's verdict; another drives a post-mission REFUSAL, which must classify as a retryable driver fault and NOT as a Parsek defect), 8 mission-lib cells (6 mlib + 2 shell cells pinning the `[Verdict]` LOG line, which is the channel `status.py` and a watching human read), 18 xUnit `Standoff_*` / payload cells; all four harness suites (`lib` 746, `provision` 203, `missions/lib` 814) and the 18,686-case xUnit suite green; mutation-checked (see below).
 
-Command (one nightly-tier scenario, ~7 min wall):
+What is NOT proven, and the honest list is longer than the first draft's: (1) that a 30 m standoff actually prevents the collision in the live game; (2) that the standoff WIRING is correct, because `EvaluateStandoff` / `TryCompleteEvaExit` are Unity-side and every xUnit cell exercises the pure statics beneath them - a refactor that dropped the `&& standoffSatisfied` conjunct would keep every headless suite green, and only the live `evaexit standoff cleared` token would catch it. That token is a REQUIRED `logContracts` entry precisely so it does, but it has never run.
 
-```bash
-cd harness && python provision/provision.py --profile stock-minimal && python run.py --id EVA-4-atmo-chute
-```
+FOUR commands, in order, and the first three are NOT optional. `EvaExit`'s standoff stage is C#; the harness flies `automation/stock-minimal`, NOT the dev instance; and provision's DEPLOY copies `Source/Parsek/bin/Debug/Parsek.dll` verbatim while its identity grep checks only `ParsekFlight` / `GhostPlaybackEngine` (`provision.py:65`) - strings present in EVERY Parsek build - so a STALE `bin/Debug` passes provision silently.
 
-The provision step is REQUIRED and is the usual trap: `EvaExit`'s standoff stage is C#, and the harness flies `automation/stock-minimal`, not the dev instance. Verify `automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll` carries the new string before launching:
+1. Build, so `bin/Debug` is this branch:
 
 ```bash
-python -c "d=open(r'../automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll','rb').read(); print(d.count('evaexit standoff'.encode('utf-16-le')))"
+cd Source/Parsek && dotnet build
 ```
 
-CONFIRMS THE (b) FIX - and `evaexit standoff cleared` is now a REQUIRED `logContracts` token in the spec, so the operator does not have to eyeball it: a stale DLL, a dropped spec arg, or a standoff that never cleared all red the run on a missing required token instead of quietly flying the un-mitigated profile. These lines must appear in the collected `KSP.log`, in this order, between `evaexit release verified` and `evachutedeploy armed`:
+2. Provision, so the automation instance gets that DLL:
+
+```bash
+cd harness && python provision/provision.py --profile stock-minimal
+```
+
+3. VERIFY THE DEPLOYED DLL BEFORE FLYING. This is the gate a 2026-07-25 B12 run cost a whole flight for. From `harness/`, `automation/` is TWO levels up: it sits at the UMBRELLA root beside the worktree, not inside it. Expect 3; a 0 means the deploy did not take and the flight would prove nothing:
+
+```bash
+python -c "d=open(r'../../automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll','rb').read(); print(d.count('evaexit standoff'.encode('utf-16-le')))"
+```
+
+4. Only then fly (one nightly-tier scenario, ~7 min wall):
+
+```bash
+cd harness && python run.py --id EVA-4-atmo-chute
+```
+
+CONFIRMS THE (b) FIX - and `evaexit standoff cleared` is now a REQUIRED `logContracts` token in the spec, so the operator does not have to eyeball it: a stale DLL, a dropped spec arg, or a standoff that never cleared all red the run on a missing required token instead of quietly flying the un-mitigated profile. These lines must appear in the collected `KSP.log`, in this order, between `evaexit start` and `evachutedeploy armed`. Anchor the window on `evaexit start`, NOT on `evaexit release verified`: the spec documents the `release=noop` exit (a kerbal that never grabbed the hatch ladder) as legitimate and equally chute-ready, and on that path the seam logs `evaexit release=noop` instead, so the old anchor would vanish on a run the spec itself calls valid:
 
 ```
 [Parsek][VERBOSE][TestCommands] evaexit standoff kerbal=Jebediah Kerman nearest=<m> min=30.0 clearPolls=<n>/2 waited=<s>s state=Waiting
@@ -1612,7 +1645,9 @@ Then, from the chute step, the run is good iff BOTH of these appear and `Part ev
 [Parsek][INFO][TestCommands] evachutedeploy complete ... canopy=true chuteState=Cut down=true situation=LANDED alive=true
 ```
 
-`Event Stumble not assigned to state Ragdoll` must NOT appear anywhere between the EVA and the touchdown (a single occurrence in that window is the bug reproducing). Its appearance at the LANDING is normal and expected - flight 1 logged 20 of them at touchdown.
+DO NOT use `Event Stumble not assigned to state Ragdoll` as the red criterion. An earlier draft of this runbook said a single occurrence between the EVA and the touchdown meant the bug was reproducing; that is FALSE and would fail a GOOD run. Flight 1 (`logs/2026-07-24_2210_EVA-4-atmo-chute/KSP.log`) logged 76 of them - 68 at touchdown and 8 at 22:09:48.475-.489, i.e. 67-81 ms after `evaexit complete` and BEFORE `evachutedeploy armed` - on the flight whose kerbal LANDED ALIVE. A stumble there is harmless: `On_semi_deploy_parachute` is registered on `st_ragdoll` as well as `st_idle_fl` (KerbalEVA.cs:9599), so a ragdolled kerbal can still open its chute. The fix makes that window LONGER, not shorter - the standoff deliberately holds the kerbal unchuted beside the pod for ~2-3 s - so expect these lines and ignore them.
+
+The criterion that actually discriminates is the CHUTE, not the FSM: `Part event: ParachuteCut 'kerbalEVA` must NOT appear while the kerbal is still FLYING. A cut at the touchdown is the stock auto-cut and is expected.
 
 FAILURE READINGS: `standoff=timeout` on the `evaexit complete` line means the kerbal never got 30 m clear in 15 s - the mitigation did not engage, and a cut canopy after that is the original bug, not a regression. `standoff=off` means the DLL is stale (re-provision) or the spec arg was dropped.
 
@@ -1632,6 +1667,10 @@ MUTATION RESULTS (each mutation applied to HEAD, suites re-run, then reverted):
 | M8 `StandoffClearThisPoll` drops the explicit NaN guard | NOTHING - **equivalent mutant**, reported rather than papered over. C# IEEE comparison already yields false for `NaN >= x`, so the guard is belt-and-braces. `Standoff_UnreadableDistance_FailsClosed` pins the BEHAVIOUR (which is correct and stable); the line is kept as intent documentation so a future rewrite of the comparison cannot silently lose fail-closed. |
 | M9 `StandoffToken` reports a give-up as `cleared` | `Standoff_BoundedWait_GivesUpAndSaysSo`, `Standoff_TokenDistinguishesNeverAskedFromGaveUp` |
 | M10 `StandoffMaxWaitSeconds` 15 -> 0 | `Standoff_ConstantsAreSizedForTheMeasuredProfile` |
+| M12 `ClassifyStandoff` drops the altitude-floor branch | `Standoff_GivesUpAtTheAltitudeFloorWhateverTheClockSays` (the blocker cell: without the floor a low handoff flies the kerbal into the ground before the wall clock fires) |
+| M13 `AdvanceStandoffClearPolls` rewritten as a TALLY (`prev + (clear ? 1 : 0)`) | `Standoff_DebounceIsARunAndResetsOnAnyNonClearPoll` (this is why the accumulator was extracted from the applier: as an inline applier line the same mutation kept all 13 pre-existing cells green) |
+| M14 `expected_fail_signature_matched` drops the `NEVER_BUGID_ONLY_SUBKINDS` guard | `test_a_quarantine_key_cannot_turn_a_dead_subject_green` |
+| M15 `classify_post_mission_outcome_miss` always returns `(True, "")` | `test_a_refusal_is_a_driver_fault_not_a_flight_outcome`, `test_every_driver_subkind_it_can_emit_is_retryable`, `test_a_refusal_is_a_retryable_driver_fault_not_a_parsek_defect` |
 | M11 `StandoffToken` reports a still-`Waiting` stage as `cleared` | `Standoff_AnUnconcludedStageIsNotReportedAsCleared` (found in self-review before the PR: the first draft's token collapsed `Waiting` into `cleared`, so an `eva-exit-timeout` would have claimed an observation that was never made - the exact shape of the defect this whole change exists to close) |
 
 **NOT DONE, deliberately.** The mid-mission command-seam bridge on `main` is hardcoded to `CommitTree` (`mission_runner.py` `_perform_seam_commit`). Generalising it would let EVA-4 do the whole EVA inside the mission and hold real kerbal-survival assertions - but PR #1357 (`rewind-loop-lane`) is already generalising exactly that bridge, so building a second one here would collide head-on. Once #1357 lands, the mission-side assertion the original entry asked for becomes implementable and the `handoff` declaration above is what should be retired in its favour.

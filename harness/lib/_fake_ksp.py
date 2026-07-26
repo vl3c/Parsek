@@ -33,6 +33,12 @@ Modes:
              flight 3 (2026-07-25) verbatim: a MISSION-OK run whose subject died in the
              seam tail. The harness must red it on the OUTCOME channel, not only on a
              spec-authored expectation regex.
+  autopilot-evarefused
+             like autopilot, but the post-mission EvaExit answers
+             verdict=REJECTED msg=kerbal-not-aboard - a SPEC fault (a typo'd kerbal
+             name), not a flight outcome. The harness must classify it exactly as the
+             same refusal pre-mission would be: a retryable driver-stage INVALID, never
+             PARSEK-FAIL against the mod.
   multipass  like pass, but a multi-category RunTests (category "A,B" / "all") emits
              a per-category BATCH_COMPLETE line for each token PLUS the final
              category=multi:<count> aggregate (all failed=0), the M-A3 multi-category
@@ -94,7 +100,7 @@ def main(argv=None):
     parser.add_argument("--root", required=True, help="instance KSP root (channel files live here)")
     parser.add_argument("--mode", default="pass",
                         choices=["pass", "hang", "bootcrash", "autopilot", "autopilot-loadfail",
-                                 "autopilot-kerballost",
+                                 "autopilot-kerballost", "autopilot-evarefused",
                                  "multipass", "multinoagg", "multimismatch"])
     parser.add_argument("--max-seconds", type=float, default=120.0)
     args = parser.parse_args(argv)
@@ -135,8 +141,9 @@ def main(argv=None):
             # EVA-4 flight 3: the kerbal's canopy is cut mid-descent and the kerbal
             # dies, so the verb's own bounded wait gives up on its named terminal.
             kerbal_lost = (args.mode == "autopilot-kerballost" and cmd == "EvaChuteDeploy")
-            if args.mode in ("autopilot", "autopilot-loadfail",
-                             "autopilot-kerballost") and not load_failed:
+            eva_refused = (args.mode == "autopilot-evarefused" and cmd == "EvaExit")
+            if args.mode in ("autopilot", "autopilot-loadfail", "autopilot-kerballost",
+                             "autopilot-evarefused") and not load_failed:
                 # Simulate Parsek auto-record around the flown mission: start on
                 # the launch (LoadGame) transition, drop a recording + stop it at
                 # commit time, so the flown scenario has a recording by commit.
@@ -156,6 +163,11 @@ def main(argv=None):
                             "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
                             "passed=5 failed=0 skipped=0 category=%s scene=FLIGHT\n" % category)
                 _write_results(os.path.join(root, RESULTS), category)
+            if eva_refused:
+                _append(responses_path,
+                        "id=%s cmd=%s verdict=REJECTED seq=%d msg=kerbal-not-aboard\n"
+                        % (cid, cmd, seq))
+                continue
             if kerbal_lost:
                 _append(log_path,
                         "[LOG] [Parsek][ERROR][TestCommands] evachutedeploy "

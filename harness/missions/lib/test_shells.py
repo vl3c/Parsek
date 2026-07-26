@@ -51,6 +51,7 @@ import b16_eve_orbit         # noqa: E402
 import forge_station          # noqa: E402
 import forge_lko              # noqa: E402
 import bdock_dock_transfer    # noqa: E402
+import eva4_atmo_chute        # noqa: E402
 import shutil                 # noqa: E402
 import tempfile               # noqa: E402
 
@@ -106,6 +107,12 @@ B1_PARAMS = {
     "coastTimeoutSeconds": 180,
     "descentTimeoutSeconds": 360,
 }
+
+# Read from the REAL committed spec rather than restated, so the fixture cannot drift
+# from the window EVA-4 actually flies.
+_EVA4_SPEC_PATH = os.path.join(_HARNESS, "scenarios", "EVA-4-atmo-chute.toml")
+with open(_EVA4_SPEC_PATH, "rb") as _fh:
+    EVA4_SHELL_PARAMS = tomllib.load(_fh)["driver"]["missionParams"]
 
 B2_PARAMS = {
     "targetApoapsisMeters": 80000,
@@ -286,6 +293,77 @@ def run(spec, params, control, writer=None, budget=600.0, clock=None):
         control=control, log=log, clock=clock, sleep=lambda _s: None, writer=writer)
     result = mlib.parse_mission_result(writer.text)
     return code, result
+
+
+class Eva4HandoffDisclosureEmitTests(unittest.TestCase):
+    """Guards the OPERATOR-FACING half of the EVA-4 handoff disclosure (2026-07-26).
+
+    The disclaimer has to ride the `[Verdict]` LOG LINE, not just the result JSON:
+    `harness/status.py`'s _VERDICT_RE parses exactly that line and renders it live
+    while the operator watches a flight, and run.py folds the same line into the
+    harness log. An earlier revision applied the disclaimer inside
+    `mlib.build_mission_result`, which runs AFTER the emit - so the JSON was honest
+    and the line a human actually reads still said `reason=all telemetry assertions
+    met`, byte-identical to the 2026-07-25 line over a dead kerbal.
+
+    Fails if the disclosure moves back downstream of the emit, or leaks onto a
+    mission that terminates on its own outcome."""
+
+    def _fly(self, spec, params, frames):
+        lines = []
+        clock = FakeClock()
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        writer = ResultSink()
+        mission_runner.run_mission(
+            spec, params, "127.0.0.1", 50000, 50001, "unused/result.json", 600.0,
+            control=FakeMissionControl(frames), log=log, clock=clock,
+            sleep=lambda _s: None, writer=writer)
+        verdict_lines = [l for l in lines if "mission verdict=" in l]
+        self.assertEqual(1, len(verdict_lines), lines)
+        return verdict_lines[0], mlib.parse_mission_result(writer.text)
+
+    EVA4_FRAMES = [
+        snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=19746, situation="PRE_LAUNCH"),
+        snap(ut=1.0, stage_solid_fuel=0.0, apoapsis=19746, situation="FLYING"),
+        snap(ut=2.0, vertical_speed=5.0, apoapsis=19746, situation="FLYING"),
+        snap(ut=3.0, vertical_speed=-4.0, altitude=11962, apoapsis=19746,
+             situation="FLYING"),
+        snap(ut=4.0, vertical_speed=-18.0, altitude=1900, apoapsis=19746,
+             situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        snap(ut=5.0, vertical_speed=-18.0, altitude=1598, apoapsis=19746,
+             situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        snap(ut=6.0, vertical_speed=-18.0, altitude=1500, apoapsis=19746,
+             situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+    ]
+
+    def test_the_verdict_log_line_carries_the_disclaimer(self):
+        params = dict(EVA4_SHELL_PARAMS)
+        line, result = self._fly(eva4_atmo_chute.SPEC, params, self.EVA4_FRAMES)
+        self.assertIn("verdict=MISSION-OK", line)
+        self.assertIn("handoff mission", line)
+        self.assertIn("kerbalSurvival", line)
+        self.assertIn("EvaChuteDeploy", line)
+        # The JSON agrees with the line (one source of truth, applied once).
+        self.assertIn("handoff mission", result["reason"])
+        self.assertEqual(["kerbalSurvival"], result["handoff"]["unverifiedByMission"])
+        # ... and applied exactly ONCE, not re-applied by the builder.
+        self.assertEqual(1, result["reason"].count("handoff mission"))
+
+    def test_a_non_handoff_mission_log_line_is_untouched(self):
+        frames = [
+            snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+            snap(ut=1.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=2.0, vertical_speed=5.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=3.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=4.0, altitude=2000, apoapsis=14000, situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+            snap(ut=5.0, altitude=100, apoapsis=14000, situation="LANDED",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        ]
+        line, result = self._fly(b1_pad_hop.SPEC, B1_PARAMS, frames)
+        self.assertIn("reason=all telemetry assertions met", line)
+        self.assertNotIn("handoff", line)
+        self.assertNotIn("handoff", result)
 
 
 # ---------------------------------------------------------------------------
