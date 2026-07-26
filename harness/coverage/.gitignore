@@ -1,4 +1,10 @@
 # Generated coverage/flake artifacts (never committed). registry.toml IS committed.
+#
+# duration.json is ALSO COMMITTED and is deliberately absent from this list. It
+# is the only durable cross-run duration history: results/*.json,
+# results/summary.txt and every *.log are gitignored, so without a committed
+# duration record nothing can compare two runs of the same scenario. It costs a
+# few hundred bytes and regenerating it requires re-flying the whole suite.
 coverage.json
 coverage.txt
 flake.json

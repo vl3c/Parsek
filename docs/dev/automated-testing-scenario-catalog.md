@@ -18,9 +18,11 @@ report; headline values only here.
 - **D1 Recording lifecycle**: auto-record on launch / on EVA / on
   first-modification-after-switch (all shipped defaults, ParsekSettings.cs),
   manual Gloops ghost-only, stop-on-switch (no Stop decision), commit via
-  revert-merge / scene exit / abort, discard (career rollback), auto-merge,
-  sub-2-point drop, switch-segment (Fly / Switch-To) + no-op auto-discard,
-  scene-exit finalization, ballistic extrapolation, finalization cache.
+  revert-merge / scene exit / abort, commit in a FOREIGN SOI (the recording
+  closes while the vessel is parked in orbit around another body - the B11/B12
+  ORBIT lane), discard (career rollback), auto-merge, sub-2-point drop,
+  switch-segment (Fly / Switch-To) + no-op auto-discard, scene-exit
+  finalization, ballistic extrapolation, finalization cache.
 - **D2 Sampling**: density presets, proximity cadence (BG), structural-event
   snapshots, threshold+debounce recording.
 - **D3 Reference frames** (per TrackSection): absolute, surface/body-fixed,
@@ -132,9 +134,75 @@ its fixture shortcut (synthetic recording or stock Scenario save).
 | B8 | Loop B7 tree as mission, phase-locked | D6(loop),D11(span,phase) | inject committed B7 tree |
 | B9 | Crash A from B5, rewind, re-fly, merge | D9(full),D8(recalc) | inject tree with Crashed sibling + RP |
 | B10 | Career passive safety: stock actions only, warp, scene change, cold load | D8(all),D14(career),D16 | fresh career save |
+| B11 | Mun ORBIT: transfer, capture burn, park, commit while parked in the Mun SOI | D1(commit-in-foreign-soi),D3,D4,D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6) |
+| B12 | Minmus ORBIT: the B11 machine on the minmus axis | As B11 with D14 minmus | b2-lko-craft |
+| B13 | Mun LANDING: the B11 machine plus a MechJeb untargeted descent, a settled landed dwell, and a commit ON THE SURFACE | D1(commit-landed-foreign-body),D3,D4(surface-stationary),D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6/B11) |
+| B14 | Minmus LANDING: the B13 machine on the minmus axis | As B13 with D14 minmus and D4(surface-mobile) in place of surface-stationary | b2-lko-craft |
+| B15 | Eve interplanetary FLYBY (INWARD transfer): the B7 machine and param set with targetBodyName=Eve | D3,D4,D14(eve,soi-count,warp-high) | b2-lko-craft (shared with B2/B4/B5/B6/B7/B11-B14) |
+| B16 | Eve ORBIT: B7's five interplanetary params AND B11/B12's capture tail in one mission - capture + park + commit after a HELIOCENTRIC traverse | D1(commit-in-foreign-soi),D3,D4,D14(eve,soi-count,warp-high) | b2-lko-craft |
 
 B10 requires almost no flying and covers the historically most destructive
 regressions (R1/R2/R4-R7 below).
+
+B11/B12 ARE THE ROADMAP'S "B8 Mun/Minmus ORBIT missions" ITEM. The roadmap used
+the informal label "B8", which collides with this table's existing B8 (loop the
+B7 tree as a mission) and would also have collided with B9 / B10; B3 is likewise
+taken by the EVA branch. The ORBIT lane is therefore B11 (Mun) + B12 (Minmus),
+and `autotest-status.md`'s roadmap entry names those ids. The lane's whole
+reason to exist is the END STATE, not the flight: every other lunar /
+interplanetary case (B5 Mun flyby, B6 Minmus flyby, B7 Duna flyby) passes
+THROUGH a foreign SOI and comes back or continues, so none of them ever
+exercises the commit path, the terminal classification, or the
+background-recording handoff for a tree whose recording CLOSES while the vessel
+is in orbit around another body. B11/B12 close and commit exactly there, which
+is why they claim the new D1 `commit-in-foreign-soi` value.
+
+B13/B14 ARE THE ROADMAP'S "Mun/Minmus LANDING missions" ITEM, and they take
+the next free ids for the same reason B11/B12 did. They are the B11/B12 machine
+with one more param, `landingEnabled`, and they exist for an end state neither
+the flyby nor the orbit lane reaches: a recording that ENDS **LANDED ON ANOTHER
+BODY**. B11/B12 close in ORBIT around a foreign body and B1/B4 land on KERBIN,
+so nothing in the suite exercises the `Landed` terminal classification for a
+foreign-body tree, the SURFACE-class TrackSections the environment classifier
+only reaches on an AIRLESS body (`Approach -> Surface*`, unreachable where an
+atmosphere classifies first), the landing-leg part events, or the landed-vessel
+ghost / playback surface. That is why they claim the new D1
+`commit-landed-foreign-body` value and the two previously unclaimed D4 surface
+classes - `surface-stationary` on B13 and `surface-mobile` on B14, each claimed
+by the scenario whose flight MEASURED that class and gated by a class-specific
+log token, because which class a touchdown confirms is `srfSpeed > 0.1` at the
+confirm frame and not a property of the lane.
+
+B15/B16 ARE THE ROADMAP'S "Eve flyby (cheap B7 clone)" CANDIDATE, promoted and
+widened to a pair, and they take the next free ids for the same reason B11-B14
+did. Unlike the three lanes above them, THEY CLAIM NO NEW DIMENSION VALUE and
+they add NO new machine code: B15 is B7's exact param set re-valued for Eve, and
+B16 is that set unioned with B11/B12's capture tail. The union is the only thing
+here that had never been flown, and it needed no third mechanism because the two
+param groups are read by disjoint parts of `mlib.b5_decide` (interplanetary
+shapes everything before the target SOI, capture shapes everything after it).
+
+BE SKEPTICAL ABOUT WHAT THIS PAIR BUYS - the specs are, and so should this
+table be. A plain Eve flyby re-exercises B7's cross-SOI surface at a different
+body, and an Eve capture re-exercises B11/B12's commit-in-foreign-SOI at a
+different body; both are MULTIPLIERS on the D14 axis, not new mechanisms. B16's
+one genuinely unclaimed surface is that the capture tail runs after a
+HELIOCENTRIC traverse - two SOI transitions and an arrival v_inf ~4x the Mun's -
+so the committed tree's terminal orbit body is reached from interplanetary space
+rather than from inside the home system.
+
+THE THING EVE COULD HAVE BOUGHT, AND DELIBERATELY DOES NOT. Eve has the deepest
+atmosphere in the stock system (90 km) and is the only non-Kerbin body this
+craft can reach that has one, so a NON-KERBIN ATMOSPHERIC TrackSection is real
+unclaimed coverage - B13/B14 bought only the airless `Approach -> Surface*`
+path. Neither B15 nor B16 claims it, for three stacked reasons recorded in the
+B15 spec: the profiles pass at 1,000 km and park at 5,000 km, nowhere near air;
+the recorders early-return on `isOnRails` / `packed`, so a packed high-warp pass
+emits no Atmospheric section anyway; and - the blocker that outlives the other
+two - NO EMITTED LOG LINE PAIRS AN ENVIRONMENT CLASS WITH A BODY NAME, so the
+claim is not even assertable today. A follow-up aerobraking variant would first
+need a Parsek change adding `body=` to the `TrackSection started:` format
+string, mirroring the B13 `terminalOrbitBody` fix.
 
 B8 additional assertion (loop first-run-is-real, D18): after 3 loop cycles
 plus one rewind re-cross of the spawn window, exactly ONE real vessel with
