@@ -4876,12 +4876,26 @@ def classify_landing_autopilot(
     shape as the B11 flight-1 NodeExecutor defect.
 
       ``LANDING_AP_RUNNING``  - observed ENABLED, or the craft has already
-      TOUCHED DOWN. The touchdown carve-out is REQUIRED, not defensive:
-      MechJeb's own FinalDescent step calls ``StopLanding()`` (which clears the
-      module's user pool, i.e. disables it) the frame it observes
-      ``Vessel.LandedOrSplashed``, so an observed FALSE after touchdown is the
-      module reporting SUCCESS. Without this conjunct a perfect landing would
-      fast-fail as a dead autopilot. The streak resets.
+      TOUCHED DOWN. The streak resets.
+
+      THE TOUCHDOWN CARVE-OUT IS UNREACHABLE FROM THE LIVE PATH, and saying so
+      is the honest version of what this comment used to claim (2026-07-26
+      review). The hazard is real: MechJeb's own FinalDescent step calls
+      ``StopLanding()`` (which clears the module's user pool, i.e. disables it)
+      the frame it observes ``Vessel.LandedOrSplashed``, so an observed FALSE
+      after touchdown is the module reporting SUCCESS, and reading it as a dead
+      autopilot would fast-fail a PERFECT landing. But the live guarantee is
+      not provided HERE: ``b5_decide``'s DESCENT block tests ``_b5_touched_down``
+      FIRST and leaves the phase, so this function is only ever called with
+      ``touched_down=False`` in flight. The conjunct is therefore a SECOND,
+      ORDER-INDEPENDENT guarantee, kept deliberately: it costs one comparison,
+      it keeps the pure classifier correct for any caller that does not own
+      ``b5_decide``'s ordering, and deleting it would move a load-bearing safety
+      property into a call-site ordering constraint documented only in a
+      comment. Cells: ``LandingDescentTests`` pins the LIVE guarantee (the
+      ordering) in ``test_a_landed_frame_exits_whatever_the_autopilot_reads``;
+      ``LandingAutopilotClassifierTests`` pins THIS backstop in
+      ``test_touchdown_reads_as_success_for_an_out_of_order_caller``.
 
       ``LANDING_AP_UNKNOWN``  - ``ap_enabled`` is the -1 UNREAD sentinel. NO
       action: an unread channel is not evidence of a dead actor (fail closed
@@ -6404,6 +6418,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # COMMAND; this is the read-back, and it is the FASTEST signal available
         # (~3 polls, against ~900 game-s for the altitude watchdog and the whole
         # descent budget behind that).
+        #
+        # touched_down=False is a CONSTANT here, and correctly so: the branch
+        # above already returned on every landed frame, so no other value is
+        # reachable. That makes the classifier's own touchdown carve-out a
+        # backstop for out-of-order callers rather than a live path -- THIS
+        # ordering is what stops a perfect landing reading as a dead autopilot.
+        # Do not reorder these two blocks; see classify_landing_autopilot.
         ap_verdict, ap_streak = classify_landing_autopilot(
             snapshot.landing_ap_enabled, state.landing_ap_down_streak,
             state.landing_ap_reissues, touched_down=False)

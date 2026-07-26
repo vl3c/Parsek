@@ -8266,14 +8266,27 @@ class LandingAutopilotClassifierTests(unittest.TestCase):
             mlib.classify_landing_autopilot(-1, 2, 0, touched_down=False),
             (mlib.LANDING_AP_UNKNOWN, 0))
 
-    def test_touchdown_disables_the_module_and_that_is_success(self):
+    def test_touchdown_reads_as_success_for_an_out_of_order_caller(self):
         """MechJeb's FinalDescent calls StopLanding on the landed frame, so an
-        OBSERVED False after touchdown is the module reporting success. Without
-        this carve-out a PERFECT landing would fast-fail as a dead autopilot."""
+        OBSERVED False after touchdown is the module reporting success.
+
+        THIS CELL IS THE BACKSTOP, NOT THE LIVE GUARANTEE. `b5_decide` tests
+        touchdown FIRST and leaves DESCENT, so the live path only ever passes
+        touched_down=False and this branch never executes in flight; the live
+        ordering is pinned by
+        LandingDescentTests.test_a_landed_frame_exits_whatever_the_autopilot_reads.
+        What is covered here is the pure function staying correct for a caller
+        that does NOT own that ordering."""
         self.assertEqual(
             mlib.classify_landing_autopilot(
                 0, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES, 0,
                 touched_down=True),
+            (mlib.LANDING_AP_RUNNING, 0))
+        # Even past the re-issue budget, where the next verdict would be DEAD.
+        self.assertEqual(
+            mlib.classify_landing_autopilot(
+                0, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1,
+                mlib.MAX_LANDING_AP_REISSUES, touched_down=True),
             (mlib.LANDING_AP_RUNNING, 0))
 
     def test_debounced_down_reissues_then_fast_fails(self):
@@ -8539,6 +8552,93 @@ class LandingDescentTests(unittest.TestCase):
                          mlib.MAX_LANDING_AP_REISSUES)
         self.assertEqual(state.landing_ap_reissues,
                          mlib.MAX_LANDING_AP_REISSUES)
+
+    def test_a_landed_frame_exits_whatever_the_autopilot_reads(self):
+        """THE LIVE GUARANTEE the classifier's touchdown carve-out only
+        BACKSTOPS. `classify_landing_autopilot` is called with a hardcoded
+        touched_down=False, so nothing inside it can save a perfect landing --
+        the ordering of these two blocks in b5_decide is what does, and the
+        ordering is what a future edit could silently break.
+
+        Seeded ONE frame short of DEAD (debounce all but spent, re-issue budget
+        exhausted) so that if the supervisor ran first, this exact frame would
+        fast-fail `landing-autopilot-not-enabled` on a craft that had just
+        landed. Every reading of the channel must exit instead, including the 0
+        that MechJeb itself writes on the touchdown frame."""
+        seed_streak = mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1
+        # The seed is honest: fed to the supervisor, this state + a 0 reading
+        # IS the fast-fail. Without this line the cell could pass against a
+        # state that was never one frame from DEAD in the first place.
+        self.assertEqual(
+            mlib.classify_landing_autopilot(
+                0, seed_streak, mlib.MAX_LANDING_AP_REISSUES,
+                touched_down=False)[0],
+            mlib.LANDING_AP_DEAD)
+        for ap_enabled in (-1, 0, 1):
+            state = _b13_state(
+                mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                landing_alt_ref_ut=0.0, landing_engaged=True,
+                landing_ap_down_streak=seed_streak,
+                landing_ap_reissues=mlib.MAX_LANDING_AP_REISSUES)
+            state, _ = mlib.b5_decide(
+                state, _landed(ut=50.0, landing_ap_enabled=ap_enabled))
+            self.assertEqual(state.phase, mlib.B5_LANDED_SETTLE, ap_enabled)
+            self.assertFalse(state.done, ap_enabled)
+            self.assertIsNone(state.flake_reason, ap_enabled)
+
+    def test_a_reissue_reanchors_the_no_progress_window(self):
+        """A fresh attempt must earn a FULL no-progress window rather than
+        inheriting the dead one's clock (the capture-executor re-issue
+        discipline). Without the re-anchor a re-issue landing late in a window
+        that the dead autopilot had already spent would be judged on the DEAD
+        module's lack of progress and flake `landing-no-progress` before the
+        recovered descent had a chance to shed anything."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0, landing_engaged=True)
+        # One frame short of the debounce: the window clock is nearly spent and
+        # the anchor is still the stale one.
+        for i in range(1, mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES):
+            state, actions = mlib.b5_decide(
+                state, _descending(ut=B13_PARAMS.landing_progress_window - 10.0,
+                                   landing_ap_enabled=0, altitude=99_950.0))
+            self.assertEqual(actions, [])
+            self.assertEqual(state.landing_alt_ref, 100_000.0)
+            self.assertEqual(state.landing_alt_ref_ut, 0.0)
+        # The re-issue frame: the engage goes out AND the window re-anchors on
+        # THIS frame's reading.
+        reissue_ut = B13_PARAMS.landing_progress_window - 5.0
+        state, actions = mlib.b5_decide(
+            state, _descending(ut=reissue_ut, landing_ap_enabled=0,
+                               altitude=99_900.0))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_LAND_UNTARGETED])
+        self.assertEqual(state.landing_ap_reissues, 1)
+        self.assertEqual(state.landing_alt_ref, 99_900.0)
+        self.assertEqual(state.landing_alt_ref_ut, reissue_ut)
+        # ... so the frame that WOULD have closed the stale window decides
+        # nothing: the re-anchored one has barely started.
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=reissue_ut + 20.0, landing_ap_enabled=1,
+                               altitude=99_880.0, vertical_speed=-2.0))
+        self.assertFalse(state.done)
+
+    def test_a_reissue_that_cannot_read_the_frame_keeps_the_old_anchor(self):
+        """FAIL CLOSED on the re-anchor itself: a re-issue frame with an
+        unreadable altitude or UT must KEEP the previous anchor rather than
+        write None/NaN into it, or the named `altitude-unreadable` give-up
+        would be disarmed by the very recovery that is meant to be watched."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=100_000.0,
+                           landing_alt_ref_ut=0.0, landing_engaged=True)
+        for _ in range(mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=10.0, landing_ap_enabled=0))
+        state, actions = mlib.b5_decide(
+            state, _descending(ut=float("nan"), landing_ap_enabled=0,
+                               altitude=float("nan")))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_LAND_UNTARGETED])
+        self.assertEqual(state.landing_alt_ref, 100_000.0)
+        self.assertEqual(state.landing_alt_ref_ut, 0.0)
 
     def test_unread_autopilot_channel_never_fires_the_fast_fail(self):
         """A run that forgot read_landing must NOT be fast-failed by the

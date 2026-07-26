@@ -2699,5 +2699,240 @@ class LandingEngageTests(unittest.TestCase):
                         lines)
 
 
+class LandingAutopilotLadderFlightTests(unittest.TestCase):
+    """The DESCENT autopilot supervision ladder, driven through the REAL fly
+    loop: debounce -> bounded re-issue -> distinctly named DEAD fast-fail.
+
+    WHY THIS CLASS EXISTS. B13 and B14 both PASSED on their first flight with
+    `LandingAutopilot.Enabled` reading 1 on every polled DESCENT frame, so
+    NEITHER flight emitted a single `landingApDownStreak` or
+    `landingApReissues` line -- the ladder has never executed against real
+    MechJeb, and the machine-diff CHANNEL it reports through has never been
+    seen carrying a non-zero value on any surface. These cells do not create a
+    live proof and must not be read as one. What they do is bound what a live
+    firing could still surprise us with to MechJeb's own behaviour, by pinning
+    everything on OUR side of the seam end to end: the debounce DEPTH (the
+    existing all-disabled cells cannot tell a 3-frame debounce from a 1-frame
+    one), the re-issue ACTION reaching the seam with the spec's vehicle
+    configuration, the bound on how many times it can, the give-up NAME, and
+    the gate lines an operator would grep for when it fires for real.
+
+    Driven through ``mission_runner.fly_loop`` rather than ``b5_decide``
+    directly because the gate lines are emitted by the LOOP (``diff_machine_state``
+    -> ``log.info``), not by the machine: an mlib-only cell proves the state
+    field moved and says nothing about whether anybody would ever see it.
+    """
+
+    # The ladder is entered ALREADY ENGAGED: the PARK -> DESCENT entry engage is
+    # covered end to end by B13LandingShellTests, and starting past it makes
+    # every ACTION_MJ_LAND_UNTARGETED the loop performs a RE-ISSUE, so the bound
+    # is asserted against a count that means only one thing.
+    def _descent_state(self, params=None):
+        p = mlib.b5_params_from_dict(dict(params or B13_PARAMS))
+        return replace(mlib.b5_initial_state(p),
+                       phase=mlib.B5_DESCENT, phase_entry_ut=0.0,
+                       landing_engaged=True,
+                       landing_alt_ref=100_000.0, landing_alt_ref_ut=0.0)
+
+    def _fly(self, frames, params=None, max_last_repeats=4):
+        clock = _StepClock()
+        lines = []
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        control = FakeMissionControl(frames, max_last_repeats=max_last_repeats)
+        final, _ = mission_runner.fly_loop(
+            control, self._descent_state(params), mlib.b5_decide, log,
+            deadline=1e12, clock=clock, sleep=lambda _s: None,
+            poll_interval=0.0, settle_frames=0)
+        return final, control, lines
+
+    @staticmethod
+    def _descending(i, **kw):
+        """One DESCENT frame, 10 game-seconds apart and genuinely falling. The
+        spacing is deliberate: the whole ladder must resolve INSIDE one
+        no-progress window (900 s) and inside the descent budget, so the
+        give-up under test is the only one that can fire."""
+        base = dict(ut=10.0 * i, body="Mun", situation="SUB_ORBITAL",
+                    altitude=100_000.0 - 1000.0 * i, vertical_speed=-100.0,
+                    horizontal_speed=200.0, landing_ap_enabled=1,
+                    landing_ap_status="Doing deorbit burn.")
+        base.update(kw)
+        return snap(**base)
+
+    @staticmethod
+    def _gates(lines, key):
+        """The ordered `old->new` transitions the loop logged for one gate
+        field, with the surrounding telemetry stripped."""
+        out = []
+        for line in lines:
+            marker = "gate %s " % key
+            if marker in line:
+                out.append(line.split(marker, 1)[1].split(" |", 1)[0])
+        return out
+
+    def _landing_tail(self, first_index):
+        """A healthy touchdown -> settled dwell -> surface commit tail, so a
+        NEGATIVE cell reaches a real terminal instead of running the frame list
+        dry (which the fake reports as a transport drop)."""
+        touchdown_ut = 10.0 * first_index
+        frames = [snap(ut=touchdown_ut, body="Mun", situation="LANDED",
+                       altitude=3.0, vertical_speed=-0.3,
+                       horizontal_speed=0.05, landing_ap_enabled=0)]
+        frames += [snap(ut=touchdown_ut + float(i), body="Mun",
+                        situation="LANDED", altitude=3.0, vertical_speed=0.0,
+                        horizontal_speed=0.01, landing_ap_enabled=0)
+                   for i in range(1, 4)]                       # debounce 3
+        frames.append(snap(ut=touchdown_ut + 130.0, body="Mun",
+                           situation="LANDED", altitude=2.99,
+                           vertical_speed=0.0, horizontal_speed=0.01,
+                           landing_ap_enabled=0))              # dwell elapsed
+        frames.append(snap(ut=touchdown_ut + 140.0, body="Mun",
+                           situation="LANDED", altitude=2.98,
+                           vertical_speed=0.0, horizontal_speed=0.01,
+                           landing_ap_enabled=0,
+                           seam_commit_result="OK"))
+        return frames
+
+    # The exact frame count the ladder needs: (debounce) frames per rung, one
+    # rung per re-issue plus the final DEAD rung. Derived from the constants
+    # rather than hardcoded, so re-tuning either one re-derives the script
+    # instead of silently making the cell assert a shorter ladder.
+    @property
+    def _ladder_frames(self):
+        return (mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES
+                * (mlib.MAX_LANDING_AP_REISSUES + 1))
+
+    def test_the_full_ladder_runs_debounce_reissue_then_names_the_giveup(self):
+        """THE headline cell. A module that reads DOWN every poll must climb
+        the debounce, be re-handed the descent a BOUNDED number of times, and
+        then fast-fail under its own name -- not idle out the 3000 game-second
+        descent budget under a generic phase-timeout."""
+        frames = [self._descending(i, landing_ap_enabled=0, landing_ap_status="")
+                  for i in range(1, self._ladder_frames + 1)]
+        final, control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_AP_NOT_ENABLED, final.flake_reason)
+        self.assertIn("COMMANDED and never OBSERVED", final.flake_reason)
+        # NOT the touchdown-timeout / no-progress names: a dead actor must be
+        # named as a dead actor, which is the whole point of four give-ups.
+        self.assertNotIn(mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT,
+                         final.flake_reason)
+        self.assertNotIn(mlib.LANDING_GIVEUP_NO_PROGRESS, final.flake_reason)
+        # It fast-failed on the ladder's OWN frame, seconds in -- it did not
+        # ride the phase budget out (the failure this ladder exists to avoid).
+        self.assertEqual(control.reads, self._ladder_frames)
+        self.assertLess(final.phase_entry_ut + 10.0 * self._ladder_frames,
+                        B13_PARAMS["descentTimeoutSeconds"])
+        # ... and the machine never left DESCENT for the landed tail.
+        self.assertEqual(final.phase, mlib.B5_DESCENT)
+        self.assertNotIn(mlib.B5_LANDED_SETTLE, final.phases_reached)
+
+    def test_the_reissue_is_bounded_and_carries_the_vehicle_configuration(self):
+        """BOUNDED: a server-side surface that refuses to arm must END the
+        phase, not loop on it. And each re-issue must re-send the SPEC's
+        landing configuration -- a re-issue that silently dropped
+        DeployGears would land the craft on its engine bell."""
+        frames = [self._descending(i, landing_ap_enabled=0)
+                  for i in range(1, self._ladder_frames + 1)]
+        final, control, _ = self._fly(frames)
+        engages = [a for a in control.actions
+                   if a.kind == mlib.ACTION_MJ_LAND_UNTARGETED]
+        self.assertEqual(len(engages), mlib.MAX_LANDING_AP_REISSUES)
+        self.assertEqual(final.landing_ap_reissues, mlib.MAX_LANDING_AP_REISSUES)
+        for engage in engages:
+            self.assertEqual(engage.landing_config, (0.5, True, False, False))
+        # DESCENT stays warp-PASSIVE and attitude-PASSIVE even while recovering:
+        # MechJeb owns both, and a second writer is the thrash class this suite
+        # has already paid for twice.
+        self.assertEqual({a.kind for a in control.actions},
+                         {mlib.ACTION_MJ_LAND_UNTARGETED})
+
+    def test_the_ladder_reaches_the_log_as_greppable_gate_lines(self):
+        """THE CHANNEL THE TWO FLIGHTS NEVER LIT. `landingApDownStreak` and
+        `landingApReissues` are the two fields an operator greps when a descent
+        does not engage, and no flight has ever emitted either carrying a
+        non-zero value. This asserts the loop emits the WHOLE ladder: one
+        transition per debounce step, the reset on each re-issue, and the
+        capped final rung."""
+        frames = [self._descending(i, landing_ap_enabled=0)
+                  for i in range(1, self._ladder_frames + 1)]
+        _final, _control, lines = self._fly(frames)
+        depth = mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES
+        expected = []
+        for rung in range(mlib.MAX_LANDING_AP_REISSUES):
+            expected += ["%d->%d" % (n, n + 1) for n in range(depth - 1)]
+            expected.append("%d->0" % (depth - 1))      # consumed by the re-issue
+        expected += ["%d->%d" % (n, n + 1) for n in range(depth)]  # DEAD, capped
+        self.assertEqual(self._gates(lines, "landingApDownStreak"), expected)
+        self.assertEqual(
+            self._gates(lines, "landingApReissues"),
+            ["%d->%d" % (n, n + 1)
+             for n in range(mlib.MAX_LANDING_AP_REISSUES)])
+
+    def test_a_flickering_channel_never_reaches_a_reissue(self):
+        """THE DEBOUNCE, measured. Every existing cell scripts the module
+        disabled on EVERY frame, which cannot tell a 3-frame debounce from a
+        1-frame one. Here the reading flickers -- two down, one up, forever --
+        so a single-frame transient (a poll landing between MechJeb's own state
+        transitions) must never re-hand it the descent."""
+        frames = []
+        for i in range(1, 40):
+            frames.append(self._descending(
+                i, landing_ap_enabled=(1 if i % 3 == 0 else 0)))
+        frames += self._landing_tail(40)
+        final, control, lines = self._fly(frames)
+        # The flight LANDED: the flicker cost it nothing at all.
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_SURFACE_COMMITTED)
+        self.assertEqual(final.landing_ap_reissues, 0)
+        self.assertEqual(
+            [a.kind for a in control.actions].count(
+                mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+        # The streak was OBSERVED climbing and resetting, so the cell proves the
+        # debounce absorbed the flicker rather than never seeing it.
+        streaks = self._gates(lines, "landingApDownStreak")
+        self.assertIn("0->1", streaks)
+        self.assertIn("2->0", streaks)
+        self.assertNotIn("2->3", streaks)
+        self.assertEqual(self._gates(lines, "landingApReissues"), [])
+
+    def test_a_healthy_landing_never_enters_the_supervision_path(self):
+        """THE SHAPE BOTH LIVE FLIGHTS FLEW. An always-enabled descent must
+        leave the ladder's two channels completely silent -- which is why the
+        two green flights emitting nothing is evidence of a healthy descent and
+        NOT evidence of a dark channel. The other three cells above are what
+        turn that reading from an assumption into a measured one."""
+        frames = [self._descending(i) for i in range(1, 12)]
+        frames += self._landing_tail(12)
+        final, control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_SURFACE_COMMITTED)
+        self.assertEqual(final.landing_ap_down_streak, 0)
+        self.assertEqual(final.landing_ap_reissues, 0)
+        self.assertEqual(self._gates(lines, "landingApDownStreak"), [])
+        self.assertEqual(self._gates(lines, "landingApReissues"), [])
+        self.assertEqual(
+            [a.kind for a in control.actions].count(
+                mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+
+    def test_an_unread_channel_is_not_evidence_of_a_dead_module(self):
+        """FAIL CLOSED against acting on evidence we do not have: the -1 UNREAD
+        sentinel (a run that forgot read_landing, or a channel that dropped)
+        must never climb the ladder. The altitude-trend watchdog and the descent
+        budget own that outcome instead."""
+        frames = [self._descending(i, landing_ap_enabled=-1)
+                  for i in range(1, 30)]
+        frames += self._landing_tail(30)
+        final, control, lines = self._fly(frames)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.landing_ap_reissues, 0)
+        self.assertEqual(self._gates(lines, "landingApDownStreak"), [])
+        self.assertEqual(
+            [a.kind for a in control.actions].count(
+                mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
