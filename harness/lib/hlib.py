@@ -131,18 +131,56 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 # redefines this set.
 #
 # KNOWN DRIFT from what the mod actually emits, found 2026-07-26 while wiring
-# S1.7 (enumerated in docs/dev/todo-and-known-bugs.md; NOT resolved here because
-# widening the gating set would change many scenarios' verdicts and wants its own
-# decision). `icon-jump` is DEAD: the probe raises the icon-teleport family with
+# S1.7. `icon-jump` is DEAD: the probe raises the icon-teleport family with
 # `reason=icon-teleport` (MapRenderProbe.cs), so this token matches no emit at
-# all. Five further reasons are emitted and ungated: icon-teleport, icon-off-orbit,
-# unaccounted-drawn-recording, gap-vs-retire, decision-vs-old-truth. Until that is
-# decided, `unlisted_anomaly_reasons` REPORTS every anomaly reason seen that is not
-# in this set, so the drift is visible on every run instead of silent.
+# all. The ungated remainder is ANOMALY_REASONS_RAISED_UNGATED below - NINE
+# reasons, not the five the first pass listed (the four cutover-hardening raises
+# reached through MapRenderTrace's thin wrappers were missed; corrected after
+# review 2026-07-26, and the enumeration is now DERIVED FROM SOURCE by
+# AnomalyGroundTruthEnumerationTests rather than hand-maintained).
+#
+# NOT resolved here because the per-token call (defect signal vs instrumentation
+# signal) has to be made one token at a time and wants its own change - see the
+# todo-doc entry. Note what the deferral is NOT: after this same change's
+# settings-sidecar baseline only three specs arm the map tracer (S1.4, S1.6,
+# S1.7), so widening the set can only move THEIR verdicts, not "every committed
+# scenario's". Until it is decided, `unlisted_anomaly_reasons` REPORTS every
+# anomaly reason seen that is not in this set, so the drift is visible on every
+# run instead of silent.
 ANOMALY_TOKENS: Tuple[str, ...] = (
     "icon-jump", "line-blink", "parity-drift", "decision-vs-truth",
     "polyline-orbit-overlap", "rigid-seam-tangent-discontinuity", "ledger-vs-truth",
 )
+
+# GROUND TRUTH: every `reason=` token the mod raises from PRODUCTION code (outside
+# `Source/Parsek/InGameTests/`) that ANOMALY_TOKENS does not gate. Each entry is
+# (reason, producer file:line) where the producer is the DECISION site - for the
+# four cutover-hardening raises that is the guard site, which calls a thin
+# once-per-event MapRenderTrace wrapper that calls EmitAnomaly, so the emitted
+# line is shaped exactly like a direct raise.
+#
+# This tuple is the decision input for the deferred reconciliation, so it is
+# pinned against the C# source by AnomalyGroundTruthEnumerationTests: that test
+# walks every EmitAnomaly call site under Source/Parsek (excluding InGameTests/),
+# resolves the reason argument by position for both tracer signatures, and
+# requires the derived set to partition EXACTLY into ANOMALY_TOKENS-minus-dead
+# plus this tuple. A new raise site that nobody gates therefore reds the harness
+# suite instead of quietly widening the fail-open.
+ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
+    ("icon-teleport", "Source/Parsek/MapRenderProbe.cs:753"),
+    ("icon-off-orbit", "Source/Parsek/MapRenderProbe.cs:834"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:437"),
+    ("gap-vs-retire", "Source/Parsek/MapRender/GhostRenderReconciler.cs:240"),
+    ("decision-vs-old-truth", "Source/Parsek/MapRender/GhostRenderReconciler.cs:260"),
+    ("clock-not-ready", "Source/Parsek/MapRender/ShadowRenderDriver.cs:316"),
+    ("retire-not-held", "Source/Parsek/MapRender/ShadowRenderDriver.cs:394"),
+    ("anchor-resolve-fail", "Source/Parsek/MapRender/AnchorFrameResolver.cs:87"),
+    ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+)
+
+# `icon-jump` is in ANOMALY_TOKENS but no producer raises it (see above). Named so
+# the dead-token tests and the source-derived enumeration agree on one constant.
+ANOMALY_TOKENS_DEAD: Tuple[str, ...] = ("icon-jump",)
 
 # Both tracers build their Tier-C line the same way: MapRenderTrace.EmitAnomaly ->
 # EmitRaw(phase "Anomaly", "reason=" + Token(reason) + " " + details) and
@@ -1184,9 +1222,14 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             "expectations.%s.allowedAnomalies: allowedAnomalies belongs in "
             "[expectations], not [expectations.%s] (a bare key after that header "
             "is TOML-scoped to the sub-table, so the anomaly sweep never reads "
-            "it). Move it into an explicit [expectations] table ahead of the "
-            "sub-tables%s"
-            % (sub_name, sub_name,
+            "it). REQUIRED PLACEMENT: delete the key from under "
+            "[expectations.%s] and write it in an explicit [expectations] table "
+            "declared BEFORE every [expectations.<sub>] header, i.e. exactly "
+            "`[expectations]` then `allowedAnomalies = %s` then the sub-tables%s"
+            % (sub_name, sub_name, sub_name,
+               # json renders a TOML-valid array (double quotes); repr() would
+               # emit single quotes, which TOML rejects.
+               json.dumps(list(declared)),
                "" if not declared
                else "; the declared exception(s) %s are INERT where they sit and "
                     "the sweep would run with none allowed" % (list(declared),)))
@@ -1383,12 +1426,14 @@ def admit_instance(
 # observed live: the automation instance's sidecar held exactly
 # `mapRenderTracing = True` after S1.4.
 #
-# THE SECOND HALF OF THE LEAK. Every committed fixture save ALSO carries
-# `mapRenderTracing = True` inside its own GameParameters ParsekSettings node
-# (they were harvested from a dev save with tracing on), so even a pristine
-# sidecar would leave the tracer on for every fixture-based flight. Deleting the
-# sidecar therefore does NOT fix it; only an explicit stored OFF does, because
-# the sidecar is the layer that WINS over the save.
+# THE SECOND HALF OF THE LEAK. EIGHT of the eleven committed fixture saves ALSO
+# carry `mapRenderTracing = True` inside their own GameParameters ParsekSettings
+# node (they were harvested from a dev save with tracing on). The three that do
+# NOT carry the key at all are fresh-career, fresh-sandbox and fresh-science.
+# So for the eight, even a pristine sidecar would leave the tracer on for every
+# flight off that fixture. Deleting the sidecar therefore does NOT fix it; only
+# an explicit stored OFF does, because the sidecar is the layer that WINS over
+# the save.
 #
 # THE FIX. run.py writes this deterministic baseline (the three diagnostic
 # tracers pinned OFF) into the sidecar at STAGE, before launch, and again at

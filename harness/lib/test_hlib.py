@@ -1425,8 +1425,9 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
         # Pins the drift rather than papering over it: MapRenderProbe raises the
         # icon-teleport family with reason=icon-teleport, so the harness's
         # `icon-jump` token can never fire. Gating is unchanged here deliberately
-        # (widening it moves verdicts on every scenario); the report-only channel
-        # is what makes it visible. Delete this cell when the set is reconciled.
+        # (reconciling it is a per-token defect-vs-instrument call); the
+        # report-only channel is what makes it visible. Delete this cell when the
+        # set is reconciled.
         self.assertIn("icon-jump", hlib.ANOMALY_TOKENS)
         line = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1"
                 " reason=icon-teleport TELEPORT dPos=900m = 42x expected(21m)")
@@ -1437,6 +1438,283 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
         for empty in (None, "", "\n\n"):
             self.assertEqual([], hlib.grep_anomaly_tokens(empty))
             self.assertEqual([], hlib.unlisted_anomaly_reasons(empty))
+
+
+# ---------------------------------------------------------------------------
+# The ungated-reason ground truth, DERIVED FROM SOURCE.
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = os.path.dirname(HARNESS_ROOT)
+PARSEK_SRC_DIR = os.path.join(REPO_ROOT, "Source", "Parsek")
+DOCS_DEV_DIR = os.path.join(REPO_ROOT, "docs", "dev")
+AUTOTEST_STATUS_DOC = os.path.join(DOCS_DEV_DIR, "autotest-status.md")
+TODO_DOC = os.path.join(DOCS_DEV_DIR, "todo-and-known-bugs.md")
+
+# A reason token: lowercase words joined by hyphens. Deliberately requires a
+# hyphen so it cannot match a bare word, and forbids spaces / `=` so it cannot
+# match a formatted `details` string.
+_REASON_TOKEN_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)+\Z")
+
+# Reason-argument POSITION (0-based) per tracer signature. Both are checked by
+# qualifier so the LedgerTrace `resource` argument (which is also a hyphenated
+# literal on the tech-node / subject-science call sites) can never be mistaken
+# for a reason.
+#   MapRenderTrace.EmitAnomaly(surface, pidKey, currentUT, effUT, reason, details, recId)
+#   LedgerTrace.EmitAnomaly(resource, id, reason, details)
+_REASON_ARG_INDEX = {"MapRenderTrace": 4, "LedgerTrace": 2, "": 4}
+
+
+def _split_top_level_args(blob):
+    """Split a C# argument list on TOP-LEVEL commas (paren/bracket/brace depth 0,
+    outside string and char literals)."""
+    args, depth, i, start = [], 0, 0, 0
+    in_str = in_chr = False
+    while i < len(blob):
+        c = blob[i]
+        if in_str:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+        elif in_chr:
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_chr = False
+        elif c == '"':
+            in_str = True
+        elif c == "'":
+            in_chr = True
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            args.append(blob[start:i])
+            start = i + 1
+        i += 1
+    args.append(blob[start:])
+    return args
+
+
+def _anomaly_const_map():
+    path = os.path.join(PARSEK_SRC_DIR, "MapRenderTrace.cs")
+    with open(path, encoding="utf-8-sig") as fh:
+        src = fh.read()
+    return dict(re.findall(r'internal const string (Anomaly\w+)\s*=\s*"([^"]+)"', src))
+
+
+def _production_anomaly_raises():
+    """Walk every `EmitAnomaly(` call site under Source/Parsek EXCLUDING
+    InGameTests/, and return {reason: [producer file:line, ...]}.
+
+    The call sites are matched by paren balancing (the calls are multi-line), the
+    reason is taken by ARGUMENT POSITION for the qualifier's signature, and a
+    `MapRenderTrace.Anomaly*` constant is resolved through the const map. Bare
+    `EmitAnomaly(` inside MapRenderTrace.cs itself is the four thin
+    cutover-hardening wrappers, which share the MapRenderTrace signature."""
+    consts = _anomaly_const_map()
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(PARSEK_SRC_DIR):
+        dirnames[:] = [d for d in dirnames if d != "InGameTests"]
+        for filename in sorted(filenames):
+            if not filename.endswith(".cs"):
+                continue
+            path = os.path.join(dirpath, filename)
+            with open(path, encoding="utf-8-sig") as fh:
+                src = fh.read()
+            for m in re.finditer(r"(?:(\w+)\.)?EmitAnomaly\s*\(", src):
+                qualifier = m.group(1) or ""
+                if qualifier not in _REASON_ARG_INDEX:
+                    continue
+                i, depth = m.end(), 1
+                while i < len(src) and depth:
+                    if src[i] == "(":
+                        depth += 1
+                    elif src[i] == ")":
+                        depth -= 1
+                    i += 1
+                args = _split_top_level_args(src[m.end():i - 1])
+                idx = _REASON_ARG_INDEX[qualifier]
+                if idx >= len(args):
+                    continue
+                arg = args[idx].strip()
+                literal = re.fullmatch(r'"([^"]*)"', arg)
+                if literal:
+                    reason = literal.group(1)
+                elif arg.split(".")[-1] in consts:
+                    reason = consts[arg.split(".")[-1]]
+                else:
+                    continue
+                if not _REASON_TOKEN_RE.match(reason):
+                    continue
+                rel = os.path.relpath(path, os.path.dirname(HARNESS_ROOT))
+                producer = "%s:%d" % (rel.replace(os.sep, "/"),
+                                      src.count("\n", 0, m.start()) + 1)
+                out.setdefault(reason, []).append(producer)
+    return out
+
+
+class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
+    """The ungated-reason list is the DECISION INPUT for the deferred
+    ANOMALY_TOKENS reconciliation, so it must not be hand-maintained prose.
+
+    The 2026-07-26 first pass listed 5 of the 9 ungated reasons - it missed the
+    four cutover-hardening raises (clock-not-ready / retire-not-held /
+    anchor-resolve-fail / factory-parity), which reach EmitAnomaly through thin
+    MapRenderTrace wrappers rather than at the guard site. An incomplete
+    enumeration understates a fail-open, which is exactly the thing the list
+    exists to size, so it is now derived from the C# source here."""
+
+    def setUp(self):
+        self.assertTrue(os.path.isdir(PARSEK_SRC_DIR),
+                        "Source/Parsek must be present: this gate is a source scan, "
+                        "and skipping it would make the enumeration unmeasured again")
+        self.raised = _production_anomaly_raises()
+
+    def test_scanner_sees_the_known_raise_sites(self):
+        # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
+        # every set assertion below trivially true.
+        self.assertGreaterEqual(len(self.raised), 15)
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:753",
+                      self.raised.get("icon-teleport", []))
+        self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
+                      self.raised.get("ledger-vs-truth", []))
+        # The LedgerTrace `resource` argument is also hyphenated on two call sites;
+        # positional resolution must not mistake it for a reason.
+        self.assertNotIn("tech-node", self.raised)
+        self.assertNotIn("subject-science", self.raised)
+
+    def test_raised_set_partitions_exactly_into_gated_plus_documented_ungated(self):
+        gated_live = set(hlib.ANOMALY_TOKENS) - set(hlib.ANOMALY_TOKENS_DEAD)
+        documented_ungated = {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED}
+        self.assertEqual(set(), gated_live & documented_ungated)
+        self.assertEqual(
+            gated_live | documented_ungated, set(self.raised),
+            "a production EmitAnomaly reason is neither gated by ANOMALY_TOKENS nor "
+            "listed in ANOMALY_REASONS_RAISED_UNGATED (or a listed one no longer "
+            "exists) - re-derive the todo-doc table in the same change")
+
+    def test_the_ungated_count_is_nine_not_five(self):
+        self.assertEqual(9, len(hlib.ANOMALY_REASONS_RAISED_UNGATED))
+        for reason in ("clock-not-ready", "retire-not-held", "anchor-resolve-fail",
+                       "factory-parity"):
+            self.assertIn(reason, {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED},
+                          "the four wrapper-routed raises the first pass missed")
+            self.assertIn(reason, self.raised)
+
+    def test_dead_token_is_raised_by_nothing(self):
+        for dead in hlib.ANOMALY_TOKENS_DEAD:
+            self.assertIn(dead, hlib.ANOMALY_TOKENS)
+            self.assertNotIn(dead, self.raised,
+                             "%s is gated but raised by nothing - if a producer "
+                             "appeared, it is no longer dead" % (dead,))
+
+    def test_status_doc_reports_the_same_nine(self):
+        # autotest-status.md is declared the single status authority for this
+        # system, and its gate-0 list is what a reader acts on. It said FIVE for
+        # one commit; keep it tied to the source-derived tuple.
+        with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
+            body = fh.read()
+        for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
+            self.assertIn("`%s`" % (reason,), body,
+                          "gate 0 omits the ungated reason %s" % (reason,))
+        self.assertNotIn("five further reasons are ungated", body.lower())
+
+    def test_todo_doc_table_lists_every_raised_reason(self):
+        # The todo-doc table is the DECISION INPUT for the deferred reconciliation
+        # (the PR that defers it says so explicitly), so an incomplete table is the
+        # defect, not a cosmetic slip.
+        with open(TODO_DOC, encoding="utf-8") as fh:
+            body = fh.read()
+        start = body.index("## The harness anomaly token set has drifted")
+        entry = body[start:body.index("\n## ", start + 10)]
+        for reason in sorted(self.raised):
+            self.assertIn("| `%s` |" % (reason,), entry,
+                          "the ground-truth table omits %s" % (reason,))
+
+    def test_documented_producers_are_real_file_line_pairs(self):
+        # The guard site (where the decision is made) is what the table names; for
+        # the four wrapper-routed raises that is NOT the EmitAnomaly line, so this
+        # checks the cited file:line rather than reusing the scanner's output.
+        root = os.path.dirname(HARNESS_ROOT)
+        for reason, producer in hlib.ANOMALY_REASONS_RAISED_UNGATED:
+            rel, _, lineno = producer.rpartition(":")
+            path = os.path.join(root, rel.replace("/", os.sep))
+            self.assertTrue(os.path.isfile(path), producer)
+            with open(path, encoding="utf-8-sig") as fh:
+                lines = fh.read().split("\n")
+            window = "\n".join(lines[max(0, int(lineno) - 1):int(lineno) + 8])
+            self.assertRegex(
+                window, r"EmitAnomaly|Emit(ClockNotReady|RetireNotHeld|"
+                        r"AnchorResolveFail|FactoryParity)",
+                "%s (%s) does not name an anomaly raise" % (reason, producer))
+
+
+class AutotestStatusScenarioCountTests(unittest.TestCase):
+    """`autotest-status.md` is the declared single status authority for this
+    system, so a count in it that its own table contradicts is the exact class of
+    error the doc rules exist to prevent.
+
+    It happened twice in one day: the live-proven section grew by two and the
+    not-yet-live-run header was decremented to 13 while its table still had 14
+    rows, which also broke the stated 30-scenario total. This cell re-derives all
+    of it - per-section header counts, their sum, and the sum against the number
+    of committed spec files - so the next drift reds here instead of in review."""
+
+    HEADER_RE = re.compile(r"^### (?P<name>.+?)\((?P<count>\d+)\)")
+    TOTAL_RE = re.compile(r"^## Test cases \(all (?P<count>\d+) committed scenarios\)")
+    SEPARATOR_RE = re.compile(r"^\|[\s\-|]+\|$")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
+            cls.lines = fh.read().split("\n")
+
+    def _sections(self):
+        """{section header line: (declared count, counted table rows)}."""
+        out, current = {}, None
+        for line in self.lines:
+            header = self.HEADER_RE.match(line)
+            if line.startswith("### "):
+                current = line if header else None
+                if header:
+                    out[line] = [int(header.group("count")), 0]
+                continue
+            if current is None or not line.startswith("| "):
+                continue
+            if line.startswith("| Test case") or self.SEPARATOR_RE.match(line):
+                continue
+            out[current][1] += 1
+        return out
+
+    def test_every_section_header_matches_its_table(self):
+        sections = self._sections()
+        self.assertGreaterEqual(len(sections), 3, "no counted sections parsed")
+        for header, (declared, counted) in sorted(sections.items()):
+            self.assertEqual(declared, counted,
+                             "%s declares %d but has %d table rows"
+                             % (header.strip(), declared, counted))
+
+    def test_the_sections_sum_to_the_stated_total(self):
+        total = None
+        for line in self.lines:
+            m = self.TOTAL_RE.match(line)
+            if m:
+                total = int(m.group("count"))
+                break
+        self.assertIsNotNone(total, "the 'Test cases (all N ...)' header is missing")
+        self.assertEqual(total, sum(c for _, c in self._sections().values()))
+
+    def test_the_stated_total_matches_the_committed_spec_files(self):
+        committed = [n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")]
+        total = next(int(self.TOTAL_RE.match(l).group("count"))
+                     for l in self.lines if self.TOTAL_RE.match(l))
+        self.assertEqual(len(committed), total,
+                         "the status doc's scenario total disagrees with "
+                         "harness/scenarios/")
 
 
 # ---------------------------------------------------------------------------
@@ -3112,6 +3390,20 @@ class MisplacedAllowedAnomaliesRejectionTests(unittest.TestCase):
         hit = [e for e in v.errors if "allowedAnomalies" in e]
         self.assertEqual(1, len(hit))
         self.assertIn("[expectations.logContracts]", hit[0])
+
+    def test_the_error_names_the_exact_required_placement(self):
+        # This error is what every in-flight sibling PR that ADDS a spec will hit
+        # the moment this lands (they all write the key under
+        # [expectations.logContracts]), so the message has to carry the fix, not
+        # just the diagnosis: the literal table, the literal key line, and the
+        # ordering requirement relative to the sub-tables.
+        spec = self._spec_with({"logContracts": {
+            "required": ["BATCH_COMPLETE v1 .* failed=0"], "allowedAnomalies": []}})
+        msg = [e for e in hlib.validate_spec(spec, load_registry()).errors
+               if "allowedAnomalies" in e][0]
+        self.assertIn("[expectations]", msg)
+        self.assertIn("allowedAnomalies = []", msg)
+        self.assertIn("BEFORE", msg)
 
     def test_misplaced_nonempty_list_names_the_inert_exceptions(self):
         spec = self._spec_with({"logContracts": {

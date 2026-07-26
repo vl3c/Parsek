@@ -75,6 +75,22 @@ tier = "daily"
 # red every flight. Those tests still gate - a failure there reds `failed=0` - they
 # just cannot serve as the log-visible proof that a diff ran.
 #
+# THE SINK IS ALSO LOAD-BEARING FOR THE ANOMALY SWEEP, not only a limit on what
+# can be measured. MapRenderTracerCoverageInGameTest (Category = MapRender, so it
+# runs in THIS batch) drives MapRenderTrace.EmitAnomaly with FOUR real reasons -
+# icon-off-orbit, decision-vs-truth, parity-drift and polyline-orbit-overlap
+# (MapRenderTracerCoverageInGameTest.cs:199, :202, :206, :231, all inside
+# DriveAllSurfaces, called at :78) - and THREE of those four are gated tokens
+# (icon-off-orbit is one of the ungated nine). They stay out of KSP.log only
+# because the whole matrix runs between the sink install at :72 and its restore at
+# :145. Narrow or remove that sink and S1.7 reds `PARSEK-FAIL(anomaly)` on a
+# deliberate instrumentation raise, not a defect. If that test is ever refactored,
+# either keep its raises inside a sink or move them behind a reason token the
+# harness does not gate. S1.6 has no equivalent exposure: the only anomaly emits
+# in the GhostMap category (RenderParityBaselineTest.cs:238,
+# PhaseFactoryShadowParityTest.cs:94) are guarded by an over-tolerance / mismatch
+# condition the same test asserts FALSE, so on a green run they never fire.
+#
 # THE ANTI-VACUITY CONJUNCTS
 # --------------------------
 # Two arms emit their measurement OUTSIDE any sink, and both are load-bearing
@@ -236,6 +252,16 @@ required = [
 # in the summary's overTolerance and reds here, while the anomaly sweep would see
 # nothing. As on S1.6 this is reachable rather than inert - the staged corpus puts
 # a live map ghost in front of the per-frame probe.
+#
+# CAVEAT, undeclared until now: reachable only while verboseLogging is TRUE. The
+# summary goes out through ParsekLog.VerboseRateLimited (MapRenderProbe.cs:313),
+# which early-returns on !IsVerboseEnabled - unlike EmitAnomaly, which is Info and
+# routes unconditionally. Neither S1.6 nor S1.7 sets verboseLogging; both inherit
+# it from the gloops-airshow fixture save, which carries verboseLogging = True.
+# Pinning it with a SetSetting step would make the dependency explicit, but the
+# setting is NOT sidecar-tracked, so a sibling run cannot leak it off; the risk is
+# a future re-harvest of the fixture. If this contract ever needs to be
+# load-bearing rather than a free extra, pin it.
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",

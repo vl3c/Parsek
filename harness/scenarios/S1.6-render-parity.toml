@@ -26,8 +26,14 @@ tier = "daily"
 #      synthesized rendered-vs-intended arms, the icon-glide / gap-glide /
 #      arc-clip cells and the polyline leg-draw cells;
 #   2. the harness-owned Tier-C anomaly sweep is CLEAN with allowedAnomalies = []
-#      - so parity-drift, icon-jump, line-blink, decision-vs-truth,
-#      polyline-orbit-overlap and rigid-seam-tangent-discontinuity all red;
+#      - so parity-drift, line-blink, decision-vs-truth, polyline-orbit-overlap,
+#      rigid-seam-tangent-discontinuity and ledger-vs-truth all red. Those are the
+#      SIX live gated tokens. The seventh entry in hlib.ANOMALY_TOKENS,
+#      `icon-jump`, is DEAD - no producer anywhere passes it as a reason (the
+#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:753) - so it cannot
+#      red anything and is deliberately not listed here. Nine further raised
+#      reasons are ungated and REPORT-ONLY via anomalySweep.unlistedReasons; see
+#      the drift entry in docs/dev/todo-and-known-bugs.md;
 #   3. the oracle ACTUALLY MEASURED (the anti-vacuity conjunct below).
 #
 # THE ANTI-VACUITY CONJUNCT (the point of the whole exercise)
@@ -46,7 +52,10 @@ tier = "daily"
 #       reads failed=0 and would pass. This was a structural `passed=[1-9][0-9]*`
 #       until the first flight (2026-07-26) measured the real numbers; it is now
 #       the exact measured line, which additionally reds on any silent drift in
-#       the pass/skip split (see the tally note below).
+#       the pass/skip split (see the tally note below). The exact form has itself
+#       been FLOWN - the first flight ran the loose pattern and the exact line was
+#       transcribed from it afterwards, so a second flight was made to evaluate
+#       the pin as committed rather than ship a contract nothing had run.
 #
 #   (b) SEMANTIC - the two `[TestRunner]` measurement lines below. These are
 #       emitted only AFTER the test got past every Skip precondition and computed
@@ -57,10 +66,28 @@ tier = "daily"
 #       draw, i.e. only if the comparison can still fail. Without that arm the
 #       zero-drift assertion could be a circle compared with itself.
 #
-# THE PINNED TALLY (measured on the first flight, 2026-07-26, run
-# 2026-07-26_0950_S1.6-render-parity, verdict PASS, every verifier green)
-# ---------------------------------------------------------------------
+# THE PINNED TALLY (measured, then re-flown UNDER the pin)
+# --------------------------------------------------------
 #   BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT
+#
+# PROVENANCE, because "measured" and "evaluated" are different claims:
+#   flight 1 - run 2026-07-26_0950_S1.6-render-parity, verdict PASS. This is where
+#     the numbers come from, but the spec at that commit still carried the LOOSE
+#     `passed=[1-9][0-9]*` conjunct, so the exact line above was transcribed from
+#     the log, never checked by the expectations verifier.
+#   flight 2 - run 2026-07-26_1207_S1.6-render-parity, verdict PASS, every verifier
+#     green, expectations mismatches=0, anomalySweep hits=[] unlistedReasons=[].
+#     This one ran the spec AS COMMITTED, so the exact tally, both [TestRunner]
+#     measurement lines and both forbidden patterns were all evaluated. Log
+#     archived at logs/2026-07-26_1207_S1.6-render-parity/KSP.log (a PASS does not
+#     trigger collect-logs, so it was copied out of the instance by hand).
+#     Negative control re-measured at mismatchedDev=1049421m against tol=1927m.
+#     NOTE on the build: the automation instance's deployed Parsek.dll at that
+#     moment was a sibling worktree's build (branch autotest-batch-coverage). Its
+#     GhostMap surface is identical to main's - 25 [InGameTest(Category="GhostMap")]
+#     methods, 16 Scene=FLIGHT + 9 Scene=TRACKSTATION in both trees, and its only
+#     RuntimeTests delta is inside a GhostPlayback-only helper - so the tally
+#     transfers, but the pin has not been evaluated against a main-built DLL.
 #
 # The 11 skips are fully accounted for; none of them is a parity test standing
 # down. Nine are SCENE ELIGIBILITY, logged by the runner as its own line:
@@ -168,9 +195,11 @@ kind = "seam"
 #    and a save-setting-triggered live recording during a driven test would pass
 #    a dropped stop marker silently (S1.4's rationale, unchanged).
 #  - mapRenderTracing=true: MANDATORY. Every MapRenderTrace emit - the Tier-C
-#    parity-drift / icon-jump / line-blink / decision-vs-truth anomalies the
-#    sweep greps for - early-returns on MapRenderTrace.IsEnabled. With the
-#    tracer off this scenario's anomaly sweep is structurally inert.
+#    parity-drift / line-blink / decision-vs-truth / polyline-orbit-overlap /
+#    rigid-seam-tangent-discontinuity anomalies the sweep greps for (NOT
+#    icon-jump: that token is dead, see the header) - early-returns on
+#    MapRenderTrace.IsEnabled. With the tracer off this scenario's anomaly
+#    sweep is structurally inert.
 #    (This is now a REAL opt-in: run.py resets the instance-wide sidecar
 #    GameData/Parsek/PluginData/settings.cfg to tracers-OFF at stage and at
 #    teardown, so no scenario inherits another's tracer state.)
@@ -210,11 +239,14 @@ D6  = ["recorded-vs-rendered-parity"]
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
-# ZERO tolerated anomalies. Unlike S1.4 (which means to allow one known-benign
-# polyline-orbit-overlap on a corpus leg boundary), this batch draws only its own
-# synthetic fixtures, so any Tier-C token is a real signal. If a benign token
-# shows up on the first flight, quarantine it via [expectedFail] keyed to a
-# todo-doc bug id rather than widening this list.
+# ZERO tolerated anomalies, and this batch draws only its own synthetic fixtures,
+# so any Tier-C token is a real signal. If a benign token shows up, quarantine it
+# via [expectedFail] keyed to a todo-doc bug id rather than widening this list.
+# (This block used to say "Unlike S1.4, which means to allow one known-benign
+# polyline-orbit-overlap on a corpus leg boundary". That is now wrong in the same
+# change that wrote it: S1.4 DECLARED that exception but under the misplaced
+# header, so it was never in force, and the relocation left S1.4 at [] to keep
+# the gate strength it actually flew with. Both specs now allow nothing.)
 #
 # PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, but a
 # bare `allowedAnomalies = [...]` written after an `[expectations.<sub>]` header
