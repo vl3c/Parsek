@@ -419,6 +419,34 @@ transferBurnTimeoutSeconds = 18000000
 # GAME seconds. DERIVED heliocentric Kerbin->Eve tof ~3,490,000 (Hohmann
 # half-period 3,679,880 scaled by the 0.9485 ratio B7's flights MEASURED between
 # their real coast and the same formula). 7,000,000 = 2x.
+# BLOCKED HERE - DO NOT SIMPLY RAISE THIS NUMBER (flight 3, 2026-07-25).
+# Flight 3 cleared the two spec defects above (ejection floor, Mun via-body),
+# flew TRANSFER-BURN, and completed TWO FULL CORRECTION ROUNDS. It then spent
+# 7,036,337 game seconds in COAST-TO-TARGET against this 7,000,000 budget.
+# The overrun is only 0.5%, so raising the budget is the obvious next move and
+# it is the WRONG one, because of this:
+#
+#   nextBody over the whole flight:  547 '?'  24 Kerbin  35 Mun  26 Sun
+#   nextBody == Eve:                 NEVER, not once, in any phase.
+#
+# The patched conics never predicted an Eve encounter at all. A bigger coast
+# budget buys a longer route to the same answer. The transfer SOLUTION is what
+# is wrong, not the budget bound around it.
+#
+# This is the same shape as B7 finding 18 (the phase-angle ejection reliably
+# produced NO Duna encounter), which was handled by the debounced no-encounter
+# early correction trigger - and that trigger DID fire here, twice, and still
+# did not produce an encounter. So the inward case needs its own diagnosis:
+# candidate causes are the transfer being planned from a 700 km park sized for
+# an OUTWARD ejection, MechJeb's OperationInterplanetaryTransfer behaving
+# differently for an inner target, or the correction trigger thresholds
+# (inherited from Duna) firing at the wrong points on an inward leg.
+#
+# NEXT STEP is a diagnosis flight, not a tuning flight: capture what MechJeb's
+# transfer planner actually produced (target, arrival UT, predicted periapsis)
+# at PLAN-TRANSFER and compare it against an independently computed Kerbin->Eve
+# Hohmann. Until that is done B15 stays PENDING-FLIGHT and B16, which depends on
+# the same transfer, cannot be flown at all.
 coastTimeoutSeconds        = 7000000
 # GAME seconds. Eve's SOI is the LARGEST in the inner system at ~85,109 km radius
 # (1.78x Duna's ~47,922 km). DERIVED via hyperbolic Kepler for THIS lane's own
