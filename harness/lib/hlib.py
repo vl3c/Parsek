@@ -45,9 +45,10 @@ ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission).
 from __future__ import annotations
 
 import json
+import math
 import re
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -62,10 +63,16 @@ SCHEMA_VERSION = 1
 #   it prevents a terminal INVALID(staging) on every daily run self-quarantining a
 #   scenario that never actually ran (M-A5 integration item 4). An operator
 #   re-tiers it to its real cadence tier the moment the fixture lands.
-# - `operator`: the scenario's PASS is unreachable unattended (e.g. RequiresFlight
-#   verbs with no flight-entry verb - under a cadence it would only ever defer to
-#   a TIMEOUT and burn boots); it runs ONLY on an explicit `--tier operator` /
-#   `--id` invocation. A `pending-operator` tag alone is non-gating; the tier is.
+# - `operator`: the scenario must not be picked up by a cadence run. Two reasons
+#   qualify: (a) its PASS is unreachable unattended (e.g. RequiresFlight verbs
+#   with no flight-entry verb - under a cadence it would only ever defer to a
+#   TIMEOUT and burn boots); or (b) it is EXPENSIVE AND UNFLOWN, where a
+#   systematic first-flight failure would red the sweep every night at full
+#   budget x retries until someone sits down with it (B16-eve-orbit: 4,700 s
+#   x `retry.policy = "once"` = ~2.6 h per night). A (b)-tiered spec carries an
+#   inline PROMOTE note naming the nightly tier to restore after its first
+#   green flight. It runs ONLY on an explicit `--tier operator` / `--id`
+#   invocation. A `pending-operator` tag alone is non-gating; the tier is.
 TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture", "operator")
 
 # The two provisioned instance profiles (design + M-A6).
@@ -1736,6 +1743,14 @@ class ExpectationResult:
     status: str  # "PASS" | "FAIL"
     mismatches: Tuple[str, ...]
     reserved: Tuple[str, ...]
+    # The MEASURED counterpart of the evaluated spec facets, mirroring the
+    # [expectations.*] block shape ({"recordings": {"count": 7}}). Added AFTER
+    # the schema-1 results already in results/ were written, so it is purely
+    # ADDITIVE and OPTIONAL: it defaults to empty, every existing positional
+    # construction still type-checks, and a consumer must treat ABSENT as "this
+    # run predates the measurement" - never as zero. See
+    # ``observed_expectation_facets`` for what lands in it and why.
+    observed: Dict[str, Any] = field(default_factory=dict)
 
 
 # M-B2 (design ~495): on activation ``world`` LEAVES this tuple -- the ledger-oracle
@@ -1743,6 +1758,36 @@ class ExpectationResult:
 # STOPS recording it as reserved and there is exactly ONE owner (no double-count).
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "rewind", "loop")
+
+
+def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any]:
+    """Build the MEASURED-facet dict verifier 7 records alongside its verdict.
+
+    Why this exists: verifier 7 evaluated ``recordings.count`` against a window
+    but recorded only the VERDICT, never the number. On a PASS the harness does
+    not run collect-logs (design results layout / edge 18) and the produced save
+    is transient, so a green run's measured count was UNRECOVERABLE post-hoc -
+    which is exactly the number an operator needs to turn a provisional
+    ``count = { min = 1, max = 10 }`` window into an honest pin. Recording it
+    costs nothing (run.py already computed it for the comparison) and closes the
+    loop: fly once green, read the count out of ``results/<runId>.json``, pin.
+
+    Shape: mirrors the ``[expectations.*]`` spec surface, so a future measured
+    facet slots in beside its spec counterpart without a format break
+    (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
+    ONLY facet the recordings block declares (hence the only one to observe);
+    the logContracts facets are regex predicates with no numeric counterpart
+    worth persisting, and route/rewind/loop stay RESERVED.
+
+    Recording is UNCONDITIONAL on the spec: a scenario that declares no count
+    window still gets its measured count recorded, which is how a NEW scenario
+    earns its first honest window. A ``None`` count (save unreadable / not
+    counted) omits the key entirely - ABSENT means "not measured", never zero.
+    """
+    observed: Dict[str, Any] = {}
+    if recording_count is not None:
+        observed["recordings"] = {"count": int(recording_count)}
+    return observed
 
 
 def evaluate_expectations(
@@ -1758,6 +1803,10 @@ def evaluate_expectations(
     scenario written now needs no format break then. ``world`` is NO LONGER reserved
     here (M-B2 gave verifier 8 sole ownership, design ~495) and ``ledger`` is a
     tolerated-unknown block this evaluator ignores (verifier 8 owns it).
+
+    The result also carries ``observed`` - the MEASURED facets
+    (``observed_expectation_facets``) - so a green run's numbers survive into
+    ``results/<runId>.json`` instead of dying with the transient save.
     """
     expectations = expectations or {}
     mismatches: List[str] = []
@@ -1789,7 +1838,8 @@ def evaluate_expectations(
 
     reserved = tuple(b for b in RESERVED_EXPECTATION_BLOCKS if b in expectations)
     status = "PASS" if not mismatches else "FAIL"
-    return ExpectationResult(status, tuple(mismatches), reserved)
+    return ExpectationResult(status, tuple(mismatches), reserved,
+                             observed_expectation_facets(recording_count))
 
 
 # ---------------------------------------------------------------------------
@@ -2911,6 +2961,308 @@ def _parse_iso(ts: str) -> Optional[datetime]:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Cross-run DURATION record (2026-07-25 telemetry audit, finding G5).
+#
+# flake.json tracked {total, numerator, rate, quarantined} and NOTHING about how
+# long a scenario takes, and every artifact that carried a duration was
+# gitignored (results/*.json, results/summary.txt, coverage/*), so no durable
+# cross-run history existed at all.
+#
+# MEASURED CONSEQUENCE: the B12 spec header claimed "Fly B11 FIRST ... it prices
+# the capture tail in ~20 wall-minutes instead of ~30", while every archived run
+# says the opposite -- B11 PASS wall 1315 / 1319 / 1317 / 1317 s, B12 PASS wall
+# 627 / 627 / 627 / 626 s. Backwards across four runs each, unnoticed, because
+# nothing ever compared two runs of the same scenario.
+#
+# duration.json IS the history and is COMMITTED (it is a few hundred bytes and
+# regenerating it requires re-flying the suite).
+#
+# THE LEDGER IS SAMPLE-BASED, NOT SUMMARY-BASED (2026-07-26 review, MAJOR-2).
+# The first cut recomputed the whole record from ``results/*.json`` and wrote it
+# over the committed file. ``results/`` is GITIGNORED and per-checkout, so a
+# fresh worktree that flew ONE scenario replaced the 24-scenario record with one
+# entry (observed live 2026-07-25). Merging only the MISSING scenarios forward
+# fixes the wipe but not the measured one: under the project's
+# one-worktree-per-branch workflow, the scenario the run DID measure had its
+# committed ``{"n": 5, "p50": 1317}`` replaced by a per-checkout ``{"n": 1,
+# "p50": 1400}`` -- and ``n < DURATION_MIN_SAMPLES`` DISARMS the regression warn.
+# Only 3 of the 24 committed entries carry ``n >= 3``, so that is one worktree
+# run away from disarming the whole warn.
+#
+# So the ledger stores the SAMPLES (a bounded per-scenario tail, keyed by
+# ``endedUtc``) and recomputes ``n / p50 / p95 / last`` over the union of the
+# committed samples and this run's new PASS values. ``n`` is then a real global
+# count, not a per-checkout artifact, and merging the same result set twice is
+# idempotent because the key already exists. See ``merge_durations`` for the
+# watermark rule that keeps an accumulating results dir from re-counting the
+# samples that have aged out of the bounded tail.
+# ---------------------------------------------------------------------------
+
+# A scenario needs at least this many PASS samples before a slow run is worth
+# warning about. With 1 sample last == p50 by construction; with 2 a single
+# outlier moves the median enough to make the ratio meaningless.
+DURATION_MIN_SAMPLES = 3
+# How many PASS samples per scenario the committed ledger keeps. 10 bounds the
+# file (one JSON line per sample, so ~240 lines for the whole suite) while
+# leaving p50/p95 computed over a window several runs deep. Older samples fall
+# off the FRONT; ``n`` keeps counting them, so a scenario that has been green 40
+# times reports n=40 with a 10-sample percentile window.
+DURATION_SAMPLE_TAIL = 10
+# last > factor * p50 warns. 1.5x is well outside the measured run-to-run
+# spread: B12's four passes span 626-627 s (0.2%) and B11's four span
+# 1315-1319 s (0.3%), so anything approaching 1.5x is a real change, not noise.
+DURATION_WARN_FACTOR = 1.5
+
+
+def _percentile(values: Sequence[float], pct: float) -> float:
+    """Nearest-rank percentile over a NON-EMPTY sorted-able sequence. Chosen
+    over interpolation because it always returns a value that was actually
+    measured, and it is exact for n == 1. Pure."""
+    ordered = sorted(float(v) for v in values)
+    if not ordered:
+        raise ValueError("percentile of an empty sequence")
+    rank = int(math.ceil((pct / 100.0) * len(ordered)))
+    rank = min(max(rank, 1), len(ordered))
+    return ordered[rank - 1]
+
+
+def duration_samples(results: Sequence[Dict]) -> Dict[str, Dict[str, float]]:
+    """The PASS wall-duration SAMPLES one result set contributes, as
+    ``{scenarioId: {endedUtc: wallSeconds}}``.
+
+    PASS results ONLY: an INVALID that died on a budget or a KILLED that was
+    reaped at the wall bound measures the BOUND, not the scenario, and folding
+    those in would drag the median toward the timeout.
+
+    The sample KEY is ``endedUtc`` (design edge 26: UTC ISO-8601 string compare
+    is immune to tz/DST, and sorts chronologically), which makes the merge
+    idempotent: re-reading a results directory that already contributed a sample
+    cannot count it twice. Results carrying the same ``runId`` collapse to the
+    newest one FIRST -- ``results/<runId>.json`` is one file per run, so two rows
+    with one runId can only be a caller passing the same run twice.
+
+    Pure; ``run.py`` owns the I/O.
+    """
+    by_run: Dict[Tuple[str, str], Tuple[str, float]] = {}
+    loose: Dict[str, List[Tuple[str, float]]] = {}
+    for result in results or []:
+        if (result or {}).get("verdict") != VERDICT_PASS:
+            continue
+        sid = result.get("scenarioId")
+        wall = result.get("wallSeconds")
+        if not sid or not isinstance(wall, (int, float)) or isinstance(wall, bool):
+            continue
+        if not math.isfinite(float(wall)):
+            continue
+        utc = _result_utc(result)
+        run_id = result.get("runId")
+        if run_id:
+            key = (str(sid), str(run_id))
+            prev = by_run.get(key)
+            if prev is None or utc >= prev[0]:
+                by_run[key] = (utc, float(wall))
+        else:
+            loose.setdefault(str(sid), []).append((utc, float(wall)))
+
+    out: Dict[str, Dict[str, float]] = {}
+    for (sid, _run_id), (utc, wall) in by_run.items():
+        out.setdefault(sid, {})[utc] = wall
+    for sid, rows in loose.items():
+        for utc, wall in rows:
+            out.setdefault(sid, {})[utc] = wall
+    return out
+
+
+def _summarize_samples(samples: Dict[str, float], n: int) -> Dict:
+    """One ledger entry from a NON-EMPTY sample map plus the global count ``n``.
+    ``last`` is the newest sample by UTC key; ``lastVsP50`` is None when p50 is 0
+    (a degenerate all-zero record) so the caller never divides by zero. Pure."""
+    ordered = [samples[k] for k in sorted(samples)]
+    p50 = _percentile(ordered, 50.0)
+    p95 = _percentile(ordered, 95.0)
+    last = ordered[-1]
+    return {
+        "n": int(n),
+        "p50": round(p50, 3),
+        "p95": round(p95, 3),
+        "last": round(last, 3),
+        "lastVsP50": (round(last / p50, 3) if p50 > 0.0 else None),
+        "samples": {k: round(float(v), 3) for k, v in samples.items()},
+    }
+
+
+def _entry_samples(entry: Dict) -> Dict[str, float]:
+    """The usable ``samples`` map out of a persisted ledger entry (hand-edited
+    or older-shape entries yield {}). Pure."""
+    raw = (entry or {}).get("samples")
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, float] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if not math.isfinite(float(value)):
+            continue
+        out[key] = float(value)
+    return out
+
+
+def _entry_is_wellformed(entry: Dict) -> bool:
+    """True when a persisted ledger entry carries the FULL numeric shape that
+    the warn and the warn's log line read (``n``, ``p50``, ``p95``, ``last``,
+    and a numeric-or-null ``lastVsP50``). A hand-edited partial entry -- the
+    file is committed and therefore editable -- is dropped by the merge rather
+    than carried forward to KeyError at the end of a whole flown suite. Pure."""
+    if not isinstance(entry, dict):
+        return False
+    n = entry.get("n")
+    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+        return False
+    for key in ("p50", "p95", "last"):
+        value = entry.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        if not math.isfinite(float(value)):
+            return False
+    ratio = entry.get("lastVsP50")
+    if ratio is not None and (isinstance(ratio, bool)
+                              or not isinstance(ratio, (int, float))
+                              or not math.isfinite(float(ratio))):
+        return False
+    return True
+
+
+def merge_durations(prior: Dict[str, Dict], fresh_samples: Dict[str, Dict[str, float]],
+                    tail: int = DURATION_SAMPLE_TAIL) -> Dict[str, Dict]:
+    """Merge this run's PASS samples into the COMMITTED ledger and recompute.
+
+    ``prior`` is the committed ``scenarios`` block; ``fresh_samples`` is
+    ``duration_samples(results)`` over THIS checkout's ``results/`` directory.
+    Three properties, each of which a live failure or a review finding paid for:
+
+    1. A scenario this run did not measure keeps its committed entry verbatim.
+       Without this a fresh worktree flying one scenario overwrote the whole
+       24-scenario record with 1 entry (observed 2026-07-25).
+    2. A scenario this run DID measure keeps its committed SAMPLES too -- the
+       new value is appended, it does not replace them. Without this the same
+       fresh worktree turned ``{"n": 5, "p50": 1317}`` into ``{"n": 1, "p50":
+       1400}``, and ``n=1 < DURATION_MIN_SAMPLES`` silently DISARMS the
+       regression warn for that scenario.
+    3. ``n`` counts every sample ever contributed, including ones that have
+       aged out of the bounded tail, so the warn's arming gate reflects real
+       history rather than the window size.
+
+    THE LEDGER ONLY EVER ADVANCES. A sample is NEW only when its ``endedUtc``
+    key is strictly newer than every key the committed tail holds. Anything at
+    or below that watermark is assumed already counted and is ignored --
+    otherwise a long-lived worktree double-counts on every run: its ``results/``
+    dir accumulates, so once the tail truncates, the samples that aged OUT of
+    the tail are still in the results dir, absent from the tail, and would be
+    re-added as if new (25 real samples -> n=41 after one more run). The cost is
+    that a result carrying an out-of-order older ``endedUtc`` is skipped; the
+    error direction is an UNDER-count, which can only make the warn more
+    conservative, never falsely loud.
+
+    BOOTSTRAP (a summary-only committed entry, no ``samples`` key): there is no
+    watermark, so this run's samples may or may not be the very ones the
+    committed ``n`` already counted -- a long-lived worktree's results dir holds
+    exactly them. ``n`` is therefore ``max(prior_n, len(samples))``, not a sum:
+    a fresh worktree keeps the committed ``n`` (so the warn stays armed, which
+    is the whole point) and a long-lived one does not double it. One
+    transitional run may under-count by the samples it measured; from the next
+    merge on the incremental rule takes over.
+
+    STATE OF THE COMMITTED LEDGER (2026-07-26 review round 2). The first cut of
+    this file shipped SUMMARY-ONLY: all 24 entries lacked ``samples``, so every
+    scenario would have taken the BOOTSTRAP branch on the next run and neither
+    the watermark rule nor the bounded tail was exercised by the artifact the
+    repo actually carries. That is now fixed at the source: ``duration.json``
+    was regenerated through this exact function over the archived
+    ``results/*.json``, so all 24 entries carry their samples and every one of
+    them takes the INCREMENTAL branch from the next merge on. BOOTSTRAP now
+    only covers a genuinely new scenario or a hand-stripped entry.
+
+    Entries with no samples on either side are carried forward only when they
+    carry the full numeric shape; a hand-edited partial entry is DROPPED (it
+    would otherwise reach the warn's format string and KeyError at the end of a
+    flown suite). Pure; ``run.py`` owns the I/O.
+    """
+    prior = prior or {}
+    fresh_samples = fresh_samples or {}
+    out: Dict[str, Dict] = {}
+    for sid in sorted(set(prior) | set(fresh_samples)):
+        entry = prior.get(sid) or {}
+        if not isinstance(entry, dict):
+            entry = {}
+        kept = _entry_samples(entry)
+        watermark = max(kept) if kept else None
+        incoming = fresh_samples.get(sid) or {}
+        added = {k: v for k, v in incoming.items()
+                 if k not in kept and (watermark is None or k > watermark)}
+        # Prior samples WIN on a key collision: the committed value is the one
+        # every other checkout already agrees on.
+        merged = dict(kept)
+        merged.update(added)
+        if not merged:
+            if _entry_is_wellformed(entry):
+                out[sid] = dict(entry)
+            continue
+        prior_n = entry.get("n")
+        prior_n = int(prior_n) if (isinstance(prior_n, int)
+                                   and not isinstance(prior_n, bool)
+                                   and prior_n >= 0) else 0
+        if watermark is None:
+            n = max(prior_n, len(merged))
+        else:
+            n = max(prior_n, len(kept)) + len(added)
+        window = merged
+        if tail and len(merged) > tail:
+            window = {k: merged[k] for k in sorted(merged)[-int(tail):]}
+        out[sid] = _summarize_samples(window, n)
+    return out
+
+
+def compute_durations(results: Sequence[Dict]) -> Dict[str, Dict]:
+    """The ledger a result set produces ON ITS OWN, i.e. with NO committed prior:
+    ``merge_durations({}, duration_samples(results))``.
+
+    Kept as the one-shot form for tests and for the very first write of a fresh
+    ledger. The live path in ``run.py`` NEVER uses it -- it must merge into the
+    committed file, because ``results/`` is gitignored and per-checkout. Pure.
+    """
+    return merge_durations({}, duration_samples(results))
+
+
+def duration_regressions(durations: Dict[str, Dict],
+                         warn_factor: float = DURATION_WARN_FACTOR,
+                         min_samples: int = DURATION_MIN_SAMPLES) -> List[str]:
+    """The scenario ids whose LAST PASS ran more than ``warn_factor`` times the
+    median, once at least ``min_samples`` PASS samples exist. Sorted, pure.
+
+    The min-samples gate is what keeps this from crying on a scenario's second
+    ever green run, where the median is one sample away from the value it is
+    being compared against.
+
+    An entry that does not carry the FULL numeric shape is never flagged: the
+    caller formats ``last`` / ``p50`` / ``p95`` / ``n`` into the warn line, and
+    the ledger is a committed, hand-editable file (2026-07-26 review, MINOR-8).
+    """
+    hits: List[str] = []
+    for sid, entry in sorted((durations or {}).items()):
+        if not _entry_is_wellformed(entry):
+            continue
+        if int(entry.get("n", 0)) < min_samples:
+            continue
+        ratio = entry.get("lastVsP50")
+        if isinstance(ratio, (int, float)) and not isinstance(ratio, bool) \
+                and math.isfinite(float(ratio)) and float(ratio) > warn_factor:
+            hits.append(sid)
+    return hits
 
 
 def compute_flake(

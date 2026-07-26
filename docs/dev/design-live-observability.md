@@ -265,6 +265,34 @@ folded in (`B5State.plan_attempts`, `B5State.body_blank_count`, and the
   thr=... apErr=... warp=...x... sit=...[ LOST]` per frame
   (`mlib.format_snapshot_compact`, `RING_BUFFER_FRAMES = 20` = ~10 s at the
   0.5 s poll). One dump per trigger frame, most significant reason wins.
+  **AMENDED 2026-07-25 (telemetry audit): `gate-flip` dumps are RATE-LIMITED**
+  to one per `GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS = RING_BUFFER_FRAMES *
+  POLL_INTERVAL_SECONDS = 10.0` s (`mlib.should_dump_gate_flip_window`), the
+  ring's own span, so admitted dumps carry contiguous non-overlapping history.
+  MEASURED cause: one B12 stdout log was 43 MB / 181,786 lines with 144,561
+  (79.5%) of them window payload from 7,218 gate-flip dumps, 7,207 triggered by
+  the single field `gate warpToCmd`; a HEALTHY B5 run still spent 50% of its
+  lines on window payload carrying 71% duplicate frames. Every OTHER reason
+  (`phase-transition`, `terminal-*`, `vessel-lost`, the give-up dumps) stays
+  unconditional, the `gate ...` lines themselves are untouched, and `fly_loop`
+  emits one `[Window]` batch summary per flight naming emitted vs suppressed.
+  **AMENDED 2026-07-26 (mutation review): NOVELTY beats the clock.** That same
+  43 MB run contained only **16 distinct `(phase, gate-field)` pairs** against
+  its 7,218 dumps, so the FIRST occurrence of each pair is now admitted
+  UNCONDITIONALLY (`mlib.gate_flip_novelty_keys` ->
+  `should_dump_gate_flip_window(..., first_seen=True)`) and the 10 s limit
+  applies to REPEATS only. That is both the bigger reduction (16 windows vs
+  7,218) and the safer rule: under the time limit alone a suppressed flip
+  followed by >10 s of quiet lost its 20-frame context permanently, so a novel
+  gate could be silenced by an unrelated flip 3 seconds earlier. The limiter's
+  seen-set is bounded (`_GateFlipDumpLimiter.NOVELTY_KEY_CAP = 512`, far above
+  the measured 16); past the cap a novel key falls back to the time rule. The
+  batch summary names `emitted` / `novel` / `suppressed` / `distinctGateKeys`.
+  COVERAGE NOTE: the claim "only gate-flip is rate-limited" is now asserted
+  end to end by `GateFlipSuppressionFlightTests`, which flies the real loop with
+  a gate flipping on consecutive frames. Before it, the only end-to-end cell
+  produced exactly ONE gate flip, so removing the rate limit entirely AND
+  rate-limiting every reason both survived the whole suite.
 - **LIVE STATUS FILE** (2d): `results/<runId>_status.json` (path via
   `mission_runner.status_path_for`), rewritten atomically (tmp +
   `os.replace`) at most every `STATUS_WRITE_INTERVAL_SECONDS = 2.0` by
@@ -273,7 +301,23 @@ folded in (`B5State.plan_attempts`, `B5State.body_blank_count`, and the
   tests). Payload: `{schema:1, mission, rpcPort, wallWritten, phase,
   phasesReached, verdict?, machine:{...}, snapshot:{...}, events:[last 10
   Info/Warn/Error lines via a logger-sink tee]}` with all non-finite floats
-  as null (`mlib.machine_state_dict` / `mlib.snapshot_dict`). Production
+  as null (`mlib.machine_state_dict` / `mlib.snapshot_dict`).
+  **AMENDED 2026-07-25 (telemetry audit):** the payload also carries the WALL
+  block `{wallElapsedSeconds, wallRemainingSeconds, wallBudgetSeconds,
+  phaseWallSeconds}` (`mlib.wall_budget_block`, from the `deadline` and
+  `--budget` the fly loop already held) and the OPEN phase's live
+  `phaseWarp: {phase, wallSeconds, gameSeconds, gameSecondsPerWallSecond,
+  warpCommands, armedWarpCommands}` (same row shape as the mission result's
+  per-phase `warpUtilisation`; `armedWarpCommands` added 2026-07-26 - it is the
+  subset that actually ARMED warp, i.e. excludes `cancel_warp` and
+  `set_rails_warp 0`, and it is what makes the LOW-throughput marker mean "we
+  asked for warp and did not get it" instead of "this phase ran at 1x").
+  Rationale: every phase budget in this design is GAME
+  time, so a run could burn 57% of its WALL budget in one phase while every
+  displayed budget read ~7.5% consumed - which is exactly how a B12 run died on
+  `mission-budget-expired` with no warning in the live surface. `status.py`
+  prefers these real numbers and falls back to the telemetry-line estimate for
+  an older/stale status file. Production
   runs create it automatically in `run_mission` (only when the real
   filesystem result writer is in use, so writer-injected tests stay
   hermetic); status.py prefers a fresh one with no changes -- verified by
