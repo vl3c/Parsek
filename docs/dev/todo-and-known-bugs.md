@@ -108,7 +108,7 @@ each test. `RunAllIncludingFlightRestore` / `RunCategoryIncludingFlightRestore` 
 public and fully implemented (`InGameTestRunner.cs:389,420`) and are called from
 exactly two INTERACTIVE places: `TestRunnerShortcut.cs:395,463` (the Ctrl+Shift+T
 window) and `UI/TestRunnerUI.cs:249,375`. Neither unattended path calls them: the
-seam's `RunTests` (`ParsekTestCommandAddon.cs:1495,1497`) and the autorun dispatcher
+seam's `RunTests` (`ParsekTestCommandAddon.cs:1494,1496`) and the autorun dispatcher
 (`TestRunnerShortcut.cs:725,739,789`) both call only `RunAll()` / `RunCategory(cat)`.
 Measured over `[InGameTest(...)]` argument lists: 68 tests carry
 `AllowBatchExecution = false` AND `RestoreBatchFlightBaselineAfterExecution = true`,
@@ -136,8 +136,9 @@ in 89 categories run only when a human presses Ctrl+Shift+T. 82 of those 89 cate
 are fully reachable today on existing fixtures (FLIGHT / SPACECENTER / scene-agnostic
 only); 7 involve TRACKSTATION or MAINMENU and have no seam route.
 Ordering and per-category cell mapping are in the roadmap doc. The cheapest whole
-dimension is D13 (11 of 11 uncovered, NOT capability-blocked): 29 FLIGHT-scene tests
-already exist and self-site off `FlightGlobals.ActiveVessel` (`SpawnRotation` 10,
+dimension is D13 (11 of 11 uncovered, NOT capability-blocked): 29 tests already exist
+and self-site off `FlightGlobals.ActiveVessel` - 26 `Scene = FLIGHT` plus 3
+scene-agnostic (`SpawnHealth`), so all 29 run in a FLIGHT batch (`SpawnRotation` 10,
 `TerrainClearance` 6, `SpawnHealth` 3, `SpawnTerminalOrbit` 3, `SpawnCollision` 2,
 `Spawner` 2, `EvaSpawnPosition` 2, `Pipeline-Terrain` 1), and `gloops-airshow` routes
 to FLIGHT.
@@ -155,6 +156,17 @@ nodes, which is what blocks the L-track end goal and D8 `milestones` / `contract
 argument on `LoadGame`; widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N
 pinned tallies; and provisioning `modded-compat` for D17.
 
+**Baseline caveat: three of these are already in flight.** Every count above was
+measured at `1591aa59f` and EXCLUDES work open in review at the time of writing. PR
+#1358 (`ingame-test-wiring`) wires 14 in-game categories as H7-H20, covering R4's
+`IncompleteBallistic` / `FinalizeBackfill` / `RecordingFinalization`, R6's
+`TrajectoryMath` / `Pipeline-Anchor` / `SwitchSegment` and R8's `SpawnRotation` /
+`EvaSpawnPosition`, and moves the scenario count 38 -> 52; PR #1357
+(`rewind-loop-lane`) re-tiers S1.5 and S4.1 to `nightly` on the same premise R3
+argues; PR #1359 (`eva4-failopen`) fixes the EVA-4 fail-open. Re-measure with
+`hlib.compute_coverage` / `hlib.parse_ingame_test_declarations` before acting on R3,
+R4, R6 or R8 - do not treat a merged H7-H20 category as still-undriven work.
+
 **Doc hygiene found while measuring, deliberately NOT edited (concurrent sessions own
 those files).**
 1. `docs/dev/autotest-status.md` contradicts itself on EVA-2. The EVA table row says
@@ -164,9 +176,11 @@ those files).**
    `harness/fixtures/saves/eva2-lko-crewed/` with 7 VESSEL nodes, the spec reads
    `tier = "daily"`, and `harness/coverage/duration.json` carries a measured 57 s run.
    Fix: correct the two stale rows to match the rest of the file.
-2. `harness/fixtures/saves/bdock-station-craft/` is an orphan: no spec references it;
-   only `harness/tools/harvest_bdock_station.py` and the design doc do. Decide keep or
-   delete.
+2. `harness/fixtures/saves/bdock-station-craft/` is an orphan: no spec LOADS it (no
+   `saveTemplate` points at it). It IS named in a provenance comment at
+   `BDOCK-1-station-interceptor.toml:97`, whose own `saveTemplate` is
+   `bdock-station-pad`, and by `harness/tools/harvest_bdock_station.py` plus the
+   design doc. Decide keep or delete; if delete, drop that comment reference with it.
 3. `S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` state a "gloops
    SPACECENTER host" premise that the `LoadRoute` contract contradicts. Correct the
    comment or replace it with an R3 measurement.

@@ -9,6 +9,25 @@ Written 2026-07-27 on branch `autotest-roadmap`. Every number below was measured
 this worktree at HEAD `1591aa59f` by the command named beside it. Nothing here was
 run against a real KSP instance: no `run.py`, no `provision.py`, no launch.
 
+## Baseline, and the lanes already in flight against it
+
+Every count in this file is measured at `1591aa59f` and **excludes work open in
+review at the time of writing**. Four PRs were open against that same base, and three
+of them land inside this roadmap's build order. Read the numbers as the state of
+`main`, not as the state of the project:
+
+| PR | Branch | Overlaps |
+|---|---|---|
+| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). Moves the scenario count 38 -> 52 and the driven-category count 8 -> 22, so the "83 of 241" denominator work and the Cause A "414 undriven declarations" both shift on merge. |
+| #1357 | `rewind-loop-lane` | **R3.** Re-tiers S1.5 and S4.1 from `operator` to `nightly` on the same measured premise this file argues (the fixture routes to FLIGHT), and adds an R1 rewind-loop scenario. If it merges first, R3 collapses to "read the first nightly result". |
+| #1359 | `eva4-failopen` | The EVA-4 mission-oracle fail-open listed as OPEN in the open-bugs table below. |
+| #1360 | `fix-refly-provisional` | A re-fly defect found by the rewind lane; no roadmap item, but it moves D9's live standing. |
+
+Consequence for whoever reads this next: **re-measure before acting on R3, R4, R6 or
+R8.** The measuring commands are named beside every number, and
+`hlib.compute_coverage` plus `hlib.parse_ingame_test_declarations` will re-derive the
+whole table in seconds. Do not treat a merged H7-H20 category as still-undriven work.
+
 ---
 
 ## Where we are
@@ -146,7 +165,7 @@ and no new fixture:
 | `SwitchSegment` | 6 | D1 `switch-segment` gate layer |
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
 | `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
-| `GhostLifecycle` | 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` |
+| `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
 | `GhostAudio` | 9 | D6 `ghost-audio` |
 | `MapPresence` | 5 | D6 `commnet-relay` |
 | `ReentryFx` | 3 | D6 `reentry-fx` |
@@ -171,11 +190,12 @@ They are called from exactly two places, both interactive:
 `UI/TestRunnerUI.cs:249,375`.
 
 They are called from neither unattended path. The seam's `RunTests`
-(`ParsekTestCommandAddon.cs:1495,1497`) calls `RunAll()` / `RunCategory(category)`.
+(`ParsekTestCommandAddon.cs:1494,1496`) calls `RunAll()` / `RunCategory(category)`.
 The autorun dispatcher (`TestRunnerShortcut.cs:725,739,789`) does the same.
 
-Counting attribute argument lists directly (534 `[InGameTest(...)]` uses with args;
-5 more are bare `[InGameTest]`):
+Counting attribute argument lists over all 539 declarations (see the note on the
+fully-qualified attribute form at the end of this file - a naive `[InGameTest(` scan
+misses 5 of them):
 
 ```
 68 tests carry AllowBatchExecution = false AND RestoreBatchFlightBaselineAfterExecution = true
@@ -265,9 +285,9 @@ fixture's `persistent.sfs`:
 | bdock-station-pad | SANDBOX | 2 |
 | eva3-pad-3crew | SANDBOX | 2 |
 | eva2-lko-crewed | SANDBOX | 7 |
-| bdock-station-craft | SANDBOX | 0 (orphan, no spec references it) |
+| bdock-station-craft | SANDBOX | 0 (orphan, no spec LOADS it) |
 | fresh-career | CAREER | **0** |
-| fresh-science | SCIENCE | **0** |
+| fresh-science | SCIENCE_SANDBOX | **0** |
 | fresh-sandbox | SANDBOX | 0 |
 
 There is no CAREER save with a flyable craft anywhere in the repo. That one fact
@@ -448,9 +468,10 @@ DEFERS to a TIMEOUT". That premise is contradicted by measurement:
 - gloops-airshow carries `activeVessel = 1` and 2 VESSEL nodes, so
   `TestCommandLoadGame.IsLoadedGameFocusable` is true and `DecideLoadRoute` returns
   `Focusable`, which boots to FLIGHT.
-- Four live-proven specs on that exact template measured FLIGHT:
-  `S1.4-injected-playback` pins `category=GhostPlayback scene=FLIGHT`,
-  `H5-invariants-corpus` pins `category=RecordingInvariants scene=FLIGHT`.
+- Two live-proven specs on that exact template pin the measured scene, and both
+  measured FLIGHT: `S1.4-injected-playback` pins
+  `category=GhostPlayback scene=FLIGHT` and `H5-invariants-corpus` pins
+  `category=RecordingInvariants scene=FLIGHT`.
 - S0.5 / S0.6 / EVA-1 drive `RequiresFlight` verbs to green PASSes on it.
 - S1.5's other stated blocker, a TimeJump completion-decider fix on branch
   `autotest-integration-fixes`, MERGED as PR #1322 (commit `eb94607dd`).
@@ -534,16 +555,17 @@ Flight? No.
 
 **R8. Drive D13, D6 and the D8 stragglers.** Roughly 15 specs, mostly free.
 
-- D13 spawn positioning is 11 of 11 uncovered and is NOT capability-blocked. 29
-  FLIGHT-scene tests already exist and self-site off `FlightGlobals.ActiveVessel`:
-  `SpawnRotation` (10), `TerrainClearance` (6), `SpawnHealth` (3),
+- D13 spawn positioning is 11 of 11 uncovered and is NOT capability-blocked. 29 tests
+  already exist and self-site off `FlightGlobals.ActiveVessel` - 26 declare
+  `Scene = FLIGHT` and 3 are scene-agnostic (`SpawnHealth`), so all 29 run in a FLIGHT
+  batch: `SpawnRotation` (10), `TerrainClearance` (6), `SpawnHealth` (3),
   `SpawnTerminalOrbit` (3), `SpawnCollision` (2), `Spawner` (2), `EvaSpawnPosition`
   (2), `Pipeline-Terrain` (1). gloops-airshow routes to FLIGHT. This is the single
   cheapest whole-dimension close available.
-- D6: `GhostLifecycle` (17), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3),
-  `Watch` (2). None of these needs the reserved `StartLoopPlayback` /
-  `EnterWatchMode` verbs; `GhostLifecycle` measures the loop / overlap surface over a
-  live corpus.
+- D6: `GhostLifecycle` (15 of 17; 2 are TRACKSTATION-scene and stay stranded until
+  R12), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
+  these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
+  `GhostLifecycle` measures the loop / overlap surface over a live corpus.
 - D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture, so it waits on R11),
   `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
@@ -647,7 +669,7 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 | INV2 double-cover recorder seam (known-gate 5) | Real Parsek defect, fixed in its own lane. |
 | The no-1x-coast certification cannot see coast warp-thrash (known-gate 8) | A real gap in an existing gate. Bounded for now by the machine-side thrash fast-fail. |
 | `autotest-status.md` EVA-2 rows contradict themselves | The EVA table says "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
-| `harness/fixtures/saves/bdock-station-craft/` is an orphan | No spec references it. Referenced only by `harness/tools/harvest_bdock_station.py` and the design doc. Decide keep or delete. |
+| `harness/fixtures/saves/bdock-station-craft/` is an orphan | No spec LOADS it: no `saveTemplate` points at it. It IS named in a provenance comment at `BDOCK-1-station-interceptor.toml:97` (whose own `saveTemplate` is `bdock-station-pad`), and by `harness/tools/harvest_bdock_station.py` plus the design doc. Decide keep or delete - and if delete, drop that comment reference with it. |
 | `S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` carry a SPACECENTER-host premise contradicted by the LoadRoute contract | Keeps two specs and up to 16 cells off every cadence. R3 settles it. |
 
 ---
@@ -770,10 +792,13 @@ MAINMENU, rather than 78 and 6.
 
 **Corrected: 39 committed specs.** There are 38, at HEAD and at `origin/main`.
 
-**Reconciled: the restore-flag count.** Raw `grep` over `Source/Parsek` returns 78
-occurrences of `RestoreBatchFlightBaselineAfterExecution = true`, but scoped to
-`[InGameTest(...)]` argument lists the count is 72, of which 68 also carry
-`AllowBatchExecution = false`. The attribute-scoped numbers are the ones used above.
+**Reconciled: the restore-flag count.** An earlier draft reported a raw `grep` of 78
+occurrences of `RestoreBatchFlightBaselineAfterExecution = true` against an
+attribute-scoped 72. **78 is not reproducible by any grep form** and was dropped on
+review: over `Source/Parsek` the identifier appears 100 times, of which 72 lines carry
+`= true` (84 if `Source/Parsek.Tests` is included). The attribute-scoped count is also
+72, of which 68 also carry `AllowBatchExecution = false`; that agreement is the point,
+not a discrepancy to explain. The attribute-scoped numbers are the ones used above.
 
 **Preferred, where the two agreed independently:** the S1.5 / S4.1 operator-tier
 premise being stale (both reached it by different routes; the LoadRoute contract plus
@@ -796,6 +821,16 @@ UNVERIFIED in this pass, flagged rather than asserted:
   mapping in R7 came from test names, not from reading all 37.
 - **Whether `Coalescer`'s `crash-coalescing` test actually produces the D5 cell** as
   opposed to asserting a decision about it.
-- **The 5 bare `[InGameTest]` declarations** (539 total minus 534 with argument
-  lists) were not attributed to categories; they default to `Category = "General"`
-  and `AllowBatchExecution = true`.
+CORRECTED 2026-07-27 (review of this file). An earlier draft of this section claimed
+"5 bare `[InGameTest]` declarations, 539 total minus 534 with argument lists, default
+to `Category = "General"`". **There are no bare declarations.** All 539 carry an
+argument list and all 539 resolve to a real category: `General` does not appear among
+the 97, and `hlib.parse_ingame_test_declarations` reports 0 unresolved. The 5-count
+was an artifact of the counting method - 5 declarations use the fully-qualified
+attribute form `[Parsek.InGameTests.InGameTest(...)]` (4 in `Ledger`, 1 in `Rewind`,
+all in `IncompleteBallisticRuntimeTests.cs`), which a `[InGameTest(` scan misses and
+`hlib` resolves. Three further `[InGameTest]` occurrences are prose inside comments,
+which `hlib`'s noise mask correctly excludes. Every per-category number in this file
+came from `hlib`, so none of them moved; only the reconciliation paragraph was wrong.
+Rule this establishes: count in-game declarations with
+`hlib.parse_ingame_test_declarations`, never with grep.
