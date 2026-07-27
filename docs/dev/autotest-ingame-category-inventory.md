@@ -410,11 +410,15 @@ any moment. Thirteen specs pin those splits as LITERALS, and `evaluate_expectati
 requires a required pattern to match, so a PASS means the runner printed the pinned
 line token for token. Those thirteen derivations were all correct.
 
-`H20` is the exception and is NOT settled: its pin is the loose interim form, so its
-PASS proves only `total=2`, `failed=0` and `passed >= 1`. Its exact split is not in
-any artifact (collect-logs fires only on non-PASS, and the instance KSP.log was
-overwritten by later scenarios in the same sweep), so it keeps the interim pin. One
-~49 s re-fly closes it; see the spec.
+`H20` was the exception and is now CLOSED. Its pin was the loose interim form, so the
+sweep's PASS proved only `total=2`, `failed=0` and `passed >= 1`, and its exact split
+was in no artifact (collect-logs fires only on non-PASS, and the instance KSP.log was
+overwritten by later scenarios in the same sweep). It was re-flown ALONE (59 s) so its
+log survived to be read: `total=2 passed=2 failed=0 skipped=0`. The endpoint-overlap
+probe fired, so the walkback path really executed. All 14 now pin whole off measured
+lines. `H20`'s `skipped=0` is MEASURED rather than derivable - a fixture change to a
+taller or elevated host can move the collider geometry the overlap probe depends on
+and legitimately make it skip.
 
 MEASURED COST, and it is far cheaper than this runbook estimated. **805 s (~13.4 min)
 for all 14**, 49-71 s each. The per-scenario estimates below were 4-10 min, i.e. 5-8x
