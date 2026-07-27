@@ -1,0 +1,106 @@
+schema = 1
+id = "H7-trajectory-math"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game TrajectoryMath category has
+# existed for the life of the mod and no committed spec has ever driven it: it runs
+# only when an operator presses Ctrl+Shift+T. All 8 declarations are scene-agnostic
+# (no Scene = argument) and batch-allowed, and none of them - directly or through a
+# helper - calls InGameAssert.Skip, so every one executes wherever the batch runs.
+# What it proves that xUnit cannot: TrajectoryMath's sampling predicate and
+# quaternion helpers are exercised against LIVE UnityEngine Quaternion /
+# Vector3 arithmetic and, in MinSampleIntervalCapsEvaJitter, against the sampling
+# density preset the running GAME loaded - not against a stub.
+description = "Run the in-game TrajectoryMath category unattended: ShouldRecordPoint direction/interval predicates, quaternion sanitize, PureLookRotation-vs-Unity parity, waypoint bracketing, and the live-preset EVA jitter cap."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "trajectory", "sampling", "H7"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5 / H6). No injected recordings: every
+# TrajectoryMath test builds its own inputs inline and touches no store state.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so the
+# recording-rules suppression applies (count.max = 0 below). RunTests is the single
+# BATCH owner; its 540 per-step budget is the deferred cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "TrajectoryMath" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: MinSampleIntervalCapsEvaJitter reads the live game-loaded sampling
+# density preset and asserts ShouldRecordPoint caps the jitter pattern at the rate
+# the floor allows, which is the density-presets and threshold-debounce pair
+# driven through production code (D2). The run is SANDBOX on the FLIGHT-scene pod
+# host (D14). NOT claimed: any recording / playback / storage token - this category
+# never touches a Recording, a store, or a sidecar.
+D2  = ["density-presets", "threshold-debounce"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read, so this table must stay ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# count.max == 0: the host carries no recordings and no TrajectoryMath test creates
+# one. A leak into the save reds. Also selects the recording-rules log-validation
+# suppression (a legitimately recording-free run must not red on REC-001/REC-003).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap): the tally is pinned WHOLE, so an
+# empty or all-skipped batch cannot satisfy it.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H7-trajectory-math.json: PASS on attempt 1,
+# 49 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+# What each token rests on:
+#  - total=8 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 8
+#    [InGameTest(Category = "TrajectoryMath")] methods, and BATCH_COMPLETE's total is
+#    allTests.Count(Status != NotRun) over the single RunCategory batch, which counts
+#    filtered tests too. Kept in sync by CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED, and the derivation closes: all 8 declarations omit Scene
+#    (RequiredScene == AnyScene, so FilterSceneEligibleBatchCandidates drops none)
+#    and omit AllowBatchExecution (default true, so PrepareBatchExecution drops
+#    none), and a source scan finds ZERO InGameAssert.Skip call sites in any of the
+#    8 method bodies or in any helper they call. Nothing can push skipped above 0
+#    without a source change, which reds the sync gate first.
+#  - failed=0 is the ASSERTION - the thing this scenario exists to check. It is not
+#    derived from anything.
+#  - passed=8 follows from total=8, skipped=0 and the failed=0 assertion.
+#  - scene=FLIGHT is INFERRED from the fixture: gloops-airshow carries a focusable
+#    vessel, so TestCommandLoadGame.DecideLoadRoute takes the Focusable/FLIGHT route
+#    - the same rule H5 and S1.4 MEASURED on this exact fixture. The category is
+#    scene-agnostic, so the scene token affects the pin's TEXT but not which tests
+#    run.
+# The derivation above is KEPT rather than deleted: it is what makes this pin
+# re-derivable after a source change, and the 2026-07-27 flight CONFIRMED it rather
+# than replacing it. If a future source change moves a number, re-derive from the
+# attributes first, then re-fly to confirm - in that order.
+required  = ["BATCH_COMPLETE v1 total=8 passed=8 failed=0 skipped=0 category=TrajectoryMath scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5 / H6): 720 >= 300 LoadGame + 540 RunTests
+# ceiling headroom. Eight synchronous arithmetic tests finish in well under a second
+# of batch time; the cap is boot + load, not the batch.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

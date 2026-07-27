@@ -69,7 +69,21 @@ landedSituations          = ["LANDED", "SPLASHED"]
 # doc's B4 section.
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
-D3  = ["orbital-checkpoint"]
+# D3 parent-anchored-debris: gated by the debris-child-creation token below.
+# The claim is sound because both creation sites CALL
+# Recording.ApplyParentAnchorContract unconditionally - for debris and controlled
+# children alike (ParsekFlight.cs:7166) - and the helper's only REACHABLE no-op
+# is an empty parent id (Recording.cs:1193 also guards `child == null`, which
+# cannot happen: the child was `new`'d one statement earlier). An empty parent id
+# cannot occur at either call site either - ProcessBreakupEvent returns at
+# ParsekFlight.cs:7446 when the active recording id is null/empty, and the BG
+# site passes the continuation-or-parent id. So "a debris child recording was
+# created" implies "parent-anchored" on these paths. Claimed here and not before
+# because presence had no gate at all: the count window's old min of 1 admitted
+# the total loss of the population.
+# NOTE the token gates CREATION, not the anchor RESOLVING correctly at playback;
+# the analyzer's INV rules own malformation, this owns absence.
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic"]
 D14 = ["kerbin", "warp-rails"]
 
@@ -86,12 +100,92 @@ allowedAnomalies = []
 # parent-anchored debris children (exactly 7 sidecars on the live B2 flight
 # 2026-07-20) + 1 LES-tower margin (unestablished under MechJeb autostage, same
 # WATCH-4 rationale as B2's max 8) + 1 for the deorbited service stage B4 stages
-# off before reentry. min stays 1: the main recording must exist even if debris
-# admission varies.
-count = { min = 1, max = 9 }
+# off before reentry.
+#
+# MIN 1 -> 8 (autotest-roadmap R1, raised from 7 on review). B4 drives
+# `mlib.b4_decide`, which does NOT reach `_b5_flameout_stage` - but the flameout
+# watchdog is not the only thing that drops a recorded stage. `b4_decide` issues
+# TWO `ACTION_ACTIVATE_STAGE`s: one at launch ignition, and one as part of the
+# SOLE transition out of B4_DEORBIT into B4_REENTRY, whose own comment reads
+# "the service stage becomes recorded debris". There is no other path into
+# B4_REENTRY; every other branch is stay-or-flake. And `run.py` evaluates
+# expectations only for a driver-valid, non-short-circuited run
+# (`if driver_valid and not short_circuited`), so a run that never reached
+# REENTRY has its count SKIPPED rather than judged. Every run this window ever
+# judges has therefore staged, making the judged population
+# 1 root + 6 boosters + 1 service stage = 8.
+# The service stage is a Kerbal X orbital stage, comfortably past
+# `ShouldRecordDebris` (>= 3 parts OR >= 0.5 t), so it records.
+# The first cut floored this at 7 on the grounds that the service stage is
+# "additional, not part of the floor". That was wrong in the direction this whole
+# change exists to close: it left the exact one-below-population value B11/B12
+# record as considered-and-rejected. It was also inconsistent - B6 was raised to
+# 8 on an inference from a CONDITIONAL watchdog, while B4 was left at 7 despite
+# an UNCONDITIONAL commanded action in its own decide function.
+# MEASURED 2026-07-27, and the measurement CONFIRMS the derivation above: run
+# 2026-07-25_0828_B4-reentry-splashdown (verdict PASS) carries
+# `verifiers.expectations.observed.recordings.count = 8`. That field only exists
+# on runs after 72cf344fb (2026-07-25 06:48), which is why the structural
+# argument had to stand alone when this floor was first written.
+# DO NOT re-derive this count from an archived `logs/*_B4-*/` folder. run.py
+# collects logs on NON-PASS only (run.py:2324), so all eight archived B4 folders
+# are INVALID runs, and run.py evaluates expectations only
+# `if driver_valid and not short_circuited` - an INVALID run's count is SKIPPED,
+# never judged. Counting `.prec` sidecars in those folders yields 7, because
+# they aborted before the deorbit stage was judged: all eight logs show exactly
+# six `alive=True` debris children (the ascent boosters, 1 root + 6 = the 7), and
+# the late deorbit-era children that four of the eight also logged are all
+# `alive=False` and never became sidecars. Reading that 7 as a contradiction of
+# this floor and lowering it would re-open the exact one-below-population hole
+# B11/B12 reject.
+# Never widen back toward 1.
+count = { min = 8, max = 9 }
 
 [expectations.logContracts]
-required  = ["Recording started", "Recording stopped"]
+# POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
+# window wide enough to absorb staging variance is also wide enough to absorb a
+# missing population).
+#
+# THE TOKEN IS THE FOREGROUND CREATION SITE, and the evidence is a log grep.
+# Two debris-child creation sites are reachable on this profile, and which one
+# fires depends on whether the parent was FOREGROUND or BACKGROUND at the split.
+# (A third exists - the parent-continuation debris recording at
+# BackgroundRecorder.cs:638, logging `Parent continuation is debris, TTL set:` -
+# but it needs a background split of a Generation-0 debris parent, which
+# `ShouldSkipForCascadeCap` refuses at Generation >= 1 with
+# MaxRecordingGeneration = 1. It cannot fire here. Stated because an earlier
+# draft's error WAS an absolute enumeration asserted from a grep;
+# Source/Parsek.Tests/DebrisParentAnchorContractTests.cs is the maintained list.)
+#   - foreground (this profile): ParsekFlight.ProcessBreakupEvent ->
+#     CreateBreakupChildRecording, logging `ProcessBreakupEvent: debris child
+#     created` (Info, tag Coalescer, ParsekFlight.cs:7668; the pattern stops
+#     before `: pid=` deliberately, so a message-format tweak cannot red it).
+#   - background: BackgroundRecorder.RegisterChildRecordingsFromSplit, logging
+#     `Child recording created (debris, TTL=60s):` (Info, BackgroundRecorder.cs:1177).
+# The Kerbal X sheds its boosters while it is the ACTIVE focused vessel, and
+# RecordingTree.IsBackgroundMapEligible excludes `rec.RecordingId ==
+# ActiveRecordingId`, so OnBackgroundPartJointBreak early-returns and the
+# BACKGROUND line is never reached on this profile.
+#
+# An earlier cut accepted EITHER site, because that trace was argued from source
+# and never confirmed against a log. GREPPED 2026-07-27 over every archived
+# B-lane KSP.log under `logs/` (60 folders: B2 10, B4 8, B5 27, B6 6, B7 9). The
+# foreground token appears in 58 of the 60. The substring `Child recording
+# created` - deliberately broader than the background token, so it would also
+# catch the CONTROLLED sibling line at BackgroundRecorder.cs:1185 - appears in
+# ZERO of the 60. The two logs without the foreground token are
+# 2026-07-20_{1846,1854}_B2-lko-ascent, both INVALID runs that produced no
+# recordings at all. A green ascent emits it exactly 6 times, once per booster,
+# in three pairs (2026-07-20_1938_B2-lko-ascent: UT 48.48, 64.12, 83.16).
+# The alternation is therefore gone and the gate no longer bets on the path. If
+# a future profile genuinely backgrounds the parent before the split, THIS token
+# reds and the red is the finding: re-derive it against a log, do not widen it
+# back to an alternation on the assumption that the red is spurious.
+# Both sites are ParsekLog.Info, so no verboseLogging pin is needed and this spec
+# deliberately adds no SetSetting step for one.
+required  = ["Recording started",
+             "ProcessBreakupEvent: debris child created",
+             "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

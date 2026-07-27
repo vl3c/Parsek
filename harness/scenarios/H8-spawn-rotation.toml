@@ -1,0 +1,105 @@
+schema = 1
+id = "H8-spawn-rotation"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game SpawnRotation category has
+# never been driven by any committed spec. It guards the rotation contract
+# .claude/CLAUDE.md calls out as the single easiest thing in this codebase to get
+# wrong: KSP uses TWO rotation conventions here (srfRelRotation on a ProtoVessel
+# node vs world Transform.rotation at playback), and mixing them puts a spawned
+# vessel at a plausible-looking but wrong attitude. All 10 declarations run
+# ApplyProtoVesselSpawnRotationToNode / PrepareSpawnNodeAtPosition /
+# TryGetPreferredSpawnRotationFrame / OverrideSnapshotPosition.
+#
+# WHY THIS IS WORTH A BOOT, corrected. The first cut claimed these run "against LIVE
+# CelestialBody transforms for a Kerbin-pad case and a Mun case". They do NOT:
+# SpawnRotationInGameTests.cs contains ZERO references to FlightGlobals or
+# CelestialBody. Every cell fabricates its own body rotation (Quaternion.Euler(...))
+# and passes a body NAME STRING; "KerbinPadCase" and "MunCase" are fixture LABELS,
+# not lookups. The same 10 assertions would pass identically at SPACECENTER or with
+# the body table absent.
+# The real reason to fly it: these four VesselSpawner methods have NO xUnit coverage
+# in Source/Parsek.Tests at all, and they encode the srfRelRotation contract that is
+# the single easiest thing in this codebase to invert. Running them anywhere beats
+# running them nowhere - but this spec gates the PURE rotation arithmetic, and a
+# regression in the body-frame half of the contract cannot red it.
+description = "Run the in-game SpawnRotation category unattended: ProtoVessel spawn-node rotation written surface-relative on Kerbin and Mun, terminal-pose frame preference, and snapshot position/rotation override."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "spawn", "rotation", "H8"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5 / H6). No injected recordings: every
+# SpawnRotation test builds its own ConfigNode / snapshot inputs inline.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SpawnRotation" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST, and NARROWER than the first cut. The terminal-pose frame preference cells
+# (surface terminal prefers the terminal pose, orbiting terminal does not, legacy
+# pose without a frame falls back) really are the surface-vs-orbit reseed decision
+# driven through production code, so D13 stands.
+# D14 kerbin / mun are WITHDRAWN: as the header explains, "KerbinPadCase" and
+# "MunCase" are fixture labels over fabricated quaternions, not lookups against
+# either body - nothing here would notice if Mun were absent from the game. Claiming
+# the tokens would record body-axis coverage that does not exist.
+# NOT claimed: any spawn-SAFETY token (proximity-offset / bbox-block /
+# trajectory-walkback) - no vessel is spawned here, only the node that would spawn
+# one is built and inspected.
+D13 = ["surface-orbit-reseed"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H8-spawn-rotation.json: PASS on attempt 1,
+# 49 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+#  - total=10 is ATTRIBUTE-EXACT: SpawnRotationInGameTests declares exactly 10
+#    [InGameTest(Category = "SpawnRotation")] methods. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED and the derivation closes: all 10 carry
+#    Scene = GameScenes.FLIGHT and the batch runs at FLIGHT (see the scene note
+#    below), so FilterSceneEligibleBatchCandidates drops none; none sets
+#    AllowBatchExecution = false, so PrepareBatchExecution drops none; and
+#    SpawnRotationInGameTests.cs contains ZERO InGameAssert.Skip call sites in the
+#    whole file, so no run-time self-skip is even expressible.
+#  - failed=0 is the ASSERTION.
+#  - passed=10 follows from the three above.
+#  - scene=FLIGHT is INFERRED from the fixture (gloops-airshow carries a focusable
+#    vessel, so DecideLoadRoute takes the Focusable/FLIGHT route - the rule H5 and
+#    S1.4 MEASURED on this exact fixture). Here the inference is LOAD-BEARING, not
+#    cosmetic: at any other scene all 10 tests scene-skip and the batch is vacuous.
+#    That is precisely the B10 defect, and the whole pin is what makes it red
+#    instead of pass.
+required  = ["BATCH_COMPLETE v1 total=10 passed=10 failed=0 skipped=0 category=SpawnRotation scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
