@@ -32,7 +32,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
-- Most of Parsek's in-game self-tests only ran when a developer triggered them by hand. Added 14 developer-only scenarios so 14 more categories of them run unattended. Test-tooling only; no gameplay change.
+- Most of Parsek's in-game self-tests only ran when a developer triggered them by hand. Added 14 developer-only scenarios so 14 more categories of them run unattended; all 14 have now been run end to end and pass. Test-tooling only; no gameplay change.
 - The full inventory of in-game test categories is now derived from the source rather than listed by hand, with each category marked as wired, wireable-but-blocked (and by what), or genuinely not runnable unattended (and why). Test-tooling only; no gameplay change.
 - Closed another way an automated test scenario could report success while checking nothing: a test that inspects stored recordings passes trivially when there are none. The scenarios affected now load the full synthetic recording set and verify it arrived. Test-tooling only; no gameplay change.
 - Fixed a developer test-harness bug that made any test category with a hyphen in its name impossible to pin a test count for, even though the game reported those counts correctly. Test-tooling only; no gameplay change.

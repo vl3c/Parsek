@@ -71,8 +71,14 @@ count = { min = 272, max = 272 }
 # ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the two cells that
 # genuinely walk the corpus.
 #
-# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
-# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H16-corpus-spawn-health.json: PASS on attempt 1,
+# 69 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
 #  - total=3 is ATTRIBUTE-EXACT: ExtendedRuntimeTests declares exactly 3
 #    [InGameTest(Category = "SpawnHealth")] methods.
 #  - skipped=0 is DERIVED: all 3 are scene-agnostic; none sets

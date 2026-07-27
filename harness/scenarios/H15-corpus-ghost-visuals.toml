@@ -55,8 +55,14 @@ count = { min = 272, max = 272 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE, plus the fixture-level guard above.
 #
-# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
-# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H15-corpus-ghost-visuals.json: PASS on attempt 1,
+# 70 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
 #  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
 #    [InGameTest(Category = "GhostVisuals")] methods.
 #  - skipped=0 is DERIVED: 3 are scene-agnostic and 1 carries
@@ -73,22 +79,18 @@ required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Gho
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-# RAISED to 1200 pre-emptively, and this is the one spec in the group whose budget is
-# not the boilerplate 720. AllSnapshotsBuildWithoutCrash is a `void` cell - SINGLE
-# FRAME - that calls GhostVisualBuilder.BuildTimelineGhostFromSnapshot once per
-# committed recording, so it builds up to 272 full part-mesh hierarchies in one
-# frame and keeps every one alive via runner.TrackForCleanup until RunCleanup fires
-# at the end of the cell. That is a materially different shape from S1.4's
-# incremental GhostPlayback batch, which is the only measured precedent for a 720 s
-# corpus run, and it is the reason this spec is flown near the END of the runbook.
-# WHY PRE-EMPTIVE RATHER THAN REACTIVE: overrunning does not produce a red that can
-# be re-derived. run.py's watchdog kills the process tree, the verdict is KILLED, no
-# BATCH_COMPLETE line is ever printed, and `retry policy = "once"` immediately burns
-# a second full-length run. A too-generous budget costs nothing on a passing run
-# (steps finish when they finish); a too-tight one costs two boots and yields no
-# tally. The 540 s RunTests step budget is unchanged - it is the deferred-verb cap
-# (S8) and cannot be raised.
-budgetSeconds = 1200
+# 720, the same as the rest of the group. This spec briefly carried 1200 on a
+# pre-flight worry that AllSnapshotsBuildWithoutCrash - a `void` cell, so SINGLE
+# FRAME - would be slow because it builds up to 272 full part-mesh hierarchies in one
+# frame and holds them all via runner.TrackForCleanup until the cell ends. The worry
+# was reasonable (its failure mode is not a red: the watchdog kills the tree, the
+# verdict is KILLED, no BATCH_COMPLETE is printed, and retry-once burns a second full
+# run) but it is now MEASURED AWAY: the 2026-07-27 flight finished the whole scenario
+# in 70 s wall, in line with the other three corpus specs (69-71 s) and nowhere near
+# either cap. Reverted rather than left high, because an unexplained outlier budget
+# is a worse artifact than a measured ordinary one. If the corpus grows substantially,
+# re-measure before assuming 720 still holds.
+budgetSeconds = 720
 
 [retry]
 policy = "once"

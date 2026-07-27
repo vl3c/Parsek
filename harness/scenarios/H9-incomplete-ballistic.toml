@@ -50,8 +50,14 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
-# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H9-incomplete-ballistic.json: PASS on attempt 1,
+# 49 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
 #  - total=8 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 8
 #    [InGameTest(Category = "IncompleteBallistic")] methods. NOTE the file also hosts
 #    Ledger, Rewind, RouteLiveAnchor, TestRunnerIsolation and SwitchSegment

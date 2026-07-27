@@ -59,9 +59,15 @@ count = { min = 0, max = 0 }
 # ANTI-VACUITY (hlib.batch_contract_vacuity_gap): the tally is pinned WHOLE, so an
 # empty or all-skipped batch cannot satisfy it.
 #
-# EVIDENCE STANDING - READ THIS BEFORE TRUSTING THE NUMBERS. This pin is DERIVED
-# FROM SOURCE AND HAS NEVER BEEN MEASURED. No live run of this spec exists; see the
-# PENDING-OPERATOR runbook in docs/dev/autotest-status.md. What each token rests on:
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H7-trajectory-math.json: PASS on attempt 1,
+# 49 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+# What each token rests on:
 #  - total=8 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 8
 #    [InGameTest(Category = "TrajectoryMath")] methods, and BATCH_COMPLETE's total is
 #    allTests.Count(Status != NotRun) over the single RunCategory batch, which counts
@@ -80,9 +86,10 @@ count = { min = 0, max = 0 }
 #    - the same rule H5 and S1.4 MEASURED on this exact fixture. The category is
 #    scene-agnostic, so the scene token affects the pin's TEXT but not which tests
 #    run.
-# Failure mode if any of the above is wrong: a loud RED naming the real numbers on
-# the first flight, never a false green. Re-pin from the measured line and delete
-# this paragraph the first time a run archives one.
+# The derivation above is KEPT rather than deleted: it is what makes this pin
+# re-derivable after a source change, and the 2026-07-27 flight CONFIRMED it rather
+# than replacing it. If a future source change moves a number, re-derive from the
+# attributes first, then re-fly to confirm - in that order.
 required  = ["BATCH_COMPLETE v1 total=8 passed=8 failed=0 skipped=0 category=TrajectoryMath scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

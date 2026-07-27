@@ -76,6 +76,23 @@ count = { min = 0, max = 0 }
 # ANTI-VACUITY: total / category / scene are pinned as literals and `passed` cannot
 # be zero, so an empty or all-skipped batch is rejected.
 #
+# FLOWN 2026-07-27: PASS on attempt 1, 49 s wall, every verifier PASS or SKIPPED,
+# batchComplete found=True failed=0 perCategory=1. THE SPLIT IS STILL NOT PROVEN AND
+# THIS SPEC KEEPS ITS INTERIM PIN - read this before assuming the flight settled it.
+# A PASS proves exactly what the pattern asserts: total=2, failed=0,
+# category=EvaSpawnPosition, scene=FLIGHT, and passed >= 1. It does NOT distinguish
+# passed=2 skipped=0 from passed=1 skipped=1, because the pattern accepts both by
+# construction - which is the whole point of the interim form and also its cost.
+# The run's artifacts cannot settle it either: collect-logs fires only on non-PASS
+# (`collectLogs: {ran: false}` in the result JSON), and the instance KSP.log was
+# overwritten by the later scenarios in the same sweep. This is the identical
+# evidence gap S1.4 hit and documented.
+# TO CLOSE IT, cheaply: re-fly this ONE scenario
+# (`python run.py --id H20-eva-spawn-position`, about 49 s) and read the
+# BATCH_COMPLETE line off the live log before it is overwritten, then replace the
+# pattern with the whole tally and delete this block. It is the cheapest open item
+# in the group.
+#
 # THIS IS THE ONE SPEC IN THE H7-H20 GROUP THAT DOES *NOT* PIN THE TALLY WHOLE, AND
 # THAT IS DELIBERATE - writing a whole tally here would be inventing a number that
 # looks measured. The interim form (the one hlib.validate_spec's own error message

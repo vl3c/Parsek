@@ -1,6 +1,18 @@
 schema = 1
 id = "H18-pipeline-smoothing"
-tier = "nightly"
+tier = "daily"
+# THE ONE MEMBER OF H7-H20 PROMOTED TO DAILY, and the reason is the failure mode, not
+# the cost. All 14 are cheap (49-71 s; the group is 805 s against B13's 2,825 s alone),
+# so cost does not discriminate between them. What discriminates is that this spec is
+# the only guard anywhere in the suite for the GameEvents subscription contract, and a
+# dropped `GameEvents.X.Add(...)` is SILENT: it compiles, every xUnit cell stays green,
+# and Parsek simply stops recording docks / undocks / EVAs from that moment. A day of
+# latency on that is materially worse than a day of latency on an arithmetic category
+# whose regression would red the build anyway.
+# The other 13 stay nightly deliberately. They have flown ONCE; the house convention
+# (see the EVA rows in autotest-status.md) is to promote on flake data rather than on a
+# single green, and nothing about them is urgent enough to override it. Revisit after
+# roughly three nightly runs.
 # BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game Pipeline-Smoothing category
 # has never been driven by any committed spec. Four cells: a coasting trajectory
 # shows no smoothing jitter, a structural event's flag sample is aligned to the
@@ -69,8 +81,14 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING - DERIVED FROM SOURCE, NEVER MEASURED. No live run of this spec
-# exists; see the PENDING-OPERATOR runbook in docs/dev/autotest-status.md.
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H18-pipeline-smoothing.json: PASS on attempt 1,
+# 50 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
 #  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
 #    [InGameTest(Category = "Pipeline-Smoothing")] methods.
 #  - skipped=0 is DERIVED, with ONE stated caveat. All 4 carry

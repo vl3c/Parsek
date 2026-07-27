@@ -396,20 +396,39 @@ should be an `InGameAssert.Skip` naming the missing context, per the house rule
 already stated in `.claude/CLAUDE.md`. Then the skip is visible in the tally and a
 pinned `skipped=0` catches it.
 
-## PENDING-OPERATOR: measuring the pinned tallies
+## Measuring the pinned tallies - CLOSED 2026-07-27
 
-None of `H7`-`H20` has ever been flown. Thirteen pin a tally DERIVED from the
-`[InGameTest]` attributes plus a source scan; one (`H20`) carries the interim form.
-Every derivation's failure mode is a loud RED naming the real numbers, never a false
-green, so these are safe to leave on the nightly - but each pin should be confirmed
-against a measured line, and `H20`'s must be replaced by one.
+ALL 14 FLOWN 2026-07-27 (`python run.py --tag ingame-batch`), against a DLL built and
+provisioned from this branch. **All 14 PASS on attempt 1**, every verifier PASS or
+SKIPPED, `batchComplete found=True failed=0 perCategory=1` on each.
 
-Fly them in this order. The order is not arbitrary: it front-loads the runs that
-invalidate the most other work if they fail.
+WHAT THAT SETTLED, precisely. The `total=` values were already derivable statically
+from the `[InGameTest]` attributes - that is what the source-sync gate does, and it
+needs no flight. What the flights measured is the **passed / skipped SPLITS**, which
+no static analysis predicts, because a run-time `InGameAssert.Skip` can move them at
+any moment. Thirteen specs pin those splits as LITERALS, and `evaluate_expectations`
+requires a required pattern to match, so a PASS means the runner printed the pinned
+line token for token. Those thirteen derivations were all correct.
+
+`H20` is the exception and is NOT settled: its pin is the loose interim form, so its
+PASS proves only `total=2`, `failed=0` and `passed >= 1`. Its exact split is not in
+any artifact (collect-logs fires only on non-PASS, and the instance KSP.log was
+overwritten by later scenarios in the same sweep), so it keeps the interim pin. One
+~49 s re-fly closes it; see the spec.
+
+MEASURED COST, and it is far cheaper than this runbook estimated. **805 s (~13.4 min)
+for all 14**, 49-71 s each. The per-scenario estimates below were 4-10 min, i.e. 5-8x
+too high - they were extrapolated from the mission-flying scenarios rather than from
+seam-only ones, and a batch-only scenario is dominated by KSP boot plus save load,
+not by the batch. For scale: `B13` alone is a measured 2,825 s. Kept here rather than
+corrected in place, as the record of how badly a boot-cost guess can miss.
+
+The ORDER below is retained because it is still the right order to re-fly in after a
+change, for the reasons given.
 
 | # | Scenario | Why this position | Rough wall time |
 |---|---|---|---|
-| 1 | `H13-ksp-api-smoke` | FIRST, always. It is the fixture canary: if `scene=FLIGHT` is wrong for `gloops-airshow`, all 14 pins are wrong the same way and every later run is wasted. A red here reads `passed=4 skipped=2` and names the real scene | ~4 min |
+| 1 | `H13-ksp-api-smoke` | FIRST, always. It is the fixture canary: if `scene=FLIGHT` is wrong for `gloops-airshow`, all 14 pins are wrong the same way and every later run is wasted. A red here reads `passed=4 skipped=2` and names the real scene | est ~4 min, MEASURED 50 s |
 | 2 | `H7-trajectory-math` | Cheapest real category and fully scene-agnostic, so it isolates "the batch mechanism works" from "the scene is right" | ~4 min |
 | 3 | `H14-corpus-data-health` | FIRST corpus-injecting run. Confirms the 272 count still holds on the current profile before three more specs depend on it | ~6 min |
 | 4 | `H8-spawn-rotation` | Largest whole-tally pin (10) and a FLIGHT-scoped-only category, so it is the real test of the scene inference | ~5 min |
@@ -424,12 +443,12 @@ invalidate the most other work if they fail.
 | 13 | `H16-corpus-spawn-health` | Corpus-backed, 3 tests | ~6 min |
 | 14 | `H20-eva-spawn-position` | LAST. The only one whose pin is expected to CHANGE: read the `BATCH_COMPLETE` line and replace the interim pattern with the whole tally (`passed=2 skipped=0` or `passed=1 skipped=1`), then delete the interim paragraph from the spec | ~8 min |
 
-Roughly **80 minutes** of wall time for all 14 on a warm instance, plus operator time
-to read each line. They can be flown in one sitting with
-`python harness/run.py --tier nightly`, but the value of the ordering is lost that
-way: fly at least items 1-3 individually first
-(`python harness/run.py --id H13-ksp-api-smoke`) and confirm the scene token before
-committing to the rest.
+Estimated at roughly 80 minutes for all 14; the 2026-07-27 sweep did it in **805 s
+(13.4 min)** in one pass via `python harness/run.py --tag ingame-batch`. At that cost
+the ordering matters much less than it would have at 80 minutes, and flying the whole
+tag in one go is now the sensible default. Individual runs
+(`python harness/run.py --id H13-ksp-api-smoke`, ~50 s) remain the right move when
+re-confirming a single pin after a source change.
 
 What to do with each result:
 
