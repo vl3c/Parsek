@@ -189,12 +189,15 @@ D1  = ["auto-record-launch"]
 # D3 parent-anchored-debris: gated by the debris-child-creation token below.
 # The claim is sound because both creation sites CALL
 # Recording.ApplyParentAnchorContract unconditionally - for debris and controlled
-# children alike (ParsekFlight.cs:7166) - and the helper's only no-op is an empty
-# parent id, which cannot occur at either call site (ProcessBreakupEvent returns
-# at ParsekFlight.cs:7446 when the active recording id is null/empty, and the BG
-# site passes the continuation-or-parent id). So "a debris child recording was
-# created" implies "parent-anchored" on these paths. Claimed here and not before because presence had no gate at
-# all: the count window's old min of 1 admitted the total loss of the population.
+# children alike (ParsekFlight.cs:7166) - and the helper's only REACHABLE no-op
+# is an empty parent id (Recording.cs:1193 also guards `child == null`, which
+# cannot happen: the child was `new`'d one statement earlier). An empty parent id
+# cannot occur at either call site either - ProcessBreakupEvent returns at
+# ParsekFlight.cs:7446 when the active recording id is null/empty, and the BG
+# site passes the continuation-or-parent id. So "a debris child recording was
+# created" implies "parent-anchored" on these paths. Claimed here and not before
+# because presence had no gate at all: the count window's old min of 1 admitted
+# the total loss of the population.
 # NOTE the token gates CREATION, not the anchor RESOLVING correctly at playback;
 # the analyzer's INV rules own malformation, this owns absence.
 D3  = ["orbital-checkpoint", "parent-anchored-debris"]

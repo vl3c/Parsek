@@ -5215,11 +5215,26 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 body = decide_body(fn)
                 # One ACTIVATE_STAGE is launch ignition; a second (or a flameout
                 # watchdog call) is what adds the 8th recording.
+                #
+                # LIMITATION, stated because the failure message would otherwise
+                # invite the wrong fix: this counts within the NAMED decide
+                # function only. If a commanded stage drop is refactored into a
+                # helper, `stages` falls to 1 and this cell reds - correctly, but
+                # the numbers alone read like "this spec should floor at 7". The
+                # remedy is to follow the action into the helper, NOT to lower a
+                # floor. b5_decide has the `_b5_flameout_stage(` backstop;
+                # b4_decide has none.
                 stages = body.count("ACTION_ACTIVATE_STAGE")
-                drops = stages > 1 or "_b5_flameout_stage(" in body
-                self.assertEqual(extra_stage, drops,
-                                 "%s: %s has %d ACTIVATE_STAGE and flameout=%s"
-                                 % (name, fn, stages, "_b5_flameout_stage(" in body))
+                flameout = "_b5_flameout_stage(" in body
+                drops = stages > 1 or flameout
+                self.assertEqual(
+                    extra_stage, drops,
+                    "%s: %s has %d ACTION_ACTIVATE_STAGE site(s) and flameout=%s, "
+                    "so 'commands a stage drop beyond ignition' computes as %s but "
+                    "the table says %s. If a stage action moved into a HELPER, fix "
+                    "the scan (or this table's flag) - do NOT lower the spec's "
+                    "count.min, which is what the population actually is."
+                    % (name, fn, stages, flameout, drops, extra_stage))
 
     def test_every_spec_claiming_the_cell_carries_the_token(self):
         # REVERSE direction, and the one the first cut missed entirely: adding

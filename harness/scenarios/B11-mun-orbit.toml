@@ -339,7 +339,7 @@ commitTimeoutSeconds       = 300
 # cell with two vessels and a real split.
 [dimensionsCovered]
 D1  = ["auto-record-launch", "commit-in-foreign-soi"]
-D3  = ["orbital-checkpoint"]
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "mun", "warp-rails"]
 
@@ -468,6 +468,7 @@ count = { min = 8, max = 8 }
 #       window, which is the intended failure mode - re-derive both from a fresh
 #       measured run, never widen either blindly.
 required = [
+    "^ProcessBreakupEvent: debris child created",
   "Recording started",
   "Recording stopped",
   "SOI change boundary suppressed in tree mode: Kerbin to Mun",
