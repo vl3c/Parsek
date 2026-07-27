@@ -1436,6 +1436,32 @@ namespace Parsek
                     ParsekLog.Info("Scenario",
                         $"OnSave: rewriting sidecars for recording='{rec.VesselName ?? "<unnamed>"}' " +
                         $"id={rec.RecordingId ?? "<none>"} treeKind={treeKind} reason={currentReason ?? "<none>"}");
+
+                    // R1-EMPTY-PROVISIONAL detection point 2. reason=trajectory-missing
+                    // means the .prec does not exist at all, i.e. nothing has ever been
+                    // recorded into this recording. When that recording IS the live
+                    // Re-Fly session's provisional, no recorder is bound to it and the
+                    // merge will have nothing to supersede the origin with. Catches the
+                    // shape where the restore coroutine was never scheduled, so the
+                    // give-up raise in RestoreActiveTreeFromPending never printed.
+                    // Observation only: the save proceeds exactly as before.
+                    var saveMarker = Instance?.ActiveReFlySessionMarker;
+                    UnboundProvisionalRaise unbound =
+                        ReFlyProvisionalBinding.EvaluateSidecarRewrite(
+                            saveMarker, rec.RecordingId, currentReason);
+                    if (unbound.ShouldRaise)
+                    {
+                        ParsekLog.Warn("ReFlySession",
+                            $"outcome=unbound-refly-provisional reason={unbound.Reason} " +
+                            $"sess={saveMarker.SessionId ?? "<no-id>"} " +
+                            $"provisional={rec.RecordingId ?? "<none>"} " +
+                            $"markerTree={saveMarker.TreeId ?? "<none>"} " +
+                            $"origin={saveMarker.OriginChildRecordingId ?? "<none>"} " +
+                            $"treeKind={treeKind} — this session's provisional is being " +
+                            "saved with no trajectory sidecar, so nothing has recorded into " +
+                            "it. If the session concludes in this state the merge writes 0 " +
+                            "supersede rows and the origin branch stays effective");
+                    }
                 }
 
                 if (!RecordingStore.SaveRecordingFiles(rec))

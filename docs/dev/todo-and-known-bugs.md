@@ -14,6 +14,67 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## R1-EMPTY-PROVISIONAL: a Re-Fly session can reach the merge with nothing bound to its provisional [REPORTED 2026-07-26. Detection + merge convergence SHIPPED on branch `fix-refly-provisional`; the ROUTE is still unproven. Severity UNPROVEN, not HIGH]
+
+### Correction: the first diagnosis was wrong, and so was the severity
+
+The original write-up (branch `rewind-loop-lane`) blamed "a stale Limbo pending tree occupied the single slot and blocked marker adoption", called it severity HIGH, and proposed evicting the stale stash. A three-reviewer panel refuted that and the maintainer re-verified it. A fix built on it was committed and then reverted (`e52664400`, reverted in the following commit). What was wrong:
+
+- **Eviction is ALREADY production behaviour.** `ParsekScenario.TryRestoreActiveTreeNode` calls `RecordingStore.PopPendingTree()` unconditionally (`ParsekScenario.cs:5152-5168`) with a comment saying it exists for exactly that stash. Fix direction (a) was already implemented.
+- **It never ran in flight 3 because there was no disk tree to restore.** `KSP.log:15068` reads `savedRecNodes=0, savedTreeRecs=0, activeTreeRestoredFromSave=False`.
+- **That is FIXTURE-shaped.** The injected RP quicksave (`ScenarioWriter.BuildRewindPointQuicksave`) never authored a `RECORDING_TREE isActive=True` node; a production RewindPoint is a full `GamePersistence.SaveGame` that does (`ParsekScenario.cs:1856-1858`). Verified by reading both.
+- **Implementing (a) would make it worse.** `RestoreActiveTreeFromPending` yield-breaks on `!HasPendingTree`, so a diagnosable red becomes a silent skip.
+- **A second blocker was missed entirely.** `QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers` rejects the candidate anyway once guids are known, so the reverted fix would NOT have made flight 3 green.
+
+**Severity is UNPROVEN in either direction.** The only demonstrated route is fixture-shaped, and there is no archived Re-Fly against a real flight-authored RewindPoint.
+
+**Do not spend a flight on the "rewind with no prior in-flight commit" experiment.** It cannot narrow anything: removing the commit empties the pending slot and hits the same yield-break.
+
+### What IS true, and is now instrumented
+
+The narrower, fixture-independent statement survives:
+
+> A Re-Fly session can reach the merge orchestrator with no recorder ever bound to its provisional, and nothing in between refuses.
+
+Two detection points were ignored. Both now raise a grep-stable `outcome=unbound-refly-provisional` Warn (pure core `ReFlyProvisionalBinding`, observation only, no control-flow change):
+
+1. `ParsekFlight.RestoreActiveTreeFromPending` giving up ("leaving tree in Limbo", `KSP.log:16775`) while a session is live - the exact moment the binding fails, seconds after the rewind load. Carries a ScreenMessage too. Reason token distinguishes `gave-up-on-marker-tree` from `gave-up-on-other-tree` because those have different causes.
+2. The `OnSave` sidecar rewrite reporting `reason=trajectory-missing` for the session's own provisional. This one also catches the shape where the restore coroutine was never scheduled, so point 1 never printed.
+
+### Merge convergence (was layer 3, unchanged by the refutation)
+
+`SupersedeCommit.AppendRelations`' refusal is CORRECT and stays: a trajectory-less recording cannot validly replace a real origin (the placeholder-redirect class shipped twice in 2026-04, items 5 and 568). What was wrong was modelling a reachable user action as an invariant violation. The `#if DEBUG throw` / `#else return` split meant the shipped path was never the tested one, and in a developer build the throw escaped `MergeJournalOrchestrator.RunMerge` at `phase=Split`, so `RunFinisher` failed driving forward, `ParsekScenario.OnLoad` aborted at `phase=merge-journal`, and since the input never changes EVERY subsequent load repeated it - which also meant `LoadTimeSweep.Run()`, the pass that would discard the zombie marker, never ran. Both builds now take one branch: a Warn carrying `outcome=refused-unflown-provisional` and a merge that completes with zero rows.
+
+The save-wipe class was assessed and ruled OUT, and re-verified: `OnLoad` reaches `loadPhase = "merge-journal"` only after the store is populated (the exception line itself reports `committedRecordings=13 committedTrees=3`), and the post-run save retained all 13 recordings and all 3 trees.
+
+### The discriminating experiment (a FIXTURE change, not a flight) - DONE
+
+`ScenarioWriter.BuildRewindPointQuicksave` now authors the RP's tree as `RECORDING_TREE isActive=True` with `activeRecordingId` = the focus slot's origin recording, so the injected sidecar is production-shaped and the next R1 run discriminates "fixture artifact" from "real defect" instead of confounding them. Paired with it, `DeriveVesselLaunchGuid` makes the sidecar VESSEL guid and the recording's `recordedVesselGuid` agree by construction - a trap-closer rather than a live fix, since the B9 recordings previously carried no guid at all and `LaunchGuidConclusivelyDiffers` was merely inconclusive; the previous `Guid.NewGuid()`-per-clone stamp would have turned the guard into a hard reject the moment any fixture moved toward production shape.
+
+**What is still open:** whether a Re-Fly against a real flight-authored RewindPoint can reach the unbound state at all. The next R1 run over the corrected fixture is the evidence. Fix direction (b) (drive adoption from `marker.TreeId`) remains directionally right IF that run still reds, but it must be an ADDITIONAL entry point - `ReFlySessionMarker.cs:314-315`'s tree-id gate is a genuine stale-marker guard and must not be relaxed.
+
+### Evidence (kept)
+
+Flight 3, `logs/2026-07-26_2303_R1-rewind-loop-flown/`. On disk (`saves/b2-lko-craft/Parsek/Recordings/`): the marker's provisional `rec_5b0697a6...` is 82 bytes with 0 POINT nodes in tree `tree-b9-stack-root` ("B9 Stack"); the actual re-flight `f6155f8d...` is 5,408 bytes with 58 POINT nodes in a NEW tree `820de77e...` ("B9 Slot 1"). `grep -c RECORDING_SUPERSEDE` on the resulting `persistent.sfs` = **0**.
+
+```
+23:03:15.740 [ReFlySession] Started sess=... rp=rp_b9_root slot=1
+             provisional=rec_5b0697a6cb744dc98af82cb7e8553652 origin=b9-booster-a
+             supersedeTarget=b9-booster-a tree=tree-b9-stack-root inPlaceContinuation=True
+23:03:16.204 [RecState] [#38][OnFlightReady] mode=none tree=- rec=- rec.live=F/F
+             tree.recs=0/0 pend.tree=b435c4ad:Limbo
+23:03:17.207 [Flight] Auto-record started (first staging on pad, stage=7)
+23:03:23.976 [Supersede] AppendRelations invariant violation:
+             provisional=rec_5b0697a6cb744dc98af82cb7e8553652 reason=empty Points
+```
+
+### Standing coverage
+
+- xUnit `ReFlyProvisionalBindingTests` (15 cells) for the two detection points; `SupersedeCommitTests.AppendRelations_*_RefusesAndWarns` for the named outcome in both builds; `RewindB9FixtureTests.Inject_RpSidecar*` for the production-shaped sidecar and guid agreement.
+- SCENARIO `R1-rewind-loop-flown` (`operator` tier, in no cadence) stays untagged. Its `Added [1-9][0-9]* supersede relations` logContract is the positive assertion, and its red is now interpretable: over the corrected fixture, a red means a REAL defect rather than a fixture artifact.
+
+---
+
 ## Playback was never gated, and the parity oracle had been measuring nothing [BUILT, branch `autotest-render-parity`]
 
 Found 2026-07-26 while wiring the first playback scenario. Two independent problems, both about the same blind spot.
