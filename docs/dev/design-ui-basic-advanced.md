@@ -4,7 +4,7 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies the UI complexity mode: which surfaces Basic hides, how the gate is implemented, and the visibility-only guarantee.*
 
-**Status:** PLANNING (analysis complete, not implemented). Both blocking decisions are RESOLVED. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Ready to implement.
+**Status:** PLANNING (analysis complete, not implemented). All blocking decisions are RESOLVED; ready to implement. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Naming (section 4.1): the main-window button, window title, and first/default tab all become Missions in BOTH modes, the one deliberate Advanced-visible change in this feature; section 4.2 lists the "Recordings" strings that must NOT be renamed.
 **Version:** 0.1
 **Out of scope:** any change to recording, playback, logistics dispatch, or ledger behavior. This is a visibility gate only, see section 9.
 **Related docs:** `docs/dev/design-mission-abstractions.md` (Missions tab), `docs/parsek-timeline-design.md` (Timeline), `docs/parsek-logistics-supply-routes-design.md` (Logistics).
@@ -58,7 +58,7 @@ At no point did they need Recordings (raw per-recording table), Kerbals, Career,
 3. **Basic must be sufficient, not merely smaller.** The Basic set is chosen so the full core loop (fly, commit, loop, watch, rewind, supply) is reachable. If a Basic player has to switch to Advanced to finish a normal task, the split is wrong.
 4. **One pure decision point.** Every gate call routes through one pure, Unity-free predicate so the split is unit-testable and greppable, rather than eight scattered `if` statements that drift.
 5. **Read-only panels are the first thing to cut.** A window that only reports state a player can find on stock screens is the cheapest thing to hide and the least missed.
-6. **Advanced is byte-identical to today.** The feature must not become an excuse to restyle the existing UI. Any improvement in section 17 ships as its own change.
+6. **Advanced is behaviorally identical to today, with one named exception.** The feature must not become an excuse to restyle the existing UI; any improvement in section 17 ships as its own change. The single deliberate exception is the Recordings-to-Missions rename and tab reorder of section 4.1, which applies in BOTH modes by explicit decision, because a label that differs between modes would defeat the consistency it exists to create. No other Advanced-visible change ships with this feature.
 7. **Basic is a starting point, not a cage.** The goal is a UI a new player can take in at a glance, not the smallest possible UI. A feature the player should eventually discover and use stays visible in Basic even when it is not strictly required, because a button they grow into is how they learn the mod exists. This is what separates a surface that is HIDDEN (a raw table or a developer panel they would never grow into) from one that is merely NOT YET USED (Logistics). It is also why conditional "appear once used" visibility is rejected in section 15: a surface that materializes only after you already found the feature cannot teach you the feature is there.
 
 ---
@@ -151,9 +151,35 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 
 **Result.** Basic shows four main-window buttons (Timeline, Missions, Logistics, Settings) instead of eight, one tab instead of two in the Missions window, and five Settings sections instead of seven.
 
-### 4.1 Naming
+### 4.1 Naming and tab order (DECIDED, applies to BOTH modes)
 
-In Basic the `Recordings` button opens a window whose only tab is `Missions`. Leaving the button labelled "Recordings" would be actively confusing. In Basic the button reads **`Missions`** and the window title matches. `ParsekUI.cs:181-183` already establishes the label-indirection pattern (`GetKerbalsMainButtonLabel`, `GetCareerMainButtonLabel`); add `GetRecordingsMainButtonLabel(mode)` alongside them.
+Today a button named `Recordings` opens a window titled `Parsek - Recordings` whose first tab is `Recordings` and whose second tab, `Missions`, holds the abstraction players actually work with. In Basic, where the Recordings tab is hidden, that naming would be actively wrong. Making the label mode-dependent would be worse: the same button would carry two names depending on a setting.
+
+**Decision.** Missions becomes the primary identity of this window in both modes:
+
+- The main-window button reads **`Missions`** (`ParsekUI.cs:239`).
+- The window title reads **`Parsek - Missions`** (`RecordingsTableUI.cs:434`).
+- The tab order becomes **`{ "Missions", "Recordings" }`**, so Missions is both first and the default selection (`RecordingsTableUI.cs:127`).
+- The tab constants swap to `TabMissions = 0`, `TabRecordings = 1`, and the default becomes `selectedTab = TabMissions` (`RecordingsTableUI.cs:124-126`).
+
+Because the label no longer varies by mode, the planned `GetRecordingsMainButtonLabel(mode)` helper is unnecessary; a constant label is correct, and the `GetKerbalsMainButtonLabel` indirection pattern is not needed here.
+
+**This is safe to reorder.** `selectedTab` is explicitly transient and not persisted (`RecordingsTableUI.cs:120-122`, "Transient (not persisted), matching the Kerbals / Career State tab idiom"). No player has a stored tab index that this reorder could flip, so there is no migration concern.
+
+The dispatch at `RecordingsTableUI.cs:1190` is keyed on the named constants (`if (selectedTab == TabMissions)`), not on literal ints, so swapping the constant values carries it automatically. Verify this holds at implementation time rather than assuming it.
+
+### 4.2 Strings that must NOT be renamed
+
+"Recordings" appears in several places that are not this button. Renaming any of them is a defect, not a follow-through:
+
+| Site | Why it must not change |
+|------|------------------------|
+| `"ParsekRecordings".GetHashCode()` (`RecordingsTableUI.cs:432`) | The IMGUI window ID. Changing it gives the window a new identity, resetting its saved position and size and risking an ID collision with another window. |
+| `Path.Combine("Parsek", "Recordings", ...)` (`RecordingPaths.cs:16-50`, `RecordingStore.OrphanCleanup.cs:275`, `Analyzer/Rules/Inv7bAnnotationStale.cs:38`) | The on-disk sidecar directory. Renaming it orphans every existing recording. |
+| `LogWindowPosition("Recordings", ...)` (`RecordingsTableUI.cs:445`) | A diagnostic log key. Changing it breaks grep continuity with every historical KSP.log and collected log snapshot. |
+| `GUILayout.Toggle(showRecordingEntries, "Recordings", ...)` (`TimelineWindowUI.cs:695`) | A Timeline entry-type filter, an unrelated feature that genuinely filters recording rows. Correctly named. |
+
+Exactly two user-facing strings change: the button at `ParsekUI.cs:239` and the window title at `RecordingsTableUI.cs:434`, plus the tab array and constants. A grep for `"Recordings"` will surface all of the above; the table is the disposition for each hit.
 
 ---
 
@@ -231,11 +257,15 @@ ResolveDefaultMode(bool saveHasParsekFootprint) : UiComplexityMode
 - `UiComplexityModeKey` const, `RecordUiComplexityMode(int)`, plus the stored-value restore branch and the two diagnostic-line entries, following the `showRouteLines` pattern exactly (`ParsekSettingsPersistence.cs:45`, `:247-252`, `:406`).
 
 **`ParsekUI`** (`Source/Parsek/ParsekUI.cs`):
-- `GetRecordingsMainButtonLabel(UiComplexityMode)` alongside the existing label helpers.
 - `OnUiComplexityModeChanged(UiComplexityMode previous, UiComplexityMode next)` - the close handler of section 7.2.
+- `:239` button label `"Recordings"` -> `"Missions"` (constant, both modes; no label-helper indirection needed, see section 4.1).
 
 **`RecordingsTableUI`** (`Source/Parsek/UI/RecordingsTableUI.cs`):
-- The `TabLabels` array (`:127`) and `selectedTab` (`:126`) become mode-aware; see section 7.4 for the tab-index clamp.
+- `:124-125` constants swap to `TabMissions = 0`, `TabRecordings = 1`.
+- `:126` default becomes `selectedTab = TabMissions`.
+- `:127` `TabLabels` becomes `{ "Missions", "Recordings" }` in Advanced and `{ "Missions" }` in Basic (mode-aware; the bar is not drawn at all in Basic, section 7.4).
+- `:434` window title `"Parsek - Recordings"` -> `"Parsek - Missions"`.
+- NOT changed: `:432` window ID hash, `:445` log key. See section 4.2.
 
 ### 6.3 Serialization
 
@@ -282,9 +312,15 @@ The rejected alternative was defaulting Basic unconditionally: one line, but it 
 
 ### 7.4 Tab-index clamp
 
-`RecordingsTableUI.selectedTab` is persisted UI state. If the player leaves it on `TabMissions` (index 1) in Advanced and switches to Basic, the Basic tab array has one entry and index 1 is out of range. On mode change, and defensively on draw, clamp `selectedTab` into the active array's range and log the clamp at Verbose. The same applies in reverse: entering Advanced restores the full array with the clamped index still valid.
+`RecordingsTableUI.selectedTab` is transient runtime state (`RecordingsTableUI.cs:120-122`), not persisted, so this is a within-session concern only.
 
-In Basic the tab bar renders zero tabs rather than a single useless one-button toolbar. `GUILayout.Toolbar` with one entry is visual noise; the window title carries the identity.
+The section 4.1 reorder materially shrinks it. With `TabMissions = 0`, index 0 is valid and means Missions in BOTH the Advanced array (`{ Missions, Recordings }`) and the Basic array (`{ Missions }`). The only out-of-range case left is a player sitting on the Recordings tab (index 1) when Basic is selected, and clamping that to 0 lands on Missions, which is both in range and the semantically right destination.
+
+Had Missions stayed at index 1, every player on the default tab would have needed a clamp on entering Basic, and a naive clamp would have been correct only by coincidence. Putting Missions at index 0 makes the clamp a rare no-op rather than the common path.
+
+Clamp on mode change and defensively on draw; log the clamp at Verbose with old index, new index, and active tab count. Entering Advanced needs no clamp, since every Basic index is valid in the larger array.
+
+In Basic the tab bar renders zero tabs rather than a single one-button toolbar. `GUILayout.Toolbar` with one entry is visual noise; the window title (`Parsek - Missions`) carries the identity.
 
 ---
 
@@ -292,7 +328,9 @@ In Basic the tab bar renders zero tabs rather than a single useless one-button t
 
 1. **Window open when Basic is selected.** Force-closed and its input lock released (section 7.2). State preserved for the next Advanced session.
 2. **Input lock leak.** A gated window that held a lock at hide time would soft-lock the player's mouse. `ReleaseInputLock()` is mandatory in the close handler, and is the highest-risk defect in this feature.
-3. **`selectedTab` out of range.** Clamped on mode change and on draw (section 7.4).
+3. **`selectedTab` out of range.** Only reachable from the Recordings tab (index 1) when Basic is selected. Clamped to 0 (Missions) on mode change and defensively on draw (section 7.4).
+3a. **Window position reset by the rename.** If the window ID hash at `RecordingsTableUI.cs:432` is changed along with the title, every player's saved window position and size for this window is silently discarded. The ID is deliberately excluded from the rename (section 4.2). A test cannot easily catch this; it is a review checklist item.
+3b. **Timeline "Recordings" filter mistaken for the renamed button.** `TimelineWindowUI.cs:695` is an unrelated entry-type filter that correctly says "Recordings". A global find-and-replace would rename it and break the Timeline's filter labelling. Section 4.2 is the disposition table for every hit.
 4. **Contextual window orphaned.** The Log window (`StructureListWindowUI`) can be opened from a Missions row, which stays visible in Basic. It remains reachable and is not gated. The Group picker is reachable only from the hidden Recordings tab and so is implicitly unreachable in Basic; it needs no explicit rule because it is modal and opened on demand.
 5. **Route candidate banner in Basic.** Kept. It carries `Open Logistics` and `Dismiss`, both of which target a surface Basic keeps.
 6. **Data Management destructive actions.** Kept in Basic per section 4, on the grounds that a player who needs to clear data must be able to. If playtesting shows new players clicking destructive actions by accident, the mitigation is a confirmation prompt, not hiding the section.
@@ -370,6 +408,8 @@ The existing `[UI]` tag is correct here; this feature introduces no new subsyste
 - **`StoredValueAlwaysWinsOverFootprint`** - a stored mode is returned unchanged for BOTH footprint values, including the stored-Advanced-on-a-fresh-save and stored-Basic-on-an-existing-save crossings. This is the section 7.3 guard: it fails if footprint logic is ever allowed to override a saved preference, which would flip a player's UI on update.
 - **`EverySurfaceIsDecided`** - reflection walk asserting `IsVisible` has an explicit case per enum value, so adding a `UiSurface` without a Basic decision fails the build rather than defaulting silently.
 - **`TabIndexClampsIntoRange`** - clamp helper over the Basic and Advanced tab arrays, including the index-1-into-Basic case.
+- **`MissionsIsTheDefaultAndFirstTab`** - asserts `TabMissions == 0`, that `selectedTab` initializes to it, and that `TabLabels[0]` is "Missions" in both the Basic and Advanced arrays. Fails if a future edit reorders the tabs back, which would silently restore the Recordings tab as the landing view and re-widen the clamp case of section 7.4.
+- **`RecordingStoragePathsAreUnaffectedByRename`** - asserts `RecordingPaths` still resolves the `Parsek/Recordings` directory. Guards the section 4.2 trap where an over-eager rename orphans every recording on disk.
 
 ### 13.2 Log-assertion tests
 
@@ -397,13 +437,16 @@ Existing in-game tests that drive gated windows must force Advanced for their du
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| 1 | `UiComplexityMode.cs`: enum, surfaces, pure `UiSurfaceVisibility` + unit tests | No behavior change; pure core lands green before any draw site moves |
-| 2 | `ParsekSettings` field + persistence + Settings toggle UI | Toggle visible, gates not yet wired; mode persists across restart |
-| 3 | Main-window button gates + separator spacing | The visible payoff, four buttons in Basic |
-| 4 | Recordings/Missions tab gate + label indirection + tab clamp | The largest complexity reduction |
-| 5 | Settings section gates (Diagnostics, Sample Density) | Test Runner shortcut stays live |
-| 6 | Mode-change close handler + input-lock release + in-game tests | Edge case 2, the highest-risk item |
-| 7 | Grep gate + doc updates (CHANGELOG, todo, this doc status) | |
+| 1 | Recordings -> Missions rename + tab reorder (section 4.1) | Independent of the mode gate and applies to BOTH modes, so it lands first and alone. User-visible: needs a CHANGELOG entry in its own commit. Verify the section 4.2 must-not-rename table before committing. |
+| 2 | `UiComplexityMode.cs`: enum, surfaces, pure `UiSurfaceVisibility` + unit tests | No behavior change; pure core lands green before any draw site moves |
+| 3 | `ParsekSettings` field + persistence + Settings toggle UI | Toggle visible, gates not yet wired; mode persists across restart. Stored-value branch written and tested BEFORE the footprint branch (section 7.3). |
+| 4 | Main-window button gates + separator spacing | The visible payoff, four buttons in Basic |
+| 5 | Tab-bar gate in Basic + tab clamp | Smaller than it was pre-rename: phase 1 already put Missions at index 0 |
+| 6 | Settings section gates (Diagnostics, Sample Density) | Test Runner Ctrl+Shift+T shortcut stays live |
+| 7 | Mode-change close handler + input-lock release + in-game tests | Edge case 2, the highest-risk item |
+| 8 | Grep gate + doc updates (CHANGELOG, todo, this doc status) | |
+
+Phase 1 is deliberately first and standalone. It is the only phase whose effect is visible to existing Advanced users, so isolating it in one commit keeps it revertable without unwinding any of the mode work, and keeps its CHANGELOG entry honest about who is affected.
 
 New source files: `Source/Parsek/UI/UiComplexityMode.cs`, `Source/Parsek.Tests/UiComplexityModeTests.cs`, `scripts/grep-audit-ui-complexity-mode.ps1`.
 
@@ -425,7 +468,9 @@ The Timeline has 10 toggles, several being tier filters. Whether those should co
 | Persisted value | `ParsekSettings.uiComplexityMode`, `ParsekSettingsPersistence` |
 | Toggle UI | `UI/SettingsWindowUI.cs` (new `Interface` section, drawn first) |
 | Main-window gates | `ParsekUI.cs:193-380` |
-| Tab gates | `UI/RecordingsTableUI.cs:126-127`, `:1182-1190` |
+| Tab gates + reorder | `UI/RecordingsTableUI.cs:124-127`, `:1182-1190` |
+| Rename (button, title) | `ParsekUI.cs:239`, `UI/RecordingsTableUI.cs:434` |
+| Rename exclusions | `UI/RecordingsTableUI.cs:432` (window ID), `:445` (log key), `RecordingPaths.cs` (storage), `UI/TimelineWindowUI.cs:695` (unrelated filter) |
 | Mode-change close handler | `ParsekUI.OnUiComplexityModeChanged` |
 | Invariant enforcement | `scripts/grep-audit-ui-complexity-mode.ps1` |
 
@@ -459,6 +504,6 @@ The Logistics button tints red for hard-broken routes, but only once the main wi
 
 Seven sections, no folds. The codebase already has caret and foldout helpers in `RecordingsTableUI`. Collapsible sections, with `Interface` and `Recording` open by default, would shorten it considerably. Partly mitigated by this feature (Basic drops two sections), so lower priority.
 
-### 17.7 "Recordings" versus "Missions" naming
+### 17.7 "Recordings" versus "Missions" naming (RESOLVED, now in scope)
 
-Even in Advanced, a button named `Recordings` opening a window whose second tab is `Missions`, hosting an abstraction over recordings, is a confusing hierarchy. Section 4.1 fixes it for Basic only. Worth reconsidering the Advanced naming too, though renaming an established surface has its own churn cost.
+This was raised here as a separate proposal and has since been folded into the feature proper: the rename and tab reorder apply in both modes and ship as phase 1. See section 4.1 for the decision, 4.2 for the strings excluded from it. Retained as a heading so the cross-reference from earlier revisions still resolves.
