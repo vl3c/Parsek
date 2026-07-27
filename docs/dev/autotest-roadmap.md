@@ -405,7 +405,7 @@ admits the main recording alone:
 |---|---|---|---|
 | B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
 | B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; measured 2026-07-20) |
-| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{7, 9}` + debris token (b4_decide: no flameout stage; floor structural, never measured - re-pin from a log-collecting run) |
+| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; floor structural, never measured - re-pin from `results/*B4*.json`) |
 | B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; 4 archived runs at 8) |
 | B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; INFERRED from the shared machine, not measured on B6) |
 | B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (4 archived runs at 8, corroborated by B15; now agrees with B15's pin) |
@@ -481,12 +481,19 @@ chain, or grep an archived KSP.log, before pinning - the discipline this section
 already prescribed for the tokens it declined to claim, and did not apply to the one
 it claimed.
 
-Also corrected while shipping: `min` is NOT one number across the five. `B5`/`B6`/`B7`
-drive `mlib.b5_decide`, which reaches `_b5_flameout_stage` and produces an 8th
-recording, so they floor at 8; `B2`/`B4` drive `b2_decide` / `b4_decide`, which do not,
-so they floor at 7. The first cut used 7 everywhere, which for the b5_decide specs is
-precisely the value `B11`/`B12` record as **considered and rejected** ("7 is the exact
-count a single dropped recording would produce").
+Also corrected while shipping: `min` is NOT one number across the five, and the rule
+is not "does it reach `_b5_flameout_stage`" either - that was the second draft's error.
+The floor follows **whether the mission commands a debris-producing stage drop beyond
+launch ignition**: `B5`/`B6`/`B7` drop a flameout-staged core via `_b5_flameout_stage`,
+and `B4` drops its service stage via an `ACTION_ACTIVATE_STAGE` on the SOLE transition
+into `B4_REENTRY` - so all four floor at 8. Only `B2` stages once, at ignition, and
+floors at 7 (`mlib.py:401-405`: the spent core never autostages because MechJeb
+autostage fires only on EMPTY stages and the Kerbal X core keeps residual fuel).
+The first cut used 7 everywhere, which on an 8-population spec is precisely the value
+`B11`/`B12` record as **considered and rejected** ("7 is the exact count a single
+dropped recording would produce"). Note `run.py` judges expectations only on a
+driver-valid, non-short-circuited run, so a B4 that never reached REENTRY has its count
+SKIPPED rather than passing under the lower floor.
 
 The Targets line this section originally carried was wrong and is replaced by the
 status column in the table above: it named `B11`/`B12`/`B13`/`B14`, which already had

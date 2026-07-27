@@ -5000,13 +5000,18 @@ class DebrisPopulationGateTests(unittest.TestCase):
     early-returns and that line never fires. All five would have red. The gate now
     accepts EITHER creation site."""
 
-    # spec -> (min, max, reaches _b5_flameout_stage via mlib.b5_decide)
+    # spec -> (min, max, decide fn, commands a debris-producing stage drop beyond
+    # launch ignition). The FLOOR follows the last field, NOT the decide function:
+    # B5/B6/B7 drop a flameout-staged core via _b5_flameout_stage, and B4 drops its
+    # service stage via an ACTION_ACTIVATE_STAGE on the sole path into B4_REENTRY.
+    # Only B2 stages once (at ignition) and therefore floors at 7. The first cut
+    # floored B4 at 7 by keying on _b5_flameout_stage alone.
     GATED = {
-        "B2-lko-ascent.toml":         (7, 8, False),
-        "B4-reentry-splashdown.toml": (7, 9, False),
-        "B5-mun-flyby.toml":          (8, 9, True),
-        "B6-minmus-flyby.toml":       (8, 9, True),
-        "B7-duna-flyby.toml":         (8, 8, True),
+        "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
+        "B4-reentry-splashdown.toml": (8, 9, "b4_decide", True),
+        "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
+        "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
+        "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
     }
 
     CELL = "parent-anchored-debris"
@@ -5091,26 +5096,45 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # B11/B12 rejected min=7 for THEIR 8-population runs because 7 is exactly
         # what one dropped recording looks like; that reasoning is why the
         # b5_decide specs are 8 here and only the b2/b4 ones are 7.
-        for name, (cmin, cmax, flameout) in self.GATED.items():
+        for name, (cmin, cmax, _fn, extra_stage) in self.GATED.items():
             with self.subTest(spec=name):
                 count = load_spec(name)["expectations"]["recordings"]["count"]
                 self.assertEqual(cmin, count["min"])
                 self.assertEqual(cmax, count["max"])
-                self.assertEqual(8 if flameout else 7, cmin,
-                                 "flameout-staging specs floor at 8, the others at 7")
+                self.assertEqual(8 if extra_stage else 7, cmin,
+                                 "a spec that commands a debris-producing stage drop "
+                                 "beyond ignition floors at 8, the others at 7")
                 self.assertGreater(cmin, 1, "min = 1 is the vacuity this gate removes")
 
-    def test_the_flameout_split_matches_the_missions_on_disk(self):
-        # Guards the table above against mission-wiring drift: b5_decide is what
-        # produces the 8th recording, so which specs floor at 8 is decided by
-        # which missions call it.
-        for name, (_lo, _hi, flameout) in self.GATED.items():
+    def test_the_floor_split_matches_the_decide_functions_on_disk(self):
+        # Guards the table against mission-wiring drift, in BOTH directions: which
+        # decide function each spec drives, and whether that function actually
+        # commands an extra stage drop. Keying on `_b5_flameout_stage` alone is
+        # what floored B4 one too low on the first cut.
+        with open(os.path.join(HARNESS_ROOT, "missions", "lib", "mlib.py"),
+                  encoding="utf-8") as fh:
+            mlib_src = fh.read()
+
+        def decide_body(fn):
+            start = mlib_src.index("def %s(" % fn)
+            return mlib_src[start:mlib_src.index("\ndef ", start + 10)]
+
+        for name, (_lo, _hi, fn, extra_stage) in self.GATED.items():
             with self.subTest(spec=name):
                 mission = load_spec(name)["driver"]["mission"]
-                path = os.path.join(HARNESS_ROOT, "missions", "%s.py" % mission)
-                with open(path, encoding="utf-8") as fh:
-                    body = fh.read()
-                self.assertEqual(flameout, "mlib.b5_decide" in body)
+                with open(os.path.join(HARNESS_ROOT, "missions", "%s.py" % mission),
+                          encoding="utf-8") as fh:
+                    shell = fh.read()
+                self.assertIn("mlib.%s" % fn, shell,
+                              "%s no longer drives %s" % (name, fn))
+                body = decide_body(fn)
+                # One ACTIVATE_STAGE is launch ignition; a second (or a flameout
+                # watchdog call) is what adds the 8th recording.
+                stages = body.count("ACTION_ACTIVATE_STAGE")
+                drops = stages > 1 or "_b5_flameout_stage(" in body
+                self.assertEqual(extra_stage, drops,
+                                 "%s: %s has %d ACTIVATE_STAGE and flameout=%s"
+                                 % (name, fn, stages, "_b5_flameout_stage(" in body))
 
     def test_every_spec_claiming_the_cell_carries_the_token(self):
         # REVERSE direction, and the one the first cut missed entirely: adding

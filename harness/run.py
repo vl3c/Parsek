@@ -2700,11 +2700,18 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
         # the FREE check agree with it. Deliberately AFTER the plan print, so the
         # author still gets the plan they asked for, and non-zero so a script can
         # gate on it.
+        # Warnings are surfaced too, and bug_ids hoisted out of the loop, so this
+        # reports EXACTLY what the real path reports rather than a subset - a spec
+        # that looks cleaner on dry-run than on the real run is the same class of
+        # gap this block was added to close.
+        dry_bug_ids = _load_bug_ids()
         dry_errors = 0
         for spec in selected:
             schemas, schema_errors = resolve_mission_schemas(spec, logger)
-            problems = list(hlib.validate_spec(
-                spec, registry, _load_bug_ids(), schemas).errors) + schema_errors
+            validation = hlib.validate_spec(spec, registry, dry_bug_ids, schemas)
+            for w in validation.warnings:
+                logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
+            problems = list(validation.errors) + schema_errors
             for problem in problems:
                 logger.error("Select", "spec invalid id=%s: %s"
                              % (spec.get("id"), problem))

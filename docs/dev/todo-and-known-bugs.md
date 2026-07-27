@@ -53,14 +53,22 @@ recording regression. **Rule: presence in source is not reachability on a profil
 Trace the call chain or grep an archived KSP.log before pinning** - the discipline
 this entry already prescribed for the tokens it declined to claim.
 
-**`min` is per-mission, not one number.** `B5`/`B6`/`B7` drive `mlib.b5_decide`,
-which reaches `_b5_flameout_stage` and produces an 8th recording -> floor 8 (B5 and
-B7 each have four archived runs at 8; B6 is inferred from the shared decide
-function). `B2`/`B4` drive `b2_decide` / `b4_decide`, which do not -> floor 7. The
-first cut used 7 everywhere, which on an 8-population spec is exactly the value
-`B11`/`B12` record as **considered and rejected**: "7 is the exact count a single
-dropped recording would produce, so a floor of 7 would blind the only numeric guard
-on this run to the regression class it exists to catch."
+**`min` is per-mission, and the rule is not the flameout watchdog.** The floor
+follows whether the mission commands a debris-producing stage drop BEYOND launch
+ignition. `B5`/`B6`/`B7` drop a flameout-staged core (`_b5_flameout_stage`, reached
+only from `b5_decide`) -> 8; B5 and B7 each have four archived runs at 8, B6 is
+inferred from the shared decide function. `B4` drops its service stage via an
+`ACTION_ACTIVATE_STAGE` on the SOLE transition into `B4_REENTRY` -> also 8, and
+`run.py` judges expectations only on a driver-valid non-short-circuited run, so a
+B4 that never reached REENTRY is SKIPPED rather than judged under a lower floor.
+Only `B2` stages once, at ignition -> 7 (structural: `mlib.py:401-405` records that
+the spent core never autostages, because MechJeb autostage fires only on EMPTY
+stages and the Kerbal X core keeps residual fuel).
+The first cut used 7 everywhere; the second kept B4 at 7 by keying on
+`_b5_flameout_stage` alone. Both left the exact value `B11`/`B12` record as
+**considered and rejected**: "7 is the exact count a single dropped recording would
+produce, so a floor of 7 would blind the only numeric guard on this run to the
+regression class it exists to catch."
 
 **Corrections to the roadmap's R1 section, found by building it:**
 - **The tokens are NOT all `ParsekLog.Verbose`.** All four `BackgroundRecorder`

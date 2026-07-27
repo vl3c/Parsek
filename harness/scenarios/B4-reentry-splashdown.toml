@@ -70,11 +70,13 @@ landedSituations          = ["LANDED", "SPLASHED"]
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
 # D3 parent-anchored-debris: gated by the debris-child-creation token below.
-# The claim is sound because BOTH creation sites stamp the anchor contract
-# UNCONDITIONALLY - ParsekFlight.CreateBreakupChildRecording calls
-# Recording.ApplyParentAnchorContract for debris and controlled children alike
-# (ParsekFlight.cs:7166) - so "a debris child recording was created" implies
-# "parent-anchored". Claimed here and not before because presence had no gate at
+# The claim is sound because both creation sites CALL
+# Recording.ApplyParentAnchorContract unconditionally - for debris and controlled
+# children alike (ParsekFlight.cs:7166) - and the helper's only no-op is an empty
+# parent id, which cannot occur at either call site (ProcessBreakupEvent returns
+# at ParsekFlight.cs:7446 when the active recording id is null/empty, and the BG
+# site passes the continuation-or-parent id). So "a debris child recording was
+# created" implies "parent-anchored" on these paths. Claimed here and not before because presence had no gate at
 # all: the count window's old min of 1 admitted the total loss of the population.
 # NOTE the token gates CREATION, not the anchor RESOLVING correctly at playback;
 # the analyzer's INV rules own malformation, this owns absence.
@@ -97,17 +99,33 @@ allowedAnomalies = []
 # WATCH-4 rationale as B2's max 8) + 1 for the deorbited service stage B4 stages
 # off before reentry.
 #
-# MIN 1 -> 7 (autotest-roadmap R1). B4 drives `mlib.b4_decide`, which does NOT
-# reach `_b5_flameout_stage`, so its GUARANTEED floor is the same as B2's:
-# 1 root + 6 boosters = 7. The deorbited service stage this spec stages off
-# before reentry is an ADDITIONAL recording above that floor, not part of it,
-# which is why max stays 9.
-# NOT MEASURED: no archived post-82398e157 B4 count exists (its green runs did
-# not collect logs), so 7 is the structural floor rather than a measured pin.
-# An operator run that collects logs should RE-PIN this from the observed
-# recordings.count - very likely to 8 - rather than leaving it at the floor.
+# MIN 1 -> 8 (autotest-roadmap R1, raised from 7 on review). B4 drives
+# `mlib.b4_decide`, which does NOT reach `_b5_flameout_stage` - but the flameout
+# watchdog is not the only thing that drops a recorded stage. `b4_decide` issues
+# TWO `ACTION_ACTIVATE_STAGE`s: one at launch ignition, and one as part of the
+# SOLE transition out of B4_DEORBIT into B4_REENTRY, whose own comment reads
+# "the service stage becomes recorded debris". There is no other path into
+# B4_REENTRY; every other branch is stay-or-flake. And `run.py` evaluates
+# expectations only for a driver-valid, non-short-circuited run
+# (`if driver_valid and not short_circuited`), so a run that never reached
+# REENTRY has its count SKIPPED rather than judged. Every run this window ever
+# judges has therefore staged, making the judged population
+# 1 root + 6 boosters + 1 service stage = 8.
+# The service stage is a Kerbal X orbital stage, comfortably past
+# `ShouldRecordDebris` (>= 3 parts OR >= 0.5 t), so it records.
+# The first cut floored this at 7 on the grounds that the service stage is
+# "additional, not part of the floor". That was wrong in the direction this whole
+# change exists to close: it left the exact one-below-population value B11/B12
+# record as considered-and-rejected. It was also inconsistent - B6 was raised to
+# 8 on an inference from a CONDITIONAL watchdog, while B4 was left at 7 despite
+# an UNCONDITIONAL commanded action in its own decide function.
+# NOT MEASURED: no archived post-82398e157 B4 count was available when this was
+# written. `harness/results/*B4*.json` carries
+# `verifiers.expectations.observed.recordings.count` on every run including
+# PASS, so an operator can convert this structural derivation into a measurement
+# at zero flight cost - do that before trusting it further.
 # Never widen back toward 1.
-count = { min = 7, max = 9 }
+count = { min = 8, max = 9 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
@@ -115,11 +133,19 @@ count = { min = 7, max = 9 }
 # missing population).
 #
 # THE ALTERNATION IS DELIBERATE, and the first draft of this gate got it wrong.
-# Parsek creates a debris child recording at exactly TWO sites, and which one
-# fires depends on whether the parent was FOREGROUND or BACKGROUND at the split:
+# TWO debris-child creation sites are reachable on this profile, and which one
+# fires depends on whether the parent was FOREGROUND or BACKGROUND at the split.
+# (A third exists - the parent-continuation debris recording at
+# BackgroundRecorder.cs:638, logging `Parent continuation is debris, TTL set:` -
+# but it needs a background split of a Generation-0 debris parent, which
+# `ShouldSkipForCascadeCap` refuses at Generation >= 1 with
+# MaxRecordingGeneration = 1. It cannot fire here. Stated because the first
+# draft's error WAS an absolute enumeration asserted from a grep;
+# Source/Parsek.Tests/DebrisParentAnchorContractTests.cs is the maintained list.)
 #   - foreground (this profile): ParsekFlight.ProcessBreakupEvent ->
 #     CreateBreakupChildRecording, logging `ProcessBreakupEvent: debris child
-#     created: pid=` (Info, tag Coalescer, ParsekFlight.cs:7668).
+#     created` (Info, tag Coalescer, ParsekFlight.cs:7668; the pattern stops
+#     before `: pid=` deliberately, so a message-format tweak cannot red it).
 #   - background: BackgroundRecorder.RegisterChildRecordingsFromSplit, logging
 #     `Child recording created (debris, TTL=60s):` (Info, BackgroundRecorder.cs:1177).
 # The Kerbal X sheds its boosters while it is the ACTIVE focused vessel, and
