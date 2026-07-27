@@ -287,8 +287,11 @@ commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
 2026-07-25, as is the Mun/Minmus LANDING lane (B13/B14: a recording that ENDS on
 foreign soil and is COMMITTED there); B15-eve-flyby is green and B16-eve-orbit
 is committed but not yet flown. PLAYBACK is no longer a blind spot either:
-S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 83 of
-241 registry cells claimed by at least one scenario. The 83 is RECOMPUTED from
+S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 84 of
+241 registry cells claimed by at least one scenario (83 at the 2026-07-26
+recompute; +1 for D3 `parent-anchored-debris`, claimed 2026-07-27 when the five
+Kerbal X flights gained the debris-population token and a measured `count.min`).
+That 84 is RECOMPUTED from
 `hlib.compute_coverage` over the 38 committed specs + the registry at this
 merge, not carried forward from either side: the "52" this sentence used to
 print had drifted across many spec additions (it predates the EVA, B-DOCK,
@@ -432,9 +435,10 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   does not model reds instead of quietly shrinking a total.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 83 / 241 registry cells claimed (the growth metric),
-  recomputed 2026-07-26 through `hlib.compute_coverage` over the 38 committed
-  specs + the merged registry. The green-backed subset is the OTHER half of
+- Coverage ledger: 84 / 241 registry cells claimed (the growth metric),
+  recomputed 2026-07-27 through `hlib.compute_coverage` over the 38 committed
+  specs + the merged registry (83 at the 2026-07-26 recompute; D3
+  `parent-anchored-debris` is the cell R1's debris gate added). The green-backed subset is the OTHER half of
   this metric and needs the run archive, which is gitignored
   (`harness/results/*.json`, `harness/coverage/coverage.{json,txt}`), so
   re-derive it on a checkout that has one; last measured 2026-07-25 at 58 of

@@ -9,10 +9,14 @@ REAL on-disk registry + sample specs where a placement/parse bug could only be
 caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 """
 
+import contextlib
 import copy
+import io
 import os
 import re
+import shutil
 import sys
+import tempfile
 import tomllib
 import unittest
 
@@ -4871,3 +4875,557 @@ class MisplacedAllowedAnomaliesRejectionTests(unittest.TestCase):
         self.assertIn("polyline-orbit-overlap", body,
                       "the dead exception must stay documented, not vanish")
         self.assertIn("NEVER", body)
+
+
+class LogContractPatternCompilabilityTests(unittest.TestCase):
+    """`logContracts` patterns are REGEXES, and the natural way to write a KSP.log
+    token containing metacharacters is the broken way.
+
+    Found 2026-07-27 authoring the R1 debris gate. The background emit is
+    `Child recording created (debris, TTL=60s): recId=...`, and pasting it
+    verbatim into `required` yields `re.error: missing ), unterminated subpattern`.
+    `evaluate_expectations` already CATCHES that and turns it into a mismatch, so
+    nothing crashes - but it runs on the COLLECTED log, i.e. after the flight. On
+    B13 that is its measured 2,825 s p50 spent to learn the author mistyped a
+    pattern, and the red reads `invalid regex` rather than naming a Parsek defect.
+    `validate_spec` rejects it, and `run.py --dry-run` now runs that validation
+    (it used to return 0 before reaching it - see the dry-run cell below)."""
+
+    def _spec_with_patterns(self, facet, patterns):
+        spec = load_spec("B2-lko-ascent.toml")
+        spec["expectations"]["logContracts"][facet] = patterns
+        return spec
+
+    def test_unescaped_paren_in_required_is_rejected(self):
+        spec = self._spec_with_patterns(
+            "required", ["Recording started", "Child recording created (debris, TTL="])
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok, "an uncompilable required pattern must REJECT")
+        hit = [e for e in v.errors if "not a valid regex" in e]
+        self.assertEqual(1, len(hit))
+        self.assertIn("Child recording created (debris, TTL=", hit[0])
+
+    def test_the_error_carries_the_fix_not_just_the_diagnosis(self):
+        spec = self._spec_with_patterns(
+            "required", ["Child recording created (debris, TTL="])
+        msg = [e for e in hlib.validate_spec(spec, load_registry()).errors
+               if "not a valid regex" in e][0]
+        self.assertIn("re.search", msg)              # WHY it is a regex at all
+        self.assertIn(r'"\\("', msg)                 # the literal escape to write
+        self.assertIn("TOML basic", msg)             # ...and in WHICH string kind
+        self.assertIn("unterminated subpattern", msg)
+
+    def test_forbidden_patterns_are_checked_too(self):
+        # NOTE the reason is NOT "a broken forbidden pattern silently passes" -
+        # evaluate_expectations has an explicit `except re.error` that reds it
+        # (verified below). The reason is the same as for `required`: it reds
+        # AFTER the flight instead of before it.
+        spec = self._spec_with_patterns("forbidden", ["\\[Parsek\\]\\[ERROR\\](unclosed"])
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("logContracts.forbidden" in e and "not a valid regex" in e
+                            for e in v.errors))
+        broken = {"logContracts": {"forbidden": ["\\[Parsek\\](unclosed"]}}
+        self.assertEqual("FAIL", hlib.evaluate_expectations(broken, 1, "x").status)
+
+    def test_committed_metacharacter_patterns_still_validate(self):
+        # The gate must not punish CORRECT escaping. These are committed,
+        # load-bearing and deliberately full of metacharacters.
+        spec = self._spec_with_patterns("required", [
+            r"CommitTreeFlight terminal: rec=\w+ terminalState=Destroyed terminalOrbitBody=\(null\)",
+            r"Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
+            r"Materialize: 1 dormant route\(s\) materialized",
+        ])
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+
+    def test_type_guards_reject_malformed_facets(self):
+        # Both isinstance guards were uncovered on the first cut: deleting either
+        # left the whole 740-cell suite green.
+        for bad, needle in ((["ok", 5], "must be a string"),
+                            ({"a": 1}, "must be a list")):
+            with self.subTest(bad=bad):
+                spec = self._spec_with_patterns("forbidden", bad)
+                v = hlib.validate_spec(spec, load_registry())
+                self.assertFalse(v.ok)
+                self.assertTrue(any(needle in e for e in v.errors), v.errors)
+
+    def test_an_absent_facet_is_legal(self):
+        # Guards the `if patterns is None: continue` branch. Deleting it would
+        # reject every spec that omits `forbidden` - all 38 happen to declare
+        # both, so nothing else notices.
+        spec = load_spec("B2-lko-ascent.toml")
+        del spec["expectations"]["logContracts"]["forbidden"]
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+        spec["expectations"]["logContracts"]["required"] = []
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+
+    def test_every_committed_spec_validates_through_the_real_gate(self):
+        # Drives hlib.validate_spec rather than re-implementing re.compile. NOTE
+        # what this does and does not do: it is a SWEEP, not a gate-detector.
+        # Deleting the production gate leaves it GREEN, because all 38 committed
+        # specs are valid either way - the cells above are what red on deletion.
+        # The first cut's comment claimed otherwise; that over-claim is the same
+        # class of error that let the wrong token ship, so it is corrected rather
+        # than left for the next reader to trust.
+        registry = load_registry()
+        broken = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            for err in hlib.validate_spec(load_spec(name), registry).errors:
+                if "not a valid regex" in err or "logContracts" in err:
+                    broken.append("%s: %s" % (name, err))
+        self.assertEqual([], broken)
+
+    def _dry_run_exit_code(self, mutate=None):
+        """Drive the REAL `run.run(... --dry-run)` over a scratch scenarios dir.
+
+        In-process and launches nothing (the dry-run branch returns before any
+        instance is resolved), so this is a behavioural assertion rather than a
+        grep over the function's source. It has to be: the first cut of this cell
+        searched `inspect.getsource` for the substrings "validate_spec" and
+        "return 1", and a reviewer defeated it twice - once with
+        `if False and dry_errors:` and once by deleting the block and leaving a
+        TODO comment naming both substrings. Both restored the original defect
+        and both stayed green.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in os.listdir(SCENARIOS_DIR):
+                if name.endswith(".toml"):
+                    shutil.copy(os.path.join(SCENARIOS_DIR, name), os.path.join(tmp, name))
+            target = os.path.join(tmp, "B2-lko-ascent.toml")
+            if mutate is not None:
+                with open(target, encoding="utf-8") as fh:
+                    body = fh.read()
+                with open(target, "w", encoding="utf-8") as fh:
+                    fh.write(mutate(body))
+            # Also redirect the harness log, which run.run() mints per invocation:
+            # without this every suite run drops another
+            # harness/results/<ts>_harness.log on disk, unbounded. And swallow the
+            # plan print, which is 2 full ACTION PLAN blocks of unittest noise.
+            original_dir = run.SCENARIOS_DIR
+            original_log = run.default_harness_log_path
+            run.SCENARIOS_DIR = tmp
+            run.default_harness_log_path = lambda: os.path.join(tmp, "harness.log")
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return run.run(["--id", "B2-lko-ascent", "--dry-run", "--no-coverage"])
+            finally:
+                # NOTE these are process-global mutations, safe only because
+                # stdlib unittest runs sequentially. A future parallel runner
+                # would need this helper reworked, not just re-ordered.
+                run.SCENARIOS_DIR = original_dir
+                run.default_harness_log_path = original_log
+
+    def test_dry_run_exits_zero_on_a_valid_spec(self):
+        self.assertEqual(0, self._dry_run_exit_code())
+
+    def test_dry_run_exits_nonzero_on_an_uncompilable_pattern(self):
+        # The behaviour finding 2 of the review was about: --dry-run used to
+        # `return 0` straight after printing the plan, so a spec validate_spec
+        # rejects rendered a clean plan and exit 0 - while the in-code advice
+        # pointed authors at exactly that command.
+        def break_pattern(body):
+            broken = body.replace(
+                '"ProcessBreakupEvent: debris child created"',
+                '"Child recording created (debris, TTL="')
+            # Fail LOUD if the spec's token is reworded: a no-op replace would
+            # leave the spec valid and this cell would assert 1 == 0 with no clue
+            # why. The point is to feed validate_spec an UNCOMPILABLE pattern.
+            assert broken != body, "B2's debris token moved; update this mutation"
+            return broken
+        self.assertEqual(1, self._dry_run_exit_code(break_pattern))
+
+
+class DebrisPopulationGateTests(unittest.TestCase):
+    """R1: the five Kerbal X flights that produced a parent-anchored debris
+    population on every run and asserted nothing about it.
+
+    B2/B4/B5/B6/B7 all fly `fixtures/saves/b2-lko-craft` (the stock Kerbal X),
+    shed six radial boosters, and record each as a parent-anchored debris child.
+    Their count windows read `min = 1`, so the total loss of that population
+    still read PASS.
+
+    THE FIRST CUT OF THIS GATE PINNED THE WRONG TOKEN. It required only
+    `Child recording created (debris, TTL=` (BackgroundRecorder.cs:1177), which
+    is the BACKGROUND-split site. These flights shed boosters while the craft is
+    the ACTIVE focused vessel, and `RecordingTree.IsBackgroundMapEligible`
+    excludes `rec.RecordingId == ActiveRecordingId`, so `OnBackgroundPartJointBreak`
+    early-returns and that line never fires. All five would have red. The gate now
+    accepts EITHER creation site."""
+
+    # spec -> (min, max, decide fn, commands a debris-producing stage drop beyond
+    # launch ignition). The FLOOR follows the last field, NOT the decide function:
+    # B5/B6/B7 drop a flameout-staged core via _b5_flameout_stage, and B4 drops its
+    # service stage via an ACTION_ACTIVATE_STAGE on the sole path into B4_REENTRY.
+    # Only B2 stages once (at ignition) and therefore floors at 7. The first cut
+    # floored B4 at 7 by keying on _b5_flameout_stage alone.
+    GATED = {
+        "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
+        "B4-reentry-splashdown.toml": (8, 9, "b4_decide", True),
+        "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
+        "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
+        "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
+    }
+
+    # spec -> (measured count, the PASS run ids it was read from). Every value is
+    # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
+    # JSON, read 2026-07-27. Before this, B4's floor was structural-only and B6's
+    # was inferred from sharing b5_decide; both measured at exactly what was
+    # derived. The field only exists on runs after 72cf344fb (2026-07-25 06:48),
+    # which is why all seven run ids are from that morning.
+    #
+    # These are NOT re-derivable from the archived `logs/*/KSP.log` folders:
+    # run.py collects logs on NON-PASS only, so every archived B-lane folder is a
+    # run whose expectations were SKIPPED rather than judged
+    # (`if driver_valid and not short_circuited`). Their .prec counts are lower
+    # and are not this population.
+    MEASURED = {
+        "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
+        "B4-reentry-splashdown.toml": (8, ("2026-07-25_0828_B4-reentry-splashdown",)),
+        "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
+                                           "2026-07-25_0847_B5-mun-flyby")),
+        "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
+                                           "2026-07-25_0856_B6-minmus-flyby")),
+        "B7-duna-flyby.toml":         (8, ("2026-07-25_0916_B7-duna-flyby_a2",)),
+    }
+
+    CELL = "parent-anchored-debris"
+    # TIGHTENED from an EITHER-site alternation on 2026-07-27, against 60
+    # archived B-lane KSP.logs: the foreground token appears in 58 of them (the
+    # 2 without it are INVALID runs that recorded nothing), and the substring
+    # `Child recording created` appears in ZERO. See the block comment in any of
+    # the five gated specs for the full grep.
+    TOKEN = r"ProcessBreakupEvent: debris child created"
+
+    # The two literal lines the two creation sites emit.
+    EMITTED_FG = ("[Parsek][INFO][Coalescer] ProcessBreakupEvent: debris child created: "
+                  "pid=1140654732, name='Kerbal X Debris', recId=rec_ab12, alive=True")
+    EMITTED_BG = ("[Parsek][INFO][BgRecorder] Child recording created (debris, TTL=60s): "
+                  "recId=rec_ab12 vesselPid=1140654732 name='Kerbal X Debris' "
+                  "parentRecId=rec_root")
+
+    def _source(self, name):
+        with open(os.path.join(PARSEK_SOURCE_DIR, name), encoding="utf-8-sig") as fh:
+            return fh.read()
+
+    def test_each_gated_spec_requires_the_debris_token(self):
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                self.assertIn(self.TOKEN,
+                              load_spec(name)["expectations"]["logContracts"]["required"])
+
+    def test_the_token_matches_the_line_this_profile_actually_emits(self):
+        # The correspondence the whole gate rests on.
+        self.assertIsNotNone(re.search(self.TOKEN, self.EMITTED_FG))
+
+    def test_the_token_no_longer_matches_the_background_line(self):
+        # Not a property the gate NEEDS - it is a tripwire on the tightening.
+        # The alternation was removed on log evidence that the background site
+        # never fires on any B-lane profile. If someone restores it, this cell
+        # reds and makes them say why in a commit message, rather than the
+        # widening passing as a formatting change.
+        self.assertIsNone(re.search(self.TOKEN, self.EMITTED_BG))
+
+    # The sibling branch at both creation sites. A gate that matches these does
+    # not gate the debris population, so they are the decoy family every claimed
+    # token must REJECT (see the reverse check below).
+    CONTROLLED = (
+        "[Parsek][INFO][Coalescer] ProcessBreakupEvent: controlled child "
+        "created: pid=1, name='x', recId=r",
+        "[Parsek][INFO][BgRecorder] Child recording created (controlled, "
+        "no TTL): recId=r vesselPid=1 name='x'",
+    )
+
+    def test_the_token_does_not_match_a_controlled_child(self):
+        # If a booster ever took that branch, the run SHOULD red rather than pass
+        # on the wrong population.
+        for line in self.CONTROLLED:
+            self.assertIsNone(re.search(self.TOKEN, line))
+
+    def test_both_emit_sites_still_exist_at_Info(self):
+        # Asserts the message is a DIRECT argument of a ParsekLog.Info call. The
+        # earlier "nearest preceding ParsekLog" form was defeated by hoisting the
+        # message into a local (mutation 12); requiring adjacency fails SAFE - a
+        # refactor that separates them reds here, for free, instead of on a
+        # nightly.
+        # The two sites are asserted for DIFFERENT reasons, and only one is
+        # gate-bearing: the FOREGROUND site is what all five specs require
+        # without a verboseLogging pin, so a downgrade there reds five nightly
+        # flights. The BACKGROUND site is no longer in any pattern; it is
+        # asserted because the five spec comment blocks and the reachability
+        # cell below all cite it by name and level as the path NOT taken, and a
+        # silent rename would leave that evidentiary record pointing at nothing.
+        fg = self._source("ParsekFlight.cs")
+        self.assertRegex(
+            fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
+                r'debris child created: pid=')
+        bg = self._source("BackgroundRecorder.cs")
+        self.assertRegex(
+            bg, r'ParsekLog\.Info\(\s*"BgRecorder",\s*\n?\s*\$"Child recording '
+                r'created \(debris, TTL=\{DebrisTTLSeconds:F0\}s\)')
+        self.assertIn("internal const double DebrisTTLSeconds = 60.0;", bg)
+
+    @staticmethod
+    def _member_body(source, signature):
+        """The text from a C# member signature to the next member at that depth.
+
+        Needed because a bare `assertIn` over a 340 KB file cannot say WHICH
+        occurrence it matched. The reviewer defeated the first cut of the cell
+        below by renaming a local in `OnBackgroundPartJointBreak`: the guard
+        literal appears FOUR times in BackgroundRecorder.cs, so the assertion
+        passed on an unrelated one.
+        """
+        start = source.index(signature)
+        rest = source[start + len(signature):]
+        ends = [i for i in (rest.find("\n        internal "), rest.find("\n        private "),
+                            rest.find("\n        public ")) if i != -1]
+        body = rest[:min(ends)] if ends else rest
+        # Strip comments, BOTH syntaxes. Without this the assertions match CODE
+        # THAT WAS COMMENTED OUT: a reviewer deleted the ActiveRecordingId
+        # exclusion and left `// was: rec.RecordingId != ActiveRecordingId`
+        # behind, and the cell stayed green on the corpse of the thing it was
+        # pinning - then did it again one comment syntax deeper with `/* ... */`.
+        body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+        # `//` only outside a string literal, so a `//` inside one (a URL, say)
+        # cannot silently truncate real code out of the slice.
+        out = []
+        for line in body.split("\n"):
+            in_str = False
+            cut = len(line)
+            i = 0
+            while i < len(line) - 1:
+                ch = line[i]
+                if in_str:
+                    if ch == "\\":
+                        i += 2
+                        continue
+                    if ch == '"':
+                        in_str = False
+                elif ch == '"':
+                    in_str = True
+                elif ch == "/" and line[i + 1] == "/":
+                    cut = i
+                    break
+                i += 1
+            out.append(line[:cut])
+        return "\n".join(out)
+
+    def test_the_foreground_path_is_the_one_this_profile_takes(self):
+        # Pins the reachability facts the first cut got wrong, each INSIDE the
+        # member that owns it, so a change to either surfaces here with this
+        # explanation attached rather than as five red flights.
+        eligible = self._member_body(self._source("RecordingTree.cs"),
+                                     "internal bool IsBackgroundMapEligible(Recording rec)")
+        self.assertIn("rec.RecordingId != ActiveRecordingId", eligible,
+                      "the active vessel must stay out of BackgroundMap - this "
+                      "exclusion is why the background debris token cannot fire "
+                      "on a foreground booster drop")
+        joint_break = self._member_body(
+            self._source("BackgroundRecorder.cs"),
+            "internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)")
+        self.assertIn("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;",
+                      joint_break,
+                      "the BackgroundMap early-return is the guard that makes the "
+                      "background creation site unreachable from a foreground split")
+
+    def test_the_anchor_contract_call_is_unconditional_on_the_foreground_path(self):
+        # Why "a debris child was created" is allowed to buy a REFERENCE-FRAME
+        # cell: the same function calls ApplyParentAnchorContract for EVERY child
+        # it makes. "Unconditional" was in the first cut's name and nowhere in its
+        # assertion - a reviewer wrapped the call in `if (isDebris)` and it stayed
+        # green, falsifying the premise while satisfying the substring.
+        #
+        # Two structural checks together cover both ways to add a condition:
+        # brace depth catches a braced `if { ... }`, and requiring the statement
+        # to START the line catches a single-line `if (x) Call();`.
+        call = "Recording.ApplyParentAnchorContract(childRec, parentRecordingId);"
+        body = self._member_body(
+            self._source("ParsekFlight.cs"),
+            "internal static Recording CreateBreakupChildRecording(")
+        idx = body.index(call)
+        line_start = body.rindex("\n", 0, idx) + 1
+        self.assertEqual(call, body[line_start:idx + len(call)].strip(),
+                         "the call must be a bare statement, not the tail of an "
+                         "inline `if (...) Call();`")
+        depth = body.count("{", 0, idx) - body.count("}", 0, idx)
+        self.assertEqual(1, depth,
+                         "the call must sit at the method's top level, not inside "
+                         "a conditional block (depth %d)" % depth)
+        # CONTROL FLOW, not just syntax. The two checks above cover both ways to
+        # WRAP the call in a condition; a reviewer then skipped it a third way,
+        # with `if (!isDebris) return childRec;` immediately above - depth still
+        # 1, statement still starting its line, premise still falsified. Any
+        # early return before the call means some children are not stamped.
+        preceding = body[:idx]
+        self.assertNotIn("return", preceding,
+                         "no early return may precede the anchor stamp - the cell's "
+                         "premise is that EVERY child this method makes is stamped, "
+                         "which is what lets a creation token buy a reference-frame "
+                         "coverage cell")
+
+    def test_no_gated_spec_relies_on_verbose_logging_for_it(self):
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                steps = load_spec(name)["driver"].get("steps", [])
+                self.assertEqual([], [s for s in steps
+                                      if (s or {}).get("args", {}).get("name") == "verboseLogging"])
+
+    def test_floors_match_the_per_mission_derivation(self):
+        # The floor is NOT one number: it depends on whether the spec's decide
+        # function reaches _b5_flameout_stage (which adds an 8th recording).
+        # B11/B12 rejected min=7 for THEIR 8-population runs because 7 is exactly
+        # what one dropped recording looks like; that reasoning is why the
+        # b5_decide specs are 8 here and only the b2/b4 ones are 7.
+        for name, (cmin, cmax, _fn, extra_stage) in self.GATED.items():
+            with self.subTest(spec=name):
+                count = load_spec(name)["expectations"]["recordings"]["count"]
+                self.assertEqual(cmin, count["min"])
+                self.assertEqual(cmax, count["max"])
+                self.assertEqual(8 if extra_stage else 7, cmin,
+                                 "a spec that commands a debris-producing stage drop "
+                                 "beyond ignition floors at 8, the others at 7")
+                self.assertGreater(cmin, 1, "min = 1 is the vacuity this gate removes")
+
+    def test_every_floor_admits_its_measured_count(self):
+        # The cell that converts this gate from derived to measured. Each spec's
+        # window must actually admit the count a green run of THAT spec produced,
+        # and the floor must not sit below it either - a floor under the measured
+        # population is the one-below-population blind spot B11/B12 reject, and a
+        # floor above it would red every green run.
+        self.assertEqual(sorted(self.GATED), sorted(self.MEASURED),
+                         "every gated spec needs a measured count")
+        for name, (measured, run_ids) in self.MEASURED.items():
+            with self.subTest(spec=name):
+                self.assertTrue(run_ids, "a measurement needs a run id to cite")
+                count = load_spec(name)["expectations"]["recordings"]["count"]
+                self.assertEqual(
+                    measured, count["min"],
+                    "%s: measured %d on %s but floors at %d. The MEASUREMENT "
+                    "wins: re-pin count.min to it and say so in the spec, do not "
+                    "widen the window." % (name, measured, run_ids[0], count["min"]))
+                self.assertLessEqual(
+                    measured, count["max"],
+                    "%s: measured %d, above max %d" % (name, measured, count["max"]))
+
+    def test_each_spec_comment_cites_the_run_it_was_measured_from(self):
+        # Rule learned the hard way on this branch: a comment block that reads as
+        # verified is the thing the next reviewer trusts instead of re-deriving.
+        # If a floor claims a measurement, the run id has to be IN the spec, so
+        # the claim is checkable without this table.
+        for name, (_measured, run_ids) in self.MEASURED.items():
+            with self.subTest(spec=name):
+                body = open(os.path.join(SCENARIOS_DIR, name), encoding="utf-8").read()
+                self.assertTrue(
+                    any(r in body for r in run_ids),
+                    "%s cites no measured run id; expected one of %s"
+                    % (name, ", ".join(run_ids)))
+
+    def test_the_floor_split_matches_the_decide_functions_on_disk(self):
+        # Guards the table against mission-wiring drift, in BOTH directions: which
+        # decide function each spec drives, and whether that function actually
+        # commands an extra stage drop. Keying on `_b5_flameout_stage` alone is
+        # what floored B4 one too low on the first cut.
+        with open(os.path.join(HARNESS_ROOT, "missions", "lib", "mlib.py"),
+                  encoding="utf-8") as fh:
+            mlib_src = fh.read()
+
+        def decide_body(fn):
+            start = mlib_src.index("def %s(" % fn)
+            return mlib_src[start:mlib_src.index("\ndef ", start + 10)]
+
+        for name, (_lo, _hi, fn, extra_stage) in self.GATED.items():
+            with self.subTest(spec=name):
+                mission = load_spec(name)["driver"]["mission"]
+                with open(os.path.join(HARNESS_ROOT, "missions", "%s.py" % mission),
+                          encoding="utf-8") as fh:
+                    shell = fh.read()
+                self.assertIn("mlib.%s" % fn, shell,
+                              "%s no longer drives %s" % (name, fn))
+                body = decide_body(fn)
+                # One ACTIVATE_STAGE is launch ignition; a second (or a flameout
+                # watchdog call) is what adds the 8th recording.
+                #
+                # LIMITATION, stated because the failure message would otherwise
+                # invite the wrong fix: this counts within the NAMED decide
+                # function only. If a commanded stage drop is refactored into a
+                # helper, `stages` falls to 1 and this cell reds - correctly, but
+                # the numbers alone read like "this spec should floor at 7". The
+                # remedy is to follow the action into the helper, NOT to lower a
+                # floor. b5_decide has the `_b5_flameout_stage(` backstop;
+                # b4_decide has none.
+                stages = body.count("ACTION_ACTIVATE_STAGE")
+                flameout = "_b5_flameout_stage(" in body
+                drops = stages > 1 or flameout
+                self.assertEqual(
+                    extra_stage, drops,
+                    "%s: %s has %d ACTION_ACTIVATE_STAGE site(s) and flameout=%s, "
+                    "so 'commands a stage drop beyond ignition' computes as %s but "
+                    "the table says %s. If a stage action moved into a HELPER, fix "
+                    "the scan (or this table's flag) - do NOT lower the spec's "
+                    "count.min, which is what the population actually is."
+                    % (name, fn, stages, flameout, drops, extra_stage))
+
+    def test_every_spec_claiming_the_cell_carries_the_token(self):
+        # REVERSE direction, and the one the first cut missed entirely: adding
+        # the claim to any spec with no token stayed green, which is precisely
+        # the "claim is not gate" fail-open the roadmap lists as risk 5.
+        offenders = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            if self.CELL not in (spec.get("dimensionsCovered", {}) or {}).get("D3", []):
+                continue
+            required = (spec.get("expectations", {}).get("logContracts", {}) or {}).get("required", [])
+            # SEMANTIC AND DISCRIMINATING. Two earlier forms of this check were
+            # each defeated: a substring match let through an `^`-anchored token
+            # that can never match a multi-line body (evaluate_expectations uses
+            # re.search with no re.MULTILINE), and a bare "matches the fixture"
+            # match let through `recId=`, which fires on any of these lines and
+            # gates nothing. So the pattern must match a debris-creation line AND
+            # reject both controlled-child lines - the same "must reject the decoy
+            # family" shape hlib.batch_contract_vacuity_gap already uses.
+            # EITHER creation line satisfies this, deliberately: the check is
+            # about the CLAIM being gated, not about which site fires. No
+            # committed spec currently uses the background form (all five gated
+            # ones tightened to the foreground token on 2026-07-27 log evidence),
+            # so that branch is presently unexercised by the corpus.
+            if not any((re.search(p, self.EMITTED_FG) or re.search(p, self.EMITTED_BG))
+                       and not any(re.search(p, decoy) for decoy in self.CONTROLLED)
+                       for p in required):
+                offenders.append(name)
+        self.assertEqual([], offenders,
+                         "a spec claims D3 %s with no token gating it" % self.CELL)
+
+    def test_the_claimed_cell_exists_in_the_registry(self):
+        self.assertIn(self.CELL, load_registry()["D3"]["values"])
+
+    def test_the_gate_bites_end_to_end(self):
+        spec = load_spec("B2-lko-ascent.toml")
+        exp = spec["expectations"]
+        good = "Recording started\n%s\nRecording stopped\n" % self.EMITTED_FG
+        self.assertEqual("PASS", hlib.evaluate_expectations(exp, 7, good).status)
+
+        no_debris = "Recording started\nRecording stopped\n"
+        r = hlib.evaluate_expectations(exp, 1, no_debris)
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("debris child created" in m for m in r.mismatches))
+        self.assertTrue(any("< min 7" in m for m in r.mismatches))
+
+    def test_the_old_window_would_have_passed_that_same_regression(self):
+        # Negative control: without the change, the identical log and count read
+        # PASS. This is what makes the fix load-bearing rather than decorative.
+        old = {"recordings": {"count": {"min": 1, "max": 8}},
+               "logContracts": {"required": ["Recording started", "Recording stopped"],
+                                "forbidden": [r"\[Parsek\]\[ERROR\]"]}}
+        self.assertEqual("PASS", hlib.evaluate_expectations(
+            old, 1, "Recording started\nRecording stopped\n").status)
+
+    def test_the_first_cut_token_alone_would_have_red_every_gated_spec(self):
+        # Records the defect the review caught, as an executable fact: the
+        # background-only token does not appear in a foreground-path log.
+        first_cut = r"Child recording created \(debris, TTL="
+        log = "Recording started\n%s\nRecording stopped\n" % self.EMITTED_FG
+        self.assertIsNone(re.search(first_cut, log))
+        self.assertIsNotNone(re.search(self.TOKEN, log))
