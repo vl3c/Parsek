@@ -1,0 +1,79 @@
+schema = 1
+id = "H12-switch-segment"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game SwitchSegment category has
+# never been driven by any committed spec. Five cells drive
+# MapFocusObjectOnSelectPatch's arming PREFIX gate against live
+# MapContextMenuOptions focus modes (owned vessel arms; unowned vessel, celestial
+# body, far-off CanSwitchVessels and null target all do NOT), and the sixth arms
+# and clears a StockActionIntentMarker on the live scenario and asserts nothing
+# leaks. This is the Map Switch-To trap .claude/CLAUDE.md documents at length, and
+# its gate lives in a Harmony prefix - a site only a running game exercises.
+description = "Run the in-game SwitchSegment category unattended: MapFocusObjectOnSelect prefix arming gate across focus modes, and stock-action intent arm/clear leaving no marker leak."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "switch-segment", "harmony", "H12"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: the gate cells pass
+# synthetic focus targets and the marker cell cleans up after itself.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SwitchSegment" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the six cells drive the switch-segment arming decision itself (D1
+# switch-segment). SANDBOX, FLIGHT-scene host (D14). NOT claimed:
+# switch-segment-noop-discard (no segment is recorded, so the no-op classifier
+# never runs) and no D5 chain-continuation-switch token - nothing is attached to a
+# tree here; only the decision to ARM is asserted.
+D1  = ["switch-segment"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H12-switch-segment.json: PASS on attempt 1,
+# 70 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+#  - total=6 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 6
+#    [InGameTest(Category = "SwitchSegment")] methods. Same per-file caveat as H9:
+#    that file DOES contain InGameAssert.Skip call sites - 4 in Ledger members, 1 in
+#    RouteLiveAnchor, 1 in TestRunnerIsolation - and none in a SwitchSegment one.
+#  - skipped=0 is DERIVED: all 6 carry Scene = GameScenes.FLIGHT and the batch runs
+#    at FLIGHT; none sets AllowBatchExecution = false; none of the 6 bodies, nor any
+#    helper they call, contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=6 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
+#    LOAD-BEARING: at any other scene all 6 scene-skip.
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=SwitchSegment scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1470,10 +1470,30 @@ def _pin_literal_int(tok: Optional[str]) -> Optional[int]:
 
 
 def _pin_literal_word(tok: Optional[str]) -> Optional[str]:
+    """A pinned ``category=`` / ``scene=`` token, when it is a plain literal.
+
+    The class admits ``-`` because C# category names really do carry one: the tree
+    has seven hyphenated categories (Pipeline-Anchor, Pipeline-Smoothing,
+    Pipeline-Frame, Pipeline-Outlier, Pipeline-Terrain, Pipeline-AnchorPropagate,
+    Pipeline-Anchor-BubbleEntry). Without it every one of them was structurally
+    UNPINNABLE: `resolve_batch_tally_pin` read category=None, `statically_checkable`
+    went False, and `CommittedBatchTallySourceSyncTests` rejected the spec with
+    "pins a BATCH_COMPLETE line with no literal category=/scene=" - a message that
+    blames the spec author for a limitation of this character class. The runtime
+    side never had the gap: _BATCH_RE reads `category=(?P<category>\\S+)`, so a real
+    hyphenated BATCH_COMPLETE line has always parsed correctly, and this only ever
+    disagreed with it on the static-pin path.
+
+    Widening is safe against mistaking a REGEX for a literal: `-` is a metacharacter
+    only inside a character class, and `[` / `]` are still excluded, so `[A-Z]-x`
+    stays non-literal and is reported as unpinned rather than silently read as the
+    seven-character category "[A-Z]-x". The hyphen is written last so it is a literal
+    member of the class rather than a range.
+    """
     if tok is None:
         return None
     t = _PIN_TOKEN_TAIL_RE.sub("", tok)
-    return t if re.fullmatch(r"[A-Za-z0-9_:]+", t) else None
+    return t if re.fullmatch(r"[A-Za-z0-9_:-]+", t) else None
 
 
 def resolve_batch_tally_pin(

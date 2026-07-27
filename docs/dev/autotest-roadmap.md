@@ -9,6 +9,17 @@ Written 2026-07-27 on branch `autotest-roadmap`. Every number below was measured
 this worktree at HEAD `1591aa59f` by the command named beside it. Nothing here was
 run against a real KSP instance: no `run.py`, no `provision.py`, no launch.
 
+
+> **RECONCILED 2026-07-27 after #1358 merged.** This document was written against
+> `main` at 38 scenarios / 8 driven categories and flagged, in the tracking table
+> above, that #1358 would shift its coverage and undriven-declaration counts. It has.
+> Every derived number below is re-derived at 52 scenarios / 22 driven categories,
+> NOT hand-adjusted: scenarios 38 -> 52, coverage 83 -> 96 of 241, Cause A
+> 414 tests / 89 categories -> 338 / 75. The RANKING and the causes are unchanged -
+> #1358 closed part of R4/R6/R8, it did not reorder anything. Where a section header
+> carried an old number it now carries the new one, with the pre-merge figure kept
+> inline so the delta stays legible.
+
 ## Baseline, and the lanes already in flight against it
 
 Every count in this file is measured at `1591aa59f` and **excludes work open in
@@ -18,7 +29,7 @@ of them land inside this roadmap's build order. Read the numbers as the state of
 
 | PR | Branch | Overlaps |
 |---|---|---|
-| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). Moves the scenario count 38 -> 52 and the driven-category count 8 -> 22, so the "83 of 241" denominator work and the Cause A "414 undriven declarations" both shift on merge. |
+| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). MERGED 2026-07-27; all 14 flown and PASS (805 s for the group). Moved the scenario count 38 -> 52, driven categories 8 -> 22, coverage 83 -> 96 of 241 (95 from this branch alone; the 96th is the D3 `parent-anchored-debris` cell R1's debris gate claimed on main, folded in at the merge), and Cause A 414 undriven declarations / 89 categories -> 338 / 75. Every figure in this doc is re-derived at the post-merge numbers. |
 | #1357 | `rewind-loop-lane` | **R3.** Re-tiers S1.5 and S4.1 from `operator` to `nightly` on the same measured premise this file argues (the fixture routes to FLIGHT), and adds an R1 rewind-loop scenario. If it merges first, R3 collapses to "read the first nightly result". |
 | #1359 | `eva4-failopen` | The EVA-4 mission-oracle fail-open listed as OPEN in the open-bugs table below. |
 | #1360 | `fix-refly-provisional` | A re-fly defect found by the rewind lane; no roadmap item, but it moves D9's live standing. |
@@ -39,38 +50,41 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 38 committed
+### Scenarios: 52 committed (was 38 pre-#1358)
 
-`ls harness/scenarios/*.toml` returns **38** files, and `git ls-tree origin/main
-harness/scenarios/` returns the same 38. Earlier framing of this work said 39; the
-correct count is 38, which is also what `autotest-status.md` says ("all 38 committed
-scenarios"). Tiers, from `grep '^tier' harness/scenarios/*.toml`:
+`ls harness/scenarios/*.toml` returns **52** files, which is also what
+`autotest-status.md` says ("all 52 committed scenarios"). Earlier framing of this work
+said 39; the correct pre-#1358 count was 38. Tiers, from
+`grep '^tier' harness/scenarios/*.toml`:
 
 | Tier | n | Scheduled by |
 |---|---|---|
-| daily | 17 | `--cadence daily`, `--cadence nightly`, `--cadence weekly` |
-| nightly | 15 | `--cadence nightly`, `--cadence weekly` |
+| daily | 18 | `--cadence daily`, `--cadence nightly`, `--cadence weekly` |
+| nightly | 28 | `--cadence nightly`, `--cadence weekly` |
 | operator | 6 | nothing (excluded from every cadence in `hlib.CADENCE_TIERS`) |
 
-Zero specs carry `tier = "pending-fixture"`. All 38 declare
-`instanceProfile = "stock-minimal"`. All 38 declare `retry.policy = "once"`.
+The 14 H7-H20 batch-only specs land 13 in `nightly` and 1 in `daily`
+(`H18-pipeline-smoothing`, promoted on failure mode: it is the sole guard for the
+GameEvents subscription contract, where a dropped `Add()` is silent). Zero specs carry
+`tier = "pending-fixture"`. All 52 declare `instanceProfile = "stock-minimal"`. All 52
+declare `retry.policy = "once"`.
 
-### Coverage: 83 of 241 registry cells
+### Coverage: 96 of 241 registry cells (was 83 of 241 pre-#1358)
 
-`hlib.compute_coverage(specs, [], registry)` over the 38 committed specs and
+`hlib.compute_coverage(specs, [], registry)` over the 52 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 83   uncovered 158   expectedFailValues 0   xpass 0
+values 241   covered 96   uncovered 145   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered):
 
 | Dim | Subject | Total | Uncovered |
 |---|---|---:|---:|
-| D1 | recording lifecycle | 18 | **13** |
-| D2 | sampling | 4 | 3 |
-| D3 | reference frames | 7 | 6 |
+| D1 | recording lifecycle | 18 | **9** |
+| D2 | sampling | 4 | 1 |
+| D3 | reference frames | 7 | 4 |
 | D4 | track sections / optimizer | 12 | 6 |
 | D5 | tree topology | 12 | 7 |
 | D6 | playback / ghosts | 16 | 11 |
@@ -80,10 +94,10 @@ Per dimension (total / uncovered):
 | D10 | logistics / routes | 20 | 12 |
 | D11 | missions abstraction | 18 | 10 |
 | D12 | crew | 9 | 8 |
-| D13 | spawn positioning | 11 | **11** |
+| D13 | spawn positioning | 11 | 7 |
 | D14 | bodies / scenes | 32 | 18 |
 | D15 | timeline | 1 | 1 |
-| D16 | storage / sidecars | 13 | 10 |
+| D16 | storage / sidecars | 13 | 9 |
 | D17 | mod compatibility | 6 | **6** |
 | D18 | re-fly / interaction | 12 | 10 |
 | | | **241** | **158** |
@@ -118,51 +132,63 @@ feature and its entire automated proof is nominal.
 The single largest cause is not a missing capability. It is that we own roughly five
 times the test surface we execute and have no way to point the harness at it.
 
-### Cause A: written, never driven (414 tests, 89 categories)
+### Cause A: written, never driven (338 tests, 75 categories; was 414 / 89 pre-#1358)
 
 Measured with `hlib.parse_ingame_test_declarations` over every `.cs` under
 `Source/Parsek`:
 
 ```
 539 [InGameTest] declarations in 97 categories, 0 unresolved
-125 declarations in the 8 categories any spec drives
-414 declarations in the 89 categories nothing drives
+201 declarations in the 22 categories any spec drives (179 of them execute)
+338 declarations in the 75 categories nothing drives
 ```
 
-The 8 driven categories are `GameActionsHealth`, `GhostMap`, `GhostPlayback`,
-`MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`, `RouteRewindTimeline`.
+The 22 driven categories are the pre-#1358 eight - `GameActionsHealth`, `GhostMap`,
+`GhostPlayback`, `MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`,
+`RouteRewindTimeline` - plus the 14 that #1358 wired: `DataHealth`,
+`EvaSpawnPosition`, `FinalizeBackfill`, `FlightIntegration`, `GhostVisuals`,
+`IncompleteBallistic`, `KSP`, `Pipeline-Anchor`, `Pipeline-Smoothing`,
+`RecordingFinalization`, `SpawnHealth`, `SpawnRotation`, `SwitchSegment`,
+`TrajectoryMath`. The 201 / 179 split is because three of the pre-existing eight run
+at SPACECENTER where some members scene-skip; all 76 declarations the new group adds
+execute. Per-category detail, and the A/B/C triage of the 75 that remain, is in
+`autotest-ingame-category-inventory.md`.
 
-Scene reachability of the 89 undriven categories (a category is "reachable" when
+Scene reachability of the 75 undriven categories (a category is "reachable" when
 every member runs in FLIGHT, SPACECENTER, or scene-agnostic, because `LoadGame` can
-route to exactly those two scenes):
+route to exactly those two scenes), re-derived post-#1358:
 
-| Scenes present in the category | Categories |
-|---|---:|
-| FLIGHT only | 53 |
-| scene-agnostic only | 16 |
-| SPACECENTER only | 9 |
-| FLIGHT + SPACECENTER | 4 |
-| involves TRACKSTATION or MAINMENU | 7 |
+| Scenes present in the category | Categories | Pre-#1358 |
+|---|---:|---:|
+| FLIGHT only | 37 | 53 |
+| scene-agnostic only | 13 | 16 |
+| FLIGHT + SPACECENTER (+ agnostic) | 10 | 4 |
+| SPACECENTER only | 8 | 9 |
+| involves TRACKSTATION or MAINMENU | 7 | 7 |
 
-**82 undriven categories are reachable today on fixtures we already own.** Seven are
-not, because there is no seam route to TRACKSTATION or MAINMENU.
+**68 undriven categories are reachable today on fixtures we already own** (was 82).
+Seven are not, because there is no seam route to TRACKSTATION or MAINMENU - and that
+seven is UNCHANGED by #1358, which is the point: it wired only reachable categories,
+so the unreachable set is exactly as hard as it was. `TrackingStation` alone is 9
+batch-eligible tests stranded behind one missing seam verb.
 
 The D1-D9 blocks that are batch-allowed and reachable RIGHT NOW, with no code change
-and no new fixture:
+and no new fixture. Struck-through rows were CLOSED by #1358 and are kept so the
+remaining work is legible against the original list:
 
 | Category | Tests | Dimension cells it reaches |
 |---|---:|---|
-| `IncompleteBallistic` | 8 | D1 `ballistic-extrapolation`, `scene-exit-finalization` |
-| `FinalizeBackfill` | 7 | D1 `scene-exit-finalization` |
-| `RecordingFinalization` | 3 | D1 `finalization-cache` |
+| ~~`IncompleteBallistic`~~ | 8 | DRIVEN since #1358 by `H9` (live-proven 2026-07-27). D1 `ballistic-extrapolation`, `scene-exit-finalization` |
+| ~~`FinalizeBackfill`~~ | 7 | DRIVEN since #1358 by `H10` (live-proven 2026-07-27). D1 `scene-exit-finalization` |
+| ~~`RecordingFinalization`~~ | 3 | DRIVEN since #1358 by `H19` (live-proven 2026-07-27). D1 `finalization-cache` |
 | `FinalizeLimbo` | 2 | D1 finalization |
 | `Bug289` | 2 | D1 finalization |
-| `Pipeline-Anchor` | 7 | D3 `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` |
-| `TrajectoryMath` | 8 | D2 `threshold-debounce` |
+| ~~`Pipeline-Anchor`~~ | 7 | DRIVEN since #1358 by `H11` (live-proven 2026-07-27). D3 `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` |
+| ~~`TrajectoryMath`~~ | 8 | DRIVEN since #1358 by `H7` (live-proven 2026-07-27). D2 `threshold-debounce` |
 | `Optimizer` | 2 | D4 `env-body-split`, `surface-graze-suppression` |
 | `BackgroundSeeder` | 2 | D4 `seed-event-split` |
 | `Recording` | 1 | D5 `bg-on-rails` |
-| `SwitchSegment` | 6 | D1 `switch-segment` gate layer |
+| ~~`SwitchSegment`~~ | 6 | DRIVEN since #1358 by `H12` (live-proven 2026-07-27). D1 `switch-segment` gate layer |
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
 | `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
@@ -640,13 +666,19 @@ Flight? No.
 
 **R8. Drive D13, D6 and the D8 stragglers.** Roughly 15 specs, mostly free.
 
-- D13 spawn positioning is 11 of 11 uncovered and is NOT capability-blocked. 29 tests
-  already exist and self-site off `FlightGlobals.ActiveVessel` - 26 declare
-  `Scene = FLIGHT` and 3 are scene-agnostic (`SpawnHealth`), so all 29 run in a FLIGHT
-  batch: `SpawnRotation` (10), `TerrainClearance` (6), `SpawnHealth` (3),
-  `SpawnTerminalOrbit` (3), `SpawnCollision` (2), `Spawner` (2), `EvaSpawnPosition`
-  (2), `Pipeline-Terrain` (1). gloops-airshow routes to FLIGHT. This is the single
-  cheapest whole-dimension close available.
+- D13 spawn positioning is now **7 of 11 uncovered** (was 11 of 11) and is NOT
+  capability-blocked. 29 tests already exist and self-site off
+  `FlightGlobals.ActiveVessel` - 26 declare `Scene = FLIGHT` and 3 are scene-agnostic
+  (`SpawnHealth`), so all 29 run in a FLIGHT batch. #1358 wired three of the eight -
+  `SpawnRotation` (10, H8), `SpawnHealth` (3, H16), `EvaSpawnPosition` (2, H20) - and
+  claimed `surface-orbit-reseed`, `three-cycle-abandon`, `terrain-correction`,
+  `trajectory-walkback`. REMAINING here: `TerrainClearance` (6),
+  `SpawnTerminalOrbit` (3), `SpawnCollision` (2), `Spawner` (2), `Pipeline-Terrain`
+  (1) - 14 tests, all FLIGHT, all on a fixture we own. Note every one of the five
+  carries self-skip guards (see the inventory doc's bucket B4), which is why #1358
+  left them: the batch would run and skip. Reading their guard preconditions and
+  choosing a fixture that satisfies them is the actual remaining work, and it is
+  still the cheapest whole-dimension close available.
 - D6: `GhostLifecycle` (15 of 17; 2 are TRACKSTATION-scene and stay stranded until
   R12), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
   these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;

@@ -1,0 +1,84 @@
+schema = 1
+id = "H13-ksp-api-smoke"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game KSP category has never been
+# driven by any committed spec. Six smoke cells: the loaded scene is a valid enum
+# value, Kerbin exists in FlightGlobals.Bodies, PartLoader has parts,
+# ApplicationRootPath is set, an active vessel exists, and FlightCamera exists.
+#
+# BE HONEST ABOUT WHAT THIS IS WORTH. Individually these are trivial. Collectively
+# they are the FIXTURE CANARY: ActiveVesselExists + FlightCameraExists passing is a
+# direct, positive assertion that this save really took
+# TestCommandLoadGame.DecideLoadRoute's Focusable/FLIGHT route with a vessel in
+# hand. Every other H-series spec here INFERS that route rather than proving it,
+# and the B10 defect (a shipped daily scenario reading green while executing zero
+# tests) was exactly a wrong route assumption. This spec is where that assumption
+# is checked once per cadence, cheaply.
+description = "Run the in-game KSP category unattended: loaded-scene / Kerbin / PartLoader / root-path sanity plus the active-vessel and flight-camera assertions that prove the fixture took the Focusable FLIGHT load route."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "smoke", "fixture-canary", "H13"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: nothing here reads a
+# recording store.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "KSP" },                          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: this claims the environment axes and nothing else. There is no Parsek
+# behavior under test here - the subject is the loaded game state itself, so no D1
+# / D6 / D16 token would be truthful.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H13-ksp-api-smoke.json: PASS on attempt 1,
+# 50 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+#  - total=6 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 6
+#    [InGameTest(Category = "KSP")] methods.
+#  - skipped=0 is DERIVED: 4 are scene-agnostic and 2 carry
+#    Scene = GameScenes.FLIGHT; the batch runs at FLIGHT, so
+#    FilterSceneEligibleBatchCandidates drops none. None sets
+#    AllowBatchExecution = false. None of the 6 bodies, nor any helper they call,
+#    contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=6 follows.
+#  - scene=FLIGHT is INFERRED from the fixture, and this spec is the one that turns
+#    that inference into a MEASUREMENT: if the route were wrong, the two
+#    FLIGHT-scoped cells would scene-skip and this pin would red with
+#    total=6 passed=4 skipped=2, naming the real scene. That is the whole point of
+#    keeping the smoke category on a cadence.
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=KSP scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
