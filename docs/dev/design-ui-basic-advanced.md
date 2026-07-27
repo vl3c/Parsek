@@ -4,7 +4,7 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies the UI complexity mode: which surfaces Basic hides, how the gate is implemented, and the visibility-only guarantee.*
 
-**Status:** PLANNING (analysis complete, not implemented)
+**Status:** PLANNING (analysis complete, not implemented). Both blocking decisions are RESOLVED. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Ready to implement.
 **Version:** 0.1
 **Out of scope:** any change to recording, playback, logistics dispatch, or ledger behavior. This is a visibility gate only, see section 9.
 **Related docs:** `docs/dev/design-mission-abstractions.md` (Missions tab), `docs/parsek-timeline-design.md` (Timeline), `docs/parsek-logistics-supply-routes-design.md` (Logistics).
@@ -59,6 +59,7 @@ At no point did they need Recordings (raw per-recording table), Kerbals, Career,
 4. **One pure decision point.** Every gate call routes through one pure, Unity-free predicate so the split is unit-testable and greppable, rather than eight scattered `if` statements that drift.
 5. **Read-only panels are the first thing to cut.** A window that only reports state a player can find on stock screens is the cheapest thing to hide and the least missed.
 6. **Advanced is byte-identical to today.** The feature must not become an excuse to restyle the existing UI. Any improvement in section 17 ships as its own change.
+7. **Basic is a starting point, not a cage.** The goal is a UI a new player can take in at a glance, not the smallest possible UI. A feature the player should eventually discover and use stays visible in Basic even when it is not strictly required, because a button they grow into is how they learn the mod exists. This is what separates a surface that is HIDDEN (a raw table or a developer panel they would never grow into) from one that is merely NOT YET USED (Logistics). It is also why conditional "appear once used" visibility is rejected in section 15: a surface that materializes only after you already found the feature cannot teach you the feature is there.
 
 ---
 
@@ -136,7 +137,7 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 | Surface | Basic | Rationale |
 |---------|-------|-----------|
 | Timeline | **Keep** | The only access to rewind (`R`), fast-forward (`FF`), and `Warp to time`. Irreplaceable. |
-| Logistics | **Keep** | The only surface for supply routes. Broken-route red tint is a player-visible error channel. |
+| Logistics | **Keep** | The only surface for supply routes. Broken-route red tint is a player-visible error channel. Kept visible even for a player with zero routes, per philosophy 7: it is the button that teaches them supply routes exist. See section 10 for the rejected conditional-visibility variant. |
 | Settings | **Keep** | Hosts the mode toggle itself. Must always be reachable. |
 | Missions tab | **Keep** | The player-facing mission abstraction: name, loop period, Watch, Clone, Delete, Archive, include checkboxes, Log. Sufficient for all routine recording management. |
 | Recordings tab | **Hide** | The raw per-recording table (62 buttons, 13 toggles). Everything a normal player needs is expressed at the Mission level. This is the single largest complexity reduction available. |
@@ -261,17 +262,23 @@ Handled in `SettingsWindowUI` at the toggle site, delegating to `ParsekUI.OnUiCo
 3. Advanced -> Basic: for every surface in `HiddenSurfaces(Basic)` that owns a window, set `IsOpen = false` and call its `ReleaseInputLock()`. This matters: `ParsekUI.cs:2049-2050` shows input locks are released explicitly per window, and a window hidden while holding a lock would leave the player unable to click the game world.
 4. Basic -> Advanced: nothing to close. Windows reopen on demand with preserved state.
 
-### 7.3 First-run default
+### 7.3 First-run default (DECIDED)
 
-The naive default is a dilemma: defaulting to Basic hides windows an existing player already uses; defaulting to Advanced leaves new players with the complexity that prompted the feature.
+The governing rule: **the mode is a saved preference, and a default must never change what an existing player already sees.** Basic is the default only where there is nothing to change, which is a new install.
 
-**Recommendation.** Resolve the default from whether the save already has a Parsek footprint, reusing the detection concept `PreParsekBackup` already implements (an on-disk `Parsek/` directory or a populated `SCENARIO{name=ParsekScenario}` node):
+Resolution order:
 
-- No stored value AND no Parsek footprint -> `Basic` (a genuinely new player).
-- No stored value AND an existing footprint -> `Advanced` (an existing player updating; nothing they use disappears).
-- Stored value present -> use it, always.
+- **Stored value present -> use it, always.** This wins unconditionally. Once the player has a mode, no default logic runs again, in any version.
+- No stored value AND no Parsek footprint -> `Basic`. A genuinely new player, nothing to disrupt.
+- No stored value AND an existing Parsek footprint -> `Advanced`. An existing player updating into this feature; every window they used stays exactly where it was.
 
-This is `ResolveDefaultMode(bool saveHasParsekFootprint)`, pure and unit-testable. The simpler alternative (default Basic unconditionally) is one line but silently removes four windows from every existing install on update, which will read as a regression. The alternative is noted here so the decision is explicit rather than implied.
+The footprint test reuses the detection concept `PreParsekBackup` already implements: an on-disk `Parsek/` directory or a populated `SCENARIO{name=ParsekScenario}` node. That code treats the on-disk directory and the scenario node as authoritative and the marker file as a fast path only; the mode default follows the same authority order rather than introducing its own.
+
+This is `ResolveDefaultMode(bool saveHasParsekFootprint)`, pure and unit-testable (section 13.1).
+
+The rejected alternative was defaulting Basic unconditionally: one line, but it silently removes four windows from every existing install on update, which reads as a regression rather than a simplification. The requirement is not "make everyone start in Basic", it is "make Basic the starting point for people who have no history to lose".
+
+**Implication for phase 2.** The stored-value branch must be written and tested before the footprint branch, so that an absent key is the only path that can ever reach footprint resolution. A bug that lets footprint logic override a stored value would flip a player's UI on update, which is precisely the failure this decision exists to prevent. Covered by `StoredValueAlwaysWinsOverFootprint` in section 13.1.
 
 ### 7.4 Tab-index clamp
 
@@ -317,6 +324,7 @@ A grep gate is proposed in section 15 to enforce that the mode symbol appears on
 
 - Restyling or relayout of any window. Section 17 proposes improvements; each ships separately.
 - A per-window "show this window" checklist. Two named modes are the requested feature; a bespoke picker is more configuration, not less.
+- **Conditional "appear once used" visibility for Logistics** (show the button only after a route or candidate exists, the pattern Real Spawn Control uses for its InFlight / zero-candidate gating). Considered and REJECTED: it inverts philosophy 7. A player who has never made a supply route is exactly the player who needs to see that supply routes exist; a button that appears only after you found the feature cannot introduce you to it. Real Spawn Control can use that pattern because it is an Advanced-only surface whose audience already knows what it does. Do not revive this for Logistics without revisiting philosophy 7 first.
 - Per-save mode. The mode is a player preference, not save state.
 - A first-run onboarding panel (section 17.4), which is a separate feature with its own design.
 - Any third mode.
@@ -359,6 +367,7 @@ The existing `[UI]` tag is correct here; this feature introduces no new subsyste
 - **`BasicHidesExactlyTheDocumentedSet`** - `HiddenSurfaces(Basic)` equals the section 4 set exactly. Fails on silent scope drift in either direction.
 - **`BasicKeepsCoreLoopSurfaces`** - Timeline, Logistics, Settings, and TabMissions are visible in Basic. This is the philosophy-3 guard.
 - **`ResolveDefaultModeUsesFootprint`** - footprint true -> Advanced, false -> Basic.
+- **`StoredValueAlwaysWinsOverFootprint`** - a stored mode is returned unchanged for BOTH footprint values, including the stored-Advanced-on-a-fresh-save and stored-Basic-on-an-existing-save crossings. This is the section 7.3 guard: it fails if footprint logic is ever allowed to override a saved preference, which would flip a player's UI on update.
 - **`EverySurfaceIsDecided`** - reflection walk asserting `IsVisible` has an explicit case per enum value, so adding a `UiSurface` without a Basic decision fails the build rather than defaulting silently.
 - **`TabIndexClampsIntoRange`** - clamp helper over the Basic and Advanced tab arrays, including the index-1-into-Basic case.
 
@@ -402,15 +411,7 @@ New source files: `Source/Parsek/UI/UiComplexityMode.cs`, `Source/Parsek.Tests/U
 
 ## 15. Open Questions
 
-### 15.1 First-run default
-
-Section 7.3 recommends footprint-based resolution. Confirm before phase 2, since it determines what every existing player sees on update.
-
-### 15.2 Is Logistics genuinely Basic?
-
-The brief names Logistics as surely needed, and this doc follows that. Worth noting the counter-argument: supply routes are an opt-in subsystem, and a player who never creates a route never needs the window. A future refinement could show the Logistics button in Basic only once at least one route or candidate exists, which is the same conditional-visibility pattern Real Spawn Control already uses. Not proposed for v1.
-
-### 15.3 Timeline tier filters
+### 15.1 Timeline tier filters
 
 The Timeline has 10 toggles, several being tier filters. Whether those should collapse to a single dropdown in Basic is a within-window simplification, deliberately deferred out of v1 (which gates whole surfaces only). Flagged because Timeline is the window a Basic player uses most.
 
