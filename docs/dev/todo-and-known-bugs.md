@@ -77,8 +77,9 @@ regression class it exists to catch."
   `Sample rate changed: pid=` :1966) are `ParsekLog.Info`, as is the foreground
   `ProcessBreakupEvent: debris child created:`. The rest of that table is MIXED,
   not uniformly Verbose: `starting hysteresis timer` is Verbose at both sites, and
-  the `Part event:` family is 20 Verbose sites plus one Info
-  (`FlightRecorder.cs:3862`). Check the level per token, never per family.
+  the `Part event:` family is ~39 Verbose sites plus exactly one Info
+  (`FlightRecorder.cs:3862`) once `BackgroundRecorder.PartEventPolling.cs` is
+  counted too. Check the level per token, never per family.
 - **The target list named the wrong specs.** It listed B11/B12/B13/B14, which
   already carry `{8,8}` pins AND eight-token contracts (B11 even requires
   `terminalState=Destroyed`, gating debris terminals), and omitted B5/B6/B7,

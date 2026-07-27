@@ -10,10 +10,11 @@ caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 """
 
 import copy
-import inspect
 import os
 import re
+import shutil
 import sys
+import tempfile
 import tomllib
 import unittest
 
@@ -4957,9 +4958,13 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
 
     def test_every_committed_spec_validates_through_the_real_gate(self):
-        # Drives hlib.validate_spec rather than re-implementing re.compile, so
-        # deleting the production gate reds this cell. The first cut re-ran the
-        # production loop and stayed green with the gate removed - a tautology.
+        # Drives hlib.validate_spec rather than re-implementing re.compile. NOTE
+        # what this does and does not do: it is a SWEEP, not a gate-detector.
+        # Deleting the production gate leaves it GREEN, because all 38 committed
+        # specs are valid either way - the cells above are what red on deletion.
+        # The first cut's comment claimed otherwise; that over-claim is the same
+        # class of error that let the wrong token ship, so it is corrected rather
+        # than left for the next reader to trust.
         registry = load_registry()
         broken = []
         for name in sorted(os.listdir(SCENARIOS_DIR)):
@@ -4970,17 +4975,49 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
                     broken.append("%s: %s" % (name, err))
         self.assertEqual([], broken)
 
-    def test_dry_run_validates_instead_of_returning_zero_blind(self):
-        # run.py used to `return 0` immediately after printing the plan, so a
-        # --dry-run on a spec validate_spec rejects looked clean. The in-code
-        # advice pointed authors at exactly that command.
-        src = inspect.getsource(run.run)
-        plan = src.index("print_dry_run_plan(selected")
-        tail = src[plan:src.index("# Validate every selected spec", plan)]
-        self.assertIn("validate_spec", tail,
-                      "--dry-run must validate before returning")
-        self.assertIn("return 1", tail,
-                      "--dry-run must exit non-zero when a spec is invalid")
+    def _dry_run_exit_code(self, mutate=None):
+        """Drive the REAL `run.run(... --dry-run)` over a scratch scenarios dir.
+
+        In-process and launches nothing (the dry-run branch returns before any
+        instance is resolved), so this is a behavioural assertion rather than a
+        grep over the function's source. It has to be: the first cut of this cell
+        searched `inspect.getsource` for the substrings "validate_spec" and
+        "return 1", and a reviewer defeated it twice - once with
+        `if False and dry_errors:` and once by deleting the block and leaving a
+        TODO comment naming both substrings. Both restored the original defect
+        and both stayed green.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in os.listdir(SCENARIOS_DIR):
+                if name.endswith(".toml"):
+                    shutil.copy(os.path.join(SCENARIOS_DIR, name), os.path.join(tmp, name))
+            target = os.path.join(tmp, "B2-lko-ascent.toml")
+            if mutate is not None:
+                with open(target, encoding="utf-8") as fh:
+                    body = fh.read()
+                with open(target, "w", encoding="utf-8") as fh:
+                    fh.write(mutate(body))
+            original = run.SCENARIOS_DIR
+            run.SCENARIOS_DIR = tmp
+            try:
+                return run.run(["--id", "B2-lko-ascent", "--dry-run", "--no-coverage"])
+            finally:
+                run.SCENARIOS_DIR = original
+
+    def test_dry_run_exits_zero_on_a_valid_spec(self):
+        self.assertEqual(0, self._dry_run_exit_code())
+
+    def test_dry_run_exits_nonzero_on_an_uncompilable_pattern(self):
+        # The behaviour finding 2 of the review was about: --dry-run used to
+        # `return 0` straight after printing the plan, so a spec validate_spec
+        # rejects rendered a clean plan and exit 0 - while the in-code advice
+        # pointed authors at exactly that command.
+        def break_pattern(body):
+            return body.replace(
+                '"(ProcessBreakupEvent: debris child created'
+                '|Child recording created \\\\(debris, TTL=)"',
+                '"Child recording created (debris, TTL="')
+        self.assertEqual(1, self._dry_run_exit_code(break_pattern))
 
 
 class DebrisPopulationGateTests(unittest.TestCase):
@@ -5068,20 +5105,68 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 r'created \(debris, TTL=\{DebrisTTLSeconds:F0\}s\)')
         self.assertIn("internal const double DebrisTTLSeconds = 60.0;", bg)
 
-    def test_the_foreground_path_is_the_one_this_profile_takes(self):
-        # Pins the reachability fact the first cut got wrong, so a change to the
-        # BackgroundMap eligibility rule surfaces here with this explanation
-        # attached rather than as five red flights.
-        tree = self._source("RecordingTree.cs")
-        self.assertIn("rec.RecordingId != ActiveRecordingId", tree)
-        bg = self._source("BackgroundRecorder.cs")
-        self.assertIn("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;", bg)
+    @staticmethod
+    def _member_body(source, signature):
+        """The text from a C# member signature to the next member at that depth.
 
-    def test_the_anchor_contract_is_stamped_unconditionally_on_the_foreground_path(self):
+        Needed because a bare `assertIn` over a 340 KB file cannot say WHICH
+        occurrence it matched. The reviewer defeated the first cut of the cell
+        below by renaming a local in `OnBackgroundPartJointBreak`: the guard
+        literal appears FOUR times in BackgroundRecorder.cs, so the assertion
+        passed on an unrelated one.
+        """
+        start = source.index(signature)
+        rest = source[start + len(signature):]
+        ends = [i for i in (rest.find("\n        internal "), rest.find("\n        private "),
+                            rest.find("\n        public ")) if i != -1]
+        body = rest[:min(ends)] if ends else rest
+        # Strip line comments. Without this the assertions match CODE THAT WAS
+        # COMMENTED OUT: a reviewer deleted the ActiveRecordingId exclusion and
+        # left `// was: rec.RecordingId != ActiveRecordingId` behind, and the
+        # cell stayed green on the corpse of the thing it was pinning.
+        return "\n".join(line.split("//", 1)[0] for line in body.split("\n"))
+
+    def test_the_foreground_path_is_the_one_this_profile_takes(self):
+        # Pins the reachability facts the first cut got wrong, each INSIDE the
+        # member that owns it, so a change to either surfaces here with this
+        # explanation attached rather than as five red flights.
+        eligible = self._member_body(self._source("RecordingTree.cs"),
+                                     "internal bool IsBackgroundMapEligible(Recording rec)")
+        self.assertIn("rec.RecordingId != ActiveRecordingId", eligible,
+                      "the active vessel must stay out of BackgroundMap - this "
+                      "exclusion is why the background debris token cannot fire "
+                      "on a foreground booster drop")
+        joint_break = self._member_body(
+            self._source("BackgroundRecorder.cs"),
+            "internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)")
+        self.assertIn("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;",
+                      joint_break,
+                      "the BackgroundMap early-return is the guard that makes the "
+                      "background creation site unreachable from a foreground split")
+
+    def test_the_anchor_contract_call_is_unconditional_on_the_foreground_path(self):
         # Why "a debris child was created" is allowed to buy a REFERENCE-FRAME
-        # cell: the same function stamps the contract for every child it makes.
-        fg = self._source("ParsekFlight.cs")
-        self.assertIn("Recording.ApplyParentAnchorContract(childRec, parentRecordingId);", fg)
+        # cell: the same function calls ApplyParentAnchorContract for EVERY child
+        # it makes. "Unconditional" was in the first cut's name and nowhere in its
+        # assertion - a reviewer wrapped the call in `if (isDebris)` and it stayed
+        # green, falsifying the premise while satisfying the substring.
+        #
+        # Two structural checks together cover both ways to add a condition:
+        # brace depth catches a braced `if { ... }`, and requiring the statement
+        # to START the line catches a single-line `if (x) Call();`.
+        call = "Recording.ApplyParentAnchorContract(childRec, parentRecordingId);"
+        body = self._member_body(
+            self._source("ParsekFlight.cs"),
+            "internal static Recording CreateBreakupChildRecording(")
+        idx = body.index(call)
+        line_start = body.rindex("\n", 0, idx) + 1
+        self.assertEqual(call, body[line_start:idx + len(call)].strip(),
+                         "the call must be a bare statement, not the tail of an "
+                         "inline `if (...) Call();`")
+        depth = body.count("{", 0, idx) - body.count("}", 0, idx)
+        self.assertEqual(1, depth,
+                         "the call must sit at the method's top level, not inside "
+                         "a conditional block (depth %d)" % depth)
 
     def test_no_gated_spec_relies_on_verbose_logging_for_it(self):
         for name in self.GATED:
@@ -5148,7 +5233,13 @@ class DebrisPopulationGateTests(unittest.TestCase):
             if self.CELL not in (spec.get("dimensionsCovered", {}) or {}).get("D3", []):
                 continue
             required = (spec.get("expectations", {}).get("logContracts", {}) or {}).get("required", [])
-            if not any("debris child created" in p or "debris, TTL=" in p for p in required):
+            # SEMANTIC, not substring: the pattern must actually match a line the
+            # source can emit. A reviewer defeated the substring form with an
+            # `^`-anchored token - present, named right, and unable to match a
+            # multi-line log body because evaluate_expectations uses re.search
+            # with no re.MULTILINE. That is the original BLOCKER in miniature.
+            if not any(re.search(p, self.EMITTED_FG) or re.search(p, self.EMITTED_BG)
+                       for p in required):
                 offenders.append(name)
         self.assertEqual([], offenders,
                          "a spec claims D3 %s with no token gating it" % self.CELL)

@@ -2227,6 +2227,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         if patterns is None:
             continue
         if not isinstance(patterns, list):
+            # Reachable for `forbidden` only: a non-list `required` is already
+            # iterated at the BATCH_COMPLETE check above and raises there first.
+            # Pre-existing, and out of this change's blast radius - noted so a
+            # reader does not assume this line covers both facets.
             errors.append("expectations.logContracts.%s: %r must be a list of regex "
                           "patterns" % (facet, patterns))
             continue

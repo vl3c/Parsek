@@ -2665,7 +2665,9 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     sel.add_argument("--tier", help="run all specs of a tier (perpr|daily|nightly|weekly)")
     sel.add_argument("--tag", help="run every spec carrying this tag")
     sel.add_argument("--cadence", help="run the tier set a cadence maps to (per-pr|daily|nightly|weekly)")
-    parser.add_argument("--dry-run", action="store_true", help="print the action plan; launch nothing")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print the action plan and validate every selected "
+                             "spec; launch nothing. Exits 1 if any spec is invalid.")
     parser.add_argument("--umbrella-root", help="override the umbrella root (default: parent of the worktree)")
     parser.add_argument("--instance-dir", help="override the resolved instance dir (single-profile runs / tests)")
     parser.add_argument("--no-coverage", action="store_true", help="skip the coverage/flake refresh")

@@ -440,7 +440,9 @@ Tokens verified present in source:
 CORRECTED 2026-07-27 while building this: **the four `BackgroundRecorder` tokens are
 `ParsekLog.Info`, not Verbose.** The rest of the table is mixed - `starting hysteresis
 timer` is Verbose at BOTH sites (`FlightRecorder.cs:4831`, `:4911`), and the
-`Part event:` family is 20 Verbose sites plus one Info at `FlightRecorder.cs:3862`,
+`Part event:` family is ~39 Verbose sites plus exactly one Info at
+`FlightRecorder.cs:3862` (20 in `FlightRecorder.cs`, 19 more in
+`BackgroundRecorder.PartEventPolling.cs`),
 so check the level per token rather than per family. That matters
 because it decides whether a spec needs a `SetSetting verboseLogging true` step to
 depend on a token: the debris / TTL / sample-rate claims do NOT, and the five specs
