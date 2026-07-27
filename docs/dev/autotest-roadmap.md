@@ -14,7 +14,7 @@ run against a real KSP instance: no `run.py`, no `provision.py`, no launch.
 > `main` at 38 scenarios / 8 driven categories and flagged, in the tracking table
 > above, that #1358 would shift its coverage and undriven-declaration counts. It has.
 > Every derived number below is re-derived at 52 scenarios / 22 driven categories,
-> NOT hand-adjusted: scenarios 38 -> 52, coverage 83 -> 95 of 241, Cause A
+> NOT hand-adjusted: scenarios 38 -> 52, coverage 83 -> 96 of 241, Cause A
 > 414 tests / 89 categories -> 338 / 75. The RANKING and the causes are unchanged -
 > #1358 closed part of R4/R6/R8, it did not reorder anything. Where a section header
 > carried an old number it now carries the new one, with the pre-merge figure kept
@@ -29,7 +29,7 @@ of them land inside this roadmap's build order. Read the numbers as the state of
 
 | PR | Branch | Overlaps |
 |---|---|---|
-| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). MERGED 2026-07-27; all 14 flown and PASS (805 s for the group). Moved the scenario count 38 -> 52, driven categories 8 -> 22, coverage 83 -> 95 of 241, and Cause A 414 undriven declarations / 89 categories -> 338 / 75. Every figure in this doc is re-derived at the post-merge numbers. |
+| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). MERGED 2026-07-27; all 14 flown and PASS (805 s for the group). Moved the scenario count 38 -> 52, driven categories 8 -> 22, coverage 83 -> 96 of 241 (95 from this branch alone; the 96th is the D3 `parent-anchored-debris` cell R1's debris gate claimed on main, folded in at the merge), and Cause A 414 undriven declarations / 89 categories -> 338 / 75. Every figure in this doc is re-derived at the post-merge numbers. |
 | #1357 | `rewind-loop-lane` | **R3.** Re-tiers S1.5 and S4.1 from `operator` to `nightly` on the same measured premise this file argues (the fixture routes to FLIGHT), and adds an R1 rewind-loop scenario. If it merges first, R3 collapses to "read the first nightly result". |
 | #1359 | `eva4-failopen` | The EVA-4 mission-oracle fail-open listed as OPEN in the open-bugs table below. |
 | #1360 | `fix-refly-provisional` | A re-fly defect found by the rewind lane; no roadmap item, but it moves D9's live standing. |
@@ -69,13 +69,13 @@ GameEvents subscription contract, where a dropped `Add()` is silent). Zero specs
 `tier = "pending-fixture"`. All 52 declare `instanceProfile = "stock-minimal"`. All 52
 declare `retry.policy = "once"`.
 
-### Coverage: 95 of 241 registry cells (was 83 of 241 pre-#1358)
+### Coverage: 96 of 241 registry cells (was 83 of 241 pre-#1358)
 
 `hlib.compute_coverage(specs, [], registry)` over the 52 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 95   uncovered 146   expectedFailValues 0   xpass 0
+values 241   covered 96   uncovered 145   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered):
@@ -84,7 +84,7 @@ Per dimension (total / uncovered):
 |---|---|---:|---:|
 | D1 | recording lifecycle | 18 | **9** |
 | D2 | sampling | 4 | 1 |
-| D3 | reference frames | 7 | 5 |
+| D3 | reference frames | 7 | 4 |
 | D4 | track sections / optimizer | 12 | 6 |
 | D5 | tree topology | 12 | 7 |
 | D6 | playback / ghosts | 16 | 11 |
@@ -427,15 +427,15 @@ This is SYSTEMIC, not a B2 quirk. Measured over the committed specs 2026-07-26,
 SEVEN live-proven scenarios carry a recording-count window whose lower bound
 admits the main recording alone:
 
-| Scenario | window | span |
-|---|---|---|
-| B1-pad-hop | {1, 6} | 5 |
-| B2-lko-ascent | {1, 8} | 7 |
-| B4-reentry-splashdown | {1, 9} | 8 |
-| B5-mun-flyby | {1, 9} | 8 |
-| B6-minmus-flyby | {1, 9} | 8 |
-| B7-duna-flyby | {1, 8} | 7 |
-| BDOCK-1-station-interceptor | {2, 20} | 18 |
+| Scenario | window | span | status |
+|---|---|---|---|
+| B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
+| B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
+| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
+| B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
+| B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; MEASURED 8 on `2026-07-25_0636` and `_0856`, confirming the inference) |
+| B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (MEASURED 8 on `2026-07-25_0916_a2`; agrees with B15's pin) |
+| BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
 
 Every one of them would still read PASS if Parsek stopped writing child /
 debris recordings entirely. The wide MAX is defensible and deliberately
@@ -463,16 +463,101 @@ Tokens verified present in source:
 | `starting hysteresis timer` | `FlightRecorder.cs:4831,4911` | D4 `hysteresis` |
 | `Part event: <Type> '<part>` | `FlightRecorder.cs:1507`, `BackgroundRecorder.PartEventPolling.cs` | D7 `decouple-stage-destroy`, `chute-cut`, `gear` |
 
-Part events log as `Part event: {eventType} '{partName}'` with `eventType` from the
-`PartEventType` enum, so `Decoupled`, `Destroyed`, `ParachuteCut`, `GearDeployed`,
-`FairingJettisoned` and the rest are all producible forms. They are `ParsekLog.Verbose`;
-`ParsekSettings.verboseLogging` defaults `true` and `B1-pad-hop` already pins two of
-them (`Part event: ParachuteSemiDeployed 'parachuteSingle`), so the pattern is proven.
+CORRECTED 2026-07-27 while building this: **the four `BackgroundRecorder` tokens are
+`ParsekLog.Info`, not Verbose.** The rest of the table is mixed - `starting hysteresis
+timer` is Verbose at BOTH sites (`FlightRecorder.cs:4831`, `:4911`), and the
+`Part event:` family is ~39 Verbose sites plus exactly one Info at
+`FlightRecorder.cs:3862` (20 in `FlightRecorder.cs`, 19 more in
+`BackgroundRecorder.PartEventPolling.cs`),
+so check the level per token rather than per family. That matters
+because it decides whether a spec needs a `SetSetting verboseLogging true` step to
+depend on a token: the debris / TTL / sample-rate claims do NOT, and the five specs
+gated below deliberately declare none. Part events log as
+`Part event: {eventType} '{partName}'` with `eventType` from the `PartEventType` enum,
+so `Decoupled`, `Destroyed`, `ParachuteCut`, `GearDeployed`, `FairingJettisoned` and
+the rest are all producible forms; those ARE Verbose, `ParsekSettings.verboseLogging`
+defaults `true` (`ParsekSettings.cs:50`), and `B1-pad-hop` pins two of them
+(`Part event: ParachuteSemiDeployed 'parachuteSingle`), so that pattern is proven too.
 
-Targets: `B2-lko-ascent` (add tokens, and tighten the count window from the measured
-7 while you are there), `B11-mun-orbit`, `B12-minmus-orbit`, `B13-mun-landing`,
-`B14-minmus-landing`, `B4-reentry-splashdown`, `EVA-4-atmo-chute`.
-Roughly 8 cells. Cost: one PR. Proven on the next nightly.
+**Every one of these tokens is a REGEX**, applied with `re.search` by
+`evaluate_expectations`. `Child recording created (debris, TTL=` pasted verbatim from
+the source raises `re.error: missing ), unterminated subpattern`; write
+`Child recording created \(debris, TTL=`. `hlib.validate_spec` rejects an
+uncompilable pattern since 2026-07-27, and `run.py --dry-run` now runs that
+validation (it previously returned 0 before reaching it), so this costs a dry-run
+rather than a
+flight.
+
+SHIPPED 2026-07-27 (debris population): `B2-lko-ascent`, `B4-reentry-splashdown`,
+`B5-mun-flyby`, `B6-minmus-flyby`, `B7-duna-flyby` - each requires a debris-creation
+token, pins a `count.min` derived per mission (see the table), and claims D3
+`parent-anchored-debris`. Coverage 83 -> 84.
+
+**READ THIS BEFORE PINNING ANY TOKEN FROM THIS TABLE.** The first cut of that gate
+pinned `Child recording created \(debris, TTL=` alone and would have RED all five
+flights. That token is the BACKGROUND-split site
+(`BackgroundRecorder.RegisterChildRecordingsFromSplit`), reachable only through
+`OnBackgroundPartJointBreak`, which early-returns unless the vessel is in
+`tree.BackgroundMap` - and `RecordingTree.IsBackgroundMapEligible` excludes
+`rec.RecordingId == ActiveRecordingId`. A Kerbal X sheds its boosters while it IS the
+active vessel, so the line cannot fire on these profiles. Staging goes through
+`ParsekFlight.ProcessBreakupEvent` -> `CreateBreakupChildRecording`, logging
+`ProcessBreakupEvent: debris child created: pid=` (Info, tag `Coalescer`).
+The lesson is general and cost two independent reviews to catch:
+**a token's presence in source is not its reachability on a profile.** Trace the call
+chain, or grep an archived KSP.log, before pinning - the discipline this section
+already prescribed for the tokens it declined to claim, and did not apply to the one
+it claimed.
+
+The intermediate fix accepted EITHER site, because that trace was still argued from
+source alone. **The shipped gate requires the FOREGROUND token only**, settled
+2026-07-27 against all 60 archived B-lane `logs/*/KSP.log` folders (B2 10, B4 8,
+B5 27, B6 6, B7 9): the foreground token appears in 58 of 60, and the substring
+`Child recording created` - broad enough to catch the CONTROLLED sibling at `:1185`
+too - appears in **zero**. The two without it are `2026-07-20_{1846,1854}_B2-lko-ascent`,
+INVALID runs that recorded nothing. A green ascent emits it exactly 6 times, one per
+booster. Corollary worth keeping: an EITHER-site alternation is a reasonable
+intermediate when the trace is unconfirmed, but it is not the destination - a gate
+that accepts two paths cannot tell you which one broke.
+
+Also corrected while shipping: `min` is NOT one number across the five, and the rule
+is not "does it reach `_b5_flameout_stage`" either - that was the second draft's error.
+The floor follows **whether the mission commands a debris-producing stage drop beyond
+launch ignition**: `B5`/`B6`/`B7` drop a flameout-staged core via `_b5_flameout_stage`,
+and `B4` drops its service stage via an `ACTION_ACTIVATE_STAGE` on the SOLE transition
+into `B4_REENTRY` - so all four floor at 8. Only `B2` stages once, at ignition, and
+floors at 7 (`mlib.py:401-405`: the spent core never autostages because MechJeb
+autostage fires only on EMPTY stages and the Kerbal X core keeps residual fuel).
+The first cut used 7 everywhere, which on an 8-population spec is precisely the value
+`B11`/`B12` record as **considered and rejected** ("7 is the exact count a single
+dropped recording would produce"). Note `run.py` judges expectations only on a
+driver-valid, non-short-circuited run, so a B4 that never reached REENTRY has its count
+SKIPPED rather than passing under the lower floor.
+
+**All five floors were converted from derived to MEASURED on 2026-07-27**, read off
+`verifiers.expectations.observed.recordings.count` in verdict=PASS result JSONs (see
+the status table for the run ids; the field landed in `72cf344fb`, 2026-07-25 06:48,
+so every citation is from that morning). Both floors that had never been measured -
+B4's structural derivation and B6's inference from the shared decide function -
+measured at exactly the derived value, so no re-pin was needed.
+**Do not measure this from the archived `logs/*/` folders.** `run.py` collects logs on
+NON-PASS only (`run.py:2324`), so every archived B-lane folder is a run whose
+expectations were SKIPPED rather than judged. Their `.prec` sidecars number 7 for B4
+and B6 - those runs aborted before the extra stage drop - and reading that as a
+contradiction would lower both floors straight back into the one-below-population
+blind spot. The archives are ground truth for TOKENS, not for COUNTS.
+
+The Targets line this section originally carried was wrong and is replaced by the
+status column in the table above: it named `B11`/`B12`/`B13`/`B14`, which already had
+`{8,8}` pins and eight-token contracts (B11 even requires `terminalState=Destroyed`,
+which gates debris terminals), and omitted `B5`/`B6`/`B7`, which were vacuous.
+
+STILL OPEN: D5 `staging-debris-ttl` and D2 `proximity-cadence-bg`. Their tokens exist
+and are Info, but neither is structurally guaranteed the way creation is -
+`DebrisTTLSeconds = 60.0` makes TTL expiry likely, not certain, since a booster
+destroyed on reentry inside that window ends its recording by another reason. Claiming
+on "likely" is what this section's own rule forbids. Close them by grepping an
+archived B-lane KSP.log for both tokens first.
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
 **R2. Resolve the two registry defects.** Registry-only.

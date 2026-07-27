@@ -19,32 +19,111 @@ When referencing prior item numbers from source comments or plans, consult the r
 Rationale, dependency justification, measured costs and the full uncovered-cell
 breakdown are in `docs/dev/autotest-roadmap.md`. Do not restate them here; these are
 the actionable units only. Coverage ground truth they are all sized against:
-`hlib.compute_coverage` over the 38 committed specs returns 241 values / 83 covered /
+`hlib.compute_coverage` over the 38 committed specs returned 241 values / 83 covered /
 158 uncovered, with D1 at 13 of 18 uncovered, D13 at 11 of 11, D17 at 6 of 6.
+(**84 covered / 157 uncovered** since R1's debris gate landed 2026-07-27, D3 6 -> 5.
+Re-measure rather than trusting this line; it is a snapshot, not a maintained total.)
 
 **R1. Gate the recording surfaces the B-lane already produces on every nightly.**
-Spec-only, no flights, no code. `B2-lko-ascent` sheds six radial boosters that each
-become a parent-anchored debris child recording (its own spec comment says so, and
-the first live flight measured exactly 7 sidecars), and its window is
-`count = { min = 1, max = 8 }`, so a total loss of the debris population still PASSES.
-D3 `parent-anchored-debris`, D5 `staging-debris-ttl` and D2 `proximity-cadence-bg`
-are UNCOVERED while being produced on every B-lane run.
-Build: add `expectations.logContracts.required` tokens plus `[dimensionsCovered]`
-claims to `B2-lko-ascent`, `B11-mun-orbit`, `B12-minmus-orbit`, `B13-mun-landing`,
-`B14-minmus-landing`, `B4-reentry-splashdown`, `EVA-4-atmo-chute`. Tighten B2's count
-window from the measured 7 in the same PR.
-Tokens verified present in source: `Child recording created (debris, TTL=`
-(`BackgroundRecorder.cs:1177`), `Debris TTL expired, ending recording:` (`:1307`),
-`Child recording created (controlled, no TTL):` (`:1185`), `Sample rate changed: pid=`
-(`:1966`), `TrackSection started: env=... ref=...` (`FlightRecorder.cs:5126`),
-`starting hysteresis timer` (`FlightRecorder.cs:4831,4911`), and part events which log
-as `Part event: {eventType} '{partName}'` (`FlightRecorder.cs:1507`,
-`BackgroundRecorder.PartEventPolling.cs`) so `Decoupled` / `Destroyed` /
-`ParachuteCut` / `GearDeployed` are all producible forms. All are `ParsekLog.Verbose`;
-`ParsekSettings.verboseLogging` defaults `true` and `B1-pad-hop` already pins two of
-them, so the pattern is proven.
-Proof: the next nightly turns the claims green with no new flight. Rule: one token per
-claimed class, and never loosen a token to keep a claim.
+~~Debris population on the five Kerbal X flights~~ DONE 2026-07-27 (branch
+`claude/docs-pr-testing-tasks-f4bor2`); the rest below is still open.
+
+**Shipped.** `B2-lko-ascent`, `B4-reentry-splashdown`, `B5-mun-flyby`,
+`B6-minmus-flyby` and `B7-duna-flyby` all fly `fixtures/saves/b2-lko-craft` (the
+stock Kerbal X), shed six radial boosters, and record each as a parent-anchored
+debris child - while their windows read `count = { min = 1, max = 8|9 }`, so the
+total loss of that population read PASS. Each now requires a debris-creation token
+and a per-mission `count.min`. D3 `parent-anchored-debris` claimed on all five;
+coverage 83 -> 84 of 241, D3 6 -> 5 uncovered. Proof: the next nightly, no new
+flight. A red is a real finding - re-pin `count` to the newly measured value and
+record which recordings the run produced; do NOT widen back toward 1.
+
+**THE FIRST CUT SHIPPED THE WRONG TOKEN AND WOULD HAVE RED ALL FIVE.** Caught by
+independent review before merge; recorded because the mistake is repeatable.
+`Child recording created \(debris, TTL=` (`BackgroundRecorder.cs:1177`) was pinned
+as "the SOLE creation site". It is one of TWO, and it is the BACKGROUND-split one:
+reachable only via `OnBackgroundPartJointBreak`, which early-returns unless the
+vessel is in `tree.BackgroundMap`, and `RecordingTree.IsBackgroundMapEligible`
+excludes `rec.RecordingId == ActiveRecordingId`. These craft shed boosters while
+ACTIVE, so it cannot fire; staging goes through `ParsekFlight.ProcessBreakupEvent`
+-> `CreateBreakupChildRecording` -> `ProcessBreakupEvent: debris child created:
+pid=` (Info, tag `Coalescer`, `ParsekFlight.cs:7668`). Cost had it merged: ~3.8 h
+of flying and five reds that read as a Parsek recording regression. **Rule:
+presence in source is not reachability on a profile. Trace the call chain or grep
+an archived KSP.log before pinning** - the discipline this entry already
+prescribed for the tokens it declined to claim.
+
+The intermediate fix accepted EITHER site, because the trace above was argued from
+source and never confirmed against a log. **The shipped gate requires the
+FOREGROUND token alone**, settled 2026-07-27 by grepping all 60 archived B-lane
+`logs/*/KSP.log` folders (B2 10, B4 8, B5 27, B6 6, B7 9): the foreground token
+appears in 58 of 60, and the substring `Child recording created` - broad enough to
+catch the CONTROLLED sibling at `:1185` as well - appears in **zero**. The two
+without it are `2026-07-20_{1846,1854}_B2-lko-ascent`, both INVALID runs that
+recorded nothing. A green ascent emits it exactly 6 times, one per booster.
+
+**`min` is per-mission, and the rule is not the flameout watchdog.** The floor
+follows whether the mission commands a debris-producing stage drop BEYOND launch
+ignition. `B5`/`B6`/`B7` drop a flameout-staged core (`_b5_flameout_stage`, reached
+only from `b5_decide`) -> 8. `B4` drops its service stage via an
+`ACTION_ACTIVATE_STAGE` on the SOLE transition into `B4_REENTRY` -> also 8, and
+`run.py` judges expectations only on a driver-valid non-short-circuited run, so a
+B4 that never reached REENTRY is SKIPPED rather than judged under a lower floor.
+Only `B2` stages once, at ignition -> 7 (structural: `mlib.py:401-405` records that
+the spent core never autostages, because MechJeb autostage fires only on EMPTY
+stages and the Kerbal X core keeps residual fuel).
+
+**Every floor is now MEASURED, not derived.** Read 2026-07-27 off
+`verifiers.expectations.observed.recordings.count` in verdict=PASS result JSONs
+(the field landed in `72cf344fb`, 2026-07-25 06:48, so every citation is from that
+morning): B2 7 (`2026-07-25_0824`), B4 8 (`0828`), B5 8 (`0643`, `0847`), B6 8
+(`0636`, `0856`), B7 8 (`0916_a2`). Both previously-unmeasured floors - B4's
+structural derivation and B6's inference from the shared decide function -
+measured at exactly what was derived, so no re-pin was needed.
+**Do not re-derive these counts from the archived `logs/*/` folders.** `run.py`
+collects logs on NON-PASS only (`run.py:2324`), so every archived B-lane folder is
+a run whose expectations were SKIPPED rather than judged; their `.prec` sidecars
+number 7 for B4 and B6 because those runs aborted before the extra stage drop.
+Reading that 7 as a contradiction and lowering the floor would re-open the exact
+hole this entry exists to close.
+The first cut used 7 everywhere; the second kept B4 at 7 by keying on
+`_b5_flameout_stage` alone. Both left the exact value `B11`/`B12` record as
+**considered and rejected**: "7 is the exact count a single dropped recording would
+produce, so a floor of 7 would blind the only numeric guard on this run to the
+regression class it exists to catch."
+
+**Corrections to the roadmap's R1 section, found by building it:**
+- **The tokens are NOT all `ParsekLog.Verbose`.** All four `BackgroundRecorder`
+  population tokens (`Child recording created (debris, TTL=` :1177,
+  `(controlled, no TTL):` :1185, `Debris TTL expired, ending recording:` :1307,
+  `Sample rate changed: pid=` :1966) are `ParsekLog.Info`, as is the foreground
+  `ProcessBreakupEvent: debris child created:`. The rest of that table is MIXED,
+  not uniformly Verbose: `starting hysteresis timer` is Verbose at both sites, and
+  the `Part event:` family is ~39 Verbose sites plus exactly one Info
+  (`FlightRecorder.cs:3862`) once `BackgroundRecorder.PartEventPolling.cs` is
+  counted too. Check the level per token, never per family.
+- **The target list named the wrong specs.** It listed B11/B12/B13/B14, which
+  already carry `{8,8}` pins AND eight-token contracts (B11 even requires
+  `terminalState=Destroyed`, gating debris terminals), and omitted B5/B6/B7,
+  which were vacuous. The systemic-vacuity table added in the same PR is the
+  correct list; the Targets line predates it.
+
+**Still open.** D5 `staging-debris-ttl` and D2 `proximity-cadence-bg` are
+UNCOVERED and produced on every B-lane run. Their tokens exist
+(`Debris TTL expired, ending recording:` `BackgroundRecorder.cs:1307`;
+`Sample rate changed: pid=` `:1966`, both Info) but neither was claimed here
+because neither is structurally guaranteed the way creation is:
+`DebrisTTLSeconds = 60.0` is short relative to a booster's fall, which makes TTL
+expiry LIKELY but not certain - a booster destroyed by reentry before the 60 s
+elapses ends its recording through a different reason. Claiming on "likely" is
+what the roadmap's own rule forbids. Cheapest close: grep an archived B-lane
+KSP.log for both tokens, then claim in a follow-up. `B1-pad-hop` ({1,6}) and
+`BDOCK-1` ({2,20}) also still carry main-recording-only floors, but neither flies
+the Kerbal X so neither inherits this evidence: B1's breakup-child count is
+documented as genuinely per-run variable, and BDOCK-1's window spans two trees and
+is commented "never tightened". Both want their own measurement, not this one.
+Rule, unchanged: one token per claimed class, and never loosen a token to keep a
+claim.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**

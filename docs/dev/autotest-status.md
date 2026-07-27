@@ -323,8 +323,11 @@ commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
 2026-07-25, as is the Mun/Minmus LANDING lane (B13/B14: a recording that ENDS on
 foreign soil and is COMMITTED there); B15-eve-flyby is green and B16-eve-orbit
 is committed but not yet flown. PLAYBACK is no longer a blind spot either:
-S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 83 of
-241 registry cells claimed by at least one scenario. The 83 is RECOMPUTED from
+S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 84 of
+241 registry cells claimed by at least one scenario (83 at the 2026-07-26
+recompute; +1 for D3 `parent-anchored-debris`, claimed 2026-07-27 when the five
+Kerbal X flights gained the debris-population token and a measured `count.min`).
+That 84 is RECOMPUTED from
 `hlib.compute_coverage` over the 38 committed specs + the registry at this
 merge, not carried forward from either side: the "52" this sentence used to
 print had drifted across many spec additions (it predates the EVA, B-DOCK,
@@ -607,13 +610,17 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   does not model reds instead of quietly shrinking a total.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 95 / 241 registry cells claimed (the growth metric),
-  recomputed through `hlib.compute_coverage` over the 52 committed specs + the
-  merged registry (83 / 241 over 38 specs before the H7-H20 group). It reads 95
-  and not 97 because the review round WITHDREW two claims rather than adding
-  cells: H11's D3 tokens (four of its seven cells run with the production anchor
-  resolver replaced by a constant-returning stub, so the frames it named are not
-  actually exercised) and H8's D14 kerbin / mun (its "KerbinPadCase" /
+- Coverage ledger: 96 / 241 registry cells claimed (the growth metric),
+  RE-DERIVED at the merge through `hlib.compute_coverage` over the 52 committed
+  specs + the merged registry - neither side's number survives it. `main` read
+  84 / 241 over its 38 specs (83 at the 2026-07-26 recompute; D3
+  `parent-anchored-debris` is the cell R1's debris gate added). This branch read
+  95 / 241 over its 52. The merged figure is recomputed rather than taken from
+  either, because the two changed disjoint things: main CLAIMED a new cell and
+  this branch both claimed cells and WITHDREW two. The withdrawals were
+  deliberate - H11's D3 tokens (four of its seven cells run with the production
+  anchor resolver replaced by a constant-returning stub, so the frames it named
+  are not actually exercised) and H8's D14 kerbin / mun (its "KerbinPadCase" /
   "MunCase" are fixture labels over fabricated quaternions - the file never looks
   up a CelestialBody). A withdrawn false claim is worth more than a claimed cell:
   the failure mode of over-claiming is a later audit reading a dimension as
