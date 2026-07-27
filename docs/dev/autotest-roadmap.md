@@ -50,28 +50,20 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 52 committed (was 38 pre-#1358)
+### Scenarios: 53 committed
 
-`ls harness/scenarios/*.toml` returns **52** files, which is also what
-`autotest-status.md` says ("all 52 committed scenarios"). Earlier framing of this work
-said 39; the correct pre-#1358 count was 38. Tiers, from
-`grep '^tier' harness/scenarios/*.toml`:
-
-| Tier | n | Scheduled by |
-|---|---|---|
-| daily | 18 | `--cadence daily`, `--cadence nightly`, `--cadence weekly` |
-| nightly | 28 | `--cadence nightly`, `--cadence weekly` |
-| operator | 6 | nothing (excluded from every cadence in `hlib.CADENCE_TIERS`) |
-
-The 14 H7-H20 batch-only specs land 13 in `nightly` and 1 in `daily`
-(`H18-pipeline-smoothing`, promoted on failure mode: it is the sole guard for the
-GameEvents subscription contract, where a dropped `Add()` is silent). Zero specs carry
-`tier = "pending-fixture"`. All 52 declare `instanceProfile = "stock-minimal"`. All 52
-declare `retry.policy = "once"`.
+`ls harness/scenarios/*.toml` returns **53** files. This baseline was written at
+38, correct at `origin/main` when the roadmap landed; #1358 took it to 52 by wiring
+14 in-game categories as batch-only specs, and PR #1357 adds `R1-rewind-loop-flown`
+as the 53rd. Coverage moved to **96 of 241** across those merges - #1358's 14 specs
+carry the gain, R1 adds none because it claims no registry value that was not
+already claimed. Adding a scenario is not the same as covering a cell. Re-derive
+these rather than editing them by memory; both numbers have moved three times in
+two days.
 
 ### Coverage: 96 of 241 registry cells (was 83 of 241 pre-#1358)
 
-`hlib.compute_coverage(specs, [], registry)` over the 52 committed specs and
+`hlib.compute_coverage(specs, [], registry)` over the committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
@@ -907,7 +899,9 @@ today. The other 38 need R5.
 reachable via FLIGHT / SPACECENTER / scene-agnostic and 7 involving TRACKSTATION or
 MAINMENU, rather than 78 and 6.
 
-**Corrected: 39 committed specs.** There are 38, at HEAD and at `origin/main`.
+**Corrected: 39 committed specs.** There were 38 when this roadmap was written,
+at HEAD and at `origin/main`. PR #1357 makes it 39; the count above is updated and
+the coverage figure is unchanged because R1 claims no new registry value.
 
 **Reconciled: the restore-flag count.** An earlier draft reported a raw `grep` of 78
 occurrences of `RestoreBatchFlightBaselineAfterExecution = true` against an
