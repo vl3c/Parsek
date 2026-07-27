@@ -184,6 +184,8 @@ namespace Parsek.Tests.Generators
             var b = new RecordingBuilder("B9 Upper B")
                 .WithRecordingId(UpperRecordingId)
                 .WithParentRecordingId(RootRecordingId)
+                .WithRecordedVesselGuid(
+                    ScenarioWriter.DeriveVesselLaunchGuid(UpperRecordingId))
                 .WithRecordingGroup("Rewind-B9")
                 .WithTerminalState((int)TerminalState.Orbiting);
             b.AddPoint(t,      BaseLat, BaseLon, 41000);
@@ -203,6 +205,11 @@ namespace Parsek.Tests.Generators
             var b = new RecordingBuilder("B9 Booster A")
                 .WithRecordingId(BoosterRecordingId)
                 .WithParentRecordingId(RootRecordingId)
+                // Launch identity agrees with the guid ScenarioWriter stamps on this
+                // slot's sidecar VESSEL, so QuickloadResumeMatchGuard's
+                // LaunchGuidConclusivelyDiffers cannot reject the re-fly candidate.
+                .WithRecordedVesselGuid(
+                    ScenarioWriter.DeriveVesselLaunchGuid(BoosterRecordingId))
                 .WithRecordingGroup("Rewind-B9")
                 .WithTerminalState((int)TerminalState.Destroyed)
                 .WithTerrainHeightAtEnd(75);

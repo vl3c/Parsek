@@ -239,5 +239,141 @@ namespace Parsek.Tests
                     Directory.Delete(tempDir, recursive: true);
             }
         }
+
+        // ============================================================
+        // R1-EMPTY-PROVISIONAL discriminating experiment: the injected RP
+        // sidecar must be PRODUCTION-SHAPED.
+        //
+        // A production RewindPoint is a full GamePersistence.SaveGame taken
+        // mid-flight, so its .sfs carries the live tree as
+        // RECORDING_TREE isActive=True (ParsekScenario.SaveActiveTreeIfAny,
+        // ParsekScenario.cs:1856-1858). The injected sidecar never authored
+        // one, so a fixture re-fly reached OnLoad with savedRecNodes=0 /
+        // savedTreeRecs=0 / activeTreeRestoredFromSave=False and
+        // TryRestoreActiveTreeNode's unconditional PopPendingTree eviction
+        // never ran at all. R1 flight 3's diagnosis mistook that FIXTURE
+        // divergence for a product defect. These cells keep the two shapes
+        // from diverging again.
+        // ============================================================
+
+        [Fact]
+        public void Inject_RpSidecarCarriesTheTreeAsAnActiveResumeNode()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_rewind_b9_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string savePath = Path.Combine(tempDir, "persistent.sfs");
+                string tempPath = savePath + ".tmp";
+                File.WriteAllText(savePath, FakeSave);
+
+                var writer = new ScenarioWriter().WithV3Format();
+                RewindB9Fixture.PopulateWriter(writer, baseUT: 0.0);
+                writer.InjectIntoSaveFile(savePath, tempPath);
+                File.Copy(tempPath, savePath, overwrite: true);
+                File.Delete(tempPath);
+
+                string sidecar = Path.Combine(
+                    tempDir, "Parsek", "RewindPoints", "rp_b9_root.sfs");
+                ConfigNode loaded = ConfigNode.Load(sidecar);
+                ConfigNode game = loaded.GetNode("GAME") ?? loaded;
+
+                ConfigNode parsekScenario = game.GetNodes("SCENARIO")
+                    .FirstOrDefault(n => n.GetValue("name") == "ParsekScenario");
+                Assert.NotNull(parsekScenario);
+
+                ConfigNode[] treeNodes = parsekScenario.GetNodes("RECORDING_TREE");
+                ConfigNode activeTree = treeNodes
+                    .FirstOrDefault(n => n.GetValue("isActive") == "True");
+                Assert.True(activeTree != null,
+                    "RP sidecar must carry the RP's tree as an isActive=True resume node, "
+                    + "the shape ParsekScenario.TryRestoreActiveTreeNode reads back and a "
+                    + "production GamePersistence.SaveGame always writes");
+
+                // Exactly one, so the sidecar never describes one tree twice.
+                Assert.Single(treeNodes.Where(n => n.GetValue("isActive") == "True"));
+
+                // It must be the tree that OWNS the RP's slots, pointed at the focus
+                // slot's origin recording - otherwise the resume has no target.
+                var recordingIds = activeTree.GetNodes("RECORDING")
+                    .Select(n => n.GetValue("recordingId")).ToList();
+                Assert.Contains(RewindB9Fixture.UpperRecordingId, recordingIds);
+                Assert.Contains(RewindB9Fixture.BoosterRecordingId, recordingIds);
+                Assert.Equal(RewindB9Fixture.UpperRecordingId,
+                    activeTree.GetValue("activeRecordingId"));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Inject_RpSidecarVesselGuidsAgreeWithRecordedVesselGuid()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_rewind_b9_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string savePath = Path.Combine(tempDir, "persistent.sfs");
+                string tempPath = savePath + ".tmp";
+                File.WriteAllText(savePath, FakeSave);
+
+                var writer = new ScenarioWriter().WithV3Format();
+                RewindB9Fixture.PopulateWriter(writer, baseUT: 0.0);
+                writer.InjectIntoSaveFile(savePath, tempPath);
+                File.Copy(tempPath, savePath, overwrite: true);
+                File.Delete(tempPath);
+
+                string sidecar = Path.Combine(
+                    tempDir, "Parsek", "RewindPoints", "rp_b9_root.sfs");
+                ConfigNode game = ConfigNode.Load(sidecar).GetNode("GAME");
+                ConfigNode[] vessels = game.GetNode("FLIGHTSTATE").GetNodes("VESSEL");
+
+                string boosterGuid = ScenarioWriter.DeriveVesselLaunchGuid(
+                    RewindB9Fixture.BoosterRecordingId);
+                string upperGuid = ScenarioWriter.DeriveVesselLaunchGuid(
+                    RewindB9Fixture.UpperRecordingId);
+
+                var sidecarGuids = vessels.Select(v => v.GetValue("pid")).ToList();
+                Assert.Contains(boosterGuid, sidecarGuids);
+                Assert.Contains(upperGuid, sidecarGuids);
+                // Distinct recording ids must still give distinct vessel guids.
+                Assert.NotEqual(boosterGuid, upperGuid);
+
+                // And the injected recordings carry the SAME guid, so
+                // QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers is
+                // satisfied-by-agreement rather than merely inconclusive.
+                ConfigNode persistentGame = ConfigNode.Load(savePath).GetNode("GAME");
+                ConfigNode scenario = persistentGame.GetNodes("SCENARIO")
+                    .First(n => n.GetValue("name") == "ParsekScenario");
+                ConfigNode booster = scenario.GetNodes("RECORDING_TREE")
+                    .SelectMany(t => t.GetNodes("RECORDING"))
+                    .First(r => r.GetValue("recordingId") == RewindB9Fixture.BoosterRecordingId);
+                Assert.Equal(boosterGuid, booster.GetValue("recordedVesselGuid"));
+                Assert.False(VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    booster.GetValue("recordedVesselGuid"), boosterGuid));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void DeriveVesselLaunchGuid_IsDeterministicAndParsesAsAGuid()
+        {
+            string a = ScenarioWriter.DeriveVesselLaunchGuid("b9-booster-a");
+            string b = ScenarioWriter.DeriveVesselLaunchGuid("b9-booster-a");
+            Assert.Equal(a, b);
+            Assert.NotEqual(a, ScenarioWriter.DeriveVesselLaunchGuid("b9-upper-b"));
+            // KSP writes vessel pids in "N" (32 hex chars, no dashes).
+            Assert.Equal(32, a.Length);
+            Assert.True(Guid.TryParseExact(a, "N", out _));
+        }
     }
 }
