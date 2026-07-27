@@ -4136,6 +4136,194 @@ class ClassifyMissionStepTests(unittest.TestCase):
         self.assertFalse(hlib.should_retry(r, 1, "once"))
 
 
+def _outcome(step_id, cmd, met, expect="OK", verdict="OK", msg=""):
+    """A StepOutcome as evaluate_response_stream would build it."""
+    return hlib.StepOutcome(step_id, cmd, expect, verdict, verdict is not None, met, msg=msg)
+
+
+class PostMissionOutcomeGateTests(unittest.TestCase):
+    """Guards the EVA-4 fail-open (2026-07-25, todo-and-known-bugs "EVA-4 ... the
+    MISSION still returns MISSION-OK").
+
+    THE INCIDENT. `eva4_atmo_chute` is a HANDOFF mission: its success terminal is
+    EVA-WINDOW, reached while the craft is still airborne and crewed, and the mission
+    SUBPROCESS EXITS there. The kerbal EVA vessel is created afterwards, by the seam
+    step EvaExit. So no assertion the mission machine can hold observes the kerbal:
+    on flight 3 the canopy was cut mid-descent, the kerbal died, and the mission
+    reported `MISSION-OK reason=all telemetry assertions met`. The only channel that
+    SAW it was the EvaChuteDeploy step's own `eva-chute-kerbal-lost` terminal, and
+    run.py's autopilot carve-out made every post-mission step non-gating, so
+    driverValidity read PASS beside `allExpectedMet: false`. The run red'd solely on
+    spec-authored expectation regexes.
+
+    THE CLOSURE. Post-mission OUTCOME verbs gate; post-mission RECORDING verbs stay
+    non-gating exactly as before. Fails if a new verb slips in without a role, if the
+    role split drifts, if a recording verb starts gating (which would resurrect the
+    driver-INVALID-papers-over-it problem the carve-out exists to prevent), or if a
+    dead subject stops reddening the run."""
+
+    def test_table_is_total_over_implemented_verbs(self):
+        missing = [v for v in hlib.IMPLEMENTED_SEAM_VERBS
+                   if v not in hlib.SEAM_VERB_POST_MISSION_ROLE]
+        self.assertEqual([], missing,
+                         "every IMPLEMENTED_SEAM_VERBS entry needs an explicit "
+                         "SEAM_VERB_POST_MISSION_ROLE row; missing=%s" % (missing,))
+        for verb, role in hlib.SEAM_VERB_POST_MISSION_ROLE.items():
+            self.assertIn(role, hlib.POST_MISSION_ROLES, verb)
+
+    def test_table_has_no_rows_for_unimplemented_verbs(self):
+        extra = [v for v in hlib.SEAM_VERB_POST_MISSION_ROLE
+                 if v not in hlib.IMPLEMENTED_SEAM_VERBS]
+        self.assertEqual([], extra, "stale post-mission-role rows: %s" % (extra,))
+
+    def test_outcome_set_is_exactly_the_four_eva_verbs(self):
+        # The whole gating set. Each one's verdict is a claim about a KERBAL's
+        # in-world state that no verifier re-derives; widening this set to a Parsek
+        # verb would route a Parsek defect through the wrong subkind.
+        outcome = sorted(v for v, r in hlib.SEAM_VERB_POST_MISSION_ROLE.items()
+                         if r == hlib.POST_MISSION_ROLE_OUTCOME)
+        self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "PlantFlag"], outcome)
+
+    def test_recording_verbs_do_not_gate(self):
+        # The ORIGINAL carve-out, preserved: a good flight Parsek then failed to
+        # record must still red through the verifier chain, not as a retryable
+        # driver-INVALID.
+        for verb in ("StopRecording", "CommitTree", "FlushAndQuit", "SaveGame",
+                     "RunTests", "InvokeRewind", "SetSetting", "RecordingState"):
+            self.assertFalse(hlib.post_mission_step_gates(verb), verb)
+
+    def test_unknown_verb_does_not_gate(self):
+        # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
+        # unrecognised verb is a spec fault validate_spec already rejects, and
+        # gating on a vocabulary miss would red runs for a typo rather than for an
+        # outcome.
+        for unknown in ("StartLoopPlayback", "SomeFutureVerb", "", None):
+            self.assertFalse(hlib.post_mission_step_gates(unknown), repr(unknown))
+
+    def test_the_eva4_flight3_step_stream_names_the_chute_step(self):
+        # The REAL 2026-07-25 stream (results/2026-07-25_1007_EVA-4-atmo-chute.json):
+        # ten steps, mission at 0005 MET, EvaChuteDeploy at 0007 ERROR, the three
+        # teardown steps OK after it.
+        steps = [
+            _outcome("0001", "LoadGame", True), _outcome("0002", "SetSetting", True),
+            _outcome("0003", "SetSetting", True), _outcome("0004", "SetSetting", True),
+            _outcome("0006", "EvaExit", True),
+            _outcome("0007", "EvaChuteDeploy", False, verdict="ERROR",
+                     msg="eva-chute-kerbal-lost"),
+            _outcome("0008", "StopRecording", True), _outcome("0009", "CommitTree", True),
+            _outcome("0010", "FlushAndQuit", True),
+        ]
+        first = hlib.first_unmet_post_mission_outcome(steps, "0005")
+        self.assertIsNotNone(first)
+        self.assertEqual("EvaChuteDeploy", first.cmd)
+        self.assertEqual("eva-chute-kerbal-lost", first.msg)
+
+    def test_a_pre_mission_failure_is_not_an_outcome_miss(self):
+        # Pre-mission steps are already gated by run.py's pre_met branch; reporting
+        # them here too would double-classify and mask the load-failed subkind.
+        steps = [_outcome("0001", "LoadGame", False, verdict="ERROR"),
+                 _outcome("0006", "EvaExit", True)]
+        self.assertIsNone(hlib.first_unmet_post_mission_outcome(steps, "0005"))
+
+    def test_a_failed_recording_verb_is_not_an_outcome_miss(self):
+        steps = [_outcome("0006", "EvaExit", True),
+                 _outcome("0009", "CommitTree", False, verdict="ERROR")]
+        self.assertIsNone(hlib.first_unmet_post_mission_outcome(steps, "0005"))
+
+    def test_seam_only_driver_reads_none(self):
+        # No mission step -> every step already gates through all_expected_met.
+        steps = [_outcome("0006", "EvaExit", False, verdict="ERROR")]
+        self.assertIsNone(hlib.first_unmet_post_mission_outcome(steps, None))
+
+    def test_a_dead_subject_reds_the_run_as_mission_outcome(self):
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual((r.verdict, r.subkind), ("PARSEK-FAIL", "mission-outcome"))
+        # NEVER retried: a subject that died is a defect to look at, not a flake to
+        # re-roll into a green.
+        self.assertFalse(hlib.should_retry(r, 1, "once"))
+        self.assertIn("mission-outcome", hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_it_names_the_cause_ahead_of_the_downstream_symptoms(self):
+        # Flight 3 tripped FOUR expectation rows (three missing required tokens plus
+        # the forbidden [Parsek][ERROR]) - all symptoms of the same dead kerbal. The
+        # subkind a sweep reader sees must be the cause.
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        v["expectation_mismatch"] = True
+        v["log_validate_failed"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual("mission-outcome", r.subkind)
+
+    def test_a_quarantine_key_cannot_turn_a_dead_subject_green(self):
+        # An `[expectedFail] bugId` with no subkind matches ANY PARSEK-FAIL (the
+        # documented v1 adaptation), and EXPECTED-FAIL is GREEN: it is in
+        # GREEN_VERDICTS, sets lastGreen in compute_coverage, and exits 0. So a
+        # scenario quarantined for one unrelated Parsek defect would have silently
+        # absorbed the next subject death - re-opening this PR's own fail-open through
+        # the back door. Demoting a subject death must be spelled out.
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": "BUG-1", "signature_matched":
+                                         hlib.expected_fail_signature_matched(
+                                             "PARSEK-FAIL", "mission-outcome", "")},
+                                  1, "once")
+        self.assertEqual("PARSEK-FAIL", r.verdict)
+        self.assertNotIn(r.verdict, hlib.GREEN_VERDICTS)
+        # Every OTHER PARSEK-FAIL subkind still demotes bugId-only, unchanged.
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "expectation", ""))
+        self.assertFalse(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "mission-outcome", ""))
+        # ... and an EXPLICIT subkind still demotes it (quarantining a known-flaky
+        # subject death stays possible, it just has to be named).
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "mission-outcome", "mission-outcome"))
+
+    def test_a_refusal_is_a_driver_fault_not_a_flight_outcome(self):
+        # The four outcome verbs emit ~30 terminals and most are NOT "the flight failed
+        # after handoff". The seam already draws the line: a no-side-effect refusal
+        # rides REJECTED, a real terminal rides ERROR. Without the split, a typo'd
+        # targetPid on a POST-mission EvaBoard reports PARSEK-FAIL(mission-outcome) and
+        # is never retried, while the SAME typo pre-mission reports INVALID(driver-arg)
+        # and retries once.
+        cases = [
+            # (verdict, msg, expect_flight_outcome, expect_driver_subkind)
+            ("ERROR", "eva-chute-kerbal-lost", True, ""),
+            ("ERROR", "eva-exit-timeout", True, ""),
+            ("REJECTED", "no-crew", False, "driver-verdict-mismatch"),
+            ("REJECTED", "kerbal-not-aboard", False, "driver-verdict-mismatch"),
+            ("REJECTED", "unknown-target", False, "driver-arg"),   # the M-C1 table wins
+            ("TIMEOUT", "", False, "seam-timeout"),
+            (None, "", False, "driver-stage"),                     # never answered
+        ]
+        for verdict, msg, want_outcome, want_subkind in cases:
+            step = _outcome("0007", "EvaChuteDeploy", False, verdict=verdict, msg=msg)
+            is_outcome, subkind = hlib.classify_post_mission_outcome_miss(step)
+            self.assertEqual(want_outcome, is_outcome, (verdict, msg))
+            self.assertEqual(want_subkind, subkind, (verdict, msg))
+            # Whatever the classification, the miss is never silently dropped.
+            self.assertTrue(is_outcome or bool(subkind), (verdict, msg))
+
+    def test_every_driver_subkind_it_can_emit_is_retryable(self):
+        # A spec/fixture fault routed to the driver stage must retry-once exactly like
+        # its pre-mission twin; a subkind outside the retry set would strand it.
+        for verdict, msg in (("REJECTED", "no-crew"), ("REJECTED", "unknown-target"),
+                             ("TIMEOUT", ""), (None, "")):
+            _, subkind = hlib.classify_post_mission_outcome_miss(
+                _outcome("0007", "EvaBoard", False, verdict=verdict, msg=msg))
+            self.assertIn(subkind, hlib.RETRYABLE_INVALID_SUBKINDS, (verdict, msg))
+
+    def test_a_clean_run_is_untouched(self):
+        # Every other scenario in the suite: no post-mission outcome step, or all of
+        # them met. The fact defaults False and the verdict stays PASS.
+        d, v = _clean_pass_facts()
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+        v["mission_outcome_unmet"] = False
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+
+
 class SeamVerbTailRoleTests(unittest.TestCase):
     """Guards (design "The unmet-mission tail"): the per-verb tail-role table is
     TOTAL over the implemented verbs, names exactly the two cleanup verbs, and fails

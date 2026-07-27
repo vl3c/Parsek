@@ -13714,6 +13714,40 @@ namespace Parsek
                 ParsekLog.Warn("Flight",
                     $"RestoreActiveTreeFromPending: vessel '{targetName}' (and no EVA parent fallback) " +
                     "not active within 3s — leaving tree in Limbo (user can trigger merge dialog via scene exit)");
+
+                // R1-EMPTY-PROVISIONAL detection point 1. The generic Limbo warn
+                // above says nothing about the Re-Fly session, so a give-up here
+                // has always been indistinguishable from an ordinary failed
+                // quickload resume. If a session IS live, no recorder is bound to
+                // its provisional at this moment, and unless something binds one
+                // later the merge will have nothing to supersede the origin with.
+                // Observation only: raise loudly, do not change control flow.
+                var giveUpMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+                UnboundProvisionalRaise giveUp =
+                    ReFlyProvisionalBinding.EvaluateRestoreGiveUp(giveUpMarker, tree?.Id);
+                if (giveUp.ShouldRaise)
+                {
+                    ParsekLog.Warn("ReFlySession",
+                        $"outcome=unbound-refly-provisional reason={giveUp.Reason} " +
+                        $"sess={giveUpMarker.SessionId ?? "<no-id>"} " +
+                        $"provisional={giveUpMarker.ActiveReFlyRecordingId ?? "<none>"} " +
+                        $"markerTree={giveUpMarker.TreeId ?? "<none>"} " +
+                        $"attemptedTree={tree?.Id ?? "<none>"} " +
+                        $"attemptedRec={activeRecId ?? "<none>"} " +
+                        $"attemptedVessel='{targetName}' attemptedPid={targetPid} — the re-fly " +
+                        "restore gave up, so NOTHING is recording into this session's " +
+                        "provisional. Unless a recorder binds to it before the merge, the " +
+                        "re-fly will supersede nothing and the origin branch stays effective");
+                    try
+                    {
+                        ParsekLog.ScreenMessage(
+                            "Parsek: re-fly attempt is not recording; it will not replace "
+                            + "the original", 8f);
+                    }
+                    catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
+                    catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
+                    catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
+                }
                 yield break;
             }
 

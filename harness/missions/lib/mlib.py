@@ -10677,6 +10677,68 @@ def wall_budget_block(now: float, deadline: Optional[float],
             "wallBudgetSeconds": budget}
 
 
+# ---------------------------------------------------------------------------
+# Handoff contracts (EVA-4 fail-open closure, 2026-07-25). Pure.
+# ---------------------------------------------------------------------------
+#
+# Most missions terminate ON the outcome they certify: B1 ends with the craft on
+# the ground, B2 in the target orbit, B5 past the flyby. A HANDOFF mission does
+# not. `eva4_atmo_chute` terminates at EVA-WINDOW with the craft still airborne and
+# crewed, hands off to the seam, and the mission SUBPROCESS EXITS - and the thing
+# the scenario exists to prove ("land the kerbal alive") happens minutes later, to
+# a vessel that did not exist on any frame the mission ever read.
+#
+# That is why flight 3 (2026-07-25) reported `MISSION-OK reason=all telemetry
+# assertions met` over a kerbal who had just been killed by a cut canopy. It is NOT
+# fixable by adding a fifth assertion, which is what the bug entry originally
+# proposed: there is no frame on which the mission machine could evaluate one. The
+# structural gate lives in the harness (hlib.SEAM_VERB_POST_MISSION_ROLE, which
+# makes the post-mission outcome steps red the run). What lives HERE is the other
+# half - the mission stating, in its own machine-readable result, exactly which
+# part of the scenario's contract it did NOT verify and which step owns it, so
+# MISSION-OK can never again be read as end-to-end success by a human or a script.
+#
+# Keyed by mission name. A mission ABSENT from this table declares nothing and its
+# result JSON is byte-identical to before.
+MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
+    "eva4_atmo_chute": {
+        "terminal": EVA4_EVA_WINDOW,
+        "unverifiedByMission": ["kerbalSurvival"],
+        "verifiedBy": ["EvaExit", "EvaChuteDeploy"],
+    },
+}
+
+# What MISSION-OK means for a handoff mission, spelled out in the reason line the
+# result JSON carries and run.py copies into driver.steps. The generic
+# "all telemetry assertions met" is TRUE but reads as end-to-end success.
+HANDOFF_OK_REASON_SUFFIX = ("; handoff mission - %s not verified here, owned by %s")
+
+
+def mission_handoff_contract(mission: str) -> Optional[Dict]:
+    """The handoff contract for ``mission``, or None when the mission terminates on
+    the outcome it certifies (every mission but EVA-4 today).
+
+    Returns a DEEP copy: a shallow one would alias the module constant's nested lists
+    into every result dict, so a caller that mutated a returned ``verifiedBy`` would
+    rewrite the contract for the rest of the process."""
+    contract = MISSION_HANDOFF_CONTRACTS.get(str(mission or ""))
+    if not contract:
+        return None
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in contract.items()}
+
+
+def handoff_ok_reason(mission: str, reason: str) -> str:
+    """Extend a MISSION-OK reason with the handoff mission's own disclaimer. A
+    non-handoff mission (or a non-OK reason, handled by the caller) is returned
+    unchanged, so no other mission's result string moves."""
+    contract = MISSION_HANDOFF_CONTRACTS.get(str(mission or ""))
+    if not contract:
+        return reason
+    return str(reason) + HANDOFF_OK_REASON_SUFFIX % (
+        ", ".join(contract["unverifiedByMission"]),
+        ", ".join(contract["verifiedBy"]))
+
+
 def build_mission_result(
     mission: str,
     verdict: str,
@@ -10705,11 +10767,23 @@ def build_mission_result(
     rows = []
     for a in (assertions or []):
         rows.append(a.to_dict() if isinstance(a, AssertionOutcome) else dict(a))
+    # Handoff disclosure (EVA-4). The REASON is extended by the caller
+    # (mission_runner.run_mission), immediately before the `[Verdict]` log emit, because
+    # that log line - not this dict - is what a human and `harness/status.py` read;
+    # extending it only here would fix the JSON and leave the operator-facing line
+    # unchanged. `handoff_ok_reason` is idempotent-by-construction only in the sense
+    # that the caller applies it exactly once, so this builder does NOT re-apply it.
+    # What the builder owns is the machine-readable BLOCK, on every verdict: a reader of
+    # a FAILED run still needs to know which step owned the rest of the contract.
+    # A mission with no contract is untouched, so every other mission's result stays
+    # byte-identical.
+    handoff = mission_handoff_contract(mission)
     return {
         "schema": MISSION_RESULT_SCHEMA,
         "mission": mission,
         "verdict": verdict,
         "reason": reason,
+        **({"handoff": handoff} if handoff is not None else {}),
         "phasesReached": list(phases_reached or []),
         "connect": {
             "attempts": int(connect_attempts),

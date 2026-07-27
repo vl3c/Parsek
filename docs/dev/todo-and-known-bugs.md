@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## R1-EMPTY-PROVISIONAL: a Re-Fly session can reach the merge with NO recorder ever bound to its provisional, and nothing between refuses [FOUND by R1 flight 2, DIAGNOSED by R1 flight 3, 2026-07-26. REPORTED, NOT FIXED. Severity: the FAIL-LOUD GAP is HIGH and fixture-independent; the production REACH is UNPROVEN IN EITHER DIRECTION]
+## R1-EMPTY-PROVISIONAL: a Re-Fly session can reach the merge with NO recorder ever bound to its provisional, and nothing between refuses [FOUND by R1 flight 2, DIAGNOSED by R1 flight 3, 2026-07-26. FAIL-LOUD GAP + merge non-convergence FIXED (PR #1360); the discriminating FIXTURE experiment is BUILT and awaits its first run; the production REACH is still UNPROVEN IN EITHER DIRECTION. Layer 1 deliberately NOT built]
 
 **TWO CORRECTIONS, both to earlier versions of this entry. Read them before the rest.**
 
@@ -72,6 +72,7 @@ The marker-aware adoption exists - `ParsekFlight.RestoreActiveTreeFromPending` c
 - PROVEN about the trigger: the injected quicksave carries no `RECORDING_TREE`, and the fixture-vs-live guid disagreement independently blocks the match.
 - **NOT PROVEN, in either direction: whether this is reachable in production at all.** A real RewindPoint is a full `GamePersistence.SaveGame` and would carry the tree node, and a real re-flight's guid provenance differs from the fixture's. There is no archived Re-Fly against a flight-authored RP to check against. Do NOT describe this as a confirmed player-facing bug until that exists.
 - **The narrowing experiment proposed in the previous version ("rewind + re-fly with NO prior commit") CANNOT NARROW ANYTHING and is withdrawn.** Removing the commit empties the pending slot, which hits the `!HasPendingTree` yield-break at `ParsekFlight.cs:13452`: a red proves only that the coroutine skipped, and a green is unreachable. **The discriminating experiment is a FIXTURE change**: make `BuildRewindPointQuicksave` emit `RECORDING_TREE isActive=True` for `tree-b9-stack-root`, AND make the sidecar VESSEL's guid agree with the provisional's `recordedVesselGuid` so the guid guard does not veto the match. Both are required - fixing only the tree node still loses at step 4. (Whether KSP preserves the authored VESSEL guid across the ProtoVessel load should be verified on the run rather than assumed.)
+  **BUILT in PR #1360, NOT YET RUN.** `BuildRewindPointQuicksave` now authors the owning tree as `RECORDING_TREE isActive=True` with `activeRecordingId` = the focus slot's origin, and `StampVesselIdentity` stamps the sidecar VESSEL `pid` from the new deterministic `ScenarioWriter.DeriveVesselLaunchGuid(originRecordingId)`, which `RewindB9Fixture` also sets as each child recording's `recordedVesselGuid` - so both sides agree by construction instead of by luck. Note the mechanism the earlier guid value came through: the recordings never set a guid explicitly, and `RecordingSidecarStore.cs:516-523` BACKFILLED one from the vessel snapshot's top-level `pid` (`ProbeShip(pid: 200003)` -> `00000000000000000000000000030d43`). An explicit guid suppresses that backfill, so the fixture no longer depends on it. STILL UNVERIFIED, exactly as flagged above: whether KSP preserves the authored VESSEL guid across the ProtoVessel load. If it regenerates, the guid guard vetoes again and the next lever is aligning the SNAPSHOT pid (`VesselSnapshotBuilder.ProbeShip`) with the same derived value.
 - **The reachable PRODUCTION shape to inspect is the Finalized early-return** at `ParsekScenario.cs:5142-5150`, which returns WITHOUT popping so an in-memory Finalized tree can legitimately survive a load - not the Limbo one the previous version named. Note it has explicit re-fly handling (`ShouldAcceptFinalizedPendingTreeForReFlyRetry`, `ParsekFlight.cs:13446/14228`), so it is a path to AUDIT, not a known defect.
 
 ### Release consequence IF the shape is reachable: BOTH branches stay live
@@ -110,24 +111,28 @@ The known-dangerous class is "a static GameEvent handler NRE aborted OnLoad and 
 
 What the abort DOES cost is everything after it: **`LoadTimeSweep.Run()` and `RewindPointReaper.ReapOrphanedRPs()` never run**. That is self-reinforcing - the sweep is exactly the thing that would discard a zombie marker and stale RPs, and the exception is what prevents it. Severity stays HIGH on the Release correctness ground above, not on a wipe.
 
-### Proposed fix (NOT applied - C# that cannot be validated from this headless lane)
+**CLOSED by PR #1360.** The abort had exactly one cause - the `#if DEBUG` throw out of `AppendRelations` - and layer 3 removed it. Both builds now take the named refusal, `RunMerge` completes, the journal reaches its terminal phase instead of persisting at `Supersede`, and the sweep and reaper run. The self-reinforcing loop (the abort preventing the pass that would clean up after it) is gone.
 
-Three layers, in priority order:
+### Fix status (PR #1360)
 
-1. **Bind the provisional (the actual bug).** Make the re-fly's in-place-continuation adoption independent of whichever tree happens to own the single pending slot. Either evict / defer a stale Limbo pending tree when a re-fly marker is active, or drive the adoption from the MARKER (`marker.TreeId` / `marker.ActiveReFlyRecordingId`) rather than from whatever `RestoreActiveTreeFromPending` was handed. A re-fly session that ends with no recorder ever bound to its provisional should be impossible by construction.
-2. **Detect it early and loudly, not at merge time.** Parsek already notices at save time - `OnSave: rewriting sidecars for recording='B9 Booster A' id=rec_5b0697a6... reason=trajectory-missing` - and again when auto-record starts a tree while a re-fly marker is live. Either is a far cheaper detection point than the merge orchestrator, and either can warn while the player can still act.
-3. **Give the refusal a named, non-throwing outcome.** The refusal itself is CORRECT - a trajectory-less recording cannot validly replace a real origin (the placeholder-redirect class that shipped twice in 2026-04, items 5 and 568). But rewind-then-conclude is reachable in normal play, so it must not be modelled as an invariant violation: the `#if DEBUG throw` / `#else return` split means the shipped path is never the tested one, and the throw strands the journal. A named outcome that both builds take, plus a merge that completes without rows, removes the non-convergence while keeping the guard.
+Three layers were proposed, in priority order. Layers 2 and 3 SHIPPED; layer 1 deliberately did not.
 
-Whoever takes this should also decide whether a conclusion with an un-flown provisional should reach the merge orchestrator at all.
+1. **Bind the provisional. NOT BUILT, on purpose.** The proposal was to make the adoption independent of whichever tree owns the single pending slot - either evict a stale Limbo tree, or drive the adoption from `marker.TreeId`. Eviction is already production behaviour (see correction 2 above), and a first attempt at the marker-driven variant was written and then REVERTED: with the only demonstrated route fixture-shaped, it would have been a product change built on an unproven premise, and it would not have made flight 3 green anyway (blocker 4 still vetoes). If the fixture experiment above still reds, this becomes the right next move - but it must be an ADDITIONAL entry point, never a relaxed tree-id gate: `ReFlySessionMarker.cs`'s `marker-tree-id-mismatch` refusal is a genuine stale-marker guard.
+2. **Detect it early and loudly. SHIPPED.** Pure core `ReFlyProvisionalBinding`; both raises emit a grep-stable `outcome=unbound-refly-provisional` Warn and are OBSERVATION ONLY (no control-flow change, for the same unproven-premise reason). Wired at the two points that were passed silently: `ParsekFlight.RestoreActiveTreeFromPending`'s give-up (`EvaluateRestoreGiveUp`, plus a ScreenMessage; the reason token separates `gave-up-on-marker-tree` from `gave-up-on-other-tree`) and `ParsekScenario.EnsureRecordingFilesCurrentForSave`'s `reason=trajectory-missing` rewrite (`EvaluateSidecarRewrite`). The second is independently sufficient: it is the only one that fires when the restore coroutine was never scheduled.
+3. **Named, non-throwing outcome. SHIPPED.** `AppendRelations` now logs `outcome=refused-unflown-provisional` and returns an empty list in BOTH builds. The guard is unchanged; only the "this can never happen" modelling is gone. This removes the non-convergent stuck merge described below - and with it the `MergeDialog.Commit.cs:249` ERROR that S4.1's forbidden-ERROR contract was redding on.
+
+Still open from the original note: whether a conclusion with an un-flown provisional should reach the merge orchestrator at all.
 
 ### Standing regression coverage
 
 - SCENARIO, scheduled: **`S4.1-rewind-merge`** is the rewind-then-conclude case (`LoadGame -> InvokeRewind -> AnswerMergeDialog -> RecordingState -> FlushAndQuit`, no flying between). It keeps `expectedFail.bugId = "R1-EMPTY-PROVISIONAL"` + `subkind = "expectation"`: the known finding demotes to EXPECTED-FAIL on the nightly, a DIFFERENT failure still reds as PARSEK-FAIL, and a fixed finding reports XPASS and the keys must be deleted.
   **FIXTURE CONFOUND, flagged rather than resolved:** if the operative trigger is the fixture's tree-less RP (see PROVEN / NOT-PROVEN), then this tag permanently demotes a FIXTURE red on a nightly cadence, and the XPASS that is supposed to signal "Parsek fixed it" would never fire from a Parsek fix - only from a fixture fix. Keeping the tag is still the better of the two available options today (an untagged S4.1 reds the nightly on a known issue), but it is provisional: re-evaluate the moment the discriminating fixture experiment above runs. If that experiment shows the fixture was the trigger, this belongs on a FIXTURE defect id, not on a Parsek one.
+  **KEYS DELIBERATELY KEPT by PR #1360, with an expectation recorded.** That PR removes the throw S4.1 was actually redding on: `AppendRelations` no longer throws, so it no longer escapes `MergeJournalOrchestrator.RunMerge`, so `MergeDialog.Commit.cs:249` no longer logs the `[Parsek][ERROR]` that trips this spec's `logContracts.forbidden`. S4.1 is therefore EXPECTED to report XPASS on its next scheduled run, and that observed XPASS - not this prediction - is the trigger to delete both keys. They were not deleted pre-emptively: `classify_expected_fail` makes XPASS a non-failure, so leaving them costs nothing but a loud signal, whereas deleting them on an unverified prediction would red the nightly if anything else in that path errors. This also satisfies the "re-evaluate once the fixture experiment runs" instruction above rather than pre-empting it.
 - SCENARIO, unscheduled: **`R1-rewind-loop-flown` deliberately does NOT carry the tag.** It is `operator` tier and therefore in no cadence (`hlib.CADENCE_TIERS` maps operator to nothing), so it cannot redden any sweep, and its red is the loudest evidence we have that the bug is open on the PRIMARY use path - the full rewind-and-re-fly loop. Tagging it would demote exactly the signal worth keeping, and would leave a key to remember to delete. Its `Added [1-9][0-9]* supersede relations` logContract is the positive assertion that fails today and passes the moment the fix lands.
 - HARNESS-SIDE HONESTY (2026-07-26 review, SF-1). `postRewindPointsRecorded` was RENAMED to `postRewindFlightRecordedSomewhere` because it did not observe what it named: `RecordingState.points` is `RecorderStateSnapshot.bufferedPoints`, the LIVE recorder's count for whatever recording is live, NOT the provisional's. Flight 3 is the proof - the row logged `met=True value=24 channel: observed` while the merge was refusing `provisional=rec_5b0697a6... reason=empty Points`. The reply's `tree` field is now captured as the row's `recordedTree` evidence (one `_r1_seam_payload` call would have put the flight-3 diagnosis straight into the result JSON instead of only KSP.log), and the row carries an explicit `doesNotProve` detail. The comparison itself remains IMPOSSIBLE through the seam - no verb exposes the marker's provisional id - so this is diagnosability, not semantic closure; the `Added [1-9][0-9]* supersede relations` logContract is what actually gates the fact.
   REVIEWER NOTE WORTH PRESERVING: one reviewer called the row under-guarded, another's mutation sweep showed it HAS row-level coverage. Both are right on different axes - the sweep pinned the BOOLEAN, the critique tested what the boolean MEANS. The fix was to correct the semantics and KEEP the coverage, not to average the two verdicts.
 - MACHINE: `R1LoopClosureTests.test_a_rewind_without_a_second_flight_does_not_evaluate_green` and the shell cell `test_a_rewind_with_no_second_flight_is_not_mission_ok` pin the flight-2 shape; `test_flying_is_not_enough_the_flight_must_be_RECORDED` pins the flight-3 shape (the craft flew, the recording stayed empty), which is the harness-side guard that would have caught this without a merge.
+- MACHINE (PR #1360): `ReFlyProvisionalBindingTests` (15 cells) pins both detection points, including that ordinary sidecar churn (`epoch-mismatch` / `schema-mismatch` / ...) must stay SILENT - a raise that fires on everything stops meaning anything - and that the two points fire independently on one session. `SupersedeCommitTests.AppendRelations_{EmptyProvisional,NullTerminalProvisional}_RefusesAndWarns` pins the named outcome in both builds and asserts the absence of the old "invariant violation" wording. `RewindB9FixtureTests.Inject_RpSidecar{CarriesTheTreeAsAnActiveResumeNode,VesselGuidsAgreeWithRecordedVesselGuid}` + `DeriveVesselLaunchGuid_IsDeterministicAndParsesAsAGuid` pin the production-shaped sidecar so the fixture cannot silently drift back. All four load-bearing behaviours mutation-checked (suppress the restore raise -> 4 red; raise on any sidecar reason -> 5 red; drop the isActive node -> 1 red; random per-clone guid -> 1 red).
 
 ## Rewind-in-flight: a verb-agnostic seam bridge, the R1 rewind-loop mission, and two wrongly-operator-tiered scenarios [BUILT, branch `rewind-loop-lane`]
 
@@ -1942,9 +1947,20 @@ Tests: TestCommand xUnit +~69 cells (verb-table 18/11, C2 dispatch matrix incl. 
 
 **PENDING-OPERATOR (design live-prove list, one KSP session):** P1 load-and-focus sanity of `gloops-airshow`; P2 commit `eva2-lko-crewed` + `eva3-pad-3crew` then re-tier EVA-2/EVA-3 pending-fixture -> daily/nightly; P3 first EVA-1/2/3 runs pin the recordings-count windows (currently provisional per R-C) and the exact structural-snapshot message (the `[Pipeline-Smoothing]` token is regex-escaped in-spec pending confirmation); P4 pin the orbital auto-record log wording (EVA-2's required token keeps the stable `Auto-record started` prefix); P5 confirm ladder release lands with ground contact + zero kerbal damage; P6 confirm the SiteRename dismiss-callback fires `afterFlagPlanted` and Parsek's capture line appears. Also promotes EVA-1 nightly -> daily once the windows are pinned.
 
-## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [LIVE-PROVEN 2026-07-24, branch `autotest-eva4-chute`; **INTERMITTENT FAILURE FOUND 2026-07-25, OPEN**]
+## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [~~LIVE-PROVEN 2026-07-24~~; ~~INTERMITTENT FAILURE FOUND 2026-07-25~~; ~~fixed headlessly 2026-07-26, branch `eva4-failopen`~~ **RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1)**]
 
-**OPEN 2026-07-25 - the EVA chute CUTS ITSELF mid-descent and the kerbal dies; and the MISSION still returns MISSION-OK.** Found by the first full daily+nightly sweep (24 of 25 scenarios green; this was the only red). Verdict `PARSEK-FAIL(expectations)`, wall 187 s, `results/2026-07-25_1007_EVA-4-atmo-chute.json`, collected log `logs/2026-07-25_1310_EVA-4-atmo-chute/`.
+~~**OPEN 2026-07-25 - the EVA chute CUTS ITSELF mid-descent and the kerbal dies; and the MISSION still returns MISSION-OK.**~~ CLOSED. Both defects were diagnosed and fixed HEADLESSLY on 2026-07-26 from the archived evidence (no new flight), and the operator RE-FLEW it the same day: **PASS on attempt 1, all seven verifiers, wall 409 s**, provisioned from the branch with the deployed DLL SHA-identical to the branch build.
+
+```
+apoapsisWindow 19696.874 | evaWindowReached 1592.752 | evaWindowDescentRate -18.560
+craftCanopyObserved 11964.692 | MISSION-OK
+missionOutcome PASS gating=2 | driverValidity PASS | analyzer PASS red=0
+logValidate PASS | anomalySweep PASS hits=[] | expectations PASS mismatches=0
+```
+
+**The green flight is the weaker half of that result, and the operator checked the stronger half deliberately: a LIVE kerbal proves nothing about a DEAD one.** The fail-open closure was verified structurally rather than by outcome - (1) the mission DECLARES what it does not verify (`unverifiedByMission ["kerbalSurvival"]`); (2) `missionOutcome` GATES the two owning verbs, so an unmet one reds `PARSEK-FAIL(mission-outcome)`; (3) it FAILS CLOSED IF DISARMED - zero gating verbs reads SKIPPED, never PASS, which is the part most likely to have been got wrong; (4) the dead path is covered in xUnit over the pure decision, with both aliveness bits load-bearing (the debounced bit gates `KerbalLost` so a transient read cannot fake a death; the RAW bit is a required `CompleteOk` conjunct so the debounce cannot mask a real one).
+
+RESIDUAL, recorded rather than closed: no test kills a kerbal in a LIVE flight, so end to end that path rests on xUnit over the pure decision plus a code read. A deliberately fatal flight is NOT warranted - the pure decision is the right home for it - but the gap is real and is stated here rather than left implicit. See the two ROOT CAUSE blocks and the RUNBOOK below (kept: it is now the proven recipe, not a proposal). Found by the first full daily+nightly sweep (24 of 25 scenarios green; this was the only red). Verdict `PARSEK-FAIL(expectations)`, wall 187 s, `results/2026-07-25_1007_EVA-4-atmo-chute.json`, collected log `logs/2026-07-25_1310_EVA-4-atmo-chute/`.
 
 Measured descent profile from the verb's own polling (this is the whole defect in five lines):
 
@@ -1959,11 +1975,138 @@ t=20.5s  [ERROR] evachutedeploy eva-chute-kerbal-lost ... chuteState=Stowed aliv
 
 The chute DID open - `canopy verified ... state=SemiDeployed` at t=0, which is the OBSERVED-state gate the 2026-07-24 hardening added, working correctly. It then went to **Cut** within 5 s and the kerbal accelerated from -11 to -109 m/s and died. This is NOT the flight-1 failure mode (that one was an INERT chute that never left Stowed, `automateSafeDeploy=0`); the canopy opened and was then cut. Note the terminal read prints `chuteState=Stowed` because the kerbal vessel is already gone by then - the live states are the `wait` lines above.
 
-Root cause NOT yet established. The leading suspect is the same KerbalFSM coupling family already documented for this module: `ModuleEvaChute`'s deploy events are registered only on specific kerbal fsm states (`st_ragdoll` / `st_idle_fl`), so an fsm transition out of freefall can invalidate the canopy. The kerbal here exited from a craft already descending slowly under its own chute (-11 m/s at 1,650 m), which is an unusual, low-relative-speed state.
+**ROOT CAUSE (b), THE CANOPY CUT - ESTABLISHED 2026-07-26 from the archived log + decompiled KSP 1.12.5. The canopy was not cut by any parachute logic; it was cut as a SIDE EFFECT of a COLLISION knocking the kerbal out of the semi-deployed-parachute FSM state.**
 
-**The second, independent defect this exposed - a mission that reports OK while its subject dies.** `eva4_atmo_chute` returned `MISSION-OK reason=all telemetry assertions met` on this exact flight. Its four assertions are `apoapsisWindow`, `evaWindowReached`, `evaWindowDescentRate`, `craftCanopyObserved` - every one about the CRAFT and the EVA WINDOW, none about the kerbal surviving, even though "let the kerbal land or splash safely" is the mission's stated purpose. Kerbal survival is currently proven ONLY by seam log tokens (`evachutedeploy complete`, `down=true situation=`, `Part event: ParachuteDeployed 'kerbalEVA`) plus the forbidden-`[Parsek][ERROR]` contract. That is what red'd this run, so the lane is not green-for-the-wrong-reason today - but the numeric/assertion surface says the flight succeeded, and anyone reading mission results alone would believe it. Fix: add a kerbal-survival assertion (observed `alive` + a terminal `LANDED`/`SPLASHED` situation for the kerbal vessel) to the mission machine so the mission verdict cannot disagree with the outcome.
+The evidence is four lines of `logs/2026-07-25_1310_EVA-4-atmo-chute/KSP.log`, in order:
 
-Both items are EVA-lane work and were deliberately NOT taken in the telemetry task that found them.
+```
+[LOG 13:09:53.614] [Parsek][INFO][TestCommands] evaexit release fired ... fsm=Ladder_Idle->Idle_Floating stillOnLadder=false
+[LOG 13:09:53.668] [Parsek][VERBOSE][Recorder] Part event: ParachuteSemiDeployed 'kerbalEVA' pid=1940654732
+[LOG 13:09:53.868] [Parsek][VERBOSE][Recorder] Part event: ParachuteCut 'kerbalEVA' pid=1940654732
+[LOG 13:09:53.884] Event Stumble not assigned to state Ragdoll
+```
+
+That last line is the whole diagnosis and it is the ONLY occurrence of `Stumble` or `Ragdoll` in the entire run (`grep -c` over the collected KSP.log: 1). Decompiled ground truth:
+
+- `On_stumble` is a `MANUAL_TRIGGER` event registered on every state EXCEPT ragdoll / grappled / clamber P2 / P3 (`fsm.AddEventExcluding(...)`, KerbalEVA.cs:8153), so it IS registered on `st_semi_deployed_parachute`, and its `GoToStateOnEvent` is `st_ragdoll` (KerbalEVA.cs:8151).
+- The ONLY site that fires it is the collision callback, gated on `c.relativeVelocity.sqrMagnitude > stumbleThreshold * stumbleThreshold` with `stumbleThreshold = 3.5` m/s (KerbalEVA.cs:12700 / :847).
+- `OnSemiDeployedParachuteModeLeft` calls `evaChute.CutParachute()` on EVERY exit from that state except a transition to `st_fully_deployed_parachute` (KerbalEVA.cs:11152-11169), and `ragdoll_OnEnter` then calls `evaChute.AllowRepack(false)` (KerbalEVA.cs:4486-4497), so the cut is terminal.
+- The only other event that leaves `st_semi_deployed_parachute` for `st_ragdoll` is `On_land_start`, whose `OnCheckCondition` reads `lastCollisionNormal` / `lastCollisionTime` (KerbalEVA.cs:8061-8117) - also collision-driven. And `On_parachute_cut` goes to `st_idle_fl`, NOT ragdoll (KerbalEVA.cs:9605), so the OBSERVED Ragdoll state rules out "the module cut for its own reasons" as the cause.
+
+So the exit was collision-driven and the cut is a CONSEQUENCE of the FSM transition, not its cause. The logged `Event Stumble not assigned to state Ragdoll` is the SECOND frame of that same contact, arriving after the FSM had already moved (the first frame fired from a state where the event IS registered, so it produced no warning line).
+
+WHAT IT HIT is MEASURED (corrected 2026-07-26; an earlier revision of this entry called it inferred and unprovable). KSP logs no collider identity, but Parsek's own recording supplies the geometry: the kerbal's `.prec` carries a `ReferenceFrame.Relative` section ANCHORED TO THE POD (`ref = 1`, `anchorRecordingId = 4cc22361...`), and per the RELATIVE contract its `lat/lon/alt` fields are anchor-local METRES. Parsed, they give the pod-relative separation directly:
+
+| UT | event | separation from the pod |
+| --- | --- | --- |
+| 123.38 - 124.04 | on the hatch ladder | 0.78 -> 0.71 m |
+| 124.20 | ladder let-go | ~0.8 m |
+| 124.26 | `ParachuteSemiDeployed` | **0.82 m** |
+| 124.48 | `ParachuteCut` / Stumble | **1.50 m** |
+| 124.70 / 124.92 | | 2.88 / 4.91 m |
+
+The kerbal was 0.8 m from the pod when its canopy inflated, and nothing else was within kilometres. (`[Parsek][VERBOSE][BgRecorder] Background point sampled: pid=2905720181 ... dist=90m` at 13:09:57.707 is the same story 3.8 s later.) A semi-deployed canopy brakes the kerbal hard within a couple of physics frames while the pod continues at its own rate, which is exactly how a >3.5 m/s closing velocity appears between two objects that started together.
+
+WHY THIS RUN AND NOT FLIGHT 1 OR 2 - and a CORRECTION (2026-07-26). An earlier revision of this entry said the exposure is the LENGTH of the semi-deployed window, because `ModuleEvaChute`'s stock `deployAltitude` is 1000 m so a 1,650 m EVA must sit SEMI-deployed for ~650 m while flight 1's 356 m exit went semi -> full in 0.66 s (`ParachuteSemiDeployed` 22:09:49.166, `ParachuteDeployed` 22:09:49.826). **That reasoning is WRONG and it is dangerous wrong.** `OnFullyDeployedParachuteModeLeft` (KerbalEVA.cs:11219, wired at :7244) calls `evaChute.CutParachute()` UNCONDITIONALLY - no state exclusion at all - and `On_stumble` is registered on `st_fully_deployed_parachute` too. A stumble out of a FULL canopy cuts it exactly like a stumble out of a semi one.
+
+So a full canopy is NOT safe from this, and raising the EVA chute's `deployAltitude` - the technique already proven on the CRAFT chute at `craftChuteFullDeployAltMeters = 2500` - would NOT have fixed it. The operative variable is PROXIMITY AT CANOPY TIME, which is what the separation table above measures and what the fix targets. The intermittency is simply whether a stumble-grade contact happens while the pod is still within reach; flight 1 exited a co-moving pod at terminal velocity and flight 2 got lucky.
+
+This correction is recorded rather than quietly patched because the wrong version is actively hazardous: a maintainer reading it would apply the `deployAltitude` knob, conclude the hazard was gone, and drop the standoff.
+
+FIX (b): a bounded, OBSERVED pre-chute STANDOFF on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30). The exit does not complete until the kerbal has read at least that far from every other LOADED vessel for `StandoffDebouncePolls` (2) consecutive polls, so the canopy inflates with nothing in reach. TWO bounds, both NON-FATAL on expiry (it completes anyway carrying `standoff=timeout` on the wire plus a Warn line naming which bound fired, because an unchuted kerbal is a certain death while a contact risk is not - the mitigation must never be able to make the outcome worse than the bug it mitigates):
+
+- `StandoffMaxWaitSeconds` = 8 s, ~3.5x the ~2.3 s the 30 m clear actually took.
+- `standoffFloorAltMeters` (EVA-4: 500 m), and THIS is the load-bearing one. The first draft had only the wall clock, at 15 s, justified in a code comment as "~165 m of fall" - which is 15 s x the LADDER-ATTACHED -11 m/s. The kerbal is UNCHUTED for the whole stage (the chute is armed by the NEXT step), so the bound is paid in FREE FALL: the flight-3 log itself measures 1650.4 m at elapsed=0.0s down to 634.3 m at elapsed=15.0s, i.e. ~1,016 m - a 6.2x error. Since the mission may hand off anywhere in [700, 2100] m, a wall-clock-only bound would have flown a low handoff into the ground with the canopy never armed, at t ~ 11.5 s, 3.5 s before the give-up ever fired. That is strictly worse than the collision the stage exists to avoid, i.e. the fix as first written violated its own stated rule. Found in panel review, not in flight. Off (`standoff=off`, zero extra Unity reads) for every scenario that does not declare it. Parsek's own ghost map vessels are excluded from the distance read (proto-only, no colliders, so they cannot stumble a kerbal - and a co-located one would otherwise pin the standoff at 0 m until the bound expired, silently reverting the mitigation on any save with a playing ghost). The spec makes the fix self-proving: `evaexit standoff cleared` is a REQUIRED `logContracts` token, so a stale DLL, a dropped arg, or a standoff that never cleared reds the run rather than flying the un-mitigated profile unnoticed.
+
+**ROOT CAUSE (a), THE FAIL-OPEN - a mission that reports OK while its subject dies. ESTABLISHED, and the fix proposed in the original entry is NOT implementable.**
+
+`eva4_atmo_chute` returned `MISSION-OK reason=all telemetry assertions met` on this exact flight. Its four assertions are `apoapsisWindow`, `evaWindowReached`, `evaWindowDescentRate`, `craftCanopyObserved` - every one about the CRAFT and the EVA WINDOW, none about the kerbal surviving. The original fix line here read "add a kerbal-survival assertion to the mission machine". **That cannot be done.** `eva4_decide`'s success terminal is `EVA4_EVA_WINDOW`, reached while the craft is still airborne and crewed, and the mission SUBPROCESS EXITS there; the kerbal EVA vessel is created afterwards, by the seam step `EvaExit`. The timestamps say it plainly: the mission's last line is `[Mission][Info][Verdict] mission verdict=MISSION-OK ... wall=112.980s` (`results/2026-07-25_1007_EVA-4-atmo-chute_mission.stdout.log`), and `evaexit start` is at KSP.log 13:09:52.404, AFTER it. There is no frame on which a kerbal-survival assertion could be evaluated, because on every frame the mission ever read the kerbal was crew inside a pod, not a vessel.
+
+**THE FAIL-OPEN IS ONE LAYER UP, AND IT IS NOT A FIFTH COMMANDED-vs-OBSERVED.** The four documented instances of that class (the CAPTURE-BURN NodeExecutor, B1's chute, EVA-4's ladder release, the B-DOCK docking AP) all share "no observed channel existed, so we asserted on our own latch". Here the observed channel existed and worked perfectly: `EvaChuteDeploy` polls the LIVE kerbal (vessel present, parts present, crew aboard, roster not Dead), debounces it over 3 consecutive gone-reads, and fast-fails on a distinctly named give-up - `[Parsek][WARN] evachutedeploy kerbal read gone ... gonePolls=3/3` then `[Parsek][ERROR][TestCommands] evachutedeploy eva-chute-kerbal-lost`, at 13:10:14.159. The prescription had ALREADY been applied. The step's verdict was recorded (`results/2026-07-25_1007_EVA-4-atmo-chute.json`, `driver.steps[6] = {"cmd": "EvaChuteDeploy", "verdict": "ERROR", "met": false}`, and `driver.allExpectedMet: false`) - and then consulted by no gate at all: the same file records `verifiers.driverValidity.status: "PASS"` beside `allExpectedMet: false`. This is the failure mode that remains AFTER you fix commanded-vs-observed: **OBSERVED-BUT-UNGATED**. The observation is made, it is correct, it is durably recorded, and the classifier throws it away.
+
+The reason is `run.py`'s autopilot carve-out, which makes EVERY post-mission seam step non-gating on a MISSION-OK run. Its rationale is sound and is kept - "a good flight Parsek then failed to record is a PARSEK-FAIL(expectation), NOT a driver-INVALID a retry would paper over" - but it silently assumed the expectations verifier would always notice. For `CommitTree` / `StopRecording` that mostly holds. For an OUTCOME verb it holds only if the spec author happened to write the right regex. On this run four expectation rows caught it (three missing required tokens plus the forbidden `\[Parsek\]\[ERROR\]`); delete any of them from the spec and a run that killed its own subject reports PASS.
+
+FIX (a), in two halves:
+
+1. **The structural gate (hlib + run.py).** New per-verb table `SEAM_VERB_POST_MISSION_ROLE`, TOTAL over `IMPLEMENTED_SEAM_VERBS` and gated by a unit cell so a new verb cannot inherit a default. `outcome` verbs (the four M-C2 EVA verbs - each one's verdict is a claim about a KERBAL's in-world state that no verifier re-derives) GATE; `recording` verbs (everything else: Parsek behaviour or plumbing) stay non-gating exactly as before. run.py emits a `missionOutcome` verifier row naming the gating verbs and the first unmet one with its `msg=`, and `classify_verdict` maps it to `PARSEK-FAIL(mission-outcome)`. Deliberately NOT a driver-INVALID: routing it through the driver stage would preempt and SKIP every verifier below it (throwing away the evidence that made this run diagnosable) and would let an intermittent subject death retry into a PASS-with-a-flake-note. Deliberately ahead of log-contract / expectation in the verifier precedence, because those rows are the downstream symptoms and this one is the cause.
+2. **The mission's own honesty (mlib).** `MISSION_HANDOFF_CONTRACTS` records, per mission, what a HANDOFF mission does NOT verify and which step owns it. EVA-4 declares `unverifiedByMission: ["kerbalSurvival"], verifiedBy: ["EvaExit", "EvaChuteDeploy"]`; the block rides the result JSON and the MISSION-OK reason line gains the same statement, so `MISSION-OK` can never again be read as end-to-end success by a human or a script. A mission absent from the table is byte-identical to before. This half is DISCLOSURE, not a gate - the gate is deliberately structural (half 1) so it cannot be defeated by a future mission author forgetting to declare.
+
+**RUNBOOK - EXECUTED 2026-07-26, PASS on attempt 1.** Kept as the proven re-fly recipe (and as the recipe for any future EVA-lane standoff change); the paragraph below describes the state it was written in.
+
+Everything above was diagnosed and fixed from the committed artifacts - no KSP was launched. What is proven (counts MEASURED off the suites, not restated): 15 hlib cells, 5 fake-KSP smoke cells (one drives a deliberately BLINDED expectations block, so the only thing that can red it is the outcome step's verdict; another drives a post-mission REFUSAL, which must classify as a retryable driver fault and NOT as a Parsek defect), 8 mission-lib cells (6 mlib + 2 shell cells pinning the `[Verdict]` LOG line, which is the channel `status.py` and a watching human read), 18 xUnit `Standoff_*` / payload cells; all four harness suites (`lib` 746, `provision` 203, `missions/lib` 814) and the 18,686-case xUnit suite green; mutation-checked (see below).
+
+What is NOT proven, and the honest list is longer than the first draft's: (1) that a 30 m standoff actually prevents the collision in the live game; (2) that the standoff WIRING is correct, because `EvaluateStandoff` / `TryCompleteEvaExit` are Unity-side and every xUnit cell exercises the pure statics beneath them - a refactor that dropped the `&& standoffSatisfied` conjunct would keep every headless suite green, and only the live `evaexit standoff cleared` token would catch it. That token is a REQUIRED `logContracts` entry precisely so it does, but it has never run.
+
+FOUR commands, in order, and the first three are NOT optional. `EvaExit`'s standoff stage is C#; the harness flies `automation/stock-minimal`, NOT the dev instance; and provision's DEPLOY copies `Source/Parsek/bin/Debug/Parsek.dll` verbatim while its identity grep checks only `ParsekFlight` / `GhostPlaybackEngine` (`provision.py:65`) - strings present in EVERY Parsek build - so a STALE `bin/Debug` passes provision silently.
+
+1. Build, so `bin/Debug` is this branch:
+
+```bash
+cd Source/Parsek && dotnet build
+```
+
+2. Provision, so the automation instance gets that DLL:
+
+```bash
+cd harness && python provision/provision.py --profile stock-minimal
+```
+
+3. VERIFY THE DEPLOYED DLL BEFORE FLYING. This is the gate a 2026-07-25 B12 run cost a whole flight for. From `harness/`, `automation/` is TWO levels up: it sits at the UMBRELLA root beside the worktree, not inside it. Expect 3; a 0 means the deploy did not take and the flight would prove nothing:
+
+```bash
+python -c "d=open(r'../../automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll','rb').read(); print(d.count('evaexit standoff'.encode('utf-16-le')))"
+```
+
+4. Only then fly (one nightly-tier scenario, ~7 min wall):
+
+```bash
+cd harness && python run.py --id EVA-4-atmo-chute
+```
+
+CONFIRMS THE (b) FIX - and `evaexit standoff cleared` is now a REQUIRED `logContracts` token in the spec, so the operator does not have to eyeball it: a stale DLL, a dropped spec arg, or a standoff that never cleared all red the run on a missing required token instead of quietly flying the un-mitigated profile. These lines must appear in the collected `KSP.log`, in this order, between `evaexit start` and `evachutedeploy armed`. Anchor the window on `evaexit start`, NOT on `evaexit release verified`: the spec documents the `release=noop` exit (a kerbal that never grabbed the hatch ladder) as legitimate and equally chute-ready, and on that path the seam logs `evaexit release=noop` instead, so the old anchor would vanish on a run the spec itself calls valid:
+
+```
+[Parsek][VERBOSE][TestCommands] evaexit standoff kerbal=Jebediah Kerman nearest=<m> min=30.0 clearPolls=<n>/2 waited=<s>s state=Waiting
+[Parsek][INFO][TestCommands] evaexit standoff cleared kerbal=Jebediah Kerman nearest=<m> min=30.0 waited=<s>s
+[Parsek][INFO][TestCommands] evaexit complete kerbal=Jebediah Kerman evaPid=<pid> released=true standoff=cleared
+```
+
+Then, from the chute step, the run is good iff BOTH of these appear and `Part event: ParachuteCut 'kerbalEVA` does NOT appear before the touchdown:
+
+```
+[Parsek][VERBOSE][Recorder] Part event: ParachuteDeployed 'kerbalEVA' pid=<pid>
+[Parsek][INFO][TestCommands] evachutedeploy complete ... canopy=true chuteState=Cut down=true situation=LANDED alive=true
+```
+
+DO NOT use `Event Stumble not assigned to state Ragdoll` as the red criterion. An earlier draft of this runbook said a single occurrence between the EVA and the touchdown meant the bug was reproducing; that is FALSE and would fail a GOOD run. Flight 1 (`logs/2026-07-24_2210_EVA-4-atmo-chute/KSP.log`) logged 76 of them - 68 at touchdown and 8 at 22:09:48.475-.489, i.e. 67-81 ms after `evaexit complete` and BEFORE `evachutedeploy armed` - on the flight whose kerbal LANDED ALIVE. A stumble there is harmless: `On_semi_deploy_parachute` is registered on `st_ragdoll` as well as `st_idle_fl` (KerbalEVA.cs:9599), so a ragdolled kerbal can still open its chute. The fix makes that window LONGER, not shorter - the standoff deliberately holds the kerbal unchuted beside the pod for ~2-3 s - so expect these lines and ignore them.
+
+The criterion that actually discriminates is the CHUTE, not the FSM: `Part event: ParachuteCut 'kerbalEVA` must NOT appear while the kerbal is still FLYING. A cut at the touchdown is the stock auto-cut and is expected.
+
+FAILURE READINGS: `standoff=timeout` on the `evaexit complete` line means the kerbal never got 30 m clear in 15 s - the mitigation did not engage, and a cut canopy after that is the original bug, not a regression. `standoff=off` means the DLL is stale (re-provision) or the spec arg was dropped.
+
+CONFIRMS THE (a) FIX (only observable on a run that FAILS, so it cannot be checked on a green re-fly): the result JSON must carry `verifiers.missionOutcome` with `gatingVerbs: ["EvaExit", "EvaChuteDeploy"]`, and the harness log must carry `[Harness][Info][Verify] verify missionOutcome status=PASS gating=2 firstUnmet=-`. On a green run that row reads PASS; if the kerbal dies again the verdict must read `PARSEK-FAIL` subkind `mission-outcome` rather than `expectation`.
+
+MUTATION RESULTS (each mutation applied to HEAD, suites re-run, then reverted):
+
+| Mutation | Cells that red |
+| --- | --- |
+| M1 `EvaChuteDeploy` role `outcome` -> `recording` | `test_outcome_set_is_exactly_the_four_eva_verbs`, `test_the_eva4_flight3_step_stream_names_the_chute_step`, `test_a_blind_spec_still_reds`, `test_the_real_spec_reds_naming_the_cause_not_the_symptom`, `test_the_result_record_names_the_step_and_its_terminal` |
+| M2 `classify_verdict` drops the `mission_outcome_unmet` branch | `test_a_dead_subject_reds_the_run_as_mission_outcome`, `test_it_names_the_cause_ahead_of_the_downstream_symptoms`, `test_a_blind_spec_still_reds`, `test_the_real_spec_reds_naming_the_cause_not_the_symptom` |
+| M3 `first_unmet_post_mission_outcome` always returns None | `test_the_eva4_flight3_step_stream_names_the_chute_step`, `test_a_blind_spec_still_reds`, `test_the_real_spec_reds_naming_the_cause_not_the_symptom`, `test_the_result_record_names_the_step_and_its_terminal` |
+| M4 mlib drops EVA-4's handoff declaration | all 5 non-negative `Eva4HandoffContractTests` cells (2 FAIL, 3 ERROR) |
+| M5 `StandoffDebouncePolls` 2 -> 1 | `Standoff_RequiresTheDebounceRun_NotOneGoodFrame`, `Standoff_ConstantsAreSizedForTheMeasuredProfile` |
+| M6 `StandoffClearThisPoll` `>=` -> `>` | `Standoff_ComparesTheObservedDistanceInclusively` |
+| M7 `ClassifyStandoff` always returns `Cleared` | `Standoff_RequiresTheDebounceRun_NotOneGoodFrame`, `Standoff_BoundedWait_GivesUpAndSaysSo` |
+| M8 `StandoffClearThisPoll` drops the explicit NaN guard | NOTHING - **equivalent mutant**, reported rather than papered over. C# IEEE comparison already yields false for `NaN >= x`, so the guard is belt-and-braces. `Standoff_UnreadableDistance_FailsClosed` pins the BEHAVIOUR (which is correct and stable); the line is kept as intent documentation so a future rewrite of the comparison cannot silently lose fail-closed. |
+| M9 `StandoffToken` reports a give-up as `cleared` | `Standoff_BoundedWait_GivesUpAndSaysSo`, `Standoff_TokenDistinguishesNeverAskedFromGaveUp` |
+| M10 `StandoffMaxWaitSeconds` 15 -> 0 | `Standoff_ConstantsAreSizedForTheMeasuredProfile` |
+| M12 `ClassifyStandoff` drops the altitude-floor branch | `Standoff_GivesUpAtTheAltitudeFloorWhateverTheClockSays` (the blocker cell: without the floor a low handoff flies the kerbal into the ground before the wall clock fires) |
+| M13 `AdvanceStandoffClearPolls` rewritten as a TALLY (`prev + (clear ? 1 : 0)`) | `Standoff_DebounceIsARunAndResetsOnAnyNonClearPoll` (this is why the accumulator was extracted from the applier: as an inline applier line the same mutation kept all 13 pre-existing cells green) |
+| M14 `expected_fail_signature_matched` drops the `NEVER_BUGID_ONLY_SUBKINDS` guard | `test_a_quarantine_key_cannot_turn_a_dead_subject_green` |
+| M15 `classify_post_mission_outcome_miss` always returns `(True, "")` | `test_a_refusal_is_a_driver_fault_not_a_flight_outcome`, `test_every_driver_subkind_it_can_emit_is_retryable`, `test_a_refusal_is_a_retryable_driver_fault_not_a_parsek_defect` |
+| M11 `StandoffToken` reports a still-`Waiting` stage as `cleared` | `Standoff_AnUnconcludedStageIsNotReportedAsCleared` (found in self-review before the PR: the first draft's token collapsed `Waiting` into `cleared`, so an `eva-exit-timeout` would have claimed an observation that was never made - the exact shape of the defect this whole change exists to close) |
+
+**NOT DONE, deliberately.** The mid-mission command-seam bridge on `main` is hardcoded to `CommitTree` (`mission_runner.py` `_perform_seam_commit`). Generalising it would let EVA-4 do the whole EVA inside the mission and hold real kerbal-survival assertions - but PR #1357 (`rewind-loop-lane`) is already generalising exactly that bridge, so building a second one here would collide head-on. Once #1357 lands, the mission-side assertion the original entry asked for becomes implementable and the `handoff` declaration above is what should be retired in its favour.
 
 Adds the one EVA surface the M-C2 trio does not reach. EVA-1/EVA-3 exit on the pad and
 EVA-2 exits in orbit; EVA-4 exits MID-FLIGHT IN ATMOSPHERE, so it is the only case where
