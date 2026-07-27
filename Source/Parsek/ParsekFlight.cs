@@ -11419,38 +11419,6 @@ namespace Parsek
                     "AtomicMarkerWrite attached a fresh fork that needs a live recorder)");
                 restoreMode = ParsekScenario.ActiveTreeRestoreMode.Quickload;
             }
-
-            // R1-EMPTY-PROVISIONAL: a Re-Fly invoked with no live tree (from
-            // SPACECENTER / TRACKSTATION, or from FLIGHT with recording off) leaves
-            // the pending slot empty, so OnLoad's Limbo dispatch scheduled nothing
-            // and the session's provisional would never get a recorder. Schedule
-            // the same Quickload coroutine; it resolves the tree from the marker.
-            if (restoreMode == ParsekScenario.ActiveTreeRestoreMode.None)
-            {
-                var readyMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-                RecordingTree readyMarkerTree =
-                    ReFlySessionMarker.IsInPlaceContinuation(readyMarker)
-                    && !string.IsNullOrEmpty(readyMarker.TreeId)
-                        ? RewindInvoker.FindTreeForReFlyFork(readyMarker.TreeId)
-                        : null;
-                ReFlyRestoreTreeDecision readyAdoption =
-                    ReFlyRestoreAdoption.ResolveRestoreTree(
-                        readyMarker,
-                        hasPendingTree: RecordingStore.HasPendingTree,
-                        pendingTreeId: RecordingStore.PendingTree?.Id,
-                        markerTreeResolvable: readyMarkerTree != null);
-                if (ShouldUpgradeRestoreModeForReFlyMarkerTree(
-                        restoreMode, readyAdoption.Source))
-                {
-                    ParsekLog.Info("Flight",
-                        "OnFlightReady: scheduling Quickload restore for the active Re-Fly " +
-                        $"session's marker tree '{readyMarkerTree?.TreeName}' " +
-                        $"(id={readyMarker?.TreeId ?? "<none>"}, reason={readyAdoption.Reason}) — " +
-                        "no restore was dispatched from the pending slot and the session's " +
-                        "provisional needs a live recorder");
-                    restoreMode = ParsekScenario.ActiveTreeRestoreMode.Quickload;
-                }
-            }
             if (restoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
             {
                 ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady =
@@ -12892,36 +12860,6 @@ namespace Parsek
                     $"Always-tree: created single-node tree id={treeId}, root={rootRecId}, " +
                     $"vessel={activeTree.TreeName} (pid={vesselPid}), " +
                     $"ghostSnap={rootRec.GhostVisualSnapshot != null}");
-
-                // R1-EMPTY-PROVISIONAL early detection (layer 2). A brand-new tree
-                // here while an in-place-continuation Re-Fly names a DIFFERENT tree
-                // means nothing is bound to that session's provisional: this flight
-                // will land in an unrelated tree and the merge will have a
-                // trajectory-less recording to supersede the origin with. Caught
-                // seconds after the rewind load, while the player can still act,
-                // instead of at merge time inside the journal orchestrator.
-                var freshTreeReFlyMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-                if (ReFlyRestoreAdoption.IsOrphanedFreshTreeStart(freshTreeReFlyMarker, treeId))
-                {
-                    ParsekLog.Warn("Flight",
-                        "R1-EMPTY-PROVISIONAL guard: auto-record created a FRESH tree " +
-                        $"id={treeId} while Re-Fly session " +
-                        $"sess={freshTreeReFlyMarker.SessionId ?? "<no-id>"} is live and pins " +
-                        $"tree={freshTreeReFlyMarker.TreeId ?? "<none>"} " +
-                        $"rec={freshTreeReFlyMarker.ActiveReFlyRecordingId ?? "<none>"} — " +
-                        "this flight is NOT being recorded into the session's provisional, " +
-                        "so the re-fly will supersede nothing. Expected the restore to adopt " +
-                        "the marker's tree (see RestoreActiveTreeFromPending adoption line)");
-                    try
-                    {
-                        ParsekLog.ScreenMessage(
-                            "Parsek: re-fly attempt is recording into a NEW tree; "
-                            + "it will not replace the original", 8f);
-                    }
-                    catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
-                    catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
-                    catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
-                }
             }
 
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
@@ -13483,94 +13421,7 @@ namespace Parsek
             {
             // NOTE: body intentionally not re-indented to minimize diff
             ParsekLog.RecState("Restore:start", CaptureRecorderState());
-
-            // Bug #585 follow-up (PR #558 P1 review): gate marker read on
-            // RewindInvokeContext consumption. In the async-FLIGHT-load path,
-            // ParsekScenario.OnLoad schedules our restore for OnFlightReady
-            // BEFORE RewindInvoker.RunStripActivateMarker has had a chance to
-            // run AtomicMarkerWrite -- RunStripActivateMarker is itself
-            // deferred via WaitForFlightReadyAndInvoke until
-            // FlightGlobals.ready flips, which races with the
-            // GameEvents.onFlightReady fire that triggers us. If we read the
-            // marker before AtomicMarkerWrite completes we see it as null,
-            // fall through to no-swap, and the wait loop targets the stale
-            // pre-rewind ActiveRecordingId -- exactly the bug #585 race.
-            // Yield until the pending invocation context clears (or a bounded
-            // timeout) so the marker write is guaranteed to have completed.
-            //
-            // R1-EMPTY-PROVISIONAL: this wait now runs BEFORE the pending-tree
-            // gate, because the marker also decides WHICH tree we adopt (see
-            // ReFlyRestoreAdoption below) and not only which recording inside
-            // it we wait for. Reading it after the gate meant a re-fly whose
-            // tree was not the pending slot's occupant could never be seen.
-            if (RewindInvokeContext.Pending)
-            {
-                int markerWaitFrame = 0;
-                const int MaxMarkerWaitFrames = 300;
-                while (RewindInvokeContext.Pending && markerWaitFrame < MaxMarkerWaitFrames)
-                {
-                    markerWaitFrame++;
-                    yield return null;
-                }
-                if (RewindInvokeContext.Pending)
-                {
-                    ParsekLog.Warn("Flight",
-                        $"RestoreActiveTreeFromPending: timed out waiting for RewindInvokeContext " +
-                        $"to clear after {MaxMarkerWaitFrames} frame(s); proceeding without marker swap " +
-                        $"(bug #585 follow-up: marker write race)");
-                }
-                else
-                {
-                    ParsekLog.Verbose("Flight",
-                        $"RestoreActiveTreeFromPending: waited {markerWaitFrame} frame(s) for " +
-                        $"RewindInvokeContext to clear before reading ActiveReFlySessionMarker");
-                }
-            }
-
-            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-
-            // R1-EMPTY-PROVISIONAL: resolve which tree this restore must install.
-            // The pending slot is single-occupancy and carries whatever tree was
-            // live when Re-Fly was clicked; the session's provisional lives in the
-            // ORIGIN's tree, which is only the same object in the common case.
-            // Sourcing the adoption from the marker makes "a Re-Fly session ends
-            // with no recorder bound to its provisional" unreachable whenever the
-            // marker's tree is resolvable at all.
-            RecordingTree markerTree =
-                ReFlySessionMarker.IsInPlaceContinuation(marker)
-                && !string.IsNullOrEmpty(marker.TreeId)
-                    ? RewindInvoker.FindTreeForReFlyFork(marker.TreeId)
-                    : null;
-            ReFlyRestoreTreeDecision adoption = ReFlyRestoreAdoption.ResolveRestoreTree(
-                marker,
-                hasPendingTree: RecordingStore.HasPendingTree,
-                pendingTreeId: RecordingStore.PendingTree?.Id,
-                markerTreeResolvable: markerTree != null);
-            bool adoptMarkerTree = adoption.Source == ReFlyRestoreTreeSource.MarkerTree;
-            if (marker != null)
-            {
-                ParsekLog.Info("Flight",
-                    $"RestoreActiveTreeFromPending: adoption source={adoption.Source} " +
-                    $"reason={adoption.Reason} markerTree={marker.TreeId ?? "<none>"} " +
-                    $"markerRec={marker.ActiveReFlyRecordingId ?? "<none>"} " +
-                    $"pendTree={RecordingStore.PendingTree?.Id ?? "<none>"}" +
-                    $":{(RecordingStore.HasPendingTree ? RecordingStore.PendingTreeStateValue.ToString() : "-")} " +
-                    $"sess={marker.SessionId ?? "<no-id>"}");
-            }
-
-            RecordingTree tree;
-            if (adoptMarkerTree)
-            {
-                tree = markerTree;
-                ParsekLog.Info("Flight",
-                    $"RestoreActiveTreeFromPending: adopting Re-Fly marker tree " +
-                    $"'{tree.TreeName}' (id={tree.Id}) instead of the pending slot " +
-                    $"({RecordingStore.PendingTree?.TreeName ?? "<empty>"}) — the session's " +
-                    $"provisional lives there and needs a live recorder bound to it");
-            }
-            else
-            {
-                // Re-Fly retry carve-out: when the previous Re-Fly attempt was
+            // Re-Fly retry carve-out: when the previous Re-Fly attempt was
             // post-destruction finalized before the player clicked Esc >
             // Revert > Retry from Rewind Point, the in-memory pending tree
             // is in Finalized state (set by ShowPostDestructionTreeMergeDialog
@@ -13614,10 +13465,45 @@ namespace Parsek
                     "needs a recorder bound to the freshly-attached fork");
             }
 
-            tree = RecordingStore.PendingTree;
-            } // else (adoption source = PendingTree)
-
+            var tree = RecordingStore.PendingTree;
             string activeRecId = tree.ActiveRecordingId;
+
+            // Bug #585 follow-up (PR #558 P1 review): gate marker read on
+            // RewindInvokeContext consumption. In the async-FLIGHT-load path,
+            // ParsekScenario.OnLoad schedules our restore for OnFlightReady
+            // BEFORE RewindInvoker.RunStripActivateMarker has had a chance to
+            // run AtomicMarkerWrite -- RunStripActivateMarker is itself
+            // deferred via WaitForFlightReadyAndInvoke until
+            // FlightGlobals.ready flips, which races with the
+            // GameEvents.onFlightReady fire that triggers us. If we read the
+            // marker before AtomicMarkerWrite completes we see it as null,
+            // fall through to no-swap, and the wait loop targets the stale
+            // pre-rewind ActiveRecordingId -- exactly the bug #585 race.
+            // Yield until the pending invocation context clears (or a bounded
+            // timeout) so the marker write is guaranteed to have completed.
+            if (RewindInvokeContext.Pending)
+            {
+                int markerWaitFrame = 0;
+                const int MaxMarkerWaitFrames = 300;
+                while (RewindInvokeContext.Pending && markerWaitFrame < MaxMarkerWaitFrames)
+                {
+                    markerWaitFrame++;
+                    yield return null;
+                }
+                if (RewindInvokeContext.Pending)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"RestoreActiveTreeFromPending: timed out waiting for RewindInvokeContext " +
+                        $"to clear after {MaxMarkerWaitFrames} frame(s); proceeding without marker swap " +
+                        $"(bug #585 follow-up: marker write race)");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"RestoreActiveTreeFromPending: waited {markerWaitFrame} frame(s) for " +
+                        $"RewindInvokeContext to clear before reading ActiveReFlySessionMarker");
+                }
+            }
 
             // Bug #585: in-place continuation Re-Fly carve-out. The rewind
             // quicksave's ActiveRecordingId still points at the pre-rewind
@@ -13635,6 +13521,7 @@ namespace Parsek
             uint preMarkerActivePid = activeRecId != null
                 && tree.Recordings.TryGetValue(activeRecId, out var preMarkerActiveRec2)
                 ? (preMarkerActiveRec2?.VesselPersistentId ?? 0u) : 0u;
+            var marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             // Issue #734 race fix: AtomicMarkerWrite usually attaches the
             // in-place fork to the pending tree at marker-write time, but
             // on async FLIGHT loads both AtomicMarkerWrite and this restore
@@ -13852,47 +13739,27 @@ namespace Parsek
                     $"RestoreActiveTreeFromPending: PID remap {oldPid} → {newPid} for '{targetName}'");
             }
 
-            if (adoptMarkerTree)
+            // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
+            // and re-install as the live active tree.
+            activeTree = RecordingStore.PopPendingTree();
+            if (activeTree == null)
             {
-                // R1-EMPTY-PROVISIONAL: the marker's tree is NOT in the pending
-                // slot, so there is nothing to pop — install the canonical object
-                // directly and detach its committed copy (see
-                // AdoptReFlyMarkerTreeAsActive). The pending slot is deliberately
-                // left untouched: its occupant is the pre-rewind flight's tree,
-                // whose vessel the rewind load just replaced, so it can never be
-                // resumed and its scene-exit disposition is unchanged by this fix.
-                activeTree = tree;
-                AdoptReFlyMarkerTreeAsActive(tree, marker);
+                ParsekLog.Warn("Flight",
+                    "RestoreActiveTreeFromPending: PopPendingTree returned null after we verified the tree exists");
+                yield break;
             }
-            else
-            {
-                // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
-                // and re-install as the live active tree.
-                activeTree = RecordingStore.PopPendingTree();
-                if (activeTree == null)
-                {
-                    ParsekLog.Warn("Flight",
-                        "RestoreActiveTreeFromPending: PopPendingTree returned null after we verified the tree exists");
-                    yield break;
-                }
-                // PopPendingTree just emptied the main pending slot; a saved pending
-                // tree from the same save can now move back unless another path filled it.
-                RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
-                    "RestoreActiveTreeFromPending");
-            }
+            // PopPendingTree just emptied the main pending slot; a saved pending
+            // tree from the same save can now move back unless another path filled it.
+            RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
+                "RestoreActiveTreeFromPending");
 
             // Construct a fresh FlightRecorder pointed at the restored tree.
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
             chainManager.ActiveTreeId = activeTree.Id;
 
-            // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node.
-            // R1-EMPTY-PROVISIONAL: the hint was parsed from the save's active-tree
-            // node, which TryRestoreActiveTreeNode paired with the PENDING slot's
-            // occupant. When we adopted the marker's tree instead, that hint belongs
-            // to a different tree and must not be applied to this recorder.
-            if (!adoptMarkerTree
-                && !string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
+            // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
+            if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
             {
                 recorder.SetRewindSaveFileNameForRestore(
                     ParsekScenario.pendingActiveTreeResumeRewindSave,
@@ -14366,38 +14233,6 @@ namespace Parsek
             return hasPendingTree
                 && pendingTreeIsFinalized
                 && reFlyInPlaceContinuationActive;
-        }
-
-        /// <summary>
-        /// R1-EMPTY-PROVISIONAL: pure decision — should OnFlightReady upgrade
-        /// <paramref name="restoreMode"/> from None to Quickload because an
-        /// in-place-continuation Re-Fly names a resolvable tree that the pending
-        /// slot does not hold?
-        ///
-        /// <para>
-        /// The Limbo dispatch in <c>ParsekScenario.OnLoad</c> only schedules a
-        /// restore when the pending slot is occupied. A Re-Fly invoked with no live
-        /// tree (SPACECENTER / TRACKSTATION, or FLIGHT with recording off) leaves
-        /// the slot empty, so no coroutine ever starts and nothing binds a recorder
-        /// to the session's provisional. Upgrading here routes that shape into the
-        /// same restore coroutine, which then resolves the tree from the marker via
-        /// <see cref="ReFlyRestoreAdoption.ResolveRestoreTree"/>.
-        /// </para>
-        ///
-        /// <para>
-        /// Deliberately NOT gated on <c>RewindInvokeContext.Pending</c>: during the
-        /// invoke window the marker is null and the in-place-vs-placeholder decision
-        /// has not been made, so the adoption source cannot be MarkerTree and
-        /// scheduling a coroutine there would only skip
-        /// <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/> for nothing.
-        /// </para>
-        /// </summary>
-        internal static bool ShouldUpgradeRestoreModeForReFlyMarkerTree(
-            ParsekScenario.ActiveTreeRestoreMode restoreMode,
-            ReFlyRestoreTreeSource adoptionSource)
-        {
-            return restoreMode == ParsekScenario.ActiveTreeRestoreMode.None
-                && adoptionSource == ReFlyRestoreTreeSource.MarkerTree;
         }
 
         internal static bool ShouldAttemptCommittedSpawnedRestoreInUpdate(
@@ -24530,99 +24365,6 @@ namespace Parsek
             // when ShouldSwap IS true is cheap.
             return RewindInvoker.EnsureForkAttachedToTree(
                 tree, committedFork, "RestoreActiveTreeFromPending:reconcile");
-        }
-
-        /// <summary>
-        /// R1-EMPTY-PROVISIONAL: installs the Re-Fly marker's tree as the live
-        /// active tree when it was NOT the pending slot's occupant. Puts the store
-        /// into exactly the shape the canonical Re-Fly restore produces, so nothing
-        /// downstream has to know which route got us here.
-        ///
-        /// <para>
-        /// Two things must hold afterwards:
-        /// </para>
-        /// <list type="number">
-        ///   <item><description>
-        ///     The tree must NOT remain in <c>committedTrees</c> while it is
-        ///     <c>activeTree</c>. OnSave writes the active tree as
-        ///     <c>PARSEK_ACTIVE_TREE</c> and every committed tree as
-        ///     <c>RECORDING_TREE</c>; leaving both would write one tree id twice.
-        ///     <c>ParsekScenario.TryRestoreActiveTreeNode</c> detaches for exactly
-        ///     this reason and we mirror it.
-        ///   </description></item>
-        ///   <item><description>
-        ///     The session provisional must stay in the flat committed list.
-        ///     <see cref="RecordingStore.RemoveCommittedTreeById"/> strips every
-        ///     recording of the detached tree from that list, and
-        ///     <c>AtomicMarkerWrite</c> eagerly attached the provisional to this
-        ///     tree, so the detach takes it along. In the canonical shape
-        ///     <c>AddProvisional</c> runs AFTER the detach and the provisional is
-        ///     present for the whole session; the merge tail resolves it from there
-        ///     (<c>MergeDialog.TryCommitReFlySupersede</c> /
-        ///     <c>SupersedeCommit</c>). Re-add it so both routes agree.
-        ///   </description></item>
-        /// </list>
-        ///
-        /// <para>Internal static so xUnit can pin both effects without a live scene.</para>
-        /// </summary>
-        /// <returns>True when a committed copy of the tree was detached.</returns>
-        internal static bool AdoptReFlyMarkerTreeAsActive(
-            RecordingTree tree, ReFlySessionMarker marker)
-        {
-            if (tree == null || string.IsNullOrEmpty(tree.Id))
-            {
-                ParsekLog.Warn("Flight",
-                    "AdoptReFlyMarkerTreeAsActive: no tree / no tree id — nothing to adopt");
-                return false;
-            }
-
-            Recording provisional = null;
-            if (marker != null
-                && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
-                && tree.Recordings != null)
-            {
-                tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out provisional);
-            }
-            bool provisionalWasCommitted = IsSameCommittedRecordingInstance(provisional);
-
-            bool detached = RecordingStore.RemoveCommittedTreeById(
-                tree.Id, "RestoreActiveTreeFromPending:refly-marker-tree-adopt");
-
-            bool provisionalReAdded = false;
-            if (provisionalWasCommitted && !IsSameCommittedRecordingInstance(provisional))
-            {
-                RecordingStore.AddCommittedInternal(provisional);
-                provisionalReAdded = true;
-            }
-
-            ParsekLog.Info("Flight",
-                $"AdoptReFlyMarkerTreeAsActive: tree '{tree.TreeName}' (id={tree.Id}, " +
-                $"{tree.Recordings?.Count ?? 0} recording(s)) is now the live active tree " +
-                $"detachedCommittedCopy={detached} " +
-                $"provisional={marker?.ActiveReFlyRecordingId ?? "<none>"} " +
-                $"provisionalReAddedToCommittedList={provisionalReAdded} " +
-                $"sess={marker?.SessionId ?? "<no-id>"}");
-            return detached;
-        }
-
-        /// <summary>
-        /// True when <paramref name="rec"/> is present in
-        /// <see cref="RecordingStore.CommittedRecordings"/> BY REFERENCE. Allowlisted
-        /// raw read per the file-level ERS exemption for ParsekFlight.cs: this is an
-        /// object-identity membership probe around a store mutation, not an
-        /// effective-state query.
-        /// </summary>
-        private static bool IsSameCommittedRecordingInstance(Recording rec)
-        {
-            if (rec == null) return false;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return false;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                if (ReferenceEquals(committed[i], rec))
-                    return true;
-            }
-            return false;
         }
 
         internal static bool ShouldUsePreReFlyAnchorTrajectory(
