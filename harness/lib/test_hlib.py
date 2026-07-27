@@ -4987,9 +4987,16 @@ class DebrisPopulationGateTests(unittest.TestCase):
         self.assertIn("internal const double DebrisTTLSeconds = 60.0;", body)
         # ParsekLog.Info, NOT Verbose: this is why no spec needs a verboseLogging
         # pin for it, and the roadmap's claim that every R1 token is Verbose was
-        # wrong. The Info call opens 3 lines above the message.
+        # wrong. Resolved as the NEAREST PRECEDING ParsekLog call rather than by
+        # scanning a fixed-width window, so reflowing the argument list cannot
+        # false-red it while a level change still does.
         idx = body.index("Child recording created (debris, TTL=")
-        self.assertIn('ParsekLog.Info("BgRecorder"', body[idx - 120:idx])
+        calls = [m for m in re.finditer(r"ParsekLog\.(\w+)\(", body[:idx])]
+        self.assertTrue(calls, "no ParsekLog call precedes the debris message")
+        self.assertEqual(
+            "Info", calls[-1].group(1),
+            "the debris token is depended on WITHOUT a verboseLogging pin by "
+            "B2/B4/B5/B6/B7; downgrading this emit would silently un-gate all five")
 
     def test_no_gated_spec_relies_on_verbose_logging_for_it(self):
         # A Verbose token would need a `SetSetting verboseLogging true` step to be

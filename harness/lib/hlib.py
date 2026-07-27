@@ -2241,11 +2241,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 errors.append(
                     "expectations.logContracts.%s: %r is not a valid regex (%s). "
                     "These patterns are applied with re.search, so a KSP.log token "
-                    "carrying regex metacharacters must escape them - e.g. write "
-                    "%s to match a literal '('. Caught here rather than after the "
-                    "flight, where evaluate_expectations would red the run on a "
-                    "collected log."
-                    % (facet, pat, exc, r"'\\('"))
+                    "carrying regex metacharacters must escape them. In a TOML "
+                    "basic (double-quoted) string write %s to match a literal '(' "
+                    "- the backslash is DOUBLED because TOML consumes one before "
+                    "the regex engine ever sees it. Caught here rather than after "
+                    "the flight, where evaluate_expectations would red the run on "
+                    "a collected log."
+                    % (facet, pat, exc, '"\\\\("'))
 
     # Exactly one QUIT owner: a FlushAndQuit step XOR autorun.exit = true (N3).
     has_flush = any((s or {}).get("cmd") == "FlushAndQuit" for s in steps)
