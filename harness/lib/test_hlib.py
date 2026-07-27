@@ -1969,23 +1969,26 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H20-eva-spawn-position":    ("EvaSpawnPosition", 2),
     }
 
-    # H20 is the ONE member that does not pin its tally whole: both of its cells
-    # carry run-time InGameAssert.Skip guards whose outcome is fixture-measured, so
-    # it carries the honest interim form until a live run supplies the split.
+    # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
+    # carried the loose interim pin, because both its cells have run-time
+    # InGameAssert.Skip guards and one of them (the walkback endpoint-overlap probe,
+    # a live Physics.OverlapBox) is not decidable from source. It was re-flown ALONE
+    # on 2026-07-27 so its log would survive the sweep, measured
+    # `total=2 passed=2 failed=0 skipped=0`, and is now pinned whole like the rest.
+    # So every member of the group pins its tally whole, and
+    # test_the_interim_pin_member_is_declared_and_deliberately_loose now asserts that
+    # NONE of them is loose - which is the guard worth having, because the interim
+    # form accepts 1-of-N by design and re-introducing one silently would be a real
+    # weakening. Add an id back here only alongside a written reason in the spec.
     #
-    # For every other member, skipped=0 is derivable from the attributes plus a
-    # source scan for reachable InGameAssert.Skip - with ONE stated exception that
-    # this comment previously denied outright. H18's cell
-    # Pipeline_Smoothing_StructuralEvent_HandlersRegistered calls the private helper
-    # AssertHandlerRegistered, which DOES contain an InGameAssert.Skip, on exactly
-    # one branch: EventData<T>'s internal `events` field missing by reflection, i.e.
-    # a KSP version renaming it. On the pinned KSP 1.12.5 that branch is
-    # unreachable, so skipped=0 holds; a KSP upgrade that renames the field reds H18
-    # with skipped=1 and the log names the event. If you are here because H18 red on
-    # its skipped token, look at that reflection branch FIRST - the spec documents it
-    # at length. (Nothing enforces this paragraph; it exists so the reader is not
-    # sent hunting for a scene or attribute regression that is not there.)
-    INTERIM_PIN_IDS = {"H20-eva-spawn-position"}
+    # NOTE the asymmetry this leaves: for the other 13, skipped=0 is DERIVABLE from
+    # the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
+    # attributes put a floor of 0 on it and nothing more, and a fixture change that
+    # moves the parent's collider geometry can legitimately make it skip. Only H18
+    # among the 13 has a comparable caveat (its AssertHandlerRegistered helper skips
+    # if a KSP version renames EventData<T>'s internal `events` field, unreachable on
+    # the pinned 1.12.5).
+    INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this belongs to the group. Membership is
     # DISCOVERED from disk and then compared for set equality against GROUP, which is
@@ -2086,11 +2089,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                 self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, self.decls))
 
     def test_whole_tally_members_pin_a_derivable_zero_skip(self):
-        # The claim each non-interim member's comment makes: nothing the ATTRIBUTES
-        # control forces a skip at FLIGHT, so skipped=0 is derivable and passed
-        # equals total. If a member later gains a scene-mismatched or
-        # AllowBatchExecution=false declaration, this reds pointing at the member,
-        # which is what the spec's derivation paragraph must then be updated for.
+        # What this actually checks, stated precisely because it is weaker than it
+        # looks for one member: nothing the ATTRIBUTES control forces a skip at
+        # FLIGHT, so the attribute-derived skipped FLOOR is 0 and the pinned tally
+        # must agree with it. For 13 of the 14 that floor plus a reachable-Skip scan
+        # makes skipped=0 genuinely derivable. For H20 the floor is all the
+        # attributes give - its skipped=0 is MEASURED off a live run - so this cell
+        # confirms consistency, not derivability, there. If a member later gains a
+        # scene-mismatched or AllowBatchExecution=false declaration, this reds
+        # pointing at the member.
         for sid, spec in sorted(self.specs.items()):
             if sid in self.INTERIM_PIN_IDS:
                 continue

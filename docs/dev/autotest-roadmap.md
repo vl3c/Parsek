@@ -67,7 +67,7 @@ two days.
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 96   uncovered 145   expectedFailValues 0   xpass 0
+values 241   covered 96   uncovered 145   expectedFailValues 3   xpass 0
 ```
 
 Per dimension (total / uncovered):

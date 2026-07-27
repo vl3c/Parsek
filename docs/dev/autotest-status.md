@@ -5,10 +5,11 @@ for the group - 49-71 s each, against 2,825 s for B13 alone. What flying added o
 static derivation, precisely: the `total=` values were already gated by the source-sync
 test and needed no flight; what no static analysis predicts is the passed / skipped
 SPLIT, and 13 of the 14 pin that as a LITERAL, so a PASS means the runner printed the
-pinned line token for token. All 13 pre-flight derivations were right. H20 is the
-exception - its interim pin proves only passed>=1, and its exact split is in no artifact
-(collect-logs fires only on non-PASS, instance log since overwritten), so it keeps the
-interim form pending one ~49 s re-fly. Tiering decided on failure mode rather than cost:
+pinned line token for token. All 13 pre-flight derivations were right. H20 was the
+exception - its interim pin proved only passed>=1 and its split was in no artifact - and
+it is now CLOSED: re-flown alone so its log survived, measured passed=2 skipped=0 (the
+endpoint-overlap probe fired, walkback executed), pinned whole. All 14 now pin whole off
+measured lines. Tiering decided on failure mode rather than cost:
 H18 promoted to daily because it is the sole guard for the GameEvents subscription
 contract and a dropped Add() is silent; the other 13 stay nightly pending flake data.
 Prior: 2026-07-26 (THE IN-GAME CATEGORY GAP, measured and half closed.
@@ -467,12 +468,23 @@ can move them at any time. Thirteen specs pin those splits as LITERAL patterns, 
 runner printed the pinned line TOKEN FOR TOKEN. All thirteen pre-flight derivations
 were correct.
 
-`H20` is the one member NOT settled by the sweep. Its pin is the loose interim form,
-so its PASS proves only `total=2`, `failed=0`, `passed >= 1` - it cannot distinguish
-`passed=2 skipped=0` from `passed=1 skipped=1`. The exact split survives in no
-artifact: collect-logs fires only on non-PASS (`collectLogs: {ran: false}`) and the
-instance KSP.log was overwritten by later scenarios in the same sweep - the identical
-evidence gap S1.4 documented. It KEEPS the interim pin; one ~49 s re-fly closes it.
+`H20` was the one member the sweep could not settle, and it is now CLOSED. Its pin was
+the loose interim form, so the sweep's PASS proved only `passed >= 1`, and the exact
+split survived in no artifact (collect-logs fires on non-PASS only, and the instance
+KSP.log was overwritten by the later scenarios in the same sweep - the identical
+evidence gap S1.4 documented). It was re-flown ALONE on 2026-07-27 so its log would
+survive, measured `total=2 passed=2 failed=0 skipped=0` (corroborated by that run's
+parsek-test-results.txt export: `captured=2 Passed=2 Failed=0 Skipped=0`), and is now
+pinned whole. **All 14 members of the group pin their tally whole, and every one of
+those tallies has been measured off a live batch.**
+
+One asymmetry worth keeping in view: for 13 of the 14, `skipped=0` is also DERIVABLE
+from the attributes plus a reachable-Skip scan, so the pin is re-derivable after a
+source change. For `H20` it is measured only - both its cells carry run-time Skip
+guards, and the walkback cell's endpoint-overlap probe is a live `Physics.OverlapBox`
+whose outcome depends on the host's collider geometry. A fixture change to a taller or
+elevated host can legitimately make it skip and red the pin as `passed=1 skipped=1`;
+that is a FIXTURE change, not a walkback regression.
 
 COST, and the estimate that was wrong: this runbook estimated ~4-10 min per scenario
 and ~80 min for the group, extrapolating from mission-flying scenarios. A batch-only
@@ -495,7 +507,7 @@ costs under a third of one landing mission.
 | H17-flight-integration | nightly | Recorded lat/lon/alt vs `GetWorldSurfacePosition` over the corpus, ParsekFlight liveness, active-vessel surface API, Harmony patch operational (D3 surface-body-fixed; D16 sidecar-prec) | LIVE-PROVEN 2026-07-27, 69 s, matched token for token: `total=4 passed=4 failed=0 skipped=0` + count 272. Its first cell bails SILENTLY over an empty store, so the count pin is what makes it mean anything |
 | H18-pipeline-smoothing | daily | Coast-jitter suppression, structural-event flag alignment and child-seed parity, and the LIVE GameEvents subscription contract - a dropped `GameEvents.X.Add(...)` compiles, unit-tests green, and silently stops recording docks (D2 structural-event-snapshots) | LIVE-PROVEN 2026-07-27, 50 s, matched token for token: `total=4 passed=4 failed=0 skipped=0`, plus the `asserted=5 of 5 GameEvents bindings` line. One caveat stated in the spec: the wiring helper's only Skip branch is a KSP field rename, unreachable on 1.12.5 |
 | H19-recording-finalization | nightly | BackgroundRecorder finalization-cache apply: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, active-crash tail append (D1 finalization-cache) | LIVE-PROVEN 2026-07-27, 49 s, matched token for token: `total=3 passed=3 failed=0 skipped=0` |
-| H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | The ONLY interim pin in the group: `total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+`. Both cells carry run-time Skip guards; gloops-airshow satisfies the crewed / landed / solid-ground / vessel-type ones from the save file, but the walkback cell's `WalkbackFixtureCoversParent` answer is measured at run time. FLY LAST and replace the pattern with the whole tally. Runbook item 14 |
+| H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | LIVE-PROVEN 2026-07-27, 49 s in the sweep + a 59 s solo re-fly to capture the split. Pinned WHOLE: `total=2 passed=2 failed=0 skipped=0`. The overlap probe DID fire, so the walkback path really executed. Its `skipped=0` is measured, not derivable - see the group note |
 
 TIERING, decided on the measured cost: **13 stay `nightly`, `H18-pipeline-smoothing`
 is promoted to `daily`.** Cost does not discriminate here - every member is 49-71 s and
@@ -616,8 +628,9 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
 - Coverage ledger: 96 / 241 registry cells claimed (the growth metric),
-  RE-DERIVED at the merge through `hlib.compute_coverage` over the 52 committed
-  specs + the merged registry - neither side's number survives it. `main` read
+  RE-DERIVED at each merge through `hlib.compute_coverage` over the committed
+  specs + the merged registry (53 of them as of the #1357 merge) - neither side's
+  number survives such a merge. `main` read
   84 / 241 over its 38 specs (83 at the 2026-07-26 recompute; D3
   `parent-anchored-debris` is the cell R1's debris gate added). This branch read
   95 / 241 over its 52. The merged figure is recomputed rather than taken from
@@ -834,14 +847,14 @@ six publish or compare numbers the runner already measured.
 5. B1 chute re-prove: NO operator session needed - it is a normal unattended
    nightly run. Listed here only because it is the gate that returns B1 to
    live-proven, and because its result pins P1/P2/P3 in the B1 spec.
-6. ~~H7-H20 tally measurement~~ DONE 2026-07-27: all 14 flown via
+6. ~~H7-H20 tally measurement~~ DONE 2026-07-27, fully closed: all 14 flown via
    `python run.py --tag ingame-batch`, all 14 PASS on attempt 1, 805 s (13.4 min)
-   total. Thirteen pinned splits confirmed token for token. ONE residue, and it is
-   ~49 s of work: `H20-eva-spawn-position` carries the loose interim pin, so its
-   PASS proves only `total=2 failed=0 passed>=1`; its exact split is in no artifact
-   (collect-logs fires only on non-PASS and the instance log was overwritten by the
-   rest of the sweep), so re-fly that ONE scenario and pin it whole.
-6. R1 rewind-loop-flown - FLOWN THREE TIMES (2026-07-26). Flight 1 found a
+   total, thirteen pinned splits confirmed token for token. The residue -
+   `H20-eva-spawn-position`, whose loose interim pin could not distinguish
+   `passed=2 skipped=0` from `passed=1 skipped=1` - was closed by re-flying that one
+   scenario ALONE (59 s) so its log survived to be read: `passed=2 skipped=0`, the
+   overlap probe fired, walkback executed. All 14 now pin whole off measured lines.
+7. R1 rewind-loop-flown - FLOWN THREE TIMES (2026-07-26). Flight 1 found a
    mission ordering defect (fixed), flight 2 proved the rewind works and
    found `R1-EMPTY-PROVISIONAL`, flight 3 closed the loop and DIAGNOSED that
    finding to root cause. It is not green and should not be: its

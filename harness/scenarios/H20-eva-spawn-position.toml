@@ -73,61 +73,64 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# ANTI-VACUITY: total / category / scene are pinned as literals and `passed` cannot
-# be zero, so an empty or all-skipped batch is rejected.
+# ANTI-VACUITY: the tally is pinned WHOLE, so an empty or all-skipped batch cannot
+# satisfy it.
 #
-# FLOWN 2026-07-27: PASS on attempt 1, 49 s wall, every verifier PASS or SKIPPED,
-# batchComplete found=True failed=0 perCategory=1. THE SPLIT IS STILL NOT PROVEN AND
-# THIS SPEC KEEPS ITS INTERIM PIN - read this before assuming the flight settled it.
-# A PASS proves exactly what the pattern asserts: total=2, failed=0,
-# category=EvaSpawnPosition, scene=FLIGHT, and passed >= 1. It does NOT distinguish
-# passed=2 skipped=0 from passed=1 skipped=1, because the pattern accepts both by
-# construction - which is the whole point of the interim form and also its cost.
-# The run's artifacts cannot settle it either: collect-logs fires only on non-PASS
-# (`collectLogs: {ran: false}` in the result JSON), and the instance KSP.log was
-# overwritten by the later scenarios in the same sweep. This is the identical
-# evidence gap S1.4 hit and documented.
-# TO CLOSE IT, cheaply: re-fly this ONE scenario
-# (`python run.py --id H20-eva-spawn-position`, about 49 s) and read the
-# BATCH_COMPLETE line off the live log before it is overwritten, then replace the
-# pattern with the whole tally and delete this block. It is the cheapest open item
-# in the group.
+# EVIDENCE STANDING: MEASURED, and this was the LAST open pin in the H7-H20 group.
+# Flown twice. The 2026-07-27 `--tag ingame-batch` sweep passed but could not settle
+# the split, because the pin was the loose interim form and a PASS against it proves
+# only `passed >= 1`; collect-logs fires on non-PASS only, and the instance KSP.log
+# was overwritten by the later scenarios in that sweep. So this scenario was re-flown
+# ALONE (`python run.py --id H20-eva-spawn-position`, PASS attempt 1, 59 s wall, run
+# harness/results/2026-07-27_1803_H20-eva-spawn-position.json) specifically so its log
+# would survive to be read. The line it printed:
 #
-# THIS IS THE ONE SPEC IN THE H7-H20 GROUP THAT DOES *NOT* PIN THE TALLY WHOLE, AND
-# THAT IS DELIBERATE - writing a whole tally here would be inventing a number that
-# looks measured. The interim form (the one hlib.validate_spec's own error message
-# recommends, and the one S1.4 carried before its first live flight) is used
-# because the split is genuinely underivable:
+#   BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=EvaSpawnPosition scene=FLIGHT
+#
+# corroborated independently by that run's parsek-test-results.txt export
+# (`captured=2 Passed=2 Failed=0 Skipped=0`, both members named). The pin below is now
+# that line verbatim.
+#
+# WHAT THE SPLIT ACTUALLY SETTLED, because it is the interesting half. `skipped=0`
+# here is MEASURED, not derived - and it is the one member of this group where that
+# distinction is real. Both cells carry run-time InGameAssert.Skip guards. The manned
+# / mainBody / solid-ground / vessel-type guards were readable from the save file
+# ahead of time (gloops-airshow is crewed, landed, not splashed, type = Ship), as was
+# the walkback cell's pole guard (`startLat < -89.9 || startLat > 89.9`; the fixture
+# sits at lat = -0.0972). That is SEVEN Skip sites in the walkback cell and all but
+# ONE are decidable from source - an earlier draft of this paragraph enumerated six
+# and read as exhaustive, so the count is stated explicitly now. The one that is NOT
+# decidable is the endpoint-overlap probe: SpawnCollisionDetector
+# .CheckOverlapAgainstLoadedVessels runs a LIVE Physics.OverlapBox (half-extents about
+# 6.25 m) at TerrainAltitude(lat,lon) + 2.0 under the parent and self-skips when the
+# endpoint is clear, so whether the capsule's colliders reach that box depends on the
+# PQS-to-collider gap at the fixture's exact spot. The measurement says they do: the
+# overlap fired and the walkback path really executed.
+#
+# THEREFORE THIS PIN IS FIXTURE-COUPLED IN A WAY THE OTHER 13 ARE NOT. A later change
+# to a taller or elevated host can raise that gap past the 6.25 m box, the walkback
+# cell starts skipping, and this pin reds as `passed=1 skipped=1`. That would be a
+# FIXTURE change, not a walkback regression - check the host's geometry before hunting
+# for a defect in the spawn code.
+#
 #  - total=2 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 2
 #    [InGameTest(Category = "EvaSpawnPosition")] methods. Kept in sync by
 #    CommittedBatchTallySourceSyncTests.
-#  - skipped is NOT derivable, unlike every other spec in this group. Both cells
-#    carry run-time InGameAssert.Skip guards. The manned / mainBody / solid-ground /
-#    vessel-type guards are all SATISFIED by gloops-airshow from the save file
-#    (crewed, landed, not splashed, type = Ship).
-#    The guard that is genuinely undecidable headlessly is the walkback cell's
-#    endpoint-overlap probe: SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels
-#    runs a LIVE Physics.OverlapBox (half-extents about 6.25 m) at
-#    TerrainAltitude(lat,lon) + 2.0 under the parent, and self-skips when the endpoint
-#    is clear. Whether the capsule's colliders reach that box depends on the
-#    PQS-to-collider gap at the fixture's exact spot, which no static reading gives.
-#    NOTE what is NOT the blocker, because an earlier draft named it and was wrong:
-#    InGameFixtureMath.WalkbackFixtureCoversParent IS derivable -
-#    trajectoryLength = clamp(budget + 80, 120, 1000) and the guard is
-#    trajectoryLength >= budget + 80, true for every budget <= 920 m, and a
-#    single-part mk1pod.v2 gives a budget around 6.6 m. That guard passes with
-#    roughly 913 m of margin and will not be the one that fires.
+#  - skipped=0 is MEASURED (see above); the attribute filters alone only put a FLOOR
+#    of 0 on it, which is why the loose form was correct until a run existed.
 #  - failed=0 is the ASSERTION.
-# WHAT THE FIRST LIVE RUN MUST DO: read the BATCH_COMPLETE line and replace this
-# pattern with the whole tally (either `total=2 passed=2 failed=0 skipped=0` or
-# `passed=1 skipped=1`), then delete this paragraph. Do NOT leave the loose form in
-# place once a number exists - it accepts 1-of-2 by design, which is the weakest pin
-# in the harness. KEEP the overlap-probe note above when you re-pin: a later fixture
-# change to a taller or elevated host can raise the PQS-to-collider gap past the
-# 6.25 m box, the walkback cell starts skipping, and the tightened pin reds. That is
-# a FIXTURE change, not a walkback regression, and the note is what tells the next
-# reader which.
-required  = ["BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=EvaSpawnPosition scene=FLIGHT"]
+#  - passed=2 is measured and consistent with total - skipped - failed.
+#  - scene=FLIGHT is MEASURED on this fixture by both flights.
+# NOTE what was NOT the blocker, because an earlier draft of this spec named it and
+# was wrong: InGameFixtureMath.WalkbackFixtureCoversParent IS statically derivable -
+# trajectoryLength = clamp(budget + 80, 120, 1000), the guard is
+# trajectoryLength >= budget + 80, true for every budget <= 920 m. The measured budget
+# for this fixture is 6.25 m (KSP.log from the pinned run: parentReach=0.0 +
+# boundsExtent=1.25 + overlapPadding=5.0), so it passes with 913.75 m of margin and is
+# not the guard that can fire here. An earlier draft estimated "about 6.6 m"; the
+# measured figure replaces it, since estimating in this spec of all specs is the wrong
+# habit.
+required  = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=EvaSpawnPosition scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
