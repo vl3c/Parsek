@@ -14,6 +14,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [DESIGNED, NOT IMPLEMENTED, branch `claude/mods-ui-basic-advanced-amrgy9`]
+
+Players report the UI is too complicated: the main window launches eight windows totalling ~25k lines of IMGUI across 13 surfaces. Design doc: `docs/dev/design-ui-basic-advanced.md`.
+
+Analysis result - Basic keeps Timeline, Missions, Logistics, Settings; hides the Recordings tab (the raw per-recording table, 62 buttons / 13 toggles), the Career window (2 buttons, 2 toggles, zero mutations - pure read-only reference), the Kerbals window (4 buttons, 0 toggles, zero mutations), Gloops Flight Recorder, Real Spawn Control, and the Diagnostics + Sample Density settings sections. Advanced stays byte-identical to today.
+
+Key risks and decisions carried in the doc: (1) input-lock leak when a gated window is force-closed on mode change (`ReleaseInputLock` is mandatory, highest-risk defect); (2) `RecordingsTableUI.selectedTab` index clamp when the tab array shrinks; (3) first-run default resolved from whether the save already has a Parsek footprint, so existing installs stay on Advanced instead of silently losing four windows on update (OPEN, wants confirmation). Enforcement: a `scripts/grep-audit-ui-complexity-mode.ps1` gate keeping the mode symbol out of every non-UI path, so the visibility-only invariant cannot rot.
+
+Separate UI improvements proposed in section 17 of the doc (each ships on its own): extract the window chrome duplicated across 8 files (would de-risk the input-lock item), group the flat 8-button main window, add a name filter to the Recordings table (verified absent today), first-run onboarding, toolbar-button state badge for broken routes, collapsible Settings sections.
+
 ## Autotest coverage: build-order TODOs from the basics roadmap [TODO, branch `autotest-roadmap`]
 
 Rationale, dependency justification, measured costs and the full uncovered-cell
