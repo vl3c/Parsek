@@ -247,7 +247,8 @@ Each fact about this system lives in exactly one place:
 
 | Doc | Owns |
 |---|---|
-| THIS FILE | Status: what is shipped, proven, gated; roadmap order |
+| THIS FILE | Status: what is shipped, proven, gated; the historical roadmap record |
+| `autotest-roadmap.md` | FORWARD build order: what we still cannot reproduce, grouped by cause, and the ranked dependency-justified sequence to close it |
 | `automated-testing-plan.md` | Strategy + rationale (why the system is shaped this way; L-track definition) |
 | `automated-testing-scenario-catalog.md` | The INTENDED universe: dimension registry D1-D18 vocabulary, scenario blocks, tiers, regression rotation |
 | `design-autotest-*.md` (12 docs) | Per-module design authority (how each module works; binding contracts) |
@@ -755,6 +756,12 @@ Read that first. Known causes, in likelihood order:
 - `INVALID tooling-venv` with no KSP boot: step 1 was skipped.
 
 ## Roadmap (agreed order; each item named by its Parsek utility)
+
+**The FORWARD build order now lives in `docs/dev/autotest-roadmap.md`** (what we
+cannot reproduce yet grouped by cause, plus the ranked dependency-justified sequence
+R1-R14 starting from the D1 basics). Items 1-6 below stay as the HISTORICAL record of
+the mission lanes that closed and the findings each produced; item 7 stays as the
+unscheduled-candidates list. Consult the roadmap doc for what to build next.
 
 1. M-C2 in-game proof - DONE 2026-07-24. The verbs + hlib companions +
    EVA-1/2/3 specs are implemented and the whole live-prove list (P1-P6) is
