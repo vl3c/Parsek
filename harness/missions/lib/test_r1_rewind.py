@@ -691,7 +691,7 @@ class R1AssertionTests(unittest.TestCase):
                          ["reachedOrbitBeforeRewind", "treeCommittedBeforeRewind",
                           "recorderIdleBeforeRewind", "clockRewound",
                           "vesselStateChanged", "postRewindFlightObserved",
-                          "postRewindPointsRecorded", "rewindSeamAccepted"])
+                          "postRewindFlightRecordedSomewhere", "rewindSeamAccepted"])
 
     def test_the_observed_rows_are_labelled_observed(self):
         params, st = self._flown()
@@ -901,15 +901,15 @@ class R1LoopClosureTests(unittest.TestCase):
         st = drive_to_relaunch()
         self.assertEqual(st.loop_points_read, -1)
         rows = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}
-        self.assertFalse(rows["postRewindPointsRecorded"].met)
-        self.assertEqual(rows["postRewindPointsRecorded"].value, -1)
+        self.assertFalse(rows["postRewindFlightRecordedSomewhere"].met)
+        self.assertEqual(rows["postRewindFlightRecordedSomewhere"].value, -1)
 
         closed = drive_to_loop_closed(points=7)
         for bogus in (0, -1):
             blind = replace(closed, loop_points_read=bogus)
             row = {r.name: r
                    for r in mlib.evaluate_r1_assertions([], params, blind)}[
-                       "postRewindPointsRecorded"]
+                       "postRewindFlightRecordedSomewhere"]
             self.assertFalse(row.met, "points=%d must not satisfy the row" % bogus)
             self.assertEqual(row.value, bogus)
 
@@ -917,8 +917,8 @@ class R1LoopClosureTests(unittest.TestCase):
         params, st = r1_params(), drive_to_loop_closed(points=42)
         rows = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}
         self.assertEqual(rows["postRewindFlightObserved"].detail["channel"], "observed")
-        self.assertEqual(rows["postRewindPointsRecorded"].detail["channel"], "observed")
-        self.assertEqual(rows["postRewindPointsRecorded"].value, 42)
+        self.assertEqual(rows["postRewindFlightRecordedSomewhere"].detail["channel"], "observed")
+        self.assertEqual(rows["postRewindFlightRecordedSomewhere"].value, 42)
         self.assertTrue(rows["postRewindFlightObserved"].met)
 
     def test_a_rewind_without_a_second_flight_does_not_evaluate_green(self):
@@ -938,12 +938,102 @@ class R1LoopClosureTests(unittest.TestCase):
         self.assertFalse(mlib.all_assertions_met(rows))
         unmet = {r.name for r in rows if not r.met}
         self.assertIn("postRewindFlightObserved", unmet)
-        self.assertIn("postRewindPointsRecorded", unmet)
+        self.assertIn("postRewindFlightRecordedSomewhere", unmet)
         # The rewind half is genuinely met -- which is the point: the run is only
         # unmet on the LOOP half, so the diagnosis is unambiguous.
         met = {r.name for r in rows if r.met}
         self.assertIn("clockRewound", met)
         self.assertIn("vesselStateChanged", met)
+
+
+class R1AssertionRowIndependenceTests(unittest.TestCase):
+    """DIRECT-STATE cells for the rows a machine-driven test cannot falsify.
+
+    `evaluate_r1_assertions` exists to be the INDEPENDENT judge of a run, so each
+    row must be shown to fail on a state that does not satisfy it - even when the
+    machine cannot currently produce that state. The 2026-07-26 review found three
+    rows whose every conjunct survived mutation because the happy-path drive
+    always satisfied them; these cells pin them from constructed states."""
+
+    def _closed(self):
+        return r1_params(), drive_to_loop_closed(points=42)
+
+    def test_reached_orbit_row_fails_when_the_ascent_never_orbited(self):
+        """MUTATION: `orbit_met = True` and this reds."""
+        params, st = self._closed()
+        blind = replace(st, ascent=replace(st.ascent, phases_reached=(mlib.B2_PRELAUNCH,)))
+        row = {r.name: r for r in mlib.evaluate_r1_assertions([], params, blind)}[
+            "reachedOrbitBeforeRewind"]
+        self.assertFalse(row.met)
+        self.assertEqual(row.value, mlib.B2_PRELAUNCH)
+        # And it is met on the real state, so the cell is not vacuously red.
+        real = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}[
+            "reachedOrbitBeforeRewind"]
+        self.assertTrue(real.met)
+
+    def test_tree_committed_row_fails_on_a_non_ok_token_and_on_a_short_run(self):
+        """MUTATION: `commit_met = True`, or dropping either conjunct, and this
+        reds. Both halves matter: the token must be OK AND the machine must have
+        actually left COMMIT."""
+        params, st = self._closed()
+        rows = lambda s: {r.name: r for r in mlib.evaluate_r1_assertions([], params, s)}
+        self.assertTrue(rows(st)["treeCommittedBeforeRewind"].met)
+        # Token not OK.
+        self.assertFalse(rows(replace(st, commit_result="ERROR"))[
+            "treeCommittedBeforeRewind"].met)
+        self.assertFalse(rows(replace(st, commit_result=""))[
+            "treeCommittedBeforeRewind"].met)
+        # Token OK but the run never reached STOP (the commit never took effect).
+        never_stopped = replace(st, phases_reached=(mlib.R1_ASCENT, mlib.R1_COMMIT))
+        self.assertFalse(rows(never_stopped)["treeCommittedBeforeRewind"].met)
+
+    def test_post_rewind_flight_row_fails_on_each_conjunct_independently(self):
+        """MUTATION: `flew_met = True`, dropping the finite check, dropping the
+        floor compare, or dropping the phase check - each reds a distinct case
+        below. The review found every conjunct of this row survived mutation."""
+        params, st = self._closed()
+        rows = lambda s: {r.name: r for r in mlib.evaluate_r1_assertions([], params, s)}
+        self.assertTrue(rows(st)["postRewindFlightObserved"].met)
+        # (a) never measured. NOTE NaN alone does NOT exercise `_is_finite`:
+        # `nan >= floor` is already False, so the guard is redundant there. What
+        # `_is_finite` actually guards is INFINITY, which compares True against
+        # any floor - so both are asserted.
+        self.assertFalse(rows(replace(st, relaunch_altitude_gain=float("nan")))[
+            "postRewindFlightObserved"].met)
+        self.assertFalse(rows(replace(st, relaunch_altitude_gain=float("inf")))[
+            "postRewindFlightObserved"].met,
+            "an infinite altitude reading is a broken channel, not a climb")
+        # (b) measured but below the floor
+        below = replace(st, relaunch_altitude_gain=params.relaunch_min_altitude_gain - 1.0)
+        self.assertFalse(rows(below)["postRewindFlightObserved"].met)
+        # (c) a NEGATIVE gain (the craft sank) must never satisfy a climb row
+        self.assertFalse(rows(replace(st, relaunch_altitude_gain=-500.0))[
+            "postRewindFlightObserved"].met)
+        # (d) gain recorded but the machine never reached LOOP-POINTS
+        early = replace(st, phases_reached=(mlib.R1_ASCENT, mlib.R1_RELAUNCH))
+        self.assertFalse(rows(early)["postRewindFlightObserved"].met)
+
+    def test_the_recorded_tree_evidence_rides_the_row(self):
+        """The flight-3 diagnosis (points landed in a DIFFERENT tree) must reach
+        the result JSON. MUTATION: drop the `recordedTree` detail and this reds."""
+        params = r1_params()
+        st = drive_to_loop_points()
+        st, _ = mlib.r1_decide(
+            st, seam(mlib.r1_loop_probe_tag(0),
+                     payload=(("points", "24"), ("tree", "820de77e")),
+                     ut=321.0, altitude=700.0, situation="FLYING"))
+        row = {r.name: r for r in mlib.evaluate_r1_assertions([], params, st)}[
+            "postRewindFlightRecordedSomewhere"]
+        self.assertEqual(row.detail["recordedTree"], "820de77e")
+        self.assertIn("doesNotProve", row.detail)
+
+    def test_every_row_carries_a_channel_label(self):
+        """A reader must be able to tell observed evidence from a commanded ack
+        without consulting the source."""
+        params, st = self._closed()
+        for row in mlib.evaluate_r1_assertions([], params, st):
+            self.assertIn(row.detail.get("channel"), ("observed", "commanded"),
+                          "%s has no channel label" % row.name)
 
 
 class R1SeamPayloadReaderTests(unittest.TestCase):

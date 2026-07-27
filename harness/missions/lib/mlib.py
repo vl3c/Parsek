@@ -3804,9 +3804,22 @@ def _b2_stay_or_flake(state: B2State, snapshot: TelemetrySnapshot) -> B2State:
 # further OBSERVED gates close the loop: RELAUNCH requires the rewound craft to
 # have physically CLIMBED (altitude gained over the post-rewind reading - a dead
 # engine cannot produce it), and LOOP-POINTS requires a RecordingState reply to
-# read `points > 0` - i.e. that the second flight was actually RECORDED. Flying
-# and being recorded are different facts, and it is the RECORDING that has to be
+# read `points > 0` - i.e. that the second flight was recorded SOMEWHERE. Flying
+# and being recorded are different facts, and it is a RECORDING that has to be
 # non-empty for the merge to write anything.
+#
+# WHAT LOOP-POINTS CANNOT SEE (flight 3, and this is a real limit of the gate, not
+# a nit). `RecordingState.points` is `RecorderStateSnapshot.bufferedPoints` - the
+# LIVE recorder's count, for whatever recording happens to be live - NOT the
+# re-fly provisional's. Flight 3 read `points=24 tree=820de77e` while the merge
+# was simultaneously refusing `provisional=rec_5b0697a6... reason=empty Points`:
+# the second flight was recorded into a DIFFERENT tree, and this gate passed
+# anyway. So the gate proves "the post-rewind flight was recorded somewhere", and
+# nothing stronger. The reply's `tree` field is captured as row evidence so that
+# divergence is visible in the result JSON instead of only in KSP.log, but
+# "the points landed in the PROVISIONAL" is NOT observable through any seam verb
+# today - no verb exposes the re-fly marker's provisional id. Treat the
+# `recordedTree` row detail as the thing an operator must eyeball.
 #
 # WHY STOP + RECORDER-IDLE EXIST (flight 1, 2026-07-26, INVALID(autopilot-flake)).
 # The first live run went COMMIT -> REWIND and Parsek's own dispatcher answered
@@ -4027,6 +4040,11 @@ class R1State:
     # a fabricated 0-or-more.
     loop_probe: int = 0
     loop_points_read: int = -1
+    # The tree id the post-rewind RecordingState reply named. "" = never read.
+    # Evidence only - the mission cannot compare it to the marker's provisional
+    # (no seam verb exposes that id), but carrying it puts a flight-3-shaped
+    # divergence in the result JSON instead of only in KSP.log.
+    loop_recorded_tree: str = ""
     # OBSERVED pre-rewind stamp, taken on the frame InvokeRewind is emitted.
     pre_rewind_ut: float = float("nan")
     pre_rewind_altitude: float = float("nan")
@@ -4168,10 +4186,14 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
     B2_ORBIT enters COMMIT.
 
     COMMIT / REWIND advance ONLY on their own tagged terminal token; VERIFY
-    advances only on the OBSERVED backward clock. Four distinct give-ups:
-    ``commit-seam-<token>`` / ``commit-seam-silent`` /
-    ``rewind-seam-<token>`` / ``rewind-seam-silent`` / ``rewind-not-observed``,
-    plus the pre-flight ``rewind-target-unresolved``.
+    advances only on the OBSERVED backward clock; RELAUNCH advances only on
+    MEASURED altitude gain and LOOP-POINTS only on a non-zero point read. Every
+    give-up is distinctly named: ``rewind-target-unresolved`` (pre-flight),
+    ``commit-seam-<token>`` / ``commit-seam-silent``, ``stop-seam-<token>`` /
+    ``stop-seam-silent``, the recorder-never-idle and unreadable-``recording``
+    flakes, ``rewind-seam-<token>`` / ``rewind-seam-silent``,
+    ``rewind-not-observed``, the never-climbed flake, and the points-stayed-zero
+    and unreadable-``points`` flakes.
     """
     if state.done:
         return state, []
@@ -4443,10 +4465,16 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 return _r1_flake(
                     state,
                     "phase %s: the RecordingState reply carried no readable "
-                    "`points` field (read %r), so the post-rewind recording "
-                    "cannot be confirmed non-empty"
+                    "`points` field (read %r), so no post-rewind recording can be "
+                    "confirmed non-empty"
                     % (R1_LOOP_POINTS, raw)), []
-            st = replace(state, loop_points_read=points)
+            st = replace(state, loop_points_read=points,
+                         # The reply's OWN tree id. NOT compared to the marker's
+                         # provisional (no seam verb exposes that), but carried so
+                         # a divergence lands in the result JSON. Flight 3 read
+                         # tree=820de77e here while the provisional sat empty in
+                         # tree-b9-stack-root.
+                         loop_recorded_tree=_r1_seam_payload(snapshot, tag, "tree"))
             if points > 0:
                 return _r1_enter(st, R1_LOOP_CLOSED, snapshot.ut), []
             st = replace(st, loop_probe=st.loop_probe + 1)
@@ -4454,9 +4482,13 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 return _r1_flake(
                     st,
                     "phase %s: the craft flew after the rewind but RecordingState "
-                    "still read points=0 after %d frames (%d probe(s)). The "
-                    "re-fly's provisional recording is EMPTY, and an empty "
-                    "provisional makes the merge refuse to write supersede rows "
+                    "still read points=0 after %d frames (%d probe(s)), so NO "
+                    "recording received the second flight. NOTE this gate reads "
+                    "the LIVE recorder's buffered count, not the re-fly "
+                    "provisional's: a non-zero read here proves only that SOME "
+                    "recording got the flight, and flight 3 (2026-07-26) showed "
+                    "those can differ. An empty provisional is what makes the "
+                    "merge refuse supersede rows "
                     "(SupersedeCommit.ValidateSupersedeTarget: `empty Points`)"
                     % (R1_LOOP_POINTS, st.params.loop_points_frames,
                        st.loop_probe)), []
@@ -4497,13 +4529,17 @@ def evaluate_r1_assertions(frames, params: R1Params,
     orbit = AssertionOutcome(
         "reachedOrbitBeforeRewind", orbit_met,
         (B2_ORBIT if orbit_met else (ascent_phases[-1] if ascent_phases else None)),
-        {"required": B2_ORBIT, "leg": "delegated-b2"})
+        # OBSERVED: the nested B2 machine only reaches B2_ORBIT by reading real
+        # apoapsis / periapsis telemetry, never by a commanded ack.
+        {"required": B2_ORBIT, "leg": "delegated-b2", "channel": "observed"})
 
     commit_result = str(getattr(st, "commit_result", "") or "")
     commit_met = commit_result == "OK" and R1_STOP in phases
     committed = AssertionOutcome(
         "treeCommittedBeforeRewind", commit_met, (commit_result or None),
-        {"required": R1_STOP, "seamVerb": "CommitTree"})
+        # COMMANDED: this is the CommitTree verb's own OK. Labelled honestly
+        # rather than dressed as evidence; the observed rows carry the weight.
+        {"required": R1_STOP, "seamVerb": "CommitTree", "channel": "commanded"})
 
     # The dispatcher's `recording-active` gate, as an assertion row. OBSERVED: the
     # value is the `recording` field READ off a RecordingState reply, not the
@@ -4563,15 +4599,26 @@ def evaluate_r1_assertions(frames, params: R1Params,
          "situation": str(getattr(st, "relaunch_situation", "") or "") or None,
          "channel": "observed"})
 
+    # HONEST NAME + HONEST SCOPE. This row does NOT observe that the re-fly's
+    # PROVISIONAL received the flight - `RecordingState.points` is the LIVE
+    # recorder's buffered count for whatever recording is live, and flight 3
+    # (2026-07-26) read points=24 in tree 820de77e while the merge refused
+    # `provisional=rec_5b0697a6... reason=empty Points`. It observes that the
+    # post-rewind flight was recorded SOMEWHERE. `recordedTree` carries the tree
+    # the reply named so that divergence is visible in the result JSON; the
+    # comparison itself is impossible through the seam today (no verb exposes the
+    # marker's provisional id), so it is evidence for a human, not a gate.
     points_read = int(getattr(st, "loop_points_read", -1))
     points_met = points_read > 0 and R1_LOOP_CLOSED in phases
     recorded = AssertionOutcome(
-        "postRewindPointsRecorded", points_met, points_read,
+        "postRewindFlightRecordedSomewhere", points_met, points_read,
         {"required": R1_LOOP_CLOSED, "seamVerb": "RecordingState",
          "probes": int(getattr(st, "loop_probe", 0)) + 1,
+         "recordedTree": str(getattr(st, "loop_recorded_tree", "") or "") or None,
          # -1 is the UNREAD sentinel, kept raw: the sentinel IS the diagnosis
          # when a run never managed to read the count.
-         "channel": "observed"})
+         "channel": "observed",
+         "doesNotProve": "that the re-fly provisional received these points"})
 
     rewind_result = str(getattr(st, "rewind_result", "") or "")
     seam_met = rewind_result == "OK"

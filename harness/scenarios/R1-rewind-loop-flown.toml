@@ -89,11 +89,20 @@ tier = "operator"
 #      flight 2 (`clockRewound value=267.832`);
 #   6. THE LOOP: that the rewound craft FLIES AGAIN and that the second flight is
 #      RECORDED - measured altitude gain (`postRewindFlightObserved`) plus a
-#      `points > 0` read off RecordingState (`postRewindPointsRecorded`) - and
-#      that the merge then actually WROTE the supersede relation (the
-#      `Added [1-9][0-9]* supersede relations` logContract below). Without this
-#      leg the re-fly provisional stays empty and the merge writes nothing, which
-#      is the R1-EMPTY-PROVISIONAL finding.
+#      `points > 0` read off RecordingState
+#      (`postRewindFlightRecordedSomewhere`) - and that the merge then actually
+#      WROTE the supersede relation (the `Added [1-9][0-9]* supersede relations`
+#      logContract below).
+#      HONEST LIMIT on that middle row, and it is why it is named "...Somewhere":
+#      `RecordingState.points` is the LIVE recorder's buffered count for whatever
+#      recording is live, NOT the re-fly provisional's. Flight 3 read
+#      `points=24 tree=820de77e` while the merge simultaneously refused
+#      `provisional=rec_5b0697a6... reason=empty Points`, so the row was met while
+#      the fact a reader would infer from it was false. No seam verb exposes the
+#      marker's provisional id, so the row cannot gate on it; it carries the
+#      reply's `recordedTree` as evidence instead. The `Added ...` logContract is
+#      the assertion that actually closes this gap, and it is the one still
+#      failing (R1-EMPTY-PROVISIONAL).
 #
 # WHAT THIS SPEC DOES NOT PROVE - a SCOPE limit, not a blocker (flight 1 confirmed
 # rp_b9_root resolves fine). The rewind TARGET is the INJECTED rewind-b9 RewindPoint

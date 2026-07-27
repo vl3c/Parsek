@@ -7,10 +7,15 @@ LKO-ascent machine (``mlib.b2_decide``, PASS 2026-07-20) by carrying a nested
 machine reaches its own clean ORBIT terminal does the rewind cycle start:
 
     ASCENT (delegated b2_decide)
-      -> COMMIT  (seam CommitTree)
-      -> REWIND  (seam InvokeRewind rp=<id> slot=<n>)
-      -> VERIFY  (the OBSERVED gate)
-      -> REWOUND (terminal)
+      -> COMMIT        (seam CommitTree)
+      -> STOP          (seam StopRecording)
+      -> RECORDER-IDLE (seam RecordingState, until it reads recording=false)
+      -> REWIND        (seam InvokeRewind rp=<id> slot=<n>)
+      -> VERIFY        (the OBSERVED backward-clock gate)
+      -> REWOUND       (waypoint: throttle up + stage the rewound craft)
+      -> RELAUNCH      (OBSERVED: measured altitude gain)
+      -> LOOP-POINTS   (seam RecordingState, until it reads points > 0)
+      -> LOOP-CLOSED   (terminal)
 
 WHAT THE MISSION ASSERTS, AND WHY IT IS NOT THE SEAM'S OWN OK. The rewind is
 judged by an OBSERVATION nothing else in a flight can produce: the game clock
@@ -28,6 +33,14 @@ WHAT THIS MISSION DOES NOT DO (PENDING-OPERATOR / by construction):
     scenario's POST-mission seam steps, exactly like EVA-4's EvaExit tail.
   - The corpus / supersede-row / tombstone asserts are the verifier chain's, not
     the mission's.
+  - ``postRewindFlightRecordedSomewhere`` is named for exactly what it can see.
+    ``RecordingState.points`` is the LIVE recorder's buffered count for whatever
+    recording is live, NOT the re-fly provisional's, and flight 3 (2026-07-26)
+    read ``points=24 tree=820de77e`` while the merge refused
+    ``provisional=rec_5b0697a6... reason=empty Points``. No seam verb exposes the
+    marker's provisional id, so "the points landed in the PROVISIONAL" is NOT
+    observable here; the row carries the reply's ``recordedTree`` as evidence for
+    a human instead of pretending to gate on it.
   - ``rewindPointId`` must name a RewindPoint that EXISTS in the loaded save.
     ``ParsekTestCommandAddon.InvokeRewindImpl`` matches ``RewindPointId`` exactly
     and REJECTS ``unknown-rp`` otherwise, and live RewindPoint ids are fresh

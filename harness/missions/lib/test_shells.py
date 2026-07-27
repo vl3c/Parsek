@@ -4294,7 +4294,7 @@ class R1RewindLoopShellTests(unittest.TestCase):
         self.assertGreater(rows["clockRewound"]["value"], 5.0)
         self.assertEqual(rows["clockRewound"]["channel"], "observed")
         self.assertEqual(rows["recorderIdleBeforeRewind"]["value"], "false")
-        self.assertEqual(rows["postRewindPointsRecorded"]["value"], 120)
+        self.assertEqual(rows["postRewindFlightRecordedSomewhere"]["value"], 120)
         self.assertGreater(rows["postRewindFlightObserved"]["value"], 100.0)
 
     def test_a_rewind_with_no_second_flight_is_not_mission_ok(self):
@@ -4322,7 +4322,7 @@ class R1RewindLoopShellTests(unittest.TestCase):
         rows = {a["name"]: a for a in result["assertions"]}
         self.assertTrue(rows["clockRewound"]["met"])
         self.assertFalse(rows["postRewindFlightObserved"]["met"])
-        self.assertFalse(rows["postRewindPointsRecorded"]["met"])
+        self.assertFalse(rows["postRewindFlightRecordedSomewhere"]["met"])
 
     def test_a_second_flight_that_records_nothing_is_not_a_closed_loop(self):
         """Flying is not the same as being RECORDED, and it is the RECORDING that
@@ -4341,7 +4341,7 @@ class R1RewindLoopShellTests(unittest.TestCase):
         self.assertNotIn(mlib.R1_LOOP_CLOSED, result["phasesReached"])
         rows = {a["name"]: a for a in result["assertions"]}
         self.assertTrue(rows["postRewindFlightObserved"]["met"])
-        self.assertFalse(rows["postRewindPointsRecorded"]["met"])
+        self.assertFalse(rows["postRewindFlightRecordedSomewhere"]["met"])
 
     def test_the_rewind_is_never_commanded_while_the_recorder_reads_live(self):
         """THE FLIGHT-1 REGRESSION, at shell level. Flight 1 went COMMIT -> REWIND
