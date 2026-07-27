@@ -1,0 +1,290 @@
+schema = 1
+id = "R1-rewind-loop-flown"
+# tier = "operator", reason (b) EXPENSIVE AND NOT YET GREEN (hlib TIERS docstring),
+# with the PROMOTE note below. It is NOT reason (a): reason (a) is "PASS is
+# unreachable unattended (RequiresFlight verbs with no flight-entry verb)", and that
+# premise is FALSE at HEAD - see the FLIGHT-ENTRY note. Its worst case is ~1,900 s x
+# `retry.policy = "once"` = ~63 min, so a systematic failure would burn an hour of
+# every nightly until someone sat down with it.
+# PROMOTE TO: nightly, after one green run (the cost class matches B2 / EVA-4, both
+# nightly).
+#
+# FLIGHT 1 (2026-07-26, run `2026-07-26_2212`): INVALID(autopilot-flake), wall 520 s
+# over 2 attempts. It FOUND A REAL ORDERING DEFECT IN THIS MISSION, which is what a
+# first flight is for. What flew correctly, first try:
+#   - the mission drove `CommitTree` mid-flight through the generalized seam path
+#     (`treeCommittedBeforeRewind value=OK met=True`);
+#   - the delegated B2 ascent reached ORBIT (ap 84,051 / pe 75,784,
+#     `reachedOrbitBeforeRewind met=True`);
+#   - the sub-id scheme worked LIVE: KSP.log carries `id=0003.commit` and
+#     `id=0003.rewind` as separate commands, so REWIND did not advance on COMMIT's
+#     OK and neither was swallowed as a duplicate id;
+#   - `rp_b9_root` RESOLVED FINE (`Keeping session-prov rp=rp_b9_root
+#     bp=bp_b9_root`). The injected-RP caveat below is a SCOPE limit, NOT a blocker,
+#     and it was not what red this flight.
+# What failed: `reject id=0003.rewind cmd=InvokeRewind reason=recording-active`.
+# `TestCommandDispatcher.DecideDispatch` refuses InvokeRewind while a recorder is
+# live (a re-fly reloads the scene and would silently discard it). The machine went
+# COMMIT -> REWIND, and `ParsekFlight.CommitTreeFlight` - which DOES stop the
+# recorder and null both handles - leaves the active vessel live, so
+# `TryRestoreCommittedTreeForSpawnedActiveVessel` starts a fresh `promotion`
+# recording on the surviving 28-part stage 14 ms later. FIXED by inserting STOP
+# (seam StopRecording) + RECORDER-IDLE (seam RecordingState polled until the reply
+# reads `recording=false`) between COMMIT and REWIND - the dispatcher's gate carried
+# as an OBSERVED precondition, not as an ordering assumption.
+#
+# FLIGHT 2 (2026-07-26, run `2026-07-26_2237`): THE REWIND WORKED. `MISSION-OK`,
+# wall 207 s, all seven phases reached, every assertion met including both observed
+# ones - `clockRewound value=267.832` (the game clock genuinely ran BACKWARD) and
+# `vesselStateChanged value=PRE_LAUNCH` (the craft went back to the pad).
+# `recorderIdleBeforeRewind value=false` held, and it is what unblocked the rewind.
+# driverValidity / analyzer(red=0) / logValidate / anomalySweep all PASS.
+#
+# The RUN still classified PARSEK-FAIL on `expectations`, 1 mismatch: the forbidden
+# `[Parsek][ERROR]` pattern matched exactly one line -
+# `TryCommitReFlySupersede: orchestrator threw InvalidOperationException:
+# AppendRelations invariant violation: provisional=rec_aa59a4... reason=empty Points`.
+# THAT IS A REAL PARSEK FINDING (R1-EMPTY-PROVISIONAL, written up in
+# docs/dev/todo-and-known-bugs.md - the autotest lane's first Parsek find), and the
+# forbidden-ERROR contract is what caught it, so that contract STAYS.
+#
+# The mission-side cause was that R1 rewound and then tore down without ever flying
+# again - only HALF a loop. The re-fly session's provisional recording accumulated
+# ZERO Points, and a zero-point provisional is exactly what
+# `SupersedeCommit.ValidateSupersedeTarget` refuses to write supersede rows for.
+# CLOSED by adding the second flight: REWOUND is now a waypoint that throttles up
+# and stages the rewound craft, RELAUNCH requires MEASURED altitude gain, and
+# LOOP-POINTS requires a RecordingState reply to read `points > 0`. A loop is
+# rewind THEN FLY AGAIN.
+tier = "operator"
+#
+# FLIGHT-ENTRY NOTE (corrects the premise S1.5 / S4.1 carried until this lane).
+# The seam DOES have a flight-entry verb and always did: `LoadGame` realizes the
+# .sfs, and when `game.flightState.activeVesselIdx` names a focusable vessel it
+# takes the FOCUS route - FlightCameraReloadPin.Arm + StartAndFocusVessel - and
+# lands in FLIGHT (ParsekTestCommandAddon.LoadGameImpl / TestCommandLoadGame.
+# DecideLoadRoute; the SPACECENTER route is only the NO-VESSEL fallback). EVA-1 /
+# EVA-2 / EVA-3 have been driving six RequiresFlight verbs per run from exactly
+# that entry since 2026-07-24. So RequiresFlight verbs are reachable unattended,
+# and the rewind cycle can be driven after a REAL FLOWN flight, which is what this
+# spec adds over S4.1's fixture-only invoke.
+#
+# WHAT THIS SPEC PROVES (1 and 2 are LIVE-PROVEN by flight 1; 3-5 are what its
+# next run is for):
+#   1. flight entry + a real MechJeb ascent to LKO (the delegated, live-proven B2
+#      machine - this spec writes no new ascent);
+#   2. a real mid-flight CommitTree issued through the GENERALIZED command-seam
+#      bridge (ACTION_PARSEK_SEAM_COMMAND), i.e. a mission can now drive ANY seam
+#      verb mid-flight, not only CommitTree. Flight 1 additionally exercised
+#      StopRecording and RecordingState through the same path;
+#   3. that the recorder is OBSERVED idle before the rewind is commanded - the
+#      dispatcher's own `recording-active` gate, carried as a machine precondition
+#      read back off RecordingState rather than assumed by step order;
+#   4. a real Rewind-to-Separation invoked FROM FLIGHT, past the five-precondition
+#      RewindInvoker.CanInvoke gate, across the KSP scene reload;
+#   5. that the rewind ACTUALLY HAPPENED, judged by an OBSERVATION and not by the
+#      verb's own OK: the game clock RAN BACKWARD (kRPC space_center.ut lower after
+#      the cycle than the value stamped before it), corroborated by the vessel's
+#      situation / altitude changing. See the mission docstring. LIVE-PROVEN by
+#      flight 2 (`clockRewound value=267.832`);
+#   6. THE LOOP: that the rewound craft FLIES AGAIN and that the second flight is
+#      RECORDED - measured altitude gain (`postRewindFlightObserved`) plus a
+#      `points > 0` read off RecordingState
+#      (`postRewindFlightRecordedSomewhere`) - and that the merge then actually
+#      WROTE the supersede relation (the `Added [1-9][0-9]* supersede relations`
+#      logContract below).
+#      HONEST LIMIT on that middle row, and it is why it is named "...Somewhere":
+#      `RecordingState.points` is the LIVE recorder's buffered count for whatever
+#      recording is live, NOT the re-fly provisional's. Flight 3 read
+#      `points=24 tree=820de77e` while the merge simultaneously refused
+#      `provisional=rec_5b0697a6... reason=empty Points`, so the row was met while
+#      the fact a reader would infer from it was false. No seam verb exposes the
+#      marker's provisional id, so the row cannot gate on it; it carries the
+#      reply's `recordedTree` as evidence instead. The `Added ...` logContract is
+#      the assertion that actually closes this gap, and it is the one still
+#      failing (R1-EMPTY-PROVISIONAL).
+#
+# WHAT THIS SPEC DOES NOT PROVE - a SCOPE limit, not a blocker (flight 1 confirmed
+# rp_b9_root resolves fine). The rewind TARGET is the INJECTED rewind-b9 RewindPoint
+# (rp_b9_root), NOT a RewindPoint this flight authored. It cannot be, for two
+# reasons in the code:
+#   (a) A Kerbal X ascent authors NO RewindPoint. RP authoring requires a
+#       MULTI-CONTROLLABLE split (ParsekFlight.TryAuthorRewindPointForSplit ->
+#       SegmentBoundaryLogic.IsMultiControllableSplit, controllable =
+#       ParsekFlight.IsTrackableVessel = SpaceObject / EVA / has ModuleCommand).
+#       A dropped booster carries no ModuleCommand, so the split logs
+#       "Single-controllable split: no RP". Only an EVA split or a dock/undock
+#       authors one.
+#   (b) Even for a flight that DOES author one, nothing can name it. InvokeRewind
+#       matches RewindPoint.RewindPointId EXACTLY (ParsekTestCommandAddon.
+#       InvokeRewindImpl; anything else is REJECTED unknown-rp) and live ids are
+#       fresh GUIDs (RewindPointAuthor.cs: "rp_" + Guid.NewGuid().ToString("N")).
+#       No seam verb exposes the live RewindPoint list - RecordingState's payload
+#       is recording/tree/points/scene only.
+# Closing (b) needs a seam-side observation channel (e.g. RecordingState gaining a
+# rewind-point id) - tracked in docs/dev/todo-and-known-bugs.md. Until then this
+# spec is a rewind-AFTER-a-flight test, not a rewind-YOUR-OWN-separation loop, and
+# the header says so rather than letting the id look self-authored.
+description = "Flown rewind cycle: delegated B2 ascent to LKO, mid-flight CommitTree via the generalized seam bridge, then a real Rewind-to-Separation invoked from FLIGHT and judged by the OBSERVED backward game clock."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "refly", "loop", "flown", "mechjeb", "D9", "R1", "pending-operator"]
+
+[fixture]
+# The B2 fixture (committed, live-proven 2026-07-20): KSP's stock "Kerbal X" on the
+# pad, the craft the delegated ascent machine was tuned against. rewind-b9 is
+# injected ON TOP so a rewind TARGET exists at all (see the WHAT THIS SPEC DOES NOT
+# PROVE note): run.py's inject step targets the staged RUN save, not the template,
+# so the preset composes with any saveTemplate.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "r1_rewind_loop"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header would be scoped to driver.missionParams.steps
+# and the spec would validate as having zero steps).
+#
+# The mission owns everything that must happen WHILE the flight is alive
+# (ascent -> CommitTree -> InvokeRewind -> the observed verify). AnswerMergeDialog
+# is deliberately NOT a mission action: its completion contract requires the scene
+# to LEAVE FLIGHT (TestCommandMergeAnswer.DecideAnswerCompletion treats FLIGHT as
+# not-settled), which ends the mission's own kRPC telemetry - so it is a
+# POST-mission seam step, the same split EVA-4 uses for its EVA tail. It is
+# world-mutating, so on an UNMET mission the default skipTailOnUnmetMission drops
+# it and only FlushAndQuit runs.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 1200 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                 expect = "OK" },
+]
+
+[driver.missionParams]
+# Ascent half: the B2 values VERBATIM (the machine delegates to mlib.b2_decide over
+# this same dict, so re-tuning them here would silently fork the live-proven ascent).
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+apoErrorMeters            = 5000
+periErrorMeters           = 5000
+eccentricityMax           = 0.02
+inclinationErrorDeg       = 2.0
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+# Rewind half. rp_b9_root / slot 1 are the identifiers RewindB9Fixture bakes (slot 1
+# = the crashed booster), the same pair S4.1 drives.
+rewindPointId             = "rp_b9_root"
+rewindSlot                = 1
+# FRAME budgets, not game seconds: past the rewind the game clock runs BACKWARD, so
+# a `ut - phase_entry_ut` budget can never expire and the phase would hang with no
+# named give-up. The seam bridge blocks inside perform() for the whole poll window,
+# so a terminal token normally lands on the very next frame; 40 frames (~20 s at the
+# 0.5 s poll cadence) is slack, not a wait.
+# stopFrames / idleFrames bound the STOP + RECORDER-IDLE phases added after flight 1
+# (see the FLIGHT 1 note in the header). The idle poll needs only ONE probe on the
+# happy path - StopRecording gates on the same predicate the dispatcher reads - so 40
+# frames is deep slack for a recorder that is slow to settle, not an expected wait.
+commitFrames              = 40
+stopFrames                = 40
+idleFrames                = 40
+rewindFrames              = 40
+verifyFrames              = 40
+# THE OBSERVED GATE. rp_b9_root sits well before the flown ascent's UT, so the
+# regression is minutes; 5 s is a floor against float noise, never a tuned target.
+minUtRegressionSeconds    = 5.0
+minAltitudeChangeMeters   = 1000.0
+# CLOSING THE LOOP (the second flight). Flight 2 rewound perfectly and still red
+# the run: R1 tore down without re-flying, so the re-fly provisional carried ZERO
+# Points and the merge refused to write supersede rows. The relaunch gate is a
+# FLOOR on MEASURED altitude gain, not a target: 100 m is unreachable for a craft
+# sitting on the pad with a dead engine, and trivial for one under thrust. The
+# rewound craft is PRE_LAUNCH on the pad (flight 2 measured
+# `vesselStateChanged value=PRE_LAUNCH`), so a full-throttle stage activation is
+# all the leg needs - this is a LOOP test, not a second ascent.
+relaunchThrottle              = 1.0
+relaunchMinAltitudeGainMeters = 100.0
+relaunchFrames                = 240
+loopPointsFrames              = 40
+
+[dimensionsCovered]
+# HONEST. The flown half: the recorder starts on the pad launch (D1
+# auto-record-launch) and records the atmospheric climb + the exo-propulsive
+# circularization on Kerbin (D4, D14). The rewind half drives a REAL
+# Rewind-to-Separation past the five-precondition gate (D9 rewind-to-separation,
+# refly-gate), which captures the reconciliation bundle and runs the read-back guard
+# over it, and the merge tail opens the journal; the re-fly recalcs the ledger at
+# merge (D8 recalc-engine).
+# NOT claimed: head-tip-split / supersede-relation / terminal-kind-classify - the
+# rewind target is the INJECTED tree, so those surfaces are S4.1's to claim, not
+# this spec's. NOT claimed: D18 rewind-strip-respawn-cycle - no ghost strip/respawn
+# is observed here.
+D1  = ["auto-record-launch"]
+D4  = ["atmospheric", "exo-propulsive"]
+D14 = ["kerbin"]
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
+       "merge-journal"]
+D8  = ["recalc-engine"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec now REJECTS the misplaced
+# form), so this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The flown ascent commits its own tree; the injected rewind-b9 corpus is also on
+# disk, and the merge adds the re-fly fork. min 1 is the FLOOR that a rewind which
+# lost the committed corpus sinks below. No ceiling: the Kerbal X drops six boosters
+# that each become a parent-anchored debris child (measured on the first live B2
+# flight: exactly 7 sidecars), the injected corpus adds its own, and the merge adds
+# the fork - a count the headless path does not pin. B2 pins {1,8} because its save
+# starts EMPTY; this one does not.
+count = { min = 1 }
+
+[expectations.logContracts]
+# Both halves must show. The recorder markers prove the flown leg recorded; the two
+# grep-stable re-fly milestones (RewindInvoker.cs) prove StartInvoke entered the
+# pre-load phase AND the post-load ConsumePostLoad completed - both firing is what
+# distinguishes a real end-to-end re-fly from a verb that merely returned. The
+# cutoff-carrying restore line and the unconditional pendingScience= count fire on
+# every successful invoke.
+#
+# THE LOOP-CLOSED CONTRACT (added after flight 2). The mission can observe that
+# the second flight happened and was recorded, but the SUPERSEDE ROW is written
+# by the post-mission AnswerMergeDialog merge, outside the mission's telemetry.
+# The only channel that observes it is this log line, and the count is pinned
+# NON-ZERO on purpose: `Added 0 supersede relations` is exactly what a refused
+# batch would emit, so `[1-9][0-9]*` is the difference between "the merge ran"
+# and "the merge actually wrote the relation". Flight 2's KSP.log contains NO
+# `Added ...` line at all - the invariant check refused the batch first.
+required  = ["Recording started",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience=",
+             "Added [1-9][0-9]* supersede relations for subtree rooted at"]
+# The forbidden-ERROR contract STAYS as-is. It did its job on flight 2: it caught
+# `TryCommitReFlySupersede: orchestrator threw InvalidOperationException:
+# AppendRelations invariant violation ... reason=empty Points`, which is a real
+# Parsek finding (written up in docs/dev/todo-and-known-bugs.md). Relaxing it
+# would have hidden the find. Closing the loop is what stops R1 tripping it.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8). Steps: LoadGame max(240,600)+60 = 660 (deferred verb),
+# SetSetting 60, mission 1200 (the mission-step budget bounds the subprocess inside
+# the run budget), AnswerMergeDialog 240, RecordingState 60, FlushAndQuit 60
+#   -> sum 2280; +120 margin = 2400.
+# On the happy path the real wall clock is ~1,400 s (ascent ~600 s + the rewind
+# reload + the merge exit); the ceiling only governs the defer path.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

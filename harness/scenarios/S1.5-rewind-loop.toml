@@ -1,17 +1,42 @@
 schema = 1
 id = "S1.5-rewind-loop"
-# tier = "operator": TimeJump + InvokeRewind + AnswerMergeDialog are RequiresFlight /
-# conclude-a-flight and the seam has NO flight-entry verb, so run unattended from the
-# gloops SPACECENTER host every verb only DEFERS to a TIMEOUT and burns a boot with no
-# PASS reachable. "operator" is excluded from every cadence (hlib CADENCE_TIERS): no
-# daily/nightly/weekly run schedules this; an operator runs it with `--tier operator`
-# once the B9 split is loaded in FLIGHT. The pending-operator TAG alone is non-gating.
+# tier = "nightly" (RE-TIERED 2026-07-26, rewind-loop lane). It was "operator" on two
+# stated reasons, and BOTH were factually wrong at HEAD:
 #
-# DEPENDENCY (do NOT schedule before the integration-fixes PR merges): the TimeJump
-# step relies on the TimeJump completion decider fix in flight on branch
-# `autotest-integration-fixes`. Until that lands, TimeJump can settle incorrectly and
-# this spec's TimeJump leg is not trustworthy even on the operator path.
-tier = "operator"
+#   1. "the seam has NO flight-entry verb, so from the gloops SPACECENTER host every
+#      RequiresFlight verb only DEFERS to a TIMEOUT". FALSE, and it was never true.
+#      `LoadGame` IS the flight-entry verb: it realizes the .sfs and, when
+#      `game.flightState.activeVesselIdx` names a focusable vessel, takes the FOCUS
+#      route - FlightCameraReloadPin.Arm + StartAndFocusVessel - landing in FLIGHT
+#      (ParsekTestCommandAddon.LoadGameImpl + TestCommandLoadGame.DecideLoadRoute; the
+#      SPACECENTER route is only the NO-VESSEL fallback). This spec's own template is
+#      NOT a SPACECENTER host: fixtures/saves/gloops-airshow carries `activeVessel = 1`
+#      over two VESSEL nodes, so the first step lands in FLIGHT. LIVE EVIDENCE: EVA-1
+#      (nightly, FULL PASS 2026-07-24) drives six RequiresFlight verbs - StartRecording,
+#      EvaExit, PlantFlag, EvaBoard, StopRecording, CommitTree - from this exact
+#      template, and EVA-2 / EVA-3 / S0.5 / S0.6 do the same.
+#   2. "DEPENDENCY: do NOT schedule before the integration-fixes PR merges" (the
+#      TimeJump completion-decider fix). That PR is #1322, MERGED - `git log --oneline
+#      origin/main --grep=integration-fixes` -> eb94607dd "Merge pull request #1322 from
+#      vl3c/autotest-integration-fixes".
+#
+# Neither operator-tier reason therefore survives: reason (a) "PASS unreachable
+# unattended" is the premise corrected above, and reason (b) "EXPENSIVE AND UNFLOWN"
+# needs BOTH - this is a flight-free seam run whose happy path is ~800 s, not a
+# B16-class 4,700 s lane. COST OF A FIRST-FLIGHT FAILURE, since that is what reason (b)
+# actually weighs: the 2400 s budget below bounds the DEFER path, and the defer path is
+# exactly what the correction above removes. With the verbs EXECUTING, a bad run ends on
+# a fast terminal verdict (`REJECTED unknown-rp` / `refly-gate <reason>` / an unmet step)
+# within seconds of the boot, so the real repeated cost is ~2 short KSP boots a night,
+# not 2 x 2400 s. nightly rather than daily because it is still UNFLOWN: its first
+# scheduled run IS its live-prove, and a failure there classifies driver-INVALID
+# (retryable), never a false PARSEK-FAIL. The pending-operator TAG stays until that
+# first green run; the tag alone is non-gating.
+#
+# NOT VERIFIED BY A RUN: this re-tier is derived from the code + EVA-1's live precedent,
+# not from an S1.5 flight (the rewind-loop lane was headless by constraint). If the first
+# nightly reds on something structural rather than a real Parsek finding, put it back.
+tier = "nightly"
 # S1.5 rewind loop (core loop, D18), DRIVABLE SUBSET. The full catalog S1.5 is
 # "fly B1, commit, warp past EndUT (vessel spawns), quicksave, rewind via seam,
 # assert vessel stripped, ghost replays, vessel re-spawns situation-corrected;
@@ -25,16 +50,24 @@ tier = "operator"
 #
 # GAP (documented in docs/dev/todo-and-known-bugs.md): the FULL S1.5 additionally
 # needs (a) a live B1 flight + commit -> the mission-autopilot library, not a seam
-# verb; (b) an in-scene quicksave / RP-create seam verb to make the RP LIVE rather
-# than inject it (none exists in M-C1; the injected rp_b9_root stands in); (c) a
-# FLIGHT-scene entry -- TimeJump and InvokeRewind are RequiresFlight and the seam
-# has no launch verb, so an operator must be in FLIGHT (or supply a FLIGHT-scene
-# template); (d) a career fixture + ledger oracle for the crew-re-reservation /
-# resource-reset asserts (rewind-b9's host is a sandbox save). All live asserts are
-# therefore PENDING-OPERATOR.
+# verb (the rewind-loop lane's `r1_rewind_loop` mission is the first cut of that);
+# (b) a way to target a RewindPoint the flight itself authored rather than an
+# injected one. That needs TWO things neither of which exists: a flight that
+# performs a MULTI-CONTROLLABLE split (ParsekFlight.TryAuthorRewindPointForSplit ->
+# SegmentBoundaryLogic.IsMultiControllableSplit; a dropped booster carries no
+# ModuleCommand so an ordinary ascent authors NO RP), and a seam channel exposing
+# the live RewindPoint id (InvokeRewind matches RewindPointId EXACTLY and live ids
+# are fresh GUIDs from RewindPointAuthor.cs; RecordingState's payload is
+# recording/tree/points/scene only). The injected rp_b9_root stands in until then;
+# (c) a career fixture + ledger oracle for the crew-re-reservation / resource-reset
+# asserts (rewind-b9's host is a sandbox save). Those three live asserts stay
+# PENDING-OPERATOR. Flight-scene entry is NO LONGER a gap - see the tier note.
 description = "S1.5 drivable subset: TimeJump past an injected recording EndUT to spawn, then rewind-strip-respawn via the seam using the injected rewind-b9 RewindPoint."
 instanceProfile = "stock-minimal"
 tags = ["rewind", "loop", "time-jump", "S1.5", "D18", "pending-operator"]
+# NOTE on the runtime budget below: it is UNCHANGED by the re-tier. It sizes the
+# worst DEFER path so every step surfaces a clean per-step TIMEOUT instead of a
+# run-budget KILL; on the FLIGHT path the real wall clock is ~800 s.
 
 [fixture]
 # rewind-b9 (RewindB9Fixture via `dotnet test --filter InjectRewindB9`): a committed
@@ -126,7 +159,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 #   AnswerMergeDialog (budget)      = 120
 #   RecordingState  (default)       =  60
 #   FlushAndQuit    (default)       =  60   -> sum 2340; +60 margin = 2400.
-# On the operator happy path (verbs execute in FLIGHT) the real wall-clock is ~800s,
+# On the happy path (verbs execute in FLIGHT) the real wall-clock is ~800s,
 # far under this ceiling; the ceiling only governs the unattended defer path.
 budgetSeconds = 2400
 

@@ -747,6 +747,115 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
                          "the measured count must survive a SKIPPED expectations verifier")
 
 
+class PostMissionOutcomeSmokeTests(unittest.TestCase):
+    """EVA-4-atmo-chute flight 3 (2026-07-25) driven end to end over the fake KSP:
+    the mission returns MISSION-OK and the post-mission EvaChuteDeploy answers
+    ERROR msg=eva-chute-kerbal-lost.
+
+    The defect these cells guard is the FAIL-OPEN, not the death. On the real run
+    driverValidity reported PASS beside `allExpectedMet: false` and the only thing
+    that red'd the run was the scenario author's own `\\[Parsek\\]\\[ERROR\\]`
+    forbidden pattern. `test_a_blind_spec_still_reds` is the load-bearing cell: it
+    strips every expectation that could notice, so the ONLY thing left that can red
+    the run is the outcome step's own verdict."""
+
+    TAIL = [
+        {"cmd": "EvaExit", "args": {"release": "true"}, "expect": "OK", "budget": 120},
+        {"cmd": "EvaChuteDeploy", "args": {"awaitDown": "true"}, "expect": "OK", "budget": 420},
+        {"cmd": "StopRecording", "expect": "OK"},
+        {"cmd": "CommitTree", "expect": "OK"},
+        {"cmd": "FlushAndQuit", "expect": "OK"},
+    ]
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-outcome-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "b1-pad-craft")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "outcome_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, ksp_mode, blind=False):
+        spec = _make_autopilot_spec(self.template)
+        spec["driver"]["steps"] = spec["driver"]["steps"][:3] + [dict(s) for s in self.TAIL]
+        if blind:
+            # Every expectation that could independently notice a dead kerbal,
+            # removed: no forbidden ERROR pattern, no completion-token requirement.
+            spec["expectations"]["logContracts"] = {"required": [], "forbidden": []}
+        rt = FakeRuntime(ksp_mode, mission_mode="ok", venv_ok=True)
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def test_a_blind_spec_still_reds(self):
+        """THE fail-open cell. With the expectations verifier deliberately blinded,
+        a run whose kerbal died still reds - on the outcome step's own verdict."""
+        result = self._run("autopilot-kerballost", blind=True)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("mission-outcome", result["subkind"])
+        # Prove the blinding worked, i.e. the red did NOT come from expectations.
+        self.assertEqual("PASS", result["verifiers"]["expectations"]["status"])
+        # ... and never retried into a green.
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertFalse(hlib.should_retry(v, attempt=1, retry_policy="once"))
+
+    def test_the_real_spec_reds_naming_the_cause_not_the_symptom(self):
+        result = self._run("autopilot-kerballost")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        # The expectations verifier DOES also catch it (the forbidden [Parsek][ERROR]),
+        # exactly as it did on 2026-07-25 - but the subkind reported is the cause.
+        self.assertEqual("FAIL", result["verifiers"]["expectations"]["status"])
+        self.assertEqual("mission-outcome", result["subkind"])
+
+    def test_the_result_record_names_the_step_and_its_terminal(self):
+        result = self._run("autopilot-kerballost")
+        row = result["verifiers"]["missionOutcome"]
+        self.assertEqual("FAIL", row["status"])
+        self.assertEqual(["EvaExit", "EvaChuteDeploy"], row["gatingVerbs"])
+        self.assertEqual("EvaChuteDeploy", row["firstUnmet"]["cmd"])
+        self.assertEqual("ERROR", row["firstUnmet"]["verdict"])
+        self.assertEqual("eva-chute-kerbal-lost", row["firstUnmet"]["msg"])
+        # The mission itself is still reported MET - it flew the craft into the
+        # envelope and handed off, which is all it ever claimed to do.
+        self.assertEqual("PASS", result["verifiers"]["mission"]["status"])
+        self.assertEqual("MISSION-OK", result["verifiers"]["mission"]["missionVerdict"])
+
+    def test_a_healthy_run_with_the_same_tail_still_passes(self):
+        """Non-regression: the SAME EVA tail, every step OK, is untouched."""
+        result = self._run("autopilot")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        row = result["verifiers"]["missionOutcome"]
+        self.assertEqual("PASS", row["status"])
+        self.assertIsNone(row["firstUnmet"])
+
+    def test_a_refusal_is_a_retryable_driver_fault_not_a_parsek_defect(self):
+        """A post-mission SPEC fault (here a typo'd kerbal name -> EvaExit answers
+        REJECTED msg=kerbal-not-aboard) must classify exactly as the same refusal
+        would pre-mission: retryable driver-stage INVALID, never PARSEK-FAIL filed
+        against the mod. Fails if the gate collapses every outcome-verb terminal into
+        one cause."""
+        result = self._run("autopilot-evarefused")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertNotEqual("mission-outcome", result["subkind"])
+        self.assertIn(result["subkind"], hlib.RETRYABLE_INVALID_SUBKINDS)
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertTrue(hlib.should_retry(v, attempt=1, retry_policy="once"))
+        # The row still NAMES it, with the classification it took.
+        row = result["verifiers"]["missionOutcome"]
+        self.assertEqual("EvaExit", row["firstUnmet"]["cmd"])
+        self.assertFalse(row["firstUnmet"]["flightOutcome"])
+        self.assertTrue(row["firstUnmet"]["driverSubkind"])
+
+
 class UnmetMissionTailSmokeTests(unittest.TestCase):
     """The unmet-mission tail, driven end to end over the fake KSP + fake mission
     (design "The unmet-mission tail"). The regression it guards is the EVA-4-atmo-

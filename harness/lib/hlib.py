@@ -345,6 +345,137 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "EvaChuteDeploy": TAIL_ROLE_WORLD_MUTATING,  # the EVA-4 flight-1 pair, with EvaExit
 }
 
+# ---------------------------------------------------------------------------
+# Post-mission GATING role (EVA-4 fail-open closure, 2026-07-26).
+#
+# A DIFFERENT axis from SEAM_VERB_TAIL_ROLE above. That one answers "may the harness
+# still DRIVE this verb after the mission came back UNMET?"; this one answers "on a
+# MISSION-OK run, does this verb's own verdict GATE the result?".
+#
+# WHY IT EXISTS. On an autopilot driver run.py deliberately carves post-mission seam
+# steps out of driverValidity, on the stated grounds that "a good flight Parsek then
+# failed to record is a PARSEK-FAIL(expectation), NOT a driver-INVALID a retry would
+# paper over". That reasoning is right for the RECORDING verbs, and the carve-out is
+# kept for them. It was WRONG as a blanket rule, and EVA-4 flight 3 (2026-07-25) is
+# the proof: the kerbal's canopy was cut mid-descent, the kerbal died, and the ONE
+# channel that observed it - the EvaChuteDeploy step's own `eva-chute-kerbal-lost`
+# terminal - was recorded as `verdict=ERROR met=false` and then consulted by NO gate.
+# driverValidity reported PASS next to `allExpectedMet: false`. The run only red'd
+# because the scenario's author happened to have written a forbidden-`[Parsek][ERROR]`
+# regex and three required log tokens; delete any of those from the spec and a run
+# that killed its own subject reports PASS.
+#
+# THE SPLIT. A post-mission step is `outcome` when its verdict is a statement about
+# the WORLD's physical outcome that no other verifier re-derives, and `recording`
+# when its verdict is a statement about PARSEK (or harness plumbing), which the
+# analyzer / expectations / ledger chain already owns.
+#   outcome   -> gates. Its failure means the FLIGHT failed after the handoff.
+#   recording -> non-gating, exactly as before. Preserves the original carve-out.
+# The four M-C2 EVA verbs are the whole outcome set today: each one's OK/ERROR is a
+# claim about a kerbal's in-world state (left the pod / boarded / flag planted /
+# canopy opened and landed alive). Everything else is Parsek or plumbing.
+#
+# The pairing is gated by a unit cell, so promoting a RESERVED verb or adding a new
+# one forces an explicit decision here instead of inheriting a default silently.
+POST_MISSION_ROLE_OUTCOME = "outcome"
+POST_MISSION_ROLE_RECORDING = "recording"
+POST_MISSION_ROLES: Tuple[str, ...] = (POST_MISSION_ROLE_OUTCOME, POST_MISSION_ROLE_RECORDING)
+
+SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
+    "SetSetting": POST_MISSION_ROLE_RECORDING,
+    "StartRecording": POST_MISSION_ROLE_RECORDING,
+    "StopRecording": POST_MISSION_ROLE_RECORDING,
+    "CommitTree": POST_MISSION_ROLE_RECORDING,
+    "DiscardTree": POST_MISSION_ROLE_RECORDING,
+    "RecordingState": POST_MISSION_ROLE_RECORDING,
+    "RunTests": POST_MISSION_ROLE_RECORDING,     # in-game batch = a Parsek claim
+    "LoadGame": POST_MISSION_ROLE_RECORDING,     # harness plumbing
+    "MissionMark": POST_MISSION_ROLE_RECORDING,  # stamps one log line
+    "FlushAndQuit": POST_MISSION_ROLE_RECORDING,
+    "InvokeRewind": POST_MISSION_ROLE_RECORDING,      # a Parsek feature under test
+    "AnswerMergeDialog": POST_MISSION_ROLE_RECORDING,  # ditto
+    "TimeJump": POST_MISSION_ROLE_RECORDING,
+    "KscAction": POST_MISSION_ROLE_RECORDING,    # career mutation, ledger-oracle territory
+    "SaveGame": POST_MISSION_ROLE_RECORDING,
+    "EvaExit": POST_MISSION_ROLE_OUTCOME,        # "the kerbal is out and clear"
+    "EvaBoard": POST_MISSION_ROLE_OUTCOME,       # "the kerbal is aboard"
+    "PlantFlag": POST_MISSION_ROLE_OUTCOME,      # "the flag is in the ground"
+    "EvaChuteDeploy": POST_MISSION_ROLE_OUTCOME,  # "the canopy opened and the kerbal landed alive"
+}
+
+
+def post_mission_step_gates(cmd: str) -> bool:
+    """True iff a post-mission seam step running ``cmd`` gates the run result.
+
+    Unknown / empty verbs read False (non-gating): an unrecognised verb is a spec
+    fault the validator already rejects, and inventing a gate for it here would red
+    runs on a vocabulary miss rather than on an outcome."""
+    return SEAM_VERB_POST_MISSION_ROLE.get(str(cmd or "")) == POST_MISSION_ROLE_OUTCOME
+
+
+# The seam's own verdict families, and what an unmet post-mission OUTCOME step means.
+# The C# executors already draw the line this needs: a REFUSAL that had NO side effect
+# rides "REJECTED" (`no-crew`, `kerbal-not-aboard`, `not-near-target`, `unknown-target`,
+# `eva-chute-unavailable` ...), while a real terminal after the verb acted rides "ERROR"
+# (`eva-exit-timeout`, `board-timeout`, `eva-chute-kerbal-lost` ...). Only the second
+# family is a FLIGHT OUTCOME.
+#
+# Without this split every one of the ~30 terminals the four outcome verbs can emit
+# collapses to "the flight failed after handoff": a typo in a post-mission EvaBoard's
+# targetPid would report PARSEK-FAIL(mission-outcome), never be retried, and be filed
+# against the mod - while the SAME typo on a pre-mission step reports INVALID(driver-arg)
+# and retries once. Same fault, same classification, wherever it sits in the step list.
+SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"
+
+
+def classify_post_mission_outcome_miss(step: "StepOutcome") -> Tuple[bool, str]:
+    """Classify an UNMET post-mission outcome step as (is_flight_outcome, driver_subkind).
+
+    ``(True, "")``  -> a genuine flight outcome; the caller reds PARSEK-FAIL(mission-outcome).
+    ``(False, sk)`` -> a refusal / tooling / never-answered miss; the caller treats it as a
+    driver-stage failure with subkind ``sk``, exactly as it would pre-mission.
+
+    A ``msg`` the M-C1 refusal table recognises wins over the verdict family, so a verb
+    that reports a known gate decline is classified by its REASON however it spells its
+    verdict."""
+    refusal = classify_seam_refusal_subkind(getattr(step, "msg", ""))
+    if refusal:
+        return False, refusal
+    verdict = getattr(step, "verdict", None)
+    if verdict is None:
+        return False, "driver-stage"          # never answered
+    if verdict == "TIMEOUT":
+        return False, "seam-timeout"          # the seam never reached a terminal
+    if verdict == SEAM_VERDICT_OUTCOME_TERMINAL:
+        return True, ""
+    return False, "driver-verdict-mismatch"   # REJECTED, or an unexpected verdict
+
+
+def first_unmet_post_mission_outcome(
+    steps: Sequence["StepOutcome"], mission_step_id: Optional[str]
+) -> Optional["StepOutcome"]:
+    """The first UNMET post-mission OUTCOME step, or None.
+
+    ``mission_step_id`` is the mission-kind step's harness id; steps with a strictly
+    GREATER id are post-mission. None (a seam-only driver with no mission step) reads
+    None: on that driver every step already gates through ``all_expected_met``, so
+    re-gating here would double-count and change nothing.
+
+    Steps the harness never drove are not in ``steps`` at all (the unmet-mission tail
+    records them separately), so a skipped tail cannot manufacture an outcome miss."""
+    if mission_step_id is None:
+        return None
+    mid = str(mission_step_id)
+    for outcome in steps:
+        if str(outcome.step_id) <= mid:
+            continue
+        if outcome.met:
+            continue
+        if post_mission_step_gates(outcome.cmd):
+            return outcome
+    return None
+
+
 # The spec-level opt-out, read off [driver]. DEFAULT TRUE = the safe behaviour (skip
 # the world-mutating tail after an unmet mission); a spec sets it false only to opt
 # back into the pre-2026-07-25 drive-everything tail, and must say why.
@@ -1470,10 +1601,30 @@ def _pin_literal_int(tok: Optional[str]) -> Optional[int]:
 
 
 def _pin_literal_word(tok: Optional[str]) -> Optional[str]:
+    """A pinned ``category=`` / ``scene=`` token, when it is a plain literal.
+
+    The class admits ``-`` because C# category names really do carry one: the tree
+    has seven hyphenated categories (Pipeline-Anchor, Pipeline-Smoothing,
+    Pipeline-Frame, Pipeline-Outlier, Pipeline-Terrain, Pipeline-AnchorPropagate,
+    Pipeline-Anchor-BubbleEntry). Without it every one of them was structurally
+    UNPINNABLE: `resolve_batch_tally_pin` read category=None, `statically_checkable`
+    went False, and `CommittedBatchTallySourceSyncTests` rejected the spec with
+    "pins a BATCH_COMPLETE line with no literal category=/scene=" - a message that
+    blames the spec author for a limitation of this character class. The runtime
+    side never had the gap: _BATCH_RE reads `category=(?P<category>\\S+)`, so a real
+    hyphenated BATCH_COMPLETE line has always parsed correctly, and this only ever
+    disagreed with it on the static-pin path.
+
+    Widening is safe against mistaking a REGEX for a literal: `-` is a metacharacter
+    only inside a character class, and `[` / `]` are still excluded, so `[A-Z]-x`
+    stays non-literal and is reported as unpinned rather than silently read as the
+    seven-character category "[A-Z]-x". The hyphen is written last so it is a literal
+    member of the class rather than a range.
+    """
     if tok is None:
         return None
     t = _PIN_TOKEN_TAIL_RE.sub("", tok)
-    return t if re.fullmatch(r"[A-Za-z0-9_:]+", t) else None
+    return t if re.fullmatch(r"[A-Za-z0-9_:-]+", t) else None
 
 
 def resolve_batch_tally_pin(
@@ -2203,6 +2354,55 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             "expectations.logContracts.%s declared on a spec with no batch owner: "
             "inert (there is no batch whose tally could be vacuous)"
             % (BATCH_VACUITY_OPT_OUT_KEY,))
+
+    # PATTERN COMPILABILITY (2026-07-27, autotest-roadmap R1). Every logContracts
+    # pattern is a REGEX applied with re.search (see evaluate_expectations), not a
+    # literal. A KSP.log token containing regex metacharacters therefore has to be
+    # escaped, and the natural way to write one is the broken way: the R1 debris
+    # token `Child recording created (debris, TTL=` raises
+    # `re.error: missing ), unterminated subpattern` verbatim.
+    #
+    # evaluate_expectations already CATCHES re.error and turns it into a mismatch,
+    # so nothing crashes - but that check runs on the collected log, i.e. AFTER the
+    # flight. A malformed pattern on B13 costs its measured 2,825 s p50 before it
+    # reds, and the red says "invalid regex" rather than naming a Parsek defect.
+    # Rejecting at validation time makes it a `--dry-run` error instead: free, and
+    # before the run lock is even taken.
+    #
+    # Deliberately NOT paired with a "did you mean to escape this?" heuristic. A
+    # pattern that compiles is the author's business - `terminalOrbitBody=\(null\)`
+    # and `(Approach|ExoBallistic)` are both committed, load-bearing and correct -
+    # so the only thing checkable without guessing intent is compilability.
+    for facet in ("required", "forbidden"):
+        patterns = log_contracts.get(facet)
+        if patterns is None:
+            continue
+        if not isinstance(patterns, list):
+            # Reachable for `forbidden` only: a non-list `required` is already
+            # iterated at the BATCH_COMPLETE check above and raises there first.
+            # Pre-existing, and out of this change's blast radius - noted so a
+            # reader does not assume this line covers both facets.
+            errors.append("expectations.logContracts.%s: %r must be a list of regex "
+                          "patterns" % (facet, patterns))
+            continue
+        for pat in patterns:
+            if not isinstance(pat, str):
+                errors.append("expectations.logContracts.%s: %r must be a string"
+                              % (facet, pat))
+                continue
+            try:
+                re.compile(pat)
+            except re.error as exc:
+                errors.append(
+                    "expectations.logContracts.%s: %r is not a valid regex (%s). "
+                    "These patterns are applied with re.search, so a KSP.log token "
+                    "carrying regex metacharacters must escape them. In a TOML "
+                    "basic (double-quoted) string write %s to match a literal '(' "
+                    "- the backslash is DOUBLED because TOML consumes one before "
+                    "the regex engine ever sees it. Caught here rather than after "
+                    "the flight, where evaluate_expectations would red the run on "
+                    "a collected log."
+                    % (facet, pat, exc, '"\\\\("'))
 
     # Exactly one QUIT owner: a FlushAndQuit step XOR autorun.exit = true (N3).
     has_flush = any((s or {}).get("cmd") == "FlushAndQuit" for s in steps)
@@ -3224,7 +3424,21 @@ VERDICTS: Tuple[str, ...] = (
 PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     "batch-crashed", "analyzer", "log-contract", "results", "anomaly",
     "expectation", "ledger",
+    # EVA-4 2026-07-25: a post-mission OUTCOME step failed on a MISSION-OK run
+    # (see SEAM_VERB_POST_MISSION_ROLE). Named separately from "expectation" on
+    # purpose - it is the CAUSE a sweep reader wants, where the expectation rows
+    # are the downstream symptoms.
+    "mission-outcome",
 )
+
+# Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
+# `[expectedFail] bugId = "..."` with no `subkind` matches ANY PARSEK-FAIL, which is
+# the documented v1 adaptation - but EXPECTED-FAIL is GREEN (it sets lastGreen in
+# compute_coverage and exits 0), so a scenario quarantined for one Parsek defect would
+# silently absorb an unrelated subject death too. A quarantine must never be able to
+# turn "the flight killed the kerbal it existed to save" green; demoting that requires
+# spelling the subkind out.
+NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 
 # INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
 # stages (design). Everything else (admission, instance-locked/busy, fixture-*,
@@ -3317,7 +3531,13 @@ def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
     if base_verdict != VERDICT_PARSEK_FAIL:
         return False
     if not ef_subkind:
-        return True
+        # bugId-only demotion, EXCEPT for the subkinds in NEVER_BUGID_ONLY_SUBKINDS. A
+        # quarantine key is a statement about ONE tracked Parsek defect; letting it also
+        # swallow "the flight killed its own subject" would re-open the exact fail-open
+        # this subkind exists to close - and EXPECTED-FAIL is in GREEN_VERDICTS, sets
+        # lastGreen in compute_coverage, and exits 0. Demoting a subject death requires
+        # naming it explicitly (subkind = "mission-outcome").
+        return base_subkind not in NEVER_BUGID_ONLY_SUBKINDS
     return base_subkind == ef_subkind
 
 
@@ -3354,6 +3574,7 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       driver stage failed -> INVALID (retry once)
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
+      post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
       log-contract / results / anomaly / expectation / ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
@@ -3399,7 +3620,23 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 base = V(VERDICT_PARSEK_FAIL, analyzer.subkind,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
         if base is None:
-            if verifiers.get("log_validate_failed", False):
+            if verifiers.get("mission_outcome_unmet", False):
+                # EVA-4 2026-07-25: a post-mission OUTCOME step failed on a run whose
+                # mission returned MISSION-OK. Deliberately ahead of the three
+                # contract verifiers below, because they see the SYMPTOMS (a missing
+                # completion token, a forbidden ERROR line, a short recordings count)
+                # while this row names the CAUSE, and a subkind that names the cause
+                # is what a sweep reader needs. Deliberately PARSEK-FAIL rather than a
+                # retryable driver-INVALID: routing it through the driver stage would
+                # (1) preempt and SKIP every verifier below, throwing away the very
+                # evidence that made this run diagnosable, and (2) let an intermittent
+                # subject death retry into a PASS-with-a-flake-note. The carve-out
+                # this closes made the same argument in reverse ("NOT a driver-INVALID
+                # a retry would paper over"), so this keeps its reasoning and only
+                # stops assuming a spec author will always have written the regex.
+                base = V(VERDICT_PARSEK_FAIL, "mission-outcome",
+                         "a post-mission outcome step failed on a MISSION-OK run")
+            elif verifiers.get("log_validate_failed", False):
                 base = V(VERDICT_PARSEK_FAIL, "log-contract", "log validation failed")
             elif verifiers.get("results_failed", False) or verifiers.get("results_mismatch", False):
                 base = V(VERDICT_PARSEK_FAIL, "results", "results FAIL rows or count mismatch")

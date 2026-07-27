@@ -48,7 +48,21 @@ circularizeTimeoutSeconds = 300
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
-D3  = ["orbital-checkpoint"]
+# D3 parent-anchored-debris: gated by the debris-child-creation token below.
+# The claim is sound because both creation sites CALL
+# Recording.ApplyParentAnchorContract unconditionally - for debris and controlled
+# children alike (ParsekFlight.cs:7166) - and the helper's only REACHABLE no-op
+# is an empty parent id (Recording.cs:1193 also guards `child == null`, which
+# cannot happen: the child was `new`'d one statement earlier). An empty parent id
+# cannot occur at either call site either - ProcessBreakupEvent returns at
+# ParsekFlight.cs:7446 when the active recording id is null/empty, and the BG
+# site passes the continuation-or-parent id. So "a debris child recording was
+# created" implies "parent-anchored" on these paths. Claimed here and not before
+# because presence had no gate at all: the count window's old min of 1 admitted
+# the total loss of the population.
+# NOTE the token gates CREATION, not the anchor RESOLVING correctly at playback;
+# the analyzer's INV rules own malformation, this owns absence.
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive"]
 D14 = ["kerbin"]
 
@@ -65,17 +79,81 @@ allowedAnomalies = []
 # boosters on the way up and each becomes a parent-anchored debris child
 # recording (first live B2 flight 2026-07-20: exactly 7 sidecars, analyzer
 # RED=0 over all of them - Parsek modeling staging debris is CORRECT
-# behavior the original {1,1} expectation failed to model). min stays 1
-# (the main recording must exist even if debris admission varies); max is
-# main + 6 boosters + 1 for the launch-escape tower (the live flight produced
+# behavior the original {1,1} expectation failed to model). max is main +
+# 6 boosters + 1 for the launch-escape tower (the live flight produced
 # exactly 7 - the LES jettison did not record - but whether that is
 # deterministic under MechJeb autostage is unestablished, so the window
 # absorbs an 8th rather than redding on staging-timing variance; Fable
 # review of the PR #1328 tail, WATCH-4).
-count = { min = 1, max = 8 }
+#
+# MIN 1 -> 7 (autotest-roadmap R1). B2 drives `mlib.b2_decide`, which does NOT
+# reach `_b5_flameout_stage`, so this profile has no 8th flameout-staged core:
+# its population is 1 root + 6 boosters = 7, which is exactly what the
+# 2026-07-20 flight measured. That 7 is STRUCTURAL, not just an n=1 observation:
+# `b2_decide` contains exactly one ACTION_ACTIVATE_STAGE, at launch ignition, and
+# nothing else in its closure sheds a part on command. Why the spent core does
+# not drop by itself is recorded at mlib.py:401-405 - "the spent core never
+# autostages off (MechJeb autostage only fires on EMPTY stages and the Kerbal X
+# core keeps residual fuel)". NOTE that citation sits in the B-DOCK phase block,
+# not a B2 one: it is about this same Kerbal X under the same MechJeb autostage,
+# which is why it generalises. B2's own one-ACTIVATE_STAGE structure is the
+# load-bearing half. 7 is therefore the TIGHT pin here, not a
+# one-below-population floor - note that B11/B12 REJECTED min=7 for themselves
+# for the opposite reason (their population IS 8, so 7 is what a single dropped
+# recording would produce). Do not copy 7 to an 8-population spec.
+# RE-MEASURED 2026-07-27: run 2026-07-25_0824_B2-lko-ascent (verdict PASS)
+# carries `verifiers.expectations.observed.recordings.count = 7`, so the
+# 2026-07-20 flight is no longer the only observation behind this pin.
+# RE-PIN CONTRACT (EVA-4's precedent): if a later run legitimately differs,
+# RE-PIN to the newly measured value and record WHICH recordings the run
+# produced; do NOT widen back toward 1.
+count = { min = 7, max = 8 }
 
 [expectations.logContracts]
-required  = ["Recording started", "Recording stopped"]
+# POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
+# window wide enough to absorb staging variance is also wide enough to absorb a
+# missing population).
+#
+# THE TOKEN IS THE FOREGROUND CREATION SITE, and the evidence is a log grep.
+# Two debris-child creation sites are reachable on this profile, and which one
+# fires depends on whether the parent was FOREGROUND or BACKGROUND at the split.
+# (A third exists - the parent-continuation debris recording at
+# BackgroundRecorder.cs:638, logging `Parent continuation is debris, TTL set:` -
+# but it needs a background split of a Generation-0 debris parent, which
+# `ShouldSkipForCascadeCap` refuses at Generation >= 1 with
+# MaxRecordingGeneration = 1. It cannot fire here. Stated because an earlier
+# draft's error WAS an absolute enumeration asserted from a grep;
+# Source/Parsek.Tests/DebrisParentAnchorContractTests.cs is the maintained list.)
+#   - foreground (this profile): ParsekFlight.ProcessBreakupEvent ->
+#     CreateBreakupChildRecording, logging `ProcessBreakupEvent: debris child
+#     created` (Info, tag Coalescer, ParsekFlight.cs:7668; the pattern stops
+#     before `: pid=` deliberately, so a message-format tweak cannot red it).
+#   - background: BackgroundRecorder.RegisterChildRecordingsFromSplit, logging
+#     `Child recording created (debris, TTL=60s):` (Info, BackgroundRecorder.cs:1177).
+# The Kerbal X sheds its boosters while it is the ACTIVE focused vessel, and
+# RecordingTree.IsBackgroundMapEligible excludes `rec.RecordingId ==
+# ActiveRecordingId`, so OnBackgroundPartJointBreak early-returns and the
+# BACKGROUND line is never reached on this profile.
+#
+# An earlier cut accepted EITHER site, because that trace was argued from source
+# and never confirmed against a log. GREPPED 2026-07-27 over every archived
+# B-lane KSP.log under `logs/` (60 folders: B2 10, B4 8, B5 27, B6 6, B7 9). The
+# foreground token appears in 58 of the 60. The substring `Child recording
+# created` - deliberately broader than the background token, so it would also
+# catch the CONTROLLED sibling line at BackgroundRecorder.cs:1185 - appears in
+# ZERO of the 60. The two logs without the foreground token are
+# 2026-07-20_{1846,1854}_B2-lko-ascent, both INVALID runs that produced no
+# recordings at all. A green ascent emits it exactly 6 times, once per booster,
+# in three pairs (2026-07-20_1938_B2-lko-ascent: UT 48.48, 64.12, 83.16).
+# The alternation is therefore gone and the gate no longer bets on the path. If
+# a future profile genuinely backgrounds the parent before the split, THIS token
+# reds and the red is the finding: re-derive it against a log, do not widen it
+# back to an alternation on the assumption that the red is spurious.
+# Both sites are ParsekLog.Info, so no verboseLogging pin is needed and this spec
+# deliberately adds no SetSetting step for one.
+required  = ["Recording started",
+             "ProcessBreakupEvent: debris child created",
+             "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

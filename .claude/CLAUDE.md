@@ -200,8 +200,21 @@ stdlib runner: `cd harness && python -m unittest discover -s lib -q AND discover
   fail-closed, and maps it via `hlib.classify_mission_step` (MISSION-OK -> met;
   assert-fail/connect-timeout/flake/error -> retryable INVALID subkinds).
   Mission-vs-Parsek orthogonality: a mission that did not fly is driver-INVALID,
-  never PARSEK-FAIL; post-mission seam steps are non-gating on a MISSION-OK run
-  so a mis-recorded good flight reds through the verifier chain.
+  never PARSEK-FAIL; post-mission RECORDING seam steps are non-gating on a
+  MISSION-OK run so a mis-recorded good flight reds through the verifier chain.
+  Post-mission OUTCOME steps DO gate (`hlib.SEAM_VERB_POST_MISSION_ROLE`, TOTAL
+  over `IMPLEMENTED_SEAM_VERBS` and unit-gated; the four M-C2 EVA verbs are the
+  outcome set today because each one's verdict is a claim about a kerbal's
+  in-world state that no verifier re-derives). run.py emits a `missionOutcome`
+  verifier row and `classify_verdict` maps it to `PARSEK-FAIL(mission-outcome)`,
+  ahead of log-contract / expectation because those are the downstream symptoms.
+  It is NOT a driver-INVALID: a driver-stage failure preempts and SKIPS every
+  verifier below it and is retry-once, which would discard the evidence and let
+  an intermittent subject death retry into a PASS-with-a-flake-note. Added
+  2026-07-26 after EVA-4 flight 3 reported MISSION-OK over a dead kerbal - a
+  HANDOFF mission's terminal is the handoff, so its process exits before the
+  subject even exists; `mlib.MISSION_HANDOFF_CONTRACTS` makes such a mission
+  declare what it did not verify and which step owns it.
 - Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5),
   `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3),
   `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1),
