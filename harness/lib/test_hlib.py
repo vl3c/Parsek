@@ -9,7 +9,9 @@ REAL on-disk registry + sample specs where a placement/parse bug could only be
 caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 """
 
+import contextlib
 import copy
+import io
 import os
 import re
 import shutil
@@ -4997,12 +4999,23 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
                     body = fh.read()
                 with open(target, "w", encoding="utf-8") as fh:
                     fh.write(mutate(body))
-            original = run.SCENARIOS_DIR
+            # Also redirect the harness log, which run.run() mints per invocation:
+            # without this every suite run drops another
+            # harness/results/<ts>_harness.log on disk, unbounded. And swallow the
+            # plan print, which is 2 full ACTION PLAN blocks of unittest noise.
+            original_dir = run.SCENARIOS_DIR
+            original_log = run.default_harness_log_path
             run.SCENARIOS_DIR = tmp
+            run.default_harness_log_path = lambda: os.path.join(tmp, "harness.log")
             try:
-                return run.run(["--id", "B2-lko-ascent", "--dry-run", "--no-coverage"])
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return run.run(["--id", "B2-lko-ascent", "--dry-run", "--no-coverage"])
             finally:
-                run.SCENARIOS_DIR = original
+                # NOTE these are process-global mutations, safe only because
+                # stdlib unittest runs sequentially. A future parallel runner
+                # would need this helper reworked, not just re-ordered.
+                run.SCENARIOS_DIR = original_dir
+                run.default_harness_log_path = original_log
 
     def test_dry_run_exits_zero_on_a_valid_spec(self):
         self.assertEqual(0, self._dry_run_exit_code())
@@ -5080,13 +5093,20 @@ class DebrisPopulationGateTests(unittest.TestCase):
             with self.subTest(path=label):
                 self.assertIsNotNone(re.search(self.TOKEN, line))
 
+    # The sibling branch at both creation sites. A gate that matches these does
+    # not gate the debris population, so they are the decoy family every claimed
+    # token must REJECT (see the reverse check below).
+    CONTROLLED = (
+        "[Parsek][INFO][Coalescer] ProcessBreakupEvent: controlled child "
+        "created: pid=1, name='x', recId=r",
+        "[Parsek][INFO][BgRecorder] Child recording created (controlled, "
+        "no TTL): recId=r vesselPid=1 name='x'",
+    )
+
     def test_the_token_does_not_match_a_controlled_child(self):
-        # The sibling branch at both sites. If a booster ever took it, the run
-        # SHOULD red rather than pass on the wrong population.
-        for line in ("[Parsek][INFO][Coalescer] ProcessBreakupEvent: controlled child "
-                     "created: pid=1, name='x', recId=r",
-                     "[Parsek][INFO][BgRecorder] Child recording created (controlled, "
-                     "no TTL): recId=r vesselPid=1 name='x'"):
+        # If a booster ever took that branch, the run SHOULD red rather than pass
+        # on the wrong population.
+        for line in self.CONTROLLED:
             self.assertIsNone(re.search(self.TOKEN, line))
 
     def test_both_emit_sites_still_exist_at_Info(self):
@@ -5120,11 +5140,35 @@ class DebrisPopulationGateTests(unittest.TestCase):
         ends = [i for i in (rest.find("\n        internal "), rest.find("\n        private "),
                             rest.find("\n        public ")) if i != -1]
         body = rest[:min(ends)] if ends else rest
-        # Strip line comments. Without this the assertions match CODE THAT WAS
-        # COMMENTED OUT: a reviewer deleted the ActiveRecordingId exclusion and
-        # left `// was: rec.RecordingId != ActiveRecordingId` behind, and the
-        # cell stayed green on the corpse of the thing it was pinning.
-        return "\n".join(line.split("//", 1)[0] for line in body.split("\n"))
+        # Strip comments, BOTH syntaxes. Without this the assertions match CODE
+        # THAT WAS COMMENTED OUT: a reviewer deleted the ActiveRecordingId
+        # exclusion and left `// was: rec.RecordingId != ActiveRecordingId`
+        # behind, and the cell stayed green on the corpse of the thing it was
+        # pinning - then did it again one comment syntax deeper with `/* ... */`.
+        body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+        # `//` only outside a string literal, so a `//` inside one (a URL, say)
+        # cannot silently truncate real code out of the slice.
+        out = []
+        for line in body.split("\n"):
+            in_str = False
+            cut = len(line)
+            i = 0
+            while i < len(line) - 1:
+                ch = line[i]
+                if in_str:
+                    if ch == "\\":
+                        i += 2
+                        continue
+                    if ch == '"':
+                        in_str = False
+                elif ch == '"':
+                    in_str = True
+                elif ch == "/" and line[i + 1] == "/":
+                    cut = i
+                    break
+                i += 1
+            out.append(line[:cut])
+        return "\n".join(out)
 
     def test_the_foreground_path_is_the_one_this_profile_takes(self):
         # Pins the reachability facts the first cut got wrong, each INSIDE the
@@ -5167,6 +5211,17 @@ class DebrisPopulationGateTests(unittest.TestCase):
         self.assertEqual(1, depth,
                          "the call must sit at the method's top level, not inside "
                          "a conditional block (depth %d)" % depth)
+        # CONTROL FLOW, not just syntax. The two checks above cover both ways to
+        # WRAP the call in a condition; a reviewer then skipped it a third way,
+        # with `if (!isDebris) return childRec;` immediately above - depth still
+        # 1, statement still starting its line, premise still falsified. Any
+        # early return before the call means some children are not stamped.
+        preceding = body[:idx]
+        self.assertNotIn("return", preceding,
+                         "no early return may precede the anchor stamp - the cell's "
+                         "premise is that EVERY child this method makes is stamped, "
+                         "which is what lets a creation token buy a reference-frame "
+                         "coverage cell")
 
     def test_no_gated_spec_relies_on_verbose_logging_for_it(self):
         for name in self.GATED:
@@ -5248,12 +5303,16 @@ class DebrisPopulationGateTests(unittest.TestCase):
             if self.CELL not in (spec.get("dimensionsCovered", {}) or {}).get("D3", []):
                 continue
             required = (spec.get("expectations", {}).get("logContracts", {}) or {}).get("required", [])
-            # SEMANTIC, not substring: the pattern must actually match a line the
-            # source can emit. A reviewer defeated the substring form with an
-            # `^`-anchored token - present, named right, and unable to match a
-            # multi-line log body because evaluate_expectations uses re.search
-            # with no re.MULTILINE. That is the original BLOCKER in miniature.
-            if not any(re.search(p, self.EMITTED_FG) or re.search(p, self.EMITTED_BG)
+            # SEMANTIC AND DISCRIMINATING. Two earlier forms of this check were
+            # each defeated: a substring match let through an `^`-anchored token
+            # that can never match a multi-line body (evaluate_expectations uses
+            # re.search with no re.MULTILINE), and a bare "matches the fixture"
+            # match let through `recId=`, which fires on any of these lines and
+            # gates nothing. So the pattern must match a debris-creation line AND
+            # reject both controlled-child lines - the same "must reject the decoy
+            # family" shape hlib.batch_contract_vacuity_gap already uses.
+            if not any((re.search(p, self.EMITTED_FG) or re.search(p, self.EMITTED_BG))
+                       and not any(re.search(p, decoy) for decoy in self.CONTROLLED)
                        for p in required):
                 offenders.append(name)
         self.assertEqual([], offenders,
