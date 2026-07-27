@@ -47,23 +47,45 @@ vessel is in `tree.BackgroundMap`, and `RecordingTree.IsBackgroundMapEligible`
 excludes `rec.RecordingId == ActiveRecordingId`. These craft shed boosters while
 ACTIVE, so it cannot fire; staging goes through `ParsekFlight.ProcessBreakupEvent`
 -> `CreateBreakupChildRecording` -> `ProcessBreakupEvent: debris child created:
-pid=` (Info, tag `Coalescer`, `ParsekFlight.cs:7668`). The shipped gate accepts
-EITHER. Cost had it merged: ~3.8 h of flying and five reds that read as a Parsek
-recording regression. **Rule: presence in source is not reachability on a profile.
-Trace the call chain or grep an archived KSP.log before pinning** - the discipline
-this entry already prescribed for the tokens it declined to claim.
+pid=` (Info, tag `Coalescer`, `ParsekFlight.cs:7668`). Cost had it merged: ~3.8 h
+of flying and five reds that read as a Parsek recording regression. **Rule:
+presence in source is not reachability on a profile. Trace the call chain or grep
+an archived KSP.log before pinning** - the discipline this entry already
+prescribed for the tokens it declined to claim.
+
+The intermediate fix accepted EITHER site, because the trace above was argued from
+source and never confirmed against a log. **The shipped gate requires the
+FOREGROUND token alone**, settled 2026-07-27 by grepping all 60 archived B-lane
+`logs/*/KSP.log` folders (B2 10, B4 8, B5 27, B6 6, B7 9): the foreground token
+appears in 58 of 60, and the substring `Child recording created` - broad enough to
+catch the CONTROLLED sibling at `:1185` as well - appears in **zero**. The two
+without it are `2026-07-20_{1846,1854}_B2-lko-ascent`, both INVALID runs that
+recorded nothing. A green ascent emits it exactly 6 times, one per booster.
 
 **`min` is per-mission, and the rule is not the flameout watchdog.** The floor
 follows whether the mission commands a debris-producing stage drop BEYOND launch
 ignition. `B5`/`B6`/`B7` drop a flameout-staged core (`_b5_flameout_stage`, reached
-only from `b5_decide`) -> 8; B5 and B7 each have four archived runs at 8, B6 is
-inferred from the shared decide function. `B4` drops its service stage via an
+only from `b5_decide`) -> 8. `B4` drops its service stage via an
 `ACTION_ACTIVATE_STAGE` on the SOLE transition into `B4_REENTRY` -> also 8, and
 `run.py` judges expectations only on a driver-valid non-short-circuited run, so a
 B4 that never reached REENTRY is SKIPPED rather than judged under a lower floor.
 Only `B2` stages once, at ignition -> 7 (structural: `mlib.py:401-405` records that
 the spent core never autostages, because MechJeb autostage fires only on EMPTY
 stages and the Kerbal X core keeps residual fuel).
+
+**Every floor is now MEASURED, not derived.** Read 2026-07-27 off
+`verifiers.expectations.observed.recordings.count` in verdict=PASS result JSONs
+(the field landed in `72cf344fb`, 2026-07-25 06:48, so every citation is from that
+morning): B2 7 (`2026-07-25_0824`), B4 8 (`0828`), B5 8 (`0643`, `0847`), B6 8
+(`0636`, `0856`), B7 8 (`0916_a2`). Both previously-unmeasured floors - B4's
+structural derivation and B6's inference from the shared decide function -
+measured at exactly what was derived, so no re-pin was needed.
+**Do not re-derive these counts from the archived `logs/*/` folders.** `run.py`
+collects logs on NON-PASS only (`run.py:2324`), so every archived B-lane folder is
+a run whose expectations were SKIPPED rather than judged; their `.prec` sidecars
+number 7 for B4 and B6 because those runs aborted before the extra stage drop.
+Reading that 7 as a contradiction and lowering the floor would re-open the exact
+hole this entry exists to close.
 The first cut used 7 everywhere; the second kept B4 at 7 by keying on
 `_b5_flameout_stage` alone. Both left the exact value `B11`/`B12` record as
 **considered and rejected**: "7 is the exact count a single dropped recording would

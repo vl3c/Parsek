@@ -4934,7 +4934,7 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
         spec = self._spec_with_patterns("required", [
             r"CommitTreeFlight terminal: rec=\w+ terminalState=Destroyed terminalOrbitBody=\(null\)",
             r"Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
-            r"(ProcessBreakupEvent: debris child created|Child recording created \(debris, TTL=)",
+            r"Materialize: 1 dormant route\(s\) materialized",
         ])
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
 
@@ -5026,10 +5026,14 @@ class LogContractPatternCompilabilityTests(unittest.TestCase):
         # rejects rendered a clean plan and exit 0 - while the in-code advice
         # pointed authors at exactly that command.
         def break_pattern(body):
-            return body.replace(
-                '"(ProcessBreakupEvent: debris child created'
-                '|Child recording created \\\\(debris, TTL=)"',
+            broken = body.replace(
+                '"ProcessBreakupEvent: debris child created"',
                 '"Child recording created (debris, TTL="')
+            # Fail LOUD if the spec's token is reworded: a no-op replace would
+            # leave the spec valid and this cell would assert 1 == 0 with no clue
+            # why. The point is to feed validate_spec an UNCOMPILABLE pattern.
+            assert broken != body, "B2's debris token moved; update this mutation"
+            return broken
         self.assertEqual(1, self._dry_run_exit_code(break_pattern))
 
 
@@ -5064,9 +5068,35 @@ class DebrisPopulationGateTests(unittest.TestCase):
         "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
     }
 
+    # spec -> (measured count, the PASS run ids it was read from). Every value is
+    # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
+    # JSON, read 2026-07-27. Before this, B4's floor was structural-only and B6's
+    # was inferred from sharing b5_decide; both measured at exactly what was
+    # derived. The field only exists on runs after 72cf344fb (2026-07-25 06:48),
+    # which is why all seven run ids are from that morning.
+    #
+    # These are NOT re-derivable from the archived `logs/*/KSP.log` folders:
+    # run.py collects logs on NON-PASS only, so every archived B-lane folder is a
+    # run whose expectations were SKIPPED rather than judged
+    # (`if driver_valid and not short_circuited`). Their .prec counts are lower
+    # and are not this population.
+    MEASURED = {
+        "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
+        "B4-reentry-splashdown.toml": (8, ("2026-07-25_0828_B4-reentry-splashdown",)),
+        "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
+                                           "2026-07-25_0847_B5-mun-flyby")),
+        "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
+                                           "2026-07-25_0856_B6-minmus-flyby")),
+        "B7-duna-flyby.toml":         (8, ("2026-07-25_0916_B7-duna-flyby_a2",)),
+    }
+
     CELL = "parent-anchored-debris"
-    TOKEN = (r"(ProcessBreakupEvent: debris child created"
-             r"|Child recording created \(debris, TTL=)")
+    # TIGHTENED from an EITHER-site alternation on 2026-07-27, against 60
+    # archived B-lane KSP.logs: the foreground token appears in 58 of them (the
+    # 2 without it are INVALID runs that recorded nothing), and the substring
+    # `Child recording created` appears in ZERO. See the block comment in any of
+    # the five gated specs for the full grep.
+    TOKEN = r"ProcessBreakupEvent: debris child created"
 
     # The two literal lines the two creation sites emit.
     EMITTED_FG = ("[Parsek][INFO][Coalescer] ProcessBreakupEvent: debris child created: "
@@ -5085,13 +5115,17 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 self.assertIn(self.TOKEN,
                               load_spec(name)["expectations"]["logContracts"]["required"])
 
-    def test_the_token_matches_BOTH_lines_the_source_can_emit(self):
-        # The correspondence the whole gate rests on. The foreground line is the
-        # one this profile actually produces; the background line is accepted so
-        # a path change cannot silently red five flights again.
-        for label, line in (("foreground", self.EMITTED_FG), ("background", self.EMITTED_BG)):
-            with self.subTest(path=label):
-                self.assertIsNotNone(re.search(self.TOKEN, line))
+    def test_the_token_matches_the_line_this_profile_actually_emits(self):
+        # The correspondence the whole gate rests on.
+        self.assertIsNotNone(re.search(self.TOKEN, self.EMITTED_FG))
+
+    def test_the_token_no_longer_matches_the_background_line(self):
+        # Not a property the gate NEEDS - it is a tripwire on the tightening.
+        # The alternation was removed on log evidence that the background site
+        # never fires on any B-lane profile. If someone restores it, this cell
+        # reds and makes them say why in a commit message, rather than the
+        # widening passing as a formatting change.
+        self.assertIsNone(re.search(self.TOKEN, self.EMITTED_BG))
 
     # The sibling branch at both creation sites. A gate that matches these does
     # not gate the debris population, so they are the decoy family every claimed
@@ -5114,7 +5148,14 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # earlier "nearest preceding ParsekLog" form was defeated by hoisting the
         # message into a local (mutation 12); requiring adjacency fails SAFE - a
         # refactor that separates them reds here, for free, instead of on a
-        # nightly. Both sites are depended on WITHOUT a verboseLogging pin.
+        # nightly.
+        # The two sites are asserted for DIFFERENT reasons, and only one is
+        # gate-bearing: the FOREGROUND site is what all five specs require
+        # without a verboseLogging pin, so a downgrade there reds five nightly
+        # flights. The BACKGROUND site is no longer in any pattern; it is
+        # asserted because the five spec comment blocks and the reachability
+        # cell below all cite it by name and level as the path NOT taken, and a
+        # silent rename would leave that evidentiary record pointing at nothing.
         fg = self._source("ParsekFlight.cs")
         self.assertRegex(
             fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
@@ -5246,6 +5287,40 @@ class DebrisPopulationGateTests(unittest.TestCase):
                                  "beyond ignition floors at 8, the others at 7")
                 self.assertGreater(cmin, 1, "min = 1 is the vacuity this gate removes")
 
+    def test_every_floor_admits_its_measured_count(self):
+        # The cell that converts this gate from derived to measured. Each spec's
+        # window must actually admit the count a green run of THAT spec produced,
+        # and the floor must not sit below it either - a floor under the measured
+        # population is the one-below-population blind spot B11/B12 reject, and a
+        # floor above it would red every green run.
+        self.assertEqual(sorted(self.GATED), sorted(self.MEASURED),
+                         "every gated spec needs a measured count")
+        for name, (measured, run_ids) in self.MEASURED.items():
+            with self.subTest(spec=name):
+                self.assertTrue(run_ids, "a measurement needs a run id to cite")
+                count = load_spec(name)["expectations"]["recordings"]["count"]
+                self.assertEqual(
+                    measured, count["min"],
+                    "%s: measured %d on %s but floors at %d. The MEASUREMENT "
+                    "wins: re-pin count.min to it and say so in the spec, do not "
+                    "widen the window." % (name, measured, run_ids[0], count["min"]))
+                self.assertLessEqual(
+                    measured, count["max"],
+                    "%s: measured %d, above max %d" % (name, measured, count["max"]))
+
+    def test_each_spec_comment_cites_the_run_it_was_measured_from(self):
+        # Rule learned the hard way on this branch: a comment block that reads as
+        # verified is the thing the next reviewer trusts instead of re-deriving.
+        # If a floor claims a measurement, the run id has to be IN the spec, so
+        # the claim is checkable without this table.
+        for name, (_measured, run_ids) in self.MEASURED.items():
+            with self.subTest(spec=name):
+                body = open(os.path.join(SCENARIOS_DIR, name), encoding="utf-8").read()
+                self.assertTrue(
+                    any(r in body for r in run_ids),
+                    "%s cites no measured run id; expected one of %s"
+                    % (name, ", ".join(run_ids)))
+
     def test_the_floor_split_matches_the_decide_functions_on_disk(self):
         # Guards the table against mission-wiring drift, in BOTH directions: which
         # decide function each spec drives, and whether that function actually
@@ -5311,6 +5386,11 @@ class DebrisPopulationGateTests(unittest.TestCase):
             # gates nothing. So the pattern must match a debris-creation line AND
             # reject both controlled-child lines - the same "must reject the decoy
             # family" shape hlib.batch_contract_vacuity_gap already uses.
+            # EITHER creation line satisfies this, deliberately: the check is
+            # about the CLAIM being gated, not about which site fires. No
+            # committed spec currently uses the background form (all five gated
+            # ones tightened to the foreground token on 2026-07-27 log evidence),
+            # so that branch is presently unexercised by the corpus.
             if not any((re.search(p, self.EMITTED_FG) or re.search(p, self.EMITTED_BG))
                        and not any(re.search(p, decoy) for decoy in self.CONTROLLED)
                        for p in required):

@@ -404,11 +404,11 @@ admits the main recording alone:
 | Scenario | window | span | status |
 |---|---|---|---|
 | B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
-| B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; measured 2026-07-20) |
-| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; floor structural, never measured - re-pin from `results/*B4*.json`) |
-| B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; 4 archived runs at 8) |
-| B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; INFERRED from the shared machine, not measured on B6) |
-| B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (4 archived runs at 8, corroborated by B15; now agrees with B15's pin) |
+| B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
+| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
+| B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
+| B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; MEASURED 8 on `2026-07-25_0636` and `_0856`, confirming the inference) |
+| B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (MEASURED 8 on `2026-07-25_0916_a2`; agrees with B15's pin) |
 | BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
 
 Every one of them would still read PASS if Parsek stopped writing child /
@@ -476,12 +476,23 @@ flights. That token is the BACKGROUND-split site
 `rec.RecordingId == ActiveRecordingId`. A Kerbal X sheds its boosters while it IS the
 active vessel, so the line cannot fire on these profiles. Staging goes through
 `ParsekFlight.ProcessBreakupEvent` -> `CreateBreakupChildRecording`, logging
-`ProcessBreakupEvent: debris child created: pid=` (Info, tag `Coalescer`). The shipped
-gate accepts EITHER. The lesson is general and cost two independent reviews to catch:
+`ProcessBreakupEvent: debris child created: pid=` (Info, tag `Coalescer`).
+The lesson is general and cost two independent reviews to catch:
 **a token's presence in source is not its reachability on a profile.** Trace the call
 chain, or grep an archived KSP.log, before pinning - the discipline this section
 already prescribed for the tokens it declined to claim, and did not apply to the one
 it claimed.
+
+The intermediate fix accepted EITHER site, because that trace was still argued from
+source alone. **The shipped gate requires the FOREGROUND token only**, settled
+2026-07-27 against all 60 archived B-lane `logs/*/KSP.log` folders (B2 10, B4 8,
+B5 27, B6 6, B7 9): the foreground token appears in 58 of 60, and the substring
+`Child recording created` - broad enough to catch the CONTROLLED sibling at `:1185`
+too - appears in **zero**. The two without it are `2026-07-20_{1846,1854}_B2-lko-ascent`,
+INVALID runs that recorded nothing. A green ascent emits it exactly 6 times, one per
+booster. Corollary worth keeping: an EITHER-site alternation is a reasonable
+intermediate when the trace is unconfirmed, but it is not the destination - a gate
+that accepts two paths cannot tell you which one broke.
 
 Also corrected while shipping: `min` is NOT one number across the five, and the rule
 is not "does it reach `_b5_flameout_stage`" either - that was the second draft's error.
@@ -496,6 +507,19 @@ The first cut used 7 everywhere, which on an 8-population spec is precisely the 
 dropped recording would produce"). Note `run.py` judges expectations only on a
 driver-valid, non-short-circuited run, so a B4 that never reached REENTRY has its count
 SKIPPED rather than passing under the lower floor.
+
+**All five floors were converted from derived to MEASURED on 2026-07-27**, read off
+`verifiers.expectations.observed.recordings.count` in verdict=PASS result JSONs (see
+the status table for the run ids; the field landed in `72cf344fb`, 2026-07-25 06:48,
+so every citation is from that morning). Both floors that had never been measured -
+B4's structural derivation and B6's inference from the shared decide function -
+measured at exactly the derived value, so no re-pin was needed.
+**Do not measure this from the archived `logs/*/` folders.** `run.py` collects logs on
+NON-PASS only (`run.py:2324`), so every archived B-lane folder is a run whose
+expectations were SKIPPED rather than judged. Their `.prec` sidecars number 7 for B4
+and B6 - those runs aborted before the extra stage drop - and reading that as a
+contradiction would lower both floors straight back into the one-below-population
+blind spot. The archives are ground truth for TOKENS, not for COUNTS.
 
 The Targets line this section originally carried was wrong and is replaced by the
 status column in the table above: it named `B11`/`B12`/`B13`/`B14`, which already had

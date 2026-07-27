@@ -175,6 +175,10 @@ allowedAnomalies = []
 # REJECTED: 7 is the exact count a single dropped recording would produce, so a
 # floor of 7 would blind the only numeric guard on this run to the regression
 # class it exists to catch."
+# RE-MEASURED 2026-07-27 from the results JSON directly, rather than through
+# B11's summary of it: runs 2026-07-25_0643_B5-mun-flyby and
+# 2026-07-25_0847_B5-mun-flyby (both verdict PASS) each carry
+# `verifiers.expectations.observed.recordings.count = 8`.
 # RE-PIN CONTRACT: re-pin from a measured observed.recordings.count if a later
 # run legitimately differs; never widen it blindly.
 count = { min = 8, max = 9 }
@@ -184,14 +188,14 @@ count = { min = 8, max = 9 }
 # window wide enough to absorb staging variance is also wide enough to absorb a
 # missing population).
 #
-# THE ALTERNATION IS DELIBERATE, and the first draft of this gate got it wrong.
-# TWO debris-child creation sites are reachable on this profile, and which one
+# THE TOKEN IS THE FOREGROUND CREATION SITE, and the evidence is a log grep.
+# Two debris-child creation sites are reachable on this profile, and which one
 # fires depends on whether the parent was FOREGROUND or BACKGROUND at the split.
 # (A third exists - the parent-continuation debris recording at
 # BackgroundRecorder.cs:638, logging `Parent continuation is debris, TTL set:` -
 # but it needs a background split of a Generation-0 debris parent, which
 # `ShouldSkipForCascadeCap` refuses at Generation >= 1 with
-# MaxRecordingGeneration = 1. It cannot fire here. Stated because the first
+# MaxRecordingGeneration = 1. It cannot fire here. Stated because an earlier
 # draft's error WAS an absolute enumeration asserted from a grep;
 # Source/Parsek.Tests/DebrisParentAnchorContractTests.cs is the maintained list.)
 #   - foreground (this profile): ParsekFlight.ProcessBreakupEvent ->
@@ -203,19 +207,26 @@ count = { min = 8, max = 9 }
 # The Kerbal X sheds its boosters while it is the ACTIVE focused vessel, and
 # RecordingTree.IsBackgroundMapEligible excludes `rec.RecordingId ==
 # ActiveRecordingId`, so OnBackgroundPartJointBreak early-returns and the
-# BACKGROUND line is never reached on this profile. Pinning it alone (as the
-# first draft did) would have red every one of these flights on a token that
-# cannot fire. Accepting EITHER proves the claim actually being made - "a debris
-# child recording was created" - without betting on the path.
-# Both are ParsekLog.Info, so no verboseLogging pin is needed and this spec
+# BACKGROUND line is never reached on this profile.
+#
+# An earlier cut accepted EITHER site, because that trace was argued from source
+# and never confirmed against a log. GREPPED 2026-07-27 over every archived
+# B-lane KSP.log under `logs/` (60 folders: B2 10, B4 8, B5 27, B6 6, B7 9). The
+# foreground token appears in 58 of the 60. The substring `Child recording
+# created` - deliberately broader than the background token, so it would also
+# catch the CONTROLLED sibling line at BackgroundRecorder.cs:1185 - appears in
+# ZERO of the 60. The two logs without the foreground token are
+# 2026-07-20_{1846,1854}_B2-lko-ascent, both INVALID runs that produced no
+# recordings at all. A green ascent emits it exactly 6 times, once per booster,
+# in three pairs (2026-07-20_1938_B2-lko-ascent: UT 48.48, 64.12, 83.16).
+# The alternation is therefore gone and the gate no longer bets on the path. If
+# a future profile genuinely backgrounds the parent before the split, THIS token
+# reds and the red is the finding: re-derive it against a log, do not widen it
+# back to an alternation on the assumption that the red is spurious.
+# Both sites are ParsekLog.Info, so no verboseLogging pin is needed and this spec
 # deliberately adds no SetSetting step for one.
-# The `(` in the background form is ESCAPED because hlib.evaluate_expectations
-# applies each required pattern with re.search: a bare `(` is a group, not text.
-# The outer parentheses are an intentional alternation group.
-# TIGHTEN-ON-EVIDENCE: once an archived B-lane KSP.log is grepped, replace this
-# alternation with whichever single token that log actually contains.
 required  = ["Recording started",
-             "(ProcessBreakupEvent: debris child created|Child recording created \\(debris, TTL=)",
+             "ProcessBreakupEvent: debris child created",
              "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
