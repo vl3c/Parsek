@@ -2734,7 +2734,9 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     sel.add_argument("--tier", help="run all specs of a tier (perpr|daily|nightly|weekly)")
     sel.add_argument("--tag", help="run every spec carrying this tag")
     sel.add_argument("--cadence", help="run the tier set a cadence maps to (per-pr|daily|nightly|weekly)")
-    parser.add_argument("--dry-run", action="store_true", help="print the action plan; launch nothing")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print the action plan and validate every selected "
+                             "spec; launch nothing. Exits 1 if any spec is invalid.")
     parser.add_argument("--umbrella-root", help="override the umbrella root (default: parent of the worktree)")
     parser.add_argument("--instance-dir", help="override the resolved instance dir (single-profile runs / tests)")
     parser.add_argument("--no-coverage", action="store_true", help="skip the coverage/flake refresh")
@@ -2760,6 +2762,35 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 
     if args.dry_run:
         print_dry_run_plan(selected, instance_root_fn, logger)
+        # VALIDATE ON --dry-run TOO (2026-07-27). This used to `return 0` straight
+        # after printing the plan, so --dry-run rendered a clean plan for a spec
+        # validate_spec would REJECT - and the natural read of a green dry-run is
+        # "this spec is fine to schedule". A reviewer proved the gap by breaking a
+        # logContracts pattern: clean plan, exit 0, and the error surfaced only
+        # after the flight. The real run path already validates (below); this makes
+        # the FREE check agree with it. Deliberately AFTER the plan print, so the
+        # author still gets the plan they asked for, and non-zero so a script can
+        # gate on it.
+        # Warnings are surfaced too, and bug_ids hoisted out of the loop, so this
+        # reports EXACTLY what the real path reports rather than a subset - a spec
+        # that looks cleaner on dry-run than on the real run is the same class of
+        # gap this block was added to close.
+        dry_bug_ids = _load_bug_ids()
+        dry_errors = 0
+        for spec in selected:
+            schemas, schema_errors = resolve_mission_schemas(spec, logger)
+            validation = hlib.validate_spec(spec, registry, dry_bug_ids, schemas)
+            for w in validation.warnings:
+                logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
+            problems = list(validation.errors) + schema_errors
+            for problem in problems:
+                logger.error("Select", "spec invalid id=%s: %s"
+                             % (spec.get("id"), problem))
+            dry_errors += len(problems)
+        if dry_errors:
+            logger.error("Select",
+                         "dry-run found %d spec validation error(s)" % dry_errors)
+            return 1
         return 0
 
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC

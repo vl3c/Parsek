@@ -88,7 +88,21 @@ targetPeriapsisFloorMeters = 6000
 # Coverage: same cross-SOI recording cells as B5 with the minmus body axis.
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
-D3  = ["orbital-checkpoint"]
+# D3 parent-anchored-debris: gated by the debris-child-creation token below.
+# The claim is sound because both creation sites CALL
+# Recording.ApplyParentAnchorContract unconditionally - for debris and controlled
+# children alike (ParsekFlight.cs:7166) - and the helper's only REACHABLE no-op
+# is an empty parent id (Recording.cs:1193 also guards `child == null`, which
+# cannot happen: the child was `new`'d one statement earlier). An empty parent id
+# cannot occur at either call site either - ProcessBreakupEvent returns at
+# ParsekFlight.cs:7446 when the active recording id is null/empty, and the BG
+# site passes the continuation-or-parent id. So "a debris child recording was
+# created" implies "parent-anchored" on these paths. Claimed here and not before
+# because presence had no gate at all: the count window's old min of 1 admitted
+# the total loss of the population.
+# NOTE the token gates CREATION, not the anchor RESOLVING correctly at playback;
+# the analyzer's INV rules own malformation, this owns absence.
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "minmus", "warp-rails"]
 
@@ -103,10 +117,74 @@ allowedAnomalies = []
 [expectations.recordings]
 # Same as B5: main + up to 6 boosters + LES margin + 1 flameout-staged dry
 # core (live finding 15).
-count = { min = 1, max = 9 }
+#
+# MIN 1 -> 8 (autotest-roadmap R1). B6 drives the IDENTICAL decide function as
+# B5 and B7 - `mlib.b5_decide`, which reaches `_b5_flameout_stage` - so its
+# population is the same 1 root + 6 boosters + 1 flameout-staged dry core = 8
+# that B5 and B7 also measure (see their own specs for the run ids; B11-mun-orbit
+# .toml:387 summarises the same archive, and its n disagrees with B15's summary
+# of it, so cite the result JSONs rather than either summary).
+# MEASURED 2026-07-27 ON B6 ITSELF, and the measurement CONFIRMS the inference:
+# runs 2026-07-25_0636_B6-minmus-flyby and 2026-07-25_0856_B6-minmus-flyby (both
+# verdict PASS) each carry
+# `verifiers.expectations.observed.recordings.count = 8`. This floor no longer
+# rests on the shared decide function.
+# DO NOT re-derive this count from an archived `logs/*_B6-*/` folder. run.py
+# collects logs on NON-PASS only (run.py:2324), so all six archived B6 folders
+# are INVALID runs whose counts run.py never judged (`if driver_valid and not
+# short_circuited`). Their `.prec` sidecars number 7, and they additionally all
+# predate 82398e157 (2026-07-22 18:30:32), the commit that added the flameout
+# stage producing the 8th recording. Neither fact lowers this floor.
+# 8 rather than 7 for B11/B12's reason: 7 is exactly what a single dropped
+# recording would produce on an 8-population run, so it would blind the guard.
+# Never widen back toward 1.
+count = { min = 8, max = 9 }
 
 [expectations.logContracts]
-required  = ["Recording started", "Recording stopped"]
+# POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
+# window wide enough to absorb staging variance is also wide enough to absorb a
+# missing population).
+#
+# THE TOKEN IS THE FOREGROUND CREATION SITE, and the evidence is a log grep.
+# Two debris-child creation sites are reachable on this profile, and which one
+# fires depends on whether the parent was FOREGROUND or BACKGROUND at the split.
+# (A third exists - the parent-continuation debris recording at
+# BackgroundRecorder.cs:638, logging `Parent continuation is debris, TTL set:` -
+# but it needs a background split of a Generation-0 debris parent, which
+# `ShouldSkipForCascadeCap` refuses at Generation >= 1 with
+# MaxRecordingGeneration = 1. It cannot fire here. Stated because an earlier
+# draft's error WAS an absolute enumeration asserted from a grep;
+# Source/Parsek.Tests/DebrisParentAnchorContractTests.cs is the maintained list.)
+#   - foreground (this profile): ParsekFlight.ProcessBreakupEvent ->
+#     CreateBreakupChildRecording, logging `ProcessBreakupEvent: debris child
+#     created` (Info, tag Coalescer, ParsekFlight.cs:7668; the pattern stops
+#     before `: pid=` deliberately, so a message-format tweak cannot red it).
+#   - background: BackgroundRecorder.RegisterChildRecordingsFromSplit, logging
+#     `Child recording created (debris, TTL=60s):` (Info, BackgroundRecorder.cs:1177).
+# The Kerbal X sheds its boosters while it is the ACTIVE focused vessel, and
+# RecordingTree.IsBackgroundMapEligible excludes `rec.RecordingId ==
+# ActiveRecordingId`, so OnBackgroundPartJointBreak early-returns and the
+# BACKGROUND line is never reached on this profile.
+#
+# An earlier cut accepted EITHER site, because that trace was argued from source
+# and never confirmed against a log. GREPPED 2026-07-27 over every archived
+# B-lane KSP.log under `logs/` (60 folders: B2 10, B4 8, B5 27, B6 6, B7 9). The
+# foreground token appears in 58 of the 60. The substring `Child recording
+# created` - deliberately broader than the background token, so it would also
+# catch the CONTROLLED sibling line at BackgroundRecorder.cs:1185 - appears in
+# ZERO of the 60. The two logs without the foreground token are
+# 2026-07-20_{1846,1854}_B2-lko-ascent, both INVALID runs that produced no
+# recordings at all. A green ascent emits it exactly 6 times, once per booster,
+# in three pairs (2026-07-20_1938_B2-lko-ascent: UT 48.48, 64.12, 83.16).
+# The alternation is therefore gone and the gate no longer bets on the path. If
+# a future profile genuinely backgrounds the parent before the split, THIS token
+# reds and the red is the finding: re-derive it against a log, do not widen it
+# back to an alternation on the assumption that the red is spurious.
+# Both sites are ParsekLog.Info, so no verboseLogging pin is needed and this spec
+# deliberately adds no SetSetting step for one.
+required  = ["Recording started",
+             "ProcessBreakupEvent: debris child created",
+             "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

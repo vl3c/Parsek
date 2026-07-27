@@ -1,0 +1,98 @@
+schema = 1
+id = "H11-pipeline-anchor"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. The in-game Pipeline-Anchor category has
+# never been driven by any committed spec. Its seven coroutine cells assert the
+# anchor epsilon stays within tolerance of the recorded geometric offset across the
+# seven anchor situations the recorder can produce: live separation, a Relative
+# section boundary, an orbital checkpoint, an SOI crossing, a loop, a dock, and a
+# suppressed subtree.
+#
+# WHAT THESE SEVEN CELLS ACTUALLY EXERCISE, stated precisely because the obvious
+# reading is wrong. Only ONE of the seven (Pipeline_Anchor_LiveSeparation) resolves
+# through a live CelestialBody - it calls kerbin.GetWorldSurfacePosition. FOUR
+# (RelativeBoundary, OrbitalCheckpoint, SOI, Loop) route through
+# RunPhase6PerSourceFixture, which installs
+# AnchorPropagator.ResolverOverrideForTesting (a stub returning a CONSTANT offset)
+# plus SmoothedPositionForTesting, so the production resolver is REPLACED for the
+# duration. TWO (Dock, SuppressedSubtree) drive RenderSessionState.PutAnchorForTesting
+# seams and touch no body at all. So what this spec gates is the anchor EPSILON
+# ARITHMETIC and the per-source dispatch around it, exercised inside a live KSP
+# process - NOT ProductionAnchorWorldFrameResolver's frame resolution, which the stub
+# bypasses. Still worth a boot (none of this runs unattended today), but do not read
+# a green H11 as cover for the resolver.
+description = "Run the in-game Pipeline-Anchor category unattended: anchor epsilon within tolerance of the recorded geometric offset across live separation, Relative boundary, orbital checkpoint, SOI, loop, dock, and suppressed-subtree cases."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "anchor", "reference-frames", "H11"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host. No injected recordings: every test builds its own
+# origin + sibling recordings around KSC inline.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Pipeline-Anchor" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST, and DELIBERATELY NARROWER than the first cut. The obvious claim here would
+# be D3 relative-anchored-nonloop / relative-loop / orbital-checkpoint, because three
+# cells carry those names. That claim is WITHDRAWN: those three cells run with
+# AnchorPropagator.ResolverOverrideForTesting installed (a constant-returning stub),
+# so a regression inside the component that actually resolves those three reference
+# frames is invisible to them. Claiming the tokens would record coverage that does
+# not exist and would let a later audit skip writing the test that WOULD catch it -
+# the worse of the two errors. Only the environment axes are claimed.
+# NOT claimed and why: D3 (stubbed resolver, see above); parent-anchored-debris (no
+# debris recording is built); any D5 topology token (the dock and suppressed-subtree
+# cells assert anchor GEOMETRY through a PutAnchorForTesting seam, not tree structure).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H11-pipeline-anchor.json: PASS on attempt 1,
+# 55 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+#  - total=7 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 7
+#    [InGameTest(Category = "Pipeline-Anchor")] methods.
+#  - skipped=0 is DERIVED: all 7 carry Scene = GameScenes.FLIGHT and the batch runs
+#    at FLIGHT; none sets AllowBatchExecution = false; none of the 7 bodies, nor any
+#    helper they call, contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=7 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
+#    LOAD-BEARING: at any other scene all 7 scene-skip.
+# These seven are IEnumerator coroutines that yield across frames, so this batch
+# takes real wall time where H7 / H10 do not. The 540 s RunTests budget is the
+# deferred cap and leaves ample headroom; if a future cell adds a long wait,
+# re-check the budget rather than raising it past the cap.
+required  = ["BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=Pipeline-Anchor scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1601,10 +1601,30 @@ def _pin_literal_int(tok: Optional[str]) -> Optional[int]:
 
 
 def _pin_literal_word(tok: Optional[str]) -> Optional[str]:
+    """A pinned ``category=`` / ``scene=`` token, when it is a plain literal.
+
+    The class admits ``-`` because C# category names really do carry one: the tree
+    has seven hyphenated categories (Pipeline-Anchor, Pipeline-Smoothing,
+    Pipeline-Frame, Pipeline-Outlier, Pipeline-Terrain, Pipeline-AnchorPropagate,
+    Pipeline-Anchor-BubbleEntry). Without it every one of them was structurally
+    UNPINNABLE: `resolve_batch_tally_pin` read category=None, `statically_checkable`
+    went False, and `CommittedBatchTallySourceSyncTests` rejected the spec with
+    "pins a BATCH_COMPLETE line with no literal category=/scene=" - a message that
+    blames the spec author for a limitation of this character class. The runtime
+    side never had the gap: _BATCH_RE reads `category=(?P<category>\\S+)`, so a real
+    hyphenated BATCH_COMPLETE line has always parsed correctly, and this only ever
+    disagreed with it on the static-pin path.
+
+    Widening is safe against mistaking a REGEX for a literal: `-` is a metacharacter
+    only inside a character class, and `[` / `]` are still excluded, so `[A-Z]-x`
+    stays non-literal and is reported as unpinned rather than silently read as the
+    seven-character category "[A-Z]-x". The hyphen is written last so it is a literal
+    member of the class rather than a range.
+    """
     if tok is None:
         return None
     t = _PIN_TOKEN_TAIL_RE.sub("", tok)
-    return t if re.fullmatch(r"[A-Za-z0-9_:]+", t) else None
+    return t if re.fullmatch(r"[A-Za-z0-9_:-]+", t) else None
 
 
 def resolve_batch_tally_pin(
@@ -2334,6 +2354,55 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             "expectations.logContracts.%s declared on a spec with no batch owner: "
             "inert (there is no batch whose tally could be vacuous)"
             % (BATCH_VACUITY_OPT_OUT_KEY,))
+
+    # PATTERN COMPILABILITY (2026-07-27, autotest-roadmap R1). Every logContracts
+    # pattern is a REGEX applied with re.search (see evaluate_expectations), not a
+    # literal. A KSP.log token containing regex metacharacters therefore has to be
+    # escaped, and the natural way to write one is the broken way: the R1 debris
+    # token `Child recording created (debris, TTL=` raises
+    # `re.error: missing ), unterminated subpattern` verbatim.
+    #
+    # evaluate_expectations already CATCHES re.error and turns it into a mismatch,
+    # so nothing crashes - but that check runs on the collected log, i.e. AFTER the
+    # flight. A malformed pattern on B13 costs its measured 2,825 s p50 before it
+    # reds, and the red says "invalid regex" rather than naming a Parsek defect.
+    # Rejecting at validation time makes it a `--dry-run` error instead: free, and
+    # before the run lock is even taken.
+    #
+    # Deliberately NOT paired with a "did you mean to escape this?" heuristic. A
+    # pattern that compiles is the author's business - `terminalOrbitBody=\(null\)`
+    # and `(Approach|ExoBallistic)` are both committed, load-bearing and correct -
+    # so the only thing checkable without guessing intent is compilability.
+    for facet in ("required", "forbidden"):
+        patterns = log_contracts.get(facet)
+        if patterns is None:
+            continue
+        if not isinstance(patterns, list):
+            # Reachable for `forbidden` only: a non-list `required` is already
+            # iterated at the BATCH_COMPLETE check above and raises there first.
+            # Pre-existing, and out of this change's blast radius - noted so a
+            # reader does not assume this line covers both facets.
+            errors.append("expectations.logContracts.%s: %r must be a list of regex "
+                          "patterns" % (facet, patterns))
+            continue
+        for pat in patterns:
+            if not isinstance(pat, str):
+                errors.append("expectations.logContracts.%s: %r must be a string"
+                              % (facet, pat))
+                continue
+            try:
+                re.compile(pat)
+            except re.error as exc:
+                errors.append(
+                    "expectations.logContracts.%s: %r is not a valid regex (%s). "
+                    "These patterns are applied with re.search, so a KSP.log token "
+                    "carrying regex metacharacters must escape them. In a TOML "
+                    "basic (double-quoted) string write %s to match a literal '(' "
+                    "- the backslash is DOUBLED because TOML consumes one before "
+                    "the regex engine ever sees it. Caught here rather than after "
+                    "the flight, where evaluate_expectations would red the run on "
+                    "a collected log."
+                    % (facet, pat, exc, '"\\\\("'))
 
     # Exactly one QUIT owner: a FlushAndQuit step XOR autorun.exit = true (N3).
     has_flush = any((s or {}).get("cmd") == "FlushAndQuit" for s in steps)
