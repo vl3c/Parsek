@@ -2691,6 +2691,28 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 
     if args.dry_run:
         print_dry_run_plan(selected, instance_root_fn, logger)
+        # VALIDATE ON --dry-run TOO (2026-07-27). This used to `return 0` straight
+        # after printing the plan, so --dry-run rendered a clean plan for a spec
+        # validate_spec would REJECT - and the natural read of a green dry-run is
+        # "this spec is fine to schedule". A reviewer proved the gap by breaking a
+        # logContracts pattern: clean plan, exit 0, and the error surfaced only
+        # after the flight. The real run path already validates (below); this makes
+        # the FREE check agree with it. Deliberately AFTER the plan print, so the
+        # author still gets the plan they asked for, and non-zero so a script can
+        # gate on it.
+        dry_errors = 0
+        for spec in selected:
+            schemas, schema_errors = resolve_mission_schemas(spec, logger)
+            problems = list(hlib.validate_spec(
+                spec, registry, _load_bug_ids(), schemas).errors) + schema_errors
+            for problem in problems:
+                logger.error("Select", "spec invalid id=%s: %s"
+                             % (spec.get("id"), problem))
+            dry_errors += len(problems)
+        if dry_errors:
+            logger.error("Select",
+                         "dry-run found %d spec validation error(s)" % dry_errors)
+            return 1
         return 0
 
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC

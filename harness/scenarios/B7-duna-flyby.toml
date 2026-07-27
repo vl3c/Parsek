@@ -186,10 +186,15 @@ targetPeriapsisFloorMeters = 15000
 # same PR if a value is added.
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
-# D3 parent-anchored-debris: gated by the `Child recording created \(debris, TTL=`
-# token below, the SOLE log site that creates a parent-anchored debris child
-# (BackgroundRecorder.cs:1177; its only sibling at :1185 is the CONTROLLED child
-# line). See B2-lko-ascent.toml for the full derivation.
+# D3 parent-anchored-debris: gated by the debris-child-creation token below.
+# The claim is sound because BOTH creation sites stamp the anchor contract
+# UNCONDITIONALLY - ParsekFlight.CreateBreakupChildRecording calls
+# Recording.ApplyParentAnchorContract for debris and controlled children alike
+# (ParsekFlight.cs:7166) - so "a debris child recording was created" implies
+# "parent-anchored". Claimed here and not before because presence had no gate at
+# all: the count window's old min of 1 admitted the total loss of the population.
+# NOTE the token gates CREATION, not the anchor RESOLVING correctly at playback;
+# the analyzer's INV rules own malformation, this owns absence.
 D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
 D14 = ["kerbin", "duna", "soi-count", "warp-rails", "warp-high"]
@@ -207,30 +212,50 @@ allowedAnomalies = []
 # parent-anchored debris children + 1 LES-tower margin (same WATCH-4 rationale as
 # B2/B4/B5/B6's max 8). B7 stages nothing after the ascent (the orbiter stage flies
 # the raise-to-700 km + ejection + correction burns), so no extra deorbited-stage
-# sidecar.#
-# MIN TIGHTENED 1 -> 7 (autotest-roadmap R1, 2026-07-27). The old min of 1 was set
-# when one flight had been measured and hedged "even if debris admission varies".
-# FIVE flights on this exact fixture have now measured the population and it has
-# never varied: B2 2026-07-20 = 7 (1 root + 6 boosters); B11 flight 4, B12 flight 5,
-# B13 flight 1 and B14 flight 1 = 8 each (1 root + 6 boosters + 1 flameout-staged
-# ascent core). 6 boosters is the deterministic part of every one of them, so
-# 1 + 6 = 7 is the floor this flight actually supports. At min 1 the window read
-# PASS with the ENTIRE debris population missing - the regression class it exists
-# to catch. RE-PIN CONTRACT (EVA-4's precedent): if a later run legitimately
-# differs, RE-PIN to the newly measured value and record which recordings it
-# produced; do NOT widen back toward 1.
-count = { min = 7, max = 8 }
+# sidecar.
+#
+# PINNED at {8, 8}, MEASURED (autotest-roadmap R1). B7 drives `mlib.b5_decide`,
+# which reaches `_b5_flameout_stage`: 1 root + 6 boosters + 1 flameout-staged
+# dry core = 8. Two independent archived corroborations at HEAD:
+# B11-mun-orbit.toml:387 counts FOUR B7 runs at 8 (every run at or after commit
+# 82398e157), and B15-eve-flyby.toml:681 records "all three green B7 Duna runs
+# (logs/2026-07-25_{0753,0806,1216}) produced exactly 8 .prec sidecars".
+# B15 pins {8, 8} for a profile it describes as the same fixture, same craft and
+# same ascent, so this spec now agrees with its sibling instead of contradicting
+# it. The LES-tower slot the old max allowed was never observed and is dropped;
+# if an LES jettison ever does record, this reds and is RE-PINNED to the
+# measured value. Never widen back toward 1.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
-# `Child recording created \(debris, TTL=` is the POPULATION gate the count window
-# cannot be. Sourced from the emitting call BackgroundRecorder.cs:1177, and it is
-# ParsekLog.INFO - NOT Verbose - so it needs no verboseLogging pin and this spec
-# deliberately adds no SetSetting step for it. The literal line is
-# `Child recording created (debris, TTL=60s): recId=... vesselPid=...`; the
-# parenthesis is ESCAPED because hlib.evaluate_expectations applies each required
-# pattern with re.search, so a bare `(` is a regex group, not text.
+# POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
+# window wide enough to absorb staging variance is also wide enough to absorb a
+# missing population).
+#
+# THE ALTERNATION IS DELIBERATE, and the first draft of this gate got it wrong.
+# Parsek creates a debris child recording at exactly TWO sites, and which one
+# fires depends on whether the parent was FOREGROUND or BACKGROUND at the split:
+#   - foreground (this profile): ParsekFlight.ProcessBreakupEvent ->
+#     CreateBreakupChildRecording, logging `ProcessBreakupEvent: debris child
+#     created: pid=` (Info, tag Coalescer, ParsekFlight.cs:7668).
+#   - background: BackgroundRecorder.RegisterChildRecordingsFromSplit, logging
+#     `Child recording created (debris, TTL=60s):` (Info, BackgroundRecorder.cs:1177).
+# The Kerbal X sheds its boosters while it is the ACTIVE focused vessel, and
+# RecordingTree.IsBackgroundMapEligible excludes `rec.RecordingId ==
+# ActiveRecordingId`, so OnBackgroundPartJointBreak early-returns and the
+# BACKGROUND line is never reached on this profile. Pinning it alone (as the
+# first draft did) would have red every one of these flights on a token that
+# cannot fire. Accepting EITHER proves the claim actually being made - "a debris
+# child recording was created" - without betting on the path.
+# Both are ParsekLog.Info, so no verboseLogging pin is needed and this spec
+# deliberately adds no SetSetting step for one.
+# The `(` in the background form is ESCAPED because hlib.evaluate_expectations
+# applies each required pattern with re.search: a bare `(` is a group, not text.
+# The outer parentheses are an intentional alternation group.
+# TIGHTEN-ON-EVIDENCE: once an archived B-lane KSP.log is grepped, replace this
+# alternation with whichever single token that log actually contains.
 required  = ["Recording started",
-             "Child recording created \\(debris, TTL=",
+             "(ProcessBreakupEvent: debris child created|Child recording created \\(debris, TTL=)",
              "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

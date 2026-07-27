@@ -404,11 +404,11 @@ admits the main recording alone:
 | Scenario | window | span | status |
 |---|---|---|---|
 | B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
-| B2-lko-ascent | {1, 8} | 7 | CLOSED 2026-07-27 -> `{7, 8}` + debris token |
-| B4-reentry-splashdown | {1, 9} | 8 | CLOSED 2026-07-27 -> `{7, 9}` + debris token |
-| B5-mun-flyby | {1, 9} | 8 | CLOSED 2026-07-27 -> `{7, 9}` + debris token |
-| B6-minmus-flyby | {1, 9} | 8 | CLOSED 2026-07-27 -> `{7, 9}` + debris token |
-| B7-duna-flyby | {1, 8} | 7 | CLOSED 2026-07-27 -> `{7, 8}` + debris token |
+| B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; measured 2026-07-20) |
+| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{7, 9}` + debris token (b4_decide: no flameout stage; floor structural, never measured - re-pin from a log-collecting run) |
+| B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; 4 archived runs at 8) |
+| B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; INFERRED from the shared machine, not measured on B6) |
+| B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (4 archived runs at 8, corroborated by B15; now agrees with B15's pin) |
 | BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
 
 Every one of them would still read PASS if Parsek stopped writing child /
@@ -438,7 +438,10 @@ Tokens verified present in source:
 | `Part event: <Type> '<part>` | `FlightRecorder.cs:1507`, `BackgroundRecorder.PartEventPolling.cs` | D7 `decouple-stage-destroy`, `chute-cut`, `gear` |
 
 CORRECTED 2026-07-27 while building this: **the four `BackgroundRecorder` tokens are
-`ParsekLog.Info`, not Verbose.** Only the `Part event:` family is Verbose. That matters
+`ParsekLog.Info`, not Verbose.** The rest of the table is mixed - `starting hysteresis
+timer` is Verbose at BOTH sites (`FlightRecorder.cs:4831`, `:4911`), and the
+`Part event:` family is 20 Verbose sites plus one Info at `FlightRecorder.cs:3862`,
+so check the level per token rather than per family. That matters
 because it decides whether a spec needs a `SetSetting verboseLogging true` step to
 depend on a token: the debris / TTL / sample-rate claims do NOT, and the five specs
 gated below deliberately declare none. Part events log as
@@ -452,16 +455,42 @@ defaults `true` (`ParsekSettings.cs:50`), and `B1-pad-hop` pins two of them
 `evaluate_expectations`. `Child recording created (debris, TTL=` pasted verbatim from
 the source raises `re.error: missing ), unterminated subpattern`; write
 `Child recording created \(debris, TTL=`. `hlib.validate_spec` rejects an
-uncompilable pattern since 2026-07-27, so this now costs a `--dry-run` rather than a
+uncompilable pattern since 2026-07-27, and `run.py --dry-run` now runs that
+validation (it previously returned 0 before reaching it), so this costs a dry-run
+rather than a
 flight.
 
 SHIPPED 2026-07-27 (debris population): `B2-lko-ascent`, `B4-reentry-splashdown`,
-`B5-mun-flyby`, `B6-minmus-flyby`, `B7-duna-flyby` - each requires the debris-creation
-token, pins `count.min = 7`, and claims D3 `parent-anchored-debris`. Coverage 83 -> 84.
+`B5-mun-flyby`, `B6-minmus-flyby`, `B7-duna-flyby` - each requires a debris-creation
+token, pins a `count.min` derived per mission (see the table), and claims D3
+`parent-anchored-debris`. Coverage 83 -> 84.
+
+**READ THIS BEFORE PINNING ANY TOKEN FROM THIS TABLE.** The first cut of that gate
+pinned `Child recording created \(debris, TTL=` alone and would have RED all five
+flights. That token is the BACKGROUND-split site
+(`BackgroundRecorder.RegisterChildRecordingsFromSplit`), reachable only through
+`OnBackgroundPartJointBreak`, which early-returns unless the vessel is in
+`tree.BackgroundMap` - and `RecordingTree.IsBackgroundMapEligible` excludes
+`rec.RecordingId == ActiveRecordingId`. A Kerbal X sheds its boosters while it IS the
+active vessel, so the line cannot fire on these profiles. Staging goes through
+`ParsekFlight.ProcessBreakupEvent` -> `CreateBreakupChildRecording`, logging
+`ProcessBreakupEvent: debris child created: pid=` (Info, tag `Coalescer`). The shipped
+gate accepts EITHER. The lesson is general and cost two independent reviews to catch:
+**a token's presence in source is not its reachability on a profile.** Trace the call
+chain, or grep an archived KSP.log, before pinning - the discipline this section
+already prescribed for the tokens it declined to claim, and did not apply to the one
+it claimed.
+
+Also corrected while shipping: `min` is NOT one number across the five. `B5`/`B6`/`B7`
+drive `mlib.b5_decide`, which reaches `_b5_flameout_stage` and produces an 8th
+recording, so they floor at 8; `B2`/`B4` drive `b2_decide` / `b4_decide`, which do not,
+so they floor at 7. The first cut used 7 everywhere, which for the b5_decide specs is
+precisely the value `B11`/`B12` record as **considered and rejected** ("7 is the exact
+count a single dropped recording would produce").
 
 The Targets line this section originally carried was wrong and is replaced by the
 status column in the table above: it named `B11`/`B12`/`B13`/`B14`, which already had
-`{8,8}` pins and six-token contracts (B11 even requires `terminalState=Destroyed`,
+`{8,8}` pins and eight-token contracts (B11 even requires `terminalState=Destroyed`,
 which gates debris terminals), and omitted `B5`/`B6`/`B7`, which were vacuous.
 
 STILL OPEN: D5 `staging-debris-ttl` and D2 `proximity-cadence-bg`. Their tokens exist

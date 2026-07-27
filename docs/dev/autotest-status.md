@@ -290,7 +290,8 @@ is committed but not yet flown. PLAYBACK is no longer a blind spot either:
 S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 84 of
 241 registry cells claimed by at least one scenario (83 at the 2026-07-26
 recompute; +1 for D3 `parent-anchored-debris`, claimed 2026-07-27 when the five
-Kerbal X flights gained the debris-population token and a `count.min` of 7). The 83 is RECOMPUTED from
+Kerbal X flights gained the debris-population token and a measured `count.min`).
+That 84 is RECOMPUTED from
 `hlib.compute_coverage` over the 38 committed specs + the registry at this
 merge, not carried forward from either side: the "52" this sentence used to
 print had drifted across many spec additions (it predates the EVA, B-DOCK,

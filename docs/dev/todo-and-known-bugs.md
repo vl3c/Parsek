@@ -32,24 +32,47 @@ Re-measure rather than trusting this line; it is a snapshot, not a maintained to
 `B6-minmus-flyby` and `B7-duna-flyby` all fly `fixtures/saves/b2-lko-craft` (the
 stock Kerbal X), shed six radial boosters, and record each as a parent-anchored
 debris child - while their windows read `count = { min = 1, max = 8|9 }`, so the
-total loss of that population read PASS. Each now requires
-`Child recording created \(debris, TTL=` (the SOLE creation site,
-`BackgroundRecorder.cs:1177`) and carries `count.min = 7`, the 1 root + 6 boosters
-floor that five measured flights agree on (B2 2026-07-20 = 7; B11 f4 / B12 f5 /
-B13 f1 / B14 f1 = 8 each). D3 `parent-anchored-debris` claimed on all five;
+total loss of that population read PASS. Each now requires a debris-creation token
+and a per-mission `count.min`. D3 `parent-anchored-debris` claimed on all five;
 coverage 83 -> 84 of 241, D3 6 -> 5 uncovered. Proof: the next nightly, no new
 flight. A red is a real finding - re-pin `count` to the newly measured value and
 record which recordings the run produced; do NOT widen back toward 1.
 
-**Two corrections to the roadmap's R1 section, found by building it:**
+**THE FIRST CUT SHIPPED THE WRONG TOKEN AND WOULD HAVE RED ALL FIVE.** Caught by
+independent review before merge; recorded because the mistake is repeatable.
+`Child recording created \(debris, TTL=` (`BackgroundRecorder.cs:1177`) was pinned
+as "the SOLE creation site". It is one of TWO, and it is the BACKGROUND-split one:
+reachable only via `OnBackgroundPartJointBreak`, which early-returns unless the
+vessel is in `tree.BackgroundMap`, and `RecordingTree.IsBackgroundMapEligible`
+excludes `rec.RecordingId == ActiveRecordingId`. These craft shed boosters while
+ACTIVE, so it cannot fire; staging goes through `ParsekFlight.ProcessBreakupEvent`
+-> `CreateBreakupChildRecording` -> `ProcessBreakupEvent: debris child created:
+pid=` (Info, tag `Coalescer`, `ParsekFlight.cs:7668`). The shipped gate accepts
+EITHER. Cost had it merged: ~3.8 h of flying and five reds that read as a Parsek
+recording regression. **Rule: presence in source is not reachability on a profile.
+Trace the call chain or grep an archived KSP.log before pinning** - the discipline
+this entry already prescribed for the tokens it declined to claim.
+
+**`min` is per-mission, not one number.** `B5`/`B6`/`B7` drive `mlib.b5_decide`,
+which reaches `_b5_flameout_stage` and produces an 8th recording -> floor 8 (B5 and
+B7 each have four archived runs at 8; B6 is inferred from the shared decide
+function). `B2`/`B4` drive `b2_decide` / `b4_decide`, which do not -> floor 7. The
+first cut used 7 everywhere, which on an 8-population spec is exactly the value
+`B11`/`B12` record as **considered and rejected**: "7 is the exact count a single
+dropped recording would produce, so a floor of 7 would blind the only numeric guard
+on this run to the regression class it exists to catch."
+
+**Corrections to the roadmap's R1 section, found by building it:**
 - **The tokens are NOT all `ParsekLog.Verbose`.** All four `BackgroundRecorder`
   population tokens (`Child recording created (debris, TTL=` :1177,
   `(controlled, no TTL):` :1185, `Debris TTL expired, ending recording:` :1307,
-  `Sample rate changed: pid=` :1966) are `ParsekLog.Info`. Only the `Part event:`
-  family is Verbose. So the debris claims need no `verboseLogging` pin and the
-  five specs deliberately declare no `SetSetting` step for one.
+  `Sample rate changed: pid=` :1966) are `ParsekLog.Info`, as is the foreground
+  `ProcessBreakupEvent: debris child created:`. The rest of that table is MIXED,
+  not uniformly Verbose: `starting hysteresis timer` is Verbose at both sites, and
+  the `Part event:` family is 20 Verbose sites plus one Info
+  (`FlightRecorder.cs:3862`). Check the level per token, never per family.
 - **The target list named the wrong specs.** It listed B11/B12/B13/B14, which
-  already carry `{8,8}` pins AND six-token contracts (B11 even requires
+  already carry `{8,8}` pins AND eight-token contracts (B11 even requires
   `terminalState=Destroyed`, gating debris terminals), and omitted B5/B6/B7,
   which were vacuous. The systemic-vacuity table added in the same PR is the
   correct list; the Targets line predates it.
