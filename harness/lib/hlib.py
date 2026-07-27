@@ -694,6 +694,62 @@ SINGLE_BATCH_SELECTOR_RULE = (
     "second batch nor a multi-category aggregate can be pinned non-vacuously on the "
     "current contract surface")
 
+# ---------------------------------------------------------------------------
+# R5: the ISOLATED batch argument.
+#
+# `RunTests` gained an optional `isolated` arg (and `[driver.autorun]` an optional
+# `isolated` bool) selecting InGameTestRunner's OTHER batch entry point. See
+# derive_batch_tally for what changes inside the runner. What matters HERE is that
+# the flag silently changes which tests execute, so every way of getting it wrong
+# must be an ERROR at spec-validation time, before KSP is launched:
+#
+#   - a value that is not the string "true"/"false". The wire encoding is
+#     run.py::encode_value == str(value), so the TOML bool `isolated = true`
+#     travels as the token `isolated=True`, which the C# parse REJECTS
+#     (TestCommandRunTests.TryParseIsolatedArg is case-sensitive by design). Left
+#     unchecked the author would burn a full KSP boot to learn about a capital T.
+#   - the arg on a step that is not RunTests. No other verb reads it, so it would
+#     be silently inert -- and inert in the direction of "the author thinks the
+#     batch is isolated and it is not", which produces an all-skipped tally that
+#     reads as a Parsek regression.
+#   - the key one TOML table too high (`driver.steps[i].isolated` instead of
+#     `...args.isolated`, or `[driver]`/spec-root instead of `[driver.autorun]`).
+#     Same silent-inert failure, same wrong direction. This mirrors the
+#     misplaced-key guards already written for skipTailOnUnmetMission and
+#     batchVacuityOptOut, both added after the same class of silent drop.
+#   - `[driver.autorun] isolated` with no `tests`: nothing auto-runs, so the arm
+#     is inert. The C# side WARNs on this at startup; a spec can be checked
+#     statically, so here it is an error.
+#
+# The flag is deliberately NOT part of the selector string. See
+# TestRunnerShortcut.EnvIsolatedVar for why a prefix would break the anti-vacuity
+# probe family.
+# ---------------------------------------------------------------------------
+
+BATCH_ISOLATED_KEY = "isolated"
+
+# The only two tokens the seam's TryParseIsolatedArg accepts, as TOML strings.
+BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
+
+
+def spec_batch_isolated(spec: Dict) -> bool:
+    """True when ``spec``'s batch runs on the ISOLATED entry point (R5).
+
+    Resolution mirrors the batch-owner rule exactly: the FIRST RunTests step's
+    ``args.isolated``, else ``[driver.autorun] isolated``. Reads only well-formed
+    values -- a malformed one is rejected by ``validate_spec``, so a caller that
+    reaches here has already passed validation, and anything unrecognised resolves
+    FALSE (the ordinary path) rather than guessing.
+    """
+    driver = (spec.get("driver", {}) or {})
+    for step in (driver.get("steps", []) or []):
+        if (step or {}).get("cmd") != "RunTests":
+            continue
+        raw = ((step or {}).get("args", {}) or {}).get(BATCH_ISOLATED_KEY)
+        return raw == "true"
+    autorun = driver.get("autorun") or {}
+    return autorun.get(BATCH_ISOLATED_KEY) is True
+
 # Every scene token InGameTestRunner can print (HighLogic.LoadedScene.ToString()).
 # The B10 defect WAS a scene surprise (the spec assumed FLIGHT, the fixture routed to
 # SPACECENTER / earlier MAINMENU), so the probe sweeps them all: a contract that pins
@@ -925,12 +981,21 @@ class InGameTestDecl:
     (None) for a declaration with no ``Scene =`` argument, mirroring the
     attribute's own default. ``origin`` is "<file>:<line> <Member>" and exists
     only so a mismatch message can name the declarations it counted.
+
+    ``restore_baseline`` is ``RestoreBatchFlightBaselineAfterExecution``, which
+    defaults FALSE (the C# property has no initializer, unlike
+    ``AllowBatchExecution``). It is the second admission input, and it matters only
+    on the ISOLATED batch path: ``PrepareBatchExecutionIncludingFlightRestore``
+    admits ``allow_batch OR restore_baseline`` where the ordinary
+    ``PrepareBatchExecution`` admits ``allow_batch`` alone. Declared LAST so the
+    positional constructor stays source-compatible.
     """
 
     category: str
     scene: Optional[str]
     allow_batch: bool
     origin: str = ""
+    restore_baseline: bool = False
 
 
 # The selector token InGameTestRunner.RunAll stamps as currentBatchSelector, and
@@ -1218,7 +1283,9 @@ def parse_ingame_test_declarations(
             category=_resolve_category(named.get("Category"), consts),
             scene=_resolve_scene(named.get("Scene")),
             allow_batch=_resolve_bool_default_true(named.get("AllowBatchExecution")),
-            origin=origin))
+            origin=origin,
+            restore_baseline=_resolve_bool_default_false(
+                named.get("RestoreBatchFlightBaselineAfterExecution"))))
     return out
 
 
@@ -1256,6 +1323,22 @@ def _resolve_bool_default_true(expr: Optional[str]) -> bool:
     that is not literally ``false`` is treated as true, matching the runner's
     ``if (test.AllowBatchExecution)`` branch on the default."""
     return (expr or "true").strip() != "false"
+
+
+def _resolve_bool_default_false(expr: Optional[str]) -> bool:
+    """RestoreBatchFlightBaselineAfterExecution: absent -> FALSE.
+
+    The mirror image of ``_resolve_bool_default_true`` and deliberately not the
+    same helper: the C# property carries NO initializer
+    (``public bool RestoreBatchFlightBaselineAfterExecution { get; set; }``,
+    InGameTestAttribute.cs), so its default is `default(bool)` == false, whereas
+    ``AllowBatchExecution`` is initialized to true. Only a literal ``true``
+    admits, which fails CLOSED: an expression this parse cannot read (a const
+    indirection, say) reads as NOT restore-backed, so an isolated derivation
+    UNDER-counts admissions and a spec pinning the higher number reds. The
+    opposite default would silently inflate an isolated `passed=` pin.
+    """
+    return (expr or "false").strip() == "true"
 
 
 def unresolved_ingame_declarations(
@@ -1383,7 +1466,8 @@ class BatchTallyDerivation:
 
 
 def derive_batch_tally(
-    decls: Sequence[InGameTestDecl], category: str, scene: str
+    decls: Sequence[InGameTestDecl], category: str, scene: str,
+    isolated: bool = False,
 ) -> BatchTallyDerivation:
     """Model InGameTestRunner.RunCategory's two filters over ``decls``.
 
@@ -1398,6 +1482,33 @@ def derive_batch_tally(
     the derivation is the same two filters over every declaration -- not a lookup
     for a C# category named "all", which would derive total=0 and report the
     category as missing.
+
+    ``isolated`` (R5) models the OTHER batch entry point. A spec whose RunTests
+    step carries ``isolated = "true"`` (or whose ``[driver.autorun]`` sets
+    ``isolated = true``) routes to ``RunCategoryIncludingFlightRestore``, whose
+    admission filter is ``PrepareBatchExecutionIncludingFlightRestore``:
+
+        if (test.AllowBatchExecution || test.RestoreBatchFlightBaselineAfterExecution)
+
+    a strict SUPERSET of the ordinary filter's ``if (test.AllowBatchExecution)``.
+    So the second stage drops only declarations that are neither batch-allowed nor
+    restore-backed -- the genuinely manual-only ones. ``total`` is unaffected in
+    both modes (BATCH_COMPLETE counts filtered tests too); what moves is the
+    batch_skipped/executable split, which is exactly what an isolated spec's
+    ``passed=`` / ``skipped=`` pin rests on.
+
+    The scene stage is IDENTICAL in both modes: ``FilterSceneEligibleBatchCandidates``
+    runs BEFORE either admission filter on all four entry points and knows nothing
+    about the restore flag.
+
+    NOT modelled, deliberately: ``PrepareBatchFlightRestoreExecution``, which the
+    isolated path runs afterwards and which skips the restore-backed tests when no
+    flight baseline is available. That outcome depends on live scene state
+    (``FlightGlobals.ActiveVessel``, ``HighLogic.SaveFolder``), not on the
+    attributes, so it belongs with the run-time ``InGameAssert.Skip`` guards this
+    derivation already declines to predict. It can only push ``skipped`` HIGHER,
+    which is the direction ``batch_tally_pin_mismatches`` already treats as
+    un-derivable.
     """
     in_category = (list(decls) if category == INGAME_RUNALL_CATEGORY
                    else [d for d in decls if d.category == category])
@@ -1408,7 +1519,8 @@ def derive_batch_tally(
                      if d.scene is not INGAME_ANY_SCENE and d.scene != scene]
     eligible = [d for d in in_category
                 if d.scene is INGAME_ANY_SCENE or d.scene == scene]
-    batch_skipped = [d for d in eligible if not d.allow_batch]
+    batch_skipped = [d for d in eligible
+                     if not (d.allow_batch or (isolated and d.restore_baseline))]
     return BatchTallyDerivation(
         category=category,
         scene=scene,
@@ -1529,13 +1641,20 @@ def resolve_batch_tally_pin(
 
 
 def batch_tally_pin_mismatches(
-    pin: BatchTallyPin, decls: Sequence[InGameTestDecl]
+    pin: BatchTallyPin, decls: Sequence[InGameTestDecl], isolated: bool = False,
 ) -> List[str]:
     """Every way ``pin`` contradicts the `[InGameTest]` attributes in ``decls``.
 
     Empty list = the pin still agrees with the source. Each message is written to
     be actionable on its own, because the developer who reads it is the one who
     just added a test to a category they may never have heard of.
+
+    ``isolated`` must be the spec's OWN batch mode (``spec_batch_isolated``). It
+    is not a cosmetic pass-through: an isolated spec over an all-batch-disabled
+    category derives ``executable = 0`` under the ordinary model, so its perfectly
+    correct ``passed=N`` pin would be rejected, and -- worse in the other
+    direction -- a spec that DROPPED its isolated arg would keep validating
+    against the isolated derivation and read as green while running nothing.
     """
     problems: List[str] = []
     if pin.is_aggregate:
@@ -1549,7 +1668,7 @@ def batch_tally_pin_mismatches(
                 "cannot be cross-checked against the source: %s"
                 % " | ".join(pin.patterns)]
 
-    d = derive_batch_tally(decls, pin.category, pin.scene)
+    d = derive_batch_tally(decls, pin.category, pin.scene, isolated=isolated)
     if d.total == 0:
         problems.append(
             "no [InGameTest(Category = \"%s\")] method exists in the source: the "
@@ -1573,11 +1692,13 @@ def batch_tally_pin_mismatches(
     if pin.skipped is not None and pin.skipped < d.attribute_skipped:
         problems.append(
             "pins skipped=%d but the attributes already force %d skip(s) at "
-            "scene=%s: %d scene-ineligible (%s) + %d AllowBatchExecution=false "
-            "(%s). Run-time InGameAssert.Skip guards can only push skipped "
-            "HIGHER, never lower."
+            "scene=%s: %d scene-ineligible (%s) + %d %s (%s). Run-time "
+            "InGameAssert.Skip guards can only push skipped HIGHER, never lower."
             % (pin.skipped, d.attribute_skipped, pin.scene, d.scene_skipped,
                ", ".join(d.scene_skipped_members) or "-", d.batch_skipped,
+               "neither AllowBatchExecution nor "
+               "RestoreBatchFlightBaselineAfterExecution (isolated batch)"
+               if isolated else "AllowBatchExecution=false",
                ", ".join(d.batch_skipped_members) or "-"))
 
     if pin.passed is not None and pin.failed is not None:
@@ -1585,9 +1706,14 @@ def batch_tally_pin_mismatches(
         if executed > d.executable:
             problems.append(
                 "pins passed=%d failed=%d (%d executed) but only %d test(s) in "
-                "%s are batch-eligible at scene=%s, so that many can never run."
+                "%s are batch-eligible at scene=%s on the %s batch path, so that "
+                "many can never run.%s"
                 % (pin.passed, pin.failed, executed, d.executable, pin.category,
-                   pin.scene))
+                   pin.scene, "ISOLATED" if isolated else "ordinary",
+                   "" if isolated else
+                   " If this category's tests are AllowBatchExecution=false but "
+                   "RestoreBatchFlightBaselineAfterExecution=true, the spec needs "
+                   "isolated = \"true\" on its RunTests step (R5)."))
 
     if None not in (pin.total, pin.passed, pin.failed, pin.skipped):
         summed = pin.passed + pin.failed + pin.skipped
@@ -2112,6 +2238,32 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         cmd = step.get("cmd")
         if cmd == "LoadGame" and first_loadgame_index is None:
             first_loadgame_index = i
+
+        # R5 `isolated`: see the BATCH_ISOLATED_KEY note above for why each of
+        # these is an ERROR rather than a coerced value or a warning.
+        step_args = step.get("args", {}) or {}
+        if BATCH_ISOLATED_KEY in step:
+            errors.append(
+                "driver.steps[%d]: %s belongs in this step's args table, not "
+                "beside cmd/expect (a key outside args is never written to the "
+                "channel, so the batch would silently run NON-isolated)"
+                % (i, BATCH_ISOLATED_KEY))
+        if BATCH_ISOLATED_KEY in step_args:
+            if cmd != "RunTests":
+                errors.append(
+                    "driver.steps[%d].args.%s: only the RunTests verb reads it, "
+                    "but this step is %r -- the arg would be silently ignored"
+                    % (i, BATCH_ISOLATED_KEY, cmd))
+            raw = step_args.get(BATCH_ISOLATED_KEY)
+            if raw not in BATCH_ISOLATED_VALUES:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be the STRING %s. Step args "
+                    "are wire-encoded with str(value), so the TOML bool `true` "
+                    "would be sent as the token `isolated=True` and the seam's "
+                    "case-sensitive parse REJECTS it. Write %s = \"true\"."
+                    % (i, BATCH_ISOLATED_KEY, raw,
+                       " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
+                       BATCH_ISOLATED_KEY))
         if cmd in RESERVED_SEAM_VERBS:
             errors.append("driver.steps[%d].cmd: %r is RESERVED, not v1-drivable" % (i, cmd))
         elif cmd not in IMPLEMENTED_SEAM_VERBS:
@@ -2146,6 +2298,38 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.append("BATCH owner: both a RunTests step and [driver.autorun] declared (exactly one allowed)")
     if batch_owners == 0 and requires_batch:
         errors.append("BATCH owner: none declared but logContracts.required names BATCH_COMPLETE")
+
+    # R5 `isolated` on the AUTORUN half. Unlike a step arg (a wire token, so a
+    # string) this is a native TOML bool, because it becomes an env var the harness
+    # sets from a truth test rather than a value it forwards verbatim.
+    if isinstance(autorun, dict) and BATCH_ISOLATED_KEY in autorun:
+        autorun_isolated = autorun.get(BATCH_ISOLATED_KEY)
+        if not isinstance(autorun_isolated, bool):
+            errors.append(
+                "driver.autorun.%s: %r must be a bool (a string \"false\" reads as "
+                "TRUTHY and would arm the isolated route the author was disabling)"
+                % (BATCH_ISOLATED_KEY, autorun_isolated))
+        elif autorun_isolated and not autorun_has_tests:
+            errors.append(
+                "driver.autorun.%s is armed but driver.autorun.tests is absent, so "
+                "no batch auto-runs and the arm is inert (PARSEK_AUTORUN_ISOLATED "
+                "without PARSEK_AUTORUN_TESTS; the addon WARNs about this at "
+                "startup, and a spec can be caught here instead)"
+                % BATCH_ISOLATED_KEY)
+    # MISPLACED-KEY guard, same shape as skipTailOnUnmetMission / batchVacuityOptOut.
+    # The autorun flag is read ONLY off [driver.autorun]; anywhere else it is
+    # silently ignored and the batch runs NON-isolated while the author believes
+    # otherwise. `driver.steps[i].args` is legitimate and is checked above.
+    for scope_name, scope in (("driver", driver),
+                              ("driver.missionParams", driver.get("missionParams")),
+                              ("the spec root", spec),
+                              ("expectations", expectations)):
+        if isinstance(scope, dict) and BATCH_ISOLATED_KEY in scope:
+            errors.append(
+                "%s: %s belongs in [driver.autorun] (or in a RunTests step's args "
+                "table), not here -- a key in this table is never read, so the "
+                "batch would silently run NON-isolated"
+                % (scope_name, BATCH_ISOLATED_KEY))
 
     # --- Anti-vacuity gate (the B10 "GREEN over ZERO executed tests" class). A spec
     # that owns a batch must pin a tally an EMPTY or ALL-SKIPPED batch cannot satisfy;

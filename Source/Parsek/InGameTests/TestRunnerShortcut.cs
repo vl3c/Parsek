@@ -67,6 +67,16 @@ namespace Parsek.InGameTests
         internal const string EnvTestsVar = "PARSEK_AUTORUN_TESTS";
         internal const string EnvExitVar = "PARSEK_AUTORUN_EXIT";
 
+        // [R5] Routes the autorun batch through the ISOLATED entry points. A separate
+        // env var rather than a selector prefix on PARSEK_AUTORUN_TESTS: the selector
+        // string is consumed VERBATIM as the `category=` token the runner stamps on its
+        // BATCH_COMPLETE line, and the harness's anti-vacuity gate synthesizes its probe
+        // family from the same string (hlib._batch_probe_categories). A prefix would
+        // desynchronize those two copies of one name, every probe would miss the real
+        // line on a token mismatch, and the gate would silently accept a vacuous batch.
+        // "1" mirrors EnvExitVar exactly. Unset = inert.
+        internal const string EnvIsolatedVar = "PARSEK_AUTORUN_ISOLATED";
+
         private static TestRunnerShortcut instance;
         private const float DefaultWindowWidth = 440f;
         private const float DefaultWindowHeight = 600f;
@@ -114,17 +124,19 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// [M-A3 hook H1] Parse the two autorun env vars ONCE at addon Awake into the
+        /// [M-A3 hook H1] Parse the three autorun env vars ONCE at addon Awake into the
         /// cached <see cref="autorunConfig"/> (design "Read-once caching", edge 14). Emit
         /// the startup selector line that records the exact env contract the process
         /// launched with, plus any misconfiguration warnings (edge 2 zero-categories, edge
-        /// 9 exit-without-tests). Never re-reads the environment.
+        /// 9 exit-without-tests, edge 20 isolated-without-tests). Never re-reads the
+        /// environment.
         /// </summary>
         private void ParseAutorunConfigOnce()
         {
             string testsVar = Environment.GetEnvironmentVariable(EnvTestsVar);
             string exitVar = Environment.GetEnvironmentVariable(EnvExitVar);
-            autorunConfig = AutorunHooks.Parse(testsVar, exitVar);
+            string isolatedVar = Environment.GetEnvironmentVariable(EnvIsolatedVar);
+            autorunConfig = AutorunHooks.Parse(testsVar, exitVar, isolatedVar);
             autorunParsed = true;
             autorunArmedRealtime = Time.realtimeSinceStartup;
 
@@ -132,7 +144,7 @@ namespace Parsek.InGameTests
                 $"autorun selector parsed: enabled={autorunConfig.Enabled} "
                 + $"selector='{autorunConfig.RawSelector ?? "(unset)"}' "
                 + $"categories=[{string.Join(",", autorunConfig.Categories)}] "
-                + $"exit={autorunConfig.ExitArmed}");
+                + $"exit={autorunConfig.ExitArmed} isolated={autorunConfig.Isolated}");
             foreach (string warning in autorunConfig.Warnings)
                 ParsekLog.Warn(Tag, warning);
         }
@@ -710,19 +722,32 @@ namespace Parsek.InGameTests
         /// dispatches: "all" -> RunAll; a single category -> RunCategory; multiple
         /// categories -> the sequential driver coroutine. All non-driver paths mark the
         /// process latch so a per-scene re-arm never restarts the selector (edge 8).
+        ///
+        /// [R5] When PARSEK_AUTORUN_ISOLATED=1 every dispatch above takes the
+        /// *IncludingFlightRestore variant instead. The arm applies to the WHOLE batch,
+        /// including every token of a multi-category selector: the flag is not
+        /// per-category, and there is no per-category form. In practice that is never
+        /// observable, because hlib.validate_spec rejects a multi-category selector on
+        /// any batch-owning spec (SINGLE_BATCH_SELECTOR_RULE), so exactly one category is
+        /// ever driven; the multi path is honoured here so a hand-driven process behaves
+        /// predictably rather than silently dropping the arm on tokens 2..n.
         /// </summary>
         private void FireAutorun()
         {
             autorunFiredThisScene = true;
             bool exitArmed = autorunConfig.ExitArmed;
+            bool isolated = autorunConfig.Isolated;
 
             if (autorunConfig.IsAll)
             {
                 int discovered = runner.Tests.Count;
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} discoveredCount={discovered}");
+                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
                 runner.MarkNextBatchAutorun(exitArmed);
-                runner.RunAll();
+                if (isolated)
+                    runner.RunAllIncludingFlightRestore();
+                else
+                    runner.RunAll();
                 autorunConsumedForProcess = true;
                 return;
             }
@@ -734,9 +759,12 @@ namespace Parsek.InGameTests
                 if (discovered == 0)
                     ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered}");
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
                 runner.MarkNextBatchAutorun(exitArmed);
-                runner.RunCategory(cat);
+                if (isolated)
+                    runner.RunCategoryIncludingFlightRestore(cat);
+                else
+                    runner.RunCategory(cat);
                 autorunConsumedForProcess = true;
                 return;
             }
@@ -744,7 +772,7 @@ namespace Parsek.InGameTests
             // Multi-category (Count > 1): the sequential driver owns the run.
             autorunConsumedForProcess = true;
             autorunMultiDriving = true;
-            StartCoroutine(AutorunMultiCategoryDriver(autorunConfig.Categories, exitArmed));
+            StartCoroutine(AutorunMultiCategoryDriver(autorunConfig.Categories, exitArmed, isolated));
         }
 
         /// <summary>
@@ -757,11 +785,12 @@ namespace Parsek.InGameTests
         /// exit-armed (that would quit KSP mid-run); the aggregate exit is wired by H2 in
         /// P5.1.
         /// </summary>
-        private IEnumerator AutorunMultiCategoryDriver(IReadOnlyList<string> categories, bool exitArmed)
+        private IEnumerator AutorunMultiCategoryDriver(
+            IReadOnlyList<string> categories, bool exitArmed, bool isolated)
         {
             ParsekLog.Info(Tag,
                 $"autorun multi-category: running {categories.Count} tokens sequentially: "
-                + $"[{string.Join(",", categories)}]");
+                + $"[{string.Join(",", categories)}] isolated={isolated}");
 
             var tally = new AutorunHooks.MultiCategoryBatchTally();
             foreach (string cat in categories)
@@ -782,11 +811,17 @@ namespace Parsek.InGameTests
                 if (discovered == 0)
                     ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered}");
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
 
                 // Per-token batches never carry the exit arm (H2 must not quit mid-run).
+                // The ISOLATED arm, unlike the exit arm, DOES apply per token: it selects
+                // which admission filter each batch uses, and dropping it on tokens 2..n
+                // would silently run those categories through the ordinary filter.
                 runner.MarkNextBatchAutorun(false);
-                runner.RunCategory(cat);
+                if (isolated)
+                    runner.RunCategoryIncludingFlightRestore(cat);
+                else
+                    runner.RunCategory(cat);
 
                 while (runner.IsRunning) yield return null;
 

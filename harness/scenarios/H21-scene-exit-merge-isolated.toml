@@ -1,0 +1,193 @@
+schema = 1
+id = "H21-scene-exit-merge-isolated"
+tier = "nightly"
+# THE R5 SHAKEDOWN. The first spec to drive an ISOLATED in-game batch, and the
+# proof that the seam's new `isolated` arg does what it claims.
+#
+# WHAT WAS BROKEN. InGameTestRunner has two batch entry points. The ordinary pair
+# (RunAll / RunCategory) admits `test.AllowBatchExecution`. The other pair
+# (RunAllIncludingFlightRestore / RunCategoryIncludingFlightRestore) admits
+# `AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` and restores a
+# flight baseline after each test. Both were public and fully implemented, and both
+# were called from exactly two places, BOTH INTERACTIVE: the Ctrl+Shift+T window
+# and the Settings test-runner window. Neither unattended path reached them - the
+# seam's RunTests verb called RunAll/RunCategory, and so did the autorun
+# dispatcher. That left 68 already-written tests, whose authors had already decided
+# a quickload-baseline restore makes them batch-safe, unreachable by ANY automated
+# run. R5 adds the arg; this spec is its shakedown.
+#
+# WHY SceneExitMerge. It is the smallest category that DISCRIMINATES. Both of its
+# declarations are AllowBatchExecution = false + RestoreBatchFlightBaselineAfterExecution
+# = true, so the ordinary path executes ZERO of them and the isolated path executes
+# both. Contrast that with the four tests in the tree carrying restore = true
+# WITHOUT allow = false (Contracts 2, TestCommands 1, LedgerGroundTruth 1): those
+# are admitted by BOTH filters and run identically on either path, so they could
+# never have proved anything. (They do differ in one degraded case - see the note
+# under logContracts.)
+description = "Drive the in-game SceneExitMerge category through the ISOLATED batch entry point: a real recording, a real launch, a real stock save-and-exit to Space Center, and both branches of the pre-transition merge dialog - two tests no unattended path could run before R5."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "scene-exit", "merge-dialog", "R5", "H21"]
+
+[fixture]
+# NOT gloops-airshow, and this is the single most important line in the spec.
+#
+# The 14 ordinary H-specs all load gloops-airshow, whose active vessel is a bare
+# 1-part mk1-capsule with ZERO ModuleEngines. Both SceneExitMerge tests call
+# StageManager.ActivateNextStage() and then wait for the vessel to leave PRELAUNCH
+# and travel 80 m, each on a 30 s deadline. On an engineless craft nothing ignites,
+# RuntimeTests.ClassifyLaunchWaitTimeout returns SkipNoThrust, and BOTH tests
+# InGameAssert.Skip - printing `total=2 passed=0 failed=0 skipped=2`, which is
+# NUMERICALLY IDENTICAL to the non-isolated failure this spec exists to rule out.
+# Copying the H-series fixture would have produced a red that looks exactly like
+# "the isolated arg did not work" while the arg worked perfectly.
+#
+# b2-lko-craft carries a 73-part stock launcher (#autoLOC_501232, 8 ModuleEngines,
+# sit = PRELAUNCH, activeVessel = 1) and is the fixture 11 committed flight specs
+# already launch from, so its ascent is well-trodden. SANDBOX, so no career state
+# is at risk. injectedRecordings = "none": both tests build their own tree from a
+# live recording, and an injected corpus would only add store noise.
+# IsolatedBatchWiringGroupTests::test_the_fixture_can_actually_fly_the_category
+# gates the PRELAUNCH + non-zero-engine property statically so this cannot regress
+# to an engineless fixture silently.
+saveTemplate = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# autoRecordOnLaunch pinned false: both tests call flight.StartRecording()
+# themselves and then guard on `flight.IsRecording`, skipping if a recording is
+# ALREADY active. Auto-record fires on situation change / staging and short-circuits
+# on isRecording, so the ordering happens to be safe today - but pinning it false
+# removes the race outright rather than resting on that ordering, and matches every
+# other H-spec.
+#
+# NOTE on the recording-rules suppression: hlib.spec_expects_live_recording reads
+# the DRIVER (a StartRecording step, or an autoRecordOnLaunch=true pin) and so
+# returns False here, suppressing REC-001/REC-003 - even though this run genuinely
+# records, from inside the test bodies. That is a suppression, so it can only
+# under-detect, never false-red; the BATCH_COMPLETE pin is the real gate.
+#
+# The 540 s RunTests budget is hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, the cap. It
+# is not generous padding: an isolated batch is a real quickload per test, so these
+# two cost THREE full FLIGHT scene reloads (one baseline prime + one restore each)
+# on a 73-part craft, on top of two ascents to 80 m and two FLIGHT -> SPACECENTER
+# transitions. See runtime.budgetSeconds below.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SceneExitMerge", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST, and narrow. Test A drives stock save-and-exit out of FLIGHT and commits
+# the live tree through the pre-transition merge dialog's "Merge to Timeline"
+# button: that IS D1 commit-scene-exit, executed rather than decided. Test B drives
+# the same seam's Discard branch and asserts the pending tree is cleared without a
+# commit: D1 discard-rollback. SANDBOX on a FLIGHT-scene launcher host (D14).
+# NOT claimed: any playback, storage, ghost or ledger token - neither test reads a
+# sidecar or a ghost, and both reap their own tree in a finally block.
+D1  = ["commit-scene-exit", "discard-rollback"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# key written after an `[expectations.<sub>]` header is TOML-scoped to that
+# SUB-table and never read, so this must stay ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, and this doubles as the CAMPAIGN-ISOLATION assertion. Both tests create a
+# real tree mid-run and one of them commits it; each reaps its own in a finally
+# block, and the batch's own teardown then reverts persistent.sfs from the clean
+# .bak that CaptureBatchBaseline wrote before the marker. So the produced save must
+# carry no recordings at all. A non-zero count here does not mean "a test leaked" -
+# it means the isolated path's restore contract did not hold, which is precisely
+# the property R5 is betting on and should red loudly.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus an R5-specific discrimination requirement.
+#
+# EVIDENCE STANDING: PREDICTED, not yet measured. This spec has never flown; the
+# tally below is DERIVED from the attributes and the runner's filters, and the
+# first live run is expected to confirm or correct it. Replace this paragraph with
+# a MEASURED one (run id, wall time, "matched token for token") once it flies, the
+# way every H7-H20 spec records its own flight.
+#
+# What each token rests on:
+#  - total=2 is ATTRIBUTE-EXACT: RuntimeTests declares exactly two
+#    [InGameTest(Category = "SceneExitMerge")] methods
+#    (ExitToSpaceCenter_DeferredDiscardButton_ClearsPendingTree and
+#    ExitToSpaceCenter_DeferredMergeButton_CommitsPendingTree, both RunLast, both
+#    IEnumerator). BATCH_COMPLETE's total is allTests.Count(Status != NotRun) over
+#    the single batch, so it counts FILTERED tests too - which is why total is 2 on
+#    BOTH paths and cannot be the discriminator. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED FROM THE ISOLATED FILTER, and is the whole point. Both
+#    declare Scene = FLIGHT (the fixture's Focusable route boots to FLIGHT, so
+#    FilterSceneEligibleBatchCandidates drops neither) and both declare
+#    AllowBatchExecution = false + RestoreBatchFlightBaselineAfterExecution = true,
+#    so PrepareBatchExecution would skip BOTH and
+#    PrepareBatchExecutionIncludingFlightRestore admits both.
+#  - failed=0 is the ASSERTION - the thing this scenario exists to check.
+#  - passed=2 follows from total=2, skipped=0 and failed=0.
+#  - scene=FLIGHT is the scene at EMIT time, i.e. after the final baseline restore.
+#    Test A ends the game in SPACECENTER and the restore brings it back; if that
+#    restore fails to return to FLIGHT the second test is scene-skipped and this
+#    token moves. That is a real thing this run measures rather than assumes.
+#
+# THE CONTRAST THAT IS THE PROOF. On today's ordinary path the SAME spec would
+# print `total=2 passed=0 failed=0 skipped=2`. That line is a member of the
+# vacuity family the anti-vacuity gate enumerates (passed == 0 and failed == 0
+# forces total == skipped), so the gate ALREADY guarantees this pin rejects it -
+# there is no way to read this spec as green without the isolated route actually
+# running. IsolatedBatchWiringGroupTests asserts that rejection explicitly rather
+# than leaving it inherited.
+#  (The roadmap's R5 section said the non-isolated form yields `total=0`. It does
+#   not: PrepareBatchExecution marks the tests Skipped rather than dropping them
+#   from allTests, so they are counted. The corrected line is above; the contrast
+#   is the passed/skipped split, not total. Roadmap corrected in the same commit.)
+#
+# The two non-tally tokens are BOTH isolated-path-only, and both were traced to
+# their call sites rather than grepped for presence:
+#  - "runtests start category=SceneExitMerge isolated=true" is emitted by
+#    ParsekTestCommandAddon.RunTestsImpl on the exact step this driver sends, so it
+#    is reachable by construction. It is also the CANARY for the provisioning trap:
+#    the string is new in this change, and the harness flies a DIFFERENT KSP
+#    instance from `dotnet build`'s, so its absence means the automation instance
+#    is running a stale Parsek.dll rather than that Parsek regressed.
+#  - "Using batch baseline slot ... for 2 restore-after-run test(s)" is emitted
+#    ONLY by PrepareBatchFlightRestoreExecution, which is called ONLY from
+#    RunAllIncludingFlightRestore, RunCategoryIncludingFlightRestore and RunSingle.
+#    RunCategory does not call it at all. For a seam-driven batch that makes the
+#    line unambiguous proof the ISOLATED entry point ran, independent of the tally,
+#    and the literal 2 proves both tests reached the restore-backed admission.
+#    (This is also the seam that makes the isolated path differ for the four
+#    restore-only tests elsewhere in the tree: when no flight baseline is available
+#    it SKIPS them with a reason, where the ordinary path runs them against a
+#    restore that silently no-ops. With a baseline available - as here - the two
+#    paths are identical for those four.)
+required  = [
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge scene=FLIGHT",
+  "runtests start category=SceneExitMerge isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 300 LoadGame + a 540 s RunTests step whose seam-side
+# deferral ceiling is 600 s. run.py waits max(step budget, 600) + a 60 s margin so a
+# genuine seam TIMEOUT surfaces as a retryable driver-INVALID instead of being
+# pre-empted by a harness KILL, so the run budget must clear 300 + 660 = 960.
+# 1200 gives that plus boot. Sized deliberately high: the roadmap flags this exact
+# risk ("the baseline restore is a real quickload"), and a KILLED run prints no
+# tally at all and burns a retry, which is strictly worse than waiting.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

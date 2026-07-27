@@ -1,6 +1,24 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-27 (H7-H20 ALL FLOWN, all 14 PASS on attempt 1, 805 s / 13.4 min
+Last updated: 2026-07-27 (R5 SHIPPED: the isolated-batch seam argument. `RunTests`
+takes `isolated = "true"` and the autorun dispatcher reads `PARSEK_AUTORUN_ISOLATED=1`,
+both routing to `InGameTestRunner`'s `*IncludingFlightRestore` entry points. Those were
+public and fully implemented before this change and called from exactly two places, BOTH
+INTERACTIVE, which left 68 already-written tests unreachable by any unattended path. That
+is Cause B in the roadmap, CLOSED as a capability gap. Three things this turned up that
+the roadmap had wrong: (1) the non-isolated form does NOT print `total=0` - filtered
+tests are marked Skipped, not dropped, so `total` is identical on both paths and the
+proof is the passed/skipped split; that makes the proof STRONGER, since
+`passed=0 failed=0 total==skipped` is exactly the vacuity family the anti-vacuity gate
+already rejects. (2) The hlib companion was load-bearing, not optional: `InGameTestDecl`
+did not carry the restore flag at all, so the source-sync gate would have rejected a
+correct isolated pin. (3) The fixture is the expensive trap - `gloops-airshow` has a
+1-part engineless pod, and both `SceneExitMerge` cells stage and wait to clear 80 m, so
+copying the H-series fixture would have produced an all-skipped red indistinguishable
+from "the arg does not work". Shakedown spec `H21-scene-exit-merge-isolated` is
+committed on `b2-lko-craft` and NOT yet flown.
+
+Prior: 2026-07-27 (H7-H20 ALL FLOWN, all 14 PASS on attempt 1, 805 s / 13.4 min
 for the group - 49-71 s each, against 2,825 s for B13 alone. What flying added over the
 static derivation, precisely: the `total=` values were already gated by the source-sync
 test and needed no flight; what no static analysis predicts is the passed / skipped
@@ -350,9 +368,9 @@ landing, docking, career-ledger lanes) is the frontier.
 | Module | What it gives Parsek testing | Status |
 |---|---|---|
 | M-A1 offline analyzer | Recording invariants (INV1-INV9) over any save, RED gate, per-save findings baseline | SHIPPED (#1300/#1302/#1306); AnalyzerVersion 3; core in Parsek.dll so in-game H5 runs the same rules |
-| M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions, EVA) | SHIPPED (#1301); 18 implemented verbs, 11 reserved (M-C1 + M-C2 grew the table) |
-| M-A3 autorun hooks | Unattended in-game test batches (PARSEK_AUTORUN_*) | SHIPPED (#1305) |
-| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316); UNMET-mission tail skip added 2026-07-25 (per-verb `SEAM_VERB_TAIL_ROLE`: after an unmet mission only `cleanup` verbs are driven, so an EVA-4-class world-mutating tail can no longer fire over a flight that never reached its envelope). Settings-sidecar baseline added 2026-07-26: `SetSetting` on a sidecar-tracked setting persists INSTANCE-WIDE and Parsek applies it over every loaded save, so S1.4's `mapRenderTracing=true` had pinned the per-frame render tracer on for every later run; run.py now writes a deterministic tracers-OFF baseline at stage AND at teardown, making tracer state a declared per-scenario property (a scenario that wants it adds its own SetSetting step). Anomaly sweep ANCHORED 2026-07-26: `grep_anomaly_tokens` was a bare substring search for each Tier-C token over the whole KSP.log, so any line that merely NAMED a token was a hit - S1.7's first flight reddened PARSEK-FAIL(anomaly) on a test diagnostic reporting `over=False` in a log with ZERO `phase=Anomaly` lines. The matcher moved into hlib and now requires the tracers' actual raise shape (`phase=Anomaly ... reason=<token>`, the one shape both `MapRenderTrace.EmitAnomaly` and `LedgerTrace.FormatAnomaly` produce). Same change adds a REPORT-ONLY `unlistedReasons` channel for the ANOMALY_TOKENS drift (see gates). `allowedAnomalies` misplacement promoted from WARN to ERROR the same day, checked over every `[expectations.<sub>]` table, with all 28 pre-existing specs relocated |
+| M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions, EVA) | SHIPPED (#1301); 19 implemented verbs, 11 reserved (M-C1 + M-C2 grew the table). R5 (2026-07-27) gave `RunTests` an optional `isolated` arg routing to `RunCategoryIncludingFlightRestore`, unlocking the 68 tests that are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`; a value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` rather than falling back |
+| M-A3 autorun hooks | Unattended in-game test batches (PARSEK_AUTORUN_*) | SHIPPED (#1305); R5 added a THIRD env var `PARSEK_AUTORUN_ISOLATED=1` mirroring the seam arg. Deliberately a separate var, not a selector prefix: the selector is consumed verbatim as the `category=` token both the runner stamps and hlib's anti-vacuity probe synthesizes, and a prefix would desynchronize them and silently void that gate |
+| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316); UNMET-mission tail skip added 2026-07-25 (per-verb `SEAM_VERB_TAIL_ROLE`: after an unmet mission only `cleanup` verbs are driven, so an EVA-4-class world-mutating tail can no longer fire over a flight that never reached its envelope). Settings-sidecar baseline added 2026-07-26: `SetSetting` on a sidecar-tracked setting persists INSTANCE-WIDE and Parsek applies it over every loaded save, so S1.4's `mapRenderTracing=true` had pinned the per-frame render tracer on for every later run; run.py now writes a deterministic tracers-OFF baseline at stage AND at teardown, making tracer state a declared per-scenario property (a scenario that wants it adds its own SetSetting step). Anomaly sweep ANCHORED 2026-07-26: `grep_anomaly_tokens` was a bare substring search for each Tier-C token over the whole KSP.log, so any line that merely NAMED a token was a hit - S1.7's first flight reddened PARSEK-FAIL(anomaly) on a test diagnostic reporting `over=False` in a log with ZERO `phase=Anomaly` lines. The matcher moved into hlib and now requires the tracers' actual raise shape (`phase=Anomaly ... reason=<token>`, the one shape both `MapRenderTrace.EmitAnomaly` and `LedgerTrace.FormatAnomaly` produce). Same change adds a REPORT-ONLY `unlistedReasons` channel for the ANOMALY_TOKENS drift (see gates). `allowedAnomalies` misplacement promoted from WARN to ERROR the same day, checked over every `[expectations.<sub>]` table, with all 28 pre-existing specs relocated. R5 companion added 2026-07-27: `InGameTestDecl` now carries `restore_baseline` and `derive_batch_tally` takes an `isolated=` mode, because without them `CommittedBatchTallySourceSyncTests` would have REJECTED a correct isolated pin (deriving `executable = 0` from the ordinary filter) - the gate is threaded with each spec's own `spec_batch_isolated`, and a mutation cell requires every isolated spec's pin to FAIL when re-derived against the ordinary path, so an `isolated` arg that does no work reds |
 | M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
 | M-B1 mission library | Pure mission state machines + kRPC runner (flights become deterministic, diagnosable instruments) | SHIPPED (#1313); hardened by the flyby campaign |
 | M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
@@ -361,7 +379,7 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 52 committed scenarios)
+## Test cases (all 53 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -491,6 +509,37 @@ costs under a third of one landing mission.
 | H18-pipeline-smoothing | daily | Coast-jitter suppression, structural-event flag alignment and child-seed parity, and the LIVE GameEvents subscription contract - a dropped `GameEvents.X.Add(...)` compiles, unit-tests green, and silently stops recording docks (D2 structural-event-snapshots) | LIVE-PROVEN 2026-07-27, 50 s, matched token for token: `total=4 passed=4 failed=0 skipped=0`, plus the `asserted=5 of 5 GameEvents bindings` line. One caveat stated in the spec: the wiring helper's only Skip branch is a KSP field rename, unreachable on 1.12.5 |
 | H19-recording-finalization | nightly | BackgroundRecorder finalization-cache apply: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, active-crash tail append (D1 finalization-cache) | LIVE-PROVEN 2026-07-27, 49 s, matched token for token: `total=3 passed=3 failed=0 skipped=0` |
 | H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | The ONLY interim pin in the group: `total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+`. Both cells carry run-time Skip guards; gloops-airshow satisfies the crewed / landed / solid-ground / vessel-type ones from the save file, but the walkback cell's `WalkbackFixtureCoversParent` answer is measured at run time. FLY LAST and replace the pattern with the whole tally. Runbook item 14 |
+
+### In-game ISOLATED batch wiring, R5 (1)
+
+The R5 unlock. `InGameTestRunner` has always had a second batch entry point
+(`RunCategoryIncludingFlightRestore`) admitting
+`AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` and restoring a
+quickloaded flight baseline after each test. It was public, fully implemented, and
+called from exactly two places, both INTERACTIVE - so 68 already-written tests were
+unreachable by any unattended path. R5 added the seam arg `isolated = "true"`, the
+autorun mirror `PARSEK_AUTORUN_ISOLATED=1`, and the hlib companion
+(`InGameTestDecl.restore_baseline`, `derive_batch_tally(isolated=)`,
+`spec_batch_isolated`, and the fail-closed spec validation). This spec is its
+shakedown; the other 12 unlocked categories are now spec-authoring work under
+R6 / R7 / R10 rather than blocked.
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| H21-scene-exit-merge-isolated | nightly | A real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog - D1 commit-scene-exit + discard-rollback, EXECUTED rather than decided. The two `SceneExitMerge` cells are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary path runs ZERO of them | NOT YET LIVE-RUN. Pin is `total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge scene=FLIGHT`, PREDICTED from the isolated derivation, plus two isolated-path-only log tokens. Two things the first flight measures rather than assumes: whether `b2-lko-craft`'s launcher clears 80 m inside the 30 s deadline both cells impose, and whether the post-test baseline quickload returns the vessel to FLIGHT **in PRELAUNCH** (test B's guard) rather than LANDED |
+
+TIER: `nightly`. An isolated batch is a real quickload per test, so these two cost
+three full FLIGHT scene reloads on a 73-part craft plus two ascents; budget is 1200 s
+against the group's 49-71 s. Promote only if the cost measures lower than feared.
+
+FIXTURE, and it is the expensive part of this spec: `b2-lko-craft`, NOT the H7-H20
+`gloops-airshow`. That save's active vessel is a 1-part `mk1-capsule` with ZERO
+`ModuleEngines`; both cells stage and then wait to leave PRELAUNCH and clear 80 m, so
+on it they would BOTH self-skip and print `total=2 passed=0 failed=0 skipped=2` -
+numerically identical to the non-isolated failure the spec exists to rule out.
+`IsolatedBatchWiringGroupTests::test_the_fixture_can_actually_fly_the_category` now
+gates the PRELAUNCH + non-zero-engine property statically so this cannot regress
+silently.
 
 TIERING, decided on the measured cost: **13 stay `nightly`, `H18-pipeline-smoothing`
 is promoted to `daily`.** Cost does not discriminate here - every member is 49-71 s and

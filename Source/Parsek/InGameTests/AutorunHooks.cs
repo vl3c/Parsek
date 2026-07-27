@@ -34,6 +34,19 @@ namespace Parsek.InGameTests
         /// <summary>H2 armed: quit after teardown+export (PARSEK_AUTORUN_EXIT=="1").</summary>
         public bool ExitArmed;
 
+        /// <summary>
+        /// H1 routes through the ISOLATED batch entry points
+        /// (<c>RunAllIncludingFlightRestore</c> / <c>RunCategoryIncludingFlightRestore</c>)
+        /// rather than the ordinary ones (PARSEK_AUTORUN_ISOLATED=="1"). The isolated
+        /// path additionally admits tests carrying
+        /// <c>RestoreBatchFlightBaselineAfterExecution = true</c> even when they set
+        /// <c>AllowBatchExecution = false</c>, restoring a flight baseline after each
+        /// one. Applies to the WHOLE batch, every token of a multi-category selector
+        /// included; see the design note for why this is a separate env var rather
+        /// than a selector prefix.
+        /// </summary>
+        public bool Isolated;
+
         /// <summary>The raw PARSEK_AUTORUN_TESTS value, kept for the startup log line.</summary>
         public string RawSelector;
 
@@ -52,10 +65,12 @@ namespace Parsek.InGameTests
             "autorun selector parsed to zero categories; H1 inert";
         internal const string WarnExitWithoutTests =
             "PARSEK_AUTORUN_EXIT set but PARSEK_AUTORUN_TESTS unset; nothing will auto-run or auto-quit";
+        internal const string WarnIsolatedWithoutTests =
+            "PARSEK_AUTORUN_ISOLATED set but PARSEK_AUTORUN_TESTS unset; no batch will auto-run, isolated or otherwise";
 
         /// <summary>
-        /// Parses the two autorun env vars into an <see cref="AutorunConfig"/>
-        /// (design "Env var surface", edge cases 1, 2, 3, 9).
+        /// Parses the three autorun env vars into an <see cref="AutorunConfig"/>
+        /// (design "Env var surface", edge cases 1, 2, 3, 9, 20).
         ///
         /// - null / empty tests var  -> inert (edge 1), no selector warning.
         /// - "all"                   -> Enabled, IsAll (runner.RunAll()).
@@ -68,24 +83,36 @@ namespace Parsek.InGameTests
         /// - exit var "1" -> ExitArmed; combined with an unset tests var it adds
         ///   WarnExitWithoutTests (edge 9). Category match is Ordinal (case-sensitive)
         ///   to mirror the runner's category comparison.
+        /// - isolated var "1" -> Isolated (edge 20); combined with an unset tests var it
+        ///   adds WarnIsolatedWithoutTests and stays inert, exactly like the exit arm.
+        ///   The flag is DELIBERATELY orthogonal to the selector string rather than a
+        ///   selector prefix: the selector is consumed verbatim as the `category=` token
+        ///   the runner stamps and the harness's anti-vacuity probe synthesizes, so a
+        ///   prefix would desynchronize those two copies of one name and silently
+        ///   weaken that gate. See docs/dev/design-autotest-autorun-hooks.md "H1 -
+        ///   Isolated batches".
         /// </summary>
-        internal static AutorunConfig Parse(string testsVar, string exitVar)
+        internal static AutorunConfig Parse(string testsVar, string exitVar, string isolatedVar)
         {
             bool exitArmed = string.Equals(exitVar, "1", StringComparison.Ordinal);
+            bool isolated = string.Equals(isolatedVar, "1", StringComparison.Ordinal);
 
-            // Truly unset/empty tests var: fully inert (edge 1). Only the exit-without-
-            // tests misconfiguration warns here (edge 9).
+            // Truly unset/empty tests var: fully inert (edge 1). Only the
+            // arm-without-tests misconfigurations warn here (edges 9, 20).
             if (string.IsNullOrEmpty(testsVar))
             {
                 var warnings0 = new List<string>();
                 if (exitArmed)
                     warnings0.Add(WarnExitWithoutTests);
+                if (isolated)
+                    warnings0.Add(WarnIsolatedWithoutTests);
                 return new AutorunConfig
                 {
                     Enabled = false,
                     IsAll = false,
                     Categories = NoCategories,
                     ExitArmed = exitArmed,
+                    Isolated = isolated,
                     RawSelector = testsVar,
                     Warnings = warnings0,
                 };
@@ -99,6 +126,7 @@ namespace Parsek.InGameTests
                     IsAll = true,
                     Categories = NoCategories,
                     ExitArmed = exitArmed,
+                    Isolated = isolated,
                     RawSelector = testsVar,
                     Warnings = new List<string>(),
                 };
@@ -114,7 +142,7 @@ namespace Parsek.InGameTests
             {
                 // Non-empty but nothing survived the trim/drop (whitespace / commas
                 // only): inert + WARN (edge 2). This is distinct from truly unset, so
-                // it does NOT also emit the exit-without-tests warning.
+                // it does NOT also emit the arm-without-tests warnings.
                 var warnings1 = new List<string> { WarnZeroCategories };
                 return new AutorunConfig
                 {
@@ -122,6 +150,7 @@ namespace Parsek.InGameTests
                     IsAll = false,
                     Categories = NoCategories,
                     ExitArmed = exitArmed,
+                    Isolated = isolated,
                     RawSelector = testsVar,
                     Warnings = warnings1,
                 };
@@ -133,6 +162,7 @@ namespace Parsek.InGameTests
                 IsAll = false,
                 Categories = categories,
                 ExitArmed = exitArmed,
+                Isolated = isolated,
                 RawSelector = testsVar,
                 Warnings = new List<string>(),
             };

@@ -2203,13 +2203,23 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
             env["PARSEK_AUTORUN_TESTS"] = str(autorun.get("tests"))
             if autorun.get("exit"):
                 env["PARSEK_AUTORUN_EXIT"] = "1"
+            # R5: the isolated arm is a separate var, never a selector prefix -- the
+            # selector string is consumed verbatim as the `category=` token both the
+            # runner stamps and hlib's anti-vacuity probe synthesizes, so a prefix
+            # would desynchronize the two and silently weaken that gate. Set ONLY on
+            # the autorun path; a RunTests-step spec carries the flag as a wire arg
+            # on the step itself (validate_spec forbids declaring both).
+            if autorun.get(hlib.BATCH_ISOLATED_KEY):
+                env["PARSEK_AUTORUN_ISOLATED"] = "1"
         env.pop("PARSEK_ANALYZER_BASELINE_MODE", None)  # never set at KSP launch
         run_budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))
         exe = runtime.resolve_exe(instance_dir)
         proc = runtime.launch(exe, [], env, instance_dir)
-        logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s] budget=%ds"
+        logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s ISOLATED=%s] batchIsolated=%s budget=%ds"
                     % (exe, proc.pid, env.get("PARSEK_AUTORUN_TESTS", "unset"),
-                       env.get("PARSEK_AUTORUN_EXIT", "0"), int(run_budget)))
+                       env.get("PARSEK_AUTORUN_EXIT", "0"),
+                       env.get("PARSEK_AUTORUN_ISOLATED", "0"),
+                       hlib.spec_batch_isolated(spec), int(run_budget)))
 
         # ---- DRIVE + BUDGET ----------------------------------------------
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,

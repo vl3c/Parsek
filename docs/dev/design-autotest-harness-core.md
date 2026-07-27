@@ -253,7 +253,11 @@ steps = [
 # the batch may self-fire via the env hooks. When present the harness sets
 # PARSEK_AUTORUN_TESTS / PARSEK_AUTORUN_EXIT at launch. Exactly one of {a RunTests
 # step, an autorun block} should own the batch (validated).
-# autorun = { tests = "RecordingInvariants", exit = true }
+# autorun = { tests = "RecordingInvariants", exit = true, isolated = false }
+# `isolated` (R5, optional, native TOML bool) routes the batch through
+# RunCategoryIncludingFlightRestore. On a RunTests STEP the same capability is an
+# arg and must be the STRING "true"/"false" (step args are wire-encoded with
+# str(value), so a bool would travel as `isolated=True` and the seam rejects it).
 #
 # OPTIONAL opt-out of the unmet-mission tail skip (see "The unmet-mission tail").
 # DEFAULT true = after a mission step comes back UNMET, only the CLEANUP tail steps
@@ -818,8 +822,12 @@ per-run env:
 
 - `PARSEK_TEST_COMMANDS=1` always (arms the M-A2 addon; the channel files sit at
   the instance's KSP root).
-- If the spec has an `[driver.autorun]` block: `PARSEK_AUTORUN_TESTS=<tests>` and,
-  when `exit=true`, `PARSEK_AUTORUN_EXIT=1` (the M-A3 hooks).
+- If the spec has an `[driver.autorun]` block: `PARSEK_AUTORUN_TESTS=<tests>`,
+  when `exit=true` `PARSEK_AUTORUN_EXIT=1`, and when `isolated=true`
+  `PARSEK_AUTORUN_ISOLATED=1` (the M-A3 hooks; the isolated arm is R5). A spec
+  driving its batch through a `RunTests` STEP instead carries the flag as a wire arg
+  on that step (`isolated="true"`) and sets no env var; validate_spec forbids
+  declaring both a step and an autorun block, so exactly one of the two applies.
 - `PARSEK_ANALYZER_BASELINE_MODE` is NEVER set at KSP launch (it is an analyzer
   env var, consumed by a later `dotnet test`, not by KSP; setting it here would be
   meaningless and confusing).

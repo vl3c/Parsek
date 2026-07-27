@@ -202,7 +202,15 @@ remaining work is legible against the original list:
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
 | `CrewReservation` | 15 | D12 |
 
-### Cause B: unreachable by ANY unattended path (68 tests)
+### Cause B: unreachable by ANY unattended path (68 tests) - CLOSED by R5, 2026-07-27
+
+CLOSED as a CAPABILITY gap. The seam's `RunTests` verb now takes
+`isolated = "true"` and the autorun dispatcher reads `PARSEK_AUTORUN_ISOLATED=1`,
+both routing to the `*IncludingFlightRestore` entry points, so all 68 are drivable.
+One of the 13 categories is actually DRIVEN so far (`SceneExitMerge`, wired as
+`H21-scene-exit-merge-isolated`); the other 12 are now ordinary spec-authoring work
+under R6 / R7 / R10 rather than blocked. The diagnosis below is kept verbatim
+because it is the evidence the fix rests on.
 
 `InGameTestRunner` has two batch entry points. The ordinary one admits
 `test.AllowBatchExecution`. The other, `PrepareBatchExecutionIncludingFlightRestore`,
@@ -218,6 +226,7 @@ They are called from exactly two places, both interactive:
 They are called from neither unattended path. The seam's `RunTests`
 (`ParsekTestCommandAddon.cs:1494,1496`) calls `RunAll()` / `RunCategory(category)`.
 The autorun dispatcher (`TestRunnerShortcut.cs:725,739,789`) does the same.
+(Both now branch on the R5 flag; the line numbers above are pre-R5.)
 
 Counting attribute argument lists over all 539 declarations (see the note on the
 fully-qualified attribute form at the end of this file - a naive `[InGameTest(` scan
@@ -613,12 +622,49 @@ Flight? No.
 
 ### Tier 1: the unlock. This is the largest single gain in the roadmap.
 
-**R5. Ship the isolated-batch seam argument.** Code change, seam + autorun + hlib.
+**R5. Ship the isolated-batch seam argument.** SHIPPED 2026-07-27. Code change,
+seam + autorun + hlib.
 
 `RunTests` gains an `isolated` argument routing to `RunCategoryIncludingFlightRestore`
 instead of `RunCategory`; mirror it in the autorun selector
 (`TestRunnerShortcut.cs:739,789`); add the hlib spec-validation companion; land one
 shakedown spec.
+
+What shipped, and the three places this section was wrong:
+
+- The autorun mirror is a SEPARATE env var, `PARSEK_AUTORUN_ISOLATED=1`, not a
+  selector prefix. The selector string is consumed verbatim as the `category=` token
+  both the runner stamps and `hlib._batch_probe_categories` synthesizes its
+  anti-vacuity probe family from; a prefix would desynchronize those two copies of
+  one name, every probe would miss on a token mismatch, and the gate would read a
+  contract that rejects all probes as SAFE. Full argument in
+  `design-autotest-autorun-hooks.md` "H1 - Isolated batches".
+- **CORRECTION: the non-isolated form does NOT yield `total=0`.** The proof
+  paragraph below and in `todo-and-known-bugs.md` both said it would. It yields
+  `total=2 passed=0 failed=0 skipped=2`: `PrepareBatchExecution` sets
+  `Status = Skipped` on the tests it filters out rather than dropping them, and
+  `BATCH_COMPLETE`'s `total` is `allTests.Count(Status != NotRun)`, so filtered
+  tests are counted. `total` is therefore IDENTICAL on both paths and cannot be the
+  discriminator; the proof is the passed/skipped split. This turns out to make the
+  proof stronger rather than weaker: `passed=0, failed=0, total==skipped` is exactly
+  the one-parameter vacuity family the anti-vacuity gate enumerates, so the gate
+  ALREADY guarantees an isolated spec's pin rejects the non-isolated line. It is no
+  longer possible to read `H21` as green without the isolated route running.
+- **The hlib companion is load-bearing, not optional.** `InGameTestDecl` did not
+  carry `RestoreBatchFlightBaselineAfterExecution` at all and `derive_batch_tally`
+  hardcoded the ordinary filter, so `CommittedBatchTallySourceSyncTests` would have
+  REJECTED a correct isolated pin (deriving `executable = 0`). The field, an
+  `isolated=` mode on the derivation, and `spec_batch_isolated` all had to land with
+  the seam change.
+- **The fixture is the expensive trap, and it is not in this section at all.** The
+  shakedown spec loads `b2-lko-craft`, NOT the H-series `gloops-airshow`. Both
+  `SceneExitMerge` tests stage the active vessel and wait for it to leave PRELAUNCH
+  and clear 80 m; `gloops-airshow`'s active vessel is a 1-part `mk1-capsule` with
+  ZERO `ModuleEngines`, so on it both self-skip and print
+  `total=2 passed=0 failed=0 skipped=2` - the same line the non-isolated failure
+  produces. Copying the H-series fixture would have produced a red indistinguishable
+  from "the arg does not work". `IsolatedBatchWiringGroupTests` now gates the
+  PRELAUNCH + non-zero-engine property statically.
 
 This turns 68 already-written tests from unreachable into drivable, including the 26
 D1-D9 tests no other mechanism can produce: `AutoRecord` (10), `Rewind` (6),

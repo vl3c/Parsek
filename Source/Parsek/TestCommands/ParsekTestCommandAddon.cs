@@ -1480,23 +1480,62 @@ namespace Parsek.TestCommands
             SetExecResult(PendingVerdict, null, null);
         }
 
-        // ----- RunTests (P5.6, two-phase) -----
+        // ----- RunTests (P5.6, two-phase; R5 isolated) -----
         // Owns an InGameTestRunner (the pump's IsBatchRunning gate reads it). Initiates
         // RunAll() / RunCategory(category) and returns PendingVerdict; completion is
         // deferred (TryCompleteTwoPhase) until the batch stops running, then reports
         // passed/failed/skipped + the exported results filename.
+        //
+        // [R5] The optional `isolated` arg selects the ISOLATED batch entry points
+        // (RunAllIncludingFlightRestore / RunCategoryIncludingFlightRestore) instead of
+        // the ordinary ones. They differ in exactly two ways, both in
+        // InGameTestRunner: PrepareBatchExecutionIncludingFlightRestore admits a test
+        // carrying RestoreBatchFlightBaselineAfterExecution = true even when it sets
+        // AllowBatchExecution = false (the ordinary filter drops it, marking it Skipped),
+        // and PrepareBatchFlightRestoreExecution runs, which SKIPS the restore-backed
+        // tests outright when no flight baseline is available rather than running them
+        // against a restore that would silently no-op.
+        //
+        // Before R5 those two entry points existed, were fully implemented, and were
+        // reachable ONLY from the two interactive surfaces (Ctrl+Shift+T and the
+        // Settings test-runner window), which left 68 already-written tests
+        // unreachable by any unattended path. This arg is the unattended route to them.
         private void RunTestsImpl(ParsedCommand cmd)
         {
             string category = ArgOrNull(cmd, "category");
+            string isolatedRaw = ArgOrNull(cmd, "isolated");
+
+            bool isolated;
+            if (!TestCommandRunTests.TryParseIsolatedArg(isolatedRaw, out isolated))
+            {
+                ParsekLog.Warn(Tag,
+                    $"runtests rejected category={category ?? "all"} "
+                    + $"reason={TestCommandRunTests.IsolatedArgInvalidReason} raw={isolatedRaw}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandRunTests.IsolatedArgInvalidReason} raw={isolatedRaw ?? string.Empty}");
+                return;
+            }
+
             if (ownedRunner == null)
                 ownedRunner = new InGameTestRunner(this);
 
             if (string.IsNullOrEmpty(category))
-                ownedRunner.RunAll();
+            {
+                if (isolated)
+                    ownedRunner.RunAllIncludingFlightRestore();
+                else
+                    ownedRunner.RunAll();
+            }
             else
-                ownedRunner.RunCategory(category);
+            {
+                if (isolated)
+                    ownedRunner.RunCategoryIncludingFlightRestore(category);
+                else
+                    ownedRunner.RunCategory(category);
+            }
 
-            ParsekLog.Info(Tag, $"runtests start category={category ?? "all"}");
+            ParsekLog.Info(Tag,
+                $"runtests start category={category ?? "all"} isolated={Bool(isolated)}");
             SetExecResult(PendingVerdict, null, null);
         }
 
