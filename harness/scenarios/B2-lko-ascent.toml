@@ -48,7 +48,12 @@ circularizeTimeoutSeconds = 300
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
-D3  = ["orbital-checkpoint"]
+# D3 parent-anchored-debris: gated by the `Child recording created \(debris, TTL=`
+# token below, which is the SOLE log site that creates a parent-anchored debris
+# child (BackgroundRecorder.cs:1177; its only sibling at :1185 is the CONTROLLED
+# child line). Claimed here and not before because presence had no gate: the
+# count window's old min of 1 admitted the total loss of the debris population.
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive"]
 D14 = ["kerbin"]
 
@@ -65,17 +70,41 @@ allowedAnomalies = []
 # boosters on the way up and each becomes a parent-anchored debris child
 # recording (first live B2 flight 2026-07-20: exactly 7 sidecars, analyzer
 # RED=0 over all of them - Parsek modeling staging debris is CORRECT
-# behavior the original {1,1} expectation failed to model). min stays 1
-# (the main recording must exist even if debris admission varies); max is
-# main + 6 boosters + 1 for the launch-escape tower (the live flight produced
+# behavior the original {1,1} expectation failed to model). max is main +
+# 6 boosters + 1 for the launch-escape tower (the live flight produced
 # exactly 7 - the LES jettison did not record - but whether that is
 # deterministic under MechJeb autostage is unestablished, so the window
 # absorbs an 8th rather than redding on staging-timing variance; Fable
 # review of the PR #1328 tail, WATCH-4).
-count = { min = 1, max = 8 }
+#
+# MIN TIGHTENED 1 -> 7 (autotest-roadmap R1, 2026-07-27). The old min of 1 was
+# chosen when ONE flight had been measured and hedged "the main recording must
+# exist even if debris admission varies". FIVE flights on this exact fixture
+# have now measured the population and it has never varied: B2 2026-07-20 = 7
+# (1 root + 6 boosters), and B11 flight 4 / B12 flight 5 / B13 flight 1 /
+# B14 flight 1 = 8 each (1 root + 6 boosters + 1 flameout-staged ascent core).
+# 6 boosters is the deterministic part on every one of them, so 1 + 6 = 7 is
+# the floor the flight actually supports. At min 1 this window would have read
+# PASS with the ENTIRE debris population missing, which is the regression class
+# the number exists to catch.
+# RE-PIN CONTRACT (EVA-4's precedent): if a later run legitimately differs,
+# RE-PIN to the newly measured value and record WHICH recordings the run
+# produced. Do NOT widen back toward 1 - widening is exactly what re-blinds it.
+count = { min = 7, max = 8 }
 
 [expectations.logContracts]
-required  = ["Recording started", "Recording stopped"]
+# `Child recording created \(debris, TTL=` is the POPULATION gate the count
+# window cannot be (the count is COMMIT-BLIND and a window wide enough to
+# absorb staging variance is also wide enough to absorb a missing population).
+# Sourced from the emitting call: BackgroundRecorder.cs:1177, and it is
+# ParsekLog.INFO - NOT Verbose - so it needs no verboseLogging pin and this
+# spec deliberately adds no SetSetting step for it. The literal line is
+# `Child recording created (debris, TTL=60s): recId=... vesselPid=...`;
+# the parenthesis is ESCAPED because hlib.evaluate_expectations applies each
+# required pattern with re.search, so a bare `(` is a regex group, not text.
+required  = ["Recording started",
+             "Child recording created \\(debris, TTL=",
+             "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

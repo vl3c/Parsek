@@ -69,7 +69,11 @@ landedSituations          = ["LANDED", "SPLASHED"]
 # doc's B4 section.
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
-D3  = ["orbital-checkpoint"]
+# D3 parent-anchored-debris: gated by the `Child recording created \(debris, TTL=`
+# token below, the SOLE log site that creates a parent-anchored debris child
+# (BackgroundRecorder.cs:1177; its only sibling at :1185 is the CONTROLLED child
+# line). See B2-lko-ascent.toml for the full derivation.
+D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic"]
 D14 = ["kerbin", "warp-rails"]
 
@@ -86,12 +90,31 @@ allowedAnomalies = []
 # parent-anchored debris children (exactly 7 sidecars on the live B2 flight
 # 2026-07-20) + 1 LES-tower margin (unestablished under MechJeb autostage, same
 # WATCH-4 rationale as B2's max 8) + 1 for the deorbited service stage B4 stages
-# off before reentry. min stays 1: the main recording must exist even if debris
-# admission varies.
-count = { min = 1, max = 9 }
+# off before reentry.#
+# MIN TIGHTENED 1 -> 7 (autotest-roadmap R1, 2026-07-27). The old min of 1 was set
+# when one flight had been measured and hedged "even if debris admission varies".
+# FIVE flights on this exact fixture have now measured the population and it has
+# never varied: B2 2026-07-20 = 7 (1 root + 6 boosters); B11 flight 4, B12 flight 5,
+# B13 flight 1 and B14 flight 1 = 8 each (1 root + 6 boosters + 1 flameout-staged
+# ascent core). 6 boosters is the deterministic part of every one of them, so
+# 1 + 6 = 7 is the floor this flight actually supports. At min 1 the window read
+# PASS with the ENTIRE debris population missing - the regression class it exists
+# to catch. RE-PIN CONTRACT (EVA-4's precedent): if a later run legitimately
+# differs, RE-PIN to the newly measured value and record which recordings it
+# produced; do NOT widen back toward 1.
+count = { min = 7, max = 9 }
 
 [expectations.logContracts]
-required  = ["Recording started", "Recording stopped"]
+# `Child recording created \(debris, TTL=` is the POPULATION gate the count window
+# cannot be. Sourced from the emitting call BackgroundRecorder.cs:1177, and it is
+# ParsekLog.INFO - NOT Verbose - so it needs no verboseLogging pin and this spec
+# deliberately adds no SetSetting step for it. The literal line is
+# `Child recording created (debris, TTL=60s): recId=... vesselPid=...`; the
+# parenthesis is ESCAPED because hlib.evaluate_expectations applies each required
+# pattern with re.search, so a bare `(` is a regex group, not text.
+required  = ["Recording started",
+             "Child recording created \\(debris, TTL=",
+             "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

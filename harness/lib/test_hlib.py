@@ -4871,3 +4871,180 @@ class MisplacedAllowedAnomaliesRejectionTests(unittest.TestCase):
         self.assertIn("polyline-orbit-overlap", body,
                       "the dead exception must stay documented, not vanish")
         self.assertIn("NEVER", body)
+
+
+class LogContractPatternCompilabilityTests(unittest.TestCase):
+    """`logContracts` patterns are REGEXES, and the natural way to write a KSP.log
+    token containing metacharacters is the broken way.
+
+    Found 2026-07-27 authoring the autotest-roadmap R1 debris gate. The emitted
+    line is `Child recording created (debris, TTL=60s): recId=...`, and pasting it
+    verbatim into `required` yields `re.error: missing ), unterminated subpattern`.
+    `evaluate_expectations` already CATCHES that and turns it into a mismatch, so
+    nothing crashes - but it runs on the COLLECTED log, i.e. after the flight. On
+    B13 that is its measured 2,825 s p50 spent to learn the author mistyped a
+    pattern, and the red reads `invalid regex` rather than naming a Parsek defect.
+    `validate_spec` now rejects it, so it costs a `--dry-run` instead."""
+
+    def _spec_with_patterns(self, facet, patterns):
+        spec = load_spec("B2-lko-ascent.toml")
+        spec["expectations"]["logContracts"][facet] = patterns
+        return spec
+
+    def test_unescaped_paren_in_required_is_rejected(self):
+        # The exact trap: the R1 debris token pasted verbatim from the C# call.
+        spec = self._spec_with_patterns(
+            "required", ["Recording started", "Child recording created (debris, TTL="])
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok, "an uncompilable required pattern must REJECT")
+        hit = [e for e in v.errors if "not a valid regex" in e]
+        self.assertEqual(1, len(hit))
+        self.assertIn("Child recording created (debris, TTL=", hit[0])
+
+    def test_the_error_carries_the_fix_not_just_the_diagnosis(self):
+        spec = self._spec_with_patterns(
+            "required", ["Child recording created (debris, TTL="])
+        msg = [e for e in hlib.validate_spec(spec, load_registry()).errors
+               if "not a valid regex" in e][0]
+        self.assertIn("re.search", msg)          # WHY it is a regex at all
+        self.assertIn(r"\\(", msg)               # the literal escape to write
+        self.assertIn("unterminated subpattern", msg)  # the interpreter's own reason
+
+    def test_forbidden_patterns_are_checked_too(self):
+        # forbidden fails in the more dangerous direction: an uncompilable
+        # forbidden pattern can never MATCH, so a broken one reads as "this bad
+        # thing never happened" for as long as nobody looks.
+        spec = self._spec_with_patterns("forbidden", ["\\[Parsek\\]\\[ERROR\\](unclosed"])
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("logContracts.forbidden" in e and "not a valid regex" in e
+                            for e in v.errors))
+
+    def test_committed_metacharacter_patterns_still_validate(self):
+        # The gate must not punish CORRECT escaping. These three are committed,
+        # load-bearing and deliberately full of metacharacters; a gate that
+        # rejected them would be a gate nobody could adopt.
+        spec = self._spec_with_patterns("required", [
+            r"CommitTreeFlight terminal: rec=\w+ terminalState=Destroyed terminalOrbitBody=\(null\)",
+            r"Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
+            r"Child recording created \(debris, TTL=",
+        ])
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+
+    def test_every_committed_spec_pattern_compiles(self):
+        # The sweep the gate exists to keep true.
+        broken = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            lc = (load_spec(name).get("expectations", {}) or {}).get("logContracts", {}) or {}
+            for facet in ("required", "forbidden"):
+                for pat in lc.get(facet, []) or []:
+                    try:
+                        re.compile(pat)
+                    except re.error as exc:
+                        broken.append("%s %s %r: %s" % (name, facet, pat, exc))
+        self.assertEqual([], broken)
+
+
+class DebrisPopulationGateTests(unittest.TestCase):
+    """autotest-roadmap R1: the five Kerbal X flights that produced a
+    parent-anchored debris population on every run and asserted nothing about it.
+
+    B2/B4/B5/B6/B7 all fly `fixtures/saves/b2-lko-craft` (the stock Kerbal X),
+    shed six radial boosters on ascent, and each booster becomes a
+    parent-anchored debris child. Their count windows read `min = 1`, so the
+    total loss of that population still read PASS. These cells pin the gate that
+    replaced it: a population TOKEN plus a floor the flight actually supports."""
+
+    GATED = ["B2-lko-ascent.toml", "B4-reentry-splashdown.toml", "B5-mun-flyby.toml",
+             "B6-minmus-flyby.toml", "B7-duna-flyby.toml"]
+
+    # The literal line BackgroundRecorder.cs:1177 emits, with DebrisTTLSeconds = 60.0
+    # rendered through "F0". Not a paraphrase: the token has to match THIS.
+    EMITTED = ("[Parsek][INFO][BgRecorder] Child recording created (debris, TTL=60s): "
+               "recId=rec_ab12 vesselPid=1140654732 name='Kerbal X Debris' "
+               "parentRecId=rec_root")
+    TOKEN = r"Child recording created \(debris, TTL="
+
+    def test_each_gated_spec_requires_the_debris_token(self):
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                req = load_spec(name)["expectations"]["logContracts"]["required"]
+                self.assertIn(self.TOKEN, req)
+
+    def test_the_token_matches_the_line_the_source_actually_emits(self):
+        # The whole gate rests on this one correspondence.
+        self.assertIsNotNone(re.search(self.TOKEN, self.EMITTED))
+
+    def test_the_token_is_sourced_from_a_live_call_site(self):
+        # If the C# message is ever reworded, this reds HERE - a free unit test -
+        # instead of on the next nightly flight.
+        src = os.path.join(PARSEK_SOURCE_DIR, "BackgroundRecorder.cs")
+        with open(src, encoding="utf-8-sig") as fh:
+            body = fh.read()
+        self.assertIn("Child recording created (debris, TTL={DebrisTTLSeconds:F0}s)", body)
+        self.assertIn("internal const double DebrisTTLSeconds = 60.0;", body)
+        # ParsekLog.Info, NOT Verbose: this is why no spec needs a verboseLogging
+        # pin for it, and the roadmap's claim that every R1 token is Verbose was
+        # wrong. The Info call opens 3 lines above the message.
+        idx = body.index("Child recording created (debris, TTL=")
+        self.assertIn('ParsekLog.Info("BgRecorder"', body[idx - 120:idx])
+
+    def test_no_gated_spec_relies_on_verbose_logging_for_it(self):
+        # A Verbose token would need a `SetSetting verboseLogging true` step to be
+        # dependable. This one does not, and none of the five declares one - so if
+        # someone later downgrades the C# call to Verbose, the test above reds and
+        # this records why it matters.
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                steps = load_spec(name)["driver"].get("steps", [])
+                sets = [s for s in steps
+                        if (s or {}).get("args", {}).get("name") == "verboseLogging"]
+                self.assertEqual([], sets)
+
+    def test_the_floor_admits_the_main_recording_alone_nowhere(self):
+        # The defect in one assertion: min = 1 means "the main recording exists".
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                count = load_spec(name)["expectations"]["recordings"]["count"]
+                self.assertGreaterEqual(
+                    count["min"], 7,
+                    "1 root + 6 radial boosters is the measured deterministic floor")
+                self.assertLessEqual(count["min"], count["max"])
+
+    def test_each_gated_spec_claims_the_cell_its_token_gates(self):
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                self.assertIn("parent-anchored-debris",
+                              load_spec(name)["dimensionsCovered"]["D3"])
+
+    def test_the_claimed_cell_exists_in_the_registry(self):
+        self.assertIn("parent-anchored-debris", load_registry()["D3"]["values"])
+
+    def test_the_gate_bites_end_to_end(self):
+        # Round trip through the REAL evaluator, one facet at a time, so a green
+        # here cannot be inherited from some other assertion in the block.
+        spec = load_spec("B2-lko-ascent.toml")
+        exp = spec["expectations"]
+        good_log = "Recording started\n%s\nRecording stopped\n" % self.EMITTED
+        self.assertEqual("PASS", hlib.evaluate_expectations(exp, 7, good_log).status)
+
+        # Population gone, count still inside the OLD window: the exact regression
+        # the old spec read as PASS.
+        no_debris = "Recording started\nRecording stopped\n"
+        r = hlib.evaluate_expectations(exp, 1, no_debris)
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("Child recording created" in m for m in r.mismatches))
+        self.assertTrue(any("< min 7" in m for m in r.mismatches))
+
+    def test_the_old_window_would_have_passed_that_same_regression(self):
+        # Negative control for the cell above: without the change, the identical
+        # log and count read PASS. This is what makes the fix load-bearing rather
+        # than decorative.
+        old = {"recordings": {"count": {"min": 1, "max": 8}},
+               "logContracts": {"required": ["Recording started", "Recording stopped"],
+                                "forbidden": [r"\[Parsek\]\[ERROR\]"]}}
+        self.assertEqual(
+            "PASS",
+            hlib.evaluate_expectations(old, 1, "Recording started\nRecording stopped\n").status)

@@ -401,15 +401,15 @@ This is SYSTEMIC, not a B2 quirk. Measured over the committed specs 2026-07-26,
 SEVEN live-proven scenarios carry a recording-count window whose lower bound
 admits the main recording alone:
 
-| Scenario | window | span |
-|---|---|---|
-| B1-pad-hop | {1, 6} | 5 |
-| B2-lko-ascent | {1, 8} | 7 |
-| B4-reentry-splashdown | {1, 9} | 8 |
-| B5-mun-flyby | {1, 9} | 8 |
-| B6-minmus-flyby | {1, 9} | 8 |
-| B7-duna-flyby | {1, 8} | 7 |
-| BDOCK-1-station-interceptor | {2, 20} | 18 |
+| Scenario | window | span | status |
+|---|---|---|---|
+| B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
+| B2-lko-ascent | {1, 8} | 7 | CLOSED 2026-07-27 -> `{7, 8}` + debris token |
+| B4-reentry-splashdown | {1, 9} | 8 | CLOSED 2026-07-27 -> `{7, 9}` + debris token |
+| B5-mun-flyby | {1, 9} | 8 | CLOSED 2026-07-27 -> `{7, 9}` + debris token |
+| B6-minmus-flyby | {1, 9} | 8 | CLOSED 2026-07-27 -> `{7, 9}` + debris token |
+| B7-duna-flyby | {1, 8} | 7 | CLOSED 2026-07-27 -> `{7, 8}` + debris token |
+| BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
 
 Every one of them would still read PASS if Parsek stopped writing child /
 debris recordings entirely. The wide MAX is defensible and deliberately
@@ -437,16 +437,39 @@ Tokens verified present in source:
 | `starting hysteresis timer` | `FlightRecorder.cs:4831,4911` | D4 `hysteresis` |
 | `Part event: <Type> '<part>` | `FlightRecorder.cs:1507`, `BackgroundRecorder.PartEventPolling.cs` | D7 `decouple-stage-destroy`, `chute-cut`, `gear` |
 
-Part events log as `Part event: {eventType} '{partName}'` with `eventType` from the
-`PartEventType` enum, so `Decoupled`, `Destroyed`, `ParachuteCut`, `GearDeployed`,
-`FairingJettisoned` and the rest are all producible forms. They are `ParsekLog.Verbose`;
-`ParsekSettings.verboseLogging` defaults `true` and `B1-pad-hop` already pins two of
-them (`Part event: ParachuteSemiDeployed 'parachuteSingle`), so the pattern is proven.
+CORRECTED 2026-07-27 while building this: **the four `BackgroundRecorder` tokens are
+`ParsekLog.Info`, not Verbose.** Only the `Part event:` family is Verbose. That matters
+because it decides whether a spec needs a `SetSetting verboseLogging true` step to
+depend on a token: the debris / TTL / sample-rate claims do NOT, and the five specs
+gated below deliberately declare none. Part events log as
+`Part event: {eventType} '{partName}'` with `eventType` from the `PartEventType` enum,
+so `Decoupled`, `Destroyed`, `ParachuteCut`, `GearDeployed`, `FairingJettisoned` and
+the rest are all producible forms; those ARE Verbose, `ParsekSettings.verboseLogging`
+defaults `true` (`ParsekSettings.cs:50`), and `B1-pad-hop` pins two of them
+(`Part event: ParachuteSemiDeployed 'parachuteSingle`), so that pattern is proven too.
 
-Targets: `B2-lko-ascent` (add tokens, and tighten the count window from the measured
-7 while you are there), `B11-mun-orbit`, `B12-minmus-orbit`, `B13-mun-landing`,
-`B14-minmus-landing`, `B4-reentry-splashdown`, `EVA-4-atmo-chute`.
-Roughly 8 cells. Cost: one PR. Proven on the next nightly.
+**Every one of these tokens is a REGEX**, applied with `re.search` by
+`evaluate_expectations`. `Child recording created (debris, TTL=` pasted verbatim from
+the source raises `re.error: missing ), unterminated subpattern`; write
+`Child recording created \(debris, TTL=`. `hlib.validate_spec` rejects an
+uncompilable pattern since 2026-07-27, so this now costs a `--dry-run` rather than a
+flight.
+
+SHIPPED 2026-07-27 (debris population): `B2-lko-ascent`, `B4-reentry-splashdown`,
+`B5-mun-flyby`, `B6-minmus-flyby`, `B7-duna-flyby` - each requires the debris-creation
+token, pins `count.min = 7`, and claims D3 `parent-anchored-debris`. Coverage 83 -> 84.
+
+The Targets line this section originally carried was wrong and is replaced by the
+status column in the table above: it named `B11`/`B12`/`B13`/`B14`, which already had
+`{8,8}` pins and six-token contracts (B11 even requires `terminalState=Destroyed`,
+which gates debris terminals), and omitted `B5`/`B6`/`B7`, which were vacuous.
+
+STILL OPEN: D5 `staging-debris-ttl` and D2 `proximity-cadence-bg`. Their tokens exist
+and are Info, but neither is structurally guaranteed the way creation is -
+`DebrisTTLSeconds = 60.0` makes TTL expiry likely, not certain, since a booster
+destroyed on reentry inside that window ends its recording by another reason. Claiming
+on "likely" is what this section's own rule forbids. Close them by grepping an
+archived B-lane KSP.log for both tokens first.
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
 **R2. Resolve the two registry defects.** Registry-only.
