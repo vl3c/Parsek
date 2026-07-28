@@ -22,10 +22,12 @@ run against a real KSP instance: no `run.py`, no `provision.py`, no launch.
 
 ## Baseline, and the lanes already in flight against it
 
-Every count in this file is measured at `1591aa59f` and **excludes work open in
-review at the time of writing**. Four PRs were open against that same base, and three
-of them land inside this roadmap's build order. Read the numbers as the state of
-`main`, not as the state of the project:
+Every count in this file was originally measured at `1591aa59f` and **excluded
+work open in review at the time of writing**. All four PRs listed below have since
+MERGED (by 2026-07-28), along with #1362 (R1 gates), #1363 (H20 tally pin), #1365
+(R1-EMPTY-PROVISIONAL resolved as a fixture artifact), #1366 (CL-1 crew-loss atom)
+and #1367 (R5 isolated batches). The sections above are re-derived at that state;
+the table below is kept for history:
 
 | PR | Branch | Overlaps |
 |---|---|---|
@@ -50,31 +52,34 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 53 committed
+### Scenarios: 55 committed
 
-`ls harness/scenarios/*.toml` returns **53** files. This baseline was written at
-38, correct at `origin/main` when the roadmap landed; #1358 took it to 52 by wiring
-14 in-game categories as batch-only specs, and PR #1357 adds `R1-rewind-loop-flown`
-as the 53rd. Coverage moved to **96 of 241** across those merges - #1358's 14 specs
-carry the gain, R1 adds none because it claims no registry value that was not
-already claimed. Adding a scenario is not the same as covering a cell. Re-derive
-these rather than editing them by memory; both numbers have moved three times in
-two days.
+`ls harness/scenarios/*.toml` returns **55** files. This baseline was written at
+38, correct at `origin/main` when the roadmap landed. Since then: #1358 took it to
+52 (14 in-game batch specs), #1357 added `R1-rewind-loop-flown` (53), #1366 added
+`CL-1-pod-impact` (54, the crew-loss atom), and #1367 added
+`H21-scene-exit-merge-isolated` (55, the first isolated-batch spec). Coverage moved
+to **97 of 242**: #1358's specs carried the bulk of the gain, CL-1 added AND covered
+the new D12 `crew-death-in-flight` value (which is also what moved the denominator
+to 242), H21 covered the isolated scene-exit merge, and R1 added none because it
+claims no registry value that was not already claimed. Adding a scenario is not the
+same as covering a cell. Re-derive these rather than editing them by memory; both
+numbers have moved five times in three days.
 
-### Coverage: 96 of 241 registry cells (was 83 of 241 pre-#1358)
+### Coverage: 97 of 242 registry cells (was 83 of 241 at the baseline)
 
 `hlib.compute_coverage(specs, [], registry)` over the committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 96   uncovered 145   expectedFailValues 3   xpass 0
+values 242   covered 97   uncovered 145   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered):
 
 | Dim | Subject | Total | Uncovered |
 |---|---|---:|---:|
-| D1 | recording lifecycle | 18 | **9** |
+| D1 | recording lifecycle | 18 | 8 |
 | D2 | sampling | 4 | 1 |
 | D3 | reference frames | 7 | 4 |
 | D4 | track sections / optimizer | 12 | 6 |
@@ -82,33 +87,37 @@ Per dimension (total / uncovered):
 | D6 | playback / ghosts | 16 | 11 |
 | D7 | part events / FX | 16 | 12 |
 | D8 | ledger / career | 18 | 6 |
-| D9 | rewind / re-fly | 16 | 8 |
+| D9 | rewind / re-fly | 16 | 9 |
 | D10 | logistics / routes | 20 | 12 |
 | D11 | missions abstraction | 18 | 10 |
-| D12 | crew | 9 | 8 |
+| D12 | crew | 10 | 8 |
 | D13 | spawn positioning | 11 | 7 |
 | D14 | bodies / scenes | 32 | 18 |
 | D15 | timeline | 1 | 1 |
 | D16 | storage / sidecars | 13 | 9 |
 | D17 | mod compatibility | 6 | **6** |
 | D18 | re-fly / interaction | 12 | 10 |
-| | | **241** | **158** |
+| | | **242** | **145** |
 
 ### The headline
 
-We have flown Eve and Duna interplanetary missions. Meanwhile **13 of the 18 basic
-recording-lifecycle cells (D1) have never been exercised**, D13 spawn positioning is
-11 of 11 uncovered, and D17 mod compatibility is 6 of 6 uncovered.
+At the baseline this read: 13 of 18 basic recording-lifecycle cells (D1) never
+exercised, D13 spawn positioning 11 of 11 uncovered, D17 mod compatibility 6 of 6.
+One wave later (measured 2026-07-28 at `7f5efa738`) D1 is down to **8 of 18** -
+the R4-family batches, H21 and the R1 gates closed `commit-scene-exit`,
+`switch-segment`, `scene-exit-finalization`, `ballistic-extrapolation` and
+`finalization-cache` - and D13 is down to 7 of 11. D17 is untouched at 6 of 6.
 
-The uncovered D1 cells are the ordinary things a player does every session:
+The D1 cells still uncovered are ordinary player actions:
 
 ```
 auto-record-first-mod-switch  manual-gloops        stop-on-switch
-commit-revert-merge           commit-scene-exit    commit-abort
-auto-merge                    sub-2-point-drop     switch-segment
-switch-segment-noop-discard   scene-exit-finalization
-ballistic-extrapolation       finalization-cache
+commit-revert-merge           commit-abort         auto-merge
+sub-2-point-drop              switch-segment-noop-discard
 ```
+
+(`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
+deletion rather than coverage.)
 
 D9 is worse than its 8-uncovered row suggests. Seven further D9 cells are "covered"
 only by `S1.5-rewind-loop` and `S4.1-rewind-merge`, both `tier = "operator"`, both
@@ -416,6 +425,9 @@ batch / injected-corpus boot enough.
 ### Tier 0: free or nearly free. Do these first.
 
 **R1. Close the gates on what we already fly.** Spec-only. No flights. No code.
+**SHIPPED 2026-07-27 (PR #1362)**: the five Kerbal X debris-population tokens are
+gated, so D3 `parent-anchored-debris` and its siblings now assert instead of
+narrate.
 
 Not because it is cheap, though it is, but because each of these is a surface a
 live-proven scenario produces on every nightly with no assertion. `B2-lko-ascent`
@@ -561,7 +573,10 @@ on "likely" is what this section's own rule forbids. Close them by grepping an
 archived B-lane KSP.log for both tokens first.
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
-**R2. Resolve the two registry defects.** Registry-only.
+**R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
+re-verified 2026-07-28 at `7f5efa738`: both `stop-on-switch` and
+`surface-body-fixed` are still in `registry.toml`, so the 242 denominator still
+carries two unclaimable cells.
 
 D1 `stop-on-switch` and D3 `surface-body-fixed` cannot be honestly claimed as
 written (see Cause F). Both R1 and everything after it writes claims against the
@@ -570,6 +585,11 @@ rather than retracting claims later. Cost: one edit to
 `harness/coverage/registry.toml` comments and values.
 
 **R3. Run S1.5 and S1.4's sibling S4.1 unattended. Two boots.**
+**PARTLY OVERTAKEN**: #1357 re-tiered both to `nightly` on exactly this premise, and
+the 2026-07-28 fixture-corrected R1 run (`2026-07-28_1509`, PASS) resolved
+R1-EMPTY-PROVISIONAL as a fixture artifact, after which S4.1's `expectedFail` keys
+were removed. What this item still means: confirm each has a green run on its OWN
+row - a nightly-tier assignment is scheduling, not proof.
 
 Both are `tier = "operator"` on the rationale, quoted from
 `S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9`, that the verbs are
@@ -599,6 +619,10 @@ synthetically; that path has never executed live.
 Flight? No. Two seam boots.
 
 **R4. Drive the D1 finalization family. Five specs, five boots, no code.**
+**MOSTLY SHIPPED**: #1358 wired and flew `IncompleteBallistic` (H9),
+`FinalizeBackfill` (H10) and `RecordingFinalization` (H19), and #1367's H21 covers
+the scene-exit merge path via the isolated batch. Residual: `FinalizeLimbo` (2) and
+`Bug289` (2) are still undriven.
 
 `IncompleteBallistic` (8), `FinalizeBackfill` (7), `RecordingFinalization` (3),
 `FinalizeLimbo` (2), `Bug289` (2). All 22 are FLIGHT-scene and all are
