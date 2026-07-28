@@ -73,7 +73,7 @@ flight profile applies to it byte for byte.
 
 | Facet | Pinned value | Why it matters |
 | --- | --- | --- |
-| Mode | `CAREER` | a SANDBOX death cannot exercise the ledger at all |
+| Mode | `CAREER` | a SANDBOX death cannot exercise the ledger at all. NOTE: `CL-1-pod-impact` asserts nothing about the ledger today (its commit is unreachable - see the spec header); career still matters here because `MissingCrewsRespawn` decides the kerbal's terminal roster reading, and because the run MEASURES the career-milestone terms the ledger extension needs |
 | Funding / RnD / Reputation | `500000` / `100` / `0` | inherited from `fresh-career`; the ledger-oracle seed |
 | Facilities (all 10) | `lvl = 0` | inherited |
 | Vessel | stock "Jumping Flea" (mk1pod.v2 + parachuteSingle + 2x GooExperiment + solidBooster.sm.v2 + fins), `sit = PRELAUNCH` on the LaunchPad | `stg = 2`, booster at `istg = 1` and chute at `istg = 0`, so ONE stage activation ignites the booster and leaves the chute stowed |

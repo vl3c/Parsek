@@ -947,14 +947,46 @@ class SpecContractTests(unittest.TestCase):
         self.assertEqual(1, len(mission))
         self.assertEqual("MISSION-OK", mission[0]["expect"])
 
-    def test_commit_tree_runs_after_the_mission(self):
-        # The kerbal-death ledger row is created at COMMIT time, which is why the
-        # mission must be MET (an unmet one drives the cleanup tail only and skips
-        # CommitTree, and the scenario could not reach its own subject).
+    def test_the_spec_drives_no_commit_and_declares_no_ledger_block(self):
+        # PROVEN UNREACHABLE, not a preference (Opus review panel 2026-07-28,
+        # reviewer 2). When the ACTIVE RECORDED vessel is destroyed in tree mode,
+        # ParsekFlight stashes the tree as PENDING and nulls activeTree, so the
+        # seam's CommitTree fails its HasActiveTree guard: the archived crash of
+        # this exact craft logs `committree no-active-tree` and
+        # `OnSave: saving 0 committed tree(s)`
+        # (logs/2026-07-20_1829_B1-pad-hop/KSP.log:11310, :11325). An unmet step
+        # would make the run driver-INVALID and SKIP every verifier below it, so
+        # the scenario would produce no evidence about the death at all.
+        #
+        # Everything commit-dependent goes with it: the two ledger tokens and
+        # `[expectations.ledger]`. This cell is what stops them being re-added
+        # without the commit route that makes them reachable.
         cmds = [s.get("cmd") for s in self.spec["driver"]["steps"]]
-        self.assertIn("CommitTree", cmds)
-        self.assertGreater(cmds.index("CommitTree"),
-                           [s.get("phase") for s in self.spec["driver"]["steps"]].index("mission"))
+        self.assertNotIn("CommitTree", cmds)
+        self.assertNotIn("ledger", self.spec["expectations"])
+        required = self.spec["expectations"]["logContracts"]["required"]
+        for commit_only in ("PopulateCrewEndStates", "CreateKerbalAssignmentActions",
+                            "committree"):
+            self.assertFalse(
+                any(commit_only in p for p in required),
+                "%s is emitted only on a commit this scenario cannot reach"
+                % commit_only)
+
+    def test_the_destruction_path_tokens_are_required(self):
+        # The three tokens that pin the recorder-side shape of a crew loss end to
+        # end - and the same path that blocks the ledger half, so a change to it
+        # reds here first.
+        required = self.spec["expectations"]["logContracts"]["required"]
+        for token in ("Active vessel destroyed during recording",
+                      "Active vessel destroyed in tree mode",
+                      "ShowPostDestructionTreeMergeDialog: finalized tree",
+                      "pending tree stashed"):
+            self.assertIn(token, required)
+
+    def test_no_ledger_dimension_is_claimed(self):
+        # D8 is entirely commit-time. Claiming any of it while driving no commit
+        # would be coverage this scenario does not earn.
+        self.assertNotIn("D8", self.spec["dimensionsCovered"])
 
     def test_the_scenario_claims_the_new_crew_death_dimension_value(self):
         with open(REGISTRY_PATH, "rb") as fh:
@@ -969,47 +1001,6 @@ class SpecContractTests(unittest.TestCase):
         claimed = self.spec["dimensionsCovered"]["D12"]
         self.assertNotIn("dead-crew-strip", claimed)
         self.assertNotIn("tombstone-rep-penalty", claimed)
-
-
-class LedgerManifestTests(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.spec = _read_spec()
-        cls.block = cls.spec["expectations"]["ledger"]
-
-    def test_the_kerbal_death_kind_is_admitted_by_the_oracle(self):
-        self.assertIn("kerbal-death", oracle.KINDS)
-
-    def test_the_declared_manifest_parses_clean(self):
-        parsed = oracle.parse_manifest_entries(self.block["manifest"])
-        self.assertEqual((), parsed.errors)
-        self.assertEqual(1, len(parsed.entries))
-        self.assertEqual("kerbal-death", parsed.entries[0].kind)
-
-    def test_the_death_is_declared_pool_neutral(self):
-        # Nothing in Source/Parsek ever constructs a
-        # ReputationPenaltySource.KerbalDeath action, so there is no repo-derivable
-        # magnitude to declare; zero is the strongest falsifiable claim before a
-        # flight. If a live run reds on reputation, RE-PIN from observedAfter=.
-        entry = self.block["manifest"][0]
-        self.assertEqual(0.0, entry["funds"])
-        self.assertEqual(0.0, entry["science"])
-        self.assertEqual(0.0, entry["reputation"])
-
-    def test_a_zero_rep_entry_leaves_expected_equal_to_the_seed(self):
-        # The arithmetic the scenario actually asserts: with every facet at zero,
-        # expected == seed, so ANY pool movement in the produced save reds.
-        parsed = oracle.parse_manifest_entries(self.block["manifest"])
-        self.assertTrue(parsed.ok)
-        seed = oracle.SeedBaseline(funds=500000.0, science=100.0, reputation=0.0)
-        expected = oracle.compute_expected(seed, parsed.entries)
-        self.assertEqual(500000.0, expected.funds)
-        self.assertEqual(100.0, expected.science)
-        self.assertEqual(0.0, expected.reputation)
-
-    def test_the_seed_comes_from_the_template(self):
-        self.assertEqual("template", self.block["seedFrom"])
 
 
 if __name__ == "__main__":

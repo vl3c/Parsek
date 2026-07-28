@@ -66,24 +66,11 @@ SCHEMA_VERSION = 1
 # The `kind` enum (design ~255, open + additive). v1 validates the enum but the
 # B10 flagship declares no entries. The four contract kinds drive the report-only
 # active-contract-guid transitions.
-#
-# `kerbal-death` (added with CL-1-pod-impact, the crew-loss atom): a kerbal died
-# in flight. It is INERT to the arithmetic exactly like every non-contract kind -
-# only the facet amounts feed `compute_expected`, and `kind` is validation
-# vocabulary plus the human label on the verifier row. It exists so a crew-loss
-# scenario can SAY what its ledger claim is about instead of declaring an empty
-# manifest, which is indistinguishable from having no ledger claim at all (the
-# B10 case). CL-1 declares it at all-zero deltas: the repo establishes no
-# Parsek-authored death rep constant, and nothing in `Source/Parsek/` ever
-# constructs a `ReputationPenaltySource.KerbalDeath` action, so zero is the
-# strongest falsifiable claim available before a live run - and a stock penalty,
-# if one exists, reds this scenario with the measured number in hand.
 KINDS: Tuple[str, ...] = (
     "contract-accept", "contract-complete", "contract-fail",
     "science-transmit", "science-recover", "milestone",
     "facility-upgrade", "facility-refund", "tech-unlock",
-    "kerbal-hire", "kerbal-dismiss", "kerbal-death",
-    "strategy-activate", "strategy-convert",
+    "kerbal-hire", "kerbal-dismiss", "strategy-activate", "strategy-convert",
     "vessel-recovery", "vessel-build-cost", "route-delivery",
 )
 

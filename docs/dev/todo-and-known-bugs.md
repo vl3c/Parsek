@@ -18,8 +18,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **What it is.** A crewed pod launches, does not deploy a chute, and hits the ground. The
 crew dies. That is the whole scenario (`harness/scenarios/CL-1-pod-impact.toml`, mission
-`cl1_pod_impact`). Its job is to make ONE thing observable end to end for the first time:
-what Parsek RECORDS when a kerbal dies, and what the career LEDGER does about it.
+`cl1_pod_impact`). Its job is to make ONE thing gated for the first time: what
+Parsek RECORDS when a kerbal dies. The LEDGER half was cut - see below; that cut is the
+main finding.
 Deliberately out of scope, so it stays the ATOM other crew-loss scenarios extend: EVA,
 any parachute, re-fly / rewind / tombstones, multiple crew, any new seam verb.
 
@@ -73,21 +74,54 @@ MEASURED profile applies verbatim (peak ~11,965 m, terminal -301 m/s by ~2,700 m
 hop, one `.prec`). This also closes roadmap item **R11** ("a CAREER fixture with a flyable
 craft"), which the roadmap proposed closing with a `FORGE-career-pad` FLIGHT.
 
-**The ledger half is declared, with ONE knowingly-unpinned term.** `[expectations.ledger]`
-declares the death POOL-NEUTRAL (`kerbal-death`, all facets 0.0; the `kind` is new
-vocabulary in `oracle.KINDS`). That is a real claim, not a placeholder: nothing in
-`Source/Parsek/` ever CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action - the enum
+**THE LEDGER HALF IS NOT IN THIS SCENARIO, AND THAT IS THE MAIN FINDING.** CL-1 was
+authored with a `CommitTree` step and an `[expectations.ledger]` block, on the correct
+reasoning that the kerbal-death ledger row is created at COMMIT time. Both were CUT after
+the review panel proved the commit is UNREACHABLE on this exact profile:
+
+- When the ACTIVE RECORDED vessel is destroyed in tree mode,
+  `ParsekFlight.OnVesselWillDestroy` takes `DestructionMode.TreeAllLeavesCheck`
+  (`ParsekFlight.cs:3125`) and `ShowPostDestructionTreeMergeDialog` finalizes the tree,
+  STASHES it as the PENDING tree, and nulls `recorder` and `activeTree`
+  (`ParsekFlight.cs:3304-3334`), deferring the merge to a scene transition. The seam's
+  `CommitTreeImpl` then fails its `HasActiveTree` guard
+  (`ParsekTestCommandAddon.cs:1511`) and returns ERROR.
+- MEASURED, not inferred, in `logs/2026-07-20_1829_B1-pad-hop/KSP.log` - the same craft,
+  the same terminal-velocity impact, the same tail: `:11141` in-tree-mode destruction,
+  `:11300` pending tree stashed, `:11310` `[WARN][TestCommands] committree
+  no-active-tree`, `:11325` `OnSave: saving 0 committed tree(s)`. `PopulateCrewEndStates`
+  and `CreateKerbalAssignmentActions` occur ZERO times in that entire log.
+- Both auto-commit routes are gated on `HighLogic.LoadedScene != GameScenes.FLIGHT`
+  (`ParsekScenario.cs:3781` cold-load, `:1121` the OnSave safety net), and no seam verb
+  produces a FLIGHT -> SPACECENTER transition (roadmap R12: a `scene=` argument on
+  `LoadGame` is unbuilt). `FlushAndQuit` saves and quits from inside FLIGHT, which is why
+  that same log's final line is `saving 0 committed tree(s)`.
+
+An unmet `CommitTree` step would have made the run driver-INVALID, which SKIPS every
+verifier below it - the scenario would have produced NO evidence about the crew death at
+all, twice (the subkind is retryable). So the commit-dependent tokens and the ledger block
+are gone, and a unit cell
+(`test_the_spec_drives_no_commit_and_declares_no_ledger_block`) stops them being re-added
+without the commit route that makes them reachable.
+
+**THE LEDGER HALF IS THEREFORE THE ATOM'S FIRST EXTENSION.** What it needs, in order:
+(1) a commit route out of a destroyed-vessel flight - the shape to aim at is
+`SetSetting autoMerge=true` plus a real scene transition, which today means either a new
+`scene=` argument on `LoadGame` (R12) or a dedicated verb; (2) the commit-time tokens
+re-derived from what THAT path emits, not carried over from the `CommitTree` path;
+(3) the career-pool arithmetic, which has a second knowably-unpinned term - a career
+FLIGHT trips stock PROGRESS MILESTONES that move pools (the EVA-4 archive carries
+`Game state: MilestoneAchieved (standalone) 'RecordsSpeed' funds=4800 rep=1.0 sci=0.0`,
+inert in that SANDBOX save, live in a career one). CL-1's own first run MEASURES those,
+without asserting them, in its `.analysis.json` careerSave block - which is exactly the
+input the extension needs and nobody has.
+
+Also NOT established, and needed before any death-rep constant is declared: nothing in
+`Source/Parsek/` ever CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action (the enum
 member is referenced only by the UI label formatter, the post-walk reason-key map, and
-deserialization - so there is no repo-derivable magnitude to declare, and zero is the
-strongest falsifiable claim available before a flight. **P2, stated up front:** this is
-the suite's first career FLIGHT, and a flight trips stock PROGRESS MILESTONES that DO move
-career pools (the archived run carries `Game state: MilestoneAchieved (standalone)
-'RecordsSpeed' funds=4800 rep=1.0 sci=0.0` - inert in that SANDBOX save, live in a career
-one). Which records a 12 km crewed hop trips is not derivable from this repo and is NOT
-pre-declared from a guess. The first run's ledger-oracle verifier row reports the drift
-per facet; each award then becomes its own `kind = "milestone"` entry with the measured
-constant. The spec is therefore tiered `operator` with an inline PROMOTE note naming
-`nightly`, so a systematic first-run ledger red cannot pollute the nightly sweep.
+deserialization), and the repo contradicts itself on the stock `TransactionReasons` key -
+`PostWalkActionReconciler.cs:213` says `CrewKilled`, `reputation-reservation-not-warranted.md:133-134`
+says `VesselLoss`. Neither is pinned against the enum; the magnitude is nowhere.
 
 **Mutation-checked.** 17 mutations over the CL-1 cells, 16 killed and 1 proved
 EQUIVALENT. The survivor is the deletion of the alive-aboard conjunct from the
