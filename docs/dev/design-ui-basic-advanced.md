@@ -290,7 +290,7 @@ The Timeline GoTo button (section 4.1a) reuses `UiSurface.TabRecordings` as its 
 ### 6.2 Changes to existing types
 
 **`ParsekSettings`** (`Source/Parsek/ParsekSettings.cs`):
-- `uiComplexityMode: int` - default `0` (Basic). Stored as int to match the existing `samplingDensity` / `autoLoopTimeUnit` convention rather than introducing an enum-typed persisted field.
+- `uiComplexityMode: int` - stored as int to match the existing `samplingDensity` / `autoLoopTimeUnit` convention rather than introducing an enum-typed persisted field. The RAW field default is `Advanced` (fail-open): the default is nearly irrelevant because `ApplyTo` always resolves the effective value (stored key, else first-run resolution), and if any path reads the field before a restore, showing everything is the safe wrong answer. No `CustomParameterUI` attribute: the stock difficulty screen would be a second writer bypassing the setter seam.
 - A clamping typed accessor following the `SamplingDensity` precedent (`ParsekSettings.cs:108-114`): an out-of-range stored int resolves to **Advanced** (fail-open: showing everything is the safe wrong answer; hiding windows is not).
 
 **`ParsekSettingsPersistence`** (`Source/Parsek/ParsekSettingsPersistence.cs`), following the full `showRouteLines`-analog wiring, adjusted for int (showRouteLines is bool via `TryLoadBool` `:159-171`; the int path is `ParseStoredInt` `:173-180`):
