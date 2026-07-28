@@ -14,11 +14,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [IN PROGRESS, phase 2 of 8 landed, branch `claude/mods-ui-basic-advanced-amrgy9`]
+## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [IN PROGRESS, phase 3 of 8 landed, branch `claude/mods-ui-basic-advanced-amrgy9`]
 
 Players report the UI is too complicated: the main window launches eight windows totalling ~25k lines of IMGUI across 13 surfaces. Design doc: `docs/dev/design-ui-basic-advanced.md`.
 
-Phase 2 landed the pure decision core in `Source/Parsek/UI/UiComplexityMode.cs` (`UiComplexityMode` / `UiSurface` enums, `UiSurfaceVisibility.IsVisible` / `HiddenSurfaces` / `ResolveMode`) with `Source/Parsek.Tests/UiComplexityModeTests.cs`. Inert: nothing calls it yet, no persisted field, no draw site gated, so there is no user-facing change and no CHANGELOG entry. Phase 3 (settings field + persistence + toggle UI + setter seam) is next.
+Phase 2 landed the pure decision core in `Source/Parsek/UI/UiComplexityMode.cs` (`UiComplexityMode` / `UiSurface` enums, `UiSurfaceVisibility.IsVisible` / `HiddenSurfaces` / `ResolveMode`) with `Source/Parsek.Tests/UiComplexityModeTests.cs`.
+
+Phase 3 landed the setting and its plumbing: `ParsekSettings.uiComplexityMode` (persisted int, raw default Advanced = fail-open) plus the clamping `UiComplexityModeLevel` accessor routed through `UiSurfaceVisibility.FromStoredInt`; full `showRouteLines`-analog wiring in `ParsekSettingsPersistence` for the int key (`RecordUiComplexityMode`, `ApplyTo` restore branch, `Save` branch, both diagnostic lines, `ResetForTesting`, `GetStoredUiComplexityMode` / `SetStoredUiComplexityModeForTesting`, plus the new `HasAnyStoredValue()` and the temp-dir-drivable `SavesRootHasParsekDirectory(savesRoot)`); the design 7.3 first-run resolution living entirely in the persistence layer, with `ParsekScenario.OnLoad` passing only a bare `scenarioNodePopulated` bool so the mode vocabulary stays out of it for the phase-8 grep gate; the single setter seam `ParsekUI.SetUiComplexityMode`; and a new "Interface" section drawn first in the Settings window. Tests: `Source/Parsek.Tests/UiComplexityModePersistenceTests.cs` (stored-wins before footprint, `ResolutionIsSticky`, each footprint signal alone, out-of-range clamp, and the two log-assertion cases). The toggle is live and persists but gates nothing yet, so there is still no CHANGELOG entry - the feature entry lands in phase 8 with the gates. Phase 4 (main-window button gates + the frame-latched mode apply, which replaces the seam's current immediate apply) is next.
 
 Analysis result - Basic keeps Timeline, Missions, Logistics, Settings; hides the Recordings tab (the raw per-recording table, 62 buttons / 13 toggles), the Career window (2 buttons, 2 toggles, zero mutations - pure read-only reference), the Kerbals window (4 buttons, 0 toggles, zero mutations), Gloops Flight Recorder, Real Spawn Control, and the Diagnostics + Sample Density settings sections. Advanced stays byte-identical to today.
 

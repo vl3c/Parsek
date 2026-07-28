@@ -163,6 +163,8 @@ namespace Parsek
                     CommitAutoLoopEdit(s);
             }
 
+            DrawInterfaceSettings(s);
+            GUILayout.Space(SpacingSmall);
             DrawRecordingSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawLoopingSettings(s);
@@ -256,6 +258,46 @@ namespace Parsek
                 };
             }
         }
+
+        /// <summary>
+        /// Basic / Advanced UI complexity toggle (design 6.2). Drawn FIRST because it
+        /// governs which of the sections below a player even sees once the phase 4-6
+        /// gates land. Uses the two-option selected-is-a-box button row of
+        /// <see cref="DrawSamplingSettings"/> rather than a checkbox: the two modes are
+        /// peers, not an on/off of one of them.
+        ///
+        /// <para>The click routes through <see cref="ParsekUI.SetUiComplexityMode"/>, the
+        /// single setter seam - never a direct write to the settings field.</para>
+        /// </summary>
+        private void DrawInterfaceSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Interface", parentUI.GetSectionHeaderStyle());
+
+            GUILayout.BeginHorizontal();
+            foreach (UiComplexityMode mode in new[] { UiComplexityMode.Basic, UiComplexityMode.Advanced })
+            {
+                bool isSelected = s.UiComplexityModeLevel == mode;
+                GUIStyle style = isSelected ? GUI.skin.box : GUI.skin.button;
+                if (GUILayout.Button(
+                    new GUIContent(UiComplexityModeLabel(mode), UiComplexityModeTooltip(mode)), style))
+                {
+                    if (!isSelected)
+                        ParsekUI.SetUiComplexityMode(mode);
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label("Basic hides power-user windows. Advanced is the full UI.",
+                GUI.skin.label);
+        }
+
+        private static string UiComplexityModeLabel(UiComplexityMode mode)
+            => mode == UiComplexityMode.Basic ? "Basic" : "Advanced";
+
+        private static string UiComplexityModeTooltip(UiComplexityMode mode)
+            => mode == UiComplexityMode.Basic
+                ? "Show only the core loop: Timeline, Missions, Logistics, and Settings."
+                : "Show every Parsek window and settings section.";
 
         private void DrawRecordingSettings(ParsekSettings s)
         {

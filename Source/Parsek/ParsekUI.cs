@@ -183,6 +183,43 @@ namespace Parsek
         internal static string GetCareerMainButtonLabel() => "Career";
 
         /// <summary>
+        /// The SINGLE setter seam for the Basic / Advanced UI complexity mode
+        /// (design `docs/dev/design-ui-basic-advanced.md` section 6.2). Every mode write
+        /// - the Settings toggle, tests, any future "Defaults" path - goes through here.
+        /// Nothing may write <c>ParsekSettings.uiComplexityMode</c> directly: window
+        /// BODIES are deliberately never gated, so a writer that bypasses this seam would
+        /// leave hidden windows drawing and holding input locks in Basic.
+        ///
+        /// <para>PHASE 3 NOTE: the new value is applied IMMEDIATELY here. That is safe
+        /// only because no draw site reads the mode yet, so a mid-OnGUI flip cannot
+        /// change any IMGUI control count. Phase 4 converts this body to the
+        /// frame-latched pending apply of design 7.2 (record a pending mode, latch it in
+        /// the controller's <c>Update()</c>, run the close handler + tab clamp there) the
+        /// moment the first gate lands. The persist and the log line stay as they are.</para>
+        /// </summary>
+        internal static void SetUiComplexityMode(UiComplexityMode next)
+        {
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null)
+            {
+                ParsekLog.Warn("UI",
+                    $"Mode change to {next} ignored: no active ParsekSettings");
+                return;
+            }
+
+            UiComplexityMode previous = settings.UiComplexityModeLevel;
+            if (next == previous)
+            {
+                ParsekLog.Verbose("UI", $"Mode change to {next} is a no-op (already active)");
+                return;
+            }
+
+            settings.UiComplexityModeLevel = next;
+            ParsekSettingsPersistence.RecordUiComplexityMode((int)next);
+            ParsekLog.Info("UI", $"Mode changed: uiComplexityMode={previous}->{next}");
+        }
+
+        /// <summary>
         /// Returns the resource budget.
         /// </summary>
         internal BudgetSummary GetCachedBudget()
