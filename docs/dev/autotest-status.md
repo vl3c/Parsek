@@ -647,9 +647,15 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 918 mission-machine + 768 harness + 203 provisioner unittest
+- Headless: 1,013 mission-machine + 836 harness + 203 provisioner unittest
   cells; 18,669 xUnit on the C# side (18,668 passed + 1 skipped: analyzer,
-  seam, log contracts, the new route-window delta formatter). Re-measured
+  seam, log contracts, the new route-window delta formatter). The three Python
+  figures were re-measured 2026-07-28 on `fix-park-warp-teardown` (branched
+  from `origin/main` at 861e6fbfe, which carries the merge wave the previous
+  note tracked); that branch adds 6 of the 1,013 mission-machine cells and the
+  rest of the 918 -> 1,013 / 768 -> 836 movement is inherited, not new here.
+  The xUnit figure is CARRIED FORWARD, not re-measured - this branch touches no
+  C#. Previously re-measured
   2026-07-26 from `autotest-render-parity` AFTER its SECOND merge of
   `origin/main` (which carried `autotest-orbit-missions` ->
   `autotest-landing-missions` -> `autotest-eve-missions` ->

@@ -8412,6 +8412,16 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             st = replace(st, warp_cmd=0)
             warp_actions.append(Action(ACTION_SET_RAILS_WARP, 0.0))
         if _b5_over_budget(st, snapshot):
+            # CARRY the teardown out with the give-up (2026-07-28 review). The
+            # self-heal above already mutated `st` to say the warp is down, so
+            # returning [] here would ship a state that LIES: a PARK that times
+            # out on the same frame a stray warp is detected would flake with
+            # the game still warping, and the runner drives StopRecording /
+            # CommitTree / FlushAndQuit next -- exactly the "leave nothing
+            # warped behind" failure `_b5_stop_all_warp` was added to close at
+            # the thrash and never-armed terminals. warp_actions is [] on the
+            # settled-1x park that this branch almost always fires on, so the
+            # common case is unchanged.
             if st.park_ever_stable:
                 return _b5_named_flake(
                     st,
@@ -8419,14 +8429,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                     "least once but was not in-gate at the end of the %.0f s "
                     "dwell (the dwell is measured from phase entry, not from "
                     "first stability)"
-                    % (B5_PARK, state.params.park_dwell)), []
+                    % (B5_PARK, state.params.park_dwell)), warp_actions
             return _b5_named_flake(
                 st,
                 "phase %s: never reached a stable park (body=%s situation=%s "
                 "ap=%.0f pe=%.0f ecc=%.3f angVel=%.4f)"
                 % (B5_PARK, snapshot.body or "?", snapshot.situation or "?",
                    snapshot.apoapsis, snapshot.periapsis, snapshot.eccentricity,
-                   snapshot.angular_velocity)), []
+                   snapshot.angular_velocity)), warp_actions
         return st, warp_actions
 
     if state.phase == B5_ORBIT_COMMIT:
@@ -8657,6 +8667,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             st = replace(st, warp_cmd=0)
             warp_actions.append(Action(ACTION_SET_RAILS_WARP, 0.0))
         if _b5_over_budget(st, snapshot):
+            # CARRY the teardown out with the give-up, for the same reason PARK
+            # does (2026-07-28 review): this branch is a verbatim copy of PARK's
+            # and inherited its bug. Returning [] here ships a state that has
+            # already recorded warp_to_cmd=None / warp_cmd=0 while no cancel
+            # ever reaches the runner, which then drives StopRecording /
+            # CommitTree / FlushAndQuit against a warping game.
             if st.landed_ever_stable:
                 return _b5_named_flake(
                     st,
@@ -8668,7 +8684,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                        state.params.landed_dwell, snapshot.body or "?",
                        snapshot.situation or "?",
                        _obs_fmt(snapshot.vertical_speed),
-                       _obs_fmt(snapshot.horizontal_speed))), []
+                       _obs_fmt(snapshot.horizontal_speed))), warp_actions
             return _b5_named_flake(
                 st,
                 "phase %s: %s -- never settled after touchdown (body=%s "
@@ -8678,7 +8694,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                    _obs_fmt(snapshot.vertical_speed),
                    _obs_fmt(snapshot.horizontal_speed),
                    state.params.landed_max_vertical_speed,
-                   state.params.landed_max_horizontal_speed)), []
+                   state.params.landed_max_horizontal_speed)), warp_actions
         return st, warp_actions
 
     if state.phase == B5_SURFACE_COMMIT:
