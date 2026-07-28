@@ -147,6 +147,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -165,6 +166,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -182,6 +184,45 @@ namespace Parsek
 
         internal static string GetCareerMainButtonLabel() => "Career";
 
+        // --- Frame-latched Basic / Advanced UI complexity mode (design 7.2) ---
+        // Static because the setter seam is static and the setting is global; both
+        // scenes construct their own ParsekUI and re-seed the latch from settings.
+        private static UiComplexityMode appliedUiComplexityMode = UiComplexityMode.Advanced;
+        private static UiComplexityMode? pendingUiComplexityMode;
+
+        /// <summary>
+        /// The frame-latched mode EVERY <see cref="UiSurfaceVisibility.IsVisible"/> call
+        /// site must read (design 7.1, 7.2). Never read
+        /// <c>ParsekSettings.uiComplexityMode</c> from a draw site: the toggle click lands
+        /// mid-event, and a raw read would let the IMGUI control count differ between one
+        /// frame's Layout and Repaint passes (`ArgumentException: Getting control N's
+        /// position in a group with only M controls`).
+        /// <para>Exception, by design: the Settings window's Interface section still reads
+        /// the settings field for WHICH of its two options renders as the selected box.
+        /// That is a style swap on the same two controls, not a count change.</para>
+        /// </summary>
+        internal static UiComplexityMode AppliedUiComplexityMode => appliedUiComplexityMode;
+
+        /// <summary>
+        /// Seeds the latch from the persisted setting. Called from both constructors, so
+        /// entering a scene never needs a pending apply - the very first frame's gates
+        /// already read the player's mode. Fails open to Advanced when no settings object
+        /// exists (design 6.2: showing everything is the safe wrong answer).
+        /// </summary>
+        private static void InitializeAppliedUiComplexityModeFromSettings()
+        {
+            ParsekSettings settings = ParsekSettings.Current;
+            UiComplexityMode seeded = settings != null
+                ? settings.UiComplexityModeLevel
+                : UiComplexityMode.Advanced;
+
+            appliedUiComplexityMode = seeded;
+            pendingUiComplexityMode = null;
+            ParsekLog.Verbose("UI",
+                $"Applied UI mode seeded from settings: uiComplexityMode={seeded}" +
+                (settings == null ? " (no active ParsekSettings, failed open)" : ""));
+        }
+
         /// <summary>
         /// The SINGLE setter seam for the Basic / Advanced UI complexity mode
         /// (design `docs/dev/design-ui-basic-advanced.md` section 6.2). Every mode write
@@ -190,12 +231,11 @@ namespace Parsek
         /// BODIES are deliberately never gated, so a writer that bypasses this seam would
         /// leave hidden windows drawing and holding input locks in Basic.
         ///
-        /// <para>PHASE 3 NOTE: the new value is applied IMMEDIATELY here. That is safe
-        /// only because no draw site reads the mode yet, so a mid-OnGUI flip cannot
-        /// change any IMGUI control count. Phase 4 converts this body to the
-        /// frame-latched pending apply of design 7.2 (record a pending mode, latch it in
-        /// the controller's <c>Update()</c>, run the close handler + tab clamp there) the
-        /// moment the first gate lands. The persist and the log line stay as they are.</para>
+        /// <para>The setting is written and persisted IMMEDIATELY, but the value the draw
+        /// sites read is only PENDING here: it is latched by
+        /// <see cref="ApplyPendingUiComplexityModeIfAny"/> from the controller's
+        /// <c>Update()</c>, outside OnGUI (design 7.2). The visible change therefore lands
+        /// one frame after the click, imperceptibly.</para>
         /// </summary>
         internal static void SetUiComplexityMode(UiComplexityMode next)
         {
@@ -216,8 +256,67 @@ namespace Parsek
 
             settings.UiComplexityModeLevel = next;
             ParsekSettingsPersistence.RecordUiComplexityMode((int)next);
-            ParsekLog.Info("UI", $"Mode changed: uiComplexityMode={previous}->{next}");
+            pendingUiComplexityMode = next;
+            ParsekLog.Verbose("UI",
+                $"Mode change queued: uiComplexityMode={previous}->{next} " +
+                $"(applies next Update, applied={appliedUiComplexityMode})");
         }
+
+        /// <summary>
+        /// Latches a mode queued by <see cref="SetUiComplexityMode"/> (design 7.2). MUST be
+        /// called from the controllers' <c>Update()</c> (`ParsekFlight`, `ParsekKSC`) and
+        /// never from OnGUI: Unity runs Update before OnGUI, so every gate in the frame
+        /// that follows - Layout and Repaint alike - reads one stable mode.
+        /// <para>Idempotent: the pending value is consumed on the first call, so a second
+        /// call in the same frame (both controllers alive during a scene handover) is a
+        /// no-op.</para>
+        /// </summary>
+        internal static void ApplyPendingUiComplexityModeIfAny()
+        {
+            if (!pendingUiComplexityMode.HasValue)
+                return;
+
+            UiComplexityMode next = pendingUiComplexityMode.Value;
+            // Consume BEFORE acting so a throwing hook cannot re-run the apply forever.
+            pendingUiComplexityMode = null;
+
+            UiComplexityMode previous = appliedUiComplexityMode;
+            if (next == previous)
+            {
+                // Reachable when the player toggles back and forth before the latch runs.
+                ParsekLog.Verbose("UI",
+                    $"Pending UI mode {next} already applied, nothing to latch");
+                return;
+            }
+
+            appliedUiComplexityMode = next;
+            ParsekLog.Info("UI", $"Mode changed: uiComplexityMode={previous}->{next}");
+            OnUiComplexityModeApplied(previous, next);
+        }
+
+        /// <summary>
+        /// Extension point for the work that must happen WHEN the mode takes effect.
+        /// Phase 4 latches only; the Advanced -> Basic window close handler with its
+        /// per-window <c>ReleaseInputLock()</c> (design 7.2 step 2, phase 7) and the
+        /// `selectedTab` clamp (design 7.4, phase 5) hang here. Deliberately left empty
+        /// but named and called, so those phases add a body rather than a call site.
+        /// </summary>
+        private static void OnUiComplexityModeApplied(UiComplexityMode previous, UiComplexityMode next)
+        {
+            ParsekLog.Verbose("UI",
+                $"UI mode apply hook: {previous}->{next} " +
+                "(no close handler or tab clamp yet - phases 5 and 7)");
+        }
+
+        /// <summary>Test seam: clears the latch + pending mode back to their startup state.</summary>
+        internal static void ResetUiComplexityModeForTesting()
+        {
+            appliedUiComplexityMode = UiComplexityMode.Advanced;
+            pendingUiComplexityMode = null;
+        }
+
+        /// <summary>Test seam: the queued-but-not-yet-latched mode, null when none.</summary>
+        internal static UiComplexityMode? PendingUiComplexityModeForTesting => pendingUiComplexityMode;
 
         /// <summary>
         /// Returns the resource budget.
@@ -244,9 +343,20 @@ namespace Parsek
             //   3. Kerbals / Career
             //   4. Gloops Flight Recorder  (InFlight-only; trailing separator inside the block)
             //   5. Settings
+            //
+            // Basic / Advanced gating (design 7.1): each hidden launcher is wrapped in an
+            // IsVisible check reading the FRAME-LATCHED mode below, never the settings
+            // field, so the control count is identical in this frame's Layout and Repaint
+            // passes. Timeline / Missions / Logistics / Settings are constant-true in both
+            // modes (UiSurfaceVisibility.IsVisible), so they are deliberately left
+            // unwrapped rather than carrying a predicate that can never be false.
+            // Separators live INSIDE the block of the buttons they separate, or Basic
+            // shows a double gap where the hidden group used to be.
+            UiComplexityMode complexity = AppliedUiComplexityMode;
 
             // --- Real Spawn Control (InFlight-only, top of the button column) ---
-            if (InFlight && flight != null)
+            if (InFlight && flight != null
+                && UiSurfaceVisibility.IsVisible(UiSurface.MainButtonSpawnControl, complexity))
             {
                 int spawnCount = flight.NearbySpawnCandidates.Count;
                 GUI.enabled = spawnCount > 0;
@@ -361,25 +471,41 @@ namespace Parsek
                 GUI.color = prevLogisticsColor;
             }
 
-            GUILayout.Space(SpacingLarge);
+            // --- Kerbals / Career (hidden in Basic, with their LEADING separator) ---
+            // The separator that opens this group is gated with it: in Basic the group
+            // vanishes and the single Space below still divides Logistics from Settings,
+            // so Basic shows one gap there rather than two (design 7.1).
+            bool showKerbalsButton =
+                UiSurfaceVisibility.IsVisible(UiSurface.MainButtonKerbals, complexity);
+            bool showCareerButton =
+                UiSurfaceVisibility.IsVisible(UiSurface.MainButtonCareer, complexity);
+
+            if (showKerbalsButton || showCareerButton)
+                GUILayout.Space(SpacingLarge);
 
             // Keep top-level launch-surface labels short; detailed counts stay inside the window.
-            if (GUILayout.Button(GetKerbalsMainButtonLabel()))
+            if (showKerbalsButton)
             {
-                kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
+                if (GUILayout.Button(GetKerbalsMainButtonLabel()))
+                {
+                    kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
+                    ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
+                }
             }
 
-            if (GUILayout.Button(GetCareerMainButtonLabel()))
+            if (showCareerButton)
             {
-                careerStateUI.IsOpen = !careerStateUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
+                if (GUILayout.Button(GetCareerMainButtonLabel()))
+                {
+                    careerStateUI.IsOpen = !careerStateUI.IsOpen;
+                    ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
+                }
             }
 
             GUILayout.Space(SpacingLarge);
 
             // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
-            if (InFlight)
+            if (InFlight && UiSurfaceVisibility.IsVisible(UiSurface.MainButtonGloops, complexity))
             {
                 if (GUILayout.Button("Gloops Flight Recorder"))
                 {

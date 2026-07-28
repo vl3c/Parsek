@@ -30,10 +30,12 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekSettingsPersistence.ResetForTesting();
             ParsekSettings.CurrentOverrideForTesting = null;
+            ParsekUI.ResetUiComplexityModeForTesting();
         }
 
         public void Dispose()
         {
+            ParsekUI.ResetUiComplexityModeForTesting();
             ParsekSettings.CurrentOverrideForTesting = null;
             ParsekSettingsPersistence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -247,7 +249,9 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         // Catches silent removal of the transition diagnostic, and pins that the seam
-        // (not a raw field write) is what persists the value.
+        // (not a raw field write) is what persists the value. The Info line moved to the
+        // APPLY step in phase 4 - it now marks the moment the mode takes effect, which is
+        // the moment the player sees the buttons change.
         [Fact]
         public void ModeChangeLogsTransition()
         {
@@ -256,6 +260,7 @@ namespace Parsek.Tests
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
             ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
 
             Assert.Equal(UiComplexityMode.Basic, settings.UiComplexityModeLevel);
             Assert.Equal((int)UiComplexityMode.Basic,
@@ -273,9 +278,96 @@ namespace Parsek.Tests
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
 
             ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
 
             Assert.Null(ParsekSettingsPersistence.GetStoredUiComplexityMode());
+            Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
             Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
+        }
+
+        // ------------------------------------------------------------------
+        // Frame-latched apply (design 7.2)
+        // ------------------------------------------------------------------
+
+        // The core IMGUI-stability contract: the setter persists immediately but must NOT
+        // move the value the gates read. If this ever latches at the seam, a toggle click
+        // changes the control count mid-frame and the Settings window throws
+        // `ArgumentException: Getting control N's position in a group with only M controls`.
+        [Fact]
+        public void SeamQueuesPendingWithoutLatchingTheAppliedMode()
+        {
+            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+            ParsekSettings.CurrentOverrideForTesting = settings;
+            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
+
+            ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+
+            // Persisted and pending, but the gates still see Advanced this frame.
+            Assert.Equal(UiComplexityMode.Basic, settings.UiComplexityModeLevel);
+            Assert.Equal(UiComplexityMode.Basic, ParsekUI.PendingUiComplexityModeForTesting);
+            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
+            Assert.True(UiSurfaceVisibility.IsVisible(
+                UiSurface.MainButtonKerbals, ParsekUI.AppliedUiComplexityMode));
+            Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
+
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+            Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
+            Assert.Equal(UiComplexityMode.Basic, ParsekUI.AppliedUiComplexityMode);
+            Assert.False(UiSurfaceVisibility.IsVisible(
+                UiSurface.MainButtonKerbals, ParsekUI.AppliedUiComplexityMode));
+        }
+
+        // Both controllers can be alive across a scene handover and both call the apply
+        // from Update(); the second call must not re-run the transition (and, once phase 7
+        // hangs the window-close handler off it, must not re-close anything).
+        [Fact]
+        public void ApplyIsIdempotentAfterTheFirstLatch()
+        {
+            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+            ParsekSettings.CurrentOverrideForTesting = settings;
+            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
+
+            ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+            logLines.Clear();
+
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+            Assert.Equal(UiComplexityMode.Basic, ParsekUI.AppliedUiComplexityMode);
+            Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
+            Assert.DoesNotContain(logLines, l => l.Contains("UI mode apply hook"));
+        }
+
+        [Fact]
+        public void ApplyWithNothingPendingIsSilent()
+        {
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
+            Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
+            Assert.DoesNotContain(logLines, l => l.Contains("Pending UI mode"));
+        }
+
+        // Toggling away and back before the latch runs leaves a pending value equal to the
+        // applied one. That must collapse to nothing, not log a Basic->Basic transition.
+        [Fact]
+        public void PendingModeEqualToTheAppliedModeCollapsesToNoTransition()
+        {
+            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+            ParsekSettings.CurrentOverrideForTesting = settings;
+            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
+
+            ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+            ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
+            Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]") && l.Contains("already applied, nothing to latch"));
         }
 
         // The first-run line must name WHICH signal fired, the chosen mode, and that it
