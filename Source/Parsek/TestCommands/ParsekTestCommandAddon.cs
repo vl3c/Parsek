@@ -1519,20 +1519,7 @@ namespace Parsek.TestCommands
             if (ownedRunner == null)
                 ownedRunner = new InGameTestRunner(this);
 
-            if (string.IsNullOrEmpty(category))
-            {
-                if (isolated)
-                    ownedRunner.RunAllIncludingFlightRestore();
-                else
-                    ownedRunner.RunAll();
-            }
-            else
-            {
-                if (isolated)
-                    ownedRunner.RunCategoryIncludingFlightRestore(category);
-                else
-                    ownedRunner.RunCategory(category);
-            }
+            ownedRunner.RunBatchSelector(category, isolated);
 
             ParsekLog.Info(Tag,
                 $"runtests start category={category ?? "all"} isolated={Bool(isolated)}");

@@ -622,8 +622,13 @@ Flight? No.
 
 ### Tier 1: the unlock. This is the largest single gain in the roadmap.
 
-**R5. Ship the isolated-batch seam argument.** SHIPPED 2026-07-27. Code change,
-seam + autorun + hlib.
+**R5. Ship the isolated-batch seam argument.** SHIPPED and LIVE-PROVEN 2026-07-27.
+Code change, seam + autorun + hlib. The shakedown `H21-scene-exit-merge-isolated`
+flew PASS on attempt 1 in 101 s, printing
+`BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge
+scene=FLIGHT` token for token. Coverage 96 -> 97 of 241; the one new cell is D1
+`commit-scene-exit`, which this file listed among the three that no fixture, mission
+profile or verb could produce.
 
 `RunTests` gains an `isolated` argument routing to `RunCategoryIncludingFlightRestore`
 instead of `RunCategory`; mirror it in the autorun selector

@@ -433,6 +433,72 @@ namespace Parsek.InGameTests
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
+        /// <summary>
+        /// Which of the four batch entry points a (category, isolated) pair selects (R5).
+        /// Pure so the DECISION is xUnit-covered; the dispatch that acts on it is
+        /// necessarily Unity-bound and is fenced by IsolatedBatchDispatchWiringTests.
+        /// </summary>
+        internal enum BatchEntryPoint
+        {
+            RunAll,
+            RunAllIsolated,
+            RunCategory,
+            RunCategoryIsolated,
+        }
+
+        /// <summary>
+        /// Pure selector for <see cref="RunBatchSelector"/>. An absent/empty category is
+        /// the RunAll shape (the seam's `RunTests` with no `category` arg, and the
+        /// autorun selector "all"); `isolated` picks the *IncludingFlightRestore variant,
+        /// which admits <c>RestoreBatchFlightBaselineAfterExecution</c> tests that set
+        /// <c>AllowBatchExecution = false</c>.
+        /// </summary>
+        internal static BatchEntryPoint ResolveBatchEntryPoint(string category, bool isolated)
+        {
+            if (string.IsNullOrEmpty(category))
+                return isolated ? BatchEntryPoint.RunAllIsolated : BatchEntryPoint.RunAll;
+            return isolated ? BatchEntryPoint.RunCategoryIsolated : BatchEntryPoint.RunCategory;
+        }
+
+        /// <summary>
+        /// THE single unattended dispatch into the four batch entry points (R5).
+        ///
+        /// Every unattended caller routes here - the M-A2 seam's `RunTests` handler and
+        /// all three autorun branches (IsAll, single-category, and the sequential
+        /// multi-category driver). They previously each carried their own
+        /// `if (isolated) ... else ...` pair, which is four copies of one mapping and
+        /// four chances to invert it; a mutation sweep confirmed two of those copies
+        /// were caught by no xUnit cell, and the autorun copies by nothing at all (no
+        /// committed spec drives the autorun path). Collapsing them leaves ONE mapping
+        /// to get wrong, whose decision half is pure and unit-tested above and whose
+        /// dispatch half is fenced by a source-text wiring gate.
+        ///
+        /// The two INTERACTIVE surfaces (Ctrl+Shift+T, the Settings test-runner window)
+        /// deliberately keep calling the entry points directly: they choose the variant
+        /// from a button the operator pressed, not from a parsed argument.
+        /// </summary>
+        internal void RunBatchSelector(string category, bool isolated)
+        {
+            BatchEntryPoint entry = ResolveBatchEntryPoint(category, isolated);
+            ParsekLog.Info(Tag,
+                $"batch dispatch: entry={entry} category={category ?? "(all)"} isolated={isolated}");
+            switch (entry)
+            {
+                case BatchEntryPoint.RunAllIsolated:
+                    RunAllIncludingFlightRestore();
+                    break;
+                case BatchEntryPoint.RunAll:
+                    RunAll();
+                    break;
+                case BatchEntryPoint.RunCategoryIsolated:
+                    RunCategoryIncludingFlightRestore(category);
+                    break;
+                default:
+                    RunCategory(category);
+                    break;
+            }
+        }
+
         public void RunSingle(InGameTestInfo test)
         {
             if (isRunning) return;

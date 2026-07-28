@@ -110,11 +110,30 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY plus an R5-specific discrimination requirement.
 #
-# EVIDENCE STANDING: PREDICTED, not yet measured. This spec has never flown; the
-# tally below is DERIVED from the attributes and the runner's filters, and the
-# first live run is expected to confirm or correct it. Replace this paragraph with
-# a MEASURED one (run id, wall time, "matched token for token") once it flies, the
-# way every H7-H20 spec records its own flight.
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 (result
+# harness/results/2026-07-27_1834_H21-scene-exit-merge-isolated.json: PASS on
+# attempt 1, 101 s wall, every verifier PASS, expectations mismatches=0). All three
+# required patterns below are LITERAL or near-literal and evaluate_expectations
+# requires each to match, so a PASS means the runner printed them token for token.
+# The batch itself took 29.6 s (21:35:34.2 -> 21:36:03.8), well under the 3-6 min
+# the pre-flight estimate feared: the 73-part launcher clears 80 m in a couple of
+# seconds and the three baseline quickloads are fast.
+#
+# The two questions this run existed to SETTLE, both of which the derivation could
+# not answer and both of which came back favourable:
+#  1. Does b2-lko-craft's launcher actually leave PRELAUNCH and clear 80 m inside
+#     the 30 s deadline each cell imposes? YES - skipped=0, so neither
+#     WaitForRecordingToLeavePrelaunch nor WaitForRecordingToClearPad timed out.
+#  2. Does the post-test baseline quickload return the vessel to FLIGHT **in
+#     PRELAUNCH**? YES. Test B (Discard, first by ordinal name) ends the game in
+#     SPACECENTER; the restore brought it back, and Test A's `situation ==
+#     PRELAUNCH` guard did not fire. Had KSP recomputed the situation to LANDED on
+#     load, Test A would have skipped and this pin would read skipped=1.
+#
+# The log shows the full sequence, so this was not a degenerate pass: baseline slot
+# captured for 2 restore-after-run tests -> prime restore -> "Pre-transition tree
+# merge dialog: tree='Kerbal X', recordings=1" -> "User chose: Tree Discard" ->
+# restore -> dialog again -> "User chose: Tree Merge" -> final restore.
 #
 # What each token rests on:
 #  - total=2 is ATTRIBUTE-EXACT: RuntimeTests declares exactly two

@@ -744,10 +744,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag,
                     $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
                 runner.MarkNextBatchAutorun(exitArmed);
-                if (isolated)
-                    runner.RunAllIncludingFlightRestore();
-                else
-                    runner.RunAll();
+                runner.RunBatchSelector(null, isolated);
                 autorunConsumedForProcess = true;
                 return;
             }
@@ -761,10 +758,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag,
                     $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
                 runner.MarkNextBatchAutorun(exitArmed);
-                if (isolated)
-                    runner.RunCategoryIncludingFlightRestore(cat);
-                else
-                    runner.RunCategory(cat);
+                runner.RunBatchSelector(cat, isolated);
                 autorunConsumedForProcess = true;
                 return;
             }
@@ -818,10 +812,7 @@ namespace Parsek.InGameTests
                 // which admission filter each batch uses, and dropping it on tokens 2..n
                 // would silently run those categories through the ordinary filter.
                 runner.MarkNextBatchAutorun(false);
-                if (isolated)
-                    runner.RunCategoryIncludingFlightRestore(cat);
-                else
-                    runner.RunCategory(cat);
+                runner.RunBatchSelector(cat, isolated);
 
                 while (runner.IsRunning) yield return null;
 

@@ -15,8 +15,12 @@ did not carry the restore flag at all, so the source-sync gate would have reject
 correct isolated pin. (3) The fixture is the expensive trap - `gloops-airshow` has a
 1-part engineless pod, and both `SceneExitMerge` cells stage and wait to clear 80 m, so
 copying the H-series fixture would have produced an all-skipped red indistinguishable
-from "the arg does not work". Shakedown spec `H21-scene-exit-merge-isolated` is
-committed on `b2-lko-craft` and NOT yet flown.
+from "the arg does not work". Shakedown spec `H21-scene-exit-merge-isolated` FLEW PASS on
+attempt 1 in 101 s, matching `total=2 passed=2 failed=0 skipped=0
+category=SceneExitMerge scene=FLIGHT` token for token plus both
+isolated-path-only log tokens. Coverage 96 -> 97 of 241; the one new cell is D1
+`commit-scene-exit`, which the roadmap listed among the three no fixture, mission
+profile or verb could produce.
 
 Prior: 2026-07-27 (H7-H20 ALL FLOWN, all 14 PASS on attempt 1, 805 s / 13.4 min
 for the group - 49-71 s each, against 2,825 s for B13 alone. What flying added over the
@@ -526,11 +530,15 @@ R6 / R7 / R10 rather than blocked.
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
-| H21-scene-exit-merge-isolated | nightly | A real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog - D1 commit-scene-exit + discard-rollback, EXECUTED rather than decided. The two `SceneExitMerge` cells are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary path runs ZERO of them | NOT YET LIVE-RUN. Pin is `total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge scene=FLIGHT`, PREDICTED from the isolated derivation, plus two isolated-path-only log tokens. Two things the first flight measures rather than assumes: whether `b2-lko-craft`'s launcher clears 80 m inside the 30 s deadline both cells impose, and whether the post-test baseline quickload returns the vessel to FLIGHT **in PRELAUNCH** (test B's guard) rather than LANDED |
+| H21-scene-exit-merge-isolated | nightly | A real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog - D1 commit-scene-exit + discard-rollback, EXECUTED rather than decided. The two `SceneExitMerge` cells are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary path runs ZERO of them | LIVE-PROVEN 2026-07-27, 101 s, PASS attempt 1: `total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge scene=FLIGHT` matched token for token, alongside both isolated-path-only tokens. The batch itself was 29.6 s. Both open questions came back favourable: the launcher clears 80 m inside the 30 s deadline, and the post-test quickload returns the vessel to FLIGHT in PRELAUNCH so test A's guard does not fire. Not a degenerate pass - the log carries the full sequence including `User chose: Tree Discard` and `User chose: Tree Merge` |
 
 TIER: `nightly`. An isolated batch is a real quickload per test, so these two cost
 three full FLIGHT scene reloads on a 73-part craft plus two ascents; budget is 1200 s
-against the group's 49-71 s. Promote only if the cost measures lower than feared.
+against the H7-H20 group's 49-71 s. MEASURED at 101 s wall (29.6 s of it the batch),
+so the cost is far lower than feared and the 1200 s budget is now generous rather
+than tight. Promotion to `daily` is defensible on cost; left at `nightly` until a
+second run establishes it is not a one-off, since a quickload-per-test batch has
+more ways to be slow than a pure-arithmetic one.
 
 FIXTURE, and it is the expensive part of this spec: `b2-lko-craft`, NOT the H7-H20
 `gloops-airshow`. That save's active vessel is a 1-part `mk1-capsule` with ZERO

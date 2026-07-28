@@ -235,13 +235,18 @@ Two things the build turned up that this entry did not anticipate:
   launcher, 8 engines, PRELAUNCH) and a new gate asserts the PRELAUNCH + non-zero-engine
   property statically.
 
-REMAINING (not R5): H21 has not flown yet. Its `skipped=0` is a FIXTURE claim, not an
-attribute claim - both cells carry reachable `InGameAssert.Skip` guards, and two
-questions are settled only by a live run: whether the launcher clears 80 m inside 30 s,
-and whether the post-test baseline quickload returns the vessel in PRELAUNCH (test B's
-guard) rather than LANDED. Budget is 1200 s because a KILLED run prints no tally and
-burns a retry. Needs `python harness/provision/provision.py --profile stock-minimal`
-first - the harness flies a DIFFERENT KSP instance from `dotnet build`'s.
+FLOWN: H21 PASSED on attempt 1, 2026-07-27, 101 s wall (29.6 s of it the batch),
+matching its pinned tally token for token. Both questions the derivation could not
+answer came back favourable: the launcher clears 80 m inside the 30 s deadline, and
+the post-test baseline quickload returns the vessel to FLIGHT in PRELAUNCH so test A's
+situation guard does not fire. Coverage 96 -> 97 of 241, the new cell being D1
+`commit-scene-exit`.
+
+REMAINING (follow-on, not R5): the other 12 unlocked categories are now ordinary
+spec-authoring work. `AutoRecord` (10) is the one to size carefully - ten
+launch-and-restore cycles in one boot - but H21 measured a restore cycle at well
+under 15 s, so the earlier fear of a 10-test isolated batch being unaffordable looks
+overstated.
 
 **R6-R8. Drive the reachable in-game categories.** 539 `[InGameTest]` declarations
 exist in 97 categories; specs drive 8 categories / 125 declarations; 414 declarations

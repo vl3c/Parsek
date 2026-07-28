@@ -273,6 +273,16 @@
         "2026-07-27T15:44:26Z": 49.0
       }
     },
+    "H21-scene-exit-merge-isolated": {
+      "last": 101.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 101.0,
+      "p95": 101.0,
+      "samples": {
+        "2026-07-27T18:36:20Z": 101.0
+      }
+    },
     "H5-invariants-corpus": {
       "last": 69.0,
       "lastVsP50": 1.0,
