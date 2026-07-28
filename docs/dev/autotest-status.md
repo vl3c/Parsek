@@ -362,12 +362,12 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings. DE-LISTED from live-proven 2026-07-25 (the first full sweep red'd it: the kerbal's canopy cut itself mid-descent and the kerbal died) and FIXED HEADLESSLY 2026-07-26 from the archived log + decompiled KerbalEVA, no new flight: (b) a >3.5 m/s collision fires `On_stumble` from `st_semi_deployed_parachute` into `st_ragdoll`, and leaving that state calls `evaChute.CutParachute()` - closed by a bounded OBSERVED pre-chute standoff on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30, debounced 2 polls, TWO non-fatal bounds - 8 s wall clock AND `standoffFloorAltMeters` 500, the latter load-bearing because the kerbal is unchuted and free-falling for the stage); (a) the MISSION cannot see the kerbal at all (its terminal is the handoff and its process exits before the EVA), so the closure is the harness-side `missionOutcome` gate plus an mlib handoff declaration. RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers) with the closure verified STRUCTURALLY rather than by the green outcome - a live kerbal proves nothing about a dead one; see the runbook + residual in `todo-and-known-bugs.md` |
 
-## Test cases (all 53 committed scenarios)
+## Test cases (all 54 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (21)
+### Live-proven (22)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
@@ -392,6 +392,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | M2-periodicity-solver | daily | The periodicity SOLVER against LIVE stock ephemerides: the re-aim feasibility scan over a pinned synodic period, UvLambert transfer synthesis that must actually encounter the target, the window schedule, the eccentric/inclined stage-A un-projection + stage-B tof band (Moho / Eeloo), heliocentric-parking r1==park-end, and deterministic clean declines at the band edge | D11 reaim-lambert/eccentric-inclined-targets/heliocentric-parking-departure/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26, M1's sibling (separate spec because run.py's `_driven_category` reads only the FIRST RunTests category and a per-category line with no aggregate is a defined fault - one batch per spec). LIVE-PROVEN 2026-07-26, full PASS attempt 1; tally MEASURED and deliberately NOT total=passed: `total=11 passed=7 failed=0 skipped=4` (1 FLIGHT-scene member + 3 `AllowBatchExecution=false` diagnostics). Gates the SOLVER, not the playback |
 | S1.6-render-parity | daily | The FIRST cell that gates PLAYBACK rather than recording: drives the in-game `GhostMap` batch so the production recorded-vs-rendered parity oracle (`RenderParityOracle` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`) actually runs unattended, tracer pinned on, `allowedAnomalies = []`. Anti-vacuity is MANDATORY here: a pinned whole tally plus two `[TestRunner]` measurement lines emitted only after a real diff ran on live ghost geometry | D6 recorded-vs-rendered-parity (new registry value); D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-26: first flight = PASS, every verifier green. `total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT`; the 11 skips are 9 TRACKSTATION scene-eligibility + 2 documented loop-icon self-skips. Negative control measured 1049421 m against a 1927 m tolerance (~545x), so the zero-drift assertion provably can still fail. FLOWN TWICE: flight 1 (run `2026-07-26_0950`) MEASURED the tally while the spec still carried the loose `passed=[1-9][0-9]*` conjunct, so the exact line was a transcription; flight 2 (run `2026-07-26_1207`, PASS, expectations mismatches=0, anomalySweep hits=[] unlistedReasons=[], log archived at `logs/2026-07-26_1207_S1.6-render-parity/KSP.log`) ran the spec AS COMMITTED and is what actually EVALUATED the exact pin, both measurement lines and both forbidden patterns. Caveat on flight 2: the instance's deployed DLL was a sibling worktree's build whose GhostMap surface is identical to main's (25 attributes, 16 FLIGHT + 9 TRACKSTATION in both), so the pin is not yet evaluated against a main-built DLL. Does NOT cover Recording.Points / TrackSection frames, the flight-scene ghost mesh, anything across time (one frame per assertion), or re-aim solve correctness |
 | S1.7-maprender-parity | daily | S1.6's follow-up over the STRONGER category: drives the in-game `MapRender` batch (22 tests, all Scene = FLIGHT) - the parity baselines with the typed PhaseChain spine driving, multi-body concurrent ghosts, the re-aimed-loop lens distinction, and the descent / re-stitch / dock-undock / overlap / parent-anchored / BG-on-rails spine cells. Anti-vacuity accounts for the SINK TRAP: four MapRender test files install `ParsekLog.TestSinkForTesting`, which diverts rather than tees, so the obvious candidate (the three-oracle flag-on baselines) can never reach KSP.log. Pins the two arms that do: both `MultiBodyConcurrent` lines (`sampled=True skip=(none) hasMeas=True over=False`, the Mun arm doubling as the cross-body-leak proof) and the re-aimed-loop line | D6 recorded-vs-rendered-parity; D14 sandbox/scene-flight - deliberately NO new registry value (depth on an axis S1.6 opened, not breadth). LIVE-PROVEN 2026-07-26: `total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT`, the single skip being the `AllowBatchExecution = false` high-warp canary; zero scene-eligibility attrition. Negative control 1319093 m against 2701 m (~488x). Its first flight also EXPOSED the anomaly-sweep false positive (below) |
+| CL-1-pod-impact | nightly (PROMOTED from operator 2026-07-28) | THE CREW-LOSS ATOM, and the first scenario in the suite whose subject DIES. A crewed pod launches, deploys no chute and hits the ground; the success terminal is the kerbal's death, read from the kerbal's OWN roster status (`SpaceCenter.GetKerbal(name).RosterStatus`, verified at the PINNED kRPC v0.5.4), never a commanded latch. Gates the RECORDER side end to end: `Recording started`, `Destroy-reason override ... reason=destroy_event`, `Active vessel destroyed during recording`, `Active vessel destroyed in tree mode`, `CrewStatusChanged '<name>' Assigned ... Dead`, `ShowPostDestructionTreeMergeDialog: finalized tree`, `pending tree stashed`, `Recording stopped`, plus `recordings.count` pinned at 1 and OBSERVED 1 | D1 auto-record-launch; D12 crew-death-in-flight (NEW value); D14 kerbin/career/scene-flight. LIVE-PROVEN 2026-07-28, flight 2 = FULL PASS attempt 1, 166 s, all seven verifiers PASS/SKIPPED. FLIGHT 1 RED and earned its keep on the first run: the flight was perfect (262 points, full destruction path, Jeb `state = Dead` on disk) but `expectations` failed 2 mismatches from ONE FIXTURE root cause - `career-pad-craft` inherited `fresh-career`'s deliberate absence of a `SCENARIO{name=ParsekScenario}` node, and the seam's FLIGHT focus route does not run `UpdateScenarioModules` the way the SPACECENTER route does (known-gate 6), so the ScenarioModule was never added, ZERO `[Scenario]` lines appear in the collected log, `OnSave` never ran, and the whole flight was recorded in memory and thrown away. The builder now splices the donor's inert node and `verify()` refuses a fixture without one. SECOND FINDING, why there is no ledger half: a destroyed active recorded vessel stashes its tree as PENDING and nulls `activeTree`, so the seam's `CommitTree` fails its `HasActiveTree` guard (`logs/2026-07-20_1829_B1-pad-hop/KSP.log:11310` `committree no-active-tree`, `:11325` `saving 0 committed tree(s)`); the pending tree auto-commits only OUTSIDE Flight and no seam verb produces that transition (R12). Both runs MEASURED the terms that extension needs, identically: `Added -9.999828 (-10) reputation: 'VesselLoss'` on the death, milestones RecordsSpeed 4800 / FirstLaunch 800 / RecordsAltitude 4800 all rep=0.0, produced pools funds 529600 sci 100 rep -7.99982834. The key is `VesselLoss`, NOT the `CrewKilled` that `PostWalkActionReconciler.cs:213` maps - settled by measurement |
 
 ### Committed, not yet live-run (14)
 
@@ -801,7 +802,39 @@ six publish or compare numbers the runner already measured.
    recording TOPOLOGY; the commit itself is guarded by the logContract tokens,
    which now include the foreground SOI-crossing line and a per-recording
    terminal verdict naming `terminalOrbitBody`.
-10. NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT (recorded 2026-07-26
+10. ~~NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT~~ - the HEADLINE is
+   CLOSED 2026-07-28 by `CL-1-pod-impact`, LIVE-PROVEN on its second flight
+   (FULL PASS attempt 1, 166 s, all seven verifiers PASS/SKIPPED). A scenario
+   now kills its subject in a live flight and gates what Parsek records about
+   it. The rest of this item STAYS OPEN, scoped below.
+   WHAT IT WILL CLOSE, exactly: the HEADLINE sentence. CL-1 kills its subject in
+   a live flight - a crewed pod with no chute, whose SUCCESS terminal is the
+   kerbal's death read from `SpaceCenter.GetKerbal(name).RosterStatus` - and it
+   makes the two things no pure decision can reach observable: what PARSEK
+   RECORDS about a crew death, and what the CAREER LEDGER does about it. Neither
+   is touched by any of the four xUnit cells this item names; they are about the
+   EVA seam's own give-up decision, not about the recorder or the ledger.
+   WHAT STAYS OPEN, and is NOT claimed: (a) the `eva-chute-kerbal-lost` path and
+   the `PARSEK-FAIL(mission-outcome)` gate it feeds - CL-1 drives no EVA verb and
+   asserts nothing about them, so they remain proven only by the pure decisions
+   plus the fake-KSP replay; (b) the standoff's Unity-side wiring
+   (`EvaluateStandoff` / `TryCompleteEvaExit`), whose only live guard is still
+   EVA-4's `evaexit standoff cleared` token; (c) a crew death across a REWIND -
+   `InGameTests/KerbalRecoveryOnSupersedeTest` still AUTO-SKIPS with "No
+   kerbal-death actions in supersede subtree", and CL-1's committed tree is
+   exactly the subtree it needs, which is what the atom is meant to be extended
+   into next.
+   THE TWO OBJECTIONS BELOW WERE ANSWERED RATHER THAN OVERRULED. "A fixture
+   nobody maintains": `career-pad-craft` is `fresh-career` (maintained by the
+   seven L1 ledger scenarios) plus `b1-pad-craft`'s craft copied byte-identically
+   (maintained by B1 and EVA-4), spliced by a committed script with a `--check`
+   mode that re-verifies the committed bytes. "Artifacts indistinguishable from a
+   real regression": the death is CL-1's DECLARED terminal with its own phase
+   name, its own assertions and its own required tokens, and a run whose crew
+   SURVIVES reds by name (`crew-survived-impact`) instead of passing quietly.
+   The original text follows, unedited, because it is still the correct
+   description of everything CL-1 does not cover:
+   NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT (recorded 2026-07-26
    with the EVA-4 re-prove). Flight 4 passed, but a LIVE kerbal proves nothing
    about a DEAD one: the `eva-chute-kerbal-lost` path and the
    `PARSEK-FAIL(mission-outcome)` gate it feeds are proven end to end only by

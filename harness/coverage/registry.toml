@@ -111,7 +111,19 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
           "partner-journey", "s4-arrival-restitch", "fail-closed-to-faithful"]
 
 [D12]  # crew / kerbals
+# "crew-death-in-flight" (added with CL-1-pod-impact, the crew-loss atom, per the
+# growth rule): a crewed vessel is destroyed in flight and its kerbal dies, observed
+# live. D12 had no value for it - every existing cell is either a RESERVATION concern
+# (`reservation-auto-hire`, `stand-ins`, `seat-matching`, `crew-swap`,
+# `missed-endut-auto-free`), a KSC roster mutation (`hire-dismiss-patches`), or a
+# RE-FLY consequence of a death that already happened (`dead-crew-strip`,
+# `tombstone-rep-penalty`). The death itself - Parsek's recording of it and the
+# `KerbalAssignment` / `KerbalEndState.Dead` ledger row it produces at commit - was
+# not nameable. The two re-fly cells stay uncovered on purpose: they are what this
+# atom is meant to be extended into, and the coverage report should keep showing them
+# as the backlog rather than absorbing them into this claim.
 values = ["reservation-auto-hire", "stand-ins", "seat-matching", "rescue-marker",
+          "crew-death-in-flight",
           "dead-crew-strip", "tombstone-rep-penalty", "missed-endut-auto-free", "crew-swap",
           "hire-dismiss-patches"]
 
