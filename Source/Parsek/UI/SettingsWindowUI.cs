@@ -163,6 +163,17 @@ namespace Parsek
                     CommitAutoLoopEdit(s);
             }
 
+            // Basic / Advanced gating (design 7.1). Read the FRAME-LATCHED mode ONCE per
+            // draw pass, never the settings field: the Interface section below hosts the
+            // mode toggle itself and draws BEFORE the gated sections, so a raw read would
+            // change the control count between this frame's Layout and Repaint passes
+            // (`ArgumentException: Getting control N's position in a group with only M
+            // controls`). Each hidden section's trailing GUILayout.Space separator lives
+            // INSIDE its gate, or Basic shows a double gap where the section used to be.
+            // Interface / Recording / Looping / Ghosts / Stock UI / Data Management are
+            // visible in both modes and stay unwrapped.
+            UiComplexityMode complexity = ParsekUI.AppliedUiComplexityMode;
+
             DrawInterfaceSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawRecordingSettings(s);
@@ -173,10 +184,27 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
             DrawStockUiSettings(s);
             GUILayout.Space(SpacingSmall);
-            DrawDiagnosticsSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawSamplingSettings(s);
-            GUILayout.Space(SpacingSmall);
+
+            // Developer instrumentation (verbose logging, the three tracing toggles, the
+            // RewindPoints disk-usage readout, and the Settings-launched Test Runner).
+            // Hiding the section takes that launcher with it; the SEPARATE global
+            // Ctrl+Shift+T `ParsekTestRunnerGlobal` window and its shortcut are never gated
+            // in either mode (design 6.3) - the automated-testing harness needs them and
+            // never opens this window.
+            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionDiagnostics, complexity))
+            {
+                DrawDiagnosticsSettings(s);
+                GUILayout.Space(SpacingSmall);
+            }
+
+            // Recorder fidelity tuning: a wrong value degrades recordings, and the Medium
+            // default is correct for normal play (design section 4).
+            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionSampleDensity, complexity))
+            {
+                DrawSamplingSettings(s);
+                GUILayout.Space(SpacingSmall);
+            }
+
             DrawDataManagementSettings(s);
 
             GUILayout.Space(SpacingLarge);
