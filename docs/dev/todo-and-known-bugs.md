@@ -14,6 +14,57 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-MIDMISSION-COMMIT-BYPASS: a mid-mission seam CommitTree bypasses the unmet-mission tail gate [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT, NOT CAUSING FAILURES. Decision wanted: gate it, or document it as intended]
+
+### What happens
+
+PR #1349 added the unmet-mission tail gate in `harness/run.py` (`plan_unmet_mission_tail`, ~line 1137): after a mission returns UNMET, only `cleanup`-role seam verbs in the remaining `driver.steps` are driven, so a world-mutating tail (a CommitTree over a flight that never reached its envelope) can no longer fire. That gate covers the DRIVER-side tail only.
+
+The route-1 mid-mission bridge is a second, ungated path to the same verb: `mission_runner.py` dispatches `ACTION_PARSEK_COMMIT_TREE` (~line 1503) to `_perform_seam_commit` (~line 1687), which writes `cmd=CommitTree` into the seam request channel from INSIDE the mission subprocess, using the reserved id `run.py` hands every mission (~line 1032). That write happens mid-flight, before the mission's verdict exists, so a mission that commits mid-flight and THEN returns UNMET has already landed a durable commit the tail gate never saw.
+
+### Why it is latent, and the open decision
+
+No committed mission hits this today: the only emitters of `ACTION_PARSEK_COMMIT_TREE` are the B-DOCK machines, which emit it on their success path. The exposure is a future forge/mission that mid-commits and then fails a later assertion. Two defensible resolutions, deliberately not chosen here:
+
+- **Gate it**: make an UNMET verdict after a fired mid-mission commit visible (e.g. flag the run, or have `run.py` refuse to classify such a run clean without an explicit spec opt-in).
+- **Document it as intended**: a mid-mission commit is a deliberate mission design act; the mission author owns the consequence, and the committed state is itself what the post-mission verifiers then inspect.
+
+Until decided, treat "PR #1349 closed the world-mutating-tail-after-UNMET hole" as true for `driver.steps` ONLY, not for route-1 mid-mission commits.
+
+---
+
+## HARNESS-ANOMALY-SWEEP-DECORATIVE-WHEN-TRACERS-OFF: with tracers-off as the baseline, most specs' `allowedAnomalies = []` can never bite [RECORDED 2026-07-28 from the retrospective review of PRs #1345-#1363. DELIBERATE TRADE, DEFERRED - recorded so the coverage gap is not assumed closed]
+
+### What happens
+
+PR #1352 made tracers-off the deterministic instance baseline (`run.py` writes it at stage AND teardown), because S1.4's `mapRenderTracing=true` had been leaking instance-wide into every later run. Since then, a scenario that wants a tracer arms it with its own `SetSetting` step - and only S1.4 / S1.6 / S1.7 do (checked 2026-07-28: 3 of the 55 committed spec files set `mapRenderTracing`; none set `ledgerTracing`).
+
+The Tier-C anomaly sweep (`hlib._anomaly_reasons`, ~line 3254) matches the tracers' raise shape (`phase=Anomaly ... reason=<token>`), and both raisers (`MapRenderTrace.EmitAnomaly`, `LedgerTrace.FormatAnomaly`) are behind those settings. So on every committed spec except S1.4/S1.6/S1.7, the sweep can raise NOTHING: the `allowedAnomalies = []` those specs all carry is decorative, and their `anomalySweep` verifier row is vacuously green - it proves the tracers were off, not that no anomaly occurred.
+
+### Why it stays as-is for now
+
+The alternative (tracer-on everywhere) is exactly the cross-run leak PR #1352 fixed, plus per-frame tracer cost on every flight. The trade is deliberate and deferred, not forgotten. What this entry pins: do NOT read a green `anomalySweep` row on a non-tracer spec as anomaly coverage, and if a future lane wants Tier-C coverage on a spec, the spec must arm the tracer itself (and expect the S1.4-class run-cost).
+
+---
+
+## HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today]
+
+### What happens
+
+`hlib._resolve_bool_default_true` (~line 1467) resolves an `AllowBatchExecution` attribute argument by `(expr or "true").strip() != "false"`: anything that is not literally `false` reads as true. A non-literal argument (a const indirection, a computed expression) therefore silently resolves to batch-allowed, loosening the derived tally bounds in the direction that under-reports skips - instead of failing loud the way Category/Scene do (`<unresolved:...>` + `unresolved_ingame_declarations` reds the sync gate).
+
+The asymmetry is now sharp in-file: the sibling `_resolve_bool_default_false` (`RestoreBatchFlightBaselineAfterExecution`, added by PR #1367) admits only a literal `true` and documents WHY it fails closed (an unreadable expression must under-count admissions so a pinned tally reds, never inflates). `_resolve_bool_default_true` predates that reasoning and was not revisited.
+
+### Scope note: half of the reviewed gap is already closed
+
+The review also flagged that `derive_batch_tally` did not model the `PrepareBatchExecutionIncludingFlightRestore` runner path (`InGameTestRunner.cs` ~line 1340: the isolated entry point admits `AllowBatchExecution=false` tests when `RestoreBatchFlightBaselineAfterExecution=true`). That half was CLOSED by PR #1367 (merged 2026-07-28): `InGameTestDecl` carries `restore_baseline` and `derive_batch_tally` takes an `isolated=` mode. Only the fail-open bool resolution above remains.
+
+### Fix shape when picked up
+
+Make an unresolvable `AllowBatchExecution` argument resolve to a loud marker (or fail-closed like its sibling) so `CommittedBatchTallySourceSyncTests` reds on the declaration instead of loosening the bounds. Latent today: `hlib.parse_ingame_test_declarations` over `Source/Parsek` finds only literal arguments.
+
+---
+
 ## S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. REPORTED, NOT FIXED. Severity UNDECIDED pending a product call - see the question below]
 
 ### What happens
