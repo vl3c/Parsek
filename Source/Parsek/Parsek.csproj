@@ -109,4 +109,19 @@
     <Message Text="KSP deploy skipped (build not started from Source/Parsek; use -p:ForceKspDeploy=true to override)" Importance="high" />
   </Target>
 
+  <!-- Post-build: Sync the agent-instructions mirrors at the umbrella root
+       (../.claude/CLAUDE.md and ../AGENTS.md relative to the repo/worktree).
+       Same intentional-only gate as the KSP deploy, same last-deploy-wins
+       semantics. Only syncs when the umbrella AGENTS.md already exists, so
+       checkouts without the umbrella layout are a no-op. Docs-only changes
+       (no build) still need a manual re-copy. -->
+  <PropertyGroup>
+    <ParsekUmbrellaDir>$(MSBuildProjectDirectory)\..\..\..</ParsekUmbrellaDir>
+  </PropertyGroup>
+  <Target Name="SyncAgentInstructionMirrors" AfterTargets="Build" Condition="'$(ParsekDeployToKsp)' == 'true' and Exists('$(ParsekUmbrellaDir)\AGENTS.md') and Exists('$(MSBuildProjectDirectory)\..\..\.claude\CLAUDE.md')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\..\.claude\CLAUDE.md" DestinationFiles="$(ParsekUmbrellaDir)\AGENTS.md" SkipUnchangedFiles="true" ContinueOnError="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\..\..\.claude\CLAUDE.md" DestinationFiles="$(ParsekUmbrellaDir)\.claude\CLAUDE.md" Condition="Exists('$(ParsekUmbrellaDir)\.claude')" SkipUnchangedFiles="true" ContinueOnError="true" />
+    <Message Text="Synced CLAUDE.md mirrors to umbrella root (AGENTS.md + .claude/CLAUDE.md)" Importance="high" />
+  </Target>
+
 </Project>

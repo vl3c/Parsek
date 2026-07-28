@@ -5,10 +5,11 @@ for the group - 49-71 s each, against 2,825 s for B13 alone. What flying added o
 static derivation, precisely: the `total=` values were already gated by the source-sync
 test and needed no flight; what no static analysis predicts is the passed / skipped
 SPLIT, and 13 of the 14 pin that as a LITERAL, so a PASS means the runner printed the
-pinned line token for token. All 13 pre-flight derivations were right. H20 is the
-exception - its interim pin proves only passed>=1, and its exact split is in no artifact
-(collect-logs fires only on non-PASS, instance log since overwritten), so it keeps the
-interim form pending one ~49 s re-fly. Tiering decided on failure mode rather than cost:
+pinned line token for token. All 13 pre-flight derivations were right. H20 was the
+exception - its interim pin proved only passed>=1 and its split was in no artifact - and
+it is now CLOSED: re-flown alone so its log survived, measured passed=2 skipped=0 (the
+endpoint-overlap probe fired, walkback executed), pinned whole. All 14 now pin whole off
+measured lines. Tiering decided on failure mode rather than cost:
 H18 promoted to daily because it is the sole guard for the GameEvents subscription
 contract and a dropped Add() is silent; the other 13 stay nightly pending flake data.
 Prior: 2026-07-26 (THE IN-GAME CATEGORY GAP, measured and half closed.
@@ -361,12 +362,12 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings. DE-LISTED from live-proven 2026-07-25 (the first full sweep red'd it: the kerbal's canopy cut itself mid-descent and the kerbal died) and FIXED HEADLESSLY 2026-07-26 from the archived log + decompiled KerbalEVA, no new flight: (b) a >3.5 m/s collision fires `On_stumble` from `st_semi_deployed_parachute` into `st_ragdoll`, and leaving that state calls `evaChute.CutParachute()` - closed by a bounded OBSERVED pre-chute standoff on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30, debounced 2 polls, TWO non-fatal bounds - 8 s wall clock AND `standoffFloorAltMeters` 500, the latter load-bearing because the kerbal is unchuted and free-falling for the stage); (a) the MISSION cannot see the kerbal at all (its terminal is the handoff and its process exits before the EVA), so the closure is the harness-side `missionOutcome` gate plus an mlib handoff declaration. RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers) with the closure verified STRUCTURALLY rather than by the green outcome - a live kerbal proves nothing about a dead one; see the runbook + residual in `todo-and-known-bugs.md` |
 
-## Test cases (all 53 committed scenarios)
+## Test cases (all 54 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (21)
+### Live-proven (22)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
@@ -391,6 +392,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | M2-periodicity-solver | daily | The periodicity SOLVER against LIVE stock ephemerides: the re-aim feasibility scan over a pinned synodic period, UvLambert transfer synthesis that must actually encounter the target, the window schedule, the eccentric/inclined stage-A un-projection + stage-B tof band (Moho / Eeloo), heliocentric-parking r1==park-end, and deterministic clean declines at the band edge | D11 reaim-lambert/eccentric-inclined-targets/heliocentric-parking-departure/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26, M1's sibling (separate spec because run.py's `_driven_category` reads only the FIRST RunTests category and a per-category line with no aggregate is a defined fault - one batch per spec). LIVE-PROVEN 2026-07-26, full PASS attempt 1; tally MEASURED and deliberately NOT total=passed: `total=11 passed=7 failed=0 skipped=4` (1 FLIGHT-scene member + 3 `AllowBatchExecution=false` diagnostics). Gates the SOLVER, not the playback |
 | S1.6-render-parity | daily | The FIRST cell that gates PLAYBACK rather than recording: drives the in-game `GhostMap` batch so the production recorded-vs-rendered parity oracle (`RenderParityOracle` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`) actually runs unattended, tracer pinned on, `allowedAnomalies = []`. Anti-vacuity is MANDATORY here: a pinned whole tally plus two `[TestRunner]` measurement lines emitted only after a real diff ran on live ghost geometry | D6 recorded-vs-rendered-parity (new registry value); D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-26: first flight = PASS, every verifier green. `total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT`; the 11 skips are 9 TRACKSTATION scene-eligibility + 2 documented loop-icon self-skips. Negative control measured 1049421 m against a 1927 m tolerance (~545x), so the zero-drift assertion provably can still fail. FLOWN TWICE: flight 1 (run `2026-07-26_0950`) MEASURED the tally while the spec still carried the loose `passed=[1-9][0-9]*` conjunct, so the exact line was a transcription; flight 2 (run `2026-07-26_1207`, PASS, expectations mismatches=0, anomalySweep hits=[] unlistedReasons=[], log archived at `logs/2026-07-26_1207_S1.6-render-parity/KSP.log`) ran the spec AS COMMITTED and is what actually EVALUATED the exact pin, both measurement lines and both forbidden patterns. Caveat on flight 2: the instance's deployed DLL was a sibling worktree's build whose GhostMap surface is identical to main's (25 attributes, 16 FLIGHT + 9 TRACKSTATION in both), so the pin is not yet evaluated against a main-built DLL. Does NOT cover Recording.Points / TrackSection frames, the flight-scene ghost mesh, anything across time (one frame per assertion), or re-aim solve correctness |
 | S1.7-maprender-parity | daily | S1.6's follow-up over the STRONGER category: drives the in-game `MapRender` batch (22 tests, all Scene = FLIGHT) - the parity baselines with the typed PhaseChain spine driving, multi-body concurrent ghosts, the re-aimed-loop lens distinction, and the descent / re-stitch / dock-undock / overlap / parent-anchored / BG-on-rails spine cells. Anti-vacuity accounts for the SINK TRAP: four MapRender test files install `ParsekLog.TestSinkForTesting`, which diverts rather than tees, so the obvious candidate (the three-oracle flag-on baselines) can never reach KSP.log. Pins the two arms that do: both `MultiBodyConcurrent` lines (`sampled=True skip=(none) hasMeas=True over=False`, the Mun arm doubling as the cross-body-leak proof) and the re-aimed-loop line | D6 recorded-vs-rendered-parity; D14 sandbox/scene-flight - deliberately NO new registry value (depth on an axis S1.6 opened, not breadth). LIVE-PROVEN 2026-07-26: `total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT`, the single skip being the `AllowBatchExecution = false` high-warp canary; zero scene-eligibility attrition. Negative control 1319093 m against 2701 m (~488x). Its first flight also EXPOSED the anomaly-sweep false positive (below) |
+| CL-1-pod-impact | nightly (PROMOTED from operator 2026-07-28) | THE CREW-LOSS ATOM, and the first scenario in the suite whose subject DIES. A crewed pod launches, deploys no chute and hits the ground; the success terminal is the kerbal's death, read from the kerbal's OWN roster status (`SpaceCenter.GetKerbal(name).RosterStatus`, verified at the PINNED kRPC v0.5.4), never a commanded latch. Gates the RECORDER side end to end: `Recording started`, `Destroy-reason override ... reason=destroy_event`, `Active vessel destroyed during recording`, `Active vessel destroyed in tree mode`, `CrewStatusChanged '<name>' Assigned ... Dead`, `ShowPostDestructionTreeMergeDialog: finalized tree`, `pending tree stashed`, `Recording stopped`, plus `recordings.count` pinned at 1 and OBSERVED 1 | D1 auto-record-launch; D12 crew-death-in-flight (NEW value); D14 kerbin/career/scene-flight. LIVE-PROVEN 2026-07-28, flight 2 = FULL PASS attempt 1, 166 s, all seven verifiers PASS/SKIPPED. FLIGHT 1 RED and earned its keep on the first run: the flight was perfect (262 points, full destruction path, Jeb `state = Dead` on disk) but `expectations` failed 2 mismatches from ONE FIXTURE root cause - `career-pad-craft` inherited `fresh-career`'s deliberate absence of a `SCENARIO{name=ParsekScenario}` node, and the seam's FLIGHT focus route does not run `UpdateScenarioModules` the way the SPACECENTER route does (known-gate 6), so the ScenarioModule was never added, ZERO `[Scenario]` lines appear in the collected log, `OnSave` never ran, and the whole flight was recorded in memory and thrown away. The builder now splices the donor's inert node and `verify()` refuses a fixture without one. SECOND FINDING, why there is no ledger half: a destroyed active recorded vessel stashes its tree as PENDING and nulls `activeTree`, so the seam's `CommitTree` fails its `HasActiveTree` guard (`logs/2026-07-20_1829_B1-pad-hop/KSP.log:11310` `committree no-active-tree`, `:11325` `saving 0 committed tree(s)`); the pending tree auto-commits only OUTSIDE Flight and no seam verb produces that transition (R12). Both runs MEASURED the terms that extension needs, identically: `Added -9.999828 (-10) reputation: 'VesselLoss'` on the death, milestones RecordsSpeed 4800 / FirstLaunch 800 / RecordsAltitude 4800 all rep=0.0, produced pools funds 529600 sci 100 rep -7.99982834. The key is `VesselLoss`, NOT the `CrewKilled` that `PostWalkActionReconciler.cs:213` maps - settled by measurement |
 
 ### Committed, not yet live-run (14)
 
@@ -467,12 +469,23 @@ can move them at any time. Thirteen specs pin those splits as LITERAL patterns, 
 runner printed the pinned line TOKEN FOR TOKEN. All thirteen pre-flight derivations
 were correct.
 
-`H20` is the one member NOT settled by the sweep. Its pin is the loose interim form,
-so its PASS proves only `total=2`, `failed=0`, `passed >= 1` - it cannot distinguish
-`passed=2 skipped=0` from `passed=1 skipped=1`. The exact split survives in no
-artifact: collect-logs fires only on non-PASS (`collectLogs: {ran: false}`) and the
-instance KSP.log was overwritten by later scenarios in the same sweep - the identical
-evidence gap S1.4 documented. It KEEPS the interim pin; one ~49 s re-fly closes it.
+`H20` was the one member the sweep could not settle, and it is now CLOSED. Its pin was
+the loose interim form, so the sweep's PASS proved only `passed >= 1`, and the exact
+split survived in no artifact (collect-logs fires on non-PASS only, and the instance
+KSP.log was overwritten by the later scenarios in the same sweep - the identical
+evidence gap S1.4 documented). It was re-flown ALONE on 2026-07-27 so its log would
+survive, measured `total=2 passed=2 failed=0 skipped=0` (corroborated by that run's
+parsek-test-results.txt export: `captured=2 Passed=2 Failed=0 Skipped=0`), and is now
+pinned whole. **All 14 members of the group pin their tally whole, and every one of
+those tallies has been measured off a live batch.**
+
+One asymmetry worth keeping in view: for 13 of the 14, `skipped=0` is also DERIVABLE
+from the attributes plus a reachable-Skip scan, so the pin is re-derivable after a
+source change. For `H20` it is measured only - both its cells carry run-time Skip
+guards, and the walkback cell's endpoint-overlap probe is a live `Physics.OverlapBox`
+whose outcome depends on the host's collider geometry. A fixture change to a taller or
+elevated host can legitimately make it skip and red the pin as `passed=1 skipped=1`;
+that is a FIXTURE change, not a walkback regression.
 
 COST, and the estimate that was wrong: this runbook estimated ~4-10 min per scenario
 and ~80 min for the group, extrapolating from mission-flying scenarios. A batch-only
@@ -495,7 +508,7 @@ costs under a third of one landing mission.
 | H17-flight-integration | nightly | Recorded lat/lon/alt vs `GetWorldSurfacePosition` over the corpus, ParsekFlight liveness, active-vessel surface API, Harmony patch operational (D3 surface-body-fixed; D16 sidecar-prec) | LIVE-PROVEN 2026-07-27, 69 s, matched token for token: `total=4 passed=4 failed=0 skipped=0` + count 272. Its first cell bails SILENTLY over an empty store, so the count pin is what makes it mean anything |
 | H18-pipeline-smoothing | daily | Coast-jitter suppression, structural-event flag alignment and child-seed parity, and the LIVE GameEvents subscription contract - a dropped `GameEvents.X.Add(...)` compiles, unit-tests green, and silently stops recording docks (D2 structural-event-snapshots) | LIVE-PROVEN 2026-07-27, 50 s, matched token for token: `total=4 passed=4 failed=0 skipped=0`, plus the `asserted=5 of 5 GameEvents bindings` line. One caveat stated in the spec: the wiring helper's only Skip branch is a KSP field rename, unreachable on 1.12.5 |
 | H19-recording-finalization | nightly | BackgroundRecorder finalization-cache apply: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, active-crash tail append (D1 finalization-cache) | LIVE-PROVEN 2026-07-27, 49 s, matched token for token: `total=3 passed=3 failed=0 skipped=0` |
-| H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | The ONLY interim pin in the group: `total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+`. Both cells carry run-time Skip guards; gloops-airshow satisfies the crewed / landed / solid-ground / vessel-type ones from the save file, but the walkback cell's `WalkbackFixtureCoversParent` answer is measured at run time. FLY LAST and replace the pattern with the whole tally. Runbook item 14 |
+| H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | LIVE-PROVEN 2026-07-27, 49 s in the sweep + a 59 s solo re-fly to capture the split. Pinned WHOLE: `total=2 passed=2 failed=0 skipped=0`. The overlap probe DID fire, so the walkback path really executed. Its `skipped=0` is measured, not derivable - see the group note |
 
 TIERING, decided on the measured cost: **13 stay `nightly`, `H18-pipeline-smoothing`
 is promoted to `daily`.** Cost does not discriminate here - every member is 49-71 s and
@@ -616,8 +629,9 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
 - Coverage ledger: 96 / 241 registry cells claimed (the growth metric),
-  RE-DERIVED at the merge through `hlib.compute_coverage` over the 52 committed
-  specs + the merged registry - neither side's number survives it. `main` read
+  RE-DERIVED at each merge through `hlib.compute_coverage` over the committed
+  specs + the merged registry (53 of them as of the #1357 merge) - neither side's
+  number survives such a merge. `main` read
   84 / 241 over its 38 specs (83 at the 2026-07-26 recompute; D3
   `parent-anchored-debris` is the cell R1's debris gate added). This branch read
   95 / 241 over its 52. The merged figure is recomputed rather than taken from
@@ -788,7 +802,39 @@ six publish or compare numbers the runner already measured.
    recording TOPOLOGY; the commit itself is guarded by the logContract tokens,
    which now include the foreground SOI-crossing line and a per-recording
    terminal verdict naming `terminalOrbitBody`.
-10. NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT (recorded 2026-07-26
+10. ~~NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT~~ - the HEADLINE is
+   CLOSED 2026-07-28 by `CL-1-pod-impact`, LIVE-PROVEN on its second flight
+   (FULL PASS attempt 1, 166 s, all seven verifiers PASS/SKIPPED). A scenario
+   now kills its subject in a live flight and gates what Parsek records about
+   it. The rest of this item STAYS OPEN, scoped below.
+   WHAT IT WILL CLOSE, exactly: the HEADLINE sentence. CL-1 kills its subject in
+   a live flight - a crewed pod with no chute, whose SUCCESS terminal is the
+   kerbal's death read from `SpaceCenter.GetKerbal(name).RosterStatus` - and it
+   makes the two things no pure decision can reach observable: what PARSEK
+   RECORDS about a crew death, and what the CAREER LEDGER does about it. Neither
+   is touched by any of the four xUnit cells this item names; they are about the
+   EVA seam's own give-up decision, not about the recorder or the ledger.
+   WHAT STAYS OPEN, and is NOT claimed: (a) the `eva-chute-kerbal-lost` path and
+   the `PARSEK-FAIL(mission-outcome)` gate it feeds - CL-1 drives no EVA verb and
+   asserts nothing about them, so they remain proven only by the pure decisions
+   plus the fake-KSP replay; (b) the standoff's Unity-side wiring
+   (`EvaluateStandoff` / `TryCompleteEvaExit`), whose only live guard is still
+   EVA-4's `evaexit standoff cleared` token; (c) a crew death across a REWIND -
+   `InGameTests/KerbalRecoveryOnSupersedeTest` still AUTO-SKIPS with "No
+   kerbal-death actions in supersede subtree", and CL-1's committed tree is
+   exactly the subtree it needs, which is what the atom is meant to be extended
+   into next.
+   THE TWO OBJECTIONS BELOW WERE ANSWERED RATHER THAN OVERRULED. "A fixture
+   nobody maintains": `career-pad-craft` is `fresh-career` (maintained by the
+   seven L1 ledger scenarios) plus `b1-pad-craft`'s craft copied byte-identically
+   (maintained by B1 and EVA-4), spliced by a committed script with a `--check`
+   mode that re-verifies the committed bytes. "Artifacts indistinguishable from a
+   real regression": the death is CL-1's DECLARED terminal with its own phase
+   name, its own assertions and its own required tokens, and a run whose crew
+   SURVIVES reds by name (`crew-survived-impact`) instead of passing quietly.
+   The original text follows, unedited, because it is still the correct
+   description of everything CL-1 does not cover:
+   NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT (recorded 2026-07-26
    with the EVA-4 re-prove). Flight 4 passed, but a LIVE kerbal proves nothing
    about a DEAD one: the `eva-chute-kerbal-lost` path and the
    `PARSEK-FAIL(mission-outcome)` gate it feeds are proven end to end only by
@@ -834,14 +880,14 @@ six publish or compare numbers the runner already measured.
 5. B1 chute re-prove: NO operator session needed - it is a normal unattended
    nightly run. Listed here only because it is the gate that returns B1 to
    live-proven, and because its result pins P1/P2/P3 in the B1 spec.
-6. ~~H7-H20 tally measurement~~ DONE 2026-07-27: all 14 flown via
+6. ~~H7-H20 tally measurement~~ DONE 2026-07-27, fully closed: all 14 flown via
    `python run.py --tag ingame-batch`, all 14 PASS on attempt 1, 805 s (13.4 min)
-   total. Thirteen pinned splits confirmed token for token. ONE residue, and it is
-   ~49 s of work: `H20-eva-spawn-position` carries the loose interim pin, so its
-   PASS proves only `total=2 failed=0 passed>=1`; its exact split is in no artifact
-   (collect-logs fires only on non-PASS and the instance log was overwritten by the
-   rest of the sweep), so re-fly that ONE scenario and pin it whole.
-6. R1 rewind-loop-flown - FLOWN THREE TIMES (2026-07-26). Flight 1 found a
+   total, thirteen pinned splits confirmed token for token. The residue -
+   `H20-eva-spawn-position`, whose loose interim pin could not distinguish
+   `passed=2 skipped=0` from `passed=1 skipped=1` - was closed by re-flying that one
+   scenario ALONE (59 s) so its log survived to be read: `passed=2 skipped=0`, the
+   overlap probe fired, walkback executed. All 14 now pin whole off measured lines.
+7. R1 rewind-loop-flown - FLOWN THREE TIMES (2026-07-26). Flight 1 found a
    mission ordering defect (fixed), flight 2 proved the rewind works and
    found `R1-EMPTY-PROVISIONAL`, flight 3 closed the loop and DIAGNOSED that
    finding to root cause. It is not green and should not be: its

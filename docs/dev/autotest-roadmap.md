@@ -67,7 +67,7 @@ two days.
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 96   uncovered 145   expectedFailValues 0   xpass 0
+values 241   covered 96   uncovered 145   expectedFailValues 3   xpass 0
 ```
 
 Per dimension (total / uncovered):
@@ -675,7 +675,8 @@ Flight? No.
   R12), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
   these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
   `GhostLifecycle` measures the loop / overlap surface over a live corpus.
-- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture, so it waits on R11),
+- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
+  R11 is closed by `career-pad-craft`),
   `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
   in ledger trust available.
@@ -704,14 +705,23 @@ flight; (c) add a RewindPoint / slot list verb, or extend `RecordingState`'s
 four-field payload. Unblocks live-authored `InvokeRewind` and every future verb that
 addresses a live tree, vessel, route, or kerbal.
 
-**R11. A CAREER fixture with a flyable craft.** One forge spec, one run.
+**R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~
+**CLOSED 2026-07-28 by `harness/fixtures/saves/career-pad-craft`** - built BY
+CONSTRUCTION rather than by a forge flight. `harness/tools/build_career_pad_craft.py`
+splices `b1-pad-craft`'s Jumping Flea `VESSEL` node into `fresh-career`'s empty
+`FLIGHTSTATE` and swaps the crew kerbal's roster row for the `state = Assigned` one,
+with a `--check` mode plus a byte-identity drift cell in
+`harness/missions/lib/test_cl1_crew_loss.py`. No flight, no operator session, no
+`FORGE-career-pad` spec. First consumer: `CL-1-pod-impact`.
 
-`FORGE-career-pad`: fresh-career plus a craft into `Ships/VAB` plus `launch_vessel`,
-a mechanical repeat of `FORGE-eva3-pad`. Unblocks the L-track end goal, D8
-`milestones` / `contracts` / `strategies` / `tombstones` in flown form, D12
-`reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`, and D8
-`ground-truth-harness` (which self-skips outside career).
-Flight? The forge run flies. The consumers after it are mostly seam boots.
+What that unblocks is now AVAILABLE, not delivered - each still needs its own spec:
+the L-track end goal, D8 `milestones` / `contracts` / `strategies` / `tombstones` in
+flown form, D12 `reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`,
+and D8 `ground-truth-harness` (which self-skips outside career).
+Flight? None to close R11 itself. The consumers after it are mostly seam boots.
+
+Original plan, kept for the record: `FORGE-career-pad`: fresh-career plus a craft
+into `Ships/VAB` plus `launch_vessel`, a mechanical repeat of `FORGE-eva3-pad`.
 
 **R12. Two scene and interaction verbs: `SimulateStockSwitchClick` plus a `scene=`
 argument on `LoadGame`.** Two seam verbs.
@@ -759,7 +769,10 @@ run lane, and runs are currently strictly serial under a per-instance run lock.
 - D10 `claw-producer`: no grapple action exists; the `ClawCouple` (2) and
   `LogisticsGrapple` (4) in-game categories are the only path.
 - D12 `crew-swap`, `seat-matching`: no crew-transfer action.
-- D8 `milestones`: a career flight that EARNS one. Rides R11, not this lane.
+- D8 `milestones`: a career flight that EARNS one. Rode R11, which is CLOSED
+  2026-07-28 (`career-pad-craft`); still not this lane. NOTE: `CL-1-pod-impact` is
+  the first career FLIGHT and will MEASURE which progress milestones a 12 km crewed
+  hop trips - that measurement is the input this cell has been missing.
 - D7 `engine-fx-waterfall-fallback`: belongs with R14, not with the part-event work.
 - A declarative multi-piece mission composer to replace bespoke phase machines.
 

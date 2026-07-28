@@ -539,6 +539,10 @@ class KrpcMissionControl(MissionControl):
         # active-vessel to invalid debris -- so we emit a vessel_lost snapshot the
         # phase machine terminates on rather than let the mission burn its budget.
         self._read_fail_streak = 0
+        # The kerbal ACTION_SET_ROSTER_WATCH armed, or "" (unarmed). Unarmed means
+        # _read_crew_roster_status returns "" without issuing an RPC, so every
+        # mission that does not arm it keeps a byte-identical snapshot.
+        self._roster_watch_name: str = ""
         self.client_version = ""
         self.server_version = ""
         # Native-warp service (Path A): built lazily on the first warp_to_ut
@@ -690,6 +694,11 @@ class KrpcMissionControl(MissionControl):
             craft_chute_state = ""
             if self._read_chute:
                 craft_chute_state = self._read_craft_chute_state(v)
+            # Watched kerbal's roster status (armed by ACTION_SET_ROSTER_WATCH; CL-1).
+            # Own try/except inside the helper with the "" UNREAD sentinel, same
+            # fail-closed discipline as the chute read, and it never counts toward the
+            # vessel-lost read-fail streak.
+            crew_roster_status = self._read_crew_roster_status(sc)
             # MechJeb NodeExecutor.Enabled (opt-in, B11/B12). Own try/except with
             # the -1 UNREAD sentinel: an executor read fault must degrade to
             # fail-closed (no executor verdict is granted on a blind frame),
@@ -817,6 +826,7 @@ class KrpcMissionControl(MissionControl):
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
                 craft_chute_state=craft_chute_state,
+                crew_roster_status=crew_roster_status,
                 seam_commit_result=self._seam_commit_result,
                 # Generalized seam-command outcome. All three stay at their UNREAD
                 # defaults ("" / "" / ()) for every mission that never emits
@@ -860,18 +870,37 @@ class KrpcMissionControl(MissionControl):
             # (best-effort UT so the phase-entry clock still advances) instead of
             # re-raising, so the phase machine reaches its vessel-lost terminal.
             ut = 0.0
+            sc = None
             try:
-                ut = float(self._conn.space_center.ut)
+                sc = self._conn.space_center
+                ut = float(sc.ut)
             except Exception:
                 ut = 0.0
+            # THE ONE CHANNEL THAT STILL CARRIES TRUTH ON THIS PATH (CL-1). Every
+            # other field stays at its benign default because it is a property OF
+            # THE VESSEL and a destroyed vessel has none; a kerbal's roster status
+            # is a property of the KERBAL and outlives the craft that killed them.
+            # Best-effort and fail-closed: an unread roster leaves the "" sentinel,
+            # which satisfies no gate.
+            crew_roster_status = self._read_crew_roster_status(sc) if sc is not None else ""
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Telemetry",
                 "vessel-lost: telemetry read failed %d consecutive samples; "
-                "emitting vessel_lost snapshot ut=%s"
-                % (self._read_fail_streak, _fmt(ut))))
-            return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True)
+                "emitting vessel_lost snapshot ut=%s roster=%s"
+                % (self._read_fail_streak, _fmt(ut), crew_roster_status or "UNREAD")))
+            return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True,
+                                          crew_roster_status=crew_roster_status)
 
     def perform(self, action: "mlib.Action") -> None:
+        # Arming the roster watch is handled BEFORE the active-vessel resolve below:
+        # it issues no RPC of its own, and binding it to a live vessel would make the
+        # one channel designed to outlive the craft depend on the craft.
+        if action.kind == mlib.ACTION_SET_ROSTER_WATCH:
+            self._roster_watch_name = str(action.text or "")
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Roster", "roster watch armed kerbal=%r"
+                % (self._roster_watch_name,)))
+            return
         sc = self._conn.space_center
         v = sc.active_vessel
         control = v.control
@@ -2587,6 +2616,42 @@ class KrpcMissionControl(MissionControl):
             if want in states:
                 return want
         return states[0]
+
+    def _read_crew_roster_status(self, sc) -> str:
+        """The WATCHED kerbal's roster status, or "" when no watch is armed / the
+        read faulted (CL-1).
+
+        `SpaceCenter.GetKerbal(name)` at the pinned kRPC v0.5.4 scans
+        `HighLogic.CurrentGame.CrewRoster.Crew` and returns null when no kerbal of
+        that name is in it; `CrewMember.RosterStatus` maps stock's
+        `ProtoCrewMember.RosterStatus` (Available / Assigned / Dead / Missing).
+        Both were verified present at the pinned commit before this was written -
+        neither is a newer-kRPC feature.
+
+        THREE distinct outcomes, and keeping them distinct is the point:
+          ""            the read RAISED, or no watch is armed. Fail-closed.
+          "NotInRoster" GetKerbal returned null - an OBSERVATION, not a failure.
+          "<Status>"    the normalized roster status.
+        The middle one is what turns a misspelled `crewName` from a mystery
+        budget burn into a named terminal, and it is also the reading a kerbal
+        would produce if stock ever removed a dead one from the roster outright.
+
+        Resolved LIVE from the connection every poll and never through the active
+        vessel: that independence is exactly why this survives the destruction of
+        the craft, which is the frame a crew-loss mission most needs it on."""
+        name = self._roster_watch_name
+        if not name:
+            return ""
+        try:
+            kerbal = sc.get_kerbal(name)
+        except Exception:
+            return ""
+        if kerbal is None:
+            return mlib.ROSTER_STATUS_NOT_IN_ROSTER
+        try:
+            return mlib.normalize_roster_status(getattr(kerbal.roster_status, "name", ""))
+        except Exception:
+            return ""
 
     def _read_angular_velocity(self, v) -> float:
         """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --
