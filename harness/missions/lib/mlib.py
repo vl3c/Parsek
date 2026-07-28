@@ -6308,9 +6308,9 @@ def _b5_native_warp_guarded(state: B5State, snapshot: TelemetrySnapshot,
         # The warp this frame just armed is DISCARDED and torn down instead:
         # "leave nothing warped behind" (2026-07-26 review). The shipped
         # version returned actions=[] with warp_to_cmd still set, so the
-        # runner drove StopRecording / CommitTree / FlushAndQuit against a
-        # warping game -- the one thing every other terminal in this file is
-        # careful not to do.
+        # runner drove the CLEANUP tail (StopRecording / FlushAndQuit)
+        # against a warping game -- the one thing every other terminal in this
+        # file is careful not to do.
         stopped, teardown = _b5_stop_all_warp(issued, snapshot)
         return _b5_named_flake(
             stopped,
@@ -6385,8 +6385,8 @@ def _b5_cancel_native_warp(state: B5State,
 def _b5_stop_all_warp(state: B5State,
                       snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
     """Leave nothing warped behind: the warp teardown a TERMINAL frame owes the
-    runner, which drives StopRecording / CommitTree / FlushAndQuit next and must
-    not drive them against a warping game.
+    runner, which drives the CLEANUP tail (StopRecording / FlushAndQuit) next
+    and must not drive it against a warping game.
 
     The same two-case shape the impact-certain terminal and the RETURN exit
     already spell out inline: CANCEL an active native warp (the runner's cancel
@@ -6396,7 +6396,15 @@ def _b5_stop_all_warp(state: B5State,
     Added by the 2026-07-26 review for the two give-ups that shipped WITHOUT a
     teardown (``capture-never-armed`` and the ``*-warp-thrash`` family). The
     two inline copies are deliberately left alone: they sit on the live-proven
-    B5/B6/B7 lane and rewriting them to call this would buy nothing."""
+    B5/B6/B7 lane and rewriting them to call this would buy nothing.
+
+    DO NOT fold the PARK / LANDED-SETTLE self-heal blocks into this helper.
+    Theirs is a STRICTLY STRONGER third shape: their second leg also fires on
+    an OBSERVED ``snapshot.warp_mode == WARP_RAILS`` while ``warp_cmd`` is
+    already 0, which this helper does not do (it reads only commanded state).
+    Those phases are recorded 1x coverage and must pull down a rails factor
+    nothing of ours commanded. The two rails cells in ``B5ParkTests`` /
+    ``LandedSettleTests`` red if that leg is lost."""
     if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
         return (replace(state, warp_to_cmd=None, warp_cmd=0),
                 [Action(ACTION_CANCEL_WARP)])
@@ -6563,8 +6571,8 @@ def _b5_capture_never_armed_giveup(state: B5State, snapshot: TelemetrySnapshot,
 
     Every path tears the warp down on the way out (``_b5_stop_all_warp``): the
     shipped version returned ``actions=[]`` with ``warp_to_cmd`` still armed,
-    so the runner drove StopRecording / CommitTree / FlushAndQuit against a
-    warping game."""
+    so the runner drove the CLEANUP tail (StopRecording / FlushAndQuit)
+    against a warping game."""
     why = classify_capture_arm_failure(snapshot.periapsis,
                                        snapshot.time_to_periapsis)
     evidence = ("%d consecutive in-%s-SOI frames could not arm PLAN-CAPTURE "
@@ -8416,12 +8424,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # self-heal above already mutated `st` to say the warp is down, so
             # returning [] here would ship a state that LIES: a PARK that times
             # out on the same frame a stray warp is detected would flake with
-            # the game still warping, and the runner drives StopRecording /
-            # CommitTree / FlushAndQuit next -- exactly the "leave nothing
-            # warped behind" failure `_b5_stop_all_warp` was added to close at
-            # the thrash and never-armed terminals. warp_actions is [] on the
-            # settled-1x park that this branch almost always fires on, so the
-            # common case is unchanged.
+            # the game still warping, and the runner drives the CLEANUP tail
+            # (StopRecording / FlushAndQuit -- `hlib.plan_unmet_mission_tail`
+            # skips the world-mutating verbs after an unmet mission) next --
+            # exactly the "leave nothing warped behind" failure
+            # `_b5_stop_all_warp` was added to close at the thrash and
+            # never-armed terminals. warp_actions is [] on the settled-1x park
+            # that this branch almost always fires on, so the common case is
+            # unchanged.
             if st.park_ever_stable:
                 return _b5_named_flake(
                     st,
@@ -8671,8 +8681,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # does (2026-07-28 review): this branch is a verbatim copy of PARK's
             # and inherited its bug. Returning [] here ships a state that has
             # already recorded warp_to_cmd=None / warp_cmd=0 while no cancel
-            # ever reaches the runner, which then drives StopRecording /
-            # CommitTree / FlushAndQuit against a warping game.
+            # ever reaches the runner, which then drives the CLEANUP tail
+            # (StopRecording / FlushAndQuit) against a warping game.
             if st.landed_ever_stable:
                 return _b5_named_flake(
                     st,
