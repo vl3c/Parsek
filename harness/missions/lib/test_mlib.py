@@ -8302,6 +8302,50 @@ class B5ParkTests(unittest.TestCase):
         self.assertNotIn("HELD", state.flake_reason)
         self.assertIn("measured from phase entry", state.flake_reason)
 
+    def test_never_stabilized_give_up_still_cancels_an_active_native_warp(self):
+        """A PARK that times out on the SAME frame a stray native warp is seen
+        must carry the cancel out with the give-up. The give-up used to return
+        [] while the self-heal had already set warp_to_cmd=None, so the state
+        claimed a teardown that never reached the runner -- and the runner
+        drives StopRecording / CommitTree / FlushAndQuit next, against a game
+        that is still warping."""
+        state = _b11_state(mlib.B5_PARK, warp_to_cmd=9999.0)
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0,
+                           situation="FLYING", warping_to=9999.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never reached a stable park", state.flake_reason)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        # The state and the emitted actions must agree: no state that says the
+        # warp is down without the action that puts it down.
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
+
+    def test_stabilized_give_up_still_drops_a_held_rails_warp(self):
+        """Same teardown obligation on the other give-up, via the rails leg."""
+        state = _b11_state(mlib.B5_PARK)
+        for _ in range(B11_PARAMS.park_debounce):
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0))
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING",
+                           warp_mode=mlib.WARP_RAILS, warp_rate=1000.0))
+        self.assertTrue(state.done)
+        self.assertIn("reached the park gate at least once", state.flake_reason)
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        self.assertEqual(state.warp_cmd, 0)
+
+    def test_a_settled_1x_park_give_up_emits_nothing(self):
+        """Negative control: the common case is a park that was never warping,
+        and it must still time out silently -- the teardown rides the give-up
+        only when there is a warp to tear down."""
+        state = _b11_state(mlib.B5_PARK)
+        state, actions = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(actions, [])
+
     def test_park_stable_streak_is_capped_at_the_debounce_depth(self):
         """park_stable_streak is a DIFFED field: an uncapped counter emits one
         gate line + one 21-line window dump per frame of the whole dwell. The
@@ -9570,6 +9614,45 @@ class LandedSettleTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertIn(mlib.LANDING_GIVEUP_NEVER_STABLE, state.flake_reason)
         self.assertIn("at least once", state.flake_reason)
+
+    def test_never_settled_give_up_still_cancels_an_active_native_warp(self):
+        """The PARK teardown obligation, on PARK's verbatim copy. This branch
+        inherited the bug along with the code: the self-heal records
+        warp_to_cmd=None while the give-up dropped the cancel, so the machine
+        flaked claiming a teardown the runner never received."""
+        state = _b13_state(mlib.B5_LANDED_SETTLE, warp_to_cmd=9999.0)
+        state, actions = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.landed_timeout + 1.0,
+                           horizontal_speed=9.0, warping_to=9999.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("never settled after touchdown", state.flake_reason)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
+
+    def test_settled_then_lost_give_up_still_drops_a_held_rails_warp(self):
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        for _ in range(B13_PARAMS.landed_debounce):
+            state, _ = mlib.b5_decide(state, _landed(ut=10.0))
+        state, actions = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.landed_timeout + 1.0,
+                           horizontal_speed=9.0, warp_mode=mlib.WARP_RAILS,
+                           warp_rate=50.0))
+        self.assertTrue(state.done)
+        self.assertIn("at least once", state.flake_reason)
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        self.assertEqual(state.warp_cmd, 0)
+
+    def test_a_settled_1x_dwell_give_up_emits_nothing(self):
+        """Negative control, as for PARK: no warp, no teardown action."""
+        state = _b13_state(mlib.B5_LANDED_SETTLE)
+        state, actions = mlib.b5_decide(
+            state, _landed(ut=B13_PARAMS.landed_timeout + 1.0,
+                           horizontal_speed=9.0))
+        self.assertTrue(state.done)
+        self.assertEqual(actions, [])
 
     def test_frozen_telemetry_does_not_kill_a_settled_dwell(self):
         """A settled rigidbody can report BIT-IDENTICAL telemetry while UT
