@@ -14,7 +14,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## CL-1: the crew-loss atom - the first scenario that kills its subject, and the first CAREER fixture with a flyable craft [BUILT, NOT YET FLOWN, branch `crew-loss`]
+## CL-1: the crew-loss atom - the first scenario that kills its subject, the first CAREER fixture with a flyable craft, and two findings a live flight had to produce [LIVE-PROVEN 2026-07-28 flight 2, branch `crew-loss`]
+
+**FLIGHT LOG.** Flight 1 (2026-07-28, `logs/2026-07-28_1913_CL-1-pod-impact`): PARSEK-FAIL,
+`expectations` 2 mismatches. Flight 2, same build, fixed fixture: **FULL PASS on attempt 1**,
+166 s wall, all seven verifiers PASS/SKIPPED, `recordings.count` observed exactly 1. BOTH
+flights killed the kerbal and reached `CREW-LOST` with `MISSION-OK`, so the machine and the
+roster channel were right from the first run.
+
+**FLIGHT-1 FINDING (fixed here): a fixture with no `ParsekScenario` node persists NOTHING
+through the seam's FLIGHT route.** The flight itself was perfect - 262 points over 108.9 s,
+the whole destruction path, Jebediah `state = Dead` on disk - and it produced ZERO recordings
+and no `CrewStatusChanged` line. ONE root cause for both: `career-pad-craft` inherited
+`fresh-career`'s deliberate absence of a `SCENARIO{name=ParsekScenario}` node, and the seam's
+FLIGHT focus route does not run `UpdateScenarioModules` the way the SPACECENTER route does
+(known-gate 6 fixed that one). So `ParsekScenario` was never added to the loaded game: not one
+`[Scenario]` line in the entire collected KSP.log, `OnSave` never ran, and the whole flight was
+recorded in memory and thrown away. Every fixture that has ever flown carries the node; the
+only ones without it are the three never-flown `fresh-*` KSC templates. FIXED fixture-side
+(the builder splices the donor's inert 7-line node as a third edit and `verify()` refuses a
+fixture without one), which is the right layer for a fixture meant to look like a save KSP
+itself wrote. NOT fixed product-side: the FLIGHT route's asymmetry with the SPACECENTER route
+is real and would bite the next hand-authored fixture the same way - worth its own diagnosis.
+
+**THE MEASUREMENTS THE LEDGER EXTENSION WAS BLOCKED ON, taken by both flights and IDENTICAL
+across them, so they are reproducible rather than incidental:**
+- stock reputation on the death: `Added -9.999828 (-10) reputation: 'VesselLoss'.` So stock
+  KSP DOES penalize a crew death, nominal **-10**, and **the reason key is `VesselLoss`, not
+  `CrewKilled`**. That settles a contradiction the repo carried against itself:
+  `GameActions/PostWalkActionReconciler.cs:213` maps `ReputationPenaltySource.KerbalDeath ->
+  "CrewKilled"` and is WRONG;
+  `docs/dev/done/research/reputation-reservation-not-warranted.md:133-134` said `VesselLoss`
+  and is right. Neither had ever been pinned against the enum.
+- progress milestones on a 12 km crewed hop: `RecordsSpeed` funds=4800, `FirstLaunch`
+  funds=800, `RecordsAltitude` funds=4800, all `rep=0.0`, plus two
+  `Added 0.9999995 (1) reputation: 'Progression'`.
+- produced career pools: funds 529600 (seed 500000), sci 100, rep -7.99982834
+  (= -9.999828 + 1 + 1; the arithmetic closes exactly).
 
 **What it is.** A crewed pod launches, does not deploy a chute, and hits the ground. The
 crew dies. That is the whole scenario (`harness/scenarios/CL-1-pod-impact.toml`, mission

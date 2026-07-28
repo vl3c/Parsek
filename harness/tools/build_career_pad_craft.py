@@ -9,7 +9,7 @@ FLIGHT rather than of a KSC button. The roadmap proposed closing it with a
 `FORGE-career-pad` FLIGHT. This tool closes it without one: the two inputs are
 already committed, already proven, and the splice between them is mechanical.
 
-WHAT IT SPLICES. Exactly two edits against the `fresh-career` SAVE, plus a
+WHAT IT SPLICES. Exactly three edits against the `fresh-career` SAVE, plus a
 `persistent.loadmeta` restamp (vessel count + UT only - every other loadmeta
 field is left alone because the splice moves no career pool):
 
@@ -26,6 +26,10 @@ field is left alone because the splice moves no career pool):
      `b1-pad-craft`'s entry for the same kerbal, so the roster row is the
      `state = Assigned` one KSP ITSELF wrote alongside this exact vessel rather
      than a hand-edited `Available` row.
+  3. The donor's INERT `SCENARIO{name=ParsekScenario}` node is copied in.
+     LOAD-BEARING - without it the seam's FLIGHT focus route never creates the
+     ScenarioModule, so `OnSave` never runs and a whole flight is recorded in
+     memory and thrown away. CL-1 flight 1 proved it. See the call site.
 
 The CRAFT ITSELF IS COPIED VERBATIM - same `pid`, same `persistentId`, same
 parts, same `stg = 2`, same `automateSafeDeploy = 0` on the chute. A consumer
@@ -263,8 +267,50 @@ def build(base_lines: List[str], donor_lines: List[str],
         raise SystemExit("base roster has no %s" % crew_name)
     base[base_kerbal[0]:base_kerbal[1]] = donor_lines[donor_kerbal[0]:donor_kerbal[1]]
 
+    # 3. The INERT ParsekScenario SCENARIO node, copied verbatim from the donor.
+    #
+    # LOAD-BEARING, and it cost a flight to learn. `fresh-career` deliberately
+    # carries NO Parsek footprint, which is right for a KSC-only ledger fixture:
+    # the four L1 career scripts enter through the seam's SPACECENTER route, and
+    # `LoadGameImpl` writes persistent.sfs after `UpdateScenarioModules` there
+    # (autotest-status known-gate 6), so the ScenarioModule gets created for them.
+    # The FLIGHT focus route does not do that. CL-1 flight 1 (2026-07-28) flew the
+    # whole profile correctly - 262 points, the destruction path, the kerbal dead on
+    # disk - and produced ZERO recordings, because `ParsekScenario` was never added
+    # to the loaded game: the collected KSP.log carries not one `[Scenario]` line
+    # and the produced save carries no `ParsekScenario` node, so `OnSave` never ran
+    # and nothing was ever written.
+    #
+    # EVERY fixture that has ever flown carries this node; the only ones without it
+    # are the three never-flown `fresh-*` KSC templates. Copying the donor's is the
+    # same discipline as copying its vessel: 7 inert lines (`scene`,
+    # `missionHideArchived`, `gameStateEventCount`), no recordings, no trees, no
+    # ledger state. `eva2-lko-crewed` keeps the equivalent node for the same reason,
+    # and a POPULATED node is also what suppresses `PreParsekBackup` at load, so an
+    # emptied one would be a different and untested shape.
+    donor_scn = _scenario_node(donor_lines, "ParsekScenario")
+    if donor_scn is None:
+        raise SystemExit("donor has no ParsekScenario SCENARIO node to copy")
+    if _scenario_node(base, "ParsekScenario") is None:
+        anchor = _scenario_node(base, "ProgressTracking") or _scenario_node(base, "Funding")
+        if anchor is None:
+            raise SystemExit("base has no SCENARIO node to anchor the insert against")
+        base[anchor[1]:anchor[1]] = donor_lines[donor_scn[0]:donor_scn[1]]
+
     set_top_value(base, "Title", title)
     return base
+
+
+def _scenario_node(lines: List[str], scenario_name: str) -> Optional[Tuple[int, int]]:
+    """The SCENARIO node whose `name = <scenario_name>`, or None."""
+    i = 0
+    while True:
+        node = find_node(lines, "SCENARIO", i)
+        if node is None:
+            return None
+        if get_value(lines, node, "name") == scenario_name:
+            return node
+        i = node[1]
 
 
 def _kerbal_named(lines: List[str], roster: Tuple[int, int],
@@ -352,6 +398,13 @@ def verify(lines: List[str], crew_name: str) -> List[str]:
     # two-step form if this ever flipped.
     if not any(line.strip() == "MissingCrewsRespawn = False" for line in lines):
         problems.append("MissingCrewsRespawn is not False")
+
+    # Without the ScenarioModule node the FLIGHT focus route never creates
+    # ParsekScenario, so OnSave never runs and the whole flight is recorded in
+    # memory and thrown away. CL-1 flight 1 proved it: zero recordings.
+    if _scenario_node(lines, "ParsekScenario") is None:
+        problems.append("no ParsekScenario SCENARIO node: a FLIGHT-route run "
+                        "would persist nothing (CL-1 flight 1, 2026-07-28)")
 
     for node_name, key, expected in (("Funding", "funds", EXPECT_FUNDS),
                                      ("ResearchAndDevelopment", "sci", EXPECT_SCIENCE),

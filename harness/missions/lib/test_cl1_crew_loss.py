@@ -833,12 +833,24 @@ class SpecFixtureSyncTests(unittest.TestCase):
         # vessel in the fixture is a free variable in that pin.
         self.assertEqual(1, sum(1 for l in self.sfs if l.strip() == "VESSEL"))
 
-    def test_the_fixture_has_no_parsek_footprint(self):
-        # The analyzer runs in Forbid mode over a fresh save; a ParsekScenario node
-        # or a prior recording would also give KerbalsModule.IsManaged a
-        # reservation to claim, which SUPPRESSES the CrewStatusChanged emit the
-        # spec requires.
-        self.assertNotIn("name = ParsekScenario", [l.strip() for l in self.sfs])
+    def test_the_fixture_carries_an_inert_parsek_scenario_node(self):
+        # BOTH HALVES COST A FLIGHT TO GET RIGHT.
+        #
+        # PRESENT, because the seam's FLIGHT focus route does not run
+        # `UpdateScenarioModules` (the SPACECENTER route does - known-gate 6), so
+        # without the node `ParsekScenario` is never added to the loaded game,
+        # `OnSave` never runs, and the whole flight is recorded in memory and
+        # thrown away. CL-1 flight 1 (2026-07-28) flew the entire profile
+        # correctly and produced ZERO recordings for exactly this reason.
+        stripped = [l.strip() for l in self.sfs]
+        self.assertIn("name = ParsekScenario", stripped)
+        # INERT, because a prior recording would give `KerbalsModule.IsManaged` a
+        # reservation to claim, which SUPPRESSES the CrewStatusChanged emit, and
+        # because the analyzer runs Forbid over a fresh save.
+        for state in ("RECORDING", "RECORDING_TREE", "GAME_ACTION", "LEDGER"):
+            self.assertNotIn(state, stripped,
+                             "the ParsekScenario node must carry no prior Parsek "
+                             "state; %s makes this a used save, not a fixture" % state)
 
 
 class FixtureDriftTests(unittest.TestCase):

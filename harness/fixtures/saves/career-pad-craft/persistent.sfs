@@ -249,6 +249,13 @@ GAME
 	}
 	SCENARIO
 	{
+		name = ParsekScenario
+		scene = 7, 5, 8, 6
+		missionHideArchived = False
+		gameStateEventCount = 1
+	}
+	SCENARIO
+	{
 		name = ResearchAndDevelopment
 		scene = 7, 8, 5, 6
 		sci = 100

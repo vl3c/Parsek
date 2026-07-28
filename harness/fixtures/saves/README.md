@@ -55,7 +55,7 @@ re-runs the splice over the current inputs, asserting byte-identity with the
 committed save - so a change to `fresh-career` or `b1-pad-craft` reds in the suite
 instead of drifting silently into a live flight.
 
-Exactly two edits against `fresh-career`'s save, plus a `persistent.loadmeta`
+Exactly three edits against `fresh-career`'s save, plus a `persistent.loadmeta`
 restamp (vessel count + UT; every other loadmeta field is unchanged because the
 splice moves no pool):
 
@@ -66,6 +66,19 @@ splice moves no pool):
    `activeVessel` re-indexed onto the surviving ship.
 2. The `ROSTER` row for `Jebediah Kerman` replaced by `b1-pad-craft`'s, so it is the
    `state = Assigned` row KSP itself wrote alongside this exact vessel.
+3. The donor's INERT `SCENARIO{name=ParsekScenario}` node (7 lines: `scene`,
+   `missionHideArchived`, `gameStateEventCount`; no recordings, no trees, no ledger
+   state) copied in. **This is load-bearing and it cost a flight to learn.**
+   `fresh-career` deliberately carries no Parsek footprint, which is right for the
+   four L1 scripts because they enter through the seam's SPACECENTER route, where
+   `LoadGameImpl` writes `persistent.sfs` after `UpdateScenarioModules`
+   (autotest-status known-gate 6). The FLIGHT focus route does not. CL-1 flight 1
+   (2026-07-28) flew the whole profile correctly and produced ZERO recordings: not
+   one `[Scenario]` line in the collected KSP.log, and no `ParsekScenario` node in
+   the produced save, so `OnSave` never ran. Every fixture that has ever flown
+   carries this node; the only ones without it are the three never-flown `fresh-*`
+   KSC templates. A POPULATED node is also what suppresses `PreParsekBackup` at
+   load, so an emptied one would be a different and untested shape.
 
 The craft is copied VERBATIM - same `pid`, same `persistentId`, same parts, same
 `stg = 2`, same `automateSafeDeploy = 0` on the chute - so `b1-pad-craft`'s MEASURED
@@ -122,6 +135,6 @@ STATUS, corrected 2026-07-28 (this section still read "all seven specs stay
 DONE and LIVE-PROVEN, all re-tiered to `daily`, and the `L1-passive-sandbox`
 seed-baseline blocker described above is resolved. `docs/dev/autotest-status.md` is the
 single status authority - see its "Operator items outstanding" item 1. `career-pad-craft`
-is the exception on this page: its consumer `CL-1-pod-impact` is tiered `operator` and
-has never flown, for a reason that is not a fixture blocker (an unpinned progress-
-milestone term, stated in that spec).
+is LIVE-PROVEN as of 2026-07-28: its consumer `CL-1-pod-impact` flew green on its
+second flight and is re-tiered `nightly`. Flight 1 red and found a real defect in this
+fixture - the missing `ParsekScenario` node, edit 3 above.

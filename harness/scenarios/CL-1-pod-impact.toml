@@ -109,22 +109,45 @@ id = "CL-1-pod-impact"
 #       tokens; a run that does NOT kill its kerbal reds by name
 #       (`crew-survived-impact`) rather than passing quietly.
 #
-# STATUS: COMMITTED, NEVER FLOWN. Every token and number below is MEASURED from
-# `logs/2026-07-20_1829_B1-pad-hop` - which is itself a CREWED-POD CRASH THAT KILLED
-# JEBEDIAH KERMAN on this exact craft and profile (`:11148 Game state:
-# CrewStatusChanged 'Jebediah Kerman' Assigned -> Dead`) - or quoted from an emitting
-# call site.
-tier = "operator"
-# PROMOTE TO `nightly` after the first green flight. Tiered `operator` because it is
-# UNFLOWN, not because it is expensive (the flight is ~120 s): a systematic first-run
-# failure should not red the nightly sweep before anyone has looked at it. Same
-# "do not self-quarantine an unflown spec" discipline the L1 specs used with
-# `pending-fixture`.
+# STATUS: LIVE-PROVEN 2026-07-28, flight 2, FULL PASS on attempt 1 (166 s wall; all
+# seven verifiers PASS/SKIPPED). Every token and number here was MEASURED first from
+# `logs/2026-07-20_1829_B1-pad-hop` - itself a CREWED-POD CRASH THAT KILLED JEBEDIAH
+# KERMAN on this exact craft (`:11148 CrewStatusChanged 'Jebediah Kerman' Assigned ->
+# Dead`) - and then CONFIRMED by this scenario's own two flights.
+#
+# FLIGHT 1 (2026-07-28) RED, and it earned its keep on the first run. The flight itself
+# was perfect - 262 points over 108.9 s, the full destruction path, and Jebediah
+# `state = Dead` on disk - but `expectations` FAILED with 2 mismatches:
+# `recordings.count 0 < min 1` and the CrewStatusChanged token missing. ONE root cause,
+# and it was in the FIXTURE, not the flight: `career-pad-craft` inherited
+# `fresh-career`'s deliberate absence of a `SCENARIO{name=ParsekScenario}` node, and
+# the seam's FLIGHT focus route does not run `UpdateScenarioModules` (the SPACECENTER
+# route does - known-gate 6). So the ScenarioModule was never added to the loaded game:
+# ZERO `[Scenario]` lines in the whole collected log, `OnSave` never ran, and the
+# entire flight was recorded in memory and thrown away. The builder now splices the
+# donor's inert node as a third edit, and `verify()` refuses a fixture without one.
+#
+# FLIGHT 2, same build, fixed fixture: PASS, `recordings.count` observed EXACTLY 1,
+# every required token matched.
+#
+# WHAT THE TWO RUNS MEASURED FOR THE LEDGER EXTENSION, identical across both, so the
+# terms are reproducible rather than incidental:
+#   stock rep on the death:  `Added -9.999828 (-10) reputation: 'VesselLoss'.`
+#   progress milestones:     RecordsSpeed funds=4800, FirstLaunch funds=800,
+#                            RecordsAltitude funds=4800, all rep=0.0, plus two
+#                            `+1 reputation 'Progression'`
+#   produced career pools:   funds 529600 (seed 500000), sci 100, rep -7.99982834
+#                            (= -9.999828 + 1 + 1, so the arithmetic closes exactly)
+# The reason key is `VesselLoss`, NOT `CrewKilled`: `PostWalkActionReconciler.cs:213`
+# maps `ReputationPenaltySource.KerbalDeath -> "CrewKilled"` and is WRONG;
+# `docs/dev/done/research/reputation-reservation-not-warranted.md:133-134` said
+# `VesselLoss` and is right. That contradiction is now settled by measurement.
+tier = "nightly"
+# PROMOTED from `operator` 2026-07-28 after the first green flight, which is the
+# condition this spec was tiered against. 166 s wall, so it is cheap for a nightly.
 description = "Crew-loss atom: crewed pod launches, no chute, hits the ground; assert the kerbal is OBSERVED dead and Parsek records the destruction."
 instanceProfile = "stock-minimal"
-# `pending-flight`, NOT `flown`: `--tag` is a real selector, and tagging a never-run
-# scenario `flown` would sweep it in with the proven ones.
-tags = ["CL1", "crew-loss", "pending-flight"]
+tags = ["CL1", "crew-loss", "flown"]
 
 [fixture]
 # career-pad-craft: the FIRST career save in the repo with a flyable craft (roadmap
