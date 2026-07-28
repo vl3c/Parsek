@@ -13302,7 +13302,12 @@ namespace Parsek
         /// Formats the summary emitted instead of per-recording lines when a tree
         /// carries more than <see cref="CommitTerminalLogLimit"/> recordings. Names
         /// the ROOT recording's verdict so the line still identifies where the tree
-        /// ended.
+        /// ended. The line LEADS with the exact per-recording token shape
+        /// (<c>CommitTreeFlight terminal: rec=... terminalState=...
+        /// terminalOrbitBody=...</c>) because the harness logContract specs
+        /// (B11/B12/B13/B14/B16) pin that shape as required commit evidence; a
+        /// debris-heavy tree above the cap must not red a green flight with
+        /// "required pattern not matched" reading as "commit never happened".
         /// </summary>
         internal static string FormatCommitTerminalSummaryLine(RecordingTree tree)
         {
@@ -13326,9 +13331,10 @@ namespace Parsek
                 rootBody = "(null)";
             }
 
-            return $"CommitTreeFlight terminal summary: {total} recordings " +
-                $"(over the {CommitTerminalLogLimit} per-line cap), " +
-                $"root rec={rootId} terminalState={rootState} terminalOrbitBody={rootBody}";
+            return $"CommitTreeFlight terminal: rec={rootId} " +
+                $"terminalState={rootState} terminalOrbitBody={rootBody} " +
+                $"(root; summary of {total} recordings over the " +
+                $"{CommitTerminalLogLimit} per-line cap)";
         }
 
         /// <summary>
@@ -13682,7 +13688,7 @@ namespace Parsek
                             // with no trace this gate fired.
                             ParsekLog.Info("Flight",
                                 $"RestoreActiveTreeFromPending: parent-walk guid gate " +
-                                $"rejected rec={probe.RecordingId?.Substring(0, 8)} " +
+                                $"rejected rec={ShortRecordingId(probe.RecordingId)} " +
                                 $"(recordedGuid differs conclusively from live vessel)");
                             walkDepth++;
                             continue;

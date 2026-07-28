@@ -160,7 +160,7 @@ namespace Parsek.Tests
         public void GateDiag_AllMet_Open()
         {
             Assert.Equal("open", TestCommandPlantFlag.DescribePlantGateBlock(
-                inPlantableFsmState: true, vesselActive: true, groundContact: true,
+                canPlantBound: true, inPlantableFsmState: true, vesselActive: true, groundContact: true,
                 flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
                 notConstruction: true, fsmStateName: "Idle_Grounded"));
         }
@@ -171,7 +171,7 @@ namespace Parsek.Tests
             // The EVA-1 pad-flag signature: standing on the pad, ground contact still
             // registering -> the timeout must SAY so, not just gateOpen=false.
             Assert.Equal("no-ground-contact", TestCommandPlantFlag.DescribePlantGateBlock(
-                inPlantableFsmState: true, vesselActive: true, groundContact: false,
+                canPlantBound: true, inPlantableFsmState: true, vesselActive: true, groundContact: false,
                 flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
                 notConstruction: true, fsmStateName: "Idle_Grounded"));
         }
@@ -180,7 +180,7 @@ namespace Parsek.Tests
         public void GateDiag_WrongState_NamesFsmState()
         {
             var diag = TestCommandPlantFlag.DescribePlantGateBlock(
-                inPlantableFsmState: false, vesselActive: true, groundContact: true,
+                canPlantBound: true, inPlantableFsmState: false, vesselActive: true, groundContact: true,
                 flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
                 notConstruction: true, fsmStateName: "Landing");
             Assert.Equal("fsm=Landing", diag);
@@ -190,7 +190,7 @@ namespace Parsek.Tests
         public void GateDiag_MultipleClosed_CommaJoined()
         {
             var diag = TestCommandPlantFlag.DescribePlantGateBlock(
-                inPlantableFsmState: false, vesselActive: true, groundContact: false,
+                canPlantBound: true, inPlantableFsmState: false, vesselActive: true, groundContact: false,
                 flagItemsPositive: false, notRagdoll: false, flagUnlocked: true,
                 notConstruction: true, fsmStateName: "Ragdoll");
             Assert.Equal("fsm=Ragdoll,no-ground-contact,no-flag-items,ragdoll", diag);
@@ -200,17 +200,40 @@ namespace Parsek.Tests
         public void GateDiag_EmptyStateName_Placeholder()
         {
             var diag = TestCommandPlantFlag.DescribePlantGateBlock(
-                inPlantableFsmState: false, vesselActive: true, groundContact: true,
+                canPlantBound: true, inPlantableFsmState: false, vesselActive: true, groundContact: true,
                 flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
                 notConstruction: true, fsmStateName: null);
             Assert.Equal("fsm=?", diag);
         }
 
         [Fact]
+        public void GateDiag_CanPlantUnbound_NamesIt_EvenWhenEveryComponentReadIsTrue()
+        {
+            // A failed CanPlantFlag() reflection bind keeps the gate closed forever, but the
+            // diagnostic components are independent reads that can all be true. Without the
+            // bind-health token the 180s timeout logs the self-contradicting
+            // "lastGateOpen=False blocked=open".
+            Assert.Equal("canplant-unbound", TestCommandPlantFlag.DescribePlantGateBlock(
+                canPlantBound: false, inPlantableFsmState: true, vesselActive: true,
+                groundContact: true, flagItemsPositive: true, notRagdoll: true,
+                flagUnlocked: true, notConstruction: true, fsmStateName: "Idle_Grounded"));
+        }
+
+        [Fact]
+        public void GateDiag_CanPlantUnbound_LeadsTheCommaJoinedList()
+        {
+            var diag = TestCommandPlantFlag.DescribePlantGateBlock(
+                canPlantBound: false, inPlantableFsmState: false, vesselActive: true,
+                groundContact: false, flagItemsPositive: true, notRagdoll: true,
+                flagUnlocked: true, notConstruction: true, fsmStateName: "Landing");
+            Assert.Equal("canplant-unbound,fsm=Landing,no-ground-contact", diag);
+        }
+
+        [Fact]
         public void GateDiag_AcLocked_NamesIt()
         {
             Assert.Equal("ac-flag-locked", TestCommandPlantFlag.DescribePlantGateBlock(
-                inPlantableFsmState: true, vesselActive: true, groundContact: true,
+                canPlantBound: true, inPlantableFsmState: true, vesselActive: true, groundContact: true,
                 flagItemsPositive: true, notRagdoll: true, flagUnlocked: false,
                 notConstruction: true, fsmStateName: "Idle_Grounded"));
         }
