@@ -14,9 +14,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [IN PROGRESS, phase 1 of 8 landed, branch `claude/mods-ui-basic-advanced-amrgy9`]
+## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [IN PROGRESS, phase 2 of 8 landed, branch `claude/mods-ui-basic-advanced-amrgy9`]
 
 Players report the UI is too complicated: the main window launches eight windows totalling ~25k lines of IMGUI across 13 surfaces. Design doc: `docs/dev/design-ui-basic-advanced.md`.
+
+Phase 2 landed the pure decision core in `Source/Parsek/UI/UiComplexityMode.cs` (`UiComplexityMode` / `UiSurface` enums, `UiSurfaceVisibility.IsVisible` / `HiddenSurfaces` / `ResolveMode`) with `Source/Parsek.Tests/UiComplexityModeTests.cs`. Inert: nothing calls it yet, no persisted field, no draw site gated, so there is no user-facing change and no CHANGELOG entry. Phase 3 (settings field + persistence + toggle UI + setter seam) is next.
 
 Analysis result - Basic keeps Timeline, Missions, Logistics, Settings; hides the Recordings tab (the raw per-recording table, 62 buttons / 13 toggles), the Career window (2 buttons, 2 toggles, zero mutations - pure read-only reference), the Kerbals window (4 buttons, 0 toggles, zero mutations), Gloops Flight Recorder, Real Spawn Control, and the Diagnostics + Sample Density settings sections. Advanced stays byte-identical to today.
 
