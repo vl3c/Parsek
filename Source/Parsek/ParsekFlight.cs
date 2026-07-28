@@ -13308,6 +13308,9 @@ namespace Parsek
         /// (B11/B12/B13/B14/B16) pin that shape as required commit evidence; a
         /// debris-heavy tree above the cap must not red a green flight with
         /// "required pattern not matched" reading as "commit never happened".
+        /// Residual: only the ROOT recording's tokens survive the cap, so specs
+        /// pinning token classes for NON-root recordings (the B11/B12 Kerbin-core
+        /// and Destroyed rows) still rely on the tree staying under the cap.
         /// </summary>
         internal static string FormatCommitTerminalSummaryLine(RecordingTree tree)
         {
@@ -13623,6 +13626,7 @@ namespace Parsek
             float deadline = UnityEngine.Time.time + 3f;
             Vessel matched = null;
             bool loggedGuidReject = false;
+            var loggedParentGuidRejects = new HashSet<string>();
             while (UnityEngine.Time.time < deadline)
             {
                 var v = FlightGlobals.ActiveVessel;
@@ -13685,11 +13689,15 @@ namespace Parsek
                             // Guard skip must be logged (review of PR #1345): a
                             // guid-rejected parent otherwise declines silently and
                             // the coroutine ends in the generic not-active Warn
-                            // with no trace this gate fired.
-                            ParsekLog.Info("Flight",
-                                $"RestoreActiveTreeFromPending: parent-walk guid gate " +
-                                $"rejected rec={ShortRecordingId(probe.RecordingId)} " +
-                                $"(recordedGuid differs conclusively from live vessel)");
+                            // with no trace this gate fired. Once per parent, not
+                            // per polling frame (review of PR #1371) - this walk
+                            // re-runs every frame of the 3 s wait, mirroring the
+                            // loggedGuidReject latch on the active-rec reject above.
+                            if (loggedParentGuidRejects.Add(probe.RecordingId ?? string.Empty))
+                                ParsekLog.Info("Flight",
+                                    $"RestoreActiveTreeFromPending: parent-walk guid gate " +
+                                    $"rejected rec={ShortRecordingId(probe.RecordingId)} " +
+                                    $"(recordedGuid differs conclusively from live vessel)");
                             walkDepth++;
                             continue;
                         }
