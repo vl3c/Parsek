@@ -233,10 +233,11 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
             }
 
-            // Top-level Recordings button. The per-state count lives inside the
-            // window; the launch-surface label stays short. The Missions view now
-            // lives as a second tab inside this same window (no separate button).
-            if (GUILayout.Button("Recordings"))
+            // Top-level Missions button. The per-state count lives inside the
+            // window; the launch-surface label stays short. Missions is the primary
+            // identity of this window; the raw Recordings table is its second tab
+            // (no separate button). The label is constant in both UI modes.
+            if (GUILayout.Button("Missions"))
                 ToggleRecordingsWindow();
 
             // --- M6 Record-Supply-Run helper banner ---

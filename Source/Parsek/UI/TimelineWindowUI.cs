@@ -1190,7 +1190,7 @@ namespace Parsek
 
                     // GoTo button — always last, right-aligned
                     if (GUILayout.Button(
-                            new GUIContent("GoTo", "Show in Recordings Manager"),
+                            new GUIContent("GoTo", "Show in Recordings tab"),
                             GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                     {
                         parentUI.SelectedRecordingId = entry.RecordingId;
@@ -1220,7 +1220,7 @@ namespace Parsek
                     }
 
                     if (GUILayout.Button(
-                            new GUIContent("GoTo", "Show in Recordings Manager"),
+                            new GUIContent("GoTo", "Show in Recordings tab"),
                             GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                     {
                         parentUI.SelectedRecordingId = entry.RecordingId;

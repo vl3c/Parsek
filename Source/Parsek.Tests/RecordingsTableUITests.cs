@@ -2168,7 +2168,7 @@ namespace Parsek.Tests
             Assert.Equal(0, RecordingsTableUI.BulkSetLoopPlayback(null, indices: null, true, false));
         }
 
-        // ── Tab switch (Recordings | Missions) ──
+        // ── Tab switch (Missions | Recordings) ──
 
         [Fact]
         public void LogTabSwitch_Logs_OldAndNew()
@@ -2650,6 +2650,77 @@ namespace Parsek.Tests
                 RecordingsTableUI.ResolveLastChildSection(false, true, true));
             Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
                 RecordingsTableUI.ResolveLastChildSection(true, true, true));
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // Basic/Advanced UI mode - phase 1 rename guards (design §4.1, §4.1a, §4.2)
+        // ════════════════════════════════════════════════════════════════
+
+        // Missions is the primary identity of this window: first tab AND default
+        // selection. Fails if a future edit reorders the tabs back, which would
+        // silently restore the raw Recordings table as the landing view.
+        [Fact]
+        public void MissionsIsTheDefaultAndFirstTab()
+        {
+            Assert.Equal(0, RecordingsTableUI.TabMissions);
+            Assert.Equal(1, RecordingsTableUI.TabRecordings);
+
+            Assert.Equal(2, RecordingsTableUI.TabLabels.Length);
+            Assert.Equal("Missions", RecordingsTableUI.TabLabels[0]);
+            Assert.Equal("Recordings", RecordingsTableUI.TabLabels[1]);
+
+            var ui = new RecordingsTableUI(null);
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+        }
+
+        // Design §4.2: the window rename must NOT touch the on-disk sidecar
+        // directory. Renaming Parsek/Recordings would orphan every existing
+        // recording on disk.
+        [Fact]
+        public void RecordingStoragePathsAreUnaffectedByRename()
+        {
+            string expectedDir = System.IO.Path.Combine("Parsek", "Recordings");
+
+            string trajectory = RecordingPaths.BuildTrajectoryRelativePath("rec-1");
+            string vessel = RecordingPaths.BuildVesselSnapshotRelativePath("rec-1");
+            string ghost = RecordingPaths.BuildGhostSnapshotRelativePath("rec-1");
+            string annotations = RecordingPaths.BuildAnnotationsRelativePath("rec-1");
+
+            Assert.StartsWith(expectedDir, trajectory);
+            Assert.StartsWith(expectedDir, vessel);
+            Assert.StartsWith(expectedDir, ghost);
+            Assert.StartsWith(expectedDir, annotations);
+
+            Assert.Equal(
+                System.IO.Path.Combine(expectedDir, "rec-1.prec"), trajectory);
+            Assert.Equal(
+                System.IO.Path.Combine(expectedDir, "rec-1_vessel.craft"), vessel);
+            Assert.Equal(
+                System.IO.Path.Combine(expectedDir, "rec-1_ghost.craft"), ghost);
+        }
+
+        // Design §4.1a: the pending scroll id is consumed only inside the
+        // Recordings-tab row draw, which sits after the Missions-tab early return.
+        // With Missions as the default tab, the cross-link must select the
+        // Recordings tab explicitly or the scroll silently never lands.
+        [Fact]
+        public void ScrollToRecordingSelectsRecordingsTab()
+        {
+            var rec = MakeRecWithId("cross-link-target", "GoToVessel");
+            RecordingStore.AddCommittedInternal(rec);
+            EffectiveState.ResetCachesForTesting();
+            ParsekLog.SuppressLogging = false;
+            logLines.Clear();
+
+            var ui = new RecordingsTableUI(null);
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+
+            ui.ScrollToRecording("cross-link-target");
+
+            Assert.Equal(RecordingsTableUI.TabRecordings, ui.SelectedTabForTesting);
+            Assert.True(ui.IsOpen);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]") && l.Contains("Cross-link: selecting Recordings tab"));
         }
     }
 }

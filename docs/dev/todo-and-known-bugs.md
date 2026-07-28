@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [DESIGNED, NOT IMPLEMENTED, branch `claude/mods-ui-basic-advanced-amrgy9`]
+## Basic / Advanced UI mode: hide non-essential windows behind a Settings toggle [IN PROGRESS, phase 1 of 8 landed, branch `claude/mods-ui-basic-advanced-amrgy9`]
 
 Players report the UI is too complicated: the main window launches eight windows totalling ~25k lines of IMGUI across 13 surfaces. Design doc: `docs/dev/design-ui-basic-advanced.md`.
 

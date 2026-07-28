@@ -117,14 +117,20 @@ namespace Parsek
         private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
 
-        // Two-tab bar (Recordings | Missions). The Missions tab renders the higher mission
-        // abstraction over the same recordings (delegated to MissionsWindowUI); switching tabs
-        // swaps the content inside this one window. Transient (not persisted), matching the
-        // Kerbals / Career State tab idiom.
-        private const int TabRecordings = 0;
-        private const int TabMissions = 1;
-        private int selectedTab = TabRecordings;
-        private static readonly string[] TabLabels = new[] { "Recordings", "Missions" };
+        // Two-tab bar (Missions | Recordings). Missions is the primary identity of this
+        // window: it renders the higher mission abstraction over the same recordings
+        // (delegated to MissionsWindowUI) and is both the first tab and the default
+        // selection. The Recordings tab is the raw table. Switching tabs swaps the content
+        // inside this one window. Transient (not persisted), matching the Kerbals / Career
+        // State tab idiom, so no player carries a stored index across this ordering.
+        // internal (not private) so unit tests can pin the order and the default.
+        internal const int TabMissions = 0;
+        internal const int TabRecordings = 1;
+        private int selectedTab = TabMissions;
+        internal static readonly string[] TabLabels = new[] { "Missions", "Recordings" };
+
+        // Read-only test seam for the transient tab selection (section 4.1/4.1a guards).
+        internal int SelectedTabForTesting => selectedTab;
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
         private enum RootItemType { Group, Chain, Recording, VirtualGroup }
@@ -301,6 +307,17 @@ namespace Parsek
         {
             if (!showRecordingsWindow) showRecordingsWindow = true;
 
+            // The pending scroll id is consumed ONLY inside the Recordings-tab row draw,
+            // which sits after the Missions-tab early return. Missions is the default tab,
+            // so the cross-link must select the Recordings tab explicitly or the scroll
+            // silently never lands and the pending id dangles.
+            if (selectedTab != TabRecordings)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: selecting Recordings tab (was {selectedTab})");
+                selectedTab = TabRecordings;
+            }
+
             // [Phase 3] ERS-routed: cross-link navigation resolves to the
             // effective set only; hidden/superseded recordings cannot be scrolled to.
             var committed = EffectiveState.ComputeERS();
@@ -432,7 +449,7 @@ namespace Parsek
                     "ParsekRecordings".GetHashCode(),
                     recordingsWindowRect,
                     DrawRecordingsWindow,
-                    "Parsek - Recordings",
+                    "Parsek - Missions",
                     opaqueWindowStyle,
                     GUILayout.Width(recordingsWindowRect.width),
                     GUILayout.Height(recordingsWindowRect.height)
