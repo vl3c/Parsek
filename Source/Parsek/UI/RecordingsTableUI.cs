@@ -179,6 +179,33 @@ namespace Parsek
             ApplyTabClamp(UiComplexityMode.Basic, "mode apply");
         }
 
+        /// <summary>
+        /// Closes the group picker popup as part of the Advanced -> Basic mode apply
+        /// (design 7.2 step 2, edge case 4). The picker is OWNED by this window and is
+        /// reachable only from the Recordings tab that Basic hides, but an already-open
+        /// picker survives the switch: it draws from <c>DrawIfOpen</c> regardless of the
+        /// selected tab, and would otherwise keep offering group mutations from a surface
+        /// the player can no longer reach. It holds no input lock, so this is a
+        /// reachability rule rather than a lock rule.
+        /// <para>This window itself is NOT closed - it survives as the Missions window.</para>
+        /// </summary>
+        internal void CloseGroupPickerForModeChange()
+        {
+            if (groupPicker == null)
+                return;
+
+            groupPicker.Close();
+        }
+
+        /// <summary>Whether this window's group picker popup is currently open.</summary>
+        internal bool IsGroupPickerOpen => groupPicker != null && groupPicker.IsOpen;
+
+        /// <summary>
+        /// Test seam: the group picker instance, so the close-set tests can open it the
+        /// same way a row's `G` button does.
+        /// </summary>
+        internal GroupPickerUI GroupPickerForTesting => groupPicker;
+
         // Shared clamp + log body for both clamp sites (deferred mode-apply and the
         // defensive on-draw pass). Logs at Verbose with old index, new index, and the
         // active tab count (design 12.2); silent when the clamp is a no-op, which is the

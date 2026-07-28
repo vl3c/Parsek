@@ -117,6 +117,14 @@ namespace Parsek
         internal TimelineWindowUI GetTimelineUI() => timelineUI;
         internal CareerStateWindowUI GetCareerStateUI() { return careerStateUI; }
 
+        // The remaining gated, lock-owning sub-windows (design 7.2 close set). Exposed the
+        // same way as the accessors above so the unit and in-game mode tests can open them
+        // and assert the close handler shut them again.
+        internal KerbalsWindowUI GetKerbalsUI() { return kerbalsUI; }
+        internal GloopsRecorderUI GetGloopsUI() { return gloopsUI; }
+        internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
+        internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
+
         /// <summary>
         /// Shared cross-link between Timeline and Recordings Manager.
         /// Setting this from either window causes the other to scroll to and highlight
@@ -269,6 +277,20 @@ namespace Parsek
                 return;
             }
 
+            // Design 7.2 / edge case 11: the seam is the LOAD-BEARING half of the Gloops
+            // guard. The Settings toggle also disables the Basic option while recording, but
+            // that is a UI courtesy on one call site; refusing here covers every writer,
+            // including future ones. Short-circuited on Advanced so the live-flight probe
+            // never runs on the reveal path. Nothing is written or persisted on refusal.
+            bool gloopsRecording = next == UiComplexityMode.Basic && IsGloopsRecordingNow();
+            if (ShouldRefuseModeChange(next, gloopsRecording))
+            {
+                ParsekLog.Info("UI",
+                    $"Mode switch refused: Gloops recording in progress " +
+                    $"(requested={next}, staying on {previous})");
+                return;
+            }
+
             settings.UiComplexityModeLevel = next;
             ParsekSettingsPersistence.RecordUiComplexityMode((int)next);
             pendingUiComplexityMode = next;
@@ -312,28 +334,212 @@ namespace Parsek
         /// <summary>
         /// The work that must happen WHEN the mode takes effect. Runs from the deferred
         /// latch in <see cref="ApplyPendingUiComplexityModeIfAny"/>, never mid-OnGUI.
-        /// <para>Phase 5 adds the Advanced -> Basic <c>selectedTab</c> clamp (design 7.4).
-        /// The Advanced -> Basic window close handler with its per-window
-        /// <c>ReleaseInputLock()</c> (design 7.2 step 2) is still phase 7.</para>
+        /// <para>Advanced -> Basic: force-closes every gated window and releases its input
+        /// lock (design 7.2 step 2, edge case 2), closes the group picker (edge case 4), and
+        /// clamps the Missions window's transient tab (design 7.4).</para>
+        /// <para>Basic -> Advanced: nothing to do. Advanced only ever reveals surfaces, and
+        /// every window reopens on demand with its state intact (philosophy 2).</para>
         /// </summary>
         private static void OnUiComplexityModeApplied(UiComplexityMode previous, UiComplexityMode next)
         {
-            if (next == UiComplexityMode.Basic)
+            if (next != UiComplexityMode.Basic)
             {
-                // Design 7.4: clamp the moment the mode takes effect rather than waiting for
-                // the Missions window's next draw. The on-draw clamp is the backstop, not
-                // the primary: the window may be closed for many frames after the switch,
-                // and reopening it should never land on a tab Basic does not draw.
-                RecordingsTableUI table = activeInstance?.recordingsTableUI;
-                if (table != null)
-                    table.ClampTabForBasic();
-                else
-                    ParsekLog.Verbose("UI",
-                        "UI mode apply: no live ParsekUI, tab clamp deferred to the next draw");
+                ParsekLog.Verbose("UI",
+                    $"UI mode apply hook: {previous}->{next} (revealing surfaces, nothing to close)");
+                return;
+            }
+
+            ParsekUI ui = activeInstance;
+            if (ui == null)
+            {
+                // No live window set to act on (the mode was changed between scenes). The
+                // next scene's ParsekUI constructs every sub-window closed, and KSP clears
+                // all input locks across a scene transition, so there is nothing to leak.
+                ParsekLog.Verbose("UI",
+                    "UI mode apply: no live ParsekUI, close handler and tab clamp skipped");
+                return;
+            }
+
+            CloseGatedWindowsForBasic(ui);
+
+            // Design 7.4: clamp the moment the mode takes effect rather than waiting for
+            // the Missions window's next draw. The on-draw clamp is the backstop, not
+            // the primary: the window may be closed for many frames after the switch,
+            // and reopening it should never land on a tab Basic does not draw.
+            ui.recordingsTableUI?.ClampTabForBasic();
+
+            ParsekLog.Verbose("UI", $"UI mode apply hook: {previous}->{next} complete");
+        }
+
+        /// <summary>
+        /// One entry in the Advanced -> Basic close set (design 7.2 step 2). The handler and
+        /// both test layers (`CloseHandlerCoversEveryGatedLockOwner` headless,
+        /// `BasicModeReleasesInputLocks` in-game) walk this SAME list, so the list cannot
+        /// drift away from what the handler actually closes - the failure mode the existing
+        /// <see cref="Cleanup"/> sweep exhibits, where three windows were simply forgotten.
+        /// </summary>
+        internal sealed class GatedWindowCloseTarget
+        {
+            /// <summary>Diagnostic name, used in the close and warn log lines.</summary>
+            internal readonly string Name;
+
+            /// <summary>
+            /// The KSP input lock id this surface owns, or null when it owns none (the group
+            /// picker). Carried here so the in-game lock-leak test can assert straight
+            /// against <c>InputLockManager</c> without duplicating the id strings.
+            /// </summary>
+            internal readonly string InputLockId;
+
+            internal readonly Func<bool> IsOpen;
+            internal readonly Func<bool> HeldInputLock;
+
+            /// <summary>
+            /// Sets <c>IsOpen = false</c> and releases the input lock. Called
+            /// UNCONDITIONALLY, even for an already-closed surface: every
+            /// <c>ReleaseInputLock</c> is an idempotent no-op when the lock is not held, and
+            /// releasing a lock we do not own is far cheaper than reasoning about whether a
+            /// closed window could still be holding one.
+            /// </summary>
+            internal readonly Action CloseAndReleaseLock;
+
+            internal GatedWindowCloseTarget(
+                string name,
+                string inputLockId,
+                Func<bool> isOpen,
+                Func<bool> heldInputLock,
+                Action closeAndReleaseLock)
+            {
+                Name = name;
+                InputLockId = inputLockId;
+                IsOpen = isOpen;
+                HeldInputLock = heldInputLock;
+                CloseAndReleaseLock = closeAndReleaseLock;
+            }
+
+            /// <summary>True when this surface owns a KSP input lock of its own.</summary>
+            internal bool OwnsInputLock => InputLockId != null;
+        }
+
+        /// <summary>
+        /// The EXPLICIT design 7.2 close set, in close order. Deliberately NOT derived from
+        /// <see cref="Cleanup"/> (which omits gloops, logistics and the test runner) and not
+        /// from <c>HiddenSurfaces(Basic)</c> alone, because two entries map to no
+        /// <see cref="UiSurface"/>:
+        /// <list type="bullet">
+        ///   <item><description><c>TestRunner</c> - its launcher lives in the hidden
+        ///     Diagnostics settings section, so an open instance would have no reopen path in
+        ///     Basic. The SEPARATE global Ctrl+Shift+T <c>ParsekTestRunnerGlobal</c> window
+        ///     has its own lock and is never gated (edge case 13).</description></item>
+        ///   <item><description><c>GroupPicker</c> - reachable only from the hidden
+        ///     Recordings tab, but an already-open picker keeps drawing from
+        ///     <c>RecordingsTableUI.DrawIfOpen</c> regardless of tab (edge case 4). It owns
+        ///     no input lock.</description></item>
+        /// </list>
+        /// <para>Deliberately ABSENT: <c>recordingsTableUI</c> (survives as the Missions
+        /// window), <c>structureListUI</c> (reachable from the Missions and Logistics rows,
+        /// both kept), and the ungated <c>timelineUI</c> / <c>logisticsUI</c> /
+        /// <c>settingsUI</c> / <c>missionsUI</c>.</para>
+        /// </summary>
+        internal IReadOnlyList<GatedWindowCloseTarget> BuildGatedWindowCloseSet()
+        {
+            return new List<GatedWindowCloseTarget>
+            {
+                new GatedWindowCloseTarget(
+                    "CareerState",
+                    CareerStateWindowUI.CareerStateInputLockId,
+                    () => careerStateUI.IsOpen,
+                    () => careerStateUI.HasInputLock,
+                    () => { careerStateUI.IsOpen = false; careerStateUI.ReleaseInputLock(); }),
+                new GatedWindowCloseTarget(
+                    "Kerbals",
+                    KerbalsWindowUI.KerbalsInputLockId,
+                    () => kerbalsUI.IsOpen,
+                    () => kerbalsUI.HasInputLock,
+                    () => { kerbalsUI.IsOpen = false; kerbalsUI.ReleaseInputLock(); }),
+                new GatedWindowCloseTarget(
+                    "GloopsRecorder",
+                    GloopsRecorderUI.InputLockId,
+                    () => gloopsUI.IsOpen,
+                    () => gloopsUI.HasInputLock,
+                    () => { gloopsUI.IsOpen = false; gloopsUI.ReleaseInputLock(); }),
+                new GatedWindowCloseTarget(
+                    "SpawnControl",
+                    SpawnControlUI.SpawnControlInputLockId,
+                    () => spawnControlUI.IsOpen,
+                    () => spawnControlUI.HasInputLock,
+                    () => { spawnControlUI.IsOpen = false; spawnControlUI.ReleaseInputLock(); }),
+                new GatedWindowCloseTarget(
+                    "TestRunner",
+                    TestRunnerUI.TestRunnerInputLockId,
+                    () => testRunnerUI.IsOpen,
+                    () => testRunnerUI.HasInputLock,
+                    () => { testRunnerUI.IsOpen = false; testRunnerUI.ReleaseInputLock(); }),
+                new GatedWindowCloseTarget(
+                    "GroupPicker",
+                    null, // owns no input lock: reachability rule, not a lock rule
+                    () => recordingsTableUI.IsGroupPickerOpen,
+                    () => false,
+                    () => recordingsTableUI.CloseGroupPickerForModeChange()),
+            };
+        }
+
+        /// <summary>
+        /// Force-closes the design 7.2 close set and releases each window's KSP input lock.
+        /// <para>Every entry gets its OWN try/catch: <c>InputLockManager.RemoveControlLock</c>
+        /// fires <c>GameEvents.onInputLocksModified</c>, and a third-party listener that
+        /// throws must not abort the loop and strand the windows after it still holding
+        /// locks (precedent: <c>RouteCreationDialog.cs:466-480</c>). A swallowed exception is
+        /// logged at Warn with the window name and the exception type + message
+        /// (design 12.2).</para>
+        /// <para>Blast radius if a release is nevertheless missed: one frame. Every window's
+        /// <c>DrawIfOpen</c> prologue is <c>if (!IsOpen) { ReleaseInputLock(); return; }</c>
+        /// and those call sites are deliberately never gated (design 7.1), so the next frame
+        /// self-heals; KSP also clears all locks on scene transition. Neither excuses this
+        /// handler - a leak is the highest-risk defect in this feature (edge case 2).</para>
+        /// </summary>
+        private static void CloseGatedWindowsForBasic(ParsekUI ui)
+        {
+            IReadOnlyList<GatedWindowCloseTarget> targets = ui.BuildGatedWindowCloseSet();
+            int closed = 0;
+            int alreadyClosed = 0;
+            int failed = 0;
+
+            for (int i = 0; i < targets.Count; i++)
+            {
+                GatedWindowCloseTarget target = targets[i];
+                try
+                {
+                    bool wasOpen = target.IsOpen();
+                    bool heldLock = target.HeldInputLock();
+
+                    target.CloseAndReleaseLock();
+
+                    if (wasOpen || heldLock)
+                    {
+                        closed++;
+                        // Per closed window only (design 12.2). Logging the untouched ones too
+                        // would put five no-op lines in the log on every single mode switch.
+                        ParsekLog.Verbose("UI",
+                            $"Window auto-closed on mode change: window={target.Name} " +
+                            $"wasOpen={wasOpen} heldLock={heldLock}");
+                    }
+                    else
+                    {
+                        alreadyClosed++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    ParsekLog.Warn("UI",
+                        $"Close-handler exception swallowed: window={target.Name} " +
+                        $"{ex.GetType().Name}: {ex.Message}; continuing with the remaining windows");
+                }
             }
 
             ParsekLog.Verbose("UI",
-                $"UI mode apply hook: {previous}->{next} (no close handler yet - phase 7)");
+                $"UI mode close handler: closed={closed} alreadyClosed={alreadyClosed} " +
+                $"failed={failed} of {targets.Count} gated surfaces");
         }
 
         /// <summary>
@@ -346,10 +552,59 @@ namespace Parsek
             appliedUiComplexityMode = UiComplexityMode.Advanced;
             pendingUiComplexityMode = null;
             activeInstance = null;
+            GloopsRecordingProbeForTesting = null;
         }
 
         /// <summary>Test seam: the queued-but-not-yet-latched mode, null when none.</summary>
         internal static UiComplexityMode? PendingUiComplexityModeForTesting => pendingUiComplexityMode;
+
+        /// <summary>
+        /// The live <see cref="ParsekUI"/> for the current scene, or null outside FLIGHT /
+        /// SPACECENTER. Exposed for the in-game `UiComplexityMode` tests, which must drive
+        /// the REAL windows the mode-change close handler acts on.
+        /// </summary>
+        internal static ParsekUI ActiveInstance => activeInstance;
+
+        // --- Gloops in-progress guard (design 7.2, edge case 11) ---
+
+        /// <summary>
+        /// Test seam replacing the live <c>ParsekFlight.IsGloopsRecording</c> read.
+        /// <c>IsGloopsRecording</c> is a computed property over a live
+        /// <see cref="FlightRecorder"/> on a MonoBehaviour that xUnit cannot construct, so
+        /// the refusal path is unreachable headless without this hook. Null (the default)
+        /// means "ask the live flight".
+        /// </summary>
+        internal static Func<bool> GloopsRecordingProbeForTesting;
+
+        /// <summary>
+        /// Whether the Gloops manual ghost-only recorder is sampling right now.
+        /// <para>Null-safe by design: in SPACECENTER the UI has no <see cref="ParsekFlight"/>
+        /// (the <see cref="UIMode.KSC"/> constructor leaves <c>flight</c> null) and the check
+        /// falls back to "not recording", which is sound - Gloops live-recording state dies
+        /// with the FLIGHT-scene <c>ParsekFlight</c>, so it can never be in progress
+        /// there (design 7.2).</para>
+        /// </summary>
+        private static bool IsGloopsRecordingNow()
+        {
+            Func<bool> probe = GloopsRecordingProbeForTesting;
+            if (probe != null)
+                return probe();
+
+            ParsekFlight liveFlight = activeInstance?.flight;
+            return liveFlight != null && liveFlight.IsGloopsRecording;
+        }
+
+        /// <summary>
+        /// Pure refusal predicate for the design 7.2 Gloops guard (edge case 11). Switching
+        /// to Basic while a manual Gloops recording is running would hide the Gloops window
+        /// WITHOUT stopping the recording (philosophy 1: the gate is visibility-only), which
+        /// would leave it sampling with no reachable Stop or Discard control. Advanced is
+        /// never refused - it only ever reveals surfaces.
+        /// </summary>
+        internal static bool ShouldRefuseModeChange(UiComplexityMode next, bool gloopsRecording)
+        {
+            return next == UiComplexityMode.Basic && gloopsRecording;
+        }
 
         /// <summary>
         /// Returns the resource budget.
