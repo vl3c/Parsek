@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## S4.1-DEFERRED-DIALOG: `AnswerMergeDialog` cannot answer a POST-transition merge dialog, so S4.1 is deterministically INVALID on a nightly cadence [FOUND 2026-07-28 by run `2026-07-28_1521`. REPORTED, NOT FIXED. Severity MEDIUM - burns a nightly slot and yields no verdict; NOT a player-facing defect]
+## ~~S4.1-DEFERRED-DIALOG: the driven scene exit skipped the save, so the re-fly marker was swept before any dialog existed~~ [FOUND 2026-07-28 by runs `2026-07-28_1515` / `_1518`. FIXED the same day, in the SEAM rather than the product. Awaiting its first run. Was NOT a player-facing defect]
 
 ### What happens
 
@@ -52,14 +52,44 @@ Contrast, same build, same day: `R1-rewind-loop-flown`'s `AnswerMergeDialog` ret
 
 S4.1 is `tier = "nightly"`, and `hlib.CADENCE_TIERS` maps the nightly cadence to `("daily", "nightly")`, so it IS scheduled. A deterministic INVALID burns ~366 s a night and produces no verdict, while the scenario's real purpose - being the dedicated rewind-then-teardown regression case - goes unserved. INVALID is retryable and does not red the sweep as PARSEK-FAIL, so this fails quietly rather than loudly.
 
-### Fix options, not yet chosen
+### FIXED in the SEAM, not the product
 
-1. **Persist the marker before the driven scene change** so it survives into SPACECENTER and the sweep stops discarding the provisional. This attacks the root (step 4) rather than the symptom, and would leave a live re-fly session for the deferred dialog to conclude against. Needs care: it changes when a marker becomes durable, which is a contract the crash-recovery journal also depends on.
-2. Teach the seam to answer a NON-re-fly whole-tree dialog too (drop the `markerLive` gate on the popup finder for the deferred case). Cheaper, but it would be answering a dialog whose re-fly session no longer exists - it makes the run green without making the SCENARIO meaningful, so this is the option most likely to produce a false green.
-3. Re-tier S4.1 to `operator` until 1 lands, so it stops consuming nightly slots. Cheapest, loses the nightly regression, honest.
-4. Give S4.1 a flight between the rewind and the conclusion so it takes the pre-transition path - but that makes it a duplicate of R1 and destroys the thing it uniquely covers (rewind-then-conclude-WITHOUT-flying).
+`ParsekTestCommandAddon.AnswerMergeDialogImpl` now calls
+`SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER)` immediately before its
+`HighLogic.LoadScene`, so the driven exit is production-shaped and the marker survives into
+the destination scene.
 
-Option 2 deserves a warning label: S4.1 exists to regress the rewind-then-conclude path, and the marker being swept mid-conclusion is arguably the very defect it should be catching. Making the verb answer any dialog would hide that.
+**Why the seam and not the product** - the first framing of this entry had this backwards.
+`AtomicMarkerWrite` assigns the marker IN MEMORY only; durability comes from a later
+`ParsekScenario.OnSave`. In production one ALWAYS runs before a scene exit: stock
+`saveAndExit` saves BEFORE the `LoadScene` prefix fires (see the comment in
+`SceneExitInterceptor.TryAutoDiscardIdleActiveTree`), and `SafeWritePersistent` exists
+precisely to cover the stock routes that do not. The seam's raw `LoadScene` therefore
+modelled a scene exit **no stock UI route performs** - the same error class as the R1
+fixture omitting `RECORDING_TREE isActive=True`: a DRIVEN flow diverging from production
+shape and presenting as a product defect.
+
+**The sweep is NOT the defect this scenario was catching.** To the product, an unpersisted
+marker plus a `NotCommitted` provisional at OnLoad is indistinguishable from a crash
+mid-re-fly, and discarding it is the designed recovery (`LoadTimeSweep` header, design
+6.9). Making the marker durable at INVOKE time would make crash semantics WORSE: a crash
+mid-re-fly would resurrect a dead session instead of cleanly restoring the pre-rewind
+state. `MergeJournalOrchestrator` / `LoadTimeSweep` semantics are untouched by this fix.
+
+### Options considered and rejected
+
+1. Drop the `markerLive` gate on the popup finder for the deferred case. REJECTED as a confirmed false green: after the sweep the session is `<cleared>` and the dialog is a plain whole-tree dialog over an ORPHANED Limbo tree (`hasOrphanedLimboTree=True` at `18:19:43.364`), so answering it merges the wrong thing while the scenario's subject no longer exists.
+2. Re-tier S4.1 to `operator` until a real fix lands. REJECTED because the fix was one call away, and this forfeits the only scheduled coverage of a path the product now explicitly supports - `SupersedeCommit`'s comment block states that rewind-then-conclude "reaches it in normal play", and that graceful zero-row completion is one careless revert from regressing.
+3. Give S4.1 a flight between the rewind and the conclusion. REJECTED: it makes S4.1 a near-duplicate of R1 and destroys the rewind-then-conclude-WITHOUT-flying coverage it uniquely holds.
+
+### Spec changes that had to ride the fix
+
+Fixing the driver alone would have left the spec asserting things S4.1 cannot do:
+
+- `expectedFail.bugId` / `subkind` DELETED. The signature they named no longer exists in the code, so they could never match - and a key that cannot match silently demotes any UNRELATED expectation-subkind failure under a resolved bug id.
+- `AppendRelations outcome=refused-unflown-provisional` ADDED to `logContracts.required` - the positive assertion of what this scenario uniquely covers.
+- `[expectations.rewind] supersedeRows` flipped `min = 1` -> `max = 0`. As written it would have RED S4.1 for CORRECT behaviour the day the M-C2 verifier landed.
+- `supersede-relation` D9 claim MOVED to R1 (proven there by `Added 1 supersede relations...`); `head-tip-split` moved to NOBODY and is now honestly uncovered, since no archived run proves any scenario reaches the splitting branch.
 
 ### Observability: better than expected, but with a real gap
 

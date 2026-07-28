@@ -1771,7 +1771,36 @@ namespace Parsek.TestCommands
                 // spawns the pre-transition dialog now; on the placeholder-mode path it
                 // arrives via the deferred POST-transition coroutine and the completion
                 // re-scan invokes the button then.
-                ParsekLog.Info(Tag, "answermergedialog driving re-fly conclusion scene-exit");
+                //
+                // S4.1-DEFERRED-DIALOG: persist BEFORE the LoadScene, or this driven exit
+                // models a scene exit that no stock UI route performs. AtomicMarkerWrite
+                // assigns the re-fly marker IN MEMORY ONLY (RewindInvoker.cs); its
+                // durability comes from a later ParsekScenario.OnSave, and in production one
+                // always runs first - stock saveAndExit saves BEFORE the LoadScene prefix
+                // fires (see the comment in SceneExitInterceptor.TryAutoDiscardIdleActiveTree),
+                // and SafeWritePersistent exists precisely to cover the stock routes that
+                // do not. Driving a raw LoadScene skipped both, so SPACECENTER's OnLoad read
+                // `Marker loaded: none`, LoadTimeSweep discarded the provisional as a zombie
+                // (correctly - to the product an unpersisted marker plus a NotCommitted
+                // provisional is indistinguishable from a crash mid-re-fly), the session
+                // ended `<cleared>`, and the dialog that surfaced was a PLAIN whole-tree
+                // merge dialog that FindReFlyMergePopup cannot match because it is gated on
+                // markerLive. The verb then timed out at its budget with
+                // reason=answer-timeout and S4.1 was deterministically INVALID.
+                //
+                // The fix belongs HERE, in the seam, NOT in the product: making the marker
+                // durable at invoke time would change crash-recovery semantics for the worse
+                // (a crash mid-re-fly would resurrect a dead session instead of cleanly
+                // restoring the pre-rewind state), and MergeJournalOrchestrator /
+                // LoadTimeSweep marker semantics stay untouched this way. Same error class
+                // as the R1 fixture that omitted `RECORDING_TREE isActive=True`: a DRIVEN
+                // flow diverging from production shape and presenting as a product defect.
+                bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+                ParsekLog.Info(Tag,
+                    $"answermergedialog driving re-fly conclusion scene-exit " +
+                    $"(persisted={persisted} sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
+                    "- the marker must survive into the destination scene or the load-time " +
+                    "sweep discards this session's provisional as a zombie");
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
                 popup = FindReFlyMergePopup();
             }

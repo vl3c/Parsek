@@ -96,8 +96,22 @@ steps = [
 # (merge-journal). D8 recalc-engine: the re-fly recalcs the ledger at merge. NOT
 # claimed: tombstones (the crashed sibling is an uncrewed booster, no kerbal-death
 # tombstone) and revert-during-refly-dialog (we merge, not discard).
+# `supersede-relation` and `head-tip-split` were REMOVED from this list 2026-07-28: both
+# require a re-flight to EXIST, and S4.1 deliberately flies none, so it can never
+# exercise either. Leaving them here overstated coverage - the denominator counted two
+# D9 values as covered by a scenario structurally incapable of reaching them.
+#
+# They did NOT both move to R1. `supersede-relation` did, on evidence: R1 flies the
+# re-flight and its run `2026-07-28_1509` logged `Added 1 supersede relations for subtree
+# rooted at b9-booster-a`, and R1 pins that line as a required logContract.
+# `head-tip-split` moved to NOBODY and is now honestly UNCOVERED. No archived run proves
+# any scenario reaches `RecordingTreeSplitter.SplitOriginAtRewindUT`'s splitting branch,
+# and the shape argues against it here: that branch fires only when the closure-root
+# recording SPANS the rewind UT, whereas the B9 booster's recording BEGINS at the
+# separation the RewindPoint marks. Re-claim it only when a run demonstrates the split;
+# moving an unproven claim from one scenario to another would just relocate the lie.
 D9 = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
-      "head-tip-split", "supersede-relation", "terminal-kind-classify", "merge-journal"]
+      "terminal-kind-classify", "merge-journal"]
 D8 = ["recalc-engine"]
 
 [expectations]
@@ -126,9 +140,17 @@ count = { min = 1 }
 # every successful invoke. Conditional lines (retired route rows / dormanted
 # routes / dropped science) stay un-required: rewind-b9 carries no routes or
 # pending science - the unattended H6-route-rewind-timeline scenario owns those.
+# `AppendRelations outcome=refused-unflown-provisional` is the POSITIVE assertion of
+# what this scenario uniquely covers. S4.1 flies nothing between the rewind and the
+# conclusion, so the provisional legitimately carries no trajectory and the merge MUST
+# refuse to write supersede rows while still COMPLETING - the graceful named outcome
+# that replaced the old `#if DEBUG` throw (SupersedeCommit.cs). Requiring the token is
+# what stops that behaviour being reverted silently: without it, a regression back to
+# the throw would surface only as a forbidden-ERROR red whose cause nobody could name.
 required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-             "Restored: recs=.* pendingScience="]
+             "Restored: recs=.* pendingScience=",
+             "AppendRelations outcome=refused-unflown-provisional"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # RESERVED block (hlib evaluate_expectations records these SKIPPED until the M-C2
@@ -136,8 +158,16 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # verifier will check: exactly one supersede row for the superseded booster
 # subtree, and no phantom tombstone (uncrewed booster). PENDING-OPERATOR /
 # PENDING-VERIFIER; named in the coordinator runbook.
+#
+# supersedeRows was `min = 1`, and that was WRONG for this scenario - it would have RED
+# S4.1 for CORRECT behaviour the day the M-C2 verifier landed. S4.1 concludes a re-fly
+# that never flew, so the provisional has no trajectory, so
+# SupersedeCommit.AppendRelations correctly writes ZERO rows and completes. "Exactly one
+# supersede row" is R1-rewind-loop-flown's assertion (it FLIES the re-flight); this
+# scenario's assertion is the opposite one, and pinning `max = 0` makes that distinction
+# a gate rather than a comment. tombstones stays 0 (uncrewed booster, no kerbal death).
 [expectations.rewind]
-supersedeRows = { min = 1 }
+supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [runtime]
@@ -178,5 +208,13 @@ policy = "once"
 # EXPECTED-FAIL. A different failure still reds as PARSEK-FAIL, and the day the
 # finding is fixed this run reports XPASS ("expected-fail bugId=... unexpectedly
 # passed") - at which point DELETE both keys below.
-bugId   = "R1-EMPTY-PROVISIONAL"
-subkind = "expectation"
+# KEYS REMOVED 2026-07-28. R1-EMPTY-PROVISIONAL is resolved (as a FIXTURE artifact), and
+# the signature these keys named - `AppendRelations invariant violation ... reason=empty
+# Points`, an ERROR plus a DEBUG-only throw - no longer exists in the code at all:
+# SupersedeCommit now logs a graceful Warn and returns an empty list in BOTH builds. So
+# the keys could never match again, and a key that cannot match is not a harmless
+# leftover: `classify_expected_fail` would silently demote ANY expectation-subkind
+# failure (a recordings-count floor breach, say) to EXPECTED-FAIL under a bug id whose
+# entry is struck through as resolved. That is active masking - precisely the failure
+# mode the forbidden-ERROR contract exists to prevent.
+bugId   = ""
