@@ -225,8 +225,15 @@ loopPointsFrames              = 40
 D1  = ["auto-record-launch"]
 D4  = ["atmospheric", "exo-propulsive"]
 D14 = ["kerbin"]
+# `supersede-relation` MOVED HERE from S4.1-rewind-merge 2026-07-28. S4.1 claimed it but
+# cannot reach it - it flies nothing, so its merge correctly writes ZERO rows. This
+# scenario flies a real re-flight and PROVED the row on run `2026-07-28_1509`:
+# `Added 1 supersede relations for subtree rooted at b9-booster-a`. The claim is gated,
+# not merely asserted: `logContracts.required` below pins
+# `Added [1-9][0-9]* supersede relations`, so the day the row stops being written this
+# scenario reds rather than quietly keeping the coverage credit.
 D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
-       "merge-journal"]
+       "supersede-relation", "merge-journal"]
 D8  = ["recalc-engine"]
 
 [expectations]
