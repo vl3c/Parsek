@@ -779,8 +779,8 @@ and closed once. Each spec must say in prose that it gates the DECISION layer in
 live KSP process, not a flown situation (the `M1-mission-loop-unit` precedent).
 Independent of R3 and R5; buildable in parallel with both.
 
-**R5. `RunTests` cannot reach 68 already-written tests. Add an `isolated` argument.**
-This is the largest single unlock in the roadmap. `InGameTestRunner` has a second
+**~~R5. `RunTests` cannot reach 68 already-written tests. Add an `isolated` argument.~~**
+DONE 2026-07-27. This was the largest single unlock in the roadmap. `InGameTestRunner` has a second
 batch entry point, `PrepareBatchExecutionIncludingFlightRestore`, which also admits
 `test.RestoreBatchFlightBaselineAfterExecution` and restores a flight baseline after
 each test. `RunAllIncludingFlightRestore` / `RunCategoryIncludingFlightRestore` are
@@ -799,15 +799,54 @@ Twenty-six of those sit in D1-D9 categories nothing drives, and they are the ONL
 producer of D1 `auto-record-first-mod-switch` / `commit-scene-exit` /
 `commit-revert-merge`, D5 `controlled-decoupled-child` / `crash-coalescing`, and D9
 `rewind-to-launch`. No fixture, no mission profile and no existing verb produces them.
-Build: `RunTests` gains an `isolated` arg routing to `RunCategoryIncludingFlightRestore`;
-mirror it in the autorun selector (`TestRunnerShortcut.cs:739,789`); add the hlib
-spec-validation companion; land one shakedown spec.
-Proof: a shakedown spec over `SceneExitMerge` (2 tests) whose pinned tally shows
-`passed=2 skipped=0` where the non-isolated form would show `total=0`.
-Risk to budget for: the baseline restore is a real quickload, so a 10-test
-`AutoRecord` batch is ten launch-and-restore cycles in one boot. Needs
-`python harness/provision/provision.py --profile stock-minimal` to reach a harness
-run, since it is a mod code change.
+~~Build: `RunTests` gains an `isolated` arg routing to `RunCategoryIncludingFlightRestore`;
+mirror it in the autorun selector; add the hlib spec-validation companion; land one
+shakedown spec.~~ All four shipped. The autorun mirror is a separate env var,
+`PARSEK_AUTORUN_ISOLATED=1`, NOT a selector prefix: the selector string is consumed
+verbatim as the `category=` token both the runner stamps and
+`hlib._batch_probe_categories` builds its anti-vacuity probe family from, so a prefix
+would desynchronize those two copies of one name, every probe would miss on a token
+mismatch, and a contract that rejects all probes is what the gate reads as SAFE. Full
+argument in `design-autotest-autorun-hooks.md` "H1 - Isolated batches".
+
+Proof, CORRECTED: the shakedown spec `H21-scene-exit-merge-isolated` pins
+`total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge scene=FLIGHT`. The
+non-isolated form does NOT yield `total=0` as this entry originally claimed -
+`PrepareBatchExecution` sets `Status = Skipped` on the tests it filters rather than
+dropping them, and `BATCH_COMPLETE`'s `total` is `allTests.Count(Status != NotRun)`, so
+it yields `total=2 passed=0 failed=0 skipped=2`. `total` is therefore identical on both
+paths and the discriminator is the passed/skipped split. That makes the proof stronger,
+not weaker: `passed=0, failed=0, total==skipped` is precisely the one-parameter vacuity
+family the anti-vacuity gate enumerates, so the gate already guarantees the pin rejects
+the non-isolated line, and `IsolatedBatchWiringGroupTests` asserts that rejection
+explicitly rather than inheriting it.
+
+Two things the build turned up that this entry did not anticipate:
+
+- The hlib companion was LOAD-BEARING, not a nicety. `InGameTestDecl` did not carry
+  `RestoreBatchFlightBaselineAfterExecution` at all and `derive_batch_tally` hardcoded
+  the ordinary filter, so `CommittedBatchTallySourceSyncTests` would have REJECTED a
+  correct isolated pin, deriving `executable = 0`.
+- The FIXTURE was the expensive trap. Both `SceneExitMerge` cells stage the active
+  vessel and wait for it to leave PRELAUNCH and clear 80 m on a 30 s deadline. The
+  H7-H20 fixture `gloops-airshow` has a 1-part `mk1-capsule` with ZERO `ModuleEngines`,
+  so on it both self-skip and print `total=2 passed=0 failed=0 skipped=2` - the SAME
+  line the non-isolated failure produces. The spec uses `b2-lko-craft` (73-part stock
+  launcher, 8 engines, PRELAUNCH) and a new gate asserts the PRELAUNCH + non-zero-engine
+  property statically.
+
+FLOWN: H21 PASSED on attempt 1, 2026-07-27, 101 s wall (29.6 s of it the batch),
+matching its pinned tally token for token. Both questions the derivation could not
+answer came back favourable: the launcher clears 80 m inside the 30 s deadline, and
+the post-test baseline quickload returns the vessel to FLIGHT in PRELAUNCH so test A's
+situation guard does not fire. Coverage 96 -> 97 covered, the new cell being D1
+`commit-scene-exit`.
+
+REMAINING (follow-on, not R5): the other 12 unlocked categories are now ordinary
+spec-authoring work. `AutoRecord` (10) is the one to size carefully - ten
+launch-and-restore cycles in one boot - but H21 measured a restore cycle at well
+under 15 s, so the earlier fear of a 10-test isolated batch being unaffordable looks
+overstated.
 
 **R6-R8. Drive the reachable in-game categories.** 539 `[InGameTest]` declarations
 exist in 97 categories; specs drive 8 categories / 125 declarations; 414 declarations

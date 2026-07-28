@@ -27,9 +27,35 @@ category axis. Counts stated in both must agree.
   at that scene, in the runner's order: `FilterSceneEligibleBatchCandidates` on scene
   first, then `PrepareBatchExecution` on `AllowBatchExecution = false` over what
   survived. A test failing both is counted once, in the scene bucket, exactly as the
-  runner counts it.
-- **Batch-disabled** - declarations carrying `AllowBatchExecution = false`. These are
-  isolated-run-only; no `RunTests` batch ever executes one.
+  runner counts it. These three columns model the ORDINARY batch path only, which is
+  what makes them the right derivation for the pinned `skipped=` floor of the 14
+  ordinary specs. For the isolated path see the next entry.
+- **Batch-disabled** - declarations carrying `AllowBatchExecution = false`.
+  CORRECTED BY R5 (2026-07-27). This entry used to end "These are isolated-run-only;
+  no `RunTests` batch ever executes one", and the second half is no longer true. A
+  `RunTests` step carrying `isolated = "true"` routes to
+  `PrepareBatchExecutionIncludingFlightRestore`, whose filter is
+  `AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` - so a
+  batch-disabled declaration that ALSO carries
+  `RestoreBatchFlightBaselineAfterExecution = true` does execute in a batch, with a
+  flight-baseline quickload restored after it. Re-derived over the tree, the
+  batch-disabled population splits three ways:
+
+  | Flags | Count | Batch-reachable? |
+  |---|---|---|
+  | `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true` | 68 | Yes, on an ISOLATED batch (R5) |
+  | `AllowBatchExecution = false`, no restore flag | 3 (all `Periodicity`) | No - genuinely manual-only |
+  | `RestoreBatchFlightBaselineAfterExecution = true` with `AllowBatchExecution` left true | 4 (`Contracts` 2, `TestCommands` 1, `LedgerGroundTruth` 1) | Yes, on EITHER path - not counted in this column |
+
+  Those last 4 are worth knowing about because they look like they should
+  discriminate between the two paths and do not: both filters admit them, and both
+  prime and restore the baseline for them, so their tallies are identical either
+  way. The one place the paths differ for them is degraded - when no flight baseline
+  is available, the isolated path SKIPS them with a reason, where the ordinary path
+  runs them against a restore that silently no-ops - and that difference is
+  fail-closed. Derive the isolated-path column with
+  `hlib.derive_batch_tally(..., isolated=True)`; it is not in this table because no
+  gate reads it and an ungated column goes stale.
 - **Members with self-skip** - members whose body, or a helper it calls, contains an
   `InGameAssert.Skip`. This is the run-time skip surface the attributes cannot
   predict. A zero here plus a non-zero Exec column is the strongest signal a category
@@ -61,11 +87,11 @@ Two limits of this table, stated so nobody over-reads it:
 
 | Category | Decls | Exec FLIGHT | Exec SPACECENTER | Exec TRACKSTATION | Batch-disabled | Members with self-skip | Driven by | Bucket |
 |---|---|---|---|---|---|---|---|---|
-| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | - | C |
+| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | - | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
-| `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | - | C |
+| `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | - | B |
@@ -99,7 +125,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | - | B |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | - | B |
-| `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | C |
+| `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `MissionPhasing` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Missions` | 12 | 7 | 5 | 0 | 0 | 9 | M1 | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
@@ -113,7 +139,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Outlier` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | C |
+| `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
@@ -124,7 +150,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
-| `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | - | C |
+| `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 37 | 26 | 5 | 0 | 6 | 24 | - | B |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
@@ -132,7 +158,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | - | B |
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | - | B |
-| `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | - | C |
+| `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
 | `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -161,15 +187,27 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **97 categories / 539 declarations**. Buckets **A 14 categories
-(76 declarations)**, **B 76 categories (435 declarations)**, **C 7 categories (28
-declarations)**. Driven by a committed spec after this change: **22 of 97
+Totals, re-derived: **97 categories / 539 declarations**. Buckets **A 15 categories
+(78 declarations)**, **B 81 categories (451 declarations)**, **C 1 category (10
+declarations)**. Driven by a committed spec after this change: **23 of 97
 categories**, up from 8. Measured against declarations rather than categories, that
-is 201 of 539 inside a driven category (was 125) of which 179 actually execute (was
+is 203 of 539 inside a driven category (was 125) of which 181 actually execute (was
 103).
 
-The 22-declaration gap between 201 and 179 is entirely in the eight PRE-EXISTING
-driven categories - all 76 declarations this group adds execute. Decomposed, because
+R5 MOVED 6 CATEGORIES OUT OF BUCKET C (2026-07-27). Bucket C's C1 sub-reason held
+that `AutoRecord`, `Coalescer`, `MergeDialog`, `SceneExitMerge`, `PlaybackControl`
+and `RevertFlow` were not batch-runnable at all - that changing it "means
+re-examining each test's reason for being isolated-only, which is a C# question, not
+a harness one". That was true of the seam as it stood and false as a statement about
+the runner: all 18 of those declarations already carried
+`RestoreBatchFlightBaselineAfterExecution = true`, and the runner already had an
+entry point that admits them. Only the unattended CALLERS were missing. R5 added the
+`isolated` argument, so one of the six (`SceneExitMerge`, wired as `H21`) is now in
+bucket A and the other five are in bucket B, needing a spec and a launchable fixture
+rather than a C# redesign. C retains only C2, which R5 does not touch.
+
+The 22-declaration gap between 203 and 181 is entirely in the eight PRE-EXISTING
+driven categories - all 78 declarations these groups add execute. Decomposed, because
 the one-line summary "the SPACECENTER categories scene-skip" is wrong on all three
 counts (half the gap is at FLIGHT, one of the three SPACECENTER categories
 contributes nothing, and 4 of the 22 are not scene skips at all):
@@ -187,14 +225,18 @@ The constraint that shapes every decision below: `hlib.SINGLE_BATCH_SELECTOR_RUL
 makes a batch-owning spec drive exactly ONE `RunTests` step naming exactly ONE
 category, because the anti-vacuity probe is built for a single named category and a
 `category=multi:<n>` aggregate cannot express "constituent B executed nothing". So
-one wired category costs one KSP boot per cadence. Wiring all 89 undriven categories
+one wired category costs one KSP boot per cadence. Wiring all 74 undriven categories
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (14 categories, 76 declarations)
+### Bucket A - wired now (15 categories, 78 declarations)
 
-All 14 ship as `H7`-`H20`, tier `nightly`, over the committed `gloops-airshow`
-fixture. The admission test each had to pass:
+Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
+spec would end up pinned against the wrong derivation.
+
+**A1 - the ordinary batch path (14 categories, 76 declarations).** All 14 ship as
+`H7`-`H20`, tier `nightly`, over the committed `gloops-airshow` fixture. The
+admission test each had to pass:
 
 1. Every declaration survives both runner filters at FLIGHT (Exec FLIGHT == Decls),
    so the attribute-derived `skipped` floor is 0.
@@ -246,9 +288,36 @@ walkback cell skip. Read that as a fixture question, not a walkback regression.
 | `H19-recording-finalization` | RecordingFinalization | 3 | BackgroundRecorder finalization-cache apply: destroyed-tail trim, stable-cache Orbiting, crash-tail append |
 | `H20-eva-spawn-position` | EvaSpawnPosition | 2 | The category the 2026-07-25 EVA decision deferred to a dedicated batch-only spec; runs from the crewed landed pod host |
 
-### Bucket B - wireable, but needs something first (76 categories, 435 declarations)
+**A2 - the ISOLATED batch path (1 category, 2 declarations).** `SceneExitMerge`,
+wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It
+satisfies NONE of A1's three criteria as written, which is exactly why it needs
+stating separately rather than being appended to the table above:
 
-Not one list but five reasons, and the reason is what decides whether it is worth
+1. Its `Exec FLIGHT` is **0**, not `Decls`. Both declarations are
+   `AllowBatchExecution = false`, so the ORDINARY filter skips both. The derivation
+   its `skipped=0` floor rests on is `derive_batch_tally(..., isolated=True)`, which
+   models `PrepareBatchExecutionIncludingFlightRestore` and yields 2.
+2. Both members DO carry reachable `InGameAssert.Skip` guards - seven in-body
+   (active vessel present, non-EVA, `situation == PRELAUNCH`, not already recording,
+   no existing pending tree, `FlightInputHandler.state`, merge-dialog reflection
+   handles) plus two more reachable through `WaitForRecordingToLeavePrelaunch` /
+   `WaitForRecordingToClearPad`. So `skipped=0` is a FIXTURE claim here, not an
+   attribute claim, and the first live run is what settles it.
+3. The fixture is deliberately NOT `gloops-airshow`. That save's active vessel is a
+   1-part `mk1-capsule` with zero `ModuleEngines`; both tests stage and then wait to
+   leave PRELAUNCH and clear 80 m, so on it they would both self-skip and print
+   `total=2 passed=0 failed=0 skipped=2` - numerically identical to the
+   non-isolated failure the spec exists to rule out. `b2-lko-craft` carries a
+   73-part stock launcher (8 engines, PRELAUNCH) that 11 committed flight specs
+   already fly.
+
+| Spec | Category | Tests | Why it is worth a boot |
+|---|---|---|---|
+| `H21-scene-exit-merge-isolated` | SceneExitMerge | 2 | The R5 shakedown, and the D1 `commit-scene-exit` / `discard-rollback` cells no other mechanism produces: a real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog |
+
+### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
+
+Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
 
 **B1 - needs a corpus or fixture extension.** The FUTURE recommendation in
@@ -346,19 +415,70 @@ whose fixture precondition wants reading first - except `LocalizedName`, which
 carries none and should simply have been wired. This is the highest-confidence
 starting point for the next wave, ahead of B4's large guarded categories.
 
-### Bucket C - not batch-runnable (7 categories, 28 declarations)
+**B6-ISO - needs an ISOLATED batch and a launchable-craft fixture (5 categories, 16
+declarations).** `AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2),
+`PlaybackControl` (1), `RevertFlow` (1). These arrived in bucket B from the retired
+C1 when R5 shipped: every one of their declarations is `AllowBatchExecution = false`
+AND `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary filter
+executes none of them and the isolated filter executes all of them. What each still
+needs is ordinary spec-authoring work, not a capability:
 
-Two distinct reasons, and neither is fixable by writing a spec.
+1. A spec whose `RunTests` step carries `isolated = "true"`. Template:
+   `harness/scenarios/H21-scene-exit-merge-isolated.toml`.
+2. A fixture whose ACTIVE vessel can do what the tests do. This is the part that
+   bites: `SceneExitMerge`'s cells stage the active vessel and wait for it to leave
+   PRELAUNCH and clear 80 m, so the default `gloops-airshow` host (a 1-part
+   `mk1-capsule` with zero `ModuleEngines`) would self-skip both and print the
+   all-skipped tally the isolated arg exists to rule out. Read each category's
+   `BatchSkipReason` and self-skip guards before choosing.
+3. A budget sized for real quickloads. H21 MEASURED a two-test isolated batch at
+   29.6 s of batch time inside 101 s wall, so the roadmap's fear that a 10-test
+   `AutoRecord` batch is unaffordable in one boot looks overstated - but it is ten
+   launch-and-restore cycles, so size it and expect the first run to find something.
 
-**C1 - every declaration is `AllowBatchExecution = false`** (isolated-run-only, by
-the test author's deliberate choice, usually because the test destroys live state
-mid-batch): `AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2), `SceneExitMerge`
-(2), `PlaybackControl` (1), `RevertFlow` (1). 18 declarations. `PrepareBatchExecution`
-skips all of them, so a `RunTests` batch over any of these categories runs zero
-tests, by design. The 2026-07-25 EVA decision already recorded this for the
-`AutoRecord` EVA cells specifically; the table above shows it is the whole category
-and five more besides. Changing it means re-examining each test's reason for being
-isolated-only, which is a C# question, not a harness one.
+`AutoRecord` (10) is the largest and closes D1 `auto-record-first-mod-switch`;
+`Coalescer` closes D5 `crash-coalescing` / `controlled-decoupled-child`;
+`RevertFlow` closes D1 `commit-revert-merge`. Tracked as R6 in
+`docs/dev/autotest-roadmap.md`.
+
+### Bucket C - not batch-runnable (1 category, 10 declarations)
+
+One reason, and it is not fixable by writing a spec.
+
+**C1 - RETIRED BY R5 (2026-07-27).** This sub-reason used to hold six categories -
+`AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2), `SceneExitMerge` (2),
+`PlaybackControl` (1), `RevertFlow` (1), 18 declarations - on the grounds that every
+declaration is `AllowBatchExecution = false`, so "a `RunTests` batch over any of
+these categories runs zero tests, by design", and that changing it "means
+re-examining each test's reason for being isolated-only, which is a C# question, not
+a harness one".
+
+The first half was an accurate description of the seam as it stood. The second half
+was wrong, and the correction is worth writing down because the reasoning error is
+reusable. The claim treated `AllowBatchExecution = false` as the whole admission
+contract. It is not: the runner has always had a SECOND admission filter,
+`PrepareBatchExecutionIncludingFlightRestore`, which reads
+`AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` and restores a
+quickloaded flight baseline after each test. Every one of those 18 declarations
+already carried `RestoreBatchFlightBaselineAfterExecution = true` - their authors
+had already done the "re-examining each test's reason" the paragraph called for, and
+recorded the answer in the attribute. What was missing was not a C# redesign but an
+unattended CALLER: `RunAllIncludingFlightRestore` and
+`RunCategoryIncludingFlightRestore` were reachable only from the Ctrl+Shift+T window
+and the Settings test-runner window. R5 added the seam's `isolated` argument and the
+autorun `PARSEK_AUTORUN_ISOLATED` mirror, so all six are now drivable.
+
+Where they went: `SceneExitMerge` to bucket A2 (wired as `H21`). `AutoRecord`,
+`Coalescer`, `MergeDialog`, `PlaybackControl`, `RevertFlow` to bucket B, sub-reason
+B6-ISO below - they need a spec and a fixture whose craft can actually fly, not a
+capability. The one genuinely-manual population that survives the correction is
+smaller and elsewhere: 3 `Periodicity` declarations carry
+`AllowBatchExecution = false` with NO restore flag, and no batch path admits those.
+
+The lesson generalizes past this table: a capability that is implemented, public and
+called only from an interactive surface reads exactly like a capability that does
+not exist. Before recording something as structurally impossible, check whether the
+gap is the mechanism or only its callers.
 
 **C2 - the scene is unreachable from the command seam**: `TrackingStation` (10
 declarations, 9 batch-eligible at TRACKSTATION, 0 anywhere else).

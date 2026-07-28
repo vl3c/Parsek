@@ -133,6 +133,7 @@ id=0002 cmd=StartRecording
 id=0003 cmd=RecordingState
 id=0004 cmd=CommitTree
 id=0005 cmd=RunTests category=RecordingInvariants
+id=0005b cmd=RunTests category=SceneExitMerge isolated=true
 id=0006 cmd=LoadGame save=DefaultCareer name=persistent
 id=0007 cmd=MissionMark label=mun%20landing%20start
 id=0008 cmd=FlushAndQuit
@@ -425,7 +426,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
-| `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
+| `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
@@ -739,7 +740,8 @@ Per verb specifics:
   "setting rejected name=<name> reason=<not-whitelisted|value-invalid> raw=<value>".
 - `StartRecording`/`StopRecording`/`CommitTree`/`DiscardTree`: `Info` with the resulting
   tree/recording id and whether it was a no-op (already/idle/nothing).
-- `RunTests`: `Info` "runtests start category=<cat|all>" and "runtests complete passed=N
+- `RunTests`: `Info` "runtests start category=<cat|all> isolated=<true|false>" (the
+  `isolated=` token added by R5) and "runtests complete passed=N
   failed=N skipped=N results=<path>".
 - `LoadGame`: `Info` "loadgame start save=<folder> name=<file> scene=<current>" and
   "loadgame complete scene=<new> save=<folder> game-loaded=<bool>", or `Warn`

@@ -21,7 +21,7 @@ namespace Parsek.Tests
         [InlineData("")]
         public void Parse_UnsetOrEmpty_Inert_NoWarning(string testsVar)
         {
-            var cfg = AutorunHooks.Parse(testsVar, null);
+            var cfg = AutorunHooks.Parse(testsVar, null, null);
 
             Assert.False(cfg.Enabled);
             Assert.False(cfg.IsAll);
@@ -33,7 +33,7 @@ namespace Parsek.Tests
         [Fact]
         public void Parse_All_EnablesRunAll()
         {
-            var cfg = AutorunHooks.Parse("all", null);
+            var cfg = AutorunHooks.Parse("all", null, null);
 
             Assert.True(cfg.Enabled);
             Assert.True(cfg.IsAll);
@@ -45,7 +45,7 @@ namespace Parsek.Tests
         [Fact]
         public void Parse_SingleCategory()
         {
-            var cfg = AutorunHooks.Parse("RecordingInvariants", null);
+            var cfg = AutorunHooks.Parse("RecordingInvariants", null, null);
 
             Assert.True(cfg.Enabled);
             Assert.False(cfg.IsAll);
@@ -57,7 +57,7 @@ namespace Parsek.Tests
         [Fact]
         public void Parse_UnknownCategory_KeptVerbatim_Enabled()
         {
-            var cfg = AutorunHooks.Parse("SomeCategoryThatDoesNotExist", null);
+            var cfg = AutorunHooks.Parse("SomeCategoryThatDoesNotExist", null, null);
 
             Assert.True(cfg.Enabled);
             Assert.Equal(new[] { "SomeCategoryThatDoesNotExist" }, cfg.Categories.ToArray());
@@ -75,7 +75,7 @@ namespace Parsek.Tests
         [InlineData("A,,,B,")]
         public void Parse_Malformed_TrimsAndDropsEmpties(string testsVar)
         {
-            var cfg = AutorunHooks.Parse(testsVar, null);
+            var cfg = AutorunHooks.Parse(testsVar, null, null);
 
             Assert.True(cfg.Enabled);
             Assert.Equal(new[] { "A", "B" }, cfg.Categories.ToArray());
@@ -92,7 +92,7 @@ namespace Parsek.Tests
         [InlineData(", ,")]
         public void Parse_ZeroCategories_Inert_Warns(string testsVar)
         {
-            var cfg = AutorunHooks.Parse(testsVar, null);
+            var cfg = AutorunHooks.Parse(testsVar, null, null);
 
             Assert.False(cfg.Enabled);
             Assert.Empty(cfg.Categories);
@@ -108,7 +108,7 @@ namespace Parsek.Tests
         [InlineData("", false)]
         public void Parse_ExitArmed_OnlyForExactlyOne(string exitVar, bool expected)
         {
-            var cfg = AutorunHooks.Parse("all", exitVar);
+            var cfg = AutorunHooks.Parse("all", exitVar, null);
             Assert.Equal(expected, cfg.ExitArmed);
         }
 
@@ -117,7 +117,7 @@ namespace Parsek.Tests
         [Fact]
         public void Parse_ExitWithoutTests_Warns()
         {
-            var cfg = AutorunHooks.Parse(null, "1");
+            var cfg = AutorunHooks.Parse(null, "1", null);
 
             Assert.False(cfg.Enabled);
             Assert.True(cfg.ExitArmed);
@@ -128,7 +128,7 @@ namespace Parsek.Tests
         [Fact]
         public void Parse_TestsAndExit_CleanNoWarnings()
         {
-            var cfg = AutorunHooks.Parse("all", "1");
+            var cfg = AutorunHooks.Parse("all", "1", null);
 
             Assert.True(cfg.Enabled);
             Assert.True(cfg.ExitArmed);
@@ -141,12 +141,97 @@ namespace Parsek.Tests
         [Fact]
         public void Parse_IsDeterministic()
         {
-            var a = AutorunHooks.Parse("A,B", "1");
-            var b = AutorunHooks.Parse("A,B", "1");
+            var a = AutorunHooks.Parse("A,B", "1", null);
+            var b = AutorunHooks.Parse("A,B", "1", null);
 
             Assert.Equal(a.Enabled, b.Enabled);
             Assert.Equal(a.ExitArmed, b.ExitArmed);
             Assert.Equal(a.Categories.ToArray(), b.Categories.ToArray());
+        }
+
+        // --- R5 isolated arm (design edge case 20) ---
+
+        // Guards the arm itself: PARSEK_AUTORUN_ISOLATED follows the SAME "exactly 1"
+        // convention as PARSEK_AUTORUN_EXIT. Fails if a truthy-looking value ("true",
+        // "yes", "0") silently arms the isolated route, which would swap the batch's
+        // admission filter under an operator who never asked for it.
+        [Theory]
+        [InlineData("1", true)]
+        [InlineData("0", false)]
+        [InlineData("true", false)]
+        [InlineData("True", false)]
+        [InlineData("yes", false)]
+        [InlineData(" 1", false)]
+        [InlineData(null, false)]
+        [InlineData("", false)]
+        public void Parse_IsolatedArmed_OnlyForExactlyOne(string isolatedVar, bool expected)
+        {
+            var cfg = AutorunHooks.Parse("SceneExitMerge", null, isolatedVar);
+            Assert.Equal(expected, cfg.Isolated);
+        }
+
+        // Guards edge 20: isolated set but tests unset warns at startup, exactly like
+        // the exit arm. Fails if that misconfiguration is silent - an operator who set
+        // only the isolated var would otherwise see a process that runs nothing and
+        // says nothing about why.
+        [Fact]
+        public void Parse_IsolatedWithoutTests_Warns()
+        {
+            var cfg = AutorunHooks.Parse(null, null, "1");
+
+            Assert.False(cfg.Enabled);
+            Assert.True(cfg.Isolated);
+            Assert.Contains(AutorunHooks.WarnIsolatedWithoutTests, cfg.Warnings);
+            // The exit arm was NOT set, so its warning must not appear: the two are
+            // independent and each names only its own missing half.
+            Assert.DoesNotContain(AutorunHooks.WarnExitWithoutTests, cfg.Warnings);
+        }
+
+        // Guards that the two arm-without-tests warnings COMPOSE. A `foreach` over
+        // Warnings emits both, so an operator who armed both vars against an unset
+        // selector is told about both, not just the first one checked.
+        [Fact]
+        public void Parse_IsolatedAndExitWithoutTests_WarnsBoth()
+        {
+            var cfg = AutorunHooks.Parse(null, "1", "1");
+
+            Assert.False(cfg.Enabled);
+            Assert.Contains(AutorunHooks.WarnExitWithoutTests, cfg.Warnings);
+            Assert.Contains(AutorunHooks.WarnIsolatedWithoutTests, cfg.Warnings);
+        }
+
+        // Guards that the isolated arm survives EVERY selector shape, not just the
+        // single-category one the shakedown spec drives. The zero-category branch is
+        // the interesting one: it returns early with its own warning list, and an
+        // early return that forgot to carry Isolated would be invisible until an
+        // operator hit that exact misconfiguration.
+        [Theory]
+        [InlineData("all")]
+        [InlineData("SceneExitMerge")]
+        [InlineData("A,B")]
+        [InlineData(" , ")]
+        public void Parse_IsolatedSurvivesEverySelectorShape(string testsVar)
+        {
+            var cfg = AutorunHooks.Parse(testsVar, null, "1");
+            Assert.True(cfg.Isolated);
+        }
+
+        // Guards that arming isolated does NOT itself enable or disable the batch, and
+        // adds no warning on an otherwise-clean config. The arm selects a ROUTE; it is
+        // not a second on/off switch, and treating it as one would let a spec that
+        // forgot the selector still look armed.
+        [Fact]
+        public void Parse_IsolatedIsOrthogonalToEnabled()
+        {
+            var armed = AutorunHooks.Parse("SceneExitMerge", null, "1");
+            var plain = AutorunHooks.Parse("SceneExitMerge", null, null);
+
+            Assert.True(armed.Enabled);
+            Assert.True(plain.Enabled);
+            Assert.Equal(armed.Categories.ToArray(), plain.Categories.ToArray());
+            Assert.Empty(armed.Warnings);
+            Assert.True(armed.Isolated);
+            Assert.False(plain.Isolated);
         }
 
         // --- SceneSettleDecision (design edge cases 6, 7) ---
