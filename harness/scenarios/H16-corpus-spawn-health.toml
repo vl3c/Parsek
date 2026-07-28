@@ -1,0 +1,100 @@
+schema = 1
+id = "H16-corpus-spawn-health"
+tier = "nightly"
+# BATCH-ONLY scenario over the INJECTED CORPUS, S1.4 / H5 pattern. The in-game
+# SpawnHealth category has never been driven by any committed spec. Three cells walk
+# RecordingStore.CommittedRecordings: no recording is left with SpawnAbandoned stuck
+# true (it is meant to reset on scene entry), no recording has an out-of-bounds
+# SpawnDeathCount, and no Destroyed recording still carries a spawned-vessel PID.
+#
+# ONE OF THE THREE IS INERT OVER THIS CORPUS, AND THAT IS STATED HERE RATHER THAN
+# DISCOVERED LATER. SpawnedPidConsistency only counts violations among recordings
+# with SpawnedVesselPersistentId != 0, and the injected corpus contains none. So that
+# cell runs, passes, and asserts over an empty subset. The other two are genuinely
+# exercised across all 272 recordings.
+#
+# WHY THE CORPUS HAS NONE - the ACTUAL invariant, not the one first written here. An
+# earlier draft of this comment blamed
+# `SyntheticRecordingTests.CleanSaveStart -> RemoveSpawnedPidLines` for stripping
+# every `spawnedPid = ` line. That is WRONG twice over: CleanSaveStart runs BEFORE
+# the corpus writer injects, so it could only ever clean pre-existing save content,
+# and it does not run on the harness path at all (run.py invokes
+# inject-recordings.ps1 without -CleanStart, so PARSEK_INJECT_CLEAN_START=0 and the
+# whole block is skipped). The real invariants are: (1)
+# `RecordingBuilder.WithSpawnedPid` has ZERO callers, so every synthetic recording
+# serializes with spawnedPid == 0 and the key is never emitted; and (2)
+# `AddRealCareerRecordings` injects RECORDING_TREE nodes only, so the one
+# `spawnedPid` that does exist in the frozen career fixture sits in a standalone
+# RECORDING node that is never injected.
+# DO NOT "fix" this by adding -CleanStart to the harness inject. CleanSaveStart also
+# runs RemoveVesselBlocksFromFlightState + ResetActiveVessel, which would leave
+# activeVessel = -1 with zero VESSEL nodes; DecideLoadRoute would then return
+# NoVesselSpaceCenter and every corpus spec in this group would red on scene=FLIGHT.
+# The right fix is to teach the corpus writer to author spawned-endpoint recordings -
+# see the same root cause under CrewReservationLive in
+# docs/dev/autotest-ingame-category-inventory.md.
+description = "Walk the injected synthetic corpus through the in-game SpawnHealth category: no stuck SpawnAbandoned flag and no out-of-bounds SpawnDeathCount across all committed recordings."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "corpus", "spawn-health", "H16"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SpawnHealth" },                  expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: NoStuckSpawnAbandoned is the three-cycle-abandon flag's reset contract
+# read off real stored state (D13). SANDBOX, FLIGHT-scene host (D14). NOT claimed:
+# pid-dedup - the cell that would cover it (SpawnedPidConsistency) is inert over a
+# corpus with no spawned PIDs, as the header states, so claiming the token would be
+# false coverage.
+D13 = ["three-cycle-abandon"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE, plus the count pin above for the two cells that
+# genuinely walk the corpus.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
+# (result harness/results/2026-07-27_*_H16-corpus-spawn-health.json: PASS on attempt 1,
+# 69 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
+# against a live batch, not just failed=0. The pre-flight derivation recorded
+# below predicted every one of them correctly.
+#  - total=3 is ATTRIBUTE-EXACT: ExtendedRuntimeTests declares exactly 3
+#    [InGameTest(Category = "SpawnHealth")] methods.
+#  - skipped=0 is DERIVED: all 3 are scene-agnostic; none sets
+#    AllowBatchExecution = false; none of the 3 bodies, nor any helper they call,
+#    contains an InGameAssert.Skip.
+#  - failed=0 is the ASSERTION. passed=3 follows.
+#  - scene=FLIGHT is INFERRED from the fixture (Focusable route). The category is
+#    scene-agnostic, so the token affects the pin's text but not which tests run.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SpawnHealth scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

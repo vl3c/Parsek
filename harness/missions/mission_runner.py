@@ -522,6 +522,13 @@ class KrpcMissionControl(MissionControl):
         self._seam_responses_path: Optional[str] = None
         self._seam_commit_id: Optional[str] = None
         self._seam_commit_result: str = ""   # rides TelemetrySnapshot.seam_commit_result
+        # --- GENERALIZED seam-command bridge (ACTION_PARSEK_SEAM_COMMAND). Shares
+        # the SAME reserved id + channel paths configure_seam already wires; only
+        # the per-command sub-id, the verb and the args differ. Three fail-closed
+        # UNREAD sentinels riding TelemetrySnapshot.seam_command_*.
+        self._seam_command_result: str = ""
+        self._seam_command_tag: str = ""
+        self._seam_command_payload: Tuple[Tuple[str, str], ...] = ()
         # Latches True the first time the AscentAutopilot reads as enabled, so
         # "complete" is never inferred BEFORE the autopilot has ever been engaged
         # (NIT 8: pre-engage, enabled==False must NOT read as ascent-complete=True).
@@ -532,6 +539,10 @@ class KrpcMissionControl(MissionControl):
         # active-vessel to invalid debris -- so we emit a vessel_lost snapshot the
         # phase machine terminates on rather than let the mission burn its budget.
         self._read_fail_streak = 0
+        # The kerbal ACTION_SET_ROSTER_WATCH armed, or "" (unarmed). Unarmed means
+        # _read_crew_roster_status returns "" without issuing an RPC, so every
+        # mission that does not arm it keeps a byte-identical snapshot.
+        self._roster_watch_name: str = ""
         self.client_version = ""
         self.server_version = ""
         # Native-warp service (Path A): built lazily on the first warp_to_ut
@@ -683,6 +694,11 @@ class KrpcMissionControl(MissionControl):
             craft_chute_state = ""
             if self._read_chute:
                 craft_chute_state = self._read_craft_chute_state(v)
+            # Watched kerbal's roster status (armed by ACTION_SET_ROSTER_WATCH; CL-1).
+            # Own try/except inside the helper with the "" UNREAD sentinel, same
+            # fail-closed discipline as the chute read, and it never counts toward the
+            # vessel-lost read-fail streak.
+            crew_roster_status = self._read_crew_roster_status(sc)
             # MechJeb NodeExecutor.Enabled (opt-in, B11/B12). Own try/except with
             # the -1 UNREAD sentinel: an executor read fault must degrade to
             # fail-closed (no executor verdict is granted on a blind frame),
@@ -810,7 +826,14 @@ class KrpcMissionControl(MissionControl):
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
                 craft_chute_state=craft_chute_state,
+                crew_roster_status=crew_roster_status,
                 seam_commit_result=self._seam_commit_result,
+                # Generalized seam-command outcome. All three stay at their UNREAD
+                # defaults ("" / "" / ()) for every mission that never emits
+                # ACTION_PARSEK_SEAM_COMMAND, so no pre-existing snapshot moves.
+                seam_command_result=self._seam_command_result,
+                seam_command_tag=self._seam_command_tag,
+                seam_command_payload=self._seam_command_payload,
                 # Prox-ops observability (flight-10): tumble / control / AP-status.
                 angular_velocity=angular_velocity,
                 sas_enabled=sas_enabled,
@@ -847,18 +870,37 @@ class KrpcMissionControl(MissionControl):
             # (best-effort UT so the phase-entry clock still advances) instead of
             # re-raising, so the phase machine reaches its vessel-lost terminal.
             ut = 0.0
+            sc = None
             try:
-                ut = float(self._conn.space_center.ut)
+                sc = self._conn.space_center
+                ut = float(sc.ut)
             except Exception:
                 ut = 0.0
+            # THE ONE CHANNEL THAT STILL CARRIES TRUTH ON THIS PATH (CL-1). Every
+            # other field stays at its benign default because it is a property OF
+            # THE VESSEL and a destroyed vessel has none; a kerbal's roster status
+            # is a property of the KERBAL and outlives the craft that killed them.
+            # Best-effort and fail-closed: an unread roster leaves the "" sentinel,
+            # which satisfies no gate.
+            crew_roster_status = self._read_crew_roster_status(sc) if sc is not None else ""
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Telemetry",
                 "vessel-lost: telemetry read failed %d consecutive samples; "
-                "emitting vessel_lost snapshot ut=%s"
-                % (self._read_fail_streak, _fmt(ut))))
-            return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True)
+                "emitting vessel_lost snapshot ut=%s roster=%s"
+                % (self._read_fail_streak, _fmt(ut), crew_roster_status or "UNREAD")))
+            return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True,
+                                          crew_roster_status=crew_roster_status)
 
     def perform(self, action: "mlib.Action") -> None:
+        # Arming the roster watch is handled BEFORE the active-vessel resolve below:
+        # it issues no RPC of its own, and binding it to a live vessel would make the
+        # one channel designed to outlive the craft depend on the craft.
+        if action.kind == mlib.ACTION_SET_ROSTER_WATCH:
+            self._roster_watch_name = str(action.text or "")
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Roster", "roster watch armed kerbal=%r"
+                % (self._roster_watch_name,)))
+            return
         sc = self._conn.space_center
         v = sc.active_vessel
         control = v.control
@@ -1460,6 +1502,9 @@ class KrpcMissionControl(MissionControl):
                 % (self._station_port is not None, sorted(self._station_tanks.keys()))))
         elif kind == mlib.ACTION_PARSEK_COMMIT_TREE:
             self._perform_seam_commit()
+        elif kind == mlib.ACTION_PARSEK_SEAM_COMMAND:
+            self._perform_seam_command(action.seam_verb, action.seam_args,
+                                       action.seam_tag)
         elif kind == mlib.ACTION_SET_TARGET_VESSEL:
             if self._station_vessel is not None:
                 sc.target_vessel = self._station_vessel
@@ -1679,10 +1724,112 @@ class KrpcMissionControl(MissionControl):
             "Warn", "Seam", "commit poll expired (%ds) id=%s -> TIMEOUT"
             % (int(SEAM_COMMIT_POLL_SECONDS), cid)))
 
-    def _read_seam_response(self, commit_id: str) -> Optional[str]:
-        """Return the verdict of the FIRST terminal response line for commit_id in
-        the response channel (id/cmd/verdict key=value tokens), or None if none
-        yet. First-wins mirrors the seam's crash-recovery rewrite contract."""
+    def _perform_seam_command(self, verb: Optional[str],
+                              args: Optional[Tuple[Tuple[str, str], ...]],
+                              tag: Optional[str],
+                              poll_seconds: Optional[float] = None) -> None:
+        """GENERALIZED route-1 mid-mission seam command: write ``id=<reserved>.<tag>
+        cmd=<verb> [k=v ...]`` into the request channel, then bounded-poll the
+        response channel for that id. The verb-agnostic sibling of
+        ``_perform_seam_commit``, which is deliberately left untouched (five
+        scenarios are live-proven on its exact bytes).
+
+        Shares the SAME transport as the commit path: the same reserved id and the
+        same channel paths ``configure_seam`` wires, and the same first-wins
+        response reader (``_read_seam_response_fields``). Only the sub-id, the verb
+        and the args differ. The DISTINCT sub-id matters: the C# seam SKIPS
+        DUPLICATE IDS, so a second command re-using the bare reserved id would be
+        silently dropped and its poll would expire as a TIMEOUT that looks like a
+        wedged addon.
+
+        The outcome rides ``TelemetrySnapshot.seam_command_result`` / ``_tag`` /
+        ``_payload``. NEVER raises: a missing seam config, a missing verb/tag, an
+        IO fault, or a poll expiry all resolve to a fail-closed terminal token the
+        machine gives up on by name, never a MISSION-ERROR.
+
+        The tag is published ALONGSIDE the token (and reset to the new tag BEFORE
+        the poll) so a phase gate can require its OWN command's result: a machine
+        that read only the token would advance on the PREVIOUS command's OK."""
+        verb_name = str(verb or "")
+        tag_name = str(tag or "")
+        # Reset first: the previous command's OK must never survive into this one.
+        self._seam_command_result = ""
+        self._seam_command_tag = tag_name
+        self._seam_command_payload = ()
+
+        if not verb_name or not tag_name:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Seam",
+                "seam command missing verb/tag (verb=%r tag=%r) -> ERROR"
+                % (verb_name, tag_name)))
+            self._seam_command_result = "ERROR"
+            return
+        if not (self._seam_commands_path and self._seam_responses_path
+                and self._seam_commit_id):
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Seam",
+                "seam command %s requested but no seam configured -> ERROR" % verb_name))
+            self._seam_command_result = "ERROR"
+            return
+
+        cid = mlib.seam_command_id(self._seam_commit_id, tag_name)
+        if not cid:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Seam",
+                "seam command %s could not derive a distinct id "
+                "(reserved=%r tag=%r) -> ERROR"
+                % (verb_name, self._seam_commit_id, tag_name)))
+            self._seam_command_result = "ERROR"
+            return
+
+        line = mlib.format_seam_command_line(cid, verb_name, args)
+        try:
+            with open(self._seam_commands_path, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Seam",
+                "seam command write failed: %s -> ERROR" % (exc,)))
+            self._seam_command_result = "ERROR"
+            return
+
+        # poll_seconds is a TEST SEAM (production always passes None and takes the
+        # pure per-verb window); it mirrors how the commit bridge's tests rebind
+        # SEAM_COMMIT_POLL_SECONDS.
+        if poll_seconds is None:
+            poll_seconds = mlib.seam_command_poll_seconds(verb_name)
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Seam",
+            "seam command written [%s]; polling %ds" % (line, int(poll_seconds))))
+        deadline = time.monotonic() + poll_seconds
+        while time.monotonic() < deadline:
+            fields = self._read_seam_response_fields(cid)
+            if fields is not None:
+                verdict = fields.get("verdict", "")
+                self._seam_command_result = "OK" if verdict == "OK" else "ERROR"
+                self._seam_command_payload = tuple(
+                    (k, v) for k, v in fields.items()
+                    if k not in ("id", "cmd", "verdict", "seq"))
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Seam",
+                    "seam command response id=%s cmd=%s verdict=%s -> %s payload=%s"
+                    % (cid, verb_name, verdict, self._seam_command_result,
+                       ",".join("%s=%s" % kv for kv in self._seam_command_payload)
+                       or "-")))
+                return
+            time.sleep(SEAM_COMMIT_POLL_INTERVAL)
+        self._seam_command_result = "TIMEOUT"
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Seam",
+            "seam command poll expired (%ds) id=%s cmd=%s -> TIMEOUT"
+            % (int(poll_seconds), cid, verb_name)))
+
+    def _read_seam_response_fields(self, command_id: str) -> Optional[Dict[str, str]]:
+        """The full ``key=value`` field map of the FIRST terminal response line for
+        ``command_id`` in the response channel, or None if none yet. Terminal =
+        the line carries a ``verdict``. First-wins mirrors the seam's
+        crash-recovery rewrite contract; first-key-wins within a line mirrors the
+        original commit reader (a duplicated key is ignored, never overwritten)."""
         try:
             with open(self._seam_responses_path, "r", encoding="utf-8",
                       errors="replace") as fh:
@@ -1696,9 +1843,22 @@ class KrpcMissionControl(MissionControl):
                     k, _, val = tok.partition("=")
                     if k and k not in fields:
                         fields[k] = val
-            if fields.get("id") == commit_id and "verdict" in fields:
-                return fields["verdict"]
+            if fields.get("id") == command_id and "verdict" in fields:
+                return fields
         return None
+
+    def _read_seam_response(self, commit_id: str) -> Optional[str]:
+        """Return the verdict of the FIRST terminal response line for commit_id in
+        the response channel (id/cmd/verdict key=value tokens), or None if none
+        yet. First-wins mirrors the seam's crash-recovery rewrite contract.
+
+        Behaviour-preserving delegation to ``_read_seam_response_fields`` (which is
+        the same loop, returning the whole field map instead of just the verdict):
+        the selection rule -- first line whose ``id`` matches AND that carries a
+        ``verdict`` -- is unchanged, so ``_perform_seam_commit`` reads exactly what
+        it read before."""
+        fields = self._read_seam_response_fields(commit_id)
+        return None if fields is None else fields.get("verdict")
 
     def _find_tank_with_resource(self, vessel, resource: str):
         """A part on ``vessel`` carrying > 0 of ``resource`` (best-effort; the
@@ -2456,6 +2616,42 @@ class KrpcMissionControl(MissionControl):
             if want in states:
                 return want
         return states[0]
+
+    def _read_crew_roster_status(self, sc) -> str:
+        """The WATCHED kerbal's roster status, or "" when no watch is armed / the
+        read faulted (CL-1).
+
+        `SpaceCenter.GetKerbal(name)` at the pinned kRPC v0.5.4 scans
+        `HighLogic.CurrentGame.CrewRoster.Crew` and returns null when no kerbal of
+        that name is in it; `CrewMember.RosterStatus` maps stock's
+        `ProtoCrewMember.RosterStatus` (Available / Assigned / Dead / Missing).
+        Both were verified present at the pinned commit before this was written -
+        neither is a newer-kRPC feature.
+
+        THREE distinct outcomes, and keeping them distinct is the point:
+          ""            the read RAISED, or no watch is armed. Fail-closed.
+          "NotInRoster" GetKerbal returned null - an OBSERVATION, not a failure.
+          "<Status>"    the normalized roster status.
+        The middle one is what turns a misspelled `crewName` from a mystery
+        budget burn into a named terminal, and it is also the reading a kerbal
+        would produce if stock ever removed a dead one from the roster outright.
+
+        Resolved LIVE from the connection every poll and never through the active
+        vessel: that independence is exactly why this survives the destruction of
+        the craft, which is the frame a crew-loss mission most needs it on."""
+        name = self._roster_watch_name
+        if not name:
+            return ""
+        try:
+            kerbal = sc.get_kerbal(name)
+        except Exception:
+            return ""
+        if kerbal is None:
+            return mlib.ROSTER_STATUS_NOT_IN_ROSTER
+        try:
+            return mlib.normalize_roster_status(getattr(kerbal.roster_status, "name", ""))
+        except Exception:
+            return ""
 
     def _read_angular_velocity(self, v) -> float:
         """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --
@@ -3676,6 +3872,17 @@ def run_mission(
         log.verbose("Connect", "disconnect (finally) closed=%s" % (closed,))
 
     wall_seconds = clock() - wall_start
+    # HANDOFF DISCLOSURE, applied HERE and not inside build_mission_result. A handoff
+    # mission (EVA-4) certifies only the state it handed off, and the rest of the
+    # scenario's contract is owned by a later seam step - but this log line is the
+    # channel a human and `harness/status.py` actually read (its _VERDICT_RE parses
+    # exactly this format, and run.py folds it into the harness log). Extending only the
+    # result JSON would have left the operator-facing line reading
+    # "reason=all telemetry assertions met" over a dead kerbal, byte-identical to the
+    # 2026-07-25 line this exists to stop being misread. One source of truth, both
+    # channels: build_mission_result now receives the already-extended reason.
+    if verdict == mlib.MISSION_OK:
+        reason = mlib.handoff_ok_reason(spec.name, reason)
     log.info("Verdict", "mission verdict=%s reason=%s phasesReached=%s wall=%ss"
              % (verdict, reason, phases_reached, _fmt(wall_seconds)))
 

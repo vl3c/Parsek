@@ -9,16 +9,29 @@ Written 2026-07-27 on branch `autotest-roadmap`. Every number below was measured
 this worktree at HEAD `1591aa59f` by the command named beside it. Nothing here was
 run against a real KSP instance: no `run.py`, no `provision.py`, no launch.
 
+
+> **RECONCILED 2026-07-27 after #1358 merged.** This document was written against
+> `main` at 38 scenarios / 8 driven categories and flagged, in the tracking table
+> above, that #1358 would shift its coverage and undriven-declaration counts. It has.
+> Every derived number below is re-derived at 52 scenarios / 22 driven categories,
+> NOT hand-adjusted: scenarios 38 -> 52, coverage 83 -> 96 of 241, Cause A
+> 414 tests / 89 categories -> 338 / 75. The RANKING and the causes are unchanged -
+> #1358 closed part of R4/R6/R8, it did not reorder anything. Where a section header
+> carried an old number it now carries the new one, with the pre-merge figure kept
+> inline so the delta stays legible.
+
 ## Baseline, and the lanes already in flight against it
 
-Every count in this file is measured at `1591aa59f` and **excludes work open in
-review at the time of writing**. Four PRs were open against that same base, and three
-of them land inside this roadmap's build order. Read the numbers as the state of
-`main`, not as the state of the project:
+Every count in this file was originally measured at `1591aa59f` and **excluded
+work open in review at the time of writing**. All four PRs listed below have since
+MERGED (by 2026-07-28), along with #1362 (R1 gates), #1363 (H20 tally pin), #1365
+(R1-EMPTY-PROVISIONAL resolved as a fixture artifact), #1366 (CL-1 crew-loss atom)
+and #1367 (R5 isolated batches). The sections above are re-derived at that state;
+the table below is kept for history:
 
 | PR | Branch | Overlaps |
 |---|---|---|
-| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). Moves the scenario count 38 -> 52 and the driven-category count 8 -> 22, so the "83 of 241" denominator work and the Cause A "414 undriven declarations" both shift on merge. |
+| #1358 | `ingame-test-wiring` | **R4 and parts of R6 / R8.** Wires 14 in-game categories as batch-only specs H7-H20, including `IncompleteBallistic`, `FinalizeBackfill`, `RecordingFinalization` (all of R4 except `FinalizeLimbo` / `Bug289`), `TrajectoryMath`, `Pipeline-Anchor`, `SwitchSegment` (R6), and `SpawnRotation`, `EvaSpawnPosition` (R8). MERGED 2026-07-27; all 14 flown and PASS (805 s for the group). Moved the scenario count 38 -> 52, driven categories 8 -> 22, coverage 83 -> 96 of 241 (95 from this branch alone; the 96th is the D3 `parent-anchored-debris` cell R1's debris gate claimed on main, folded in at the merge), and Cause A 414 undriven declarations / 89 categories -> 338 / 75. Every figure in this doc is re-derived at the post-merge numbers. |
 | #1357 | `rewind-loop-lane` | **R3.** Re-tiers S1.5 and S4.1 from `operator` to `nightly` on the same measured premise this file argues (the fixture routes to FLIGHT), and adds an R1 rewind-loop scenario. If it merges first, R3 collapses to "read the first nightly result". |
 | #1359 | `eva4-failopen` | The EVA-4 mission-oracle fail-open listed as OPEN in the open-bugs table below. |
 | #1360 | `fix-refly-provisional` | A re-fly defect found by the rewind lane; no roadmap item, but it moves D9's live standing. |
@@ -39,70 +52,72 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 38 committed
+### Scenarios: 55 committed
 
-`ls harness/scenarios/*.toml` returns **38** files, and `git ls-tree origin/main
-harness/scenarios/` returns the same 38. Earlier framing of this work said 39; the
-correct count is 38, which is also what `autotest-status.md` says ("all 38 committed
-scenarios"). Tiers, from `grep '^tier' harness/scenarios/*.toml`:
+`ls harness/scenarios/*.toml` returns **55** files. This baseline was written at
+38, correct at `origin/main` when the roadmap landed. Since then: #1358 took it to
+52 (14 in-game batch specs), #1357 added `R1-rewind-loop-flown` (53), #1366 added
+`CL-1-pod-impact` (54, the crew-loss atom), and #1367 added
+`H21-scene-exit-merge-isolated` (55, the first isolated-batch spec). Coverage moved
+to **97 of 242**: #1358's specs carried the bulk of the gain, CL-1 added AND covered
+the new D12 `crew-death-in-flight` value (which is also what moved the denominator
+to 242), H21 covered the isolated scene-exit merge, and R1 added none because it
+claims no registry value that was not already claimed. Adding a scenario is not the
+same as covering a cell. Re-derive these rather than editing them by memory; both
+numbers have moved five times in three days.
 
-| Tier | n | Scheduled by |
-|---|---|---|
-| daily | 17 | `--cadence daily`, `--cadence nightly`, `--cadence weekly` |
-| nightly | 15 | `--cadence nightly`, `--cadence weekly` |
-| operator | 6 | nothing (excluded from every cadence in `hlib.CADENCE_TIERS`) |
+### Coverage: 97 of 242 registry cells (was 83 of 241 at the baseline)
 
-Zero specs carry `tier = "pending-fixture"`. All 38 declare
-`instanceProfile = "stock-minimal"`. All 38 declare `retry.policy = "once"`.
-
-### Coverage: 83 of 241 registry cells
-
-`hlib.compute_coverage(specs, [], registry)` over the 38 committed specs and
+`hlib.compute_coverage(specs, [], registry)` over the committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 83   uncovered 158   expectedFailValues 0   xpass 0
+values 242   covered 97   uncovered 145   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered):
 
 | Dim | Subject | Total | Uncovered |
 |---|---|---:|---:|
-| D1 | recording lifecycle | 18 | **13** |
-| D2 | sampling | 4 | 3 |
-| D3 | reference frames | 7 | 6 |
+| D1 | recording lifecycle | 18 | 8 |
+| D2 | sampling | 4 | 1 |
+| D3 | reference frames | 7 | 4 |
 | D4 | track sections / optimizer | 12 | 6 |
 | D5 | tree topology | 12 | 7 |
 | D6 | playback / ghosts | 16 | 11 |
 | D7 | part events / FX | 16 | 12 |
 | D8 | ledger / career | 18 | 6 |
-| D9 | rewind / re-fly | 16 | 8 |
+| D9 | rewind / re-fly | 16 | 9 |
 | D10 | logistics / routes | 20 | 12 |
 | D11 | missions abstraction | 18 | 10 |
-| D12 | crew | 9 | 8 |
-| D13 | spawn positioning | 11 | **11** |
+| D12 | crew | 10 | 8 |
+| D13 | spawn positioning | 11 | 7 |
 | D14 | bodies / scenes | 32 | 18 |
 | D15 | timeline | 1 | 1 |
-| D16 | storage / sidecars | 13 | 10 |
+| D16 | storage / sidecars | 13 | 9 |
 | D17 | mod compatibility | 6 | **6** |
 | D18 | re-fly / interaction | 12 | 10 |
-| | | **241** | **158** |
+| | | **242** | **145** |
 
 ### The headline
 
-We have flown Eve and Duna interplanetary missions. Meanwhile **13 of the 18 basic
-recording-lifecycle cells (D1) have never been exercised**, D13 spawn positioning is
-11 of 11 uncovered, and D17 mod compatibility is 6 of 6 uncovered.
+At the baseline this read: 13 of 18 basic recording-lifecycle cells (D1) never
+exercised, D13 spawn positioning 11 of 11 uncovered, D17 mod compatibility 6 of 6.
+One wave later (measured 2026-07-28 at `7f5efa738`) D1 is down to **8 of 18** -
+the R4-family batches, H21 and the R1 gates closed `commit-scene-exit`,
+`switch-segment`, `scene-exit-finalization`, `ballistic-extrapolation` and
+`finalization-cache` - and D13 is down to 7 of 11. D17 is untouched at 6 of 6.
 
-The uncovered D1 cells are the ordinary things a player does every session:
+The D1 cells still uncovered are ordinary player actions:
 
 ```
 auto-record-first-mod-switch  manual-gloops        stop-on-switch
-commit-revert-merge           commit-scene-exit    commit-abort
-auto-merge                    sub-2-point-drop     switch-segment
-switch-segment-noop-discard   scene-exit-finalization
-ballistic-extrapolation       finalization-cache
+commit-revert-merge           commit-abort         auto-merge
+sub-2-point-drop              switch-segment-noop-discard
 ```
+
+(`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
+deletion rather than coverage.)
 
 D9 is worse than its 8-uncovered row suggests. Seven further D9 cells are "covered"
 only by `S1.5-rewind-loop` and `S4.1-rewind-merge`, both `tier = "operator"`, both
@@ -118,51 +133,67 @@ feature and its entire automated proof is nominal.
 The single largest cause is not a missing capability. It is that we own roughly five
 times the test surface we execute and have no way to point the harness at it.
 
-### Cause A: written, never driven (414 tests, 89 categories)
+### Cause A: written, never driven (336 tests, 74 categories; was 414 / 89 pre-#1358)
 
 Measured with `hlib.parse_ingame_test_declarations` over every `.cs` under
 `Source/Parsek`:
 
 ```
-539 [InGameTest] declarations in 97 categories, 0 unresolved
-125 declarations in the 8 categories any spec drives
-414 declarations in the 89 categories nothing drives
+542 [InGameTest] declarations in 98 categories, 0 unresolved
+206 declarations in the 24 categories any spec drives (184 of them execute)
+336 declarations in the 74 categories nothing drives
 ```
 
-The 8 driven categories are `GameActionsHealth`, `GhostMap`, `GhostPlayback`,
-`MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`, `RouteRewindTimeline`.
+The 24 driven categories are the pre-#1358 eight - `GameActionsHealth`, `GhostMap`,
+`GhostPlayback`, `MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`,
+`RouteRewindTimeline` - plus the 14 that #1358 wired: `DataHealth`,
+`EvaSpawnPosition`, `FinalizeBackfill`, `FlightIntegration`, `GhostVisuals`,
+`IncompleteBallistic`, `KSP`, `Pipeline-Anchor`, `Pipeline-Smoothing`,
+`RecordingFinalization`, `SpawnHealth`, `SpawnRotation`, `SwitchSegment`,
+`TrajectoryMath` - plus two that arrived after #1358: `SceneExitMerge` (R5's isolated
+`H21`) and `UiComplexityMode` (`H22`, which ships with the Basic/Advanced UI-mode
+feature and is a category that did not exist pre-#1358). The 206 / 184 split is
+because three of the pre-existing eight run at SPACECENTER where some members
+scene-skip; all 79 declarations the later specs add execute. Per-category detail, and
+the A/B/C triage of the 74 that remain, is in
+`autotest-ingame-category-inventory.md`.
 
-Scene reachability of the 89 undriven categories (a category is "reachable" when
+Scene reachability of the 74 undriven categories (a category is "reachable" when
 every member runs in FLIGHT, SPACECENTER, or scene-agnostic, because `LoadGame` can
-route to exactly those two scenes):
+route to exactly those two scenes), re-derived post-#1358 and again after R5 moved
+`SceneExitMerge` (FLIGHT-only) into the driven set:
 
-| Scenes present in the category | Categories |
-|---|---:|
-| FLIGHT only | 53 |
-| scene-agnostic only | 16 |
-| SPACECENTER only | 9 |
-| FLIGHT + SPACECENTER | 4 |
-| involves TRACKSTATION or MAINMENU | 7 |
+| Scenes present in the category | Categories | Pre-#1358 |
+|---|---:|---:|
+| FLIGHT only | 36 | 53 |
+| scene-agnostic only | 13 | 16 |
+| FLIGHT + SPACECENTER (+ agnostic) | 10 | 4 |
+| SPACECENTER only | 8 | 9 |
+| involves TRACKSTATION or MAINMENU | 7 | 7 |
 
-**82 undriven categories are reachable today on fixtures we already own.** Seven are
-not, because there is no seam route to TRACKSTATION or MAINMENU.
+**67 undriven categories are reachable today on fixtures we already own** (was 82).
+Seven are not, because there is no seam route to TRACKSTATION or MAINMENU - and that
+seven is UNCHANGED by #1358, which is the point: it wired only reachable categories,
+so the unreachable set is exactly as hard as it was. `TrackingStation` alone is 9
+batch-eligible tests stranded behind one missing seam verb.
 
 The D1-D9 blocks that are batch-allowed and reachable RIGHT NOW, with no code change
-and no new fixture:
+and no new fixture. Struck-through rows were CLOSED by #1358 and are kept so the
+remaining work is legible against the original list:
 
 | Category | Tests | Dimension cells it reaches |
 |---|---:|---|
-| `IncompleteBallistic` | 8 | D1 `ballistic-extrapolation`, `scene-exit-finalization` |
-| `FinalizeBackfill` | 7 | D1 `scene-exit-finalization` |
-| `RecordingFinalization` | 3 | D1 `finalization-cache` |
+| ~~`IncompleteBallistic`~~ | 8 | DRIVEN since #1358 by `H9` (live-proven 2026-07-27). D1 `ballistic-extrapolation`, `scene-exit-finalization` |
+| ~~`FinalizeBackfill`~~ | 7 | DRIVEN since #1358 by `H10` (live-proven 2026-07-27). D1 `scene-exit-finalization` |
+| ~~`RecordingFinalization`~~ | 3 | DRIVEN since #1358 by `H19` (live-proven 2026-07-27). D1 `finalization-cache` |
 | `FinalizeLimbo` | 2 | D1 finalization |
 | `Bug289` | 2 | D1 finalization |
-| `Pipeline-Anchor` | 7 | D3 `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` |
-| `TrajectoryMath` | 8 | D2 `threshold-debounce` |
+| ~~`Pipeline-Anchor`~~ | 7 | DRIVEN since #1358 by `H11` (live-proven 2026-07-27). D3 `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` |
+| ~~`TrajectoryMath`~~ | 8 | DRIVEN since #1358 by `H7` (live-proven 2026-07-27). D2 `threshold-debounce` |
 | `Optimizer` | 2 | D4 `env-body-split`, `surface-graze-suppression` |
 | `BackgroundSeeder` | 2 | D4 `seed-event-split` |
 | `Recording` | 1 | D5 `bg-on-rails` |
-| `SwitchSegment` | 6 | D1 `switch-segment` gate layer |
+| ~~`SwitchSegment`~~ | 6 | DRIVEN since #1358 by `H12` (live-proven 2026-07-27). D1 `switch-segment` gate layer |
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
 | `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
@@ -176,7 +207,15 @@ and no new fixture:
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
 | `CrewReservation` | 15 | D12 |
 
-### Cause B: unreachable by ANY unattended path (68 tests)
+### Cause B: unreachable by ANY unattended path (68 tests) - CLOSED by R5, 2026-07-27
+
+CLOSED as a CAPABILITY gap. The seam's `RunTests` verb now takes
+`isolated = "true"` and the autorun dispatcher reads `PARSEK_AUTORUN_ISOLATED=1`,
+both routing to the `*IncludingFlightRestore` entry points, so all 68 are drivable.
+One of the 13 categories is actually DRIVEN so far (`SceneExitMerge`, wired as
+`H21-scene-exit-merge-isolated`); the other 12 are now ordinary spec-authoring work
+under R6 / R7 / R10 rather than blocked. The diagnosis below is kept verbatim
+because it is the evidence the fix rests on.
 
 `InGameTestRunner` has two batch entry points. The ordinary one admits
 `test.AllowBatchExecution`. The other, `PrepareBatchExecutionIncludingFlightRestore`,
@@ -192,8 +231,9 @@ They are called from exactly two places, both interactive:
 They are called from neither unattended path. The seam's `RunTests`
 (`ParsekTestCommandAddon.cs:1494,1496`) calls `RunAll()` / `RunCategory(category)`.
 The autorun dispatcher (`TestRunnerShortcut.cs:725,739,789`) does the same.
+(Both now branch on the R5 flag; the line numbers above are pre-R5.)
 
-Counting attribute argument lists over all 539 declarations (see the note on the
+Counting attribute argument lists over all 542 declarations (see the note on the
 fully-qualified attribute form at the end of this file - a naive `[InGameTest(` scan
 misses 5 of them):
 
@@ -389,6 +429,9 @@ batch / injected-corpus boot enough.
 ### Tier 0: free or nearly free. Do these first.
 
 **R1. Close the gates on what we already fly.** Spec-only. No flights. No code.
+**SHIPPED 2026-07-27 (PR #1362)**: the five Kerbal X debris-population tokens are
+gated, so D3 `parent-anchored-debris` and its siblings now assert instead of
+narrate.
 
 Not because it is cheap, though it is, but because each of these is a surface a
 live-proven scenario produces on every nightly with no assertion. `B2-lko-ascent`
@@ -401,15 +444,15 @@ This is SYSTEMIC, not a B2 quirk. Measured over the committed specs 2026-07-26,
 SEVEN live-proven scenarios carry a recording-count window whose lower bound
 admits the main recording alone:
 
-| Scenario | window | span |
-|---|---|---|
-| B1-pad-hop | {1, 6} | 5 |
-| B2-lko-ascent | {1, 8} | 7 |
-| B4-reentry-splashdown | {1, 9} | 8 |
-| B5-mun-flyby | {1, 9} | 8 |
-| B6-minmus-flyby | {1, 9} | 8 |
-| B7-duna-flyby | {1, 8} | 7 |
-| BDOCK-1-station-interceptor | {2, 20} | 18 |
+| Scenario | window | span | status |
+|---|---|---|---|
+| B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
+| B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
+| B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
+| B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
+| B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; MEASURED 8 on `2026-07-25_0636` and `_0856`, confirming the inference) |
+| B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (MEASURED 8 on `2026-07-25_0916_a2`; agrees with B15's pin) |
+| BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
 
 Every one of them would still read PASS if Parsek stopped writing child /
 debris recordings entirely. The wide MAX is defensible and deliberately
@@ -437,19 +480,107 @@ Tokens verified present in source:
 | `starting hysteresis timer` | `FlightRecorder.cs:4831,4911` | D4 `hysteresis` |
 | `Part event: <Type> '<part>` | `FlightRecorder.cs:1507`, `BackgroundRecorder.PartEventPolling.cs` | D7 `decouple-stage-destroy`, `chute-cut`, `gear` |
 
-Part events log as `Part event: {eventType} '{partName}'` with `eventType` from the
-`PartEventType` enum, so `Decoupled`, `Destroyed`, `ParachuteCut`, `GearDeployed`,
-`FairingJettisoned` and the rest are all producible forms. They are `ParsekLog.Verbose`;
-`ParsekSettings.verboseLogging` defaults `true` and `B1-pad-hop` already pins two of
-them (`Part event: ParachuteSemiDeployed 'parachuteSingle`), so the pattern is proven.
+CORRECTED 2026-07-27 while building this: **the four `BackgroundRecorder` tokens are
+`ParsekLog.Info`, not Verbose.** The rest of the table is mixed - `starting hysteresis
+timer` is Verbose at BOTH sites (`FlightRecorder.cs:4831`, `:4911`), and the
+`Part event:` family is ~39 Verbose sites plus exactly one Info at
+`FlightRecorder.cs:3862` (20 in `FlightRecorder.cs`, 19 more in
+`BackgroundRecorder.PartEventPolling.cs`),
+so check the level per token rather than per family. That matters
+because it decides whether a spec needs a `SetSetting verboseLogging true` step to
+depend on a token: the debris / TTL / sample-rate claims do NOT, and the five specs
+gated below deliberately declare none. Part events log as
+`Part event: {eventType} '{partName}'` with `eventType` from the `PartEventType` enum,
+so `Decoupled`, `Destroyed`, `ParachuteCut`, `GearDeployed`, `FairingJettisoned` and
+the rest are all producible forms; those ARE Verbose, `ParsekSettings.verboseLogging`
+defaults `true` (`ParsekSettings.cs:50`), and `B1-pad-hop` pins two of them
+(`Part event: ParachuteSemiDeployed 'parachuteSingle`), so that pattern is proven too.
 
-Targets: `B2-lko-ascent` (add tokens, and tighten the count window from the measured
-7 while you are there), `B11-mun-orbit`, `B12-minmus-orbit`, `B13-mun-landing`,
-`B14-minmus-landing`, `B4-reentry-splashdown`, `EVA-4-atmo-chute`.
-Roughly 8 cells. Cost: one PR. Proven on the next nightly.
+**Every one of these tokens is a REGEX**, applied with `re.search` by
+`evaluate_expectations`. `Child recording created (debris, TTL=` pasted verbatim from
+the source raises `re.error: missing ), unterminated subpattern`; write
+`Child recording created \(debris, TTL=`. `hlib.validate_spec` rejects an
+uncompilable pattern since 2026-07-27, and `run.py --dry-run` now runs that
+validation (it previously returned 0 before reaching it), so this costs a dry-run
+rather than a
+flight.
+
+SHIPPED 2026-07-27 (debris population): `B2-lko-ascent`, `B4-reentry-splashdown`,
+`B5-mun-flyby`, `B6-minmus-flyby`, `B7-duna-flyby` - each requires a debris-creation
+token, pins a `count.min` derived per mission (see the table), and claims D3
+`parent-anchored-debris`. Coverage 83 -> 84.
+
+**READ THIS BEFORE PINNING ANY TOKEN FROM THIS TABLE.** The first cut of that gate
+pinned `Child recording created \(debris, TTL=` alone and would have RED all five
+flights. That token is the BACKGROUND-split site
+(`BackgroundRecorder.RegisterChildRecordingsFromSplit`), reachable only through
+`OnBackgroundPartJointBreak`, which early-returns unless the vessel is in
+`tree.BackgroundMap` - and `RecordingTree.IsBackgroundMapEligible` excludes
+`rec.RecordingId == ActiveRecordingId`. A Kerbal X sheds its boosters while it IS the
+active vessel, so the line cannot fire on these profiles. Staging goes through
+`ParsekFlight.ProcessBreakupEvent` -> `CreateBreakupChildRecording`, logging
+`ProcessBreakupEvent: debris child created: pid=` (Info, tag `Coalescer`).
+The lesson is general and cost two independent reviews to catch:
+**a token's presence in source is not its reachability on a profile.** Trace the call
+chain, or grep an archived KSP.log, before pinning - the discipline this section
+already prescribed for the tokens it declined to claim, and did not apply to the one
+it claimed.
+
+The intermediate fix accepted EITHER site, because that trace was still argued from
+source alone. **The shipped gate requires the FOREGROUND token only**, settled
+2026-07-27 against all 60 archived B-lane `logs/*/KSP.log` folders (B2 10, B4 8,
+B5 27, B6 6, B7 9): the foreground token appears in 58 of 60, and the substring
+`Child recording created` - broad enough to catch the CONTROLLED sibling at `:1185`
+too - appears in **zero**. The two without it are `2026-07-20_{1846,1854}_B2-lko-ascent`,
+INVALID runs that recorded nothing. A green ascent emits it exactly 6 times, one per
+booster. Corollary worth keeping: an EITHER-site alternation is a reasonable
+intermediate when the trace is unconfirmed, but it is not the destination - a gate
+that accepts two paths cannot tell you which one broke.
+
+Also corrected while shipping: `min` is NOT one number across the five, and the rule
+is not "does it reach `_b5_flameout_stage`" either - that was the second draft's error.
+The floor follows **whether the mission commands a debris-producing stage drop beyond
+launch ignition**: `B5`/`B6`/`B7` drop a flameout-staged core via `_b5_flameout_stage`,
+and `B4` drops its service stage via an `ACTION_ACTIVATE_STAGE` on the SOLE transition
+into `B4_REENTRY` - so all four floor at 8. Only `B2` stages once, at ignition, and
+floors at 7 (`mlib.py:401-405`: the spent core never autostages because MechJeb
+autostage fires only on EMPTY stages and the Kerbal X core keeps residual fuel).
+The first cut used 7 everywhere, which on an 8-population spec is precisely the value
+`B11`/`B12` record as **considered and rejected** ("7 is the exact count a single
+dropped recording would produce"). Note `run.py` judges expectations only on a
+driver-valid, non-short-circuited run, so a B4 that never reached REENTRY has its count
+SKIPPED rather than passing under the lower floor.
+
+**All five floors were converted from derived to MEASURED on 2026-07-27**, read off
+`verifiers.expectations.observed.recordings.count` in verdict=PASS result JSONs (see
+the status table for the run ids; the field landed in `72cf344fb`, 2026-07-25 06:48,
+so every citation is from that morning). Both floors that had never been measured -
+B4's structural derivation and B6's inference from the shared decide function -
+measured at exactly the derived value, so no re-pin was needed.
+**Do not measure this from the archived `logs/*/` folders.** `run.py` collects logs on
+NON-PASS only (`run.py:2324`), so every archived B-lane folder is a run whose
+expectations were SKIPPED rather than judged. Their `.prec` sidecars number 7 for B4
+and B6 - those runs aborted before the extra stage drop - and reading that as a
+contradiction would lower both floors straight back into the one-below-population
+blind spot. The archives are ground truth for TOKENS, not for COUNTS.
+
+The Targets line this section originally carried was wrong and is replaced by the
+status column in the table above: it named `B11`/`B12`/`B13`/`B14`, which already had
+`{8,8}` pins and eight-token contracts (B11 even requires `terminalState=Destroyed`,
+which gates debris terminals), and omitted `B5`/`B6`/`B7`, which were vacuous.
+
+STILL OPEN: D5 `staging-debris-ttl` and D2 `proximity-cadence-bg`. Their tokens exist
+and are Info, but neither is structurally guaranteed the way creation is -
+`DebrisTTLSeconds = 60.0` makes TTL expiry likely, not certain, since a booster
+destroyed on reentry inside that window ends its recording by another reason. Claiming
+on "likely" is what this section's own rule forbids. Close them by grepping an
+archived B-lane KSP.log for both tokens first.
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
-**R2. Resolve the two registry defects.** Registry-only.
+**R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
+re-verified 2026-07-28 at `7f5efa738`: both `stop-on-switch` and
+`surface-body-fixed` are still in `registry.toml`, so the 242 denominator still
+carries two unclaimable cells.
 
 D1 `stop-on-switch` and D3 `surface-body-fixed` cannot be honestly claimed as
 written (see Cause F). Both R1 and everything after it writes claims against the
@@ -458,6 +589,11 @@ rather than retracting claims later. Cost: one edit to
 `harness/coverage/registry.toml` comments and values.
 
 **R3. Run S1.5 and S1.4's sibling S4.1 unattended. Two boots.**
+**PARTLY OVERTAKEN**: #1357 re-tiered both to `nightly` on exactly this premise, and
+the 2026-07-28 fixture-corrected R1 run (`2026-07-28_1509`, PASS) resolved
+R1-EMPTY-PROVISIONAL as a fixture artifact, after which S4.1's `expectedFail` keys
+were removed. What this item still means: confirm each has a green run on its OWN
+row - a nightly-tier assignment is scheduling, not proof.
 
 Both are `tier = "operator"` on the rationale, quoted from
 `S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9`, that the verbs are
@@ -487,6 +623,10 @@ synthetically; that path has never executed live.
 Flight? No. Two seam boots.
 
 **R4. Drive the D1 finalization family. Five specs, five boots, no code.**
+**MOSTLY SHIPPED**: #1358 wired and flew `IncompleteBallistic` (H9),
+`FinalizeBackfill` (H10) and `RecordingFinalization` (H19), and #1367's H21 covers
+the scene-exit merge path via the isolated batch. Residual: `FinalizeLimbo` (2) and
+`Bug289` (2) are still undriven.
 
 `IncompleteBallistic` (8), `FinalizeBackfill` (7), `RecordingFinalization` (3),
 `FinalizeLimbo` (2), `Bug289` (2). All 22 are FLIGHT-scene and all are
@@ -502,12 +642,54 @@ Flight? No.
 
 ### Tier 1: the unlock. This is the largest single gain in the roadmap.
 
-**R5. Ship the isolated-batch seam argument.** Code change, seam + autorun + hlib.
+**R5. Ship the isolated-batch seam argument.** SHIPPED and LIVE-PROVEN 2026-07-27.
+Code change, seam + autorun + hlib. The shakedown `H21-scene-exit-merge-isolated`
+flew PASS on attempt 1 in 101 s, printing
+`BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge
+scene=FLIGHT` token for token. Coverage 96 -> 97 covered; the one new cell is D1
+`commit-scene-exit`, which this file listed among the three that no fixture, mission
+profile or verb could produce.
 
 `RunTests` gains an `isolated` argument routing to `RunCategoryIncludingFlightRestore`
 instead of `RunCategory`; mirror it in the autorun selector
 (`TestRunnerShortcut.cs:739,789`); add the hlib spec-validation companion; land one
 shakedown spec.
+
+What shipped, and the three places this section was wrong:
+
+- The autorun mirror is a SEPARATE env var, `PARSEK_AUTORUN_ISOLATED=1`, not a
+  selector prefix. The selector string is consumed verbatim as the `category=` token
+  both the runner stamps and `hlib._batch_probe_categories` synthesizes its
+  anti-vacuity probe family from; a prefix would desynchronize those two copies of
+  one name, every probe would miss on a token mismatch, and the gate would read a
+  contract that rejects all probes as SAFE. Full argument in
+  `design-autotest-autorun-hooks.md` "H1 - Isolated batches".
+- **CORRECTION: the non-isolated form does NOT yield `total=0`.** The proof
+  paragraph below and in `todo-and-known-bugs.md` both said it would. It yields
+  `total=2 passed=0 failed=0 skipped=2`: `PrepareBatchExecution` sets
+  `Status = Skipped` on the tests it filters out rather than dropping them, and
+  `BATCH_COMPLETE`'s `total` is `allTests.Count(Status != NotRun)`, so filtered
+  tests are counted. `total` is therefore IDENTICAL on both paths and cannot be the
+  discriminator; the proof is the passed/skipped split. This turns out to make the
+  proof stronger rather than weaker: `passed=0, failed=0, total==skipped` is exactly
+  the one-parameter vacuity family the anti-vacuity gate enumerates, so the gate
+  ALREADY guarantees an isolated spec's pin rejects the non-isolated line. It is no
+  longer possible to read `H21` as green without the isolated route running.
+- **The hlib companion is load-bearing, not optional.** `InGameTestDecl` did not
+  carry `RestoreBatchFlightBaselineAfterExecution` at all and `derive_batch_tally`
+  hardcoded the ordinary filter, so `CommittedBatchTallySourceSyncTests` would have
+  REJECTED a correct isolated pin (deriving `executable = 0`). The field, an
+  `isolated=` mode on the derivation, and `spec_batch_isolated` all had to land with
+  the seam change.
+- **The fixture is the expensive trap, and it is not in this section at all.** The
+  shakedown spec loads `b2-lko-craft`, NOT the H-series `gloops-airshow`. Both
+  `SceneExitMerge` tests stage the active vessel and wait for it to leave PRELAUNCH
+  and clear 80 m; `gloops-airshow`'s active vessel is a 1-part `mk1-capsule` with
+  ZERO `ModuleEngines`, so on it both self-skip and print
+  `total=2 passed=0 failed=0 skipped=2` - the same line the non-isolated failure
+  produces. Copying the H-series fixture would have produced a red indistinguishable
+  from "the arg does not work". `IsolatedBatchWiringGroupTests` now gates the
+  PRELAUNCH + non-zero-engine property statically.
 
 This turns 68 already-written tests from unreachable into drivable, including the 26
 D1-D9 tests no other mechanism can produce: `AutoRecord` (10), `Rewind` (6),
@@ -555,18 +737,25 @@ Flight? No.
 
 **R8. Drive D13, D6 and the D8 stragglers.** Roughly 15 specs, mostly free.
 
-- D13 spawn positioning is 11 of 11 uncovered and is NOT capability-blocked. 29 tests
-  already exist and self-site off `FlightGlobals.ActiveVessel` - 26 declare
-  `Scene = FLIGHT` and 3 are scene-agnostic (`SpawnHealth`), so all 29 run in a FLIGHT
-  batch: `SpawnRotation` (10), `TerrainClearance` (6), `SpawnHealth` (3),
-  `SpawnTerminalOrbit` (3), `SpawnCollision` (2), `Spawner` (2), `EvaSpawnPosition`
-  (2), `Pipeline-Terrain` (1). gloops-airshow routes to FLIGHT. This is the single
-  cheapest whole-dimension close available.
+- D13 spawn positioning is now **7 of 11 uncovered** (was 11 of 11) and is NOT
+  capability-blocked. 29 tests already exist and self-site off
+  `FlightGlobals.ActiveVessel` - 26 declare `Scene = FLIGHT` and 3 are scene-agnostic
+  (`SpawnHealth`), so all 29 run in a FLIGHT batch. #1358 wired three of the eight -
+  `SpawnRotation` (10, H8), `SpawnHealth` (3, H16), `EvaSpawnPosition` (2, H20) - and
+  claimed `surface-orbit-reseed`, `three-cycle-abandon`, `terrain-correction`,
+  `trajectory-walkback`. REMAINING here: `TerrainClearance` (6),
+  `SpawnTerminalOrbit` (3), `SpawnCollision` (2), `Spawner` (2), `Pipeline-Terrain`
+  (1) - 14 tests, all FLIGHT, all on a fixture we own. Note every one of the five
+  carries self-skip guards (see the inventory doc's bucket B4), which is why #1358
+  left them: the batch would run and skip. Reading their guard preconditions and
+  choosing a fixture that satisfies them is the actual remaining work, and it is
+  still the cheapest whole-dimension close available.
 - D6: `GhostLifecycle` (15 of 17; 2 are TRACKSTATION-scene and stay stranded until
   R12), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
   these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
   `GhostLifecycle` measures the loop / overlap surface over a live corpus.
-- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture, so it waits on R11),
+- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
+  R11 is closed by `career-pad-craft`),
   `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
   in ledger trust available.
@@ -595,14 +784,23 @@ flight; (c) add a RewindPoint / slot list verb, or extend `RecordingState`'s
 four-field payload. Unblocks live-authored `InvokeRewind` and every future verb that
 addresses a live tree, vessel, route, or kerbal.
 
-**R11. A CAREER fixture with a flyable craft.** One forge spec, one run.
+**R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~
+**CLOSED 2026-07-28 by `harness/fixtures/saves/career-pad-craft`** - built BY
+CONSTRUCTION rather than by a forge flight. `harness/tools/build_career_pad_craft.py`
+splices `b1-pad-craft`'s Jumping Flea `VESSEL` node into `fresh-career`'s empty
+`FLIGHTSTATE` and swaps the crew kerbal's roster row for the `state = Assigned` one,
+with a `--check` mode plus a byte-identity drift cell in
+`harness/missions/lib/test_cl1_crew_loss.py`. No flight, no operator session, no
+`FORGE-career-pad` spec. First consumer: `CL-1-pod-impact`.
 
-`FORGE-career-pad`: fresh-career plus a craft into `Ships/VAB` plus `launch_vessel`,
-a mechanical repeat of `FORGE-eva3-pad`. Unblocks the L-track end goal, D8
-`milestones` / `contracts` / `strategies` / `tombstones` in flown form, D12
-`reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`, and D8
-`ground-truth-harness` (which self-skips outside career).
-Flight? The forge run flies. The consumers after it are mostly seam boots.
+What that unblocks is now AVAILABLE, not delivered - each still needs its own spec:
+the L-track end goal, D8 `milestones` / `contracts` / `strategies` / `tombstones` in
+flown form, D12 `reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`,
+and D8 `ground-truth-harness` (which self-skips outside career).
+Flight? None to close R11 itself. The consumers after it are mostly seam boots.
+
+Original plan, kept for the record: `FORGE-career-pad`: fresh-career plus a craft
+into `Ships/VAB` plus `launch_vessel`, a mechanical repeat of `FORGE-eva3-pad`.
 
 **R12. Two scene and interaction verbs: `SimulateStockSwitchClick` plus a `scene=`
 argument on `LoadGame`.** Two seam verbs.
@@ -650,7 +848,10 @@ run lane, and runs are currently strictly serial under a per-instance run lock.
 - D10 `claw-producer`: no grapple action exists; the `ClawCouple` (2) and
   `LogisticsGrapple` (4) in-game categories are the only path.
 - D12 `crew-swap`, `seat-matching`: no crew-transfer action.
-- D8 `milestones`: a career flight that EARNS one. Rides R11, not this lane.
+- D8 `milestones`: a career flight that EARNS one. Rode R11, which is CLOSED
+  2026-07-28 (`career-pad-craft`); still not this lane. NOTE: `CL-1-pod-impact` is
+  the first career FLIGHT and will MEASURE which progress milestones a 12 km crewed
+  hop trips - that measurement is the input this cell has been missing.
 - D7 `engine-fx-waterfall-fallback`: belongs with R14, not with the part-event work.
 - A declarative multi-piece mission composer to replace bespoke phase machines.
 
@@ -662,7 +863,7 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 
 | Item | Effect on this roadmap |
 |---|---|
-| EVA-4 mission oracle returns MISSION-OK while the kerbal dies (OPEN) | Anyone reading `results/*_mission.json` alone reads that flight as a success. Survival is proven only by seam log tokens. Blocks trusting mission-level verdicts. |
+| ~~EVA-4 mission oracle returns MISSION-OK while the kerbal dies~~ (CLOSED by PR #1359, merged 2026-07-27) | Was: anyone reading `results/*_mission.json` alone read that flight as a success, with survival proven only by seam log tokens. Closed on both sides: the canopy-gated standoff completion in `TestCommandEvaExit.cs` (the C# EvaExit verb no longer completes before the observed canopy state allows it) plus the harness-side `missionOutcome` gate (`classify_post_mission_outcome_miss`), which reds a subject death as `PARSEK-FAIL(mission-outcome)` instead of letting a retry discard the evidence. Mission-level verdicts stay HANDOFF-scoped by design (`mlib.MISSION_HANDOFF_CONTRACTS` declares what a mission did not verify); the gate, not the mission JSON, carries survival. `autotest-status.md` already reflects this. |
 | `ANOMALY_TOKENS` drift (status doc known-gate 0, REPORTED not resolved) | `icon-jump` is a dead token; nine raised reasons including `icon-teleport` are ungated. Now source-derived and report-only via `anomalySweep.unlistedReasons`, so visible but non-gating. |
 | `STOCK_AWARD_PATTERNS` dead against real KSP logs (known-gate 3) | `unmatched_captured_awards` captures nothing, so the ledger oracle's independence cross-check is a structural no-op. Degrades every D8 claim and the whole L-track. Needs the operator stock-award capture session. |
 | B4 `chuteDeployed` is still a commanded latch (known-gate 7, audit debt) | Same class that let B1 ship four months of green nightlies on a chute that never opened. B4's fixture carries the same `automateSafeDeploy = 0`. Needs its own diagnosis from a B4 recording before anyone concludes either way. |
@@ -790,7 +991,9 @@ today. The other 38 need R5.
 reachable via FLIGHT / SPACECENTER / scene-agnostic and 7 involving TRACKSTATION or
 MAINMENU, rather than 78 and 6.
 
-**Corrected: 39 committed specs.** There are 38, at HEAD and at `origin/main`.
+**Corrected: 39 committed specs.** There were 38 when this roadmap was written,
+at HEAD and at `origin/main`. PR #1357 makes it 39; the count above is updated and
+the coverage figure is unchanged because R1 claims no new registry value.
 
 **Reconciled: the restore-flag count.** An earlier draft reported a raw `grep` of 78
 occurrences of `RestoreBatchFlightBaselineAfterExecution = true` against an
@@ -823,9 +1026,9 @@ UNVERIFIED in this pass, flagged rather than asserted:
   opposed to asserting a decision about it.
 CORRECTED 2026-07-27 (review of this file). An earlier draft of this section claimed
 "5 bare `[InGameTest]` declarations, 539 total minus 534 with argument lists, default
-to `Category = "General"`". **There are no bare declarations.** All 539 carry an
-argument list and all 539 resolve to a real category: `General` does not appear among
-the 97, and `hlib.parse_ingame_test_declarations` reports 0 unresolved. The 5-count
+to `Category = "General"`". **There are no bare declarations.** All 542 carry an
+argument list and all 542 resolve to a real category: `General` does not appear among
+the 98, and `hlib.parse_ingame_test_declarations` reports 0 unresolved. The 5-count
 was an artifact of the counting method - 5 declarations use the fully-qualified
 attribute form `[Parsek.InGameTests.InGameTest(...)]` (4 in `Ledger`, 1 in `Rewind`,
 all in `IncompleteBallisticRuntimeTests.cs`), which a `[InGameTest(` scan misses and

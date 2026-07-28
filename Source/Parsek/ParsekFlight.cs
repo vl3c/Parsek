@@ -13309,7 +13309,15 @@ namespace Parsek
         /// Formats the summary emitted instead of per-recording lines when a tree
         /// carries more than <see cref="CommitTerminalLogLimit"/> recordings. Names
         /// the ROOT recording's verdict so the line still identifies where the tree
-        /// ended.
+        /// ended. The line LEADS with the exact per-recording token shape
+        /// (<c>CommitTreeFlight terminal: rec=... terminalState=...
+        /// terminalOrbitBody=...</c>) because the harness logContract specs
+        /// (B11/B12/B13/B14/B16) pin that shape as required commit evidence; a
+        /// debris-heavy tree above the cap must not red a green flight with
+        /// "required pattern not matched" reading as "commit never happened".
+        /// Residual: only the ROOT recording's tokens survive the cap, so specs
+        /// pinning token classes for NON-root recordings (the B11/B12 Kerbin-core
+        /// and Destroyed rows) still rely on the tree staying under the cap.
         /// </summary>
         internal static string FormatCommitTerminalSummaryLine(RecordingTree tree)
         {
@@ -13333,9 +13341,10 @@ namespace Parsek
                 rootBody = "(null)";
             }
 
-            return $"CommitTreeFlight terminal summary: {total} recordings " +
-                $"(over the {CommitTerminalLogLimit} per-line cap), " +
-                $"root rec={rootId} terminalState={rootState} terminalOrbitBody={rootBody}";
+            return $"CommitTreeFlight terminal: rec={rootId} " +
+                $"terminalState={rootState} terminalOrbitBody={rootBody} " +
+                $"(root; summary of {total} recordings over the " +
+                $"{CommitTerminalLogLimit} per-line cap)";
         }
 
         /// <summary>
@@ -13624,6 +13633,7 @@ namespace Parsek
             float deadline = UnityEngine.Time.time + 3f;
             Vessel matched = null;
             bool loggedGuidReject = false;
+            var loggedParentGuidRejects = new HashSet<string>();
             while (UnityEngine.Time.time < deadline)
             {
                 var v = FlightGlobals.ActiveVessel;
@@ -13686,11 +13696,15 @@ namespace Parsek
                             // Guard skip must be logged (review of PR #1345): a
                             // guid-rejected parent otherwise declines silently and
                             // the coroutine ends in the generic not-active Warn
-                            // with no trace this gate fired.
-                            ParsekLog.Info("Flight",
-                                $"RestoreActiveTreeFromPending: parent-walk guid gate " +
-                                $"rejected rec={probe.RecordingId?.Substring(0, 8)} " +
-                                $"(recordedGuid differs conclusively from live vessel)");
+                            // with no trace this gate fired. Once per parent, not
+                            // per polling frame (review of PR #1371) - this walk
+                            // re-runs every frame of the 3 s wait, mirroring the
+                            // loggedGuidReject latch on the active-rec reject above.
+                            if (loggedParentGuidRejects.Add(probe.RecordingId ?? string.Empty))
+                                ParsekLog.Info("Flight",
+                                    $"RestoreActiveTreeFromPending: parent-walk guid gate " +
+                                    $"rejected rec={ShortRecordingId(probe.RecordingId)} " +
+                                    $"(recordedGuid differs conclusively from live vessel)");
                             walkDepth++;
                             continue;
                         }
@@ -13721,6 +13735,40 @@ namespace Parsek
                 ParsekLog.Warn("Flight",
                     $"RestoreActiveTreeFromPending: vessel '{targetName}' (and no EVA parent fallback) " +
                     "not active within 3s — leaving tree in Limbo (user can trigger merge dialog via scene exit)");
+
+                // R1-EMPTY-PROVISIONAL detection point 1. The generic Limbo warn
+                // above says nothing about the Re-Fly session, so a give-up here
+                // has always been indistinguishable from an ordinary failed
+                // quickload resume. If a session IS live, no recorder is bound to
+                // its provisional at this moment, and unless something binds one
+                // later the merge will have nothing to supersede the origin with.
+                // Observation only: raise loudly, do not change control flow.
+                var giveUpMarker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+                UnboundProvisionalRaise giveUp =
+                    ReFlyProvisionalBinding.EvaluateRestoreGiveUp(giveUpMarker, tree?.Id);
+                if (giveUp.ShouldRaise)
+                {
+                    ParsekLog.Warn("ReFlySession",
+                        $"outcome=unbound-refly-provisional reason={giveUp.Reason} " +
+                        $"sess={giveUpMarker.SessionId ?? "<no-id>"} " +
+                        $"provisional={giveUpMarker.ActiveReFlyRecordingId ?? "<none>"} " +
+                        $"markerTree={giveUpMarker.TreeId ?? "<none>"} " +
+                        $"attemptedTree={tree?.Id ?? "<none>"} " +
+                        $"attemptedRec={activeRecId ?? "<none>"} " +
+                        $"attemptedVessel='{targetName}' attemptedPid={targetPid} — the re-fly " +
+                        "restore gave up, so NOTHING is recording into this session's " +
+                        "provisional. Unless a recorder binds to it before the merge, the " +
+                        "re-fly will supersede nothing and the origin branch stays effective");
+                    try
+                    {
+                        ParsekLog.ScreenMessage(
+                            "Parsek: re-fly attempt is not recording; it will not replace "
+                            + "the original", 8f);
+                    }
+                    catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
+                    catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
+                    catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
+                }
                 yield break;
             }
 

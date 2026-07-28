@@ -125,7 +125,80 @@ PARSEK_AUTORUN_TESTS   value: "all" | "<category>[,<category>...]"
 PARSEK_AUTORUN_EXIT    value: "1"
                        "1"          -> H2 armed: quit after teardown+export
                        anything else/unset -> H2 inert
+
+PARSEK_AUTORUN_ISOLATED  value: "1"                                     [R5]
+                       "1"          -> H1 dispatches to the ISOLATED entry
+                                       points: RunAllIncludingFlightRestore /
+                                       RunCategoryIncludingFlightRestore
+                       anything else/unset -> H1 uses RunAll / RunCategory
+                       applies to the WHOLE batch, every token of a
+                       multi-category selector included
 ```
+
+### H1 - Isolated batches (R5)
+
+`InGameTestRunner` has two batch entry points. The ordinary pair admits
+`test.AllowBatchExecution`. The isolated pair
+(`RunAllIncludingFlightRestore` / `RunCategoryIncludingFlightRestore`) admits
+`AllowBatchExecution || RestoreBatchFlightBaselineAfterExecution` and additionally
+runs `PrepareBatchFlightRestoreExecution`, which skips the restore-backed tests
+outright when no flight baseline is available rather than running them against a
+restore that would silently no-op. Both pairs were public and fully implemented
+before R5, and both were called from exactly two places, BOTH INTERACTIVE
+(`TestRunnerShortcut`'s Ctrl+Shift+T window and `UI/TestRunnerUI`). That left 68
+already-written tests unreachable by any unattended path. R5 wires them.
+
+**Why a separate env var rather than a selector prefix**
+(`PARSEK_AUTORUN_TESTS=isolated:SceneExitMerge`), which was the obvious
+alternative and is the wrong one:
+
+The selector string is not private to this hook. It is consumed VERBATIM in three
+other places that must all agree on it:
+
+1. `InGameTestRunner` stamps it as `currentBatchSelector` and prints it as the
+   `category=` token of the `BATCH_COMPLETE` line (the H3 contract below).
+2. `run.py::_driven_category` returns `autorun["tests"]` unchanged.
+3. `hlib._batch_probe_categories` builds the ANTI-VACUITY probe family from it,
+   synthesizing the `category=<token>` lines a vacuous batch could emit and
+   requiring the spec's own contract to reject every one.
+
+A prefix would desynchronize (1) from (3): the probe family would carry
+`category=isolated:SceneExitMerge` while the runner printed
+`category=SceneExitMerge`, so every probe would be rejected on a token mismatch
+rather than on the tally - and a contract that "rejects all probes" is exactly what
+the gate reads as safe. The anti-vacuity guarantee would be silently void, in the
+one direction the gate exists to prevent. Stripping the prefix at each of the three
+sites is possible but multiplies the places that must agree on a grammar, over a
+namespace (`AutorunHooks.Parse` compares tokens Ordinal against `t.Category`) where
+a category could legitimately contain a colon.
+
+`PARSEK_AUTORUN_ISOLATED=1` mirrors `PARSEK_AUTORUN_EXIT=1` exactly: the same `"1"`
+convention, the same read-once-at-Awake contract, the same inert-when-unset
+guarantee, and the same arm-without-tests WARN. It leaves the selector a pure
+category list.
+
+**Scope.** The arm applies to the whole batch, not per category. Unlike the exit
+arm - which the multi-category driver deliberately withholds from per-token batches
+so H2 cannot quit mid-run - the isolated arm IS passed to every token, because it
+selects which admission filter each batch uses and dropping it on tokens 2..n would
+silently run those categories through the ordinary filter. In practice this is never
+observable: `hlib.validate_spec` rejects a multi-category selector on any
+batch-owning spec (`SINGLE_BATCH_SELECTOR_RULE`), so exactly one category is ever
+driven by a committed spec. It is honoured anyway so a hand-driven process behaves
+predictably.
+
+**Seam parity.** The M-A2 command seam gained the same capability as an argument
+rather than an env var, because a seam command is already a per-invocation
+`key=value` line: `id=NNNN cmd=RunTests category=SceneExitMerge isolated=true`. The
+two halves of the contract are validated to agree - `hlib.validate_spec` rejects a
+spec declaring both a `RunTests` step and an `[driver.autorun]` block, and
+`hlib.spec_batch_isolated` resolves the mode from whichever one owns the batch.
+Note the asymmetry in value TYPE, which is deliberate: the step arg is the STRING
+`"true"` (step args are wire-encoded with `str(value)`, so a TOML bool would travel
+as `isolated=True` and the seam's case-sensitive parse rejects it), while
+`[driver.autorun] isolated` is a native TOML bool (the harness only truth-tests it
+to decide whether to set the env var). Both spellings are gated, and the wrong one
+is a spec-validation ERROR rather than a wasted boot.
 
 ### H3 line format (the versioned orchestrator contract)
 
@@ -562,6 +635,30 @@ Each: scenario -> expected behavior -> v1 or deferred.
     kills the process. The partial log (earlier categories' BATCH_COMPLETE lines)
     tells the orchestrator how far it got. -> v1 (watchdog deferred; see What
     Doesn't Change).
+
+17-19. (reserved - see the numbered list above; R5 continues at 20.)
+
+20. `PARSEK_AUTORUN_ISOLATED=1` but `PARSEK_AUTORUN_TESTS` unset. -> No autorun
+    batch fires, so the arm is inert, exactly like edge 9's exit arm. A WARN logs
+    at startup ("PARSEK_AUTORUN_ISOLATED set but PARSEK_AUTORUN_TESTS unset; no
+    batch will auto-run, isolated or otherwise") so the misconfiguration is
+    visible. The two arm-without-tests warnings COMPOSE: an operator who armed both
+    against an unset selector is told about both. -> R5.
+
+21. `PARSEK_AUTORUN_ISOLATED` set to a truthy-looking non-"1" value ("true", "yes",
+    "0"). -> Inert, no warning, by the same exact-match rule as
+    `PARSEK_AUTORUN_EXIT`. Deliberately NOT lenient: arming the isolated route
+    silently swaps which tests execute, so a near-miss spelling must fail toward the
+    ordinary path. -> R5.
+
+22. `PARSEK_AUTORUN_ISOLATED=1` on a selector whose categories are all
+    batch-ALLOWED. -> The isolated filter is a strict SUPERSET of the ordinary one,
+    so admission is identical and the tally is unchanged; the only differences are
+    that `PrepareBatchFlightRestoreExecution` runs (skipping restore-backed tests
+    when no baseline is available, instead of running them un-restored) and an extra
+    Info line naming the baseline slot. Harmless, and the reason the four
+    restore-only declarations elsewhere in the tree cannot serve as proof the arm
+    took effect. -> R5.
 
 ## What Doesn't Change
 

@@ -1,0 +1,53 @@
+# Declared param schema for mission cl1_pod_impact (THE CREW-LOSS ATOM).
+#
+# hlib.validate_spec does NOT read this file itself: run.py parses every
+# harness/missions/<mission>.schema.toml with tomllib into a registry and INJECTS
+# it as validate_spec's `mission_schemas` argument; hlib's PURE validator
+# (_validate_mission_params) drives required-key presence and per-value
+# type/range checks from the `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <n?>, "max": <n?>}}}
+# with <t> in {float, int, number, window, list, string, bool}.
+#
+# FOUR PARAMS, which is the whole tuning surface. The mission acts exactly once
+# (throttle + one stage activation) and then only watches, so there is nothing
+# else to tune. Every value is a budget, a bound or an identifier - never a
+# golden trajectory.
+
+# Launch throttle. 1.0 in the spec: the RT-5 booster is a solid, so this is
+# effectively "ignite", not a trajectory shape.
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+# The roster kerbal the mission watches, BY NAME. Load-bearing rather than
+# cosmetic: it is the argument to SpaceCenter.GetKerbal, so the entire success
+# terminal reads this kerbal and no other. A name the save's roster does not
+# carry is caught by the machine's own `crew-watch-name-unknown` terminal within
+# a couple of polls of launch rather than at the end of the flight budget - but
+# it is caught at RUN time, not here, because a schema cannot see a save's roster.
+[params.crewName]
+required = true
+type = "string"
+
+# WALL-CLOCK-EQUIVALENT bound on the whole FLIGHT phase, in GAME seconds (this
+# mission never warps, so the two run 1:1). It is a BACKSTOP, not the real guard:
+# all three of the machine's named terminals (crew lost / crew survived /
+# roster channel lost) fire on OBSERVED state within a couple of polls, so this
+# only catches a craft that neither dies nor lands - which on this profile means
+# something is wrong with the flight itself, not with the outcome.
+#
+# The floor is 30 rather than 0: the measured hop is ~120 s, so any value that
+# could expire mid-flight would convert a healthy run into a flake, and a
+# scenario author who wants a shorter bound wants a different craft.
+[params.flightTimeoutSeconds]
+required = true
+type = "number"
+min = 30.0
+
+# Situations that count as "the craft came to rest", feeding the inverse-outcome
+# `crew-survived-impact` terminal. Same vocabulary as B1's landedSituations.
+[params.landedSituations]
+required = true
+type = "list"

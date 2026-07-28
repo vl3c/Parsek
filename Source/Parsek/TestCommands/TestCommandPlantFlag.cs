@@ -119,17 +119,23 @@ namespace Parsek.TestCommands
         /// Build a compact, self-explaining unmet-precondition token for the gate-wait /
         /// timeout diagnostic (liveness rule: a timeout must name WHICH stock precondition is
         /// closed, not just <c>gateOpen=false</c>). The booleans mirror the decompiled
-        /// <c>CanPlantFlag()</c> conjuncts plus the plantable-fsm-state gate. Returns
+        /// <c>CanPlantFlag()</c> conjuncts plus the plantable-fsm-state gate.
+        /// <paramref name="canPlantBound"/> is the <c>CanPlantFlag()</c> reflection-bind
+        /// health: when the bind failed the gate can NEVER open even though every component
+        /// read can be true, so the diagnostic must lead with <c>canplant-unbound</c> instead
+        /// of the self-contradicting <c>lastGateOpen=False blocked=open</c>. Returns
         /// <c>"open"</c> when every precondition is met; otherwise a comma-joined list of the
         /// closed ones (e.g. <c>"fsm=Idle_Grounded,no-ground-contact"</c>). Never returns an
         /// empty string.
         /// </summary>
         internal static string DescribePlantGateBlock(
+            bool canPlantBound,
             bool inPlantableFsmState, bool vesselActive, bool groundContact,
             bool flagItemsPositive, bool notRagdoll, bool flagUnlocked, bool notConstruction,
             string fsmStateName)
         {
             var unmet = new List<string>();
+            if (!canPlantBound) unmet.Add("canplant-unbound");
             if (!inPlantableFsmState) unmet.Add("fsm=" + (string.IsNullOrEmpty(fsmStateName) ? "?" : fsmStateName));
             if (!vesselActive) unmet.Add("vessel-not-active");
             if (!groundContact) unmet.Add("no-ground-contact");

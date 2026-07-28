@@ -1624,6 +1624,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 1. Driver validity (from the response stream + the mission step, M-B1).
     ev = hlib.evaluate_response_stream(drive.response_lines, drive.steps_with_ids)
     mission = drive.mission_step
+    mission_outcome_unmet = False
     if mission is None:
         # Seam-only driver: every seam step gates validity (unchanged M-A5).
         driver_valid = ev.all_expected_met and not drive.boot_crashed and not drive.batch_crashed
@@ -1652,6 +1653,59 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "status": "PASS" if mission["met"] else "FAIL",
             "missionVerdict": mission["missionVerdict"], "subkind": mission["subkind"],
         }
+        # The EVA-4 fail-open closure (2026-07-25). The carve-out above keeps every
+        # post-mission RECORDING step non-gating on driver validity; what it must NOT
+        # do is drop a post-mission OUTCOME step's verdict on the floor. That verdict
+        # is the run's only channel onto the world state the mission handed off, and
+        # on EVA-4 flight 3 it was the ONLY thing that saw the kerbal die. Recorded as
+        # its own verifier row and classified PARSEK-FAIL(mission-outcome) so it reds
+        # structurally, with no dependence on the spec author's log-token regexes.
+        outcome_unmet = hlib.first_unmet_post_mission_outcome(ev.steps, mission_id)
+        gating_verbs = [o.cmd for o in ev.steps
+                        if str(o.step_id) > str(mission_id)
+                        and hlib.post_mission_step_gates(o.cmd)]
+        # Only a MET mission reaches the classifier: an unmet mission is already
+        # driver-INVALID with its own subkind, and re-reporting its skipped/failed tail
+        # as an outcome miss would mask the mission's own reason.
+        is_flight_outcome, outcome_driver_subkind = (
+            hlib.classify_post_mission_outcome_miss(outcome_unmet)
+            if (outcome_unmet is not None and mission["met"]) else (False, ""))
+        mission_outcome_unmet = is_flight_outcome
+        # A refusal / tooling / never-answered miss is a DRIVER fault, classified exactly
+        # as the same fault would be pre-mission, rather than being blamed on the mod.
+        if outcome_driver_subkind:
+            driver_valid = False
+            stage_subkind = outcome_driver_subkind
+        if not mission["met"]:
+            outcome_status = "SKIPPED"
+        elif outcome_unmet is not None:
+            outcome_status = "FAIL"
+        elif not gating_verbs:
+            # NOT "PASS": this row checked nothing. Every autopilot scenario but EVA-4
+            # lands here, and reading a blank check as a pass is how a future edit that
+            # DROPS the gating step (disarming the gate entirely) goes unnoticed.
+            outcome_status = "SKIPPED"
+        else:
+            outcome_status = "PASS"
+        detail["missionOutcome"] = {
+            "status": outcome_status,
+            "reason": "" if gating_verbs else "no-gating-verbs",
+            "gatingVerbs": gating_verbs,
+            "firstUnmet": (None if outcome_unmet is None else {
+                "id": outcome_unmet.step_id, "cmd": outcome_unmet.cmd,
+                "expect": outcome_unmet.expect, "verdict": outcome_unmet.verdict,
+                "msg": outcome_unmet.msg,
+                "flightOutcome": is_flight_outcome,
+                "driverSubkind": outcome_driver_subkind}),
+        }
+        logger.info("Verify", "verify missionOutcome status=%s gating=%d firstUnmet=%s"
+                    % (outcome_status, len(gating_verbs),
+                       "-" if outcome_unmet is None
+                       else "%s(%s) verdict=%s msg=%s -> %s"
+                            % (outcome_unmet.cmd, outcome_unmet.step_id,
+                               outcome_unmet.verdict, outcome_unmet.msg or "-",
+                               "mission-outcome" if is_flight_outcome
+                               else "driver:%s" % outcome_driver_subkind)))
     detail["driverValidity"] = {
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),
         "allExpectedMet": ev.all_expected_met, "subkind": stage_subkind,
@@ -1721,6 +1775,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         "killed": killed,
         "batch_expected": requires_batch,
         "batch_present": batch_present,
+        # False on every seam-only driver (no mission step -> every step already gates
+        # through all_expected_met) and on every autopilot run whose post-mission
+        # outcome steps all answered.
+        "mission_outcome_unmet": mission_outcome_unmet,
     }
     driver_facts: Dict = {
         "spec_valid": True,
@@ -2203,13 +2261,23 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
             env["PARSEK_AUTORUN_TESTS"] = str(autorun.get("tests"))
             if autorun.get("exit"):
                 env["PARSEK_AUTORUN_EXIT"] = "1"
+            # R5: the isolated arm is a separate var, never a selector prefix -- the
+            # selector string is consumed verbatim as the `category=` token both the
+            # runner stamps and hlib's anti-vacuity probe synthesizes, so a prefix
+            # would desynchronize the two and silently weaken that gate. Set ONLY on
+            # the autorun path; a RunTests-step spec carries the flag as a wire arg
+            # on the step itself (validate_spec forbids declaring both).
+            if autorun.get(hlib.BATCH_ISOLATED_KEY):
+                env["PARSEK_AUTORUN_ISOLATED"] = "1"
         env.pop("PARSEK_ANALYZER_BASELINE_MODE", None)  # never set at KSP launch
         run_budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))
         exe = runtime.resolve_exe(instance_dir)
         proc = runtime.launch(exe, [], env, instance_dir)
-        logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s] budget=%ds"
+        logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s ISOLATED=%s] batchIsolated=%s budget=%ds"
                     % (exe, proc.pid, env.get("PARSEK_AUTORUN_TESTS", "unset"),
-                       env.get("PARSEK_AUTORUN_EXIT", "0"), int(run_budget)))
+                       env.get("PARSEK_AUTORUN_EXIT", "0"),
+                       env.get("PARSEK_AUTORUN_ISOLATED", "0"),
+                       hlib.spec_batch_isolated(spec), int(run_budget)))
 
         # ---- DRIVE + BUDGET ----------------------------------------------
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,
@@ -2640,6 +2708,17 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                       % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
         verify_line = ("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
                        "logValidate, results, anomalySweep, expectations")
+        if is_autopilot:
+            # POSITION matters: only steps AFTER the mission handoff gate through this row
+            # (a pre-mission outcome verb already gates through driverValidity), so the plan
+            # must not advertise one that does not.
+            mission_idx = next((i for i, s in enumerate(steps) if s.get("phase") == "mission"),
+                               len(steps))
+            gating = [s.get("cmd") for s in steps[mission_idx + 1:]
+                      if s.get("cmd") and hlib.post_mission_step_gates(s.get("cmd"))]
+            verify_line += (", missionOutcome(%s -> PARSEK-FAIL(mission-outcome) on an unmet "
+                            "post-mission outcome step)"
+                            % (", ".join(gating) if gating else "no gating verbs"))
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)
@@ -2665,7 +2744,9 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     sel.add_argument("--tier", help="run all specs of a tier (perpr|daily|nightly|weekly)")
     sel.add_argument("--tag", help="run every spec carrying this tag")
     sel.add_argument("--cadence", help="run the tier set a cadence maps to (per-pr|daily|nightly|weekly)")
-    parser.add_argument("--dry-run", action="store_true", help="print the action plan; launch nothing")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print the action plan and validate every selected "
+                             "spec; launch nothing. Exits 1 if any spec is invalid.")
     parser.add_argument("--umbrella-root", help="override the umbrella root (default: parent of the worktree)")
     parser.add_argument("--instance-dir", help="override the resolved instance dir (single-profile runs / tests)")
     parser.add_argument("--no-coverage", action="store_true", help="skip the coverage/flake refresh")
@@ -2691,6 +2772,35 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 
     if args.dry_run:
         print_dry_run_plan(selected, instance_root_fn, logger)
+        # VALIDATE ON --dry-run TOO (2026-07-27). This used to `return 0` straight
+        # after printing the plan, so --dry-run rendered a clean plan for a spec
+        # validate_spec would REJECT - and the natural read of a green dry-run is
+        # "this spec is fine to schedule". A reviewer proved the gap by breaking a
+        # logContracts pattern: clean plan, exit 0, and the error surfaced only
+        # after the flight. The real run path already validates (below); this makes
+        # the FREE check agree with it. Deliberately AFTER the plan print, so the
+        # author still gets the plan they asked for, and non-zero so a script can
+        # gate on it.
+        # Warnings are surfaced too, and bug_ids hoisted out of the loop, so this
+        # reports EXACTLY what the real path reports rather than a subset - a spec
+        # that looks cleaner on dry-run than on the real run is the same class of
+        # gap this block was added to close.
+        dry_bug_ids = _load_bug_ids()
+        dry_errors = 0
+        for spec in selected:
+            schemas, schema_errors = resolve_mission_schemas(spec, logger)
+            validation = hlib.validate_spec(spec, registry, dry_bug_ids, schemas)
+            for w in validation.warnings:
+                logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
+            problems = list(validation.errors) + schema_errors
+            for problem in problems:
+                logger.error("Select", "spec invalid id=%s: %s"
+                             % (spec.get("id"), problem))
+            dry_errors += len(problems)
+        if dry_errors:
+            logger.error("Select",
+                         "dry-run found %d spec validation error(s)" % dry_errors)
+            return 1
         return 0
 
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC

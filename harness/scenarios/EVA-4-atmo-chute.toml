@@ -151,7 +151,47 @@ steps = [
   # the safe one ([driver].skipTailOnUnmetMission defaults true).
   # release=true: MANDATORY, see the FSM ground truth above. The seam reports
   # released=VERIFIED-left-the-ladder, never a bare called-the-event bit.
-  { cmd = "EvaExit",        args = { release = "true" },                  expect = "OK", budget = 120 },
+  #
+  # minStandoffMeters=30 + standoffFloorAltMeters=500: MANDATORY TOO, and for a sibling
+  # reason - they are the FLIGHT-3 fix (2026-07-25). The kerbal's canopy was cut 200 ms
+  # after it opened, 254 ms after the kerbal let go of the pod's hatch ladder, and the
+  # kerbal free-fell to a 109 m/s impact.
+  #
+  # STOCK GROUND TRUTH: On_stumble is registered on every kerbal FSM state except
+  # ragdoll / grappled / clamber-P2 / P3 (fsm.AddEventExcluding, KerbalEVA.cs:8153) with
+  # GoToStateOnEvent = st_ragdoll (:8151), and is fired from exactly one site - the
+  # COLLISION callback, whenever c.relativeVelocity exceeds stumbleThreshold = 3.5 m/s
+  # (KerbalEVA.cs:12700). BOTH canopy states are exposed: leaving st_semi_deployed_
+  # parachute for anything but full deploy runs OnSemiDeployedParachuteModeLeft ->
+  # evaChute.CutParachute() (:11152-11169), AND leaving st_fully_deployed_parachute runs
+  # OnFullyDeployedParachuteModeLeft -> evaChute.CutParachute() with NO exclusion at all
+  # (:11219, wired at :7244). ragdoll_OnEnter then AllowRepack(false)s it (:4497), so the
+  # cut is terminal either way.
+  #
+  # SO A FULL CANOPY IS NOT SAFE FROM THIS, and raising the EVA chute's deployAltitude to
+  # collapse the semi-deployed window - the technique that works for the CRAFT chute at
+  # craftChuteFullDeployAltMeters below - does NOT fix it. The operative variable is
+  # PROXIMITY AT CANOPY TIME. Do not trade this standoff away for a deployAltitude tweak.
+  #
+  # The separation is MEASURED, not inferred: the kerbal's own recording carries a
+  # pod-anchored ReferenceFrame.Relative section, and its anchor-local metres put the
+  # kerbal 0.82 m from the pod at ParachuteSemiDeployed and 1.50 m at the cut, with
+  # nothing else within kilometres.
+  #
+  # So: hold the exit until the kerbal is OBSERVABLY 30 m clear of every other loaded
+  # vessel, measured to the nearest PART (not the vessel CoM), debounced 2 polls. TWO
+  # give-up bounds, both non-fatal (the exit completes anyway carrying standoff=timeout -
+  # an unchuted kerbal is a certain death, a contact risk is not):
+  #   - 8 s wall clock, ~3.5x the ~2.3 s the 30 m clear took on this profile;
+  #   - standoffFloorAltMeters = 500, and THIS is the load-bearing one. The kerbal is
+  #     UNCHUTED for the whole standoff, so waiting is paid in FREE FALL: ~1,016 m per
+  #     15 s, measured on the flight-3 log itself (alt 1650.4 -> 634.3 over elapsed
+  #     0.0 -> 15.0 s). This mission may hand off anywhere in [700, 2100] m, so a
+  #     wall-clock-only bound would fly a low handoff into the ground with the canopy
+  #     never armed - strictly worse than the collision being avoided. 500 m leaves the
+  #     kerbal's own chute (stock deployAltitude 1000 m, so already past its full-deploy
+  #     trigger) usable sky.
+  { cmd = "EvaExit",        args = { release = "true", minStandoffMeters = "30", standoffFloorAltMeters = "500" }, expect = "OK", budget = 120 },
   # awaitDown=true: arm the kerbal's chute, hold until the canopy is VERIFIED open, then
   # hold through the descent until LANDED/SPLASHED with the kerbal alive.
   { cmd = "EvaChuteDeploy", args = { awaitDown = "true" },                expect = "OK", budget = 420 },
@@ -303,10 +343,20 @@ count = { min = 3, max = 3 }
 # a good run on a stock detail this scenario does not control. "evachutedeploy canopy
 # verified" is the real proof that the FSM cooperated: it can only appear if the module
 # actually reached SEMIDEPLOYED/DEPLOYED.
+#
+# "evaexit standoff cleared" is the FLIGHT-3 FIX's OWN GATE, added 2026-07-26. It is an
+# Info line emitted by ParsekTestCommandAddon.Eva.cs the moment the standoff wait leaves
+# Waiting for Cleared, so requiring it proves BOTH that the stage ran (a stale DLL or a
+# dropped spec arg logs nothing and reds here rather than needing an operator's eye) and
+# that it actually observed separation. The give-up path logs
+# "evaexit standoff timeout" instead and carries standoff=timeout on the evaexit
+# completion line, so a run that never cleared reds on this missing token - which is the
+# correct signal: a cut canopy after a standoff that never engaged is the original bug.
 required  = ["Recording started",
              "Mid-recording EVA detected",
              "Tree branch created: type=EVA",
              "TrackSection started: env=Atmospheric",
+             "evaexit standoff cleared",
              "evaexit complete",
              "evachutedeploy armed",
              "evachutedeploy canopy verified",

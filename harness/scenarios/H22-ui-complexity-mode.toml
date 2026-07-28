@@ -1,5 +1,5 @@
 schema = 1
-id = "H7-ui-complexity-mode"
+id = "H22-ui-complexity-mode"
 tier = "daily"
 # The in-game UiComplexityMode category run unattended (driver shape mirrors
 # H6-route-rewind-timeline). Covers what headless xUnit structurally cannot:
@@ -11,7 +11,7 @@ tier = "daily"
 # ParsekFlight.Update apply wiring exists.
 description = "Run the in-game UiComplexityMode category unattended: entering Basic force-closes every gated window and releases every Parsek input lock, a Basic round trip preserves gated-window state, and Advanced restores every UiSurface."
 instanceProfile = "stock-minimal"
-tags = ["ui", "ui-complexity-mode", "input-locks", "H7"]
+tags = ["ui", "ui-complexity-mode", "input-locks", "H22"]
 
 [fixture]
 # gloops-airshow SANDBOX pod host (see S0.5 / H6). Its focusable Ship vessel is

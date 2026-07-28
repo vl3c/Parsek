@@ -556,7 +556,7 @@ namespace Parsek.Tests.Generators
                 if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
                     Directory.CreateDirectory(destDir);
 
-                BuildRewindPointQuicksave(donorRoot, rp, destPath);
+                BuildRewindPointQuicksave(donorRoot, rp, destPath, trees);
             }
         }
 
@@ -569,7 +569,9 @@ namespace Parsek.Tests.Generators
         /// parts resolve in PartLoader; otherwise a minimal stock-pod VESSEL is
         /// synthesized. <c>activeVessel</c> is set to the focus slot's ordinal.
         /// </summary>
-        internal static void BuildRewindPointQuicksave(ConfigNode donorRoot, RewindPoint rp, string destPath)
+        internal static void BuildRewindPointQuicksave(
+            ConfigNode donorRoot, RewindPoint rp, string destPath,
+            IEnumerable<ConfigNode> treeNodes = null)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -610,13 +612,28 @@ namespace Parsek.Tests.Generators
                     ? flightState.AddNode(donorVessel.CreateCopy())
                     : BuildSyntheticVessel(flightState);
                 StampVesselIdentity(vessel, vesselPid, rootPid,
-                    "B9 Slot " + slot.SlotIndex.ToString(ic));
+                    "B9 Slot " + slot.SlotIndex.ToString(ic),
+                    DeriveVesselLaunchGuid(slot.OriginChildRecordingId));
 
                 if (slot.SlotIndex == rp.FocusSlotIndex)
                     activeOrdinal = ordinal;
             }
 
             SetOrAddValue(flightState, "activeVessel", activeOrdinal.ToString(ic));
+
+            // R1-EMPTY-PROVISIONAL discriminating experiment. A PRODUCTION
+            // RewindPoint is a full GamePersistence.SaveGame taken mid-flight, so its
+            // .sfs carries the live tree as RECORDING_TREE isActive=True (written by
+            // ParsekScenario.SaveActiveTreeIfAny, ParsekScenario.cs:1856-1858). The
+            // injected sidecar never authored one, so ParsekScenario.OnLoad after a
+            // fixture re-fly saw savedRecNodes=0 / savedTreeRecs=0 /
+            // activeTreeRestoredFromSave=False and TryRestoreActiveTreeNode's
+            // unconditional PopPendingTree eviction never ran at all - a
+            // FIXTURE-shaped divergence from production that R1 flight 3's diagnosis
+            // mistook for a product defect. Authoring the node here makes the
+            // injected RP production-shaped, so the next R1 run discriminates
+            // "fixture artifact" from "real defect" instead of confounding them.
+            AttachActiveTreeNodeForRp(game, rp, treeNodes);
 
             // Emit a single guaranteed GAME wrapper (ConfigNode.Save writes CONTENTS,
             // not the node's own name, so wrap the GAME subtree in a fresh root).
@@ -662,16 +679,154 @@ namespace Parsek.Tests.Generators
             return v;
         }
 
+        /// <summary>
+        /// Derives the launch guid (KSP's vessel-level <c>pid</c>, a Guid) that a
+        /// recording id's slot carries in the RP quicksave sidecar. DETERMINISTIC, so
+        /// the sidecar VESSEL's guid and the injected recording's
+        /// <see cref="Recording.RecordedVesselGuid"/> can be made to AGREE.
+        ///
+        /// <para>
+        /// This closes a trap rather than fixing a live failure. Today the B9
+        /// recordings carry no <c>recordedVesselGuid</c>, so
+        /// <c>QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers</c> is
+        /// inconclusive (either side unknown returns false) and the pid/name fallback
+        /// still matches. The moment a fixture stamps a recorded guid - which any
+        /// move toward production shape wants - the previous
+        /// <c>Guid.NewGuid()</c>-per-clone stamp would make the two sides
+        /// conclusively differ and the resume guard would reject the candidate
+        /// outright, with the rejection looking exactly like a product defect. Both
+        /// sides now derive from the same recording id.
+        /// </para>
+        /// </summary>
+        public static string DeriveVesselLaunchGuid(string recordingId)
+        {
+            // 16 deterministic bytes from four salted FNV-1a passes over the id.
+            var bytes = new byte[16];
+            for (int block = 0; block < 4; block++)
+            {
+                uint h = StableHashToUint((recordingId ?? "") + ":guid:" + block.ToString(
+                    CultureInfo.InvariantCulture));
+                bytes[block * 4 + 0] = (byte)(h & 0xFF);
+                bytes[block * 4 + 1] = (byte)((h >> 8) & 0xFF);
+                bytes[block * 4 + 2] = (byte)((h >> 16) & 0xFF);
+                bytes[block * 4 + 3] = (byte)((h >> 24) & 0xFF);
+            }
+            return new Guid(bytes).ToString("N");
+        }
+
+        /// <summary>
+        /// Copies the RECORDING_TREE node owning <paramref name="rp"/>'s slots into the
+        /// sidecar's ParsekScenario SCENARIO node, marked <c>isActive = True</c> with
+        /// <c>activeRecordingId</c> pointing at the focus slot's origin recording -
+        /// the shape <c>ParsekScenario.TryRestoreActiveTreeNode</c> reads back. No-op
+        /// when no tree node owns any of the RP's slots (a fixture that only wants the
+        /// vessel triangle keeps the previous behaviour).
+        /// </summary>
+        private static void AttachActiveTreeNodeForRp(
+            ConfigNode game, RewindPoint rp, IEnumerable<ConfigNode> treeNodes)
+        {
+            if (game == null || rp == null || treeNodes == null) return;
+
+            string focusRecordingId = null;
+            var slotRecordingIds = new List<string>();
+            if (rp.ChildSlots != null)
+            {
+                foreach (var s in rp.ChildSlots)
+                {
+                    if (s == null || string.IsNullOrEmpty(s.OriginChildRecordingId)) continue;
+                    slotRecordingIds.Add(s.OriginChildRecordingId);
+                    if (s.SlotIndex == rp.FocusSlotIndex)
+                        focusRecordingId = s.OriginChildRecordingId;
+                }
+            }
+            if (slotRecordingIds.Count == 0) return;
+
+            ConfigNode owningTree = null;
+            foreach (ConfigNode candidate in treeNodes)
+            {
+                if (candidate == null) continue;
+                if (TreeNodeContainsAnyRecording(candidate, slotRecordingIds))
+                {
+                    owningTree = candidate;
+                    break;
+                }
+            }
+            if (owningTree == null) return;
+
+            ConfigNode scenario = FindOrAddParsekScenarioNode(game);
+            string treeId = owningTree.GetValue("id");
+
+            // Drop any same-id RECORDING_TREE the donor save carried so the sidecar
+            // does not describe one tree twice.
+            if (!string.IsNullOrEmpty(treeId))
+            {
+                ConfigNode[] existing = scenario.GetNodes("RECORDING_TREE");
+                for (int i = 0; i < existing.Length; i++)
+                {
+                    if (string.Equals(existing[i]?.GetValue("id"), treeId, StringComparison.Ordinal))
+                        scenario.nodes.Remove(existing[i]);
+                }
+            }
+
+            ConfigNode activeNode = owningTree.CreateCopy();
+            activeNode.name = "RECORDING_TREE";
+            if (!string.IsNullOrEmpty(focusRecordingId))
+                SetOrAddValue(activeNode, "activeRecordingId", focusRecordingId);
+            SetOrAddValue(activeNode, "isActive", "True");
+            scenario.AddNode(activeNode);
+        }
+
+        private static bool TreeNodeContainsAnyRecording(
+            ConfigNode treeNode, List<string> recordingIds)
+        {
+            if (treeNode == null) return false;
+            ConfigNode[] recs = treeNode.GetNodes("RECORDING");
+            for (int i = 0; i < recs.Length; i++)
+            {
+                string id = recs[i]?.GetValue("recordingId");
+                if (string.IsNullOrEmpty(id)) continue;
+                for (int j = 0; j < recordingIds.Count; j++)
+                {
+                    if (string.Equals(id, recordingIds[j], StringComparison.Ordinal))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static ConfigNode FindOrAddParsekScenarioNode(ConfigNode game)
+        {
+            ConfigNode[] scenarios = game.GetNodes("SCENARIO");
+            for (int i = 0; i < scenarios.Length; i++)
+            {
+                if (string.Equals(scenarios[i]?.GetValue("name"), "ParsekScenario",
+                        StringComparison.Ordinal))
+                {
+                    return scenarios[i];
+                }
+            }
+            ConfigNode added = game.AddNode("SCENARIO");
+            added.AddValue("name", "ParsekScenario");
+            added.AddValue("scene", "5, 6, 7, 8");
+            return added;
+        }
+
         // Overwrite the clone's vessel-level identity and root-part pid so the RP's
-        // PidSlotMap / RootPartPidMap resolve this vessel to its slot. A fresh guid
-        // pid per clone avoids vessel-guid collisions between the per-slot clones.
+        // PidSlotMap / RootPartPidMap resolve this vessel to its slot. The vessel guid
+        // is DERIVED from the slot's origin recording id (see DeriveVesselLaunchGuid)
+        // rather than random, so it can agree with the recording's recordedVesselGuid;
+        // distinct recording ids still give distinct guids, so the per-slot clones do
+        // not collide.
         private static void StampVesselIdentity(
-            ConfigNode vessel, uint vesselPid, uint rootPid, string vesselName)
+            ConfigNode vessel, uint vesselPid, uint rootPid, string vesselName,
+            string launchGuid)
         {
             if (vessel == null) return;
             var ic = CultureInfo.InvariantCulture;
 
-            vessel.SetValue("pid", Guid.NewGuid().ToString("N"), true);
+            vessel.SetValue("pid",
+                string.IsNullOrEmpty(launchGuid) ? Guid.NewGuid().ToString("N") : launchGuid,
+                true);
             vessel.SetValue("persistentId", vesselPid.ToString(ic), true);
             vessel.SetValue("name", vesselName, true);
 
@@ -802,6 +957,7 @@ namespace Parsek.Tests.Generators
                 RecordingFormatVersion = builder.GetFormatVersion(),
                 RecordingSchemaGeneration = builder.GetSchemaGeneration(),
                 VesselPersistentId = StableHashToUint(recordingId),
+                RecordedVesselGuid = builder.GetRecordedVesselGuid(),
                 ExplicitStartUT = builder.GetStartUT(),
                 ExplicitEndUT = builder.GetEndUT(),
                 LoopPlayback = builder.GetLoopPlayback(),

@@ -222,18 +222,40 @@ namespace Parsek
             // null-terminal post-split is filtered out via
             // extraSelfSkipRecordingIds so it never reaches the row-write
             // step.
+            // R1-EMPTY-PROVISIONAL layer 3: this refusal is a NAMED OUTCOME, not an
+            // invariant violation, and BOTH builds take the same branch.
+            //
+            // The refusal itself is correct and stays: a trajectory-less recording
+            // cannot validly replace a real origin (the placeholder-redirect class
+            // shipped twice in 2026-04, items 5 and 568). What was wrong was
+            // modelling it as "this can never happen". Rewind-then-conclude (rewind,
+            // then end the session without flying) reaches it in normal play, and the
+            // old `#if DEBUG throw` had two consequences: the shipped release path was
+            // never the tested one, and in a developer build the throw escaped
+            // MergeJournalOrchestrator.RunMerge at phase=Split, so RunFinisher's
+            // drive-forward failed, ParsekScenario.OnLoad aborted at
+            // phase=merge-journal, and -- because the input never changes -- EVERY
+            // subsequent load repeated it. The abort also skipped LoadTimeSweep.Run,
+            // which is exactly the pass that would have discarded the zombie marker.
+            // Non-convergence is strictly worse than the condition it signalled.
+            //
+            // The merge now completes with zero rows: nothing was flown, so there is
+            // nothing to supersede the origin with, and the origin correctly stays
+            // effective. Warn (not Error) because the outcome is reachable by a
+            // legitimate user action; the token below is grep-stable and pairs with
+            // the two earlier ReFlyProvisionalBinding raises.
             string invariantReason;
             if (!ValidateSupersedeTarget(provisional, out invariantReason))
             {
                 ParsekLog.Warn(Tag,
-                    $"AppendRelations invariant violation: provisional={provisional?.RecordingId ?? "<null>"} " +
-                    $"reason={invariantReason} -- refusing to write supersede rows in this batch");
-#if DEBUG
-                throw new InvalidOperationException(
-                    $"AppendRelations invariant violation: provisional={provisional?.RecordingId ?? "<null>"} reason={invariantReason}");
-#else
+                    $"AppendRelations outcome=refused-unflown-provisional " +
+                    $"provisional={provisional?.RecordingId ?? "<null>"} " +
+                    $"reason={invariantReason} sess={marker.SessionId ?? "<no-id>"} " +
+                    $"origin={originId ?? "<none>"} supersedeTarget={closureRoot ?? "<none>"} " +
+                    $"subtreeCount={subtreeCount.ToString(ic)} -- the re-fly attempt has no " +
+                    $"playable trajectory, so it cannot replace the origin; writing 0 supersede " +
+                    $"rows and completing the merge (origin stays effective)");
                 return new List<string>();
-#endif
             }
 
             HashSet<string> extraSkip = null;

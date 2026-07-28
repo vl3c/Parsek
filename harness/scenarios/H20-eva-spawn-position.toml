@@ -1,0 +1,145 @@
+schema = 1
+id = "H20-eva-spawn-position"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern. THIS IS THE SPEC THE 2026-07-25 "do not
+# wire EVA batches" decision explicitly deferred to a follow-up
+# (docs/dev/todo-and-known-bugs.md): a DEDICATED batch-only scenario so the
+# batch-safe EVA-adjacent tests execute instead of Skipping, rather than bolting a
+# batch onto the EVA-1/2/3 seam scenarios and coupling their recording-production
+# verification to batch-isolation teardown.
+#
+# THE RECOMMENDATION NAMED TWO CATEGORIES; ONLY ONE OF THEM IS WIREABLE, AND THE
+# REASON IS STRUCTURAL. CrewReservationLive is NOT wired here or anywhere: both of
+# its cells short-circuit on `spawnedCount == 0`, and the injected corpus contains no
+# recording with a non-zero SpawnedVesselPersistentId, so running it would produce
+# exactly the vacuous `total=2 passed=0 failed=0 skipped=2` line the anti-vacuity
+# gate exists to reject.
+# The invariant that makes that true is NOT the one first written here. An earlier
+# draft blamed `CleanSaveStart -> RemoveSpawnedPidLines` for stripping the key; that
+# helper runs BEFORE the corpus writer injects and does not run on the harness path
+# at all (no -CleanStart, so PARSEK_INJECT_CLEAN_START=0). The real invariants are
+# that `RecordingBuilder.WithSpawnedPid` has ZERO callers and that
+# `AddRealCareerRecordings` injects RECORDING_TREE nodes only. See
+# docs/dev/autotest-ingame-category-inventory.md for the full finding, including why
+# adding -CleanStart to "make the mechanism real" would break scene=FLIGHT for the
+# four corpus specs in this group.
+#
+# EvaSpawnPosition IS wireable, because its precondition is a MANNED vessel on the
+# ground, which gloops-airshow has: a crewed mk1-capsule with landed = True,
+# splashed = False. Both cells build their own throwaway kerbal + EVA recording and
+# spawn against the live PQS terrain.
+description = "Run the in-game EvaSpawnPosition category unattended from the crewed landed pod host: EVA spawns within tolerance of the recorded endpoint and clear of the parent, and walks back along the trajectory when the endpoint overlaps."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "eva", "spawn-safety", "H20"]
+
+[fixture]
+# gloops-airshow: the mk1-capsule host is crewed (Jebediah), landed = True and
+# splashed = False, which is exactly the precondition set both cells gate on. No
+# injected recordings - each cell authors its own EVA recording and removes it.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "EvaSpawnPosition" },             expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the endpoint cell asserts the spawn lands within 10 m of the recorded
+# endpoint AND >= 50 m off the parent, which is the terrain-corrected surface spawn
+# (D13 terrain-correction). The walkback cell drives
+# TryWalkbackForEndOfRecordingSpawn's raycast-snap branch (D13
+# trajectory-walkback) - see the tally note for why that one cell may self-skip.
+# SANDBOX, FLIGHT-scene host (D14). NOT claimed: D1 auto-record-eva or D5
+# eva-branch - nothing is RECORDED here; a pre-built EVA recording is SPAWNED FROM,
+# which is what EVA-1/2/3 own on the recording side.
+D13 = ["terrain-correction", "trajectory-walkback"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# Each cell authors a throwaway EVA recording and cleans up; the batch's
+# FLIGHT-with-vessel isolation additionally reverts persistent.sfs from the clean
+# .bak after teardown. A non-zero count here is a genuine leak finding, not a spec
+# bug - file it rather than widening this bound.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: the tally is pinned WHOLE, so an empty or all-skipped batch cannot
+# satisfy it.
+#
+# EVIDENCE STANDING: MEASURED, and this was the LAST open pin in the H7-H20 group.
+# Flown twice. The 2026-07-27 `--tag ingame-batch` sweep passed but could not settle
+# the split, because the pin was the loose interim form and a PASS against it proves
+# only `passed >= 1`; collect-logs fires on non-PASS only, and the instance KSP.log
+# was overwritten by the later scenarios in that sweep. So this scenario was re-flown
+# ALONE (`python run.py --id H20-eva-spawn-position`, PASS attempt 1, 59 s wall, run
+# harness/results/2026-07-27_1803_H20-eva-spawn-position.json) specifically so its log
+# would survive to be read. The line it printed:
+#
+#   BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=EvaSpawnPosition scene=FLIGHT
+#
+# corroborated independently by that run's parsek-test-results.txt export
+# (`captured=2 Passed=2 Failed=0 Skipped=0`, both members named). The pin below is now
+# that line verbatim.
+#
+# WHAT THE SPLIT ACTUALLY SETTLED, because it is the interesting half. `skipped=0`
+# here is MEASURED, not derived - and it is the one member of this group where that
+# distinction is real. Both cells carry run-time InGameAssert.Skip guards. The manned
+# / mainBody / solid-ground / vessel-type guards were readable from the save file
+# ahead of time (gloops-airshow is crewed, landed, not splashed, type = Ship), as was
+# the walkback cell's pole guard (`startLat < -89.9 || startLat > 89.9`; the fixture
+# sits at lat = -0.0972). That is SEVEN Skip sites in the walkback cell and all but
+# ONE are decidable from source - an earlier draft of this paragraph enumerated six
+# and read as exhaustive, so the count is stated explicitly now. The one that is NOT
+# decidable is the endpoint-overlap probe: SpawnCollisionDetector
+# .CheckOverlapAgainstLoadedVessels runs a LIVE Physics.OverlapBox (half-extents about
+# 6.25 m) at TerrainAltitude(lat,lon) + 2.0 under the parent and self-skips when the
+# endpoint is clear, so whether the capsule's colliders reach that box depends on the
+# PQS-to-collider gap at the fixture's exact spot. The measurement says they do: the
+# overlap fired and the walkback path really executed.
+#
+# THEREFORE THIS PIN IS FIXTURE-COUPLED IN A WAY THE OTHER 13 ARE NOT. A later change
+# to a taller or elevated host can raise that gap past the 6.25 m box, the walkback
+# cell starts skipping, and this pin reds as `passed=1 skipped=1`. That would be a
+# FIXTURE change, not a walkback regression - check the host's geometry before hunting
+# for a defect in the spawn code.
+#
+#  - total=2 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 2
+#    [InGameTest(Category = "EvaSpawnPosition")] methods. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is MEASURED (see above); the attribute filters alone only put a FLOOR
+#    of 0 on it, which is why the loose form was correct until a run existed.
+#  - failed=0 is the ASSERTION.
+#  - passed=2 is measured and consistent with total - skipped - failed.
+#  - scene=FLIGHT is MEASURED on this fixture by both flights.
+# NOTE what was NOT the blocker, because an earlier draft of this spec named it and
+# was wrong: InGameFixtureMath.WalkbackFixtureCoversParent IS statically derivable -
+# trajectoryLength = clamp(budget + 80, 120, 1000), the guard is
+# trajectoryLength >= budget + 80, true for every budget <= 920 m. The measured budget
+# for this fixture is 6.25 m (KSP.log from the pinned run: parentReach=0.0 +
+# boundsExtent=1.25 + overlapPadding=5.0), so it passes with 913.75 m of margin and is
+# not the guard that can fire here. An earlier draft estimated "about 6.6 m"; the
+# measured figure replaces it, since estimating in this spec of all specs is the wrong
+# habit.
+required  = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=EvaSpawnPosition scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Both cells are IEnumerator coroutines that spawn a real vessel and wait for it to
+# settle, so this batch takes real wall time. 720 total with the 540 RunTests cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

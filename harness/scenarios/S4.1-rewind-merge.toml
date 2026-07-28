@@ -1,13 +1,39 @@
 schema = 1
 id = "S4.1-rewind-merge"
-# tier = "operator": InvokeRewind + AnswerMergeDialog are RequiresFlight / conclude-a-
-# flight and the seam has NO flight-entry verb, so run unattended from the gloops
-# SPACECENTER host every verb only DEFERS to a TIMEOUT and burns a boot with no PASS
-# reachable. "operator" is excluded from every cadence (hlib CADENCE_TIERS), so no
-# daily/nightly/weekly run schedules this; an operator runs it with `--tier operator`
-# (or `--id`) once the B9 split is loaded in FLIGHT. The pending-operator TAG alone is
-# non-gating - the tier is what keeps it off the cadences.
-tier = "operator"
+# tier = "nightly" (RE-TIERED 2026-07-26, rewind-loop lane). It was "operator" on the
+# claim that "InvokeRewind + AnswerMergeDialog are RequiresFlight / conclude-a-flight
+# and the seam has NO flight-entry verb, so from the gloops SPACECENTER host every verb
+# only DEFERS to a TIMEOUT". That claim is FALSE at HEAD, and was never true:
+#
+#   `LoadGame` IS the flight-entry verb. It realizes the .sfs and, when
+#   `game.flightState.activeVesselIdx` names a focusable vessel, takes the FOCUS route -
+#   FlightCameraReloadPin.Arm + StartAndFocusVessel - landing in FLIGHT
+#   (ParsekTestCommandAddon.LoadGameImpl + TestCommandLoadGame.DecideLoadRoute; the
+#   SPACECENTER route is only the NO-VESSEL fallback). This spec's template is NOT a
+#   SPACECENTER host: fixtures/saves/gloops-airshow carries `activeVessel = 1` over two
+#   VESSEL nodes, so step 0 lands in FLIGHT and step 2's InvokeRewind executes rather
+#   than defers.
+#
+#   LIVE EVIDENCE, not just code reading: EVA-1 (tier nightly, FULL PASS 2026-07-24)
+#   drives six RequiresFlight verbs from this exact template every run, and EVA-2 /
+#   EVA-3 / S0.5 / S0.6 do the same.
+#
+# The other operator-tier reason, (b) "EXPENSIVE AND UNFLOWN", needs BOTH: this is a
+# flight-free seam run whose happy path is ~700 s, an order below the B16-class lane the
+# reason exists for. COST OF A FIRST-FLIGHT FAILURE, since that is what reason (b)
+# actually weighs: the 1680 s budget below bounds the DEFER path, and the defer path is
+# exactly what the correction above removes. With the verbs EXECUTING, a bad run ends on
+# a fast terminal verdict (`REJECTED unknown-rp` / `refly-gate <reason>` / an unmet step)
+# within seconds of the boot, so the real repeated cost is ~2 short KSP boots a night,
+# not 2 x 1680 s. nightly rather than daily because it is still UNFLOWN: its first
+# scheduled run IS its live-prove, and a failure there classifies driver-INVALID
+# (retryable), never a false PARSEK-FAIL. The pending-operator TAG stays until that
+# first green run; the tag alone is non-gating.
+#
+# NOT VERIFIED BY A RUN: this re-tier is derived from the code + EVA-1's live precedent,
+# not from an S4.1 flight (the rewind-loop lane was headless by constraint). If the first
+# nightly reds on something structural rather than a real Parsek finding, put it back.
+tier = "nightly"
 # The B9 re-fly cycle (catalog B9 / S4.1): inject a committed tree whose ascent
 # split into a surviving upper stage + a CRASHED booster, plus a Rewind-to-
 # Separation RewindPoint at the split. Drive the whole cycle through the M-C1
@@ -18,14 +44,13 @@ tier = "operator"
 # conclusion would starve the very AnswerMergeDialog that unblocks it (the
 # AnswerMergeDialog FIFO-starvation deadlock, design finding A-B1).
 #
-# PENDING-OPERATOR: the live re-fly runs only inside KSP and an agent cannot pilot
-# it. InvokeRewind and AnswerMergeDialog are RequiresFlight / conclude-a-flight;
-# the seam has NO flight-entry verb, so an operator must have the B9 split loaded
-# in the FLIGHT scene (or supply a FLIGHT-scene B9 template) before InvokeRewind
-# can fire rather than defer. Until then the seam asserts here are the headless-
-# checkable ones (the StartInvoke / Invocation-complete log contracts + the
-# recording-count floor); the supersede-relation / tombstone asserts are RESERVED
-# (see [expectations.rewind]) and named in the coordinator runbook.
+# PENDING-VERIFIER (this used to say PENDING-OPERATOR for a flight-entry reason that
+# no longer holds - see the tier note): the cycle itself is now fully unattended, but
+# the supersede-relation / tombstone asserts still have no verifier. They are RESERVED
+# (see [expectations.rewind]; hlib.evaluate_expectations records them SKIPPED until the
+# M-C2 rewind save-parse verifier lands), so what this spec actually gates today is the
+# headless-checkable set: the four re-fly log contracts + the recording-count floor.
+# Both are named in the coordinator runbook.
 description = "B9 re-fly cycle: InvokeRewind a crashed-booster slot, AnswerMergeDialog merge folds the scene-exit conclusion, corpus survives, re-fly log contracts fire."
 instanceProfile = "stock-minimal"
 tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9", "pending-operator"]
@@ -37,8 +62,8 @@ tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9", "pending-operator"]
 # rp_b9_root with two child slots (upper=0, booster=1). The RP quicksave sidecar is
 # written self-referentially to Parsek/RewindPoints/rp_b9_root.sfs so CanInvoke's
 # on-disk probe passes; CreatingSessionId is null so LoadTimeSweep keeps it. The
-# gloops-airshow save is the injection host (see the PENDING-OPERATOR flight-scene
-# note above).
+# gloops-airshow save is the injection host, and it loads INTO FLIGHT (activeVessel = 1;
+# see the tier note) - it is not a SPACECENTER host.
 saveTemplate = "fixtures/saves/gloops-airshow"
 injectedRecordings = "rewind-b9"
 craft = []
@@ -71,8 +96,22 @@ steps = [
 # (merge-journal). D8 recalc-engine: the re-fly recalcs the ledger at merge. NOT
 # claimed: tombstones (the crashed sibling is an uncrewed booster, no kerbal-death
 # tombstone) and revert-during-refly-dialog (we merge, not discard).
+# `supersede-relation` and `head-tip-split` were REMOVED from this list 2026-07-28: both
+# require a re-flight to EXIST, and S4.1 deliberately flies none, so it can never
+# exercise either. Leaving them here overstated coverage - the denominator counted two
+# D9 values as covered by a scenario structurally incapable of reaching them.
+#
+# They did NOT both move to R1. `supersede-relation` did, on evidence: R1 flies the
+# re-flight and its run `2026-07-28_1509` logged `Added 1 supersede relations for subtree
+# rooted at b9-booster-a`, and R1 pins that line as a required logContract.
+# `head-tip-split` moved to NOBODY and is now honestly UNCOVERED. No archived run proves
+# any scenario reaches `RecordingTreeSplitter.SplitOriginAtRewindUT`'s splitting branch,
+# and the shape argues against it here: that branch fires only when the closure-root
+# recording SPANS the rewind UT, whereas the B9 booster's recording BEGINS at the
+# separation the RewindPoint marks. Re-claim it only when a run demonstrates the split;
+# moving an unproven claim from one scenario to another would just relocate the lie.
 D9 = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
-      "head-tip-split", "supersede-relation", "terminal-kind-classify", "merge-journal"]
+      "terminal-kind-classify", "merge-journal"]
 D8 = ["recalc-engine"]
 
 [expectations]
@@ -95,15 +134,23 @@ count = { min = 1 }
 # entered the pre-load phase and the post-load ConsumePostLoad completed. Both
 # firing proves the re-fly actually ran end-to-end, not just that the verb returned.
 #
-# Route-rewind timeline wave additions (tier stays operator): the post-load path
+# Route-rewind timeline wave additions: the post-load path
 # runs ReconciliationBundle.Restore(cutoff), so the cutoff-carrying restore line
 # and the "Restored:" summary's unconditional pendingScience= count must fire on
 # every successful invoke. Conditional lines (retired route rows / dormanted
 # routes / dropped science) stay un-required: rewind-b9 carries no routes or
 # pending science - the unattended H6-route-rewind-timeline scenario owns those.
+# `AppendRelations outcome=refused-unflown-provisional` is the POSITIVE assertion of
+# what this scenario uniquely covers. S4.1 flies nothing between the rewind and the
+# conclusion, so the provisional legitimately carries no trajectory and the merge MUST
+# refuse to write supersede rows while still COMPLETING - the graceful named outcome
+# that replaced the old `#if DEBUG` throw (SupersedeCommit.cs). Requiring the token is
+# what stops that behaviour being reverted silently: without it, a regression back to
+# the throw would surface only as a forbidden-ERROR red whose cause nobody could name.
 required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-             "Restored: recs=.* pendingScience="]
+             "Restored: recs=.* pendingScience=",
+             "AppendRelations outcome=refused-unflown-provisional"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # RESERVED block (hlib evaluate_expectations records these SKIPPED until the M-C2
@@ -111,8 +158,16 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # verifier will check: exactly one supersede row for the superseded booster
 # subtree, and no phantom tombstone (uncrewed booster). PENDING-OPERATOR /
 # PENDING-VERIFIER; named in the coordinator runbook.
+#
+# supersedeRows was `min = 1`, and that was WRONG for this scenario - it would have RED
+# S4.1 for CORRECT behaviour the day the M-C2 verifier landed. S4.1 concludes a re-fly
+# that never flew, so the provisional has no trajectory, so
+# SupersedeCommit.AppendRelations correctly writes ZERO rows and completes. "Exactly one
+# supersede row" is R1-rewind-loop-flown's assertion (it FLIES the re-flight); this
+# scenario's assertion is the opposite one, and pinning `max = 0` makes that distinction
+# a gate rather than a comment. tombstones stays 0 (uncrewed booster, no kerbal death).
 [expectations.rewind]
-supersedeRows = { min = 1 }
+supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [runtime]
@@ -126,7 +181,7 @@ tombstones    = { max = 0 }
 #   AnswerMergeDialog (budget)      = 120
 #   RecordingState  (default)       =  60
 #   FlushAndQuit    (default)       =  60   -> sum 1620; +60 margin = 1680.
-# On the operator happy path (verbs execute in FLIGHT) the real wall-clock is ~700s,
+# On the happy path (verbs execute in FLIGHT) the real wall-clock is ~700s,
 # far under this ceiling; the ceiling only governs the unattended defer path.
 budgetSeconds = 1680
 
@@ -134,4 +189,32 @@ budgetSeconds = 1680
 policy = "once"
 
 [expectedFail]
-bugId = ""
+# S4.1 IS the dedicated rewind-then-teardown case: LoadGame -> InvokeRewind ->
+# AnswerMergeDialog -> RecordingState -> FlushAndQuit, with NO flying between,
+# which is exactly the reproduction for R1-EMPTY-PROVISIONAL (found by R1 flight
+# 2, 2026-07-26; written up in docs/dev/todo-and-known-bugs.md). The re-fly
+# session's provisional accumulates zero Points, so
+# `SupersedeCommit.ValidateSupersedeTarget` refuses the supersede batch and - on
+# a DEBUG DLL, which is what the automation instance runs - `AppendRelations`
+# THROWS, `MergeDialog` catches it and logs at ERROR, and this spec's
+# `logContracts.forbidden = ["\[Parsek\]\[ERROR\]"]` reds the run.
+#
+# That contract is CORRECT and stays. Marking the known finding here is what
+# keeps S4.1 on the nightly as the standing regression test instead of either
+# redding the sweep every night or - much worse - being "fixed" by relaxing the
+# forbidden-ERROR pattern, which would have hidden the find in the first place.
+#
+# subkind pins the SIGNATURE: only a PARSEK-FAIL(expectation) demotes to
+# EXPECTED-FAIL. A different failure still reds as PARSEK-FAIL, and the day the
+# finding is fixed this run reports XPASS ("expected-fail bugId=... unexpectedly
+# passed") - at which point DELETE both keys below.
+# KEYS REMOVED 2026-07-28. R1-EMPTY-PROVISIONAL is resolved (as a FIXTURE artifact), and
+# the signature these keys named - `AppendRelations invariant violation ... reason=empty
+# Points`, an ERROR plus a DEBUG-only throw - no longer exists in the code at all:
+# SupersedeCommit now logs a graceful Warn and returns an empty list in BOTH builds. So
+# the keys could never match again, and a key that cannot match is not a harmless
+# leftover: `classify_expected_fail` would silently demote ANY expectation-subkind
+# failure (a recordings-count floor breach, say) to EXPECTED-FAIL under a bug id whose
+# entry is struck through as resolved. That is active masking - precisely the failure
+# mode the forbidden-ERROR contract exists to prevent.
+bugId   = ""

@@ -345,6 +345,137 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "EvaChuteDeploy": TAIL_ROLE_WORLD_MUTATING,  # the EVA-4 flight-1 pair, with EvaExit
 }
 
+# ---------------------------------------------------------------------------
+# Post-mission GATING role (EVA-4 fail-open closure, 2026-07-26).
+#
+# A DIFFERENT axis from SEAM_VERB_TAIL_ROLE above. That one answers "may the harness
+# still DRIVE this verb after the mission came back UNMET?"; this one answers "on a
+# MISSION-OK run, does this verb's own verdict GATE the result?".
+#
+# WHY IT EXISTS. On an autopilot driver run.py deliberately carves post-mission seam
+# steps out of driverValidity, on the stated grounds that "a good flight Parsek then
+# failed to record is a PARSEK-FAIL(expectation), NOT a driver-INVALID a retry would
+# paper over". That reasoning is right for the RECORDING verbs, and the carve-out is
+# kept for them. It was WRONG as a blanket rule, and EVA-4 flight 3 (2026-07-25) is
+# the proof: the kerbal's canopy was cut mid-descent, the kerbal died, and the ONE
+# channel that observed it - the EvaChuteDeploy step's own `eva-chute-kerbal-lost`
+# terminal - was recorded as `verdict=ERROR met=false` and then consulted by NO gate.
+# driverValidity reported PASS next to `allExpectedMet: false`. The run only red'd
+# because the scenario's author happened to have written a forbidden-`[Parsek][ERROR]`
+# regex and three required log tokens; delete any of those from the spec and a run
+# that killed its own subject reports PASS.
+#
+# THE SPLIT. A post-mission step is `outcome` when its verdict is a statement about
+# the WORLD's physical outcome that no other verifier re-derives, and `recording`
+# when its verdict is a statement about PARSEK (or harness plumbing), which the
+# analyzer / expectations / ledger chain already owns.
+#   outcome   -> gates. Its failure means the FLIGHT failed after the handoff.
+#   recording -> non-gating, exactly as before. Preserves the original carve-out.
+# The four M-C2 EVA verbs are the whole outcome set today: each one's OK/ERROR is a
+# claim about a kerbal's in-world state (left the pod / boarded / flag planted /
+# canopy opened and landed alive). Everything else is Parsek or plumbing.
+#
+# The pairing is gated by a unit cell, so promoting a RESERVED verb or adding a new
+# one forces an explicit decision here instead of inheriting a default silently.
+POST_MISSION_ROLE_OUTCOME = "outcome"
+POST_MISSION_ROLE_RECORDING = "recording"
+POST_MISSION_ROLES: Tuple[str, ...] = (POST_MISSION_ROLE_OUTCOME, POST_MISSION_ROLE_RECORDING)
+
+SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
+    "SetSetting": POST_MISSION_ROLE_RECORDING,
+    "StartRecording": POST_MISSION_ROLE_RECORDING,
+    "StopRecording": POST_MISSION_ROLE_RECORDING,
+    "CommitTree": POST_MISSION_ROLE_RECORDING,
+    "DiscardTree": POST_MISSION_ROLE_RECORDING,
+    "RecordingState": POST_MISSION_ROLE_RECORDING,
+    "RunTests": POST_MISSION_ROLE_RECORDING,     # in-game batch = a Parsek claim
+    "LoadGame": POST_MISSION_ROLE_RECORDING,     # harness plumbing
+    "MissionMark": POST_MISSION_ROLE_RECORDING,  # stamps one log line
+    "FlushAndQuit": POST_MISSION_ROLE_RECORDING,
+    "InvokeRewind": POST_MISSION_ROLE_RECORDING,      # a Parsek feature under test
+    "AnswerMergeDialog": POST_MISSION_ROLE_RECORDING,  # ditto
+    "TimeJump": POST_MISSION_ROLE_RECORDING,
+    "KscAction": POST_MISSION_ROLE_RECORDING,    # career mutation, ledger-oracle territory
+    "SaveGame": POST_MISSION_ROLE_RECORDING,
+    "EvaExit": POST_MISSION_ROLE_OUTCOME,        # "the kerbal is out and clear"
+    "EvaBoard": POST_MISSION_ROLE_OUTCOME,       # "the kerbal is aboard"
+    "PlantFlag": POST_MISSION_ROLE_OUTCOME,      # "the flag is in the ground"
+    "EvaChuteDeploy": POST_MISSION_ROLE_OUTCOME,  # "the canopy opened and the kerbal landed alive"
+}
+
+
+def post_mission_step_gates(cmd: str) -> bool:
+    """True iff a post-mission seam step running ``cmd`` gates the run result.
+
+    Unknown / empty verbs read False (non-gating): an unrecognised verb is a spec
+    fault the validator already rejects, and inventing a gate for it here would red
+    runs on a vocabulary miss rather than on an outcome."""
+    return SEAM_VERB_POST_MISSION_ROLE.get(str(cmd or "")) == POST_MISSION_ROLE_OUTCOME
+
+
+# The seam's own verdict families, and what an unmet post-mission OUTCOME step means.
+# The C# executors already draw the line this needs: a REFUSAL that had NO side effect
+# rides "REJECTED" (`no-crew`, `kerbal-not-aboard`, `not-near-target`, `unknown-target`,
+# `eva-chute-unavailable` ...), while a real terminal after the verb acted rides "ERROR"
+# (`eva-exit-timeout`, `board-timeout`, `eva-chute-kerbal-lost` ...). Only the second
+# family is a FLIGHT OUTCOME.
+#
+# Without this split every one of the ~30 terminals the four outcome verbs can emit
+# collapses to "the flight failed after handoff": a typo in a post-mission EvaBoard's
+# targetPid would report PARSEK-FAIL(mission-outcome), never be retried, and be filed
+# against the mod - while the SAME typo on a pre-mission step reports INVALID(driver-arg)
+# and retries once. Same fault, same classification, wherever it sits in the step list.
+SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"
+
+
+def classify_post_mission_outcome_miss(step: "StepOutcome") -> Tuple[bool, str]:
+    """Classify an UNMET post-mission outcome step as (is_flight_outcome, driver_subkind).
+
+    ``(True, "")``  -> a genuine flight outcome; the caller reds PARSEK-FAIL(mission-outcome).
+    ``(False, sk)`` -> a refusal / tooling / never-answered miss; the caller treats it as a
+    driver-stage failure with subkind ``sk``, exactly as it would pre-mission.
+
+    A ``msg`` the M-C1 refusal table recognises wins over the verdict family, so a verb
+    that reports a known gate decline is classified by its REASON however it spells its
+    verdict."""
+    refusal = classify_seam_refusal_subkind(getattr(step, "msg", ""))
+    if refusal:
+        return False, refusal
+    verdict = getattr(step, "verdict", None)
+    if verdict is None:
+        return False, "driver-stage"          # never answered
+    if verdict == "TIMEOUT":
+        return False, "seam-timeout"          # the seam never reached a terminal
+    if verdict == SEAM_VERDICT_OUTCOME_TERMINAL:
+        return True, ""
+    return False, "driver-verdict-mismatch"   # REJECTED, or an unexpected verdict
+
+
+def first_unmet_post_mission_outcome(
+    steps: Sequence["StepOutcome"], mission_step_id: Optional[str]
+) -> Optional["StepOutcome"]:
+    """The first UNMET post-mission OUTCOME step, or None.
+
+    ``mission_step_id`` is the mission-kind step's harness id; steps with a strictly
+    GREATER id are post-mission. None (a seam-only driver with no mission step) reads
+    None: on that driver every step already gates through ``all_expected_met``, so
+    re-gating here would double-count and change nothing.
+
+    Steps the harness never drove are not in ``steps`` at all (the unmet-mission tail
+    records them separately), so a skipped tail cannot manufacture an outcome miss."""
+    if mission_step_id is None:
+        return None
+    mid = str(mission_step_id)
+    for outcome in steps:
+        if str(outcome.step_id) <= mid:
+            continue
+        if outcome.met:
+            continue
+        if post_mission_step_gates(outcome.cmd):
+            return outcome
+    return None
+
+
 # The spec-level opt-out, read off [driver]. DEFAULT TRUE = the safe behaviour (skip
 # the world-mutating tail after an unmet mission); a spec sets it false only to opt
 # back into the pre-2026-07-25 drive-everything tail, and must say why.
@@ -694,6 +825,77 @@ SINGLE_BATCH_SELECTOR_RULE = (
     "second batch nor a multi-category aggregate can be pinned non-vacuously on the "
     "current contract surface")
 
+# ---------------------------------------------------------------------------
+# R5: the ISOLATED batch argument.
+#
+# `RunTests` gained an optional `isolated` arg (and `[driver.autorun]` an optional
+# `isolated` bool) selecting InGameTestRunner's OTHER batch entry point. See
+# derive_batch_tally for what changes inside the runner. What matters HERE is that
+# the flag silently changes which tests execute, so every way of getting it wrong
+# must be an ERROR at spec-validation time, before KSP is launched:
+#
+#   - a value that is not the string "true"/"false". The wire encoding is
+#     run.py::encode_value == str(value), so the TOML bool `isolated = true`
+#     travels as the token `isolated=True`, which the C# parse REJECTS
+#     (TestCommandRunTests.TryParseIsolatedArg is case-sensitive by design). Left
+#     unchecked the author would burn a full KSP boot to learn about a capital T.
+#   - the arg on a step that is not RunTests. No other verb reads it, so it would
+#     be silently inert -- and inert in the direction of "the author thinks the
+#     batch is isolated and it is not", which produces an all-skipped tally that
+#     reads as a Parsek regression.
+#   - the key one TOML table too high (`driver.steps[i].isolated` instead of
+#     `...args.isolated`, or `[driver]`/spec-root instead of `[driver.autorun]`).
+#     Same silent-inert failure, same wrong direction. This mirrors the
+#     misplaced-key guards already written for skipTailOnUnmetMission and
+#     batchVacuityOptOut, both added after the same class of silent drop.
+#   - `[driver.autorun] isolated` with no `tests`: nothing auto-runs, so the arm
+#     is inert. The C# side WARNs on this at startup; a spec can be checked
+#     statically, so here it is an error.
+#
+# The flag is deliberately NOT part of the selector string. See
+# TestRunnerShortcut.EnvIsolatedVar for why a prefix would break the anti-vacuity
+# probe family.
+# ---------------------------------------------------------------------------
+
+BATCH_ISOLATED_KEY = "isolated"
+
+# The only two tokens the seam's TryParseIsolatedArg accepts, as TOML strings.
+BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
+
+
+def spec_batch_isolated(spec: Dict) -> bool:
+    """True when ``spec``'s batch runs on the ISOLATED entry point (R5).
+
+    Resolved over EVERY RunTests step, not just the first, then the
+    ``[driver.autorun]`` block. Returns True when ANY of them is isolated.
+
+    The first cut read only the FIRST RunTests step, on the reasoning that
+    ``SINGLE_BATCH_SELECTOR_RULE`` permits only one. An adversarial review showed
+    that is false in one committed, documented shape: a spec that takes the
+    ``batchVacuityOptOut`` escape waives that rule, so
+
+        steps[2] = RunTests category="X"                    # ordinary
+        steps[3] = RunTests category="X" isolated="true"    # the REAL batch
+
+    validated with zero errors while this function answered False -- so run.py
+    logged ``batchIsolated=False``, ``CommittedBatchTallySourceSyncTests``
+    validated the pin against the ORDINARY derivation (weaker, in the unsafe
+    direction), and neither wiring-group class saw it. Answering True if ANY step
+    is isolated fails toward the STRICTER derivation, and ``validate_spec``
+    additionally rejects a spec whose RunTests steps disagree, so the ambiguous
+    shape cannot be committed at all.
+    """
+    driver = (spec.get("driver", {}) or {})
+    for step in (driver.get("steps", []) or []):
+        if (step or {}).get("cmd") != "RunTests":
+            continue
+        if (((step or {}).get("args", {}) or {}).get(BATCH_ISOLATED_KEY)) == "true":
+            return True
+    autorun = driver.get("autorun")
+    if not isinstance(autorun, dict):
+        return False
+    return autorun.get(BATCH_ISOLATED_KEY) is True
+
 # Every scene token InGameTestRunner can print (HighLogic.LoadedScene.ToString()).
 # The B10 defect WAS a scene surprise (the spec assumed FLIGHT, the fixture routed to
 # SPACECENTER / earlier MAINMENU), so the probe sweeps them all: a contract that pins
@@ -925,12 +1127,21 @@ class InGameTestDecl:
     (None) for a declaration with no ``Scene =`` argument, mirroring the
     attribute's own default. ``origin`` is "<file>:<line> <Member>" and exists
     only so a mismatch message can name the declarations it counted.
+
+    ``restore_baseline`` is ``RestoreBatchFlightBaselineAfterExecution``, which
+    defaults FALSE (the C# property has no initializer, unlike
+    ``AllowBatchExecution``). It is the second admission input, and it matters only
+    on the ISOLATED batch path: ``PrepareBatchExecutionIncludingFlightRestore``
+    admits ``allow_batch OR restore_baseline`` where the ordinary
+    ``PrepareBatchExecution`` admits ``allow_batch`` alone. Declared LAST so the
+    positional constructor stays source-compatible.
     """
 
     category: str
     scene: Optional[str]
     allow_batch: bool
     origin: str = ""
+    restore_baseline: bool = False
 
 
 # The selector token InGameTestRunner.RunAll stamps as currentBatchSelector, and
@@ -1218,7 +1429,9 @@ def parse_ingame_test_declarations(
             category=_resolve_category(named.get("Category"), consts),
             scene=_resolve_scene(named.get("Scene")),
             allow_batch=_resolve_bool_default_true(named.get("AllowBatchExecution")),
-            origin=origin))
+            origin=origin,
+            restore_baseline=_resolve_bool_default_false(
+                named.get("RestoreBatchFlightBaselineAfterExecution"))))
     return out
 
 
@@ -1256,6 +1469,22 @@ def _resolve_bool_default_true(expr: Optional[str]) -> bool:
     that is not literally ``false`` is treated as true, matching the runner's
     ``if (test.AllowBatchExecution)`` branch on the default."""
     return (expr or "true").strip() != "false"
+
+
+def _resolve_bool_default_false(expr: Optional[str]) -> bool:
+    """RestoreBatchFlightBaselineAfterExecution: absent -> FALSE.
+
+    The mirror image of ``_resolve_bool_default_true`` and deliberately not the
+    same helper: the C# property carries NO initializer
+    (``public bool RestoreBatchFlightBaselineAfterExecution { get; set; }``,
+    InGameTestAttribute.cs), so its default is `default(bool)` == false, whereas
+    ``AllowBatchExecution`` is initialized to true. Only a literal ``true``
+    admits, which fails CLOSED: an expression this parse cannot read (a const
+    indirection, say) reads as NOT restore-backed, so an isolated derivation
+    UNDER-counts admissions and a spec pinning the higher number reds. The
+    opposite default would silently inflate an isolated `passed=` pin.
+    """
+    return (expr or "false").strip() == "true"
 
 
 def unresolved_ingame_declarations(
@@ -1383,7 +1612,8 @@ class BatchTallyDerivation:
 
 
 def derive_batch_tally(
-    decls: Sequence[InGameTestDecl], category: str, scene: str
+    decls: Sequence[InGameTestDecl], category: str, scene: str,
+    isolated: bool = False,
 ) -> BatchTallyDerivation:
     """Model InGameTestRunner.RunCategory's two filters over ``decls``.
 
@@ -1398,6 +1628,33 @@ def derive_batch_tally(
     the derivation is the same two filters over every declaration -- not a lookup
     for a C# category named "all", which would derive total=0 and report the
     category as missing.
+
+    ``isolated`` (R5) models the OTHER batch entry point. A spec whose RunTests
+    step carries ``isolated = "true"`` (or whose ``[driver.autorun]`` sets
+    ``isolated = true``) routes to ``RunCategoryIncludingFlightRestore``, whose
+    admission filter is ``PrepareBatchExecutionIncludingFlightRestore``:
+
+        if (test.AllowBatchExecution || test.RestoreBatchFlightBaselineAfterExecution)
+
+    a strict SUPERSET of the ordinary filter's ``if (test.AllowBatchExecution)``.
+    So the second stage drops only declarations that are neither batch-allowed nor
+    restore-backed -- the genuinely manual-only ones. ``total`` is unaffected in
+    both modes (BATCH_COMPLETE counts filtered tests too); what moves is the
+    batch_skipped/executable split, which is exactly what an isolated spec's
+    ``passed=`` / ``skipped=`` pin rests on.
+
+    The scene stage is IDENTICAL in both modes: ``FilterSceneEligibleBatchCandidates``
+    runs BEFORE either admission filter on all four entry points and knows nothing
+    about the restore flag.
+
+    NOT modelled, deliberately: ``PrepareBatchFlightRestoreExecution``, which the
+    isolated path runs afterwards and which skips the restore-backed tests when no
+    flight baseline is available. That outcome depends on live scene state
+    (``FlightGlobals.ActiveVessel``, ``HighLogic.SaveFolder``), not on the
+    attributes, so it belongs with the run-time ``InGameAssert.Skip`` guards this
+    derivation already declines to predict. It can only push ``skipped`` HIGHER,
+    which is the direction ``batch_tally_pin_mismatches`` already treats as
+    un-derivable.
     """
     in_category = (list(decls) if category == INGAME_RUNALL_CATEGORY
                    else [d for d in decls if d.category == category])
@@ -1408,7 +1665,8 @@ def derive_batch_tally(
                      if d.scene is not INGAME_ANY_SCENE and d.scene != scene]
     eligible = [d for d in in_category
                 if d.scene is INGAME_ANY_SCENE or d.scene == scene]
-    batch_skipped = [d for d in eligible if not d.allow_batch]
+    batch_skipped = [d for d in eligible
+                     if not (d.allow_batch or (isolated and d.restore_baseline))]
     return BatchTallyDerivation(
         category=category,
         scene=scene,
@@ -1470,10 +1728,30 @@ def _pin_literal_int(tok: Optional[str]) -> Optional[int]:
 
 
 def _pin_literal_word(tok: Optional[str]) -> Optional[str]:
+    """A pinned ``category=`` / ``scene=`` token, when it is a plain literal.
+
+    The class admits ``-`` because C# category names really do carry one: the tree
+    has seven hyphenated categories (Pipeline-Anchor, Pipeline-Smoothing,
+    Pipeline-Frame, Pipeline-Outlier, Pipeline-Terrain, Pipeline-AnchorPropagate,
+    Pipeline-Anchor-BubbleEntry). Without it every one of them was structurally
+    UNPINNABLE: `resolve_batch_tally_pin` read category=None, `statically_checkable`
+    went False, and `CommittedBatchTallySourceSyncTests` rejected the spec with
+    "pins a BATCH_COMPLETE line with no literal category=/scene=" - a message that
+    blames the spec author for a limitation of this character class. The runtime
+    side never had the gap: _BATCH_RE reads `category=(?P<category>\\S+)`, so a real
+    hyphenated BATCH_COMPLETE line has always parsed correctly, and this only ever
+    disagreed with it on the static-pin path.
+
+    Widening is safe against mistaking a REGEX for a literal: `-` is a metacharacter
+    only inside a character class, and `[` / `]` are still excluded, so `[A-Z]-x`
+    stays non-literal and is reported as unpinned rather than silently read as the
+    seven-character category "[A-Z]-x". The hyphen is written last so it is a literal
+    member of the class rather than a range.
+    """
     if tok is None:
         return None
     t = _PIN_TOKEN_TAIL_RE.sub("", tok)
-    return t if re.fullmatch(r"[A-Za-z0-9_:]+", t) else None
+    return t if re.fullmatch(r"[A-Za-z0-9_:-]+", t) else None
 
 
 def resolve_batch_tally_pin(
@@ -1509,13 +1787,20 @@ def resolve_batch_tally_pin(
 
 
 def batch_tally_pin_mismatches(
-    pin: BatchTallyPin, decls: Sequence[InGameTestDecl]
+    pin: BatchTallyPin, decls: Sequence[InGameTestDecl], isolated: bool = False,
 ) -> List[str]:
     """Every way ``pin`` contradicts the `[InGameTest]` attributes in ``decls``.
 
     Empty list = the pin still agrees with the source. Each message is written to
     be actionable on its own, because the developer who reads it is the one who
     just added a test to a category they may never have heard of.
+
+    ``isolated`` must be the spec's OWN batch mode (``spec_batch_isolated``). It
+    is not a cosmetic pass-through: an isolated spec over an all-batch-disabled
+    category derives ``executable = 0`` under the ordinary model, so its perfectly
+    correct ``passed=N`` pin would be rejected, and -- worse in the other
+    direction -- a spec that DROPPED its isolated arg would keep validating
+    against the isolated derivation and read as green while running nothing.
     """
     problems: List[str] = []
     if pin.is_aggregate:
@@ -1529,7 +1814,7 @@ def batch_tally_pin_mismatches(
                 "cannot be cross-checked against the source: %s"
                 % " | ".join(pin.patterns)]
 
-    d = derive_batch_tally(decls, pin.category, pin.scene)
+    d = derive_batch_tally(decls, pin.category, pin.scene, isolated=isolated)
     if d.total == 0:
         problems.append(
             "no [InGameTest(Category = \"%s\")] method exists in the source: the "
@@ -1553,11 +1838,13 @@ def batch_tally_pin_mismatches(
     if pin.skipped is not None and pin.skipped < d.attribute_skipped:
         problems.append(
             "pins skipped=%d but the attributes already force %d skip(s) at "
-            "scene=%s: %d scene-ineligible (%s) + %d AllowBatchExecution=false "
-            "(%s). Run-time InGameAssert.Skip guards can only push skipped "
-            "HIGHER, never lower."
+            "scene=%s: %d scene-ineligible (%s) + %d %s (%s). Run-time "
+            "InGameAssert.Skip guards can only push skipped HIGHER, never lower."
             % (pin.skipped, d.attribute_skipped, pin.scene, d.scene_skipped,
                ", ".join(d.scene_skipped_members) or "-", d.batch_skipped,
+               "neither AllowBatchExecution nor "
+               "RestoreBatchFlightBaselineAfterExecution (isolated batch)"
+               if isolated else "AllowBatchExecution=false",
                ", ".join(d.batch_skipped_members) or "-"))
 
     if pin.passed is not None and pin.failed is not None:
@@ -1565,9 +1852,14 @@ def batch_tally_pin_mismatches(
         if executed > d.executable:
             problems.append(
                 "pins passed=%d failed=%d (%d executed) but only %d test(s) in "
-                "%s are batch-eligible at scene=%s, so that many can never run."
+                "%s are batch-eligible at scene=%s on the %s batch path, so that "
+                "many can never run.%s"
                 % (pin.passed, pin.failed, executed, d.executable, pin.category,
-                   pin.scene))
+                   pin.scene, "ISOLATED" if isolated else "ordinary",
+                   "" if isolated else
+                   " If this category's tests are AllowBatchExecution=false but "
+                   "RestoreBatchFlightBaselineAfterExecution=true, the spec needs "
+                   "isolated = \"true\" on its RunTests step (R5)."))
 
     if None not in (pin.total, pin.passed, pin.failed, pin.skipped):
         summed = pin.passed + pin.failed + pin.skipped
@@ -2079,6 +2371,15 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         # optional positive budget bounding the mission subprocess wall-clock.
         if step.get("phase") == "mission":
             mission_step_indices.append(i)
+            # R5: the mission branch `continue`s before the isolated guards below,
+            # so without this a mission step could carry `isolated` at either level
+            # and be silently inert. A mission step is a harness-side handoff that
+            # writes nothing to the channel, so the flag can never mean anything here.
+            if BATCH_ISOLATED_KEY in step or BATCH_ISOLATED_KEY in (step.get("args", {}) or {}):
+                errors.append(
+                    "driver.steps[%d]: %s is meaningless on a mission-phase step "
+                    "(a mission step writes nothing to the command channel), so it "
+                    "would be silently ignored" % (i, BATCH_ISOLATED_KEY))
             m_expect = step.get("expect", MISSION_STEP_EXPECT)
             if m_expect != MISSION_STEP_EXPECT:
                 errors.append(
@@ -2092,6 +2393,43 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         cmd = step.get("cmd")
         if cmd == "LoadGame" and first_loadgame_index is None:
             first_loadgame_index = i
+
+        # R5 `isolated`: see the BATCH_ISOLATED_KEY note above for why each of
+        # these is an ERROR rather than a coerced value or a warning.
+        step_args = step.get("args", {}) or {}
+        if BATCH_ISOLATED_KEY in step:
+            errors.append(
+                "driver.steps[%d]: %s belongs in this step's args table, not "
+                "beside cmd/expect (a key outside args is never written to the "
+                "channel, so the batch would silently run NON-isolated)"
+                % (i, BATCH_ISOLATED_KEY))
+        # CASE VARIANT. There is no per-verb arg vocabulary, so an unknown arg key is
+        # forwarded verbatim and the C# `ArgOrNull(cmd, "isolated")` (an exact,
+        # case-sensitive dictionary lookup) simply misses `Isolated` / `ISOLATED`.
+        # Silent, and inert in the unsafe direction.
+        for key in step_args:
+            if (isinstance(key, str) and key != BATCH_ISOLATED_KEY
+                    and key.lower() == BATCH_ISOLATED_KEY):
+                errors.append(
+                    "driver.steps[%d].args.%s: the seam arg is spelled %r exactly "
+                    "(the C# lookup is case-sensitive), so this key would be sent "
+                    "and silently ignored" % (i, key, BATCH_ISOLATED_KEY))
+        if BATCH_ISOLATED_KEY in step_args:
+            if cmd != "RunTests":
+                errors.append(
+                    "driver.steps[%d].args.%s: only the RunTests verb reads it, "
+                    "but this step is %r -- the arg would be silently ignored"
+                    % (i, BATCH_ISOLATED_KEY, cmd))
+            raw = step_args.get(BATCH_ISOLATED_KEY)
+            if raw not in BATCH_ISOLATED_VALUES:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be the STRING %s. Step args "
+                    "are wire-encoded with str(value), so the TOML bool `true` "
+                    "would be sent as the token `isolated=True` and the seam's "
+                    "case-sensitive parse REJECTS it. Write %s = \"true\"."
+                    % (i, BATCH_ISOLATED_KEY, raw,
+                       " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
+                       BATCH_ISOLATED_KEY))
         if cmd in RESERVED_SEAM_VERBS:
             errors.append("driver.steps[%d].cmd: %r is RESERVED, not v1-drivable" % (i, cmd))
         elif cmd not in IMPLEMENTED_SEAM_VERBS:
@@ -2126,6 +2464,75 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.append("BATCH owner: both a RunTests step and [driver.autorun] declared (exactly one allowed)")
     if batch_owners == 0 and requires_batch:
         errors.append("BATCH owner: none declared but logContracts.required names BATCH_COMPLETE")
+
+    # R5 `isolated` on the AUTORUN half. Unlike a step arg (a wire token, so a
+    # string) this is a native TOML bool, because it becomes an env var the harness
+    # sets from a truth test rather than a value it forwards verbatim.
+    if isinstance(autorun, dict) and BATCH_ISOLATED_KEY in autorun:
+        autorun_isolated = autorun.get(BATCH_ISOLATED_KEY)
+        if not isinstance(autorun_isolated, bool):
+            errors.append(
+                "driver.autorun.%s: %r must be a bool (a string \"false\" reads as "
+                "TRUTHY and would arm the isolated route the author was disabling)"
+                % (BATCH_ISOLATED_KEY, autorun_isolated))
+        elif autorun_isolated and not autorun_has_tests:
+            errors.append(
+                "driver.autorun.%s is armed but driver.autorun.tests is absent, so "
+                "no batch auto-runs and the arm is inert (PARSEK_AUTORUN_ISOLATED "
+                "without PARSEK_AUTORUN_TESTS; the addon WARNs about this at "
+                "startup, and a spec can be caught here instead)"
+                % BATCH_ISOLATED_KEY)
+    # MISPLACED-KEY guard, same shape as skipTailOnUnmetMission / batchVacuityOptOut.
+    # The autorun flag is read ONLY off [driver.autorun]; anywhere else it is
+    # silently ignored and the batch runs NON-isolated while the author believes
+    # otherwise.
+    #
+    # RECURSIVE, not an allowlist. The first cut named four scopes and a review
+    # found four more that slipped through - including [expectations.logContracts],
+    # which is where the OTHER batch-behaviour flag (batchVacuityOptOut) lives and is
+    # therefore the single most plausible wrong home. An allowlist of wrong places is
+    # the wrong shape for a rule of the form "anywhere but here": sweep everything and
+    # carve out the two legitimate homes instead.
+    _isolated_legit = [driver.get("autorun") if isinstance(driver.get("autorun"), dict) else None]
+    for _s in (steps or []):
+        if isinstance(_s, dict) and isinstance(_s.get("args"), dict):
+            _isolated_legit.append(_s.get("args"))
+
+    def _sweep_isolated(scope, path):
+        if not isinstance(scope, dict):
+            return
+        if any(scope is legit for legit in _isolated_legit if legit is not None):
+            return
+        if BATCH_ISOLATED_KEY in scope:
+            errors.append(
+                "%s: %s belongs in [driver.autorun] (or in a RunTests step's args "
+                "table), not here -- a key in this table is never read, so the batch "
+                "would silently run NON-isolated" % (path or "the spec root",
+                                                     BATCH_ISOLATED_KEY))
+        for k, v in scope.items():
+            if isinstance(v, dict):
+                _sweep_isolated(v, "%s.%s" % (path, k) if path else k)
+            elif isinstance(v, list):
+                for j, item in enumerate(v):
+                    if isinstance(item, dict):
+                        _sweep_isolated(item, "%s.%s[%d]" % (path, k, j) if path else "%s[%d]" % (k, j))
+
+    _sweep_isolated(spec, "")
+
+    # R5: every RunTests step must agree on the batch mode. `spec_batch_isolated`
+    # answers True if ANY step is isolated, so a spec whose steps DISAGREE would be
+    # derived against a mode half its batches do not use. Unreachable while
+    # SINGLE_BATCH_SELECTOR_RULE holds, but reachable through the documented
+    # batchVacuityOptOut escape, which is exactly where a review found it.
+    _rt_modes = {(((s or {}).get("args", {}) or {}).get(BATCH_ISOLATED_KEY) == "true")
+                 for s in (steps or []) if (s or {}).get("cmd") == "RunTests"}
+    if len(_rt_modes) > 1:
+        errors.append(
+            "driver.steps: RunTests steps DISAGREE on %s. The batch mode is a "
+            "whole-spec property (it selects which tests are admitted and therefore "
+            "which derivation every pinned tally is checked against), so a spec "
+            "cannot drive one isolated batch and one ordinary batch. Split them into "
+            "separate scenario specs." % BATCH_ISOLATED_KEY)
 
     # --- Anti-vacuity gate (the B10 "GREEN over ZERO executed tests" class). A spec
     # that owns a batch must pin a tally an EMPTY or ALL-SKIPPED batch cannot satisfy;
@@ -2203,6 +2610,55 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             "expectations.logContracts.%s declared on a spec with no batch owner: "
             "inert (there is no batch whose tally could be vacuous)"
             % (BATCH_VACUITY_OPT_OUT_KEY,))
+
+    # PATTERN COMPILABILITY (2026-07-27, autotest-roadmap R1). Every logContracts
+    # pattern is a REGEX applied with re.search (see evaluate_expectations), not a
+    # literal. A KSP.log token containing regex metacharacters therefore has to be
+    # escaped, and the natural way to write one is the broken way: the R1 debris
+    # token `Child recording created (debris, TTL=` raises
+    # `re.error: missing ), unterminated subpattern` verbatim.
+    #
+    # evaluate_expectations already CATCHES re.error and turns it into a mismatch,
+    # so nothing crashes - but that check runs on the collected log, i.e. AFTER the
+    # flight. A malformed pattern on B13 costs its measured 2,825 s p50 before it
+    # reds, and the red says "invalid regex" rather than naming a Parsek defect.
+    # Rejecting at validation time makes it a `--dry-run` error instead: free, and
+    # before the run lock is even taken.
+    #
+    # Deliberately NOT paired with a "did you mean to escape this?" heuristic. A
+    # pattern that compiles is the author's business - `terminalOrbitBody=\(null\)`
+    # and `(Approach|ExoBallistic)` are both committed, load-bearing and correct -
+    # so the only thing checkable without guessing intent is compilability.
+    for facet in ("required", "forbidden"):
+        patterns = log_contracts.get(facet)
+        if patterns is None:
+            continue
+        if not isinstance(patterns, list):
+            # Reachable for `forbidden` only: a non-list `required` is already
+            # iterated at the BATCH_COMPLETE check above and raises there first.
+            # Pre-existing, and out of this change's blast radius - noted so a
+            # reader does not assume this line covers both facets.
+            errors.append("expectations.logContracts.%s: %r must be a list of regex "
+                          "patterns" % (facet, patterns))
+            continue
+        for pat in patterns:
+            if not isinstance(pat, str):
+                errors.append("expectations.logContracts.%s: %r must be a string"
+                              % (facet, pat))
+                continue
+            try:
+                re.compile(pat)
+            except re.error as exc:
+                errors.append(
+                    "expectations.logContracts.%s: %r is not a valid regex (%s). "
+                    "These patterns are applied with re.search, so a KSP.log token "
+                    "carrying regex metacharacters must escape them. In a TOML "
+                    "basic (double-quoted) string write %s to match a literal '(' "
+                    "- the backslash is DOUBLED because TOML consumes one before "
+                    "the regex engine ever sees it. Caught here rather than after "
+                    "the flight, where evaluate_expectations would red the run on "
+                    "a collected log."
+                    % (facet, pat, exc, '"\\\\("'))
 
     # Exactly one QUIT owner: a FlushAndQuit step XOR autorun.exit = true (N3).
     has_flush = any((s or {}).get("cmd") == "FlushAndQuit" for s in steps)
@@ -3224,7 +3680,21 @@ VERDICTS: Tuple[str, ...] = (
 PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     "batch-crashed", "analyzer", "log-contract", "results", "anomaly",
     "expectation", "ledger",
+    # EVA-4 2026-07-25: a post-mission OUTCOME step failed on a MISSION-OK run
+    # (see SEAM_VERB_POST_MISSION_ROLE). Named separately from "expectation" on
+    # purpose - it is the CAUSE a sweep reader wants, where the expectation rows
+    # are the downstream symptoms.
+    "mission-outcome",
 )
+
+# Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
+# `[expectedFail] bugId = "..."` with no `subkind` matches ANY PARSEK-FAIL, which is
+# the documented v1 adaptation - but EXPECTED-FAIL is GREEN (it sets lastGreen in
+# compute_coverage and exits 0), so a scenario quarantined for one Parsek defect would
+# silently absorb an unrelated subject death too. A quarantine must never be able to
+# turn "the flight killed the kerbal it existed to save" green; demoting that requires
+# spelling the subkind out.
+NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 
 # INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
 # stages (design). Everything else (admission, instance-locked/busy, fixture-*,
@@ -3317,7 +3787,13 @@ def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
     if base_verdict != VERDICT_PARSEK_FAIL:
         return False
     if not ef_subkind:
-        return True
+        # bugId-only demotion, EXCEPT for the subkinds in NEVER_BUGID_ONLY_SUBKINDS. A
+        # quarantine key is a statement about ONE tracked Parsek defect; letting it also
+        # swallow "the flight killed its own subject" would re-open the exact fail-open
+        # this subkind exists to close - and EXPECTED-FAIL is in GREEN_VERDICTS, sets
+        # lastGreen in compute_coverage, and exits 0. Demoting a subject death requires
+        # naming it explicitly (subkind = "mission-outcome").
+        return base_subkind not in NEVER_BUGID_ONLY_SUBKINDS
     return base_subkind == ef_subkind
 
 
@@ -3354,6 +3830,7 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       driver stage failed -> INVALID (retry once)
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
+      post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
       log-contract / results / anomaly / expectation / ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
@@ -3399,7 +3876,23 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 base = V(VERDICT_PARSEK_FAIL, analyzer.subkind,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
         if base is None:
-            if verifiers.get("log_validate_failed", False):
+            if verifiers.get("mission_outcome_unmet", False):
+                # EVA-4 2026-07-25: a post-mission OUTCOME step failed on a run whose
+                # mission returned MISSION-OK. Deliberately ahead of the three
+                # contract verifiers below, because they see the SYMPTOMS (a missing
+                # completion token, a forbidden ERROR line, a short recordings count)
+                # while this row names the CAUSE, and a subkind that names the cause
+                # is what a sweep reader needs. Deliberately PARSEK-FAIL rather than a
+                # retryable driver-INVALID: routing it through the driver stage would
+                # (1) preempt and SKIP every verifier below, throwing away the very
+                # evidence that made this run diagnosable, and (2) let an intermittent
+                # subject death retry into a PASS-with-a-flake-note. The carve-out
+                # this closes made the same argument in reverse ("NOT a driver-INVALID
+                # a retry would paper over"), so this keeps its reasoning and only
+                # stops assuming a spec author will always have written the regex.
+                base = V(VERDICT_PARSEK_FAIL, "mission-outcome",
+                         "a post-mission outcome step failed on a MISSION-OK run")
+            elif verifiers.get("log_validate_failed", False):
                 base = V(VERDICT_PARSEK_FAIL, "log-contract", "log validation failed")
             elif verifiers.get("results_failed", False) or verifiers.get("results_mismatch", False):
                 base = V(VERDICT_PARSEK_FAIL, "results", "results FAIL rows or count mismatch")

@@ -433,6 +433,95 @@ namespace Parsek.InGameTests
             activeCoroutine = coroutineHost.StartCoroutine(RunBatch(eligible));
         }
 
+        /// <summary>
+        /// Which of the four batch entry points a (category, isolated) pair selects (R5).
+        /// Pure so the DECISION is xUnit-covered; the dispatch that acts on it is
+        /// necessarily Unity-bound and is fenced by IsolatedBatchDispatchWiringTests.
+        /// </summary>
+        internal enum BatchEntryPoint
+        {
+            RunAll,
+            RunAllIsolated,
+            RunCategory,
+            RunCategoryIsolated,
+        }
+
+        /// <summary>
+        /// Pure selector for <see cref="RunBatchSelector"/>. An absent/empty category is
+        /// the RunAll shape (the seam's `RunTests` with no `category` arg, and the
+        /// autorun selector "all"); `isolated` picks the *IncludingFlightRestore variant,
+        /// which admits <c>RestoreBatchFlightBaselineAfterExecution</c> tests that set
+        /// <c>AllowBatchExecution = false</c>.
+        /// </summary>
+        internal static BatchEntryPoint ResolveBatchEntryPoint(string category, bool isolated)
+        {
+            if (string.IsNullOrEmpty(category))
+                return isolated ? BatchEntryPoint.RunAllIsolated : BatchEntryPoint.RunAll;
+            return isolated ? BatchEntryPoint.RunCategoryIsolated : BatchEntryPoint.RunCategory;
+        }
+
+        /// <summary>
+        /// THE single unattended dispatch into the four batch entry points (R5).
+        ///
+        /// Every unattended caller routes here - the M-A2 seam's `RunTests` handler and
+        /// all three autorun branches (IsAll, single-category, and the sequential
+        /// multi-category driver). They previously each carried their own
+        /// `if (isolated) ... else ...` pair, which is four copies of one mapping and
+        /// four chances to invert it; a mutation sweep confirmed two of those copies
+        /// were caught by no xUnit cell, and the autorun copies by nothing at all (no
+        /// committed spec drives the autorun path). Collapsing them leaves ONE mapping
+        /// to get wrong, whose decision half is pure and unit-tested above and whose
+        /// dispatch half is fenced by a source-text wiring gate.
+        ///
+        /// The two INTERACTIVE surfaces (Ctrl+Shift+T, the Settings test-runner window)
+        /// deliberately keep calling the entry points directly: they choose the variant
+        /// from a button the operator pressed, not from a parsed argument.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately `internal` among `public` siblings: this is the AUTOMATION
+        /// seam's entry, resolved from a parsed argument, and the four public entry
+        /// points remain the surface the two interactive windows bind buttons to.
+        /// Widening it would invite a UI caller to pass a flag no operator chose.
+        /// </remarks>
+        internal void RunBatchSelector(string category, bool isolated)
+        {
+            BatchEntryPoint entry = ResolveBatchEntryPoint(category, isolated);
+            string shownCategory = string.IsNullOrEmpty(category) ? "(all)" : category;
+            string shownIsolated = isolated ? "true" : "false";
+
+            // Every entry point below opens with `if (isRunning) return;`. Logging the
+            // dispatch unconditionally would assert a batch start that silently did not
+            // happen (the autorun fire gate reads IsRunning several frames earlier, and
+            // the multi-category driver re-enters right after a spin), so the guard skip
+            // is logged as a skip - CLAUDE.md requires every guard-condition skip logged.
+            // Single-threaded per Unity frame, so this check cannot race the call below.
+            if (isRunning)
+            {
+                ParsekLog.Warn(Tag,
+                    $"batch dispatch SKIPPED: a batch is already running (entry={entry} "
+                    + $"category={shownCategory} isolated={shownIsolated})");
+                return;
+            }
+
+            ParsekLog.Info(Tag,
+                $"batch dispatch: entry={entry} category={shownCategory} isolated={shownIsolated}");
+            switch (entry)
+            {
+                case BatchEntryPoint.RunAllIsolated:
+                    RunAllIncludingFlightRestore();
+                    break;
+                case BatchEntryPoint.RunAll:
+                    RunAll();
+                    break;
+                case BatchEntryPoint.RunCategoryIsolated:
+                    RunCategoryIncludingFlightRestore(category);
+                    break;
+                default:
+                    RunCategory(category);
+                    break;
+            }
+        }
+
         public void RunSingle(InGameTestInfo test)
         {
             if (isRunning) return;

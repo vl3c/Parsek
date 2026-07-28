@@ -253,7 +253,11 @@ steps = [
 # the batch may self-fire via the env hooks. When present the harness sets
 # PARSEK_AUTORUN_TESTS / PARSEK_AUTORUN_EXIT at launch. Exactly one of {a RunTests
 # step, an autorun block} should own the batch (validated).
-# autorun = { tests = "RecordingInvariants", exit = true }
+# autorun = { tests = "RecordingInvariants", exit = true, isolated = false }
+# `isolated` (R5, optional, native TOML bool) routes the batch through
+# RunCategoryIncludingFlightRestore. On a RunTests STEP the same capability is an
+# arg and must be the STRING "true"/"false" (step args are wire-encoded with
+# str(value), so a bool would travel as `isolated=True` and the seam rejects it).
 #
 # OPTIONAL opt-out of the unmet-mission tail skip (see "The unmet-mission tail").
 # DEFAULT true = after a mission step comes back UNMET, only the CLEANUP tail steps
@@ -341,10 +345,14 @@ policy = "once"                      # once | none  (retry-once-then-INVALID for
 # expected-fail scenario that fails a DIFFERENT way (a different subkind) still
 # surfaces as PARSEK-FAIL instead of being silently swallowed. When subkind is
 # EMPTY the match is bugId-only (ANY PARSEK-FAIL on the scenario demotes -- the v1
-# adaptation the harness Warn-logs at demotion time). subkind must be one of the
-# classifier's PARSEK-FAIL subkinds:
-# {batch-crashed, analyzer, log-contract, results, anomaly, expectation, ledger};
-# an unknown subkind fails spec validation.
+# adaptation the harness Warn-logs at demotion time), EXCEPT for the subkinds in
+# hlib.NEVER_BUGID_ONLY_SUBKINDS, which require the explicit spelling. Today that is
+# {mission-outcome}: EXPECTED-FAIL is GREEN (it is in GREEN_VERDICTS, sets lastGreen in
+# compute_coverage, and exits 0), so a scenario quarantined for one unrelated Parsek
+# defect would otherwise silently absorb "the flight killed its own subject" too.
+# subkind must be one of the classifier's PARSEK-FAIL subkinds:
+# {batch-crashed, analyzer, log-contract, results, anomaly, expectation, ledger,
+#  mission-outcome}; an unknown subkind fails spec validation.
 bugId   = ""                         # e.g. "R10-reaim-heliocentric-in-plane"
 subkind = ""                         # e.g. "analyzer" to match only an analyzer PARSEK-FAIL
 ```
@@ -818,8 +826,12 @@ per-run env:
 
 - `PARSEK_TEST_COMMANDS=1` always (arms the M-A2 addon; the channel files sit at
   the instance's KSP root).
-- If the spec has an `[driver.autorun]` block: `PARSEK_AUTORUN_TESTS=<tests>` and,
-  when `exit=true`, `PARSEK_AUTORUN_EXIT=1` (the M-A3 hooks).
+- If the spec has an `[driver.autorun]` block: `PARSEK_AUTORUN_TESTS=<tests>`,
+  when `exit=true` `PARSEK_AUTORUN_EXIT=1`, and when `isolated=true`
+  `PARSEK_AUTORUN_ISOLATED=1` (the M-A3 hooks; the isolated arm is R5). A spec
+  driving its batch through a `RunTests` STEP instead carries the flag as a wire arg
+  on that step (`isolated="true"`) and sets no env var; validate_spec forbids
+  declaring both a step and an autorun block, so exactly one of the two applies.
 - `PARSEK_ANALYZER_BASELINE_MODE` is NEVER set at KSP launch (it is an analyzer
   env var, consumed by a later `dotnet test`, not by KSP; setting it here would be
   meaningless and confusing).
@@ -1193,6 +1205,24 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
 8. **Ledger oracle** (M-B2 hook): on a run whose expectations declare a world /
    ledger block AND M-B2 has landed, run the world-diff verifier; drift ->
    PARSEK-FAIL (ledger). In v1 this is SKIPPED with a recorded reason.
+9. **Mission outcome** (`missionOutcome`, added 2026-07-26 after EVA-4 flight 3):
+   AUTOPILOT drivers only. The autopilot carve-out below makes post-mission seam
+   steps non-gating on driverValidity, on the grounds that a mis-recorded good
+   flight is a PARSEK-FAIL(expectation) rather than a retryable driver-INVALID.
+   That is right for the RECORDING verbs and is kept for them - but it silently
+   assumed the expectations verifier would always notice, which holds only if the
+   spec author wrote the right regex. This row closes that: post-mission OUTCOME
+   verbs (`hlib.SEAM_VERB_POST_MISSION_ROLE`, the four M-C2 EVA verbs, whose
+   verdicts are claims about a kerbal's in-world state no verifier re-derives) gate
+   structurally. An unmet outcome step whose verdict is a real terminal (`ERROR`)
+   -> PARSEK-FAIL(mission-outcome); one whose verdict is a REFUSAL / TIMEOUT /
+   never-answered is a SPEC or tooling fault and routes to the driver stage with
+   the same subkind its pre-mission twin would get (`hlib.classify_post_mission_
+   outcome_miss`), so the same fault classifies the same way wherever it sits in the
+   step list. Ordered AHEAD of log-contract / results / anomaly / expectation /
+   ledger, because those see the downstream symptoms of a dead subject and this row
+   names the cause. Reads `SKIPPED` (never `PASS`) when the scenario has no gating
+   verb, so a blank check cannot be mistaken for a cleared one.
 
 REVISION (post-first-live-run, 2026-07-12): the recording-rules suppression key
 is NOT `expectations.recordings.count.max == 0` as originally written. The
@@ -1236,8 +1266,16 @@ retry_policy)` maps to the taxonomy:
   hang usually recurs); recorded so the flake ledger sees repeated KILLEDs.
 - **PARSEK-FAIL**: a verifier found a real Parsek defect (analyzer non-`BASELINE-*`
   nonbaselined FAIL, log-contract, results FAIL, anomaly, expectation, ledger
-  drift), OR a post-boot self-exit aborted the batch (batch-crashed). NOT retried (a
-  defect is a defect). There is no FLAKE verdict: nondeterminism is captured as the
+  drift), OR a post-boot self-exit aborted the batch (batch-crashed), OR a
+  post-mission OUTCOME step failed on a MISSION-OK run (mission-outcome; added
+  2026-07-26, see the `missionOutcome` verifier row). NOT retried (a defect is a
+  defect). Wording note on `mission-outcome`: it is the one subkind that is not
+  strictly "a Parsek defect" - a kerbal killed by stock physics is a FLIGHT failure -
+  but it is classified here rather than as a driver-INVALID because a driver-stage
+  failure preempts and SKIPS every verifier below it (discarding the evidence that
+  makes such a run diagnosable) and is retry-once, which would let an intermittent
+  subject death retry into a PASS-with-a-flake-note. The subkind names the cause so a
+  sweep reader is not misled by the family. There is no FLAKE verdict: nondeterminism is captured as the
   PASS-side `flakedThenPassed` note (attempt-1 INVALID -> attempt-2 PASS), and a
   PARSEK-FAIL is never retried, so no green/red retry pair exists to reclassify.
 - **EXPECTED-FAIL**: the scenario carries an `expectedFail.bugId` AND this run's

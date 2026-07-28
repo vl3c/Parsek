@@ -1480,23 +1480,61 @@ namespace Parsek.TestCommands
             SetExecResult(PendingVerdict, null, null);
         }
 
-        // ----- RunTests (P5.6, two-phase) -----
+        // ----- RunTests (P5.6, two-phase; R5 isolated) -----
         // Owns an InGameTestRunner (the pump's IsBatchRunning gate reads it). Initiates
         // RunAll() / RunCategory(category) and returns PendingVerdict; completion is
         // deferred (TryCompleteTwoPhase) until the batch stops running, then reports
         // passed/failed/skipped + the exported results filename.
+        //
+        // [R5] The optional `isolated` arg selects the ISOLATED batch entry points
+        // (RunAllIncludingFlightRestore / RunCategoryIncludingFlightRestore) instead of
+        // the ordinary ones. They differ in exactly two ways, both in
+        // InGameTestRunner: PrepareBatchExecutionIncludingFlightRestore admits a test
+        // carrying RestoreBatchFlightBaselineAfterExecution = true even when it sets
+        // AllowBatchExecution = false (the ordinary filter drops it, marking it Skipped),
+        // and PrepareBatchFlightRestoreExecution runs, which SKIPS the restore-backed
+        // tests outright when no flight baseline is available rather than running them
+        // against a restore that would silently no-op.
+        //
+        // Before R5 those two entry points existed, were fully implemented, and were
+        // reachable ONLY from the two interactive surfaces (Ctrl+Shift+T and the
+        // Settings test-runner window), which left 68 already-written tests
+        // unreachable by any unattended path. This arg is the unattended route to them.
         private void RunTestsImpl(ParsedCommand cmd)
         {
             string category = ArgOrNull(cmd, "category");
+            string isolatedRaw = ArgOrNull(cmd, "isolated");
+
+            // A WRITTEN-but-empty `category=` is a typo, not an omission. Absent stays
+            // RunAll; empty is rejected, matching this verb's `isolated` convention and
+            // closing a footgun R5 made destructive (see IsEmptyCategoryArg).
+            if (TestCommandRunTests.IsEmptyCategoryArg(category))
+            {
+                ParsekLog.Warn(Tag,
+                    $"runtests rejected reason={TestCommandRunTests.CategoryArgEmptyReason} "
+                    + "(category= was written but empty; omit the arg entirely to run ALL categories)");
+                SetExecResult("REJECTED", null, TestCommandRunTests.CategoryArgEmptyReason);
+                return;
+            }
+
+            bool isolated;
+            if (!TestCommandRunTests.TryParseIsolatedArg(isolatedRaw, out isolated))
+            {
+                ParsekLog.Warn(Tag,
+                    $"runtests rejected category={category ?? "all"} "
+                    + $"reason={TestCommandRunTests.IsolatedArgInvalidReason} raw={isolatedRaw}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandRunTests.IsolatedArgInvalidReason} raw={isolatedRaw ?? string.Empty}");
+                return;
+            }
+
             if (ownedRunner == null)
                 ownedRunner = new InGameTestRunner(this);
 
-            if (string.IsNullOrEmpty(category))
-                ownedRunner.RunAll();
-            else
-                ownedRunner.RunCategory(category);
+            ownedRunner.RunBatchSelector(category, isolated);
 
-            ParsekLog.Info(Tag, $"runtests start category={category ?? "all"}");
+            ParsekLog.Info(Tag,
+                $"runtests start category={category ?? "all"} isolated={Bool(isolated)}");
             SetExecResult(PendingVerdict, null, null);
         }
 
@@ -1771,7 +1809,36 @@ namespace Parsek.TestCommands
                 // spawns the pre-transition dialog now; on the placeholder-mode path it
                 // arrives via the deferred POST-transition coroutine and the completion
                 // re-scan invokes the button then.
-                ParsekLog.Info(Tag, "answermergedialog driving re-fly conclusion scene-exit");
+                //
+                // S4.1-DEFERRED-DIALOG: persist BEFORE the LoadScene, or this driven exit
+                // models a scene exit that no stock UI route performs. AtomicMarkerWrite
+                // assigns the re-fly marker IN MEMORY ONLY (RewindInvoker.cs); its
+                // durability comes from a later ParsekScenario.OnSave, and in production one
+                // always runs first - stock saveAndExit saves BEFORE the LoadScene prefix
+                // fires (see the comment in SceneExitInterceptor.TryAutoDiscardIdleActiveTree),
+                // and SafeWritePersistent exists precisely to cover the stock routes that
+                // do not. Driving a raw LoadScene skipped both, so SPACECENTER's OnLoad read
+                // `Marker loaded: none`, LoadTimeSweep discarded the provisional as a zombie
+                // (correctly - to the product an unpersisted marker plus a NotCommitted
+                // provisional is indistinguishable from a crash mid-re-fly), the session
+                // ended `<cleared>`, and the dialog that surfaced was a PLAIN whole-tree
+                // merge dialog that FindReFlyMergePopup cannot match because it is gated on
+                // markerLive. The verb then timed out at its budget with
+                // reason=answer-timeout and S4.1 was deterministically INVALID.
+                //
+                // The fix belongs HERE, in the seam, NOT in the product: making the marker
+                // durable at invoke time would change crash-recovery semantics for the worse
+                // (a crash mid-re-fly would resurrect a dead session instead of cleanly
+                // restoring the pre-rewind state), and MergeJournalOrchestrator /
+                // LoadTimeSweep marker semantics stay untouched this way. Same error class
+                // as the R1 fixture that omitted `RECORDING_TREE isActive=True`: a DRIVEN
+                // flow diverging from production shape and presenting as a product defect.
+                bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+                ParsekLog.Info(Tag,
+                    $"answermergedialog driving re-fly conclusion scene-exit " +
+                    $"(persisted={persisted} sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
+                    "- the marker must survive into the destination scene or the load-time " +
+                    "sweep discards this session's provisional as a zombie");
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
                 popup = FindReFlyMergePopup();
             }

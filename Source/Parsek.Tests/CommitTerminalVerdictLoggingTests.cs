@@ -261,9 +261,28 @@ namespace Parsek.Tests
             string line = ParsekFlight.FormatCommitTerminalSummaryLine(tree);
 
             Assert.Contains("2 recordings", line);
-            Assert.Contains("root rec=root-1", line);
+            Assert.Contains("rec=root-1", line);
             Assert.Contains("terminalState=Orbiting", line);
             Assert.Contains("terminalOrbitBody=Mun", line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalSummaryLine_KeepsTheHarnessLogContractTokenShape()
+        {
+            // The B11/B12/B13/B14/B16 specs pin
+            // "CommitTreeFlight terminal: rec=\w+ terminalState=... terminalOrbitBody=..."
+            // as required commit evidence. Above the per-line cap the summary REPLACES
+            // the per-recording lines, so it must still satisfy that regex for the
+            // root recording or a debris-heavy tree reds a green flight with
+            // "required pattern not matched".
+            var root = Rec("abc123def456", TerminalState.Orbiting, "Mun");
+            var tree = TreeWith(root, Rec("debris0", TerminalState.Destroyed));
+
+            string line = ParsekFlight.FormatCommitTerminalSummaryLine(tree);
+
+            Assert.Matches(
+                @"CommitTreeFlight terminal: rec=\w+ terminalState=Orbiting terminalOrbitBody=Mun",
+                line);
         }
 
         [Fact]
@@ -306,7 +325,7 @@ namespace Parsek.Tests
                 l.Contains("CommitTreeFlight terminal: rec=debris-2")
                 && l.Contains("terminalState=Destroyed")
                 && l.Contains("terminalOrbitBody=(null)"));
-            Assert.DoesNotContain(logLines, l => l.Contains("CommitTreeFlight terminal summary"));
+            Assert.DoesNotContain(logLines, l => l.Contains("per-line cap"));
         }
 
         [Fact]
@@ -324,13 +343,16 @@ namespace Parsek.Tests
 
             ParsekFlight.LogCommitTerminalVerdicts(tree);
 
-            Assert.Empty(logLines.Where(l => l.Contains("CommitTreeFlight terminal: rec=")));
-            Assert.Single(logLines.Where(l => l.Contains("CommitTreeFlight terminal summary")));
+            // The single summary line carries the per-recording token shape for the
+            // root recording (the harness logContract evidence), plus the cap marker.
+            Assert.Single(logLines.Where(l => l.Contains("CommitTreeFlight terminal: rec=")));
+            Assert.Single(logLines.Where(l => l.Contains("per-line cap")));
             Assert.Contains(logLines, l =>
                 l.Contains("[Flight]")
-                && l.Contains("CommitTreeFlight terminal summary")
-                && l.Contains("root rec=root-1")
-                && l.Contains("terminalOrbitBody=Minmus"));
+                && l.Contains("CommitTreeFlight terminal: rec=root-1")
+                && l.Contains("terminalState=Orbiting")
+                && l.Contains("terminalOrbitBody=Minmus")
+                && l.Contains("21 recordings"));
         }
 
         [Fact]

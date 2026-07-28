@@ -9,10 +9,14 @@ REAL on-disk registry + sample specs where a placement/parse bug could only be
 caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 """
 
+import contextlib
 import copy
+import io
 import os
 import re
+import shutil
 import sys
+import tempfile
 import tomllib
 import unittest
 
@@ -662,6 +666,248 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertFalse(v.ok)
         self.assertTrue(any("autopilot" in e or "seam" in e for e in v.errors))
 
+    # --- R5 `isolated` (hlib.BATCH_ISOLATED_KEY) ---
+    #
+    # Every cell here guards the SAME failure direction: a malformed or misplaced
+    # flag is silently inert, the batch runs NON-isolated, the tests the spec meant
+    # to drive are all skipped, and the resulting tally reads like a Parsek
+    # regression rather than a spec typo. Fail-closed at validation time is the only
+    # place that costs nothing.
+
+    def _run_tests_step(self, spec):
+        for step in spec["driver"]["steps"]:
+            if step.get("cmd") == "RunTests":
+                return step
+        raise AssertionError("base spec has no RunTests step")
+
+    def test_isolated_accepts_the_two_wire_literals(self):
+        # The POSITIVE control. Without it, every negative cell below would still
+        # pass if the key were rejected unconditionally.
+        for value in ("true", "false"):
+            with self.subTest(value=value):
+                def m(s):
+                    self._run_tests_step(s)["args"]["isolated"] = value
+                v = self._reject(m)
+                self.assertTrue(v.ok, v.errors)
+
+    def test_isolated_as_a_toml_bool_rejected(self):
+        # THE TRAP. run.py::encode_value is str(value), so the TOML bool `true`
+        # travels as the token `isolated=True`, which the seam's case-sensitive
+        # TryParseIsolatedArg REJECTS. Catching it here saves a full KSP boot.
+        def m(s):
+            self._run_tests_step(s)["args"]["isolated"] = True
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("isolated" in e and "STRING" in e for e in v.errors),
+                        v.errors)
+
+    def test_isolated_with_an_unrecognised_value_rejected(self):
+        # "True" is str(True) - THE trap the module note names, and it was the one
+        # spelling missing from this sweep.
+        for value in ("1", "yes", "TRUE", "True", "False", "", " true"):
+            with self.subTest(value=value):
+                def m(s):
+                    self._run_tests_step(s)["args"]["isolated"] = value
+                v = self._reject(m)
+                self.assertFalse(v.ok)
+                self.assertTrue(any("isolated" in e for e in v.errors), v.errors)
+
+    def test_isolated_on_a_non_runtests_step_rejected(self):
+        # No other verb reads the arg, so it would be silently ignored.
+        def m(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "args": {"isolated": "true"},
+                    "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("isolated" in e and "RunTests" in e for e in v.errors),
+                        v.errors)
+
+    def test_isolated_beside_cmd_instead_of_in_args_rejected(self):
+        # MISPLACED-KEY guard: a key outside `args` is never written to the channel.
+        def m(s):
+            self._run_tests_step(s)["isolated"] = "true"
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("isolated" in e and "args" in e for e in v.errors),
+                        v.errors)
+
+    def test_isolated_in_the_wrong_table_rejected(self):
+        # The autorun flag is read ONLY off [driver.autorun]. A key written before
+        # that header lands in [driver]; one written at the spec root or under
+        # [expectations] lands nowhere useful. All are silently inert today.
+        for scope in ("driver", "root", "expectations"):
+            with self.subTest(scope=scope):
+                def m(s, scope=scope):
+                    target = (s["driver"] if scope == "driver"
+                              else s if scope == "root"
+                              else s.setdefault("expectations", {}))
+                    target["isolated"] = True
+                v = self._reject(m)
+                self.assertFalse(v.ok)
+                self.assertTrue(
+                    any("isolated" in e and "driver.autorun" in e for e in v.errors),
+                    v.errors)
+
+    def test_autorun_isolated_must_be_a_bool(self):
+        # A string "false" is TRUTHY in Python, so coercing instead of rejecting
+        # would arm the very route the author was disabling.
+        def m(s):
+            s["driver"]["steps"] = [
+                st for st in s["driver"]["steps"] if st.get("cmd") != "RunTests"]
+            s["driver"]["autorun"] = {"tests": "SceneExitMerge", "isolated": "false"}
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("autorun.isolated" in e and "bool" in e
+                            for e in v.errors), v.errors)
+
+    def test_autorun_isolated_without_tests_rejected(self):
+        def m(s):
+            s["driver"]["autorun"] = {"isolated": True}
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("autorun.isolated" in e and "inert" in e
+                            for e in v.errors), v.errors)
+
+    def test_isolated_in_any_nested_table_rejected(self):
+        # RECURSIVE guard, not an allowlist. The first cut named four scopes; a
+        # review found four more that slipped through, and the most dangerous is
+        # [expectations.logContracts] - the table where the OTHER batch-behaviour
+        # flag (batchVacuityOptOut) lives, so it is the most plausible wrong home.
+        for path in (("expectations", "logContracts"), ("expectations", "recordings"),
+                     ("runtime",), ("fixture",), ("retry",)):
+            with self.subTest(table=".".join(path)):
+                def m(s, path=path):
+                    node = s
+                    for part in path:
+                        node = node.setdefault(part, {})
+                    node["isolated"] = True
+                v = self._reject(m)
+                self.assertFalse(v.ok, "isolated under [%s] must not validate"
+                                 % ".".join(path))
+                self.assertTrue(any("isolated" in e and "never read" in e
+                                    for e in v.errors), v.errors)
+
+    def test_isolated_on_a_mission_step_rejected(self):
+        # The mission branch `continue`s before the R5 guards, so both levels need
+        # naming explicitly.
+        for where in ("args", "step"):
+            with self.subTest(where=where):
+                def m(s, where=where):
+                    step = {"phase": "mission", "expect": hlib.MISSION_STEP_EXPECT}
+                    if where == "args":
+                        step["args"] = {"isolated": "true"}
+                    else:
+                        step["isolated"] = True
+                    s["driver"]["steps"].insert(1, step)
+                v = self._reject(m)
+                self.assertFalse(v.ok)
+                self.assertTrue(any("isolated" in e and "mission" in e
+                                    for e in v.errors), v.errors)
+
+    def test_a_case_variant_isolated_arg_key_rejected(self):
+        # No per-verb arg vocabulary exists, so an unknown key is forwarded verbatim
+        # and the C# `ArgOrNull(cmd, "isolated")` (exact, case-sensitive) misses it.
+        for key in ("Isolated", "ISOLATED", "isoLated"):
+            with self.subTest(key=key):
+                def m(s, key=key):
+                    self._run_tests_step(s)["args"][key] = "true"
+                v = self._reject(m)
+                self.assertFalse(v.ok)
+                self.assertTrue(any("case-sensitive" in e for e in v.errors), v.errors)
+
+    def test_run_tests_steps_may_not_disagree_on_the_batch_mode(self):
+        # Reachable only through the documented batchVacuityOptOut escape, which is
+        # exactly where a review found it: two RunTests steps, the FIRST ordinary and
+        # the SECOND isolated, validated cleanly while spec_batch_isolated answered
+        # for the wrong one.
+        def m(s):
+            step = copy.deepcopy(self._run_tests_step(s))
+            step["args"]["isolated"] = "true"
+            s["driver"]["steps"].insert(
+                s["driver"]["steps"].index(self._run_tests_step(s)) + 1, step)
+            lc = s.setdefault("expectations", {}).setdefault("logContracts", {})
+            lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+            lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "probe"
+        v = self._reject(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("DISAGREE" in e for e in v.errors), v.errors)
+
+    # --- The ISOLATED AXIS of the pre-existing gates (the review's F1) ---
+    #
+    # R5 threaded an `isolated` mode through the tally cross-check and past four
+    # gates, and pinned NOWHERE that those gates still apply to an isolated spec.
+    # Four one-line "isolated specs are exempt" mutations all survived the suite.
+    # That matters because the change's own narrative is "the ordinary derivation
+    # would have REJECTED a correct isolated pin" - so the instinct on hitting a
+    # second such rejection is to exempt, which silently reinstates the whole
+    # B10 GREEN-over-ZERO-executed-tests class for every isolated spec.
+
+    def _isolated_spec(self):
+        spec = copy.deepcopy(load_spec("H21-scene-exit-merge-isolated.toml"))
+        self.assertTrue(hlib.spec_batch_isolated(spec))
+        return spec
+
+    def test_the_anti_vacuity_gate_still_applies_to_an_isolated_spec(self):
+        spec = self._isolated_spec()
+        lc = spec["expectations"]["logContracts"]
+        lc["required"] = [r"BATCH_COMPLETE v1 .*failed=0\b"]
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(
+            v.ok, "an isolated spec with a failed=0-only contract must still be "
+                  "rejected: that pattern is satisfied by the all-skipped batch, "
+                  "which is exactly what the ordinary path prints for this category")
+
+    def test_the_single_selector_rule_still_applies_to_an_isolated_spec(self):
+        spec = self._isolated_spec()
+        self._run_tests_step(spec)["args"]["category"] = "SceneExitMerge,MergeDialog"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("multi-category" in e for e in v.errors), v.errors)
+
+    # NOTE on why these two look contrived. For a SELF-CONSISTENT pin the floor and
+    # the ceiling are algebraically the same check: executed = total - skipped and
+    # executable = total - attribute_skipped, so executed > executable holds exactly
+    # when skipped < attribute_skipped. A pin that trips one trips the other, and
+    # disabling either alone is invisible. Each is therefore isolated by OMITTING
+    # the token the other one reads.
+
+    @staticmethod
+    def _isolated_decls():
+        # 2 restore-backed + 1 manual-only, all FLIGHT. Isolated derivation:
+        # total=3, attribute_skipped=1, executable=2.
+        return [hlib.InGameTestDecl(category="C", scene="FLIGHT", allow_batch=False,
+                                    origin="F.cs:1 a", restore_baseline=True),
+                hlib.InGameTestDecl(category="C", scene="FLIGHT", allow_batch=False,
+                                    origin="F.cs:2 b", restore_baseline=True),
+                hlib.InGameTestDecl(category="C", scene="FLIGHT", allow_batch=False,
+                                    origin="F.cs:3 c", restore_baseline=False)]
+
+    def test_the_skipped_floor_still_applies_on_the_isolated_derivation(self):
+        # passed=/failed= OMITTED so the ceiling cannot fire and only the floor can.
+        pin = hlib.resolve_batch_tally_pin(
+            ["BATCH_COMPLETE v1 total=3 skipped=0 category=C scene=FLIGHT"])
+        self.assertIsNone(pin.passed)
+        problems = hlib.batch_tally_pin_mismatches(pin, self._isolated_decls(),
+                                                   isolated=True)
+        self.assertNotEqual(
+            problems, [],
+            "one declaration is manual-only (neither flag), so even the isolated "
+            "filter forces a skip and skipped=0 is underivable - the floor must "
+            "still fire when the spec is isolated")
+
+    def test_the_executable_ceiling_still_applies_on_the_isolated_derivation(self):
+        # skipped= OMITTED so the floor cannot fire and only the ceiling can.
+        pin = hlib.resolve_batch_tally_pin(
+            ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 category=C scene=FLIGHT"])
+        self.assertIsNone(pin.skipped)
+        problems = hlib.batch_tally_pin_mismatches(pin, self._isolated_decls(),
+                                                   isolated=True)
+        self.assertNotEqual(
+            problems, [],
+            "only 2 of the 3 are admitted even by the isolated filter, so passed=3 "
+            "is impossible - the ceiling must still fire when the spec is isolated")
+
     def test_reserved_seam_verb_rejected(self):
         # SealSlot stays RESERVED after M-C1 (the four implemented verbs were removed
         # from the reserved set; SealSlot is one of the eleven that stay reserved).
@@ -1308,6 +1554,77 @@ class InGameAttributeParseTests(unittest.TestCase):
                      'public void W() { }')
         self.assertEqual((d.category, d.allow_batch), ("Missions", False))
 
+    # --- R5: RestoreBatchFlightBaselineAfterExecution ---
+
+    def test_the_decl_dataclass_default_for_restore_is_false(self):
+        # Distinct from the ATTRIBUTE default below: this is the python dataclass's
+        # own default, which every caller currently passes explicitly, so flipping it
+        # survived the whole suite. A 4-arg positional construction would then
+        # silently mark every declaration restore-backed and over-count an isolated
+        # derivation's `executable` - the exact direction _resolve_bool_default_false
+        # is written to avoid.
+        d = hlib.InGameTestDecl(category="C", scene="FLIGHT", allow_batch=True,
+                                origin="F.cs:1 m")
+        self.assertFalse(d.restore_baseline)
+
+    def test_restore_baseline_defaults_false(self):
+        # The C# property carries NO initializer, unlike AllowBatchExecution, so its
+        # default is false. Defaulting it true would silently inflate every isolated
+        # derivation's `passed=` and let a spec pin more tests than can run.
+        d = self.one('[InGameTest(Category = "X")]\npublic void A() { }')
+        self.assertFalse(d.restore_baseline)
+
+    def test_restore_baseline_is_read_off_the_attribute(self):
+        d = self.one('[InGameTest(Category = "SceneExitMerge", '
+                     'AllowBatchExecution = false, '
+                     'RestoreBatchFlightBaselineAfterExecution = true)]\n'
+                     'public void B() { }')
+        self.assertEqual((d.category, d.allow_batch, d.restore_baseline),
+                         ("SceneExitMerge", False, True))
+
+    def test_restore_baseline_fails_closed_on_an_unreadable_expression(self):
+        # Only a literal `true` admits. Anything this parse cannot evaluate reads as
+        # NOT restore-backed, so an isolated derivation UNDER-counts admissions and a
+        # spec pinning the higher number reds. The opposite default would silently
+        # over-count and the spec would red only on the nightly.
+        for expr in ("SomeConst", "!false", "True"):
+            with self.subTest(expr=expr):
+                d = self.one('[InGameTest(Category = "X", '
+                             'RestoreBatchFlightBaselineAfterExecution = %s)]\n'
+                             'public void C() { }' % expr)
+                self.assertFalse(d.restore_baseline)
+
+    def test_restore_baseline_survives_the_long_batch_skip_reason(self):
+        # Both real SceneExitMerge declarations carry a multi-sentence
+        # BatchSkipReason containing commas, parens and "=" before the restore flag.
+        # If the arg-splitter broke on any of those the flag would silently read
+        # false and the isolated derivation would collapse to the ordinary one.
+        d = self.one('[InGameTest(Category = "SceneExitMerge", '
+                     'Scene = GameScenes.FLIGHT, RunLast = true, '
+                     'AllowBatchExecution = false, '
+                     'BatchSkipReason = "Isolated-run only - excluded from Run All '
+                     '(ordinary), because this starts a recording, launches, and '
+                     'exits FLIGHT; use Run All + Isolated.", '
+                     'RestoreBatchFlightBaselineAfterExecution = true, '
+                     'Description = "Space Center exit, merge dialog")]\n'
+                     'public IEnumerator D() { yield break; }')
+        self.assertEqual((d.category, d.scene, d.allow_batch, d.restore_baseline),
+                         ("SceneExitMerge", "FLIGHT", False, True))
+
+    def test_the_real_scene_exit_merge_declarations_parse_as_restore_backed(self):
+        # Reads the ACTUAL source, not a synthetic string: H21's whole premise is
+        # that these two are batch-disabled AND restore-backed. A spelling change in
+        # the tree that the parse cannot follow would silently turn the isolated
+        # derivation back into the ordinary one, and this cell is what notices.
+        decls = [d for d in load_ingame_test_declarations()
+                 if d.category == "SceneExitMerge"]
+        self.assertEqual(2, len(decls), [d.origin for d in decls])
+        for d in decls:
+            with self.subTest(origin=d.origin):
+                self.assertEqual("FLIGHT", d.scene)
+                self.assertFalse(d.allow_batch)
+                self.assertTrue(d.restore_baseline)
+
     def test_attribute_shaped_text_inside_a_string_is_not_a_declaration(self):
         # The real trap: IncompleteBallisticRuntimeTests has a Description that
         # literally reads "no [InGameTest] declares Scene=EDITOR".
@@ -1508,9 +1825,68 @@ class DeriveBatchTallyTests(unittest.TestCase):
     """Guards the two-filter model against InGameTestRunner.RunCategory."""
 
     @staticmethod
-    def decl(cat="C", scene=hlib.INGAME_ANY_SCENE, allow=True, origin="o"):
+    def decl(cat="C", scene=hlib.INGAME_ANY_SCENE, allow=True, origin="o",
+             restore=False):
         return hlib.InGameTestDecl(category=cat, scene=scene, allow_batch=allow,
-                                   origin=origin)
+                                   origin=origin, restore_baseline=restore)
+
+    # --- R5: the isolated admission filter ---
+
+    def test_isolated_admits_a_restore_backed_batch_disabled_test(self):
+        # The R5 unlock in one cell: AllowBatchExecution=false +
+        # RestoreBatchFlightBaselineAfterExecution=true is skipped by the ordinary
+        # filter and EXECUTED by the isolated one. `total` is unchanged in both --
+        # BATCH_COMPLETE counts filtered tests too -- so the whole difference lands
+        # in the batch_skipped/executable split, which is what a pin rests on.
+        ds = [self.decl(allow=False, restore=True),
+              self.decl(allow=False, restore=True, origin="p")]
+        ordinary = hlib.derive_batch_tally(ds, "C", "FLIGHT")
+        isolated = hlib.derive_batch_tally(ds, "C", "FLIGHT", isolated=True)
+        self.assertEqual((ordinary.total, ordinary.batch_skipped, ordinary.executable),
+                         (2, 2, 0))
+        self.assertEqual((isolated.total, isolated.batch_skipped, isolated.executable),
+                         (2, 0, 2))
+
+    def test_isolated_still_skips_a_genuinely_manual_only_test(self):
+        # The isolated filter is `allow || restore`, NOT "admit everything". A test
+        # that is batch-disabled and NOT restore-backed stays skipped on both paths;
+        # if it did not, the isolated route would run destructive manual-only tests
+        # with nothing to revert them.
+        ds = [self.decl(allow=False, restore=False)]
+        for isolated in (False, True):
+            with self.subTest(isolated=isolated):
+                d = hlib.derive_batch_tally(ds, "C", "FLIGHT", isolated=isolated)
+                self.assertEqual((d.batch_skipped, d.executable), (1, 0))
+
+    def test_isolated_changes_nothing_for_a_batch_allowed_test(self):
+        # The four restore-only declarations in the tree (Contracts 2, TestCommands
+        # 1, LedgerGroundTruth 1) carry restore=true WITHOUT allow=false, so they are
+        # already admitted by `allow_batch` alone. The isolated filter's `|| restore`
+        # disjunct is redundant for them and must not move any count -- which is why
+        # they cannot serve as a differential proof that the arg took effect.
+        ds = [self.decl(allow=True, restore=True), self.decl(allow=True, restore=False,
+                                                             origin="p")]
+        ordinary = hlib.derive_batch_tally(ds, "C", "FLIGHT")
+        isolated = hlib.derive_batch_tally(ds, "C", "FLIGHT", isolated=True)
+        self.assertEqual(
+            (ordinary.total, ordinary.batch_skipped, ordinary.executable),
+            (isolated.total, isolated.batch_skipped, isolated.executable))
+
+    def test_isolated_does_not_relax_the_scene_filter(self):
+        # FilterSceneEligibleBatchCandidates runs BEFORE either admission filter on
+        # all four entry points and knows nothing about the restore flag. A
+        # scene-ineligible restore-backed test stays in the SCENE bucket, counted
+        # once, on both paths.
+        ds = [self.decl(scene="SPACECENTER", allow=False, restore=True)]
+        d = hlib.derive_batch_tally(ds, "C", "FLIGHT", isolated=True)
+        self.assertEqual((d.total, d.scene_skipped, d.batch_skipped, d.executable),
+                         (1, 1, 0, 0))
+
+    def test_isolated_defaults_off(self):
+        # Back-compatibility: every pre-R5 caller passes two positional args and
+        # must keep getting the ordinary model.
+        ds = [self.decl(allow=False, restore=True)]
+        self.assertEqual(0, hlib.derive_batch_tally(ds, "C", "FLIGHT").executable)
 
     def test_any_scene_is_eligible_everywhere(self):
         d = hlib.derive_batch_tally([self.decl(), self.decl(origin="p")], "C",
@@ -1637,6 +2013,54 @@ class BatchTallyPinTests(unittest.TestCase):
     def test_the_old_bare_failed_zero_pin_is_not_statically_checkable(self):
         pin = hlib.resolve_batch_tally_pin(["BATCH_COMPLETE v1 .* failed=0\\b"])
         self.assertIsNotNone(pin)
+        self.assertFalse(pin.statically_checkable)
+
+    def test_a_hyphenated_category_reads_as_a_pinned_literal(self):
+        # REGRESSION. _pin_literal_word's class used to be [A-Za-z0-9_:]+, which
+        # excluded `-` and therefore made ALL SEVEN of the tree's hyphenated
+        # categories (Pipeline-Anchor, Pipeline-Smoothing, Pipeline-Frame,
+        # Pipeline-Outlier, Pipeline-Terrain, Pipeline-AnchorPropagate,
+        # Pipeline-Anchor-BubbleEntry) structurally unpinnable: category read None,
+        # statically_checkable went False, and the sync sweep rejected the spec
+        # with a message blaming the author. The runtime side never had the gap
+        # (_BATCH_RE reads category=\S+), so this was a static-path-only
+        # disagreement with the line the game actually prints.
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 "
+            "category=Pipeline-Anchor scene=FLIGHT"])
+        self.assertEqual(pin.category, "Pipeline-Anchor")
+        self.assertTrue(pin.statically_checkable)
+        # Two hyphens must survive too - the longest name in the tree.
+        self.assertEqual(
+            hlib.resolve_batch_tally_pin([
+                "BATCH_COMPLETE v1 total=2 category=Pipeline-Anchor-BubbleEntry "
+                "scene=FLIGHT"]).category,
+            "Pipeline-Anchor-BubbleEntry")
+
+    def test_the_runtime_parser_and_the_pin_parser_agree_on_a_hyphen(self):
+        # The two must not disagree about what a category token IS: the pin says
+        # what must appear, the runtime parser reads what did. A hyphen that only
+        # one of them accepts is how a pin silently stops gating.
+        line = ("[LOG 00:00:00.000] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 "
+                "total=4 passed=4 failed=0 skipped=0 category=Pipeline-Smoothing "
+                "scene=FLIGHT")
+        parsed = hlib.parse_batch_complete_line(line)
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 "
+            "category=Pipeline-Smoothing scene=FLIGHT"])
+        self.assertEqual(parsed.category, "Pipeline-Smoothing")
+        self.assertEqual(pin.category, parsed.category)
+
+    def test_a_bracketed_regex_range_is_still_not_a_literal(self):
+        # The safety half of widening the class. `-` is a metacharacter only inside
+        # a character class, and `[` / `]` stay excluded, so a genuine regex token
+        # must keep reading as UNPINNED rather than as a category literally named
+        # "[A-Z]-x" - which would make the sweep report a category that cannot
+        # exist and send the reader hunting for a rename that never happened.
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 "
+            "category=[A-Z]-x scene=FLIGHT"])
+        self.assertIsNone(pin.category)
         self.assertFalse(pin.statically_checkable)
 
     def test_a_multi_category_aggregate_pin_is_recognized_as_such(self):
@@ -1778,6 +2202,28 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
         cls.decls = load_ingame_test_declarations()
         cls.specs = batch_owning_specs()
 
+    def test_the_isolated_flag_is_read_off_the_spec_not_assumed(self):
+        # R5 FLOOR. Every cell below that derives a tally must pass the spec's OWN
+        # batch mode to derive_batch_tally; hardcoding False would validate an
+        # isolated spec against the ordinary admission filter (rejecting a correct
+        # pin), and hardcoding True would let a spec that LOST its isolated arg keep
+        # validating against the isolated derivation while running nothing. This
+        # cell exists so the resolver itself is exercised over the committed set and
+        # cannot silently start answering False for everything.
+        modes = {name: hlib.spec_batch_isolated(spec)
+                 for name, spec, _ in self.specs}
+        self.assertTrue(modes, "no batch-owning spec found - sweep is inert")
+        for name, spec, _ in self.specs:
+            with self.subTest(spec=name):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+                expected = bool(run_tests) and (
+                    (run_tests[0].get("args", {}) or {}).get("isolated") == "true")
+                if not run_tests:
+                    expected = ((spec.get("driver", {}) or {})
+                                .get("autorun", {}) or {}).get("isolated") is True
+                self.assertEqual(expected, modes[name])
+
     def test_the_source_tree_is_actually_readable(self):
         # Guards the gate itself: if the walk silently found nothing (a moved
         # source tree, a bad relative path), every assertion below passes vacuously
@@ -1857,13 +2303,49 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 if pin is None or not pin.statically_checkable:
                     continue
-                problems = hlib.batch_tally_pin_mismatches(pin, self.decls)
+                problems = hlib.batch_tally_pin_mismatches(
+                    pin, self.decls, isolated=hlib.spec_batch_isolated(spec))
                 self.assertEqual(
                     problems, [],
                     "%s's pinned BATCH_COMPLETE tally no longer matches "
                     "Source/Parsek. Re-derive it and update the spec (and its "
                     "derivation comment) in the same commit:\n  - %s"
                     % (name, "\n  - ".join(problems)))
+
+    def test_an_isolated_spec_would_red_if_its_isolated_arg_were_dropped(self):
+        # MUTATION CELL, and the reason the flag has to be threaded rather than
+        # defaulted. For every committed isolated spec, re-derive its pin against
+        # the ORDINARY admission filter and require that it FAILS. If it passes,
+        # the spec is not actually exercising the isolated path -- its category is
+        # batch-allowed anyway -- and the spec proves nothing about R5. This is the
+        # static half of the same contrast the shakedown spec proves live.
+        isolated = [(n, s) for n, s, _ in self.specs if hlib.spec_batch_isolated(s)]
+        self.assertTrue(
+            isolated,
+            "no committed spec drives an isolated batch, so the R5 seam argument "
+            "has no gated user and could be deleted without reding anything")
+        for name, spec in isolated:
+            with self.subTest(spec=name):
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                self.assertIsNotNone(pin, name)
+                # Self-standing (review F9): on an INTERIM pin
+                # (`passed=[1-9][0-9]*`) batch_tally_pin_mismatches returns
+                # "cannot be cross-checked" on BOTH paths, so the contrast below
+                # would pass while proving nothing.
+                self.assertTrue(
+                    pin.statically_checkable,
+                    "%s must pin a literal category= and scene= or the contrast "
+                    "below is vacuous" % name)
+                ordinary = hlib.batch_tally_pin_mismatches(
+                    pin, self.decls, isolated=False)
+                self.assertNotEqual(
+                    ordinary, [],
+                    "%s declares isolated = \"true\" but its pinned tally is ALSO "
+                    "satisfiable on the ordinary batch path, so the isolated arg is "
+                    "doing no work. Either the category is batch-allowed (drop the "
+                    "arg) or the pin is too loose to tell the two paths apart."
+                    % name)
 
     def test_the_spec_selector_matches_the_pinned_category(self):
         # A RunTests selector and the category= it pins are two independent copies
@@ -1882,6 +2364,711 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
                     pin.category, selector.strip(),
                     "%s drives RunTests category=%r but pins category=%r"
                     % (name, selector, pin.category))
+
+
+class IngameBatchWiringGroupTests(unittest.TestCase):
+    """The H7-H20 + H22 in-game batch-wiring group: 15 batch-only specs that each drive
+    one previously-undriven [InGameTest] category over a committed fixture.
+
+    H7-H20 were committed as one wave; H22 joined the same family afterward, arriving
+    with the Basic/Advanced UI-mode feature (it drives UiComplexityMode over the same
+    gloops-airshow fixture on the ordinary, non-isolated batch path).
+
+    The generic sweeps above already cover these specs as members of "every committed
+    spec". This class asserts the properties that are specific to the GROUP and that
+    a generic sweep cannot state: that the group is exactly this set (so a 16th
+    arrives with its doc row rather than silently), that every member is non-vacuous
+    when probed DIRECTLY rather than through validate_spec, and that each pinned
+    total equals the count derived from the C# attributes for the category the spec
+    actually drives.
+    """
+
+    # id -> (category, total). The total is the ATTRIBUTE-EXACT declaration count,
+    # re-derived below from Source/Parsek rather than trusted from this table; the
+    # table exists so a category rename reds HERE with both names in the message.
+    GROUP = {
+        "H7-trajectory-math":        ("TrajectoryMath", 8),
+        "H8-spawn-rotation":         ("SpawnRotation", 10),
+        "H9-incomplete-ballistic":   ("IncompleteBallistic", 8),
+        "H10-finalize-backfill":     ("FinalizeBackfill", 7),
+        "H11-pipeline-anchor":       ("Pipeline-Anchor", 7),
+        "H12-switch-segment":        ("SwitchSegment", 6),
+        "H13-ksp-api-smoke":         ("KSP", 6),
+        "H14-corpus-data-health":    ("DataHealth", 4),
+        "H15-corpus-ghost-visuals":  ("GhostVisuals", 4),
+        "H16-corpus-spawn-health":   ("SpawnHealth", 3),
+        "H17-flight-integration":    ("FlightIntegration", 4),
+        "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4),
+        "H19-recording-finalization": ("RecordingFinalization", 3),
+        "H20-eva-spawn-position":    ("EvaSpawnPosition", 2),
+        "H22-ui-complexity-mode":    ("UiComplexityMode", 3),
+    }
+
+    # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
+    # carried the loose interim pin, because both its cells have run-time
+    # InGameAssert.Skip guards and one of them (the walkback endpoint-overlap probe,
+    # a live Physics.OverlapBox) is not decidable from source. It was re-flown ALONE
+    # on 2026-07-27 so its log would survive the sweep, measured
+    # `total=2 passed=2 failed=0 skipped=0`, and is now pinned whole like the rest.
+    # So every member of the group pins its tally whole, and
+    # test_the_interim_pin_member_is_declared_and_deliberately_loose now asserts that
+    # NONE of them is loose - which is the guard worth having, because the interim
+    # form accepts 1-of-N by design and re-introducing one silently would be a real
+    # weakening. Add an id back here only alongside a written reason in the spec.
+    #
+    # NOTE the asymmetry this leaves: for 13 of the 15, skipped=0 is DERIVABLE from
+    # the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
+    # attributes put a floor of 0 on it and nothing more, and a fixture change that
+    # moves the parent's collider geometry can legitimately make it skip. H22 is in
+    # the same position: all three UiComplexityMode cells carry in-body
+    # InGameAssert.Skip guards (no live ParsekUI, Gloops recording in progress), so
+    # its skipped=0 is a claim about the gloops-airshow fixture that the 2026-07-28
+    # run measured, not an attribute derivation. Only H18 among the remaining 13 has
+    # a comparable caveat (its AssertHandlerRegistered helper skips if a KSP version
+    # renames EventData<T>'s internal `events` field, unreachable on the pinned
+    # 1.12.5).
+    INTERIM_PIN_IDS = set()
+
+    # Every committed spec whose id matches this is an H-SERIES batch spec.
+    # Membership is DISCOVERED from disk and then compared for set equality against
+    # GROUP, which is what makes "a 16th spec arrives with its doc row" true: an
+    # id-filtered intersection (the first cut) could only ever see members that were
+    # in GROUP already, so a brand-new spec on disk was invisible to every cell here.
+    #
+    # R5 WIDENED THE PATTERN from `^H(?:[7-9]|1[0-9]|20)-` to any two-digit H id.
+    # The old pattern stopped dead at H20, so the very next spec committed -- H21 --
+    # would have reproduced the exact hole the set-equality cell was written to
+    # close, silently and on its first day. It still excludes H5 / H6, which are
+    # single-digit and predate this group.
+    #
+    # The discovered set is then PARTITIONED on each spec's own batch mode
+    # (hlib.spec_batch_isolated), never on a hardcoded id list: this group is the
+    # ORDINARY-path family, IsolatedBatchWiringGroupTests below owns the isolated
+    # one, and the partition key comes from the spec itself so a member cannot drift
+    # into the wrong family or fall between them.
+    GROUP_ID_RE = re.compile(r"^H(?:[7-9]|[1-9][0-9]+)-")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.decls = load_ingame_test_declarations()
+        cls.specs = {}
+        cls.on_disk = set()
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            sid = spec.get("id") or ""
+            if cls.GROUP_ID_RE.match(sid) and not hlib.spec_batch_isolated(spec):
+                cls.on_disk.add(sid)
+            if sid in cls.GROUP:
+                cls.specs[sid] = spec
+
+    def test_the_group_table_is_not_empty(self):
+        # ANTI-VACUITY FLOOR, and the reason it exists is this PR's own thesis.
+        # Every other cell in this class iterates `self.specs`, which is built by
+        # filtering the committed specs against GROUP. Delete an entry from GROUP and
+        # that spec silently drops out of all of them; empty GROUP entirely and all
+        # eight cells pass over ZERO specs while asserting nothing. The membership
+        # cell below cannot catch either, because it compares two sets that shrink
+        # together. Same shape as CommittedBatchTallySourceSyncTests's
+        # test_the_source_tree_is_actually_readable.
+        self.assertEqual(15, len(self.GROUP),
+                         "the H7-H20 + H22 group is 15 specs; if it genuinely changed "
+                         "size, update this floor AND the counts in "
+                         "docs/dev/autotest-ingame-category-inventory.md and "
+                         "docs/dev/autotest-status.md in the same commit")
+        self.assertEqual(len(self.GROUP), len(self.specs),
+                         "GROUP names %d specs but only %d were loaded from %s - the "
+                         "rest of this class would assert over the missing ones' "
+                         "absence" % (len(self.GROUP), len(self.specs), SCENARIOS_DIR))
+
+    def test_the_group_is_exactly_the_committed_set(self):
+        # SET EQUALITY against what is on disk, not an intersection: this fires both
+        # when a listed member is removed/renamed AND when a new H-series spec is
+        # committed without being added here.
+        self.assertEqual(sorted(self.on_disk), sorted(self.GROUP),
+                         "the H-series ordinary-path specs on disk differ from the "
+                         "table in this "
+                         "test. A spec here but not on disk was removed or renamed; a "
+                         "spec on disk but not here is new and must be added to GROUP, "
+                         "to the enumeration table in "
+                         "docs/dev/autotest-ingame-category-inventory.md, and to the "
+                         "section table + scenario total in "
+                         "docs/dev/autotest-status.md, in the same commit")
+
+    def test_each_drives_exactly_one_named_category(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+                self.assertEqual(1, len(run_tests),
+                                 "%s must own exactly one RunTests batch "
+                                 "(hlib.SINGLE_BATCH_SELECTOR_RULE)" % sid)
+                selector = (run_tests[0].get("args", {}) or {}).get("category")
+                self.assertEqual(self.GROUP[sid][0], selector)
+                self.assertFalse(hlib.is_multi_category_selector(selector))
+
+    def test_none_is_vacuous_when_probed_directly(self):
+        # Probed through batch_contract_vacuity_gap itself, not via validate_spec:
+        # the whole point of the group is that none of them can read GREEN over zero
+        # executed tests, and that property should be asserted against the probe
+        # rather than inherited from another test's pass.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                self.assertNotIn(hlib.BATCH_VACUITY_OPT_OUT_KEY, lc,
+                                 "%s must not opt out of the anti-vacuity gate" % sid)
+                gap = hlib.batch_contract_vacuity_gap(
+                    lc.get("required", []) or [], self.GROUP[sid][0])
+                self.assertIsNone(gap, "%s accepts a vacuous batch: %s" % (sid, gap))
+
+    def test_each_pinned_total_equals_the_source_derivation(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, expected_total = self.GROUP[sid]
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                self.assertTrue(pin.statically_checkable, sid)
+                self.assertEqual(pin.category, category)
+                self.assertEqual(pin.scene, "FLIGHT",
+                                 "%s: every member of this group loads the "
+                                 "gloops-airshow Focusable route" % sid)
+                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                self.assertEqual(derived.total, expected_total,
+                                 "%s: the source now declares %d %s test(s), not %d"
+                                 % (sid, derived.total, category, expected_total))
+                self.assertEqual(pin.total, derived.total)
+                self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, self.decls))
+
+    def test_whole_tally_members_pin_a_derivable_zero_skip(self):
+        # What this actually checks, stated precisely because it is weaker than it
+        # looks for one member: nothing the ATTRIBUTES control forces a skip at
+        # FLIGHT, so the attribute-derived skipped FLOOR is 0 and the pinned tally
+        # must agree with it. For 13 of the 15 that floor plus a reachable-Skip scan
+        # makes skipped=0 genuinely derivable. For H20 and H22 the floor is all the
+        # attributes give - their skipped=0 is MEASURED off a live run - so this cell
+        # confirms consistency, not derivability, for those two. If a member later gains a
+        # scene-mismatched or AllowBatchExecution=false declaration, this reds
+        # pointing at the member.
+        for sid, spec in sorted(self.specs.items()):
+            if sid in self.INTERIM_PIN_IDS:
+                continue
+            with self.subTest(spec=sid):
+                category, _ = self.GROUP[sid]
+                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                self.assertEqual(
+                    0, derived.attribute_skipped,
+                    "%s pins skipped=0 but the attributes force %d skip(s): %s %s"
+                    % (sid, derived.attribute_skipped,
+                       derived.scene_skipped_members, derived.batch_skipped_members))
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                self.assertEqual((pin.passed, pin.failed, pin.skipped),
+                                 (derived.total, 0, 0), sid)
+
+    def test_the_interim_pin_member_is_declared_and_deliberately_loose(self):
+        # Guards the OTHER direction: the interim form accepts 1-of-N by design, so
+        # an accidental interim pin is a real weakening. Exactly the declared member
+        # may leave passed / skipped unpinned, and it must still pin total literally.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                # Resolved INSIDE the subTest: a spec whose pin fails to resolve
+                # would otherwise error the whole cell without naming which one.
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                loose = pin.passed is None or pin.skipped is None
+                self.assertEqual(sid in self.INTERIM_PIN_IDS, loose,
+                                 "%s: interim-vs-whole pin state disagrees with "
+                                 "INTERIM_PIN_IDS" % sid)
+                self.assertIsNotNone(pin.total,
+                                     "%s must pin total= even when the split is "
+                                     "unmeasured" % sid)
+
+    def test_each_pin_matches_the_line_the_runner_would_actually_print(self):
+        # END-TO-END round trip, the guard the other cells cannot give: synthesize
+        # the exact BATCH_COMPLETE line InGameTestRunner emits for the derived tally,
+        # and require (a) the spec's pattern MATCHES it, (b) the same pattern REJECTS
+        # the vacuous line for the same category, and (c) hlib's own runtime parser
+        # reads the category back unchanged. (c) is what would have caught the
+        # hyphen defect from the run-time side rather than the static side.
+        prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, total = self.GROUP[sid]
+                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                skipped = derived.attribute_skipped
+                real = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
+                        "skipped=%d category=%s scene=FLIGHT"
+                        % (total, total - skipped, skipped, category))
+                vacuous = (prefix + "BATCH_COMPLETE v1 total=%d passed=0 failed=0 "
+                           "skipped=%d category=%s scene=FLIGHT"
+                           % (total, total, category))
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                batch_pats = [p for p in (lc.get("required", []) or [])
+                              if "BATCH_COMPLETE" in p]
+                self.assertEqual(1, len(batch_pats),
+                                 "%s: expected exactly one BATCH_COMPLETE pattern" % sid)
+                pat = batch_pats[0]
+                self.assertRegex(real, pat,
+                                 "%s: its own pin does not match the line the runner "
+                                 "would print for the derived tally" % sid)
+                self.assertNotRegex(vacuous, pat,
+                                    "%s: its pin ACCEPTS the vacuous line" % sid)
+                parsed = hlib.parse_batch_complete_line(real)
+                self.assertIsNotNone(parsed, sid)
+                self.assertEqual(parsed.category, category,
+                                 "%s: the runtime parser and the pin disagree about "
+                                 "the category token" % sid)
+
+    def test_corpus_backed_members_inject_and_pin_the_corpus(self):
+        # The four members whose category walks RecordingStore would PASS over an
+        # empty store while asserting over zero items (two of them by a silent
+        # `yield break` that is not even reported as a Skip). The tally cannot see
+        # that; only the fixture can. So those four must inject the corpus AND pin a
+        # non-zero recordings count, and the others must pin zero so a leak reds.
+        corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
+                         "H16-corpus-spawn-health", "H17-flight-integration"}
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                fixture = spec.get("fixture", {}) or {}
+                count = ((spec.get("expectations", {}) or {})
+                         .get("recordings", {}) or {}).get("count", {}) or {}
+                if sid in corpus_backed:
+                    self.assertEqual("all-synthetic", fixture.get("injectedRecordings"))
+                    self.assertGreater(count.get("min", 0), 0,
+                                       "%s must pin a non-zero corpus count - it is "
+                                       "the only guard against a store walk over "
+                                       "nothing" % sid)
+                else:
+                    self.assertEqual("none", fixture.get("injectedRecordings"))
+                    self.assertEqual({"min": 0, "max": 0}, count,
+                                     "%s pins no recordings, so a leak into the save "
+                                     "must red" % sid)
+
+
+def discover_isolated_spec_ids(named_specs):
+    """Spec ids whose OWN batch mode is isolated, from (id, spec) pairs.
+
+    Factored out of IsolatedBatchWiringGroupTests.setUpClass so the discovery RULE
+    is testable with synthetic input. As an inline expression it could be swapped
+    for `sid in GROUP` with the whole suite green, because with exactly one isolated
+    spec on disk the discovered set and the table coincide - the membership cell
+    then compares two sets that are equal for the wrong reason.
+    """
+    return {sid for sid, spec in named_specs if hlib.spec_batch_isolated(spec)}
+
+
+class IsolatedBatchWiringGroupTests(unittest.TestCase):
+    """The R5 isolated-batch group: specs whose RunTests step carries
+    `isolated = "true"`, routing to InGameTestRunner's *IncludingFlightRestore
+    entry point so tests that are AllowBatchExecution=false but
+    RestoreBatchFlightBaselineAfterExecution=true actually execute.
+
+    Membership is DISCOVERED from each spec's own batch mode, not from an id
+    pattern, and then compared for set equality against GROUP -- the same shape
+    IngameBatchWiringGroupTests uses, for the same reason. The two groups partition
+    the H-series between them: this one asserts the properties an isolated spec has
+    that an ordinary one does not, above all that its category is one the ordinary
+    path genuinely cannot run.
+    """
+
+    # id -> (category, total). Re-derived below from Source/Parsek rather than
+    # trusted; the table exists so a rename reds HERE with both names named.
+    GROUP = {
+        "H21-scene-exit-merge-isolated": ("SceneExitMerge", 2),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.decls = load_ingame_test_declarations()
+        cls.specs = {}
+        cls.on_disk = set()
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            sid = spec.get("id") or ""
+            cls.on_disk |= discover_isolated_spec_ids([(sid, spec)])
+            if sid in cls.GROUP:
+                cls.specs[sid] = spec
+
+    def test_the_autorun_arm_is_identity_true_not_truthy(self):
+        # spec_batch_isolated is called on UNVALIDATED specs (two setUpClass sweeps
+        # walk every file on disk), so it cannot rely on validate_spec having
+        # rejected a non-bool. A truthy read would make the STRING "false" isolate.
+        for value, expected in (("false", False), ("true", False), (1, False),
+                                (True, True), (False, False)):
+            with self.subTest(value=repr(value)):
+                spec = {"driver": {"autorun": {"tests": "X", "isolated": value}}}
+                self.assertEqual(expected, hlib.spec_batch_isolated(spec))
+
+    def test_the_discovery_rule_reads_the_spec_not_an_id_list(self):
+        # Synthetic input, so this holds no matter how many isolated specs exist on
+        # disk. An id-lookup implementation returns an empty set here.
+        iso = copy.deepcopy(load_spec("H21-scene-exit-merge-isolated.toml"))
+        ordinary = copy.deepcopy(load_spec("H7-trajectory-math.toml"))
+        got = discover_isolated_spec_ids(
+            [("ZZ-stranger", iso), ("YY-ordinary", ordinary)])
+        self.assertEqual({"ZZ-stranger"}, got,
+                         "discovery must read each spec's own batch mode; an id "
+                         "lookup would return an empty set for these two")
+
+    def test_membership_is_discovered_from_the_spec_not_from_the_table(self):
+        # The class's headline claim, and it was asserted by nothing: replacing the
+        # discovery key with `sid in GROUP` kept the suite green and turned
+        # test_the_group_is_exactly_the_isolated_specs_on_disk into a tautology. It
+        # worked only because there is exactly one isolated spec today.
+        #
+        # Proven by CONSTRUCTION: hand the resolver a spec that is isolated but is
+        # NOT in GROUP and require it to be recognised anyway.
+        stranger = copy.deepcopy(load_spec("H21-scene-exit-merge-isolated.toml"))
+        stranger["id"] = "ZZ-not-in-the-group"
+        self.assertNotIn(stranger["id"], self.GROUP)
+        self.assertTrue(
+            hlib.spec_batch_isolated(stranger),
+            "membership must come from the spec's own batch mode; if this reads "
+            "False the discovery key has been swapped for an id lookup and "
+            "test_the_group_is_exactly_the_isolated_specs_on_disk is a tautology")
+        # And the converse: an ordinary spec must not be claimed.
+        ordinary = copy.deepcopy(load_spec("H7-trajectory-math.toml"))
+        self.assertFalse(hlib.spec_batch_isolated(ordinary))
+
+    def test_the_h_series_id_pattern_covers_three_digit_ids(self):
+        # IngameBatchWiringGroupTests.GROUP_ID_RE was widened from `^H(?:[7-9]|1[0-9]|20)-`
+        # so a new H-series spec cannot be invisible to both wiring groups. The
+        # widening had no coverage, and as first written it stopped dead at H99 -
+        # the same hole one order of magnitude out. Pinned here because this class
+        # is the one that exists because of that hole.
+        rx = IngameBatchWiringGroupTests.GROUP_ID_RE
+        for sid in ("H7-x", "H9-x", "H10-x", "H20-x", "H21-x", "H99-x", "H100-x"):
+            self.assertIsNotNone(rx.match(sid), "%s must be recognised" % sid)
+        for sid in ("H5-invariants-corpus", "H6-route-rewind-timeline", "B1-pad-hop"):
+            self.assertIsNone(rx.match(sid), "%s must NOT be recognised" % sid)
+
+    def test_the_group_table_is_not_empty(self):
+        # ANTI-VACUITY FLOOR (see IngameBatchWiringGroupTests for the full argument):
+        # every cell below iterates self.specs, so an emptied GROUP would pass them
+        # all while asserting nothing.
+        self.assertTrue(self.GROUP, "the isolated group must have at least one member")
+        self.assertEqual(len(self.GROUP), len(self.specs),
+                         "GROUP names %d spec(s) but only %d were loaded from %s"
+                         % (len(self.GROUP), len(self.specs), SCENARIOS_DIR))
+
+    def test_the_group_is_exactly_the_isolated_specs_on_disk(self):
+        self.assertEqual(sorted(self.on_disk), sorted(self.GROUP),
+                         "the isolated specs on disk differ from the table in this "
+                         "test. A spec here but not on disk was removed, renamed, or "
+                         "lost its isolated arg; a spec on disk but not here is new "
+                         "and must be added to GROUP, to "
+                         "docs/dev/autotest-ingame-category-inventory.md, and to "
+                         "docs/dev/autotest-status.md, in the same commit")
+
+    def test_each_drives_exactly_one_named_category_isolated(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+                self.assertEqual(1, len(run_tests),
+                                 "%s must own exactly one RunTests batch "
+                                 "(hlib.SINGLE_BATCH_SELECTOR_RULE)" % sid)
+                args = run_tests[0].get("args", {}) or {}
+                self.assertEqual(self.GROUP[sid][0], args.get("category"))
+                self.assertFalse(hlib.is_multi_category_selector(args.get("category")))
+                # The STRING "true", not the TOML bool: step args are wire-encoded
+                # with str(value), so a bool would travel as `isolated=True` and the
+                # seam's case-sensitive parse would REJECT the step.
+                self.assertEqual("true", args.get("isolated"))
+                self.assertIsInstance(args.get("isolated"), str)
+
+    def test_the_ordinary_path_could_not_run_this_category(self):
+        # THE THESIS CELL. An isolated spec earns its arg only if the ordinary
+        # admission filter would execute ZERO of its category's tests -- otherwise
+        # the arg is decoration and the spec proves nothing about R5. Derived from
+        # the attributes both ways and compared.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, _ = self.GROUP[sid]
+                scene = hlib.resolve_batch_tally_pin(
+                    ((spec.get("expectations", {}) or {})
+                     .get("logContracts", {}) or {}).get("required", []) or []).scene
+                ordinary = hlib.derive_batch_tally(self.decls, category, scene)
+                isolated = hlib.derive_batch_tally(self.decls, category, scene,
+                                                   isolated=True)
+                self.assertEqual(
+                    0, ordinary.executable,
+                    "%s drives %s with isolated = \"true\", but %d of its tests are "
+                    "batch-eligible on the ORDINARY path too. The arg is not doing "
+                    "any work here; drop it, or drive a category that needs it."
+                    % (sid, category, ordinary.executable))
+                self.assertGreater(
+                    isolated.executable, 0,
+                    "%s drives %s isolated but NO test is admitted even by the "
+                    "isolated filter at scene=%s: every declaration is manual-only "
+                    "(neither AllowBatchExecution nor "
+                    "RestoreBatchFlightBaselineAfterExecution), so this batch would "
+                    "run empty." % (sid, category, scene))
+
+    def test_each_pinned_tally_agrees_with_the_isolated_derivation(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, expected_total = self.GROUP[sid]
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                self.assertTrue(pin.statically_checkable, sid)
+                self.assertEqual(pin.category, category)
+                derived = hlib.derive_batch_tally(self.decls, category, pin.scene,
+                                                  isolated=True)
+                self.assertEqual(derived.total, expected_total,
+                                 "%s: the source now declares %d %s test(s), not %d"
+                                 % (sid, derived.total, category, expected_total))
+                self.assertEqual(pin.total, derived.total)
+                self.assertEqual(
+                    [], hlib.batch_tally_pin_mismatches(pin, self.decls, isolated=True))
+                # Whole-tally pin, never the `passed=[1-9][0-9]*` interim form: R5's
+                # proof IS the passed/skipped split, so leaving either unpinned would
+                # accept the very tally the change exists to move.
+                self.assertEqual((pin.passed, pin.failed, pin.skipped),
+                                 (derived.total, 0, 0), sid)
+
+    def test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line(self):
+        # END-TO-END round trip. Three lines are synthesized from the derivation and
+        # matched against the spec's own pattern:
+        #   (a) the ISOLATED line the runner would print -> must MATCH,
+        #   (b) the all-skipped vacuous line              -> must be REJECTED,
+        #   (c) the line TODAY'S ordinary path prints for the same category
+        #       -> must be REJECTED.
+        # (c) is the one that makes this an R5 proof rather than another tally
+        # check: it is what the batch emits if the isolated arg is dropped, ignored,
+        # or misspelled, and note it is a MEMBER of the vacuity family (passed=0,
+        # failed=0, total==skipped), so the anti-vacuity gate already guarantees the
+        # rejection. Asserting it here states that guarantee where R5 depends on it.
+        prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, _ = self.GROUP[sid]
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                batch_pats = [p for p in (lc.get("required", []) or [])
+                              if "BATCH_COMPLETE" in p]
+                self.assertEqual(1, len(batch_pats),
+                                 "%s: expected exactly one BATCH_COMPLETE pattern" % sid)
+                pat = batch_pats[0]
+                scene = hlib.resolve_batch_tally_pin(batch_pats).scene
+                iso = hlib.derive_batch_tally(self.decls, category, scene,
+                                              isolated=True)
+                ord_ = hlib.derive_batch_tally(self.decls, category, scene)
+
+                def line(total, passed, failed, skipped):
+                    return (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=%d "
+                            "skipped=%d category=%s scene=%s"
+                            % (total, passed, failed, skipped, category, scene))
+
+                real = line(iso.total, iso.total - iso.attribute_skipped, 0,
+                            iso.attribute_skipped)
+                vacuous = line(iso.total, 0, 0, iso.total)
+                non_isolated = line(ord_.total,
+                                    ord_.total - ord_.attribute_skipped, 0,
+                                    ord_.attribute_skipped)
+
+                self.assertRegex(real, pat,
+                                 "%s: its own pin does not match the line the runner "
+                                 "would print for the isolated derivation" % sid)
+                self.assertNotRegex(vacuous, pat, "%s: its pin ACCEPTS the vacuous "
+                                                  "line" % sid)
+                self.assertNotRegex(
+                    non_isolated, pat,
+                    "%s: its pin ACCEPTS the line the ORDINARY (non-isolated) path "
+                    "would print, so a run that silently lost the isolated arg would "
+                    "read GREEN. That contrast is the whole proof of R5." % sid)
+                parsed = hlib.parse_batch_complete_line(real)
+                self.assertIsNotNone(parsed, sid)
+                self.assertEqual(parsed.category, category)
+
+    @staticmethod
+    def _fixture_flight_problems(sfs_path):
+        """Why ``sfs_path``'s ACTIVE vessel cannot fly a staging test. Empty = fine.
+
+        ONE implementation, used by both the real cell and the positive control
+        below. Duplicating the checks instead left the engine floor weakenable to
+        ">= 0" with the control still green, because the control was only asserting
+        properties OF the control fixture rather than running the predicate ON it.
+        """
+        problems = []
+        with open(sfs_path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+        active = re.search(r"activeVessel = (\d+)", body)
+        if active is None:
+            return ["no activeVessel declared"]
+        idx = int(active.group(1))
+        blocks = re.split(r"^\s*VESSEL\s*$", body, flags=re.M)[1:]
+        if len(blocks) <= idx:
+            return ["activeVessel=%d but only %d VESSEL nodes" % (idx, len(blocks))]
+        # Scoped to the ACTIVE vessel, not the whole file: a fixture with an
+        # engine-bearing ORBITER and an engineless PRELAUNCH active vessel passes a
+        # file-wide substring check while producing exactly the all-skipped tally
+        # this predicate exists to prevent. b2-lko-craft really does carry two.
+        vessel = blocks[idx]
+        if "sit = PRELAUNCH" not in vessel:
+            problems.append("active vessel (index %d) is not PRELAUNCH" % idx)
+        if vessel.count("name = ModuleEngines") < 1:
+            problems.append("active vessel (index %d) carries NO ModuleEngines" % idx)
+        return problems
+
+    def test_each_pins_an_isolated_path_only_proof_token(self):
+        # The tally alone cannot distinguish "the isolated route ran" from "the
+        # category happened to be batch-allowed". `Using batch baseline slot ... for
+        # N restore-after-run test(s)` is emitted ONLY by
+        # PrepareBatchFlightRestoreExecution, which RunCategory never calls, so it is
+        # independent proof - but only if N is pinned as a LITERAL. A `[0-9]+` there
+        # is satisfied by a batch that admitted a different population.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                _, total = self.GROUP[sid]
+                req = ((spec.get("expectations", {}) or {})
+                       .get("logContracts", {}) or {}).get("required", []) or []
+                slot = [r for r in req if "batch baseline slot" in r]
+                self.assertEqual(1, len(slot),
+                                 "%s must pin the baseline-slot line - it is the only "
+                                 "token that proves the ISOLATED entry point ran" % sid)
+                self.assertIn("for %d restore-after-run" % total, slot[0],
+                              "%s must pin the restore count as a LITERAL (%d), not a "
+                              "class: a class accepts a batch that admitted a "
+                              "different population" % (sid, total))
+
+    def test_each_pins_the_seam_isolated_arg_echo(self):
+        # The canary for the provisioning trap: the harness flies a DIFFERENT KSP
+        # instance from `dotnet build`'s, so this line's ABSENCE means a stale
+        # Parsek.dll rather than a Parsek regression.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                category, _ = self.GROUP[sid]
+                req = ((spec.get("expectations", {}) or {})
+                       .get("logContracts", {}) or {}).get("required", []) or []
+                self.assertIn("runtests start category=%s isolated=true" % category, req,
+                              "%s must pin the seam's own isolated echo" % sid)
+
+    def test_each_pins_a_zero_recordings_count(self):
+        # For an isolated spec this doubles as the CAMPAIGN-ISOLATION assertion: the
+        # tests create real trees mid-run and the batch teardown reverts
+        # persistent.sfs from the pre-batch .bak, so a non-zero count means the
+        # restore contract did not hold - the property R5 is betting on.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                fixture = spec.get("fixture", {}) or {}
+                count = ((spec.get("expectations", {}) or {})
+                         .get("recordings", {}) or {}).get("count", {}) or {}
+                if fixture.get("injectedRecordings") == "none":
+                    self.assertEqual(
+                        {"min": 0, "max": 0}, count,
+                        "%s injects nothing, so the produced save must carry no "
+                        "recordings; a window here would accept a leaked tree or a "
+                        "failed baseline revert" % sid)
+                else:
+                    self.assertGreater(count.get("min", 0), 0, sid)
+
+    def test_the_fixture_predicate_rejects_the_known_engineless_host(self):
+        # POSITIVE CONTROL: run the predicate ON the known-bad fixture and require
+        # it to complain. Without this, weakening the engine floor makes the real
+        # cell vacuous and nothing notices. gloops-airshow is the 14 ordinary
+        # H-specs' host and its active vessel is a 1-part engineless mk1-capsule.
+        problems = self._fixture_flight_problems(
+            os.path.join(HARNESS_ROOT, "fixtures/saves/gloops-airshow/persistent.sfs"))
+        self.assertNotEqual(
+            [], problems,
+            "the fixture predicate must REJECT gloops-airshow - its active vessel is "
+            "engineless, so a staging test self-skips there and the batch prints the "
+            "same all-skipped tally the isolated arg exists to rule out. If this "
+            "passes, the predicate has been weakened into a tautology")
+        self.assertTrue(any("ModuleEngines" in p for p in problems), problems)
+
+    def test_the_budget_clears_the_deferred_worst_case(self):
+        # An isolated batch's plausible failure is a slow or wedged quickload, and a
+        # KILLED run prints no tally and burns a retry - so this family in particular
+        # must be able to surface a seam TIMEOUT as a retryable driver-INVALID.
+        #
+        # The arithmetic is easy to get wrong and was: LoadGame is ITSELF a deferred
+        # verb, so run.py waits required_step_wait(max(budget, 600)) on it too, not
+        # the declared 300. Computed here from hlib rather than restated.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                worst = 0.0
+                for st in steps:
+                    cmd = (st or {}).get("cmd")
+                    if cmd not in hlib.DEFERRED_SEAM_VERBS:
+                        continue
+                    declared = float((st or {}).get("budget") or 0)
+                    worst += hlib.required_step_wait(
+                        max(declared, float(hlib.SEAM_FALLBACK_DEFERRAL_SECONDS)))
+                budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 0))
+                self.assertGreaterEqual(
+                    budget, worst,
+                    "%s declares budgetSeconds=%.0f but its deferred steps can wait "
+                    "%.0f s in total, so a seam TIMEOUT would be pre-empted by a "
+                    "harness KILL - which prints no tally to re-derive from"
+                    % (sid, budget, worst))
+
+    def test_the_fixture_can_actually_fly_the_category(self):
+        # THE FIXTURE TRAP, and it is not hypothetical. Both SceneExitMerge cells
+        # stage the active vessel and wait for it to leave PRELAUNCH and clear 80 m;
+        # on an engineless craft they self-skip and the batch prints
+        # total=2 passed=0 skipped=2 - numerically identical to the non-isolated
+        # failure this spec exists to rule out, and therefore the single most
+        # expensive way to get R5 wrong.
+        #
+        # This cannot prove the craft has the TWR to clear 80 m in 30 s (only a live
+        # run does that, and H21 has), but it catches the engineless case statically.
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                template = (spec.get("fixture", {}) or {}).get("saveTemplate", "")
+                sfs = os.path.join(HARNESS_ROOT, template, "persistent.sfs")
+                self.assertTrue(os.path.isfile(sfs),
+                                "%s names fixture %r but %s does not exist"
+                                % (sid, template, sfs))
+                self.assertEqual(
+                    [], self._fixture_flight_problems(sfs),
+                    "%s's fixture %s cannot fly this category" % (sid, template))
+
+
+class IsolatedAutorunEnvWiringTests(unittest.TestCase):
+    """R5's autorun half has NO committed consumer: no spec uses `[driver.autorun]`,
+    so `run.py`'s env construction is never exercised end to end. Deleting the two
+    lines that set `PARSEK_AUTORUN_ISOLATED` kept the entire suite green.
+
+    That is the same "caught by nothing at all" shape the C# side of this feature
+    already had to close, and the fix is the same: a source-text fence, because the
+    thing being asserted is a CROSS-PROCESS wire contract (the name here must equal
+    `TestRunnerShortcut.EnvIsolatedVar`, pinned on the C# side by
+    IsolatedBatchDispatchWiringTests) rather than a decision a pure function makes.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(HARNESS_ROOT, "run.py"), encoding="utf-8") as fh:
+            cls.src = fh.read()
+
+    def test_the_env_block_sets_the_isolated_var_from_the_autorun_flag(self):
+        self.assertIn('env["PARSEK_AUTORUN_ISOLATED"] = "1"', self.src,
+                      "run.py no longer arms the isolated autorun env var")
+        self.assertIn("autorun.get(hlib.BATCH_ISOLATED_KEY)", self.src,
+                      "the env var must be driven by the spec's own autorun flag, "
+                      "not by a literal or an unrelated key")
+
+    def test_the_isolated_var_is_set_only_inside_the_autorun_block(self):
+        # It must sit under `if autorun and autorun.get("tests")`: arming it for a
+        # RunTests-step spec would set an env var the addon reads at Awake, which
+        # would isolate a batch the spec never asked to isolate.
+        i_tests = self.src.index('env["PARSEK_AUTORUN_TESTS"]')
+        i_iso = self.src.index('env["PARSEK_AUTORUN_ISOLATED"]')
+        i_pop = self.src.index('env.pop("PARSEK_ANALYZER_BASELINE_MODE"')
+        self.assertLess(i_tests, i_iso,
+                        "the isolated var must be set after (and therefore inside) "
+                        "the autorun-tests guard")
+        self.assertLess(i_iso, i_pop)
+
+    def test_the_launch_line_reports_the_resolved_batch_mode(self):
+        # A run's own log is the only post-hoc record of which filter it used.
+        self.assertIn("hlib.spec_batch_isolated(spec)", self.src)
+        self.assertIn("batchIsolated=%s", self.src)
 
 
 # ---------------------------------------------------------------------------
@@ -2525,6 +3712,99 @@ REPO_ROOT = os.path.dirname(HARNESS_ROOT)
 PARSEK_SRC_DIR = os.path.join(REPO_ROOT, "Source", "Parsek")
 DOCS_DEV_DIR = os.path.join(REPO_ROOT, "docs", "dev")
 AUTOTEST_STATUS_DOC = os.path.join(DOCS_DEV_DIR, "autotest-status.md")
+INGAME_INVENTORY_DOC = os.path.join(DOCS_DEV_DIR,
+                                    "autotest-ingame-category-inventory.md")
+
+
+class IngameCategoryInventoryDocTests(unittest.TestCase):
+    """`autotest-ingame-category-inventory.md`'s 98-row table says of itself "Do NOT
+    hand-edit the table: re-derive it" - and shipped with nothing enforcing that.
+
+    The gap that leaves: add one `[InGameTest(Category = "Rewind")]` and NOTHING
+    reds. `CommittedBatchTallySourceSyncTests` does not (Rewind is unpinned),
+    `IngameBatchWiringGroupTests` does not (Rewind is not in the H-series group), and
+    the Rewind row, the 542 / 98 totals repeated across four documents, and the
+    A/B/C declaration sums all go quietly stale. The table is the stated authority
+    for what remains to wire, so a stale row is how the next wave plans against
+    fiction.
+
+    Scope: the five columns that are mechanically derivable from the attributes.
+    The "Members with self-skip" column is NOT gated - it needs a call-graph walk
+    whose name resolution over-approximates, so pinning it here would trade a
+    silent-staleness bug for a false-red one."""
+
+    HEADER_RE = re.compile(r"^\|\s*Category\s*\|")
+    SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$")
+    ROW_RE = re.compile(
+        r"^\|\s*`(?P<cat>[^`]+)`\s*\|\s*(?P<decls>\d+)\s*\|\s*(?P<f>\d+)\s*\|"
+        r"\s*(?P<s>\d+)\s*\|\s*(?P<t>\d+)\s*\|\s*(?P<nb>\d+)\s*\|")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(INGAME_INVENTORY_DOC, encoding="utf-8") as fh:
+            cls.lines = fh.read().split("\n")
+        cls.decls = load_ingame_test_declarations()
+        cls.rows = {}
+        in_table = False
+        for line in cls.lines:
+            if cls.HEADER_RE.match(line):
+                in_table = True
+                continue
+            if in_table and cls.SEPARATOR_RE.match(line):
+                continue
+            m = cls.ROW_RE.match(line)
+            if m:
+                in_table = True
+                cls.rows[m.group("cat")] = (
+                    int(m.group("decls")), int(m.group("f")), int(m.group("s")),
+                    int(m.group("t")), int(m.group("nb")))
+            elif in_table and not line.startswith("|"):
+                in_table = False
+
+    def test_the_table_was_actually_parsed(self):
+        # Anti-vacuity floor: a table this cell cannot parse must RED, not silently
+        # verify zero rows. Same reason CommittedBatchTallySourceSyncTests asserts
+        # its source walk found something.
+        self.assertGreater(
+            len(self.rows), 90,
+            "only %d rows parsed out of %s - the row regex no longer matches the "
+            "committed table, so every assertion below would be vacuous"
+            % (len(self.rows), INGAME_INVENTORY_DOC))
+
+    def test_the_table_lists_exactly_the_categories_in_the_source(self):
+        source = {d.category for d in self.decls}
+        self.assertEqual(
+            sorted(source), sorted(self.rows),
+            "the inventory table's category set has drifted from Source/Parsek. "
+            "Re-derive the table (hlib.parse_ingame_test_declarations + "
+            "derive_batch_tally) rather than editing rows by hand, and update the "
+            "542 / 98 totals and the A/B/C sums in the same commit")
+
+    def test_every_row_matches_the_source_derivation(self):
+        for cat in sorted(self.rows):
+            with self.subTest(category=cat):
+                in_cat = [d for d in self.decls if d.category == cat]
+                stated = self.rows[cat]
+                derived = (
+                    len(in_cat),
+                    hlib.derive_batch_tally(in_cat, cat, "FLIGHT").executable,
+                    hlib.derive_batch_tally(in_cat, cat, "SPACECENTER").executable,
+                    hlib.derive_batch_tally(in_cat, cat, "TRACKSTATION").executable,
+                    sum(1 for d in in_cat if not d.allow_batch))
+                self.assertEqual(
+                    derived, stated,
+                    "%s row is stale: stated (decls, execF, execS, execT, "
+                    "batch-disabled) = %s but the source derives %s"
+                    % (cat, stated, derived))
+
+    def test_the_stated_totals_match_the_table(self):
+        stated_decls = sum(r[0] for r in self.rows.values())
+        body = "\n".join(self.lines)
+        self.assertIn("**98 categories / %d declarations**" % stated_decls, body,
+                      "the triage totals line disagrees with the table it summarises "
+                      "(table sums to %d declarations across %d categories)"
+                      % (stated_decls, len(self.rows)))
+        self.assertEqual(len(self.decls), stated_decls)
 TODO_DOC = os.path.join(DOCS_DEV_DIR, "todo-and-known-bugs.md")
 
 # A reason token: lowercase words joined by hyphens. Deliberately requires a
@@ -3733,6 +5013,194 @@ class ClassifyMissionStepTests(unittest.TestCase):
         self.assertFalse(hlib.should_retry(r, 1, "once"))
 
 
+def _outcome(step_id, cmd, met, expect="OK", verdict="OK", msg=""):
+    """A StepOutcome as evaluate_response_stream would build it."""
+    return hlib.StepOutcome(step_id, cmd, expect, verdict, verdict is not None, met, msg=msg)
+
+
+class PostMissionOutcomeGateTests(unittest.TestCase):
+    """Guards the EVA-4 fail-open (2026-07-25, todo-and-known-bugs "EVA-4 ... the
+    MISSION still returns MISSION-OK").
+
+    THE INCIDENT. `eva4_atmo_chute` is a HANDOFF mission: its success terminal is
+    EVA-WINDOW, reached while the craft is still airborne and crewed, and the mission
+    SUBPROCESS EXITS there. The kerbal EVA vessel is created afterwards, by the seam
+    step EvaExit. So no assertion the mission machine can hold observes the kerbal:
+    on flight 3 the canopy was cut mid-descent, the kerbal died, and the mission
+    reported `MISSION-OK reason=all telemetry assertions met`. The only channel that
+    SAW it was the EvaChuteDeploy step's own `eva-chute-kerbal-lost` terminal, and
+    run.py's autopilot carve-out made every post-mission step non-gating, so
+    driverValidity read PASS beside `allExpectedMet: false`. The run red'd solely on
+    spec-authored expectation regexes.
+
+    THE CLOSURE. Post-mission OUTCOME verbs gate; post-mission RECORDING verbs stay
+    non-gating exactly as before. Fails if a new verb slips in without a role, if the
+    role split drifts, if a recording verb starts gating (which would resurrect the
+    driver-INVALID-papers-over-it problem the carve-out exists to prevent), or if a
+    dead subject stops reddening the run."""
+
+    def test_table_is_total_over_implemented_verbs(self):
+        missing = [v for v in hlib.IMPLEMENTED_SEAM_VERBS
+                   if v not in hlib.SEAM_VERB_POST_MISSION_ROLE]
+        self.assertEqual([], missing,
+                         "every IMPLEMENTED_SEAM_VERBS entry needs an explicit "
+                         "SEAM_VERB_POST_MISSION_ROLE row; missing=%s" % (missing,))
+        for verb, role in hlib.SEAM_VERB_POST_MISSION_ROLE.items():
+            self.assertIn(role, hlib.POST_MISSION_ROLES, verb)
+
+    def test_table_has_no_rows_for_unimplemented_verbs(self):
+        extra = [v for v in hlib.SEAM_VERB_POST_MISSION_ROLE
+                 if v not in hlib.IMPLEMENTED_SEAM_VERBS]
+        self.assertEqual([], extra, "stale post-mission-role rows: %s" % (extra,))
+
+    def test_outcome_set_is_exactly_the_four_eva_verbs(self):
+        # The whole gating set. Each one's verdict is a claim about a KERBAL's
+        # in-world state that no verifier re-derives; widening this set to a Parsek
+        # verb would route a Parsek defect through the wrong subkind.
+        outcome = sorted(v for v, r in hlib.SEAM_VERB_POST_MISSION_ROLE.items()
+                         if r == hlib.POST_MISSION_ROLE_OUTCOME)
+        self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "PlantFlag"], outcome)
+
+    def test_recording_verbs_do_not_gate(self):
+        # The ORIGINAL carve-out, preserved: a good flight Parsek then failed to
+        # record must still red through the verifier chain, not as a retryable
+        # driver-INVALID.
+        for verb in ("StopRecording", "CommitTree", "FlushAndQuit", "SaveGame",
+                     "RunTests", "InvokeRewind", "SetSetting", "RecordingState"):
+            self.assertFalse(hlib.post_mission_step_gates(verb), verb)
+
+    def test_unknown_verb_does_not_gate(self):
+        # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
+        # unrecognised verb is a spec fault validate_spec already rejects, and
+        # gating on a vocabulary miss would red runs for a typo rather than for an
+        # outcome.
+        for unknown in ("StartLoopPlayback", "SomeFutureVerb", "", None):
+            self.assertFalse(hlib.post_mission_step_gates(unknown), repr(unknown))
+
+    def test_the_eva4_flight3_step_stream_names_the_chute_step(self):
+        # The REAL 2026-07-25 stream (results/2026-07-25_1007_EVA-4-atmo-chute.json):
+        # ten steps, mission at 0005 MET, EvaChuteDeploy at 0007 ERROR, the three
+        # teardown steps OK after it.
+        steps = [
+            _outcome("0001", "LoadGame", True), _outcome("0002", "SetSetting", True),
+            _outcome("0003", "SetSetting", True), _outcome("0004", "SetSetting", True),
+            _outcome("0006", "EvaExit", True),
+            _outcome("0007", "EvaChuteDeploy", False, verdict="ERROR",
+                     msg="eva-chute-kerbal-lost"),
+            _outcome("0008", "StopRecording", True), _outcome("0009", "CommitTree", True),
+            _outcome("0010", "FlushAndQuit", True),
+        ]
+        first = hlib.first_unmet_post_mission_outcome(steps, "0005")
+        self.assertIsNotNone(first)
+        self.assertEqual("EvaChuteDeploy", first.cmd)
+        self.assertEqual("eva-chute-kerbal-lost", first.msg)
+
+    def test_a_pre_mission_failure_is_not_an_outcome_miss(self):
+        # Pre-mission steps are already gated by run.py's pre_met branch; reporting
+        # them here too would double-classify and mask the load-failed subkind.
+        steps = [_outcome("0001", "LoadGame", False, verdict="ERROR"),
+                 _outcome("0006", "EvaExit", True)]
+        self.assertIsNone(hlib.first_unmet_post_mission_outcome(steps, "0005"))
+
+    def test_a_failed_recording_verb_is_not_an_outcome_miss(self):
+        steps = [_outcome("0006", "EvaExit", True),
+                 _outcome("0009", "CommitTree", False, verdict="ERROR")]
+        self.assertIsNone(hlib.first_unmet_post_mission_outcome(steps, "0005"))
+
+    def test_seam_only_driver_reads_none(self):
+        # No mission step -> every step already gates through all_expected_met.
+        steps = [_outcome("0006", "EvaExit", False, verdict="ERROR")]
+        self.assertIsNone(hlib.first_unmet_post_mission_outcome(steps, None))
+
+    def test_a_dead_subject_reds_the_run_as_mission_outcome(self):
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual((r.verdict, r.subkind), ("PARSEK-FAIL", "mission-outcome"))
+        # NEVER retried: a subject that died is a defect to look at, not a flake to
+        # re-roll into a green.
+        self.assertFalse(hlib.should_retry(r, 1, "once"))
+        self.assertIn("mission-outcome", hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_it_names_the_cause_ahead_of_the_downstream_symptoms(self):
+        # Flight 3 tripped FOUR expectation rows (three missing required tokens plus
+        # the forbidden [Parsek][ERROR]) - all symptoms of the same dead kerbal. The
+        # subkind a sweep reader sees must be the cause.
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        v["expectation_mismatch"] = True
+        v["log_validate_failed"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual("mission-outcome", r.subkind)
+
+    def test_a_quarantine_key_cannot_turn_a_dead_subject_green(self):
+        # An `[expectedFail] bugId` with no subkind matches ANY PARSEK-FAIL (the
+        # documented v1 adaptation), and EXPECTED-FAIL is GREEN: it is in
+        # GREEN_VERDICTS, sets lastGreen in compute_coverage, and exits 0. So a
+        # scenario quarantined for one unrelated Parsek defect would have silently
+        # absorbed the next subject death - re-opening this PR's own fail-open through
+        # the back door. Demoting a subject death must be spelled out.
+        d, v = _clean_pass_facts()
+        v["mission_outcome_unmet"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": "BUG-1", "signature_matched":
+                                         hlib.expected_fail_signature_matched(
+                                             "PARSEK-FAIL", "mission-outcome", "")},
+                                  1, "once")
+        self.assertEqual("PARSEK-FAIL", r.verdict)
+        self.assertNotIn(r.verdict, hlib.GREEN_VERDICTS)
+        # Every OTHER PARSEK-FAIL subkind still demotes bugId-only, unchanged.
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "expectation", ""))
+        self.assertFalse(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "mission-outcome", ""))
+        # ... and an EXPLICIT subkind still demotes it (quarantining a known-flaky
+        # subject death stays possible, it just has to be named).
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "mission-outcome", "mission-outcome"))
+
+    def test_a_refusal_is_a_driver_fault_not_a_flight_outcome(self):
+        # The four outcome verbs emit ~30 terminals and most are NOT "the flight failed
+        # after handoff". The seam already draws the line: a no-side-effect refusal
+        # rides REJECTED, a real terminal rides ERROR. Without the split, a typo'd
+        # targetPid on a POST-mission EvaBoard reports PARSEK-FAIL(mission-outcome) and
+        # is never retried, while the SAME typo pre-mission reports INVALID(driver-arg)
+        # and retries once.
+        cases = [
+            # (verdict, msg, expect_flight_outcome, expect_driver_subkind)
+            ("ERROR", "eva-chute-kerbal-lost", True, ""),
+            ("ERROR", "eva-exit-timeout", True, ""),
+            ("REJECTED", "no-crew", False, "driver-verdict-mismatch"),
+            ("REJECTED", "kerbal-not-aboard", False, "driver-verdict-mismatch"),
+            ("REJECTED", "unknown-target", False, "driver-arg"),   # the M-C1 table wins
+            ("TIMEOUT", "", False, "seam-timeout"),
+            (None, "", False, "driver-stage"),                     # never answered
+        ]
+        for verdict, msg, want_outcome, want_subkind in cases:
+            step = _outcome("0007", "EvaChuteDeploy", False, verdict=verdict, msg=msg)
+            is_outcome, subkind = hlib.classify_post_mission_outcome_miss(step)
+            self.assertEqual(want_outcome, is_outcome, (verdict, msg))
+            self.assertEqual(want_subkind, subkind, (verdict, msg))
+            # Whatever the classification, the miss is never silently dropped.
+            self.assertTrue(is_outcome or bool(subkind), (verdict, msg))
+
+    def test_every_driver_subkind_it_can_emit_is_retryable(self):
+        # A spec/fixture fault routed to the driver stage must retry-once exactly like
+        # its pre-mission twin; a subkind outside the retry set would strand it.
+        for verdict, msg in (("REJECTED", "no-crew"), ("REJECTED", "unknown-target"),
+                             ("TIMEOUT", ""), (None, "")):
+            _, subkind = hlib.classify_post_mission_outcome_miss(
+                _outcome("0007", "EvaBoard", False, verdict=verdict, msg=msg))
+            self.assertIn(subkind, hlib.RETRYABLE_INVALID_SUBKINDS, (verdict, msg))
+
+    def test_a_clean_run_is_untouched(self):
+        # Every other scenario in the suite: no post-mission outcome step, or all of
+        # them met. The fact defaults False and the verdict stays PASS.
+        d, v = _clean_pass_facts()
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+        v["mission_outcome_unmet"] = False
+        self.assertEqual("PASS", hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once").verdict)
+
+
 class SeamVerbTailRoleTests(unittest.TestCase):
     """Guards (design "The unmet-mission tail"): the per-verb tail-role table is
     TOTAL over the implemented verbs, names exactly the two cleanup verbs, and fails
@@ -4871,3 +6339,557 @@ class MisplacedAllowedAnomaliesRejectionTests(unittest.TestCase):
         self.assertIn("polyline-orbit-overlap", body,
                       "the dead exception must stay documented, not vanish")
         self.assertIn("NEVER", body)
+
+
+class LogContractPatternCompilabilityTests(unittest.TestCase):
+    """`logContracts` patterns are REGEXES, and the natural way to write a KSP.log
+    token containing metacharacters is the broken way.
+
+    Found 2026-07-27 authoring the R1 debris gate. The background emit is
+    `Child recording created (debris, TTL=60s): recId=...`, and pasting it
+    verbatim into `required` yields `re.error: missing ), unterminated subpattern`.
+    `evaluate_expectations` already CATCHES that and turns it into a mismatch, so
+    nothing crashes - but it runs on the COLLECTED log, i.e. after the flight. On
+    B13 that is its measured 2,825 s p50 spent to learn the author mistyped a
+    pattern, and the red reads `invalid regex` rather than naming a Parsek defect.
+    `validate_spec` rejects it, and `run.py --dry-run` now runs that validation
+    (it used to return 0 before reaching it - see the dry-run cell below)."""
+
+    def _spec_with_patterns(self, facet, patterns):
+        spec = load_spec("B2-lko-ascent.toml")
+        spec["expectations"]["logContracts"][facet] = patterns
+        return spec
+
+    def test_unescaped_paren_in_required_is_rejected(self):
+        spec = self._spec_with_patterns(
+            "required", ["Recording started", "Child recording created (debris, TTL="])
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok, "an uncompilable required pattern must REJECT")
+        hit = [e for e in v.errors if "not a valid regex" in e]
+        self.assertEqual(1, len(hit))
+        self.assertIn("Child recording created (debris, TTL=", hit[0])
+
+    def test_the_error_carries_the_fix_not_just_the_diagnosis(self):
+        spec = self._spec_with_patterns(
+            "required", ["Child recording created (debris, TTL="])
+        msg = [e for e in hlib.validate_spec(spec, load_registry()).errors
+               if "not a valid regex" in e][0]
+        self.assertIn("re.search", msg)              # WHY it is a regex at all
+        self.assertIn(r'"\\("', msg)                 # the literal escape to write
+        self.assertIn("TOML basic", msg)             # ...and in WHICH string kind
+        self.assertIn("unterminated subpattern", msg)
+
+    def test_forbidden_patterns_are_checked_too(self):
+        # NOTE the reason is NOT "a broken forbidden pattern silently passes" -
+        # evaluate_expectations has an explicit `except re.error` that reds it
+        # (verified below). The reason is the same as for `required`: it reds
+        # AFTER the flight instead of before it.
+        spec = self._spec_with_patterns("forbidden", ["\\[Parsek\\]\\[ERROR\\](unclosed"])
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("logContracts.forbidden" in e and "not a valid regex" in e
+                            for e in v.errors))
+        broken = {"logContracts": {"forbidden": ["\\[Parsek\\](unclosed"]}}
+        self.assertEqual("FAIL", hlib.evaluate_expectations(broken, 1, "x").status)
+
+    def test_committed_metacharacter_patterns_still_validate(self):
+        # The gate must not punish CORRECT escaping. These are committed,
+        # load-bearing and deliberately full of metacharacters.
+        spec = self._spec_with_patterns("required", [
+            r"CommitTreeFlight terminal: rec=\w+ terminalState=Destroyed terminalOrbitBody=\(null\)",
+            r"Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
+            r"Materialize: 1 dormant route\(s\) materialized",
+        ])
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+
+    def test_type_guards_reject_malformed_facets(self):
+        # Both isinstance guards were uncovered on the first cut: deleting either
+        # left the whole 740-cell suite green.
+        for bad, needle in ((["ok", 5], "must be a string"),
+                            ({"a": 1}, "must be a list")):
+            with self.subTest(bad=bad):
+                spec = self._spec_with_patterns("forbidden", bad)
+                v = hlib.validate_spec(spec, load_registry())
+                self.assertFalse(v.ok)
+                self.assertTrue(any(needle in e for e in v.errors), v.errors)
+
+    def test_an_absent_facet_is_legal(self):
+        # Guards the `if patterns is None: continue` branch. Deleting it would
+        # reject every spec that omits `forbidden` - all 38 happen to declare
+        # both, so nothing else notices.
+        spec = load_spec("B2-lko-ascent.toml")
+        del spec["expectations"]["logContracts"]["forbidden"]
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+        spec["expectations"]["logContracts"]["required"] = []
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok)
+
+    def test_every_committed_spec_validates_through_the_real_gate(self):
+        # Drives hlib.validate_spec rather than re-implementing re.compile. NOTE
+        # what this does and does not do: it is a SWEEP, not a gate-detector.
+        # Deleting the production gate leaves it GREEN, because all 38 committed
+        # specs are valid either way - the cells above are what red on deletion.
+        # The first cut's comment claimed otherwise; that over-claim is the same
+        # class of error that let the wrong token ship, so it is corrected rather
+        # than left for the next reader to trust.
+        registry = load_registry()
+        broken = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            for err in hlib.validate_spec(load_spec(name), registry).errors:
+                if "not a valid regex" in err or "logContracts" in err:
+                    broken.append("%s: %s" % (name, err))
+        self.assertEqual([], broken)
+
+    def _dry_run_exit_code(self, mutate=None):
+        """Drive the REAL `run.run(... --dry-run)` over a scratch scenarios dir.
+
+        In-process and launches nothing (the dry-run branch returns before any
+        instance is resolved), so this is a behavioural assertion rather than a
+        grep over the function's source. It has to be: the first cut of this cell
+        searched `inspect.getsource` for the substrings "validate_spec" and
+        "return 1", and a reviewer defeated it twice - once with
+        `if False and dry_errors:` and once by deleting the block and leaving a
+        TODO comment naming both substrings. Both restored the original defect
+        and both stayed green.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in os.listdir(SCENARIOS_DIR):
+                if name.endswith(".toml"):
+                    shutil.copy(os.path.join(SCENARIOS_DIR, name), os.path.join(tmp, name))
+            target = os.path.join(tmp, "B2-lko-ascent.toml")
+            if mutate is not None:
+                with open(target, encoding="utf-8") as fh:
+                    body = fh.read()
+                with open(target, "w", encoding="utf-8") as fh:
+                    fh.write(mutate(body))
+            # Also redirect the harness log, which run.run() mints per invocation:
+            # without this every suite run drops another
+            # harness/results/<ts>_harness.log on disk, unbounded. And swallow the
+            # plan print, which is 2 full ACTION PLAN blocks of unittest noise.
+            original_dir = run.SCENARIOS_DIR
+            original_log = run.default_harness_log_path
+            run.SCENARIOS_DIR = tmp
+            run.default_harness_log_path = lambda: os.path.join(tmp, "harness.log")
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return run.run(["--id", "B2-lko-ascent", "--dry-run", "--no-coverage"])
+            finally:
+                # NOTE these are process-global mutations, safe only because
+                # stdlib unittest runs sequentially. A future parallel runner
+                # would need this helper reworked, not just re-ordered.
+                run.SCENARIOS_DIR = original_dir
+                run.default_harness_log_path = original_log
+
+    def test_dry_run_exits_zero_on_a_valid_spec(self):
+        self.assertEqual(0, self._dry_run_exit_code())
+
+    def test_dry_run_exits_nonzero_on_an_uncompilable_pattern(self):
+        # The behaviour finding 2 of the review was about: --dry-run used to
+        # `return 0` straight after printing the plan, so a spec validate_spec
+        # rejects rendered a clean plan and exit 0 - while the in-code advice
+        # pointed authors at exactly that command.
+        def break_pattern(body):
+            broken = body.replace(
+                '"ProcessBreakupEvent: debris child created"',
+                '"Child recording created (debris, TTL="')
+            # Fail LOUD if the spec's token is reworded: a no-op replace would
+            # leave the spec valid and this cell would assert 1 == 0 with no clue
+            # why. The point is to feed validate_spec an UNCOMPILABLE pattern.
+            assert broken != body, "B2's debris token moved; update this mutation"
+            return broken
+        self.assertEqual(1, self._dry_run_exit_code(break_pattern))
+
+
+class DebrisPopulationGateTests(unittest.TestCase):
+    """R1: the five Kerbal X flights that produced a parent-anchored debris
+    population on every run and asserted nothing about it.
+
+    B2/B4/B5/B6/B7 all fly `fixtures/saves/b2-lko-craft` (the stock Kerbal X),
+    shed six radial boosters, and record each as a parent-anchored debris child.
+    Their count windows read `min = 1`, so the total loss of that population
+    still read PASS.
+
+    THE FIRST CUT OF THIS GATE PINNED THE WRONG TOKEN. It required only
+    `Child recording created (debris, TTL=` (BackgroundRecorder.cs:1177), which
+    is the BACKGROUND-split site. These flights shed boosters while the craft is
+    the ACTIVE focused vessel, and `RecordingTree.IsBackgroundMapEligible`
+    excludes `rec.RecordingId == ActiveRecordingId`, so `OnBackgroundPartJointBreak`
+    early-returns and that line never fires. All five would have red. The gate now
+    accepts EITHER creation site."""
+
+    # spec -> (min, max, decide fn, commands a debris-producing stage drop beyond
+    # launch ignition). The FLOOR follows the last field, NOT the decide function:
+    # B5/B6/B7 drop a flameout-staged core via _b5_flameout_stage, and B4 drops its
+    # service stage via an ACTION_ACTIVATE_STAGE on the sole path into B4_REENTRY.
+    # Only B2 stages once (at ignition) and therefore floors at 7. The first cut
+    # floored B4 at 7 by keying on _b5_flameout_stage alone.
+    GATED = {
+        "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
+        "B4-reentry-splashdown.toml": (8, 9, "b4_decide", True),
+        "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
+        "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
+        "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
+    }
+
+    # spec -> (measured count, the PASS run ids it was read from). Every value is
+    # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
+    # JSON, read 2026-07-27. Before this, B4's floor was structural-only and B6's
+    # was inferred from sharing b5_decide; both measured at exactly what was
+    # derived. The field only exists on runs after 72cf344fb (2026-07-25 06:48),
+    # which is why all seven run ids are from that morning.
+    #
+    # These are NOT re-derivable from the archived `logs/*/KSP.log` folders:
+    # run.py collects logs on NON-PASS only, so every archived B-lane folder is a
+    # run whose expectations were SKIPPED rather than judged
+    # (`if driver_valid and not short_circuited`). Their .prec counts are lower
+    # and are not this population.
+    MEASURED = {
+        "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
+        "B4-reentry-splashdown.toml": (8, ("2026-07-25_0828_B4-reentry-splashdown",)),
+        "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
+                                           "2026-07-25_0847_B5-mun-flyby")),
+        "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
+                                           "2026-07-25_0856_B6-minmus-flyby")),
+        "B7-duna-flyby.toml":         (8, ("2026-07-25_0916_B7-duna-flyby_a2",)),
+    }
+
+    CELL = "parent-anchored-debris"
+    # TIGHTENED from an EITHER-site alternation on 2026-07-27, against 60
+    # archived B-lane KSP.logs: the foreground token appears in 58 of them (the
+    # 2 without it are INVALID runs that recorded nothing), and the substring
+    # `Child recording created` appears in ZERO. See the block comment in any of
+    # the five gated specs for the full grep.
+    TOKEN = r"ProcessBreakupEvent: debris child created"
+
+    # The two literal lines the two creation sites emit.
+    EMITTED_FG = ("[Parsek][INFO][Coalescer] ProcessBreakupEvent: debris child created: "
+                  "pid=1140654732, name='Kerbal X Debris', recId=rec_ab12, alive=True")
+    EMITTED_BG = ("[Parsek][INFO][BgRecorder] Child recording created (debris, TTL=60s): "
+                  "recId=rec_ab12 vesselPid=1140654732 name='Kerbal X Debris' "
+                  "parentRecId=rec_root")
+
+    def _source(self, name):
+        with open(os.path.join(PARSEK_SOURCE_DIR, name), encoding="utf-8-sig") as fh:
+            return fh.read()
+
+    def test_each_gated_spec_requires_the_debris_token(self):
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                self.assertIn(self.TOKEN,
+                              load_spec(name)["expectations"]["logContracts"]["required"])
+
+    def test_the_token_matches_the_line_this_profile_actually_emits(self):
+        # The correspondence the whole gate rests on.
+        self.assertIsNotNone(re.search(self.TOKEN, self.EMITTED_FG))
+
+    def test_the_token_no_longer_matches_the_background_line(self):
+        # Not a property the gate NEEDS - it is a tripwire on the tightening.
+        # The alternation was removed on log evidence that the background site
+        # never fires on any B-lane profile. If someone restores it, this cell
+        # reds and makes them say why in a commit message, rather than the
+        # widening passing as a formatting change.
+        self.assertIsNone(re.search(self.TOKEN, self.EMITTED_BG))
+
+    # The sibling branch at both creation sites. A gate that matches these does
+    # not gate the debris population, so they are the decoy family every claimed
+    # token must REJECT (see the reverse check below).
+    CONTROLLED = (
+        "[Parsek][INFO][Coalescer] ProcessBreakupEvent: controlled child "
+        "created: pid=1, name='x', recId=r",
+        "[Parsek][INFO][BgRecorder] Child recording created (controlled, "
+        "no TTL): recId=r vesselPid=1 name='x'",
+    )
+
+    def test_the_token_does_not_match_a_controlled_child(self):
+        # If a booster ever took that branch, the run SHOULD red rather than pass
+        # on the wrong population.
+        for line in self.CONTROLLED:
+            self.assertIsNone(re.search(self.TOKEN, line))
+
+    def test_both_emit_sites_still_exist_at_Info(self):
+        # Asserts the message is a DIRECT argument of a ParsekLog.Info call. The
+        # earlier "nearest preceding ParsekLog" form was defeated by hoisting the
+        # message into a local (mutation 12); requiring adjacency fails SAFE - a
+        # refactor that separates them reds here, for free, instead of on a
+        # nightly.
+        # The two sites are asserted for DIFFERENT reasons, and only one is
+        # gate-bearing: the FOREGROUND site is what all five specs require
+        # without a verboseLogging pin, so a downgrade there reds five nightly
+        # flights. The BACKGROUND site is no longer in any pattern; it is
+        # asserted because the five spec comment blocks and the reachability
+        # cell below all cite it by name and level as the path NOT taken, and a
+        # silent rename would leave that evidentiary record pointing at nothing.
+        fg = self._source("ParsekFlight.cs")
+        self.assertRegex(
+            fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
+                r'debris child created: pid=')
+        bg = self._source("BackgroundRecorder.cs")
+        self.assertRegex(
+            bg, r'ParsekLog\.Info\(\s*"BgRecorder",\s*\n?\s*\$"Child recording '
+                r'created \(debris, TTL=\{DebrisTTLSeconds:F0\}s\)')
+        self.assertIn("internal const double DebrisTTLSeconds = 60.0;", bg)
+
+    @staticmethod
+    def _member_body(source, signature):
+        """The text from a C# member signature to the next member at that depth.
+
+        Needed because a bare `assertIn` over a 340 KB file cannot say WHICH
+        occurrence it matched. The reviewer defeated the first cut of the cell
+        below by renaming a local in `OnBackgroundPartJointBreak`: the guard
+        literal appears FOUR times in BackgroundRecorder.cs, so the assertion
+        passed on an unrelated one.
+        """
+        start = source.index(signature)
+        rest = source[start + len(signature):]
+        ends = [i for i in (rest.find("\n        internal "), rest.find("\n        private "),
+                            rest.find("\n        public ")) if i != -1]
+        body = rest[:min(ends)] if ends else rest
+        # Strip comments, BOTH syntaxes. Without this the assertions match CODE
+        # THAT WAS COMMENTED OUT: a reviewer deleted the ActiveRecordingId
+        # exclusion and left `// was: rec.RecordingId != ActiveRecordingId`
+        # behind, and the cell stayed green on the corpse of the thing it was
+        # pinning - then did it again one comment syntax deeper with `/* ... */`.
+        body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
+        # `//` only outside a string literal, so a `//` inside one (a URL, say)
+        # cannot silently truncate real code out of the slice.
+        out = []
+        for line in body.split("\n"):
+            in_str = False
+            cut = len(line)
+            i = 0
+            while i < len(line) - 1:
+                ch = line[i]
+                if in_str:
+                    if ch == "\\":
+                        i += 2
+                        continue
+                    if ch == '"':
+                        in_str = False
+                elif ch == '"':
+                    in_str = True
+                elif ch == "/" and line[i + 1] == "/":
+                    cut = i
+                    break
+                i += 1
+            out.append(line[:cut])
+        return "\n".join(out)
+
+    def test_the_foreground_path_is_the_one_this_profile_takes(self):
+        # Pins the reachability facts the first cut got wrong, each INSIDE the
+        # member that owns it, so a change to either surfaces here with this
+        # explanation attached rather than as five red flights.
+        eligible = self._member_body(self._source("RecordingTree.cs"),
+                                     "internal bool IsBackgroundMapEligible(Recording rec)")
+        self.assertIn("rec.RecordingId != ActiveRecordingId", eligible,
+                      "the active vessel must stay out of BackgroundMap - this "
+                      "exclusion is why the background debris token cannot fire "
+                      "on a foreground booster drop")
+        joint_break = self._member_body(
+            self._source("BackgroundRecorder.cs"),
+            "internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)")
+        self.assertIn("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;",
+                      joint_break,
+                      "the BackgroundMap early-return is the guard that makes the "
+                      "background creation site unreachable from a foreground split")
+
+    def test_the_anchor_contract_call_is_unconditional_on_the_foreground_path(self):
+        # Why "a debris child was created" is allowed to buy a REFERENCE-FRAME
+        # cell: the same function calls ApplyParentAnchorContract for EVERY child
+        # it makes. "Unconditional" was in the first cut's name and nowhere in its
+        # assertion - a reviewer wrapped the call in `if (isDebris)` and it stayed
+        # green, falsifying the premise while satisfying the substring.
+        #
+        # Two structural checks together cover both ways to add a condition:
+        # brace depth catches a braced `if { ... }`, and requiring the statement
+        # to START the line catches a single-line `if (x) Call();`.
+        call = "Recording.ApplyParentAnchorContract(childRec, parentRecordingId);"
+        body = self._member_body(
+            self._source("ParsekFlight.cs"),
+            "internal static Recording CreateBreakupChildRecording(")
+        idx = body.index(call)
+        line_start = body.rindex("\n", 0, idx) + 1
+        self.assertEqual(call, body[line_start:idx + len(call)].strip(),
+                         "the call must be a bare statement, not the tail of an "
+                         "inline `if (...) Call();`")
+        depth = body.count("{", 0, idx) - body.count("}", 0, idx)
+        self.assertEqual(1, depth,
+                         "the call must sit at the method's top level, not inside "
+                         "a conditional block (depth %d)" % depth)
+        # CONTROL FLOW, not just syntax. The two checks above cover both ways to
+        # WRAP the call in a condition; a reviewer then skipped it a third way,
+        # with `if (!isDebris) return childRec;` immediately above - depth still
+        # 1, statement still starting its line, premise still falsified. Any
+        # early return before the call means some children are not stamped.
+        preceding = body[:idx]
+        self.assertNotIn("return", preceding,
+                         "no early return may precede the anchor stamp - the cell's "
+                         "premise is that EVERY child this method makes is stamped, "
+                         "which is what lets a creation token buy a reference-frame "
+                         "coverage cell")
+
+    def test_no_gated_spec_relies_on_verbose_logging_for_it(self):
+        for name in self.GATED:
+            with self.subTest(spec=name):
+                steps = load_spec(name)["driver"].get("steps", [])
+                self.assertEqual([], [s for s in steps
+                                      if (s or {}).get("args", {}).get("name") == "verboseLogging"])
+
+    def test_floors_match_the_per_mission_derivation(self):
+        # The floor is NOT one number: it depends on whether the spec's decide
+        # function reaches _b5_flameout_stage (which adds an 8th recording).
+        # B11/B12 rejected min=7 for THEIR 8-population runs because 7 is exactly
+        # what one dropped recording looks like; that reasoning is why the
+        # b5_decide specs are 8 here and only the b2/b4 ones are 7.
+        for name, (cmin, cmax, _fn, extra_stage) in self.GATED.items():
+            with self.subTest(spec=name):
+                count = load_spec(name)["expectations"]["recordings"]["count"]
+                self.assertEqual(cmin, count["min"])
+                self.assertEqual(cmax, count["max"])
+                self.assertEqual(8 if extra_stage else 7, cmin,
+                                 "a spec that commands a debris-producing stage drop "
+                                 "beyond ignition floors at 8, the others at 7")
+                self.assertGreater(cmin, 1, "min = 1 is the vacuity this gate removes")
+
+    def test_every_floor_admits_its_measured_count(self):
+        # The cell that converts this gate from derived to measured. Each spec's
+        # window must actually admit the count a green run of THAT spec produced,
+        # and the floor must not sit below it either - a floor under the measured
+        # population is the one-below-population blind spot B11/B12 reject, and a
+        # floor above it would red every green run.
+        self.assertEqual(sorted(self.GATED), sorted(self.MEASURED),
+                         "every gated spec needs a measured count")
+        for name, (measured, run_ids) in self.MEASURED.items():
+            with self.subTest(spec=name):
+                self.assertTrue(run_ids, "a measurement needs a run id to cite")
+                count = load_spec(name)["expectations"]["recordings"]["count"]
+                self.assertEqual(
+                    measured, count["min"],
+                    "%s: measured %d on %s but floors at %d. The MEASUREMENT "
+                    "wins: re-pin count.min to it and say so in the spec, do not "
+                    "widen the window." % (name, measured, run_ids[0], count["min"]))
+                self.assertLessEqual(
+                    measured, count["max"],
+                    "%s: measured %d, above max %d" % (name, measured, count["max"]))
+
+    def test_each_spec_comment_cites_the_run_it_was_measured_from(self):
+        # Rule learned the hard way on this branch: a comment block that reads as
+        # verified is the thing the next reviewer trusts instead of re-deriving.
+        # If a floor claims a measurement, the run id has to be IN the spec, so
+        # the claim is checkable without this table.
+        for name, (_measured, run_ids) in self.MEASURED.items():
+            with self.subTest(spec=name):
+                body = open(os.path.join(SCENARIOS_DIR, name), encoding="utf-8").read()
+                self.assertTrue(
+                    any(r in body for r in run_ids),
+                    "%s cites no measured run id; expected one of %s"
+                    % (name, ", ".join(run_ids)))
+
+    def test_the_floor_split_matches_the_decide_functions_on_disk(self):
+        # Guards the table against mission-wiring drift, in BOTH directions: which
+        # decide function each spec drives, and whether that function actually
+        # commands an extra stage drop. Keying on `_b5_flameout_stage` alone is
+        # what floored B4 one too low on the first cut.
+        with open(os.path.join(HARNESS_ROOT, "missions", "lib", "mlib.py"),
+                  encoding="utf-8") as fh:
+            mlib_src = fh.read()
+
+        def decide_body(fn):
+            start = mlib_src.index("def %s(" % fn)
+            return mlib_src[start:mlib_src.index("\ndef ", start + 10)]
+
+        for name, (_lo, _hi, fn, extra_stage) in self.GATED.items():
+            with self.subTest(spec=name):
+                mission = load_spec(name)["driver"]["mission"]
+                with open(os.path.join(HARNESS_ROOT, "missions", "%s.py" % mission),
+                          encoding="utf-8") as fh:
+                    shell = fh.read()
+                self.assertIn("mlib.%s" % fn, shell,
+                              "%s no longer drives %s" % (name, fn))
+                body = decide_body(fn)
+                # One ACTIVATE_STAGE is launch ignition; a second (or a flameout
+                # watchdog call) is what adds the 8th recording.
+                #
+                # LIMITATION, stated because the failure message would otherwise
+                # invite the wrong fix: this counts within the NAMED decide
+                # function only. If a commanded stage drop is refactored into a
+                # helper, `stages` falls to 1 and this cell reds - correctly, but
+                # the numbers alone read like "this spec should floor at 7". The
+                # remedy is to follow the action into the helper, NOT to lower a
+                # floor. b5_decide has the `_b5_flameout_stage(` backstop;
+                # b4_decide has none.
+                stages = body.count("ACTION_ACTIVATE_STAGE")
+                flameout = "_b5_flameout_stage(" in body
+                drops = stages > 1 or flameout
+                self.assertEqual(
+                    extra_stage, drops,
+                    "%s: %s has %d ACTION_ACTIVATE_STAGE site(s) and flameout=%s, "
+                    "so 'commands a stage drop beyond ignition' computes as %s but "
+                    "the table says %s. If a stage action moved into a HELPER, fix "
+                    "the scan (or this table's flag) - do NOT lower the spec's "
+                    "count.min, which is what the population actually is."
+                    % (name, fn, stages, flameout, drops, extra_stage))
+
+    def test_every_spec_claiming_the_cell_carries_the_token(self):
+        # REVERSE direction, and the one the first cut missed entirely: adding
+        # the claim to any spec with no token stayed green, which is precisely
+        # the "claim is not gate" fail-open the roadmap lists as risk 5.
+        offenders = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            if self.CELL not in (spec.get("dimensionsCovered", {}) or {}).get("D3", []):
+                continue
+            required = (spec.get("expectations", {}).get("logContracts", {}) or {}).get("required", [])
+            # SEMANTIC AND DISCRIMINATING. Two earlier forms of this check were
+            # each defeated: a substring match let through an `^`-anchored token
+            # that can never match a multi-line body (evaluate_expectations uses
+            # re.search with no re.MULTILINE), and a bare "matches the fixture"
+            # match let through `recId=`, which fires on any of these lines and
+            # gates nothing. So the pattern must match a debris-creation line AND
+            # reject both controlled-child lines - the same "must reject the decoy
+            # family" shape hlib.batch_contract_vacuity_gap already uses.
+            # EITHER creation line satisfies this, deliberately: the check is
+            # about the CLAIM being gated, not about which site fires. No
+            # committed spec currently uses the background form (all five gated
+            # ones tightened to the foreground token on 2026-07-27 log evidence),
+            # so that branch is presently unexercised by the corpus.
+            if not any((re.search(p, self.EMITTED_FG) or re.search(p, self.EMITTED_BG))
+                       and not any(re.search(p, decoy) for decoy in self.CONTROLLED)
+                       for p in required):
+                offenders.append(name)
+        self.assertEqual([], offenders,
+                         "a spec claims D3 %s with no token gating it" % self.CELL)
+
+    def test_the_claimed_cell_exists_in_the_registry(self):
+        self.assertIn(self.CELL, load_registry()["D3"]["values"])
+
+    def test_the_gate_bites_end_to_end(self):
+        spec = load_spec("B2-lko-ascent.toml")
+        exp = spec["expectations"]
+        good = "Recording started\n%s\nRecording stopped\n" % self.EMITTED_FG
+        self.assertEqual("PASS", hlib.evaluate_expectations(exp, 7, good).status)
+
+        no_debris = "Recording started\nRecording stopped\n"
+        r = hlib.evaluate_expectations(exp, 1, no_debris)
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("debris child created" in m for m in r.mismatches))
+        self.assertTrue(any("< min 7" in m for m in r.mismatches))
+
+    def test_the_old_window_would_have_passed_that_same_regression(self):
+        # Negative control: without the change, the identical log and count read
+        # PASS. This is what makes the fix load-bearing rather than decorative.
+        old = {"recordings": {"count": {"min": 1, "max": 8}},
+               "logContracts": {"required": ["Recording started", "Recording stopped"],
+                                "forbidden": [r"\[Parsek\]\[ERROR\]"]}}
+        self.assertEqual("PASS", hlib.evaluate_expectations(
+            old, 1, "Recording started\nRecording stopped\n").status)
+
+    def test_the_first_cut_token_alone_would_have_red_every_gated_spec(self):
+        # Records the defect the review caught, as an executable fact: the
+        # background-only token does not appear in a foreground-path log.
+        first_cut = r"Child recording created \(debris, TTL="
+        log = "Recording started\n%s\nRecording stopped\n" % self.EMITTED_FG
+        self.assertIsNone(re.search(first_cut, log))
+        self.assertIsNotNone(re.search(self.TOKEN, log))
