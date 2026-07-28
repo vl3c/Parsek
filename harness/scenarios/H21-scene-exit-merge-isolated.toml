@@ -110,7 +110,15 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY plus an R5-specific discrimination requirement.
 #
-# EVIDENCE STANDING: MEASURED, twice. Re-flown 2026-07-28 after the isolated
+# EVIDENCE STANDING: MEASURED, three times - once per change to the code path
+# under test, because a refactor of the routing being tested invalidates its own
+# evidence. Flight 3 (2026-07-28, PASS attempt 1) covers the post-review tree:
+# the collapsed dispatch, the empty-`category=` reject, the unified lowercase
+# flag rendering, and the merge of origin/main. Its log line reads
+# `batch dispatch: entry=RunCategoryIsolated category=SceneExitMerge
+# isolated=true`.
+#
+# Flight 2, 2026-07-28, after the isolated
 # dispatch was collapsed into InGameTestRunner.RunBatchSelector, because the
 # first flight proved the PRE-refactor code and a refactor of the very routing
 # under test invalidates its own evidence. Same verdict, same tally, and the log
