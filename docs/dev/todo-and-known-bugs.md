@@ -14,6 +14,100 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CL-1: the crew-loss atom - the first scenario that kills its subject, and the first CAREER fixture with a flyable craft [BUILT, NOT YET FLOWN, branch `crew-loss`]
+
+**What it is.** A crewed pod launches, does not deploy a chute, and hits the ground. The
+crew dies. That is the whole scenario (`harness/scenarios/CL-1-pod-impact.toml`, mission
+`cl1_pod_impact`). Its job is to make ONE thing observable end to end for the first time:
+what Parsek RECORDS when a kerbal dies, and what the career LEDGER does about it.
+Deliberately out of scope, so it stays the ATOM other crew-loss scenarios extend: EVA,
+any parachute, re-fly / rewind / tombstones, multiple crew, any new seam verb.
+
+**No new seam surface was needed.** Every other "wait for a physical outcome" in this
+harness needed a bounded seam verb (`EvaChuteDeploy`'s `awaitDown`, `EvaExit`'s
+`settleSeconds`). Here the MISSION SUBPROCESS is the wait: mlib's phase machines already
+poll kRPC per frame, so the fall IS the mission and the seam tail is just CommitTree /
+FlushAndQuit. What WAS added is a telemetry channel, not a verb: `ACTION_SET_ROSTER_WATCH`
+plus `TelemetrySnapshot.crew_roster_status`, read from
+`SpaceCenter.GetKerbal(name).RosterStatus` (both verified present at the PINNED kRPC
+v0.5.4, not a newer-kRPC feature).
+
+**The one inversion, and the trap in it.** Everywhere else a vessel-lost terminal is a
+FAILURE - `mlib.resolve_flight_verdict` returns MISSION-ASSERT-FAIL on a `loss_reason`
+BEFORE the assertions run, so a destroyed craft's residual telemetry cannot satisfy them.
+Here the death is the SUCCESS terminal, and it has to be: an unmet mission drives
+`hlib.plan_unmet_mission_tail`, which runs CLEANUP steps only, so CommitTree would be
+SKIPPED - and the kerbal-death ledger row is created at COMMIT time
+(`LedgerOrchestrator.CreateKerbalAssignmentActions` -> `KerbalsModule.PopulateCrewEndStates`,
+`TerminalState.Destroyed` -> `KerbalEndState.Dead`). On the failure path the scenario
+could not reach its own subject. So `cl1_decide` has its OWN terminal (`CL1_CREW_LOST`):
+done, NO `loss_reason`, verdict left None. The guard the inversion removes is replaced
+rather than dropped - the terminal reads the KERBAL's roster status (a property of the
+kerbal, not of the wreckage), debounced over 2 frames, and gated on the kerbal having
+been OBSERVED alive and aboard first.
+
+**What the archived dead-kerbal run already proved headlessly**
+(`logs/2026-07-25_1310_EVA-4-atmo-chute`), and what it could not:
+- PROVED: the destroy-path token set and its exact wording (`[RecState]
+  OnVesselWillDestroy:entry`; `[FinalizerCache] Destroy-reason override: ...
+  reason=destroy_event`; `[Recorder] Active vessel destroyed during recording`); that the
+  commit path derives the death (`PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`) and
+  creates the action (`CreateKerbalAssignmentActions: 1 crew members`); and that a kerbal
+  death emits NO `[Parsek][ERROR]` line (the run's single ERROR is the EVA-4 seam verb's
+  own assert-fail, which CL-1 does not drive).
+- COULD NOT PROVE: (a) it was an EVA KERBAL impact, not a CREWED POD crash - the pod-crash
+  path is unexercised; (b) it was SANDBOX, so the ledger half is untouched by it; (c) the
+  crew transition it shows is TWO-step (`Assigned -> Dead -> Missing`) only because
+  `b1-pad-craft` carries `MissingCrewsRespawn = True`; every `fresh-*` fixture carries
+  False, so on a career fixture the kerbal settles at Dead and the second line never
+  appears. CL-1 pins the FIRST hop for exactly that reason, and its machine accepts
+  Dead / Missing / NotInRoster so the contract is not tied to one save's difficulty flag.
+
+**Fixture, forged by construction.** `harness/fixtures/saves/career-pad-craft`, built by
+`harness/tools/build_career_pad_craft.py` (no KSP launch, no forge flight, `--check` mode
+re-verifies the committed bytes). It is `fresh-career` with exactly two edits:
+`b1-pad-craft`'s Jumping Flea VESSEL node spliced into the empty FLIGHTSTATE (its
+`type = SpaceObject` asteroid dropped), and the crew kerbal's roster row replaced by
+`b1-pad-craft`'s `state = Assigned` one. The craft is byte-identical to B1's, so B1's
+MEASURED profile applies verbatim (peak ~11,965 m, terminal -301 m/s by ~2,700 m, ~120 s
+hop, one `.prec`). This also closes roadmap item **R11** ("a CAREER fixture with a flyable
+craft"), which the roadmap proposed closing with a `FORGE-career-pad` FLIGHT.
+
+**The ledger half is declared, with ONE knowingly-unpinned term.** `[expectations.ledger]`
+declares the death POOL-NEUTRAL (`kerbal-death`, all facets 0.0; the `kind` is new
+vocabulary in `oracle.KINDS`). That is a real claim, not a placeholder: nothing in
+`Source/Parsek/` ever CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action - the enum
+member is referenced only by the UI label formatter, the post-walk reason-key map, and
+deserialization - so there is no repo-derivable magnitude to declare, and zero is the
+strongest falsifiable claim available before a flight. **P2, stated up front:** this is
+the suite's first career FLIGHT, and a flight trips stock PROGRESS MILESTONES that DO move
+career pools (the archived run carries `Game state: MilestoneAchieved (standalone)
+'RecordsSpeed' funds=4800 rep=1.0 sci=0.0` - inert in that SANDBOX save, live in a career
+one). Which records a 12 km crewed hop trips is not derivable from this repo and is NOT
+pre-declared from a guess. The first run's ledger-oracle verifier row reports the drift
+per facet; each award then becomes its own `kind = "milestone"` entry with the measured
+constant. The spec is therefore tiered `operator` with an inline PROMOTE note naming
+`nightly`, so a systematic first-run ledger red cannot pollute the nightly sweep.
+
+**Mutation-checked.** 14 mutations over the CL-1 cells, 14 killed. The two that initially
+SURVIVED were both real test gaps and both are now closed: the runner dropping the roster
+reading from a `vessel_lost` snapshot (the whole vessel-independence claim), and arming the
+watch behind an active-vessel resolve (the fake in that cell was a class with a raising
+property, so attribute access returned the property object and never raised).
+
+**Open after this lands.** (1) It has never flown - the first run is what pins P2 and
+promotes the tier. (2) It does not touch the EVA-4 `eva-chute-kerbal-lost` /
+`PARSEK-FAIL(mission-outcome)` path or the `EvaExit` standoff wiring; those halves of
+known-gate 10 stay open. (3) What the atom is meant to be extended into, in order: a
+rewind / re-fly ACROSS the crew loss, which is what would first exercise
+`SupersedeCommit`'s kerbal-death tombstones, D9 `tombstones`, and D12 `dead-crew-strip` /
+`tombstone-rep-penalty` - all still uncovered. `InGameTests/KerbalRecoveryOnSupersedeTest`
+currently AUTO-SKIPS with "No kerbal-death actions in supersede subtree - create a BG-crash
+with kerbals aboard before running this test"; CL-1's committed tree is exactly that
+subtree.
+
+---
+
 ## R1-EMPTY-PROVISIONAL: a Re-Fly session can reach the merge with NO recorder ever bound to its provisional, and nothing between refuses [FOUND by R1 flight 2, DIAGNOSED by R1 flight 3, 2026-07-26. FAIL-LOUD GAP + merge non-convergence FIXED (PR #1360); the discriminating FIXTURE experiment is BUILT and awaits its first run; the production REACH is still UNPROVEN IN EITHER DIRECTION. Layer 1 deliberately NOT built]
 
 **TWO CORRECTIONS, both to earlier versions of this entry. Read them before the rest.**

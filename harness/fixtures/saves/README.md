@@ -39,6 +39,49 @@ Author constants declared in the specs (assert `expected == save` on the touched
 
 Budget check: `500000 - 150000 (upgrade) - 24000 (hire) = 326000 >= 0`.
 
+## career-pad-craft (GAME Mode = CAREER, 1 VESSEL)
+
+The first CAREER save in the repo carrying a flyable craft (roadmap item R11). Used by
+`CL-1-pod-impact`, the crew-loss atom, and available to any later scenario whose subject
+is a career-ledger consequence of a FLIGHT rather than of a KSC button.
+
+Built BY CONSTRUCTION, headlessly, by `harness/tools/build_career_pad_craft.py` - no
+forge flight and no operator session. `python harness/tools/build_career_pad_craft.py
+--check` re-verifies every post-condition against the COMMITTED bytes, so a reviewer can
+confirm the fixture is what the recipe produces without regenerating it.
+
+Exactly two edits against `fresh-career`:
+
+1. `fresh-career`'s empty `FLIGHTSTATE` replaced by `b1-pad-craft`'s, with every
+   non-`Ship` `VESSEL` dropped (that removes one `type = SpaceObject` asteroid, which
+   `fresh-career`'s own `DiscoverableObjects` scenario never registered and which would
+   otherwise be a free variable in any consumer's `expectations.recordings.count`).
+   `activeVessel` re-indexed onto the surviving ship.
+2. The `ROSTER` row for `Jebediah Kerman` replaced by `b1-pad-craft`'s, so it is the
+   `state = Assigned` row KSP itself wrote alongside this exact vessel.
+
+The craft is copied VERBATIM - same `pid`, same `persistentId`, same parts, same
+`stg = 2`, same `automateSafeDeploy = 0` on the chute - so `b1-pad-craft`'s MEASURED
+flight profile applies to it byte for byte.
+
+| Facet | Pinned value | Why it matters |
+| --- | --- | --- |
+| Mode | `CAREER` | a SANDBOX death cannot exercise the ledger at all |
+| Funding / RnD / Reputation | `500000` / `100` / `0` | inherited from `fresh-career`; the ledger-oracle seed |
+| Facilities (all 10) | `lvl = 0` | inherited |
+| Vessel | stock "Jumping Flea" (mk1pod.v2 + parachuteSingle + 2x GooExperiment + solidBooster.sm.v2 + fins), `sit = PRELAUNCH` on the LaunchPad | `stg = 2`, booster at `istg = 1` and chute at `istg = 0`, so ONE stage activation ignites the booster and leaves the chute stowed |
+| Crew | `Jebediah Kerman`, `state = Assigned`, aboard the pod | `type = Crew` is load-bearing: kRPC `GetKerbal` scans `CrewRoster.Crew` |
+| `MissingCrewsRespawn` | `False` (inherited) | with it off the kerbal settles at `Dead`; with it on stock walks `Dead -> Missing`. CL-1 pins the FIRST hop for that reason |
+| Parsek footprint | none | keeps the analyzer's Forbid gate clean, and leaves `KerbalsModule.IsManaged` no reservation to claim (a claimed kerbal's `CrewStatusChanged` emit is SUPPRESSED) |
+
+No tech-tree edit is needed: a persisted `VESSEL` node loads regardless of unlock state,
+and every part on this craft is in the stock `start` node anyway.
+
+The spec-to-fixture pairing (crew name aboard, Assigned, career, one vessel, respawn off,
+no Parsek footprint) is gated by `SpecFixtureSyncTests` in
+`harness/missions/lib/test_cl1_crew_loss.py` - nothing else checks it, and getting it
+wrong costs a live flight to discover.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

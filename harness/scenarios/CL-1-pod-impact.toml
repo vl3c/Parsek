@@ -1,0 +1,361 @@
+schema = 1
+id = "CL-1-pod-impact"
+# =====================================================================================
+# THE CREW-LOSS ATOM. A crewed pod launches, does not deploy a chute, and hits the
+# ground. The crew dies. That is the entire scenario.
+#
+# Its job is to make ONE thing observable end to end for the first time: what Parsek
+# RECORDS when a kerbal dies, and what the career LEDGER does about it. Everything
+# that is not that is deliberately out of scope - no EVA, no parachute, no re-fly /
+# rewind / tombstones, no second crew member, no new seam verb. It is meant to be the
+# base other crew-loss scenarios extend, so it stays as small as a crew loss can be.
+#
+# WHY IT NEEDS NO NEW SEAM SURFACE. Every other "wait for a physical outcome" in this
+# harness needed a bounded seam verb (EvaChuteDeploy's awaitDown, EvaExit's
+# settleSeconds). This one does not: the MISSION SUBPROCESS IS THE WAIT. mlib's phase
+# machines already poll kRPC per frame, so the fall IS the mission and the seam tail is
+# just CommitTree / FlushAndQuit.
+# =====================================================================================
+#
+# THE ONE INVERSION THAT MAKES IT WORK
+# ------------------------------------
+# Everywhere else in this suite a vessel-lost terminal is a FAILURE:
+# `mlib.resolve_flight_verdict` returns MISSION-ASSERT-FAIL on a `loss_reason` BEFORE
+# the assertions are evaluated, deliberately, so a destroyed craft's residual telemetry
+# cannot satisfy them. Here the death is the SUCCESS terminal.
+#
+# It HAS to be, and the reason is mechanical rather than aesthetic. An unmet mission
+# makes the harness drive the CLEANUP tail only (`hlib.plan_unmet_mission_tail`;
+# CommitTree is TAIL_ROLE_WORLD_MUTATING, so it is SKIPPED). And the ledger row this
+# scenario exists to observe is created at COMMIT time, not at the moment of death:
+# `LedgerOrchestrator.CreateKerbalAssignmentActions` (LedgerOrchestrator.cs:1121-1174)
+# runs `KerbalsModule.PopulateCrewEndStates` (KerbalsModule.cs:703) on commit, and that
+# is what turns `TerminalState.Destroyed` into `KerbalEndState.Dead` and emits the
+# `KerbalAssignment` action. So on the failure path nothing would be committed, no
+# recording would persist, and there would be no ledger to check - the scenario could
+# not reach its own subject.
+#
+# So CL-1 does NOT route through the existing loss path. `mlib.cl1_decide` gives it its
+# OWN terminal (`CL1_CREW_LOST`): `done` with NO `loss_reason` and `verdict` left None,
+# so the assertions decide OK vs ASSERT-FAIL exactly as they do at B1's LANDED. The
+# suite-wide rule is untouched; this mission opts out of it explicitly and says why.
+#
+# THE TRAP INSIDE THE INVERSION, and how it is closed. "A destroyed craft's residual
+# telemetry must not satisfy the assertions" is a REAL hazard and the inversion removes
+# the guard that enforced it. It is replaced, not dropped:
+#   - the success terminal reads the KERBAL'S OWN ROSTER STATUS
+#     (`SpaceCenter.GetKerbal(name).RosterStatus`), which is a property of the kerbal
+#     and not of the wreckage, so no amount of debris telemetry can produce it;
+#   - it is DEBOUNCED over 2 consecutive agreeing frames (`CL1_ROSTER_DEBOUNCE_K`);
+#   - and it is gated on the kerbal having been OBSERVED ALIVE AND ABOARD first, so a
+#     fixture whose kerbal was already dead at load cannot pass instantly and green.
+#
+# COMMANDED vs OBSERVED (autotest-status known-gate 7). Nothing here reads the
+# machine's own "we watched it fall" latch. B1 shipped four months of green nightlies
+# on a chute that never opened because its terminal read a commanded latch; the only
+# channel that can distinguish "the kerbal died" from "we flew a profile that usually
+# kills" is the live roster read, and that is the only channel either assertion reads.
+#
+# ANSWERING KNOWN-GATE 10, which is a deliberate prior decision AGAINST this scenario.
+# The gate's text says a fatal-profile scenario was NOT built because it costs "a
+# fixture nobody maintains and a run whose artifacts are indistinguishable from a real
+# regression". Both objections are addressed rather than ignored:
+#   (a) FIXTURE: `career-pad-craft` introduces no new craft and no new flight profile.
+#       It is `fresh-career` (the committed, live-proven career template the seven L1
+#       ledger scenarios already seed from) plus `b1-pad-craft`'s Jumping Flea copied
+#       BYTE-IDENTICALLY, spliced by a committed script with a `--check` mode that
+#       re-verifies every post-condition against the committed bytes. Both halves are
+#       already maintained by their existing consumers.
+#   (b) ARTIFACTS: the death is this scenario's DECLARED SUCCESS TERMINAL. It has its
+#       own phase name (CREW-LOST), its own named assertions, and its own required log
+#       tokens; a run that does NOT kill its kerbal reds by name
+#       (`crew-survived-impact`) rather than passing quietly. The artifacts are labelled
+#       by the scenario's own verdict, not left to a human to interpret.
+#   And what the gate closes is scoped honestly below (see autotest-status): the
+#   headline "no scenario ever kills its subject in a live flight" is what this closes
+#   on its first green flight. The EVA-4 `eva-chute-kerbal-lost` /
+#   PARSEK-FAIL(mission-outcome) path and the EvaExit standoff wiring stay OPEN - this
+#   scenario does not touch either, and the pure decisions remain their home.
+#
+# STATUS: COMMITTED, NEVER FLOWN. Every number below is either MEASURED from an
+# archived run of this exact craft or derived from a quoted call site; the two things
+# no static analysis can supply are called out inline as (P1) and (P2).
+tier = "operator"
+# PROMOTE TO `nightly` after the first green flight. Tiered `operator` for the
+# hlib reason (b) family - unflown, with one arithmetic term that is knowably
+# unpinned (P2, the career progress-milestone awards) - so a systematic first-run
+# ledger red cannot pollute the nightly sweep before anyone has looked at it. The
+# flight itself is CHEAP (~120 s), so this is not the B16 expense case; it is the
+# same "do not self-quarantine an unflown spec" discipline the L1 specs used with
+# `pending-fixture`.
+description = "Crew-loss atom: crewed pod launches, no chute, hits the ground; assert the kerbal is OBSERVED dead and the recording + career ledger record it."
+instanceProfile = "stock-minimal"
+tags = ["CL1", "crew-loss", "ledger", "flown", "pending-operator"]
+
+[fixture]
+# career-pad-craft: the FIRST career save in the repo with a flyable craft (roadmap
+# item R11). Built BY CONSTRUCTION, headlessly, by
+# `harness/tools/build_career_pad_craft.py` - no forge flight, no operator session.
+# It is `fresh-career` with exactly two edits: `b1-pad-craft`'s Jumping Flea VESSEL
+# node spliced into the empty FLIGHTSTATE (its `type = SpaceObject` asteroid dropped),
+# and the roster row for the crew kerbal replaced by `b1-pad-craft`'s `state = Assigned`
+# one. The craft is byte-identical to B1's, so B1's MEASURED profile applies verbatim.
+#
+# THE PROFILE IS MEASURED, NOT ASSUMED (logs/2026-07-24_2210_EVA-4-atmo-chute, the
+# same craft, and the EVA-4 spec's flight-1 forensics): peak altitude 11,965 m at
+# ut 60.6; the UNCHUTED descent reaches TERMINAL -301 m/s by ~2,700 m and holds it;
+# the whole hop is ~120 s. Against the parts' own crashTolerance values (mk1pod.v2 14,
+# parachuteSingle 12, solidBooster.sm.v2 7, basicFin 4) a 301 m/s arrival destroys
+# every part, so the kill is deterministic rather than marginal.
+#
+# WHY THE CHUTE NEVER OPENS, mechanically, so this is not a bet: the fixture's craft
+# sits at `stg = 2` with the booster at `istg = 1` and the parachute at `istg = 0`, so
+# the mission's ONE `activate_stage` ignites the booster and leaves the chute stowed.
+# The mission never emits a deploy action at all. (Even an armed chute would not open
+# on this profile - the fixture persists `automateSafeDeploy = 0` and a craft at
+# terminal velocity in dense air never reads SAFE - but CL-1 does not rely on that.)
+#
+# CAREER PARTS: no tech-tree edit is needed. A persisted VESSEL node loads regardless
+# of unlock state, and every part on this craft is in the stock `start` node anyway.
+#
+# `MissingCrewsRespawn = False` comes from fresh-career and is LOAD-BEARING for the log
+# contract below - see the CrewStatusChanged token.
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "cl1_pod_impact"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be scoped to driver.missionParams.steps and the
+# spec would validate as having zero steps).
+#
+# FIVE STEPS. What is deliberately ABSENT is as much the point as what is present:
+#   - no `SetSetting verboseLogging`: EVERY required token below is Info or Warn, so
+#     this scenario does not depend on the verbose setting at all (B1 and EVA-4 both
+#     need it for their `Part event:` tokens, which are Verbose).
+#   - no `SetSetting autoRecordOnEva`: nothing EVAs.
+#   - no `StopRecording`: the recorder's stop line is emitted by the quit-time
+#     force-stop (`FlightRecorder.ForceStop`, FlightRecorder.cs:10378, which keeps the
+#     stop-line contract identical to a manual stop precisely so live log validation
+#     needs no in-flight stop). B1 has flown this exact tail on this exact craft.
+#
+# CommitTree is LOAD-BEARING, not tidy-up: the kerbal-death ledger action is created at
+# commit time (see the inversion note at the top).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",                                          expect = "MISSION-OK", budget = 480 },
+  { cmd = "CommitTree",                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                       expect = "OK" },
+]
+
+# Mission parameters are TOLERANCES / BOUNDS / IDENTIFIERS, never golden trajectories;
+# validated against cl1_pod_impact.schema.toml.
+[driver.missionParams]
+throttle  = 1.0
+# The kerbal the mission WATCHES. It is the argument to SpaceCenter.GetKerbal, so the
+# entire success terminal reads this kerbal and no other. `Jebediah Kerman` is the
+# fixture's only Assigned kerbal (career-pad-craft's roster: Jeb Assigned, Bill / Bob /
+# Val Available, Verhat an Applicant), and the vessel's pod carries
+# `crew = Jebediah Kerman`. A wrong name here is caught by the machine's own
+# `crew-watch-name-unknown` terminal within a couple of polls of launch.
+crewName  = "Jebediah Kerman"
+# 300 game seconds against a MEASURED ~120 s hop = 2.5x. A BACKSTOP, not the guard:
+# all three named terminals fire on OBSERVED state within a couple of polls, so this
+# only catches a craft that neither dies nor lands. The mission never warps
+# (allow_rails_warp False, max_physics_warp 0), so game and wall run 1:1 and the 480 s
+# mission step budget clears 30 s connect + this bound with ~1.37x margin - the same
+# ratio B1 settled on after a tighter one converted a NAMED flake into an unnamed
+# budget kill.
+flightTimeoutSeconds = 300
+landedSituations     = ["LANDED", "SPLASHED"]
+
+[dimensionsCovered]
+# Claimed conservatively: only cells this scenario's own assertions or required tokens
+# back. D4 `atmospheric` is NOT claimed even though the hop is atmospheric - B1 already
+# covers it and CL-1 asserts no TrackSection token.
+D1  = ["auto-record-launch"]
+# `kerbals`: KerbalsModule.InferCrewEndState turns TerminalState.Destroyed into
+#   KerbalEndState.Dead, backed by the required `PopulateCrewEndStates ... dead=1`.
+# `orchestrator`: LedgerOrchestrator.CreateKerbalAssignmentActions builds the
+#   KerbalAssignment action, backed by its own required token.
+D8  = ["kerbals", "orchestrator"]
+# `crew-death-in-flight` is NEW vocabulary added to coverage/registry.toml in this same
+# change (the registry growth rule). D12 had no value for a plain in-flight crew death:
+# `dead-crew-strip` and `tombstone-rep-penalty` are both RE-FLY cells and stay
+# uncovered, which is the correct picture - they are what this atom is meant to be
+# extended into, not what it proves.
+D12 = ["crew-death-in-flight"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACTLY ONE, and it is MEASURED rather than guessed: both inspectable B1 runs
+# (logs/2026-07-20_1826_B1-pad-hop, logs/2026-07-20_1829_B1-pad-hop) flew THIS craft
+# into a ~300 m/s terminal-velocity impact and each produced exactly ONE `.prec`. The
+# B1 spec records why the breakup does not add more: the breakup-child pids are
+# in-memory rows created by ProcessBreakupEvent at the impact and none of them persist
+# as recordings. CL-1's profile is that same unchuted impact with no EVA branch, so 1
+# is the whole tree.
+#
+# EXACT, not a window, deliberately: logContracts are presence-only (re.search), so
+# this count is the only NUMERIC guard on the recording topology, and a window wide
+# enough to absorb breakup variance is also wide enough to absorb a dropped recording.
+#
+# RE-PIN CONTRACT: if a live run legitimately differs, RE-PIN to the measured value and
+# record WHICH recordings the run produced. Do NOT widen the window blindly.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# Every token is quoted from its emitting ParsekLog call site, with the file:line and
+# the LEVEL. All are Info or Warn, so none depends on the verboseLogging setting.
+#
+#  "Recording started"                     FlightRecorder.cs:6140                  (Info)
+#  "Active vessel destroyed during recording"
+#                                          FlightRecorder.cs:10350                 (Warn)
+#  "Destroy-reason override: ... reason=destroy_event"
+#                                          RecordingFinalizationCacheProducer.cs:880 (Info)
+#  "Game state: CrewStatusChanged '<name>' Assigned ... Dead"
+#                                          GameStateRecorder.Handlers.cs:604       (Info)
+#  "PopulateCrewEndStates: ... dead=1"      KerbalsModule.cs:703                    (Info)
+#  "CreateKerbalAssignmentActions: 1 crew members"
+#                                          GameActions/LedgerOrchestrator.cs:1169  (Info)
+#  "committree committed=true"             TestCommands/ParsekTestCommandAddon.cs:1520 (Info)
+#  "Recording stopped"                     FlightRecorder.cs:10378                 (Info)
+#
+# THE CrewStatusChanged TOKEN, three decisions in one line.
+#  1. WHY `.*` AND NOT AN ARROW. The emitting format string is
+#     `$"Game state: CrewStatusChanged '{name}' {oldStatus} -> {newStatus}"` where the
+#     separator is U+2192 RIGHTWARDS ARROW, not ASCII `->`. A regex written with `->`
+#     matches nothing. `.*` spans it and keeps this file plain ASCII.
+#  2. WHY `Assigned` AND `Dead`, i.e. why the FIRST transition of the two. The archived
+#     dead-kerbal run (logs/2026-07-25_1310_EVA-4-atmo-chute, KSP.log:13978 and 13981)
+#     shows a TWO-step Assigned -> Dead -> Missing. That second hop is a property of
+#     that fixture, not of Parsek: `b1-pad-craft` carries `MissingCrewsRespawn = True`
+#     and `fresh-career` (hence career-pad-craft) carries False, so on THIS fixture the
+#     kerbal settles at Dead and the second line never appears. Pinning it would pin a
+#     transition the fixture is configured to prevent. Dead is also the transition
+#     Parsek's own contract is written against: `KerbalsModule.cs:290` makes
+#     `KerbalEndState.Dead` the permanent-reservation trigger, and
+#     `CrewReservationManager.SeatMatch.cs:437` treats Dead as permanent while Missing
+#     is "alive but orphaned".
+#  3. WHY IT CAN BE SUPPRESSED, and why it is not here. The emit is dropped for a
+#     kerbal that `KerbalsModule.IsManaged` (KerbalsModule.cs:928) claims - reserved by
+#     a prior committed Parsek recording, retired, or a stand-in. career-pad-craft
+#     carries ZERO prior recordings, so no reservation can exist at launch. If this
+#     scenario is ever re-pointed at a save with prior committed crewed flights, this
+#     is the token that silently vanishes.
+#
+# `PopulateCrewEndStates ... dead=1` is the LEDGER-SIDE proof and the strongest of the
+# set: Info level, pure ASCII, and it states the derivation this scenario exists to
+# observe (Destroyed terminal -> one dead crew member). The archived run carries it
+# verbatim for the kerbal that died: `PopulateCrewEndStates: recording='Jebediah
+# Kerman' (id=da409d3e...) crew=1 aboard=0 dead=1 recovered=0 unknown=0`.
+#
+# NOT REQUIRED, deliberately:
+#  - "Game state: CrewRemoved": stock fires `onKerbalRemoved` on roster REMOVAL (the
+#    dismiss path, which L1-dismiss-kerbal-career pins). Whether a crash-death also
+#    removes the kerbal is NOT established, and requiring it would red a good run on an
+#    unverified stock detail.
+#  - "Part event: Destroyed": Verbose (so it would drag in a verboseLogging step), and
+#    its event-type token is classifier-derived (`ClassifyPartDeath`), so `Destroyed` is
+#    one possible value rather than a guarantee.
+required  = ["Recording started",
+             "Active vessel destroyed during recording",
+             "Destroy-reason override: .* reason=destroy_event",
+             "Game state: CrewStatusChanged 'Jebediah Kerman' Assigned .* Dead",
+             "PopulateCrewEndStates: .* dead=1",
+             "CreateKerbalAssignmentActions: 1 crew members",
+             "committree committed=true",
+             "Recording stopped"]
+# THE FORBIDDEN PATTERN WAS CHECKED AGAINST A REAL DEAD-KERBAL RUN rather than copied.
+# logs/2026-07-25_1310_EVA-4-atmo-chute contains exactly ONE `[Parsek][ERROR]` line in
+# the whole 1.9 MB log, and it is the EVA-4 seam verb reporting its own assert failure:
+# `[TestCommands] evachutedeploy eva-chute-kerbal-lost kerbal=Jebediah Kerman ...`.
+# CL-1 drives no EVA verb. Independently, no `ParsekLog.Error` call site exists on the
+# destroy / crew-death path (FlightRecorder's only Errors are rewind-save failures).
+# So a kerbal death does NOT legitimately emit an ERROR line, and the usual pattern is
+# correct here.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# =====================================================================================
+# THE LEDGER HALF. Read this block before reading its numbers.
+# =====================================================================================
+# A SANDBOX death cannot exercise the ledger at all, which is why this scenario needed
+# a career fixture. What the ledger oracle can assert about a death today, honestly:
+#
+# (1) THE DEATH ITSELF IS DECLARED POOL-NEUTRAL, and that is a real claim, not a
+#     placeholder. Nothing in `Source/Parsek/` ever CONSTRUCTS a
+#     `ReputationPenaltySource.KerbalDeath` action - the enum member
+#     (GameActions/GameAction.cs:205) is referenced only by the UI label formatter, the
+#     post-walk reconciler's reason-key map, and deserialization of a persisted action.
+#     The only production assignment of `RepPenaltySource` anywhere
+#     (GameStateEventConverter.cs:1022) writes `Strategy`. So Parsek authors NO
+#     kerbal-death reputation constant, and there is no number in the repo to declare.
+#     Zero is therefore the strongest FALSIFIABLE claim available before a flight: if
+#     stock KSP does deduct reputation on a crew death, this scenario reds on the
+#     reputation facet WITH the measured magnitude in the verifier row, which is
+#     exactly the measurement nobody has. That is the designed outcome of the first
+#     run, not a Parsek defect - re-pin `reputation` here from `observedAfter=`.
+#     (The repo asserts stock emits SOMETHING and contradicts itself on the key:
+#     PostWalkActionReconciler.cs:213 maps KerbalDeath -> `CrewKilled`, while
+#     docs/dev/done/research/reputation-reservation-not-warranted.md:134 says
+#     `VesselLoss`. Neither is pinned against the enum. The magnitude is nowhere.)
+#
+# (2) P2 - THE ONE KNOWN UNPINNED TERM, stated up front so a red is diagnosable in
+#     seconds. This is the suite's first career FLIGHT, and a flight trips stock
+#     PROGRESS MILESTONES that DO move career pools. The archived run carries the
+#     evidence directly: `[GameStateRecorder] Game state: MilestoneAchieved
+#     (standalone) 'RecordsSpeed' funds=4800 rep=1.0 sci=0.0` (KSP.log:14426) - inert
+#     in that SANDBOX save, live in a career one. Which records a 12 km crewed hop
+#     trips, and what each awards, is not derivable from this repo and is not declared
+#     here. The first run's ledger-oracle verifier row reports the drift per facet;
+#     each award then becomes its own `kind = "milestone"` manifest entry with the
+#     measured constant, and the spec is promoted to `nightly`.
+#     Deliberately NOT pre-declared from a guess: a fabricated author constant is
+#     exactly what the oracle's "author constant REQUIRED" rule exists to prevent, and
+#     a wrong one would red just as loudly while looking pinned.
+#
+# The capture cross-check leg contributes nothing either way here (autotest-status
+# known-gate 3: STOCK_AWARD_PATTERNS are dead against real KSP logs, and they enumerate
+# only ContractSystem / ResearchAndDevelopment lines - no reputation emitter at all).
+# The load-bearing leg is `compute_expected` vs the produced save's parsed pools, and
+# that leg is live.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+[[expectations.ledger.manifest]]
+  # ut is the fixture's own start UT (career-pad-craft carries FLIGHTSTATE UT =
+  # 9.0599999999998957, inherited with the vessel). The death is ~2 minutes later; the
+  # oracle uses ut only for per-facet window attribution, and no facet moves here.
+  ut         = 0.0
+  kind       = "kerbal-death"
+  # ALL pool deltas 0 - see (1) above. The entry exists to SAY that this scenario's
+  # ledger claim is about a crew death (an empty manifest is indistinguishable from
+  # having no ledger claim, which is B10's case) and to assert via the zero-delta
+  # cross-check that the death moved no career pool.
+  funds      = 0.0
+  science    = 0.0
+  reputation = 0.0
+  provenance = "seam-declared"
+
+[runtime]
+# WALL clock: 300 LoadGame + 480 mission + the fast SetSetting / CommitTree /
+# FlushAndQuit verbs (seconds each) + 180 margin.
+budgetSeconds = 1080
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
