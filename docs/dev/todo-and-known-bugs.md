@@ -14,7 +14,97 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## R1-EMPTY-PROVISIONAL: a Re-Fly session can reach the merge with NO recorder ever bound to its provisional, and nothing between refuses [FOUND by R1 flight 2, DIAGNOSED by R1 flight 3, 2026-07-26. FAIL-LOUD GAP + merge non-convergence FIXED (PR #1360); the discriminating FIXTURE experiment is BUILT and awaits its first run; the production REACH is still UNPROVEN IN EITHER DIRECTION. Layer 1 deliberately NOT built]
+## S4.1-DEFERRED-DIALOG: `AnswerMergeDialog` cannot answer a POST-transition merge dialog, so S4.1 is deterministically INVALID on a nightly cadence [FOUND 2026-07-28 by run `2026-07-28_1521`. REPORTED, NOT FIXED. Severity MEDIUM - burns a nightly slot and yields no verdict; NOT a player-facing defect]
+
+### What happens
+
+`S4.1-rewind-merge` (`LoadGame -> SetSetting -> InvokeRewind -> AnswerMergeDialog -> RecordingState -> FlushAndQuit`, nothing flown between the rewind and the conclusion) fails at step 3 every time:
+
+```
+18:19:40.961 [TestCommands] answermergedialog driving re-fly conclusion scene-exit
+18:19:40.964 [Flight]       Scene change requested: SPACECENTER at UT=21.40
+18:19:41.027 [TestCommands] exec id=0004 verdict=PENDING (two-phase awaiting completion)
+18:19:44.451 [Scenario]     Showing deferred tree merge dialog in SPACECENTER      <-- POST-transition
+18:21:41.032 [WARN][TestCommands] timeout id=0004 cmd=AnswerMergeDialog deferred=120.0s reason=answer-timeout
+18:21:41.033 [TestCommands] exec id=0004 verdict=ERROR
+```
+
+Harness side: `drive resp id=0004 verdict=ERROR met=False` -> `driverValidity FAIL subkind=driver-verdict-mismatch` -> `verdict=INVALID`, 366 s over 2 attempts, identical both times.
+
+### Cause
+
+`AnswerMergeDialog` drives the scene exit expecting the PRE-transition dialog (the `SceneExitInterceptor` path, which surfaces in FLIGHT before the transition) and can only answer THAT one. S4.1 flies nothing between the rewind and the conclusion, so the tree exits as Limbo (`pend.tree=tree-b9-:Limbo` at `OnSceneChangeRequested`) and the conclusion falls to the DEFERRED path, which spawns the dialog at KSC AFTER the scene settles. The command then waits for an answer that nothing will ever apply.
+
+This is a KNOWN and DOCUMENTED limitation being hit, not a surprise: `TestCommandMergeAnswer.DecideAnswerCompletion`'s own doc-comment says "if the driven exit took the POST-transition path, the deferred dialog spawns AFTER the scene settles, so a settle-keyed decider would report a false OK over an orphaned unanswered dialog", and it deliberately splits its budget-expiry terminal so an UNAPPLIED answer reports `AnswerTimeout` rather than falsely claiming a committed merge. The decider behaved correctly. What the seam lacks is the ability to ANSWER the deferred dialog.
+
+Contrast, same build, same day: `R1-rewind-loop-flown`'s `AnswerMergeDialog` returned OK. The difference is that R1 flies a real re-flight, so its conclusion takes the pre-transition path. INFERRED, not proven - R1's `KSP.log` was overwritten by the S4.1 run and `collect-logs` does not run on PASS, so confirm it on the next R1 run rather than trusting this note.
+
+### Why it matters
+
+S4.1 is `tier = "nightly"`, and `hlib.CADENCE_TIERS` maps the nightly cadence to `("daily", "nightly")`, so it IS scheduled. A deterministic INVALID burns ~366 s a night and produces no verdict, while the scenario's real purpose - being the dedicated rewind-then-teardown regression case - goes unserved. INVALID is retryable and does not red the sweep as PARSEK-FAIL, so this fails quietly rather than loudly.
+
+### Fix options, not yet chosen
+
+1. Teach the seam to answer the deferred dialog (a KSC-scene `AnswerMergeDialog` completion path keyed on the post-settle dialog rather than the pre-transition one). Closes the gap properly; most work.
+2. Re-tier S4.1 to `operator` until 1 lands, so it stops consuming nightly slots. Cheapest, loses the nightly regression.
+3. Give S4.1 a flight between the rewind and the conclusion so it takes the pre-transition path - but that makes it a duplicate of R1 and destroys the thing it uniquely covers (rewind-then-conclude-WITHOUT-flying).
+
+### Observability gap this exposed (worth fixing regardless)
+
+Nothing logs that a modal dialog is OPEN AND BLOCKING. The dialog's construction is logged (`BuildDefaultVesselDecisions` lines at 18:19:44) but not the fact that it is now waiting on input that no automated driver can supply. The blocker is therefore only visible as an ABSENCE - a `journal id=NNNN phase=CLAIMED` with no matching `phase=DONE` - until the budget expires 120 s later. A human watching a live log sees nothing wrong for two minutes. Cheap fix: log at dialog spawn that a blocking modal is up and which path spawned it (pre- vs post-transition), and have the pending seam command log what it is waiting for on each poll.
+
+---
+
+## ~~R1-EMPTY-PROVISIONAL: a Re-Fly session can reach the merge with NO recorder ever bound to its provisional~~ [FOUND by R1 flight 2, DIAGNOSED by R1 flight 3, 2026-07-26. **RESOLVED AS A FIXTURE ARTIFACT 2026-07-28** by the discriminating experiment, run `2026-07-28_1509_R1-rewind-loop-flown` = PASS. The fail-loud gap and the merge non-convergence were fixed independently in PR #1360; layer 1 was correctly never built]
+
+### RESOLVED: the discriminating experiment ran, and it discriminated
+
+`R1-rewind-loop-flown` over the corrected fixture: **PASS**, first attempt, 304 s wall
+(`harness/results/2026-07-28_1509_R1-rewind-loop-flown.json`). Every link in the flight-3
+failure chain is inverted, and the difference is the FIXTURE, not the product. Measured on
+the run's own `KSP.log`:
+
+| Signal | Flight 3 (2026-07-26) | Run 2026-07-28_1509 |
+|---|---|---|
+| `activeTreeRestoredFromSave` | `False` | **`True`** |
+| RP quicksave's tree | absent | `TryRestoreActiveTreeNode: stashed active tree 'B9 Stack' (3 recordings)` |
+| launch-guid veto (`conclusively differs`) | fired | **0 occurrences** |
+| bug #585 marker swap | refused, `marker-tree-id-mismatch` | **fired**, `swapped target rec='b9-upper-b'->'rec_104c4599...'` |
+| re-flight recorded into | `820de77e...` "B9 Slot 1" (NEW tree) | **`tree-b9-stack-root`**, 23 points |
+| supersede rows | **0** | **`Added 1 supersede relations for subtree rooted at b9-booster-a`** |
+| `[Parsek][ERROR]` lines | present (the throw) | **0** |
+
+So the answer to "is this reachable in production at all", for this route, is **no**. Give
+the re-fly a production-shaped RewindPoint - one that carries `RECORDING_TREE isActive=True`,
+which every real `GamePersistence.SaveGame` does - and the whole loop works: the tree
+restores, `PopPendingTree()` evicts the pre-rewind Limbo stash exactly as it always did, the
+guid guard does not veto, the #585 swap binds the recorder to the provisional, the re-flight
+records into the origin's tree, and the merge supersedes the branch it was invoked to
+replace. The two things that looked like product defects were both artifacts of an injected
+quicksave that no production code path can produce.
+
+**Two side-answers the run also settled**, both previously flagged as unverified:
+
+- **KSP DOES preserve an authored VESSEL `pid` (the `Vessel.id` guid) across the ProtoVessel
+  load.** `conclusively differs` never fires, so the derived guid the fixture stamps into the
+  sidecar survives into the live scene and agrees with the recording's `recordedVesselGuid`.
+  The contingency lever noted earlier (aligning `VesselSnapshotBuilder.ProbeShip`'s snapshot
+  pid) is NOT needed and was not applied.
+- **The new detection raises produce no false positives.** `outcome=unbound-refly-provisional`
+  and `outcome=refused-unflown-provisional` are both absent from a healthy run - they stayed
+  silent through a full rewind-and-re-fly loop, which is the only way a fail-loud signal keeps
+  its meaning.
+
+**What was kept, and why it still earns its place** even though the finding was a fixture
+artifact: the fail-loud gap was real and fixture-independent - a Re-Fly CAN reach the merge
+with nothing bound to its provisional and nothing in between objected, which is exactly why a
+fixture fault masqueraded as a product bug for two days. Those raises now make the next
+occurrence self-diagnosing. The merge non-convergence was also real and independent of all of
+this. Both stay.
+
+**Historical record of the wrong turns is preserved below** - two superseded diagnoses and a
+reverted fix. Read the corrections before the narrative; the OBSERVATIONS in the original
+write-up were sound throughout, only the causal claims were wrong.
 
 **TWO CORRECTIONS, both to earlier versions of this entry. Read them before the rest.**
 
@@ -72,7 +162,7 @@ The marker-aware adoption exists - `ParsekFlight.RestoreActiveTreeFromPending` c
 - PROVEN about the trigger: the injected quicksave carries no `RECORDING_TREE`, and the fixture-vs-live guid disagreement independently blocks the match.
 - **NOT PROVEN, in either direction: whether this is reachable in production at all.** A real RewindPoint is a full `GamePersistence.SaveGame` and would carry the tree node, and a real re-flight's guid provenance differs from the fixture's. There is no archived Re-Fly against a flight-authored RP to check against. Do NOT describe this as a confirmed player-facing bug until that exists.
 - **The narrowing experiment proposed in the previous version ("rewind + re-fly with NO prior commit") CANNOT NARROW ANYTHING and is withdrawn.** Removing the commit empties the pending slot, which hits the `!HasPendingTree` yield-break at `ParsekFlight.cs:13452`: a red proves only that the coroutine skipped, and a green is unreachable. **The discriminating experiment is a FIXTURE change**: make `BuildRewindPointQuicksave` emit `RECORDING_TREE isActive=True` for `tree-b9-stack-root`, AND make the sidecar VESSEL's guid agree with the provisional's `recordedVesselGuid` so the guid guard does not veto the match. Both are required - fixing only the tree node still loses at step 4. (Whether KSP preserves the authored VESSEL guid across the ProtoVessel load should be verified on the run rather than assumed.)
-  **BUILT in PR #1360, NOT YET RUN.** `BuildRewindPointQuicksave` now authors the owning tree as `RECORDING_TREE isActive=True` with `activeRecordingId` = the focus slot's origin, and `StampVesselIdentity` stamps the sidecar VESSEL `pid` from the new deterministic `ScenarioWriter.DeriveVesselLaunchGuid(originRecordingId)`, which `RewindB9Fixture` also sets as each child recording's `recordedVesselGuid` - so both sides agree by construction instead of by luck. Note the mechanism the earlier guid value came through: the recordings never set a guid explicitly, and `RecordingSidecarStore.cs:516-523` BACKFILLED one from the vessel snapshot's top-level `pid` (`ProbeShip(pid: 200003)` -> `00000000000000000000000000030d43`). An explicit guid suppresses that backfill, so the fixture no longer depends on it. STILL UNVERIFIED, exactly as flagged above: whether KSP preserves the authored VESSEL guid across the ProtoVessel load. If it regenerates, the guid guard vetoes again and the next lever is aligning the SNAPSHOT pid (`VesselSnapshotBuilder.ProbeShip`) with the same derived value.
+  **BUILT in PR #1360; RUN 2026-07-28 and it DISCRIMINATED - see the RESOLVED block at the top of this entry.** `BuildRewindPointQuicksave` now authors the owning tree as `RECORDING_TREE isActive=True` with `activeRecordingId` = the focus slot's origin, and `StampVesselIdentity` stamps the sidecar VESSEL `pid` from the new deterministic `ScenarioWriter.DeriveVesselLaunchGuid(originRecordingId)`, which `RewindB9Fixture` also sets as each child recording's `recordedVesselGuid` - so both sides agree by construction instead of by luck. Note the mechanism the earlier guid value came through: the recordings never set a guid explicitly, and `RecordingSidecarStore.cs:516-523` BACKFILLED one from the vessel snapshot's top-level `pid` (`ProbeShip(pid: 200003)` -> `00000000000000000000000000030d43`). An explicit guid suppresses that backfill, so the fixture no longer depends on it. STILL UNVERIFIED, exactly as flagged above: whether KSP preserves the authored VESSEL guid across the ProtoVessel load. If it regenerates, the guid guard vetoes again and the next lever is aligning the SNAPSHOT pid (`VesselSnapshotBuilder.ProbeShip`) with the same derived value.
 - **The reachable PRODUCTION shape to inspect is the Finalized early-return** at `ParsekScenario.cs:5142-5150`, which returns WITHOUT popping so an in-memory Finalized tree can legitimately survive a load - not the Limbo one the previous version named. Note it has explicit re-fly handling (`ShouldAcceptFinalizedPendingTreeForReFlyRetry`, `ParsekFlight.cs:13446/14228`), so it is a path to AUDIT, not a known defect.
 
 ### Release consequence IF the shape is reachable: BOTH branches stay live
@@ -118,6 +208,7 @@ What the abort DOES cost is everything after it: **`LoadTimeSweep.Run()` and `Re
 Three layers were proposed, in priority order. Layers 2 and 3 SHIPPED; layer 1 deliberately did not.
 
 1. **Bind the provisional. NOT BUILT, on purpose.** The proposal was to make the adoption independent of whichever tree owns the single pending slot - either evict a stale Limbo tree, or drive the adoption from `marker.TreeId`. Eviction is already production behaviour (see correction 2 above), and a first attempt at the marker-driven variant was written and then REVERTED: with the only demonstrated route fixture-shaped, it would have been a product change built on an unproven premise, and it would not have made flight 3 green anyway (blocker 4 still vetoes). If the fixture experiment above still reds, this becomes the right next move - but it must be an ADDITIONAL entry point, never a relaxed tree-id gate: `ReFlySessionMarker.cs`'s `marker-tree-id-mismatch` refusal is a genuine stale-marker guard.
+   **SETTLED 2026-07-28: the experiment did NOT red, so layer 1 is not needed and should not be built.** The run proves the adoption path is correct as written: given a production-shaped RP the #585 swap fires, binds the recorder to the provisional, and the supersede lands. The reverted attempt would have added a second adoption entry point to work around a fixture fault. Anyone tempted to revive it should first produce a failing case that is NOT fixture-shaped.
 2. **Detect it early and loudly. SHIPPED.** Pure core `ReFlyProvisionalBinding`; both raises emit a grep-stable `outcome=unbound-refly-provisional` Warn and are OBSERVATION ONLY (no control-flow change, for the same unproven-premise reason). Wired at the two points that were passed silently: `ParsekFlight.RestoreActiveTreeFromPending`'s give-up (`EvaluateRestoreGiveUp`, plus a ScreenMessage; the reason token separates `gave-up-on-marker-tree` from `gave-up-on-other-tree`) and `ParsekScenario.EnsureRecordingFilesCurrentForSave`'s `reason=trajectory-missing` rewrite (`EvaluateSidecarRewrite`). The second is independently sufficient: it is the only one that fires when the restore coroutine was never scheduled.
 3. **Named, non-throwing outcome. SHIPPED.** `AppendRelations` now logs `outcome=refused-unflown-provisional` and returns an empty list in BOTH builds. The guard is unchanged; only the "this can never happen" modelling is gone. This removes the non-convergent stuck merge described below - and with it the `MergeDialog.Commit.cs:249` ERROR that S4.1's forbidden-ERROR contract was redding on.
 
@@ -127,7 +218,8 @@ Still open from the original note: whether a conclusion with an un-flown provisi
 
 - SCENARIO, scheduled: **`S4.1-rewind-merge`** is the rewind-then-conclude case (`LoadGame -> InvokeRewind -> AnswerMergeDialog -> RecordingState -> FlushAndQuit`, no flying between). It keeps `expectedFail.bugId = "R1-EMPTY-PROVISIONAL"` + `subkind = "expectation"`: the known finding demotes to EXPECTED-FAIL on the nightly, a DIFFERENT failure still reds as PARSEK-FAIL, and a fixed finding reports XPASS and the keys must be deleted.
   **FIXTURE CONFOUND, flagged rather than resolved:** if the operative trigger is the fixture's tree-less RP (see PROVEN / NOT-PROVEN), then this tag permanently demotes a FIXTURE red on a nightly cadence, and the XPASS that is supposed to signal "Parsek fixed it" would never fire from a Parsek fix - only from a fixture fix. Keeping the tag is still the better of the two available options today (an untagged S4.1 reds the nightly on a known issue), but it is provisional: re-evaluate the moment the discriminating fixture experiment above runs. If that experiment shows the fixture was the trigger, this belongs on a FIXTURE defect id, not on a Parsek one.
-  **KEYS DELIBERATELY KEPT by PR #1360, with an expectation recorded.** That PR removes the throw S4.1 was actually redding on: `AppendRelations` no longer throws, so it no longer escapes `MergeJournalOrchestrator.RunMerge`, so `MergeDialog.Commit.cs:249` no longer logs the `[Parsek][ERROR]` that trips this spec's `logContracts.forbidden`. S4.1 is therefore EXPECTED to report XPASS on its next scheduled run, and that observed XPASS - not this prediction - is the trigger to delete both keys. They were not deleted pre-emptively: `classify_expected_fail` makes XPASS a non-failure, so leaving them costs nothing but a loud signal, whereas deleting them on an unverified prediction would red the nightly if anything else in that path errors. This also satisfies the "re-evaluate once the fixture experiment runs" instruction above rather than pre-empting it.
+  **KEYS STAY, and the 2026-07-28 run turned that from caution into evidence.** S4.1 was run to observe the predicted XPASS and did NOT reach it: `verdict=INVALID` on `driverValidity FAIL subkind=driver-verdict-mismatch`, deterministically, both attempts (run `2026-07-28_1521`, wall 366 s). It never got a PASS, so the XPASS prediction is still UNTESTED and deleting the keys would have removed a guard on an unverified assumption. The blocker is a separate defect - see the S4.1 deferred-dialog entry below. What the run DID confirm about the merge fix: `AppendRelations invariant violation` appears 0 times and the only `[Parsek][ERROR]` in the whole run is the seam reporting its own timeout, so the throw removal holds on this path too.
+  **(superseded reasoning, kept for the record) KEYS DELIBERATELY KEPT by PR #1360, with an expectation recorded.** That PR removes the throw S4.1 was actually redding on: `AppendRelations` no longer throws, so it no longer escapes `MergeJournalOrchestrator.RunMerge`, so `MergeDialog.Commit.cs:249` no longer logs the `[Parsek][ERROR]` that trips this spec's `logContracts.forbidden`. S4.1 is therefore EXPECTED to report XPASS on its next scheduled run, and that observed XPASS - not this prediction - is the trigger to delete both keys. They were not deleted pre-emptively: `classify_expected_fail` makes XPASS a non-failure, so leaving them costs nothing but a loud signal, whereas deleting them on an unverified prediction would red the nightly if anything else in that path errors. This also satisfies the "re-evaluate once the fixture experiment runs" instruction above rather than pre-empting it.
 - SCENARIO, unscheduled: **`R1-rewind-loop-flown` deliberately does NOT carry the tag.** It is `operator` tier and therefore in no cadence (`hlib.CADENCE_TIERS` maps operator to nothing), so it cannot redden any sweep, and its red is the loudest evidence we have that the bug is open on the PRIMARY use path - the full rewind-and-re-fly loop. Tagging it would demote exactly the signal worth keeping, and would leave a key to remember to delete. Its `Added [1-9][0-9]* supersede relations` logContract is the positive assertion that fails today and passes the moment the fix lands.
 - HARNESS-SIDE HONESTY (2026-07-26 review, SF-1). `postRewindPointsRecorded` was RENAMED to `postRewindFlightRecordedSomewhere` because it did not observe what it named: `RecordingState.points` is `RecorderStateSnapshot.bufferedPoints`, the LIVE recorder's count for whatever recording is live, NOT the provisional's. Flight 3 is the proof - the row logged `met=True value=24 channel: observed` while the merge was refusing `provisional=rec_5b0697a6... reason=empty Points`. The reply's `tree` field is now captured as the row's `recordedTree` evidence (one `_r1_seam_payload` call would have put the flight-3 diagnosis straight into the result JSON instead of only KSP.log), and the row carries an explicit `doesNotProve` detail. The comparison itself remains IMPOSSIBLE through the seam - no verb exposes the marker's provisional id - so this is diagnosability, not semantic closure; the `Added [1-9][0-9]* supersede relations` logContract is what actually gates the fact.
   REVIEWER NOTE WORTH PRESERVING: one reviewer called the row under-guarded, another's mutation sweep showed it HAS row-level coverage. Both are right on different axes - the sweep pinned the BOOLEAN, the critique tested what the boolean MEANS. The fix was to correct the semantics and KEEP the coverage, not to average the two verdicts.
