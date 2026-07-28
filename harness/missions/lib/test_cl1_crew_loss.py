@@ -375,6 +375,52 @@ class Cl1NamedFailureTerminalTests(unittest.TestCase):
         self.assertEqual(mlib.CL1_CREW_LOST, state.phase)
         self.assertIsNone(state.loss_reason)
 
+    def test_an_unread_frame_breaks_the_landed_survival_streak(self):
+        # FAIL-CLOSED, same rule the never-aboard streak states: a blind frame
+        # proves nothing either way. crew-survived-impact CONDEMNS and its reason
+        # asserts the crew was ALIVE, so a frame whose roster read raised must
+        # RESET the streak, not advance it - otherwise a channel that went blind
+        # at touchdown completed the survival streak (K=2) four frames before
+        # the unread give-up (6) could name it a retryable flake.
+        state = drive(fresh(), "Assigned", "Assigned")
+        state = drive(state, "Assigned", situation="LANDED", ut=10.0)
+        self.assertEqual(1, state.landed_alive_streak)
+        state = drive(state, mlib.ROSTER_STATUS_UNREAD, situation="LANDED", ut=11.0)
+        self.assertFalse(state.done)
+        self.assertEqual(0, state.landed_alive_streak)
+
+    def test_a_blind_landing_ends_as_the_channel_flake_not_as_a_survival(self):
+        # The roster goes UNREAD on the same frame the craft settles into LANDED
+        # and never comes back. No statement about the crew can be made either
+        # way, so the run must end as the NAMED roster-channel-lost FLAKE
+        # (retryable), never as the condemning crew-survived-impact ASSERT-FAIL.
+        state = drive(fresh(), "Assigned", "Assigned")
+        state = drive(state,
+                      *([mlib.ROSTER_STATUS_UNREAD]
+                        * mlib.CL1_ROSTER_UNREAD_GIVEUP_FRAMES),
+                      situation="LANDED", ut=10.0)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertIn("roster-channel-lost", state.flake_reason)
+
+    def test_a_blind_landing_after_a_dead_reading_does_not_condemn_as_survival(self):
+        # The sharpest shape of the hole the unread conjunct closes: one Dead
+        # reading (death streak 1 of 2), then the channel goes blind while the
+        # wreck reads LANDED. Counting those blind frames as survival would red
+        # the run with the self-contradicting reason line the not-alive conjunct
+        # exists to prevent ("with the crew still alive; ... lastRoster=Dead").
+        state = drive(fresh(), "Assigned", "Assigned")
+        state = drive(state, "Dead", situation="LANDED", ut=10.0)
+        state = drive(state,
+                      *([mlib.ROSTER_STATUS_UNREAD]
+                        * mlib.CL1_ROSTER_UNREAD_GIVEUP_FRAMES),
+                      situation="LANDED", ut=11.0)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertIn("roster-channel-lost", state.flake_reason)
+
     def test_roster_channel_lost_is_a_named_flake_not_an_assert_fail(self):
         # A dead roster channel means the kRPC channel is broken, not that the
         # flight went wrong. FLAKE is retryable in hlib, which is the correct

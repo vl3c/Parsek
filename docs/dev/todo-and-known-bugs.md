@@ -63,8 +63,8 @@ any parachute, re-fly / rewind / tombstones, multiple crew, any new seam verb.
 **No new seam surface was needed.** Every other "wait for a physical outcome" in this
 harness needed a bounded seam verb (`EvaChuteDeploy`'s `awaitDown`, `EvaExit`'s
 `settleSeconds`). Here the MISSION SUBPROCESS is the wait: mlib's phase machines already
-poll kRPC per frame, so the fall IS the mission and the seam tail is just CommitTree /
-FlushAndQuit. What WAS added is a telemetry channel, not a verb: `ACTION_SET_ROSTER_WATCH`
+poll kRPC per frame, so the fall IS the mission and the seam tail is just FlushAndQuit
+(the CommitTree step was cut - see below). What WAS added is a telemetry channel, not a verb: `ACTION_SET_ROSTER_WATCH`
 plus `TelemetrySnapshot.crew_roster_status`, read from
 `SpaceCenter.GetKerbal(name).RosterStatus` (both verified present at the PINNED kRPC
 v0.5.4, not a newer-kRPC feature).
@@ -72,12 +72,14 @@ v0.5.4, not a newer-kRPC feature).
 **The one inversion, and the trap in it.** Everywhere else a vessel-lost terminal is a
 FAILURE - `mlib.resolve_flight_verdict` returns MISSION-ASSERT-FAIL on a `loss_reason`
 BEFORE the assertions run, so a destroyed craft's residual telemetry cannot satisfy them.
-Here the death is the SUCCESS terminal, and it has to be: an unmet mission drives
-`hlib.plan_unmet_mission_tail`, which runs CLEANUP steps only, so CommitTree would be
-SKIPPED - and the kerbal-death ledger row is created at COMMIT time
-(`LedgerOrchestrator.CreateKerbalAssignmentActions` -> `KerbalsModule.PopulateCrewEndStates`,
-`TerminalState.Destroyed` -> `KerbalEndState.Dead`). On the failure path the scenario
-could not reach its own subject. So `cl1_decide` has its OWN terminal (`CL1_CREW_LOST`):
+Here the death is the SUCCESS terminal, and it has to be: an unmet mission makes the run
+driver-INVALID, which SKIPS every verifier below it - the analyzer, the log contracts, the
+recording count - so a scenario whose whole subject is "what does Parsek record when a
+kerbal dies" would collect no evidence at all. (The original authoring reason was the
+CommitTree step - the kerbal-death ledger row is created at COMMIT time via
+`LedgerOrchestrator.CreateKerbalAssignmentActions` -> `KerbalsModule.PopulateCrewEndStates`,
+`TerminalState.Destroyed` -> `KerbalEndState.Dead` - but that step was CUT as unreachable,
+see below; the verifier-skipping argument is the one that survives the cut.) So `cl1_decide` has its OWN terminal (`CL1_CREW_LOST`):
 done, NO `loss_reason`, verdict left None. The guard the inversion removes is replaced
 rather than dropped - the terminal reads the KERBAL's roster status (a property of the
 kerbal, not of the wreckage), debounced over 2 frames, and gated on the kerbal having
@@ -181,7 +183,12 @@ flips one ~0.5 s poll later - so the sequence (LANDED+Assigned, LANDED+Dead) com
 SURVIVED streak one frame before the death streak and would have RED A SUCCESSFUL FLIGHT,
 with a reason that contradicted itself inside one line ("with the crew still alive; ...
 lastRoster=Dead"). Fixed by adding `not not_alive` to the `landed` conjunct, so any
-not-alive frame resets the survival streak. Also from the panel: `crew-watch-name-unknown`
+not-alive frame resets the survival streak. The merge review (2026-07-28) closed the
+same hole's UNREAD face: a blind frame also advanced the survival streak, so a channel
+that went blind at touchdown completed it (K=2) four frames before the unread give-up (6)
+could name it a retryable `roster-channel-lost` flake - `not unread` is now the third
+conjunct, per the module's own "a blind frame proves nothing either way" rule, pinned by
+three new cells. Also from the panel: `crew-watch-name-unknown`
 widened into `crew-watch-never-aboard` (an already-dead-at-load kerbal and an
 Available-forever kerbal used to burn the whole FLIGHT budget into an unnamed flake, which
 contradicts this module's own stated rule); a new `crew-watch-unnamed` PRELAUNCH terminal
@@ -196,8 +203,9 @@ byte-identity with the committed save, so the "fixture nobody maintains" objecti
 answered mechanically rather than in prose; and roadmap item R11 struck as CLOSED with its
 two dependents unblocked.
 
-**Open after this lands.** (1) It has never flown - the first run is what pins P2 and
-promotes the tier. (2) It does not touch the EVA-4 `eva-chute-kerbal-lost` /
+**Open after this lands.** (1) ~~It has never flown~~ - flown twice 2026-07-28, flight 2
+FULL PASS (see the flight log above); the tier is promoted to `nightly` and the spec's
+tag restored to `flown`. (2) It does not touch the EVA-4 `eva-chute-kerbal-lost` /
 `PARSEK-FAIL(mission-outcome)` path or the `EvaExit` standoff wiring; those halves of
 known-gate 10 stay open. (3) What the atom is meant to be extended into, in order: a
 rewind / re-fly ACROSS the crew loss, which is what would first exercise

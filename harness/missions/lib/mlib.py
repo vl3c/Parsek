@@ -3782,7 +3782,7 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
 
     # --- 6. crew-survived-impact (ASSERT-FAIL) -----------------------------
     # The craft came to rest with the kerbal alive: the direct negation of this
-    # mission's subject. Two conjuncts, and the SECOND one closed a real hole
+    # mission's subject. Three conjuncts, and the second closed a real hole
     # (Opus review panel 2026-07-28, reviewer 1, finding 1):
     #   - live frames only: a vessel_lost snapshot carries the benign default
     #     situation "" and must not be read as a landing;
@@ -3796,7 +3796,17 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
     #     itself inside one line ("with the crew still alive; ... roster=Dead").
     #     With it, any not-alive frame RESETS the survival streak, so the death
     #     always wins the race it is actually in.
-    landed = (not snapshot.vessel_lost and not not_alive
+    #   - AND the roster must not be UNREAD on this frame, the same fail-closed
+    #     rule the never-aboard streak states ("a blind frame proves nothing
+    #     either way"). This terminal CONDEMNS, and its reason asserts the crew
+    #     was ALIVE, so every frame it counts must have OBSERVED that. Without
+    #     the conjunct a channel that went blind at touchdown completed the
+    #     survival streak (K=2) four frames before the unread give-up (6) could
+    #     name it a retryable roster-channel-lost flake - and a blind frame
+    #     AFTER a single Dead reading re-created the self-contradicting reason
+    #     line ("with the crew still alive; ... lastRoster=Dead") the not-alive
+    #     conjunct exists to prevent.
+    landed = (not snapshot.vessel_lost and not unread and not not_alive
               and snapshot.situation in state.params.landed_situations)
     state = replace(state,
                     landed_alive_streak=(state.landed_alive_streak + 1) if landed else 0)
