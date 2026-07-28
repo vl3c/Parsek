@@ -761,8 +761,11 @@ namespace Parsek.TestCommands
 
                 bool open = TestCommandPlantFlag.IsPlantGateOpen(canPlant, inPlantableState);
                 diag = TestCommandPlantFlag.DescribePlantGateBlock(
-                    inPlantableState, vesselActive, groundContact, flagItemsPositive,
-                    notRagdoll, flagUnlocked, notConstruction, stateName);
+                    canPlantBound: KerbalEvaCanPlantFlagMethod != null,
+                    inPlantableFsmState: inPlantableState, vesselActive: vesselActive,
+                    groundContact: groundContact, flagItemsPositive: flagItemsPositive,
+                    notRagdoll: notRagdoll, flagUnlocked: flagUnlocked,
+                    notConstruction: notConstruction, fsmStateName: stateName);
                 return open;
             }
             catch (System.Exception ex)

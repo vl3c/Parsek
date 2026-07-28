@@ -11702,11 +11702,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landed_ever_stable", "landedEverStable"),
     ("landed_body", "landedBody"),
     ("landed_situation", "landedSituation"),
-    # B1 canopy gates. The observed latch decides a success terminal and the two streaks
-    # are its debounce state, so a reader must be able to tell "one Deployed read then a
-    # reset" from "never Deployed", and "one sub-floor sample" from "genuinely below the
-    # floor". Sibling counters (aligned_streak, impact_certain_streak) are all here.
-    ("craft_chute_full_seen", "canopySeen"),
+    # B1 canopy gates. The observed latch (craft_chute_full_seen, registered above
+    # next to armCommanded) decides a success terminal and the two streaks are its
+    # debounce state, so a reader must be able to tell "one Deployed read then a
+    # reset" from "never Deployed", and "one sub-floor sample" from "genuinely below
+    # the floor". Sibling counters (aligned_streak, impact_certain_streak) are all here.
     ("canopy_seen_streak", "canopyStreak"),
     ("below_floor_streak", "belowFloorStreak"),
 )

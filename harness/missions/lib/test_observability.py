@@ -129,6 +129,15 @@ class DiffMachineStateTests(unittest.TestCase):
     def test_b1_states_produce_no_changes(self):
         self.assertEqual(mlib.diff_machine_state(_b1_state(), _b1_state()), [])
 
+    def test_machine_diff_fields_carry_no_duplicate_entries(self):
+        """diff_machine_state iterates MACHINE_DIFF_FIELDS without dedup, so a
+        duplicated row prints the same gate flip twice per change (canopySeen
+        shipped doubled after two review rounds each added it)."""
+        attrs = [attr for attr, _key in mlib.MACHINE_DIFF_FIELDS]
+        self.assertEqual(sorted({a for a in attrs if attrs.count(a) > 1}), [])
+        keys = [key for _attr, key in mlib.MACHINE_DIFF_FIELDS]
+        self.assertEqual(sorted({k for k in keys if keys.count(k) > 1}), [])
+
 
 class SnapshotFormatTests(unittest.TestCase):
     def test_compact_line_fields(self):
