@@ -203,14 +203,26 @@ required  = [
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-# Budget arithmetic (M-A5 S8): 300 LoadGame + a 540 s RunTests step whose seam-side
-# deferral ceiling is 600 s. run.py waits max(step budget, 600) + a 60 s margin so a
-# genuine seam TIMEOUT surfaces as a retryable driver-INVALID instead of being
-# pre-empted by a harness KILL, so the run budget must clear 300 + 660 = 960.
-# 1200 gives that plus boot. Sized deliberately high: the roadmap flags this exact
-# risk ("the baseline restore is a real quickload"), and a KILLED run prints no
-# tally at all and burns a retry, which is strictly worse than waiting.
-budgetSeconds = 1200
+# Budget arithmetic (M-A5 S8). CORRECTED after review: an earlier version of this
+# comment read "300 LoadGame + 660 RunTests = 960" and was wrong, because LoadGame
+# is itself in hlib.DEFERRED_SEAM_VERBS. run.py gives EVERY deferred step
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))`, i.e.
+# 660 s each regardless of the declared step budget, so a genuine seam TIMEOUT can
+# surface as a retryable driver-INVALID rather than a harness KILL. Worst case here
+# is therefore 660 (LoadGame) + 660 (RunTests) = 1320, not 960.
+#
+# 1400 clears it. That matters more for this spec than for most: the whole point of
+# the isolated path is a real quickload per test, so a slow or wedged restore is the
+# plausible failure, and a KILLED run prints NO tally at all and burns a retry -
+# strictly worse than waiting. MEASURED wall is 100-101 s, so the headroom costs
+# nothing on a healthy run.
+#
+# Note for anyone copying this block: the 14 H7-H20 specs declare 720 and therefore
+# do NOT clear their own 1320 s worst case. That is pre-existing and run.py warns
+# about it explicitly ("a seam TIMEOUT may KILL instead of surfacing
+# driver-INVALID"); it is not fixed here because changing 14 committed budgets is a
+# separate change with its own evidence. This spec simply does not inherit the flaw.
+budgetSeconds = 1400
 
 [retry]
 policy = "once"

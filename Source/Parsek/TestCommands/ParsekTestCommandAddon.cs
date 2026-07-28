@@ -1505,6 +1505,18 @@ namespace Parsek.TestCommands
             string category = ArgOrNull(cmd, "category");
             string isolatedRaw = ArgOrNull(cmd, "isolated");
 
+            // A WRITTEN-but-empty `category=` is a typo, not an omission. Absent stays
+            // RunAll; empty is rejected, matching this verb's `isolated` convention and
+            // closing a footgun R5 made destructive (see IsEmptyCategoryArg).
+            if (TestCommandRunTests.IsEmptyCategoryArg(category))
+            {
+                ParsekLog.Warn(Tag,
+                    $"runtests rejected reason={TestCommandRunTests.CategoryArgEmptyReason} "
+                    + "(category= was written but empty; omit the arg entirely to run ALL categories)");
+                SetExecResult("REJECTED", null, TestCommandRunTests.CategoryArgEmptyReason);
+                return;
+            }
+
             bool isolated;
             if (!TestCommandRunTests.TryParseIsolatedArg(isolatedRaw, out isolated))
             {

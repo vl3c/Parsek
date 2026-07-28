@@ -144,7 +144,7 @@ namespace Parsek.InGameTests
                 $"autorun selector parsed: enabled={autorunConfig.Enabled} "
                 + $"selector='{autorunConfig.RawSelector ?? "(unset)"}' "
                 + $"categories=[{string.Join(",", autorunConfig.Categories)}] "
-                + $"exit={autorunConfig.ExitArmed} isolated={autorunConfig.Isolated}");
+                + $"exit={autorunConfig.ExitArmed} isolated={(autorunConfig.Isolated ? "true" : "false")}");
             foreach (string warning in autorunConfig.Warnings)
                 ParsekLog.Warn(Tag, warning);
         }
@@ -742,7 +742,7 @@ namespace Parsek.InGameTests
             {
                 int discovered = runner.Tests.Count;
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
+                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={(isolated ? "true" : "false")}");
                 runner.MarkNextBatchAutorun(exitArmed);
                 runner.RunBatchSelector(null, isolated);
                 autorunConsumedForProcess = true;
@@ -756,7 +756,7 @@ namespace Parsek.InGameTests
                 if (discovered == 0)
                     ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={(isolated ? "true" : "false")}");
                 runner.MarkNextBatchAutorun(exitArmed);
                 runner.RunBatchSelector(cat, isolated);
                 autorunConsumedForProcess = true;
@@ -784,7 +784,7 @@ namespace Parsek.InGameTests
         {
             ParsekLog.Info(Tag,
                 $"autorun multi-category: running {categories.Count} tokens sequentially: "
-                + $"[{string.Join(",", categories)}] isolated={isolated}");
+                + $"[{string.Join(",", categories)}] isolated={(isolated ? "true" : "false")}");
 
             var tally = new AutorunHooks.MultiCategoryBatchTally();
             foreach (string cat in categories)
@@ -805,7 +805,7 @@ namespace Parsek.InGameTests
                 if (discovered == 0)
                     ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={isolated}");
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered} isolated={(isolated ? "true" : "false")}");
 
                 // Per-token batches never carry the exit arm (H2 must not quit mid-run).
                 // The ISOLATED arm, unlike the exit arm, DOES apply per token: it selects

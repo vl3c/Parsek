@@ -93,6 +93,59 @@ namespace Parsek.Tests
             Assert.False(isolated);
         }
 
+        // --- The `category` arg: ABSENT is RunAll, WRITTEN-but-empty is a typo ---
+
+        [Fact]
+        public void IsEmptyCategoryArg_AbsentIsNotEmpty()
+        {
+            // Absent must stay the RunAll shape: that is the documented meaning of
+            // `RunTests` with no `category` arg, and every pre-R5 caller relies on it.
+            Assert.False(TestCommandRunTests.IsEmptyCategoryArg(null));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(" ")]
+        [InlineData("   ")]
+        [InlineData("\t")]
+        public void IsEmptyCategoryArg_WrittenButEmptyIsATypo(string raw)
+        {
+            // `category=` really is producible: TestCommandProtocol.TrySplitToken yields
+            // an empty value for it. Before this it fell into the RunAll branch, so a
+            // typo silently ran the WHOLE assembly - and with isolated=true it would run
+            // all 539 declarations through the destructive filter, quickload-restoring a
+            // flight baseline after each one.
+            Assert.True(TestCommandRunTests.IsEmptyCategoryArg(raw));
+        }
+
+        [Theory]
+        [InlineData("SceneExitMerge")]
+        [InlineData(" SceneExitMerge ")]
+        public void IsEmptyCategoryArg_ARealCategoryIsNotEmpty(string raw)
+        {
+            Assert.False(TestCommandRunTests.IsEmptyCategoryArg(raw));
+        }
+
+        [Fact]
+        public void CategoryArgEmptyReason_IsTheDocumentedConstant()
+        {
+            Assert.Equal("category-arg-empty", TestCommandRunTests.CategoryArgEmptyReason);
+        }
+
+        [Fact]
+        public void TheTwoArgsAgreeOnWhatAnEmptyValueMeans()
+        {
+            // The convention this feature settled on: for BOTH args of this verb, absent
+            // is a meaningful omission and a written-but-empty value is a typo that
+            // fails closed. They disagreed in the first cut, which is how the empty
+            // category stayed a footgun while the empty isolated was already rejected.
+            bool ignored;
+            Assert.True(TestCommandRunTests.TryParseIsolatedArg(null, out ignored));
+            Assert.False(TestCommandRunTests.TryParseIsolatedArg("", out ignored));
+            Assert.False(TestCommandRunTests.IsEmptyCategoryArg(null));
+            Assert.True(TestCommandRunTests.IsEmptyCategoryArg(""));
+        }
+
         [Fact]
         public void IsolatedArgInvalidReason_IsTheDocumentedConstant()
         {

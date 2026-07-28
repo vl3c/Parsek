@@ -225,7 +225,7 @@ The constraint that shapes every decision below: `hlib.SINGLE_BATCH_SELECTOR_RUL
 makes a batch-owning spec drive exactly ONE `RunTests` step naming exactly ONE
 category, because the anti-vacuity probe is built for a single named category and a
 `category=multi:<n>` aggregate cannot express "constituent B executed nothing". So
-one wired category costs one KSP boot per cadence. Wiring all 89 undriven categories
+one wired category costs one KSP boot per cadence. Wiring all 74 undriven categories
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
@@ -306,7 +306,7 @@ stating separately rather than being appended to the table above:
 
 ### Bucket B - wireable, but needs something first (81 categories, 451 declarations)
 
-Not one list but five reasons, and the reason is what decides whether it is worth
+Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
 
 **B1 - needs a corpus or fixture extension.** The FUTURE recommendation in
@@ -403,6 +403,32 @@ this wave to keep it at 14 boots and because each carries at least one self-skip
 whose fixture precondition wants reading first - except `LocalizedName`, which
 carries none and should simply have been wired. This is the highest-confidence
 starting point for the next wave, ahead of B4's large guarded categories.
+
+**B6-ISO - needs an ISOLATED batch and a launchable-craft fixture (5 categories, 16
+declarations).** `AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2),
+`PlaybackControl` (1), `RevertFlow` (1). These arrived in bucket B from the retired
+C1 when R5 shipped: every one of their declarations is `AllowBatchExecution = false`
+AND `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary filter
+executes none of them and the isolated filter executes all of them. What each still
+needs is ordinary spec-authoring work, not a capability:
+
+1. A spec whose `RunTests` step carries `isolated = "true"`. Template:
+   `harness/scenarios/H21-scene-exit-merge-isolated.toml`.
+2. A fixture whose ACTIVE vessel can do what the tests do. This is the part that
+   bites: `SceneExitMerge`'s cells stage the active vessel and wait for it to leave
+   PRELAUNCH and clear 80 m, so the default `gloops-airshow` host (a 1-part
+   `mk1-capsule` with zero `ModuleEngines`) would self-skip both and print the
+   all-skipped tally the isolated arg exists to rule out. Read each category's
+   `BatchSkipReason` and self-skip guards before choosing.
+3. A budget sized for real quickloads. H21 MEASURED a two-test isolated batch at
+   29.6 s of batch time inside 101 s wall, so the roadmap's fear that a 10-test
+   `AutoRecord` batch is unaffordable in one boot looks overstated - but it is ten
+   launch-and-restore cycles, so size it and expect the first run to find something.
+
+`AutoRecord` (10) is the largest and closes D1 `auto-record-first-mod-switch`;
+`Coalescer` closes D5 `crash-coalescing` / `controlled-decoupled-child`;
+`RevertFlow` closes D1 `commit-revert-merge`. Tracked as R6 in
+`docs/dev/autotest-roadmap.md`.
 
 ### Bucket C - not batch-runnable (1 category, 10 declarations)
 

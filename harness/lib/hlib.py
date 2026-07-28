@@ -735,19 +735,34 @@ BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
 def spec_batch_isolated(spec: Dict) -> bool:
     """True when ``spec``'s batch runs on the ISOLATED entry point (R5).
 
-    Resolution mirrors the batch-owner rule exactly: the FIRST RunTests step's
-    ``args.isolated``, else ``[driver.autorun] isolated``. Reads only well-formed
-    values -- a malformed one is rejected by ``validate_spec``, so a caller that
-    reaches here has already passed validation, and anything unrecognised resolves
-    FALSE (the ordinary path) rather than guessing.
+    Resolved over EVERY RunTests step, not just the first, then the
+    ``[driver.autorun]`` block. Returns True when ANY of them is isolated.
+
+    The first cut read only the FIRST RunTests step, on the reasoning that
+    ``SINGLE_BATCH_SELECTOR_RULE`` permits only one. An adversarial review showed
+    that is false in one committed, documented shape: a spec that takes the
+    ``batchVacuityOptOut`` escape waives that rule, so
+
+        steps[2] = RunTests category="X"                    # ordinary
+        steps[3] = RunTests category="X" isolated="true"    # the REAL batch
+
+    validated with zero errors while this function answered False -- so run.py
+    logged ``batchIsolated=False``, ``CommittedBatchTallySourceSyncTests``
+    validated the pin against the ORDINARY derivation (weaker, in the unsafe
+    direction), and neither wiring-group class saw it. Answering True if ANY step
+    is isolated fails toward the STRICTER derivation, and ``validate_spec``
+    additionally rejects a spec whose RunTests steps disagree, so the ambiguous
+    shape cannot be committed at all.
     """
     driver = (spec.get("driver", {}) or {})
     for step in (driver.get("steps", []) or []):
         if (step or {}).get("cmd") != "RunTests":
             continue
-        raw = ((step or {}).get("args", {}) or {}).get(BATCH_ISOLATED_KEY)
-        return raw == "true"
-    autorun = driver.get("autorun") or {}
+        if (((step or {}).get("args", {}) or {}).get(BATCH_ISOLATED_KEY)) == "true":
+            return True
+    autorun = driver.get("autorun")
+    if not isinstance(autorun, dict):
+        return False
     return autorun.get(BATCH_ISOLATED_KEY) is True
 
 # Every scene token InGameTestRunner can print (HighLogic.LoadedScene.ToString()).
@@ -2225,6 +2240,15 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         # optional positive budget bounding the mission subprocess wall-clock.
         if step.get("phase") == "mission":
             mission_step_indices.append(i)
+            # R5: the mission branch `continue`s before the isolated guards below,
+            # so without this a mission step could carry `isolated` at either level
+            # and be silently inert. A mission step is a harness-side handoff that
+            # writes nothing to the channel, so the flag can never mean anything here.
+            if BATCH_ISOLATED_KEY in step or BATCH_ISOLATED_KEY in (step.get("args", {}) or {}):
+                errors.append(
+                    "driver.steps[%d]: %s is meaningless on a mission-phase step "
+                    "(a mission step writes nothing to the command channel), so it "
+                    "would be silently ignored" % (i, BATCH_ISOLATED_KEY))
             m_expect = step.get("expect", MISSION_STEP_EXPECT)
             if m_expect != MISSION_STEP_EXPECT:
                 errors.append(
@@ -2248,6 +2272,17 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 "beside cmd/expect (a key outside args is never written to the "
                 "channel, so the batch would silently run NON-isolated)"
                 % (i, BATCH_ISOLATED_KEY))
+        # CASE VARIANT. There is no per-verb arg vocabulary, so an unknown arg key is
+        # forwarded verbatim and the C# `ArgOrNull(cmd, "isolated")` (an exact,
+        # case-sensitive dictionary lookup) simply misses `Isolated` / `ISOLATED`.
+        # Silent, and inert in the unsafe direction.
+        for key in step_args:
+            if (isinstance(key, str) and key != BATCH_ISOLATED_KEY
+                    and key.lower() == BATCH_ISOLATED_KEY):
+                errors.append(
+                    "driver.steps[%d].args.%s: the seam arg is spelled %r exactly "
+                    "(the C# lookup is case-sensitive), so this key would be sent "
+                    "and silently ignored" % (i, key, BATCH_ISOLATED_KEY))
         if BATCH_ISOLATED_KEY in step_args:
             if cmd != "RunTests":
                 errors.append(
@@ -2319,17 +2354,54 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # MISPLACED-KEY guard, same shape as skipTailOnUnmetMission / batchVacuityOptOut.
     # The autorun flag is read ONLY off [driver.autorun]; anywhere else it is
     # silently ignored and the batch runs NON-isolated while the author believes
-    # otherwise. `driver.steps[i].args` is legitimate and is checked above.
-    for scope_name, scope in (("driver", driver),
-                              ("driver.missionParams", driver.get("missionParams")),
-                              ("the spec root", spec),
-                              ("expectations", expectations)):
-        if isinstance(scope, dict) and BATCH_ISOLATED_KEY in scope:
+    # otherwise.
+    #
+    # RECURSIVE, not an allowlist. The first cut named four scopes and a review
+    # found four more that slipped through - including [expectations.logContracts],
+    # which is where the OTHER batch-behaviour flag (batchVacuityOptOut) lives and is
+    # therefore the single most plausible wrong home. An allowlist of wrong places is
+    # the wrong shape for a rule of the form "anywhere but here": sweep everything and
+    # carve out the two legitimate homes instead.
+    _isolated_legit = [driver.get("autorun") if isinstance(driver.get("autorun"), dict) else None]
+    for _s in (steps or []):
+        if isinstance(_s, dict) and isinstance(_s.get("args"), dict):
+            _isolated_legit.append(_s.get("args"))
+
+    def _sweep_isolated(scope, path):
+        if not isinstance(scope, dict):
+            return
+        if any(scope is legit for legit in _isolated_legit if legit is not None):
+            return
+        if BATCH_ISOLATED_KEY in scope:
             errors.append(
                 "%s: %s belongs in [driver.autorun] (or in a RunTests step's args "
-                "table), not here -- a key in this table is never read, so the "
-                "batch would silently run NON-isolated"
-                % (scope_name, BATCH_ISOLATED_KEY))
+                "table), not here -- a key in this table is never read, so the batch "
+                "would silently run NON-isolated" % (path or "the spec root",
+                                                     BATCH_ISOLATED_KEY))
+        for k, v in scope.items():
+            if isinstance(v, dict):
+                _sweep_isolated(v, "%s.%s" % (path, k) if path else k)
+            elif isinstance(v, list):
+                for j, item in enumerate(v):
+                    if isinstance(item, dict):
+                        _sweep_isolated(item, "%s.%s[%d]" % (path, k, j) if path else "%s[%d]" % (k, j))
+
+    _sweep_isolated(spec, "")
+
+    # R5: every RunTests step must agree on the batch mode. `spec_batch_isolated`
+    # answers True if ANY step is isolated, so a spec whose steps DISAGREE would be
+    # derived against a mode half its batches do not use. Unreachable while
+    # SINGLE_BATCH_SELECTOR_RULE holds, but reachable through the documented
+    # batchVacuityOptOut escape, which is exactly where a review found it.
+    _rt_modes = {(((s or {}).get("args", {}) or {}).get(BATCH_ISOLATED_KEY) == "true")
+                 for s in (steps or []) if (s or {}).get("cmd") == "RunTests"}
+    if len(_rt_modes) > 1:
+        errors.append(
+            "driver.steps: RunTests steps DISAGREE on %s. The batch mode is a "
+            "whole-spec property (it selects which tests are admitted and therefore "
+            "which derivation every pinned tally is checked against), so a spec "
+            "cannot drive one isolated batch and one ordinary batch. Split them into "
+            "separate scenario specs." % BATCH_ISOLATED_KEY)
 
     # --- Anti-vacuity gate (the B10 "GREEN over ZERO executed tests" class). A spec
     # that owns a batch must pin a tally an EMPTY or ALL-SKIPPED batch cannot satisfy;

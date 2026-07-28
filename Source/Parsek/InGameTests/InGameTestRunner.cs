@@ -477,11 +477,34 @@ namespace Parsek.InGameTests
         /// deliberately keep calling the entry points directly: they choose the variant
         /// from a button the operator pressed, not from a parsed argument.
         /// </summary>
+        /// <remarks>
+        /// Deliberately `internal` among `public` siblings: this is the AUTOMATION
+        /// seam's entry, resolved from a parsed argument, and the four public entry
+        /// points remain the surface the two interactive windows bind buttons to.
+        /// Widening it would invite a UI caller to pass a flag no operator chose.
+        /// </remarks>
         internal void RunBatchSelector(string category, bool isolated)
         {
             BatchEntryPoint entry = ResolveBatchEntryPoint(category, isolated);
+            string shownCategory = string.IsNullOrEmpty(category) ? "(all)" : category;
+            string shownIsolated = isolated ? "true" : "false";
+
+            // Every entry point below opens with `if (isRunning) return;`. Logging the
+            // dispatch unconditionally would assert a batch start that silently did not
+            // happen (the autorun fire gate reads IsRunning several frames earlier, and
+            // the multi-category driver re-enters right after a spin), so the guard skip
+            // is logged as a skip - CLAUDE.md requires every guard-condition skip logged.
+            // Single-threaded per Unity frame, so this check cannot race the call below.
+            if (isRunning)
+            {
+                ParsekLog.Warn(Tag,
+                    $"batch dispatch SKIPPED: a batch is already running (entry={entry} "
+                    + $"category={shownCategory} isolated={shownIsolated})");
+                return;
+            }
+
             ParsekLog.Info(Tag,
-                $"batch dispatch: entry={entry} category={category ?? "(all)"} isolated={isolated}");
+                $"batch dispatch: entry={entry} category={shownCategory} isolated={shownIsolated}");
             switch (entry)
             {
                 case BatchEntryPoint.RunAllIsolated:
