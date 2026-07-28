@@ -236,6 +236,97 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // Settings window height re-measure (design 7.2, playtest 2026-07-28)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The Settings window is the ONE window whose own content changes with the mode: it
+        /// hosts the two gated sections (Diagnostics, Sample Density). Its height is fixed
+        /// and has no resize handle, so without a re-measure request the window keeps its old
+        /// size - dead space under the buttons in Basic, clipped content back in Advanced.
+        /// Both directions must request it; only the Basic direction closing windows is not
+        /// enough. Consumption is an OnGUI Layout-pass concern xUnit cannot drive, so the
+        /// test drives the REAL seam -> latch -> hook path and pins the request.
+        /// </summary>
+        [Fact]
+        public void ModeApplyRequestsSettingsWindowHeightRemeasureInBothDirections()
+        {
+            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+            ParsekSettings.CurrentOverrideForTesting = settings;
+            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
+
+            var ui = new ParsekUI(UIMode.KSC);
+            try
+            {
+                SettingsWindowUI settingsWindow = ui.GetSettingsWindowUI();
+                Assert.False(settingsWindow.HeightRemeasurePendingForTesting);
+
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+
+                // Frame-latched (design 7.2): queuing the mode must not touch the rect.
+                Assert.False(settingsWindow.HeightRemeasurePendingForTesting,
+                    "the re-measure belongs to the deferred latch, not the setter");
+
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+                Assert.True(settingsWindow.HeightRemeasurePendingForTesting,
+                    "Basic drops two sections, so the window must re-measure to fit");
+                Assert.Contains(logLines, l =>
+                    l.Contains("[UI]") && l.Contains("Settings window height re-measure requested"));
+
+                // The next draw consumes the request; the reveal direction must raise its own.
+                settingsWindow.HeightRemeasurePendingForTesting = false;
+                logLines.Clear();
+
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+                Assert.True(settingsWindow.HeightRemeasurePendingForTesting,
+                    "Advanced restores the two sections, so the window must re-measure too");
+                Assert.Contains(logLines, l =>
+                    l.Contains("[UI]") && l.Contains("Settings window height re-measure requested"));
+            }
+            finally
+            {
+                CleanupIgnoringUnityTeardown(ui);
+            }
+        }
+
+        /// <summary>
+        /// A no-op latch (the player toggled back before the frame ran) must not request a
+        /// re-measure: the hook never runs, and re-measuring a window whose content did not
+        /// change would be a pointless one-frame auto-size.
+        /// </summary>
+        [Fact]
+        public void NoOpLatchDoesNotRequestAHeightRemeasure()
+        {
+            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+            ParsekSettings.CurrentOverrideForTesting = settings;
+            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
+
+            var ui = new ParsekUI(UIMode.KSC);
+            try
+            {
+                SettingsWindowUI settingsWindow = ui.GetSettingsWindowUI();
+
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
+                logLines.Clear();
+
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+                Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
+                Assert.False(settingsWindow.HeightRemeasurePendingForTesting);
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("Settings window height re-measure requested"));
+            }
+            finally
+            {
+                CleanupIgnoringUnityTeardown(ui);
+            }
+        }
+
+        // ------------------------------------------------------------------
         // Log assertions (design 13.2 AutoCloseLogsPerWindow, 12.2)
         // ------------------------------------------------------------------
 

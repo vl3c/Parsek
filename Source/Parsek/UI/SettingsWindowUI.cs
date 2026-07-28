@@ -16,6 +16,8 @@ namespace Parsek
         private bool settingsWindowHasInputLock;
         private const string SettingsInputLockId = "Parsek_SettingsWindow";
         private Rect lastSettingsWindowRect;
+        private bool settingsWindowHeightRemeasurePending;
+        private bool tooltipShownLastDraw;
 
         // Auto-loop editing
         private string settingsAutoLoopText = "";
@@ -62,6 +64,27 @@ namespace Parsek
             // Pass both Width+Height like every other Parsek window so the shared
             // opaqueWindowStyle padding renders identically (the previous height=10
             // reset + Width-only call caused the title-bar spacing to look off).
+            //
+            // The ONE exception is a pending re-measure (see RequestHeightRemeasure): for
+            // that single Layout pass the Height option is dropped so GUILayout sizes the
+            // window to whatever content the current UI mode draws, and the measured height
+            // comes straight back in the returned rect. The passed rect keeps its old
+            // height, so the window chrome is never drawn at a stale size - that, not the
+            // Width-only call itself, was what made the old every-frame auto-size look off.
+            //
+            // Held back while the bottom tooltip box is showing: the mode toggle is the
+            // control the mouse rests on right after the click, and measuring then would
+            // latch a height that includes a tooltip which disappears the moment the pointer
+            // moves - dead space again, just less of it. The request survives, so the fit
+            // lands on the first tooltip-free frame.
+            bool remeasuring = settingsWindowHeightRemeasurePending && !tooltipShownLastDraw;
+            GUILayoutOption[] sizeOptions = remeasuring
+                ? new[] { GUILayout.Width(settingsWindowRect.width) }
+                : new[]
+                {
+                    GUILayout.Width(settingsWindowRect.width),
+                    GUILayout.Height(settingsWindowRect.height)
+                };
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
@@ -71,14 +94,26 @@ namespace Parsek
                     DrawSettingsWindow,
                     "Parsek - Settings",
                     opaqueWindowStyle,
-                    GUILayout.Width(settingsWindowRect.width),
-                    GUILayout.Height(settingsWindowRect.height)
+                    sizeOptions
                 );
             }
             finally
             {
                 ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
             }
+
+            // Consume on the LAYOUT pass only: layout options are ignored on every other
+            // event type, so clearing the flag on (say) a Repaint would eat the request
+            // without ever re-measuring. Unity sends Layout first each frame, and the mode
+            // latch runs in Update, so the request is always honoured on the next frame.
+            if (remeasuring && Event.current.type == EventType.Layout)
+            {
+                settingsWindowHeightRemeasurePending = false;
+                var ric = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI",
+                    $"Settings window height re-measured: h={settingsWindowRect.height.ToString("F0", ric)}");
+            }
+
             parentUI.LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
 
             if (settingsWindowRect.Contains(Event.current.mousePosition))
@@ -93,6 +128,38 @@ namespace Parsek
             {
                 ReleaseInputLock();
             }
+        }
+
+        /// <summary>
+        /// Queues a one-shot content re-measure of the window height. Called from
+        /// <c>ParsekUI.OnUiComplexityModeApplied</c> in BOTH directions (design 7.2): Basic
+        /// drops the Diagnostics + Sample Density sections and Advanced restores them, so the
+        /// stored height - fixed, never player-resized, this window has no resize handle - no
+        /// longer matches the content either way. Without this the window keeps its old size:
+        /// dead space below the buttons in Basic, clipped content back in Advanced.
+        ///
+        /// <para>Only the HEIGHT is re-derived; x / y / width are untouched, so the window
+        /// does not jump. Safe to call while the window is closed - the request simply waits
+        /// for the next draw. Runs from the deferred mode latch (Update), never mid-OnGUI, so
+        /// it cannot change an IMGUI control count inside a frame.</para>
+        /// </summary>
+        internal void RequestHeightRemeasure()
+        {
+            settingsWindowHeightRemeasurePending = true;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.Verbose("UI",
+                $"Settings window height re-measure requested: storedHeight={settingsWindowRect.height.ToString("F0", ic)} " +
+                $"open={showSettingsWindow}");
+        }
+
+        /// <summary>
+        /// Test seam for the pending re-measure flag. Settable so a headless test can drive
+        /// both mode directions without an OnGUI pass to consume the request.
+        /// </summary>
+        internal bool HeightRemeasurePendingForTesting
+        {
+            get { return settingsWindowHeightRemeasurePending; }
+            set { settingsWindowHeightRemeasurePending = value; }
         }
 
         internal void ReleaseInputLock()
@@ -255,6 +322,9 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             string tooltip = GUI.tooltip ?? "";
+            // Read by the height re-measure gate in DrawIfOpen (next frame): a measurement
+            // taken while this box is up would bake in a height that vanishes with the box.
+            tooltipShownLastDraw = tooltip.Length > 0;
             GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
             GUILayout.Label(
                 tooltip.Length > 0 ? tooltip : string.Empty,

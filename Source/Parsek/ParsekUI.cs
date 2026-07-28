@@ -337,11 +337,21 @@ namespace Parsek
         /// <para>Advanced -> Basic: force-closes every gated window and releases its input
         /// lock (design 7.2 step 2, edge case 2), closes the group picker (edge case 4), and
         /// clamps the Missions window's transient tab (design 7.4).</para>
-        /// <para>Basic -> Advanced: nothing to do. Advanced only ever reveals surfaces, and
-        /// every window reopens on demand with its state intact (philosophy 2).</para>
+        /// <para>Basic -> Advanced: no window is closed. Advanced only ever reveals surfaces,
+        /// and every window reopens on demand with its state intact (philosophy 2).</para>
+        /// <para>BOTH directions: the Settings window re-measures its height, because it is
+        /// the one window whose own CONTENT changes with the mode (it hosts the two gated
+        /// sections).</para>
         /// </summary>
         private static void OnUiComplexityModeApplied(UiComplexityMode previous, UiComplexityMode next)
         {
+            // Both directions, before the Basic-only work below: Basic drops the Diagnostics
+            // and Sample Density sections and Advanced restores them, so the Settings
+            // window's fixed height no longer fits its content either way. Requesting the
+            // re-measure here - from the Update-side latch, never mid-OnGUI - only flips a
+            // flag the next Layout pass consumes, so no control count changes mid-frame.
+            activeInstance?.settingsUI?.RequestHeightRemeasure();
+
             if (next != UiComplexityMode.Basic)
             {
                 ParsekLog.Verbose("UI",
