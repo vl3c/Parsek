@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security;
 using Xunit;
 
 namespace Parsek.Tests
@@ -368,6 +369,62 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Mode changed: uiComplexityMode="));
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]") && l.Contains("already applied, nothing to latch"));
+        }
+
+        // Design 7.4 (phase 5): entering Basic clamps the Missions window's transient tab
+        // off the hidden Recordings tab AT APPLY TIME, not at the window's next draw - the
+        // window can stay closed for many frames after the switch, and reopening it must
+        // never land on a tab Basic does not draw. Driven end-to-end through the setter
+        // seam + the deferred latch, so it fails if the hook stops reaching the live window.
+        [Fact]
+        public void ApplyingBasicClampsTheMissionsWindowTab()
+        {
+            var settings = new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+            ParsekSettings.CurrentOverrideForTesting = settings;
+            ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
+
+            var ui = new ParsekUI(UIMode.KSC);
+            try
+            {
+                RecordingsTableUI table = ui.GetRecordingsTableUI();
+                Assert.NotNull(table);
+
+                // Land on the Recordings tab the way the Advanced-only GoTo cross-link does.
+                table.ScrollToRecording("no-such-recording");
+                Assert.Equal(RecordingsTableUI.TabRecordings, table.SelectedTabForTesting);
+
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+
+                // Still on the hidden tab until the deferred latch runs.
+                Assert.Equal(RecordingsTableUI.TabRecordings, table.SelectedTabForTesting);
+
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+                Assert.Equal(UiComplexityMode.Basic, ParsekUI.AppliedUiComplexityMode);
+                Assert.Equal(RecordingsTableUI.TabMissions, table.SelectedTabForTesting);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[UI]")
+                    && l.Contains("tab index clamped 1->0")
+                    && l.Contains("activeTabs=0"));
+
+                // Going back to Advanced must NOT move the selection: every Basic index is
+                // valid there (design 7.4).
+                logLines.Clear();
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
+                Assert.Equal(RecordingsTableUI.TabMissions, table.SelectedTabForTesting);
+                Assert.DoesNotContain(logLines, l => l.Contains("tab index clamped"));
+            }
+            finally
+            {
+                try { ui.Cleanup(); }
+                catch (SecurityException)
+                {
+                    // Headless xUnit still lacks Unity GUI teardown; the clamp assertions
+                    // above are what this test is about (precedent: ParsekUITests).
+                }
+            }
         }
 
         // The first-run line must name WHICH signal fired, the chosen mode, and that it

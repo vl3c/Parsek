@@ -2671,6 +2671,89 @@ namespace Parsek.Tests
 
             var ui = new RecordingsTableUI(null);
             Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+
+            // Design 13.1 (phase 5): the single TabLabels array serves Advanced; Basic
+            // draws NO toolbar at all rather than a one-button one.
+            Assert.Equal(0, RecordingsTableUI.VisibleTabCount(UiComplexityMode.Basic));
+            Assert.Equal(2, RecordingsTableUI.VisibleTabCount(UiComplexityMode.Advanced));
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // Basic/Advanced UI mode - phase 5 tab-bar gate + clamp (design §7.4, §13.1)
+        // ════════════════════════════════════════════════════════════════
+
+        // Advanced draws the full two-entry toolbar; Basic draws zero tabs (not one).
+        // Derived from the single IsVisible decision point, so a Basic decision flip on
+        // TabRecordings cannot leave the toolbar rule behind.
+        [Fact]
+        public void VisibleTabCountIsZeroInBasicAndTwoInAdvanced()
+        {
+            Assert.Equal(0, RecordingsTableUI.VisibleTabCount(UiComplexityMode.Basic));
+            Assert.Equal(RecordingsTableUI.TabLabels.Length,
+                RecordingsTableUI.VisibleTabCount(UiComplexityMode.Advanced));
+
+            // The zero-toolbar rule is the TabRecordings gate, not a second list.
+            Assert.False(UiSurfaceVisibility.IsVisible(
+                UiSurface.TabRecordings, UiComplexityMode.Basic));
+            Assert.True(UiSurfaceVisibility.IsVisible(
+                UiSurface.TabRecordings, UiComplexityMode.Advanced));
+        }
+
+        // Design §7.4: the only out-of-range case is a player sitting on the Recordings tab
+        // (index 1) when Basic is selected; it clamps to Missions (0). Index 0 is already
+        // valid in both modes, and Advanced is never clamped.
+        [Fact]
+        public void TabIndexClampsIntoRange()
+        {
+            Assert.Equal(RecordingsTableUI.TabMissions,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabRecordings, UiComplexityMode.Basic));
+
+            Assert.Equal(RecordingsTableUI.TabMissions,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabMissions, UiComplexityMode.Basic));
+
+            // Advanced untouched: every Basic index is valid there, so entering Advanced
+            // never needs a clamp.
+            Assert.Equal(RecordingsTableUI.TabMissions,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabMissions, UiComplexityMode.Advanced));
+            Assert.Equal(RecordingsTableUI.TabRecordings,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabRecordings, UiComplexityMode.Advanced));
+        }
+
+        // The instance clamp the deferred mode-apply calls (design §7.2 step 2, §7.4),
+        // including its §12.2 Verbose line (old index, new index, active tab count).
+        [Fact]
+        public void ClampTabForBasicMovesTheSelectionOffTheHiddenTab()
+        {
+            var rec = MakeRecWithId("clamp-target", "ClampVessel");
+            RecordingStore.AddCommittedInternal(rec);
+            EffectiveState.ResetCachesForTesting();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            logLines.Clear();
+
+            var ui = new RecordingsTableUI(null);
+            ui.ScrollToRecording("clamp-target");
+            Assert.Equal(RecordingsTableUI.TabRecordings, ui.SelectedTabForTesting);
+            logLines.Clear();
+
+            ui.ClampTabForBasic();
+
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("tab index clamped 1->0")
+                && l.Contains("activeTabs=0")
+                && l.Contains("origin=mode apply"));
+
+            // Idempotent and silent once already on Missions.
+            logLines.Clear();
+            ui.ClampTabForBasic();
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("tab index clamped"));
         }
 
         // Design §4.2: the window rename must NOT touch the on-disk sidecar

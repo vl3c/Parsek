@@ -132,6 +132,70 @@ namespace Parsek
         // Read-only test seam for the transient tab selection (section 4.1/4.1a guards).
         internal int SelectedTabForTesting => selectedTab;
 
+        /// <summary>
+        /// How many tabs the tab bar draws in <paramref name="mode"/> (design 7.4). The
+        /// pure, testable expression of the zero-toolbar rule.
+        /// <para>Advanced draws the full two-entry <see cref="TabLabels"/> toolbar. Basic
+        /// draws NO toolbar at all - not a one-button one: a <c>GUILayout.Toolbar</c> with a
+        /// single entry is visual noise, and the window title ("Parsek - Missions") already
+        /// carries the identity. Hence 0, not 1, even though the Missions tab's CONTENT is
+        /// what Basic renders.</para>
+        /// <para><see cref="TabLabels"/> stays the single two-entry array (design 6.2);
+        /// there is deliberately no separate Basic array to drift out of step with it.
+        /// Derived from <see cref="UiSurfaceVisibility.IsVisible"/> so the tab-bar rule has
+        /// the same single decision point as every other gated surface.</para>
+        /// </summary>
+        internal static int VisibleTabCount(UiComplexityMode mode)
+        {
+            return UiSurfaceVisibility.IsVisible(UiSurface.TabRecordings, mode)
+                ? TabLabels.Length
+                : 0;
+        }
+
+        /// <summary>
+        /// Pure tab-index clamp (design 7.4). With <see cref="TabMissions"/> at index 0 the
+        /// only out-of-range case left is a player sitting on the Recordings tab (index 1)
+        /// when Basic is selected; clamping that to 0 lands on Missions, which is both in
+        /// range and the semantically right destination.
+        /// <para>Advanced is returned UNCHANGED: every Basic index is valid there, so
+        /// entering Advanced never needs a clamp.</para>
+        /// </summary>
+        internal static int ClampTabIndexForMode(int selectedTabIndex, UiComplexityMode mode)
+        {
+            if (VisibleTabCount(mode) > 0)
+                return selectedTabIndex;
+
+            return TabMissions;
+        }
+
+        /// <summary>
+        /// Applies the Basic clamp to this window's transient tab selection. Called from the
+        /// deferred mode-apply step (design 7.2 / 7.4) via
+        /// <c>ParsekUI.OnUiComplexityModeApplied</c>, so the clamp happens the moment the
+        /// mode takes effect rather than waiting for the next draw.
+        /// </summary>
+        internal void ClampTabForBasic()
+        {
+            ApplyTabClamp(UiComplexityMode.Basic, "mode apply");
+        }
+
+        // Shared clamp + log body for both clamp sites (deferred mode-apply and the
+        // defensive on-draw pass). Logs at Verbose with old index, new index, and the
+        // active tab count (design 12.2); silent when the clamp is a no-op, which is the
+        // common case (Missions at index 0 makes this a rare correction, not a per-frame
+        // one).
+        private void ApplyTabClamp(UiComplexityMode mode, string origin)
+        {
+            int clamped = ClampTabIndexForMode(selectedTab, mode);
+            if (clamped == selectedTab)
+                return;
+
+            ParsekLog.Verbose("UI",
+                $"Recordings window: tab index clamped {selectedTab}->{clamped} " +
+                $"(mode={mode}, activeTabs={VisibleTabCount(mode)}, origin={origin})");
+            selectedTab = clamped;
+        }
+
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
         private enum RootItemType { Group, Chain, Recording, VirtualGroup }
 
@@ -302,6 +366,12 @@ namespace Parsek
         /// Called by the Timeline GoTo button. Ensures the target recording is visible
         /// (unhides if hidden, disables hide filter if needed, expands parent groups),
         /// opens the window, and scrolls to the recording.
+        /// <para>Advanced-only in practice: the GoTo button that calls this is gated on
+        /// <see cref="UiSurface.TabRecordings"/> (design 4.1a), so the
+        /// <see cref="TabRecordings"/> write below can never produce a Basic-invalid index
+        /// through this path. It needs no gate of its own: the defensive on-draw clamp in
+        /// <c>DrawRecordingsWindow</c> (design 7.4) covers this and any future caller, and
+        /// the Basic dispatch is pinned to Missions regardless.</para>
         /// </summary>
         internal void ScrollToRecording(string recordingId)
         {
@@ -1193,18 +1263,41 @@ namespace Parsek
             // Ensure body + tab-bar styles exist before the tab bar draws.
             EnsurePhaseStyles();
 
-            // Two-tab bar (Recordings | Missions), each half the window width. The Missions
+            // Basic / Advanced gating (design 7.1, 7.4). Read the FRAME-LATCHED mode ONCE
+            // per draw pass, never the settings field: the Layout and Repaint passes of one
+            // frame must agree on the control count, and the toolbar IS a control.
+            UiComplexityMode complexity = ParsekUI.AppliedUiComplexityMode;
+
+            // Defensive on-draw clamp (design 7.4). The deferred mode-apply already clamps,
+            // so this is a backstop for any future caller that moves `selectedTab` without
+            // going through it (`ScrollToRecording` is the only one today, and it is
+            // reachable only from the Advanced-only Timeline GoTo button). It reads the
+            // latched mode, so it is deterministic within a frame - identical in Layout and
+            // Repaint - and therefore layout-safe.
+            ApplyTabClamp(complexity, "draw");
+
+            // Two-tab bar (Missions | Recordings), each half the window width. The Missions
             // tab is the higher mission abstraction over the same recordings; switching tabs
             // swaps the content inside this one window (delegated to MissionsWindowUI).
-            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
-            if (newTab != selectedTab)
+            // In Basic the toolbar is not drawn AT ALL (zero tabs, design 7.4) and its
+            // trailing separator goes with it, or Basic shows a stray gap where the tab bar
+            // used to be.
+            if (VisibleTabCount(complexity) > 0)
             {
-                LogTabSwitch(selectedTab, newTab);
-                selectedTab = newTab;
+                int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
+                if (newTab != selectedTab)
+                {
+                    LogTabSwitch(selectedTab, newTab);
+                    selectedTab = newTab;
+                }
+                GUILayout.Space(3);
             }
-            GUILayout.Space(3);
 
-            if (selectedTab == TabMissions)
+            // With no toolbar drawn there is no way to leave Missions, so the content
+            // dispatch is PINNED to it rather than trusting the clamp alone.
+            int activeTab = VisibleTabCount(complexity) > 0 ? selectedTab : TabMissions;
+
+            if (activeTab == TabMissions)
             {
                 parentUI.GetMissionsUI().DrawMissionsTabContent();
                 DrawMissionsTabBottomBar();

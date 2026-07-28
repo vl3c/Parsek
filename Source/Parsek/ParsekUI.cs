@@ -147,6 +147,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
@@ -166,6 +167,7 @@ namespace Parsek
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
             this.structureListUI = new StructureListWindowUI(this);
+            activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
@@ -189,6 +191,19 @@ namespace Parsek
         // scenes construct their own ParsekUI and re-seed the latch from settings.
         private static UiComplexityMode appliedUiComplexityMode = UiComplexityMode.Advanced;
         private static UiComplexityMode? pendingUiComplexityMode;
+
+        /// <summary>
+        /// The live <see cref="ParsekUI"/> for the current scene. The mode-apply hook is
+        /// static (the setter seam and the setting are both global), but the work it must do
+        /// - clamping the Missions window's transient tab here in phase 5, closing the gated
+        /// windows and releasing their input locks in phase 7 - is INSTANCE state.
+        /// <para>Each scene constructs exactly one <see cref="ParsekUI"/>, so the most
+        /// recently constructed instance is the live one. <see cref="Cleanup"/> clears this
+        /// only when it still points at itself, so a scene handover that constructs the next
+        /// instance before tearing down the previous one cannot null out the live
+        /// reference.</para>
+        /// </summary>
+        private static ParsekUI activeInstance;
 
         /// <summary>
         /// The frame-latched mode EVERY <see cref="UiSurfaceVisibility.IsVisible"/> call
@@ -295,24 +310,42 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Extension point for the work that must happen WHEN the mode takes effect.
-        /// Phase 4 latches only; the Advanced -> Basic window close handler with its
-        /// per-window <c>ReleaseInputLock()</c> (design 7.2 step 2, phase 7) and the
-        /// `selectedTab` clamp (design 7.4, phase 5) hang here. Deliberately left empty
-        /// but named and called, so those phases add a body rather than a call site.
+        /// The work that must happen WHEN the mode takes effect. Runs from the deferred
+        /// latch in <see cref="ApplyPendingUiComplexityModeIfAny"/>, never mid-OnGUI.
+        /// <para>Phase 5 adds the Advanced -> Basic <c>selectedTab</c> clamp (design 7.4).
+        /// The Advanced -> Basic window close handler with its per-window
+        /// <c>ReleaseInputLock()</c> (design 7.2 step 2) is still phase 7.</para>
         /// </summary>
         private static void OnUiComplexityModeApplied(UiComplexityMode previous, UiComplexityMode next)
         {
+            if (next == UiComplexityMode.Basic)
+            {
+                // Design 7.4: clamp the moment the mode takes effect rather than waiting for
+                // the Missions window's next draw. The on-draw clamp is the backstop, not
+                // the primary: the window may be closed for many frames after the switch,
+                // and reopening it should never land on a tab Basic does not draw.
+                RecordingsTableUI table = activeInstance?.recordingsTableUI;
+                if (table != null)
+                    table.ClampTabForBasic();
+                else
+                    ParsekLog.Verbose("UI",
+                        "UI mode apply: no live ParsekUI, tab clamp deferred to the next draw");
+            }
+
             ParsekLog.Verbose("UI",
-                $"UI mode apply hook: {previous}->{next} " +
-                "(no close handler or tab clamp yet - phases 5 and 7)");
+                $"UI mode apply hook: {previous}->{next} (no close handler yet - phase 7)");
         }
 
-        /// <summary>Test seam: clears the latch + pending mode back to their startup state.</summary>
+        /// <summary>
+        /// Test seam: clears the latch + pending mode back to their startup state, and drops
+        /// the live-instance reference so a <see cref="ParsekUI"/> constructed by an earlier
+        /// test cannot receive this test's mode-apply hook.
+        /// </summary>
         internal static void ResetUiComplexityModeForTesting()
         {
             appliedUiComplexityMode = UiComplexityMode.Advanced;
             pendingUiComplexityMode = null;
+            activeInstance = null;
         }
 
         /// <summary>Test seam: the queued-but-not-yet-latched mode, null when none.</summary>
@@ -2207,6 +2240,13 @@ namespace Parsek
 
         public void Cleanup()
         {
+            // Only drop the live-instance reference when it still points at THIS instance:
+            // a scene handover constructs the next ParsekUI before tearing down the previous
+            // one, and nulling it there would leave the mode-apply hook with no window to
+            // clamp / close.
+            if (ReferenceEquals(activeInstance, this))
+                activeInstance = null;
+
             LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
