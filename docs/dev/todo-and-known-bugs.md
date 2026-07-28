@@ -14,7 +14,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~S4.1-DEFERRED-DIALOG: the driven scene exit skipped the save, so the re-fly marker was swept before any dialog existed~~ [FOUND 2026-07-28 by runs `2026-07-28_1515` / `_1518`. FIXED the same day, in the SEAM rather than the product. Awaiting its first run. Was NOT a player-facing defect]
+## S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. REPORTED, NOT FIXED. Severity UNDECIDED pending a product call - see the question below]
+
+### What happens
+
+A re-fly is invoked, nothing is flown, and the session is concluded. At the scene exit:
+
+```
+[Flight]    IsActiveTreeIdleOnPad: all 4 recordings within 30m - idle on pad
+[SceneExit] TryAutoDiscardIdleActiveTree: idle detected dest=SPACECENTER
+            - tearing down live tree without finalize/stash
+[Flight]    AutoDiscardActiveTreeCore: discarding live tree
+            reason='scene-exit idle-on-pad auto-discard dest=SPACECENTER'
+```
+
+The tree is discarded WITHOUT being stashed, so no pending tree exists, so no merge dialog is ever raised - while `ParsekScenario.ActiveReFlySessionMarker` is still LIVE and valid (`Marker valid=True; spare=1 discarded=0` in the same run). The session dangles: a live marker, a spared provisional, and no tree and no dialog to conclude it with.
+
+### The product question, which is genuinely open
+
+`TryAutoDiscardIdleActiveTree` does not consult the re-fly marker. Two defensible readings:
+
+- **Correct as-is.** A re-fly attempt that flew nothing IS an idle-on-pad tree, and discarding it is exactly what that feature is for. The player rewound, changed their mind, and left; nothing of value is lost.
+- **A defect.** The discard is silent, and it leaves an ACTIVE re-fly session with no tree, no dialog, and no conclusion. Nothing tells the player their attempt was dropped, and the marker's own lifecycle expects a merge or a discard decision that now never comes. Compare the sibling path, which is careful about exactly this: `AutoDiscardActiveTreeCore` explicitly clears an armed `SwitchSegmentSession` when it tears a tree down, precisely so a dangling session cannot resurface as a deferred dialog on the next load - but it does not do the equivalent for a re-fly marker.
+
+That second point is the strongest argument that this is a real defect rather than working-as-intended: the same function already recognises the "do not leave a session pointing at a tree I just destroyed" hazard for switch segments, and simply does not handle the re-fly case.
+
+**Do not fix this by making the harness avoid it.** S4.1 exists to exercise rewind-then-conclude-without-flying; if that shape trips a product decision, the scenario is doing its job.
+
+### Why it presents as a test flake
+
+S4.1 sits exactly on the idle-on-pad boundary (it rewinds to PRELAUNCH and flies nothing), so the classification lands on either side run to run: on `2026-07-28_1932` the discard fired on attempt 1 (INVALID, `AnswerMergeDialog` waited 120 s for a dialog that could not exist) and did not fire on attempt 2 (PASS). The scenario is currently flake-quarantined (`rate=0.75 over 7d`, a figure that also spans pre-fix history). Until the question above is settled, S4.1 should not be trusted as a nightly gate even though it can now pass.
+
+---
+
+## ~~S4.1-DEFERRED-DIALOG: the driven scene exit skipped the save, so the re-fly marker was swept before any dialog existed~~ [FOUND 2026-07-28 by runs `2026-07-28_1515` / `_1518`. FIXED and PROVEN the same day by run `2026-07-28_1932` (marker survives, sweep spares the provisional). S4.1 now PASSES but FLAKES 1-in-2 on a DIFFERENT residual - the idle-on-pad auto-discard - carried forward as its own item below]
 
 ### What happens
 
@@ -51,6 +84,36 @@ Contrast, same build, same day: `R1-rewind-loop-flown`'s `AnswerMergeDialog` ret
 ### Why it matters
 
 S4.1 is `tier = "nightly"`, and `hlib.CADENCE_TIERS` maps the nightly cadence to `("daily", "nightly")`, so it IS scheduled. A deterministic INVALID burns ~366 s a night and produces no verdict, while the scenario's real purpose - being the dedicated rewind-then-teardown regression case - goes unserved. INVALID is retryable and does not red the sweep as PARSEK-FAIL, so this fails quietly rather than loudly.
+
+### RUN 2026-07-28: the seam fix is PROVEN, and it exposed a different residual
+
+Run `2026-07-28_1932`: **PASS on attempt 2, INVALID on attempt 1** (`flakedThenPassed`, wall 237 s). The save is re-staged from the template between attempts (`[Stage] stage save=gloops-airshow template=... inject=rewind-b9` appears after the retry line), so attempt 2's pass is from a clean fixture, not attempt 1's leftovers.
+
+**What the fix demonstrably achieved**, comparing the same log lines before and after:
+
+| | pre-fix (`_1515`) | post-fix (`_1932`) |
+|---|---|---|
+| `SafeWritePersistent ... dest=SPACECENTER` | absent | **fires** |
+| marker at SPACECENTER `OnLoad` | `Marker loaded: none` | **`Marker loaded: sess_365b9d4a...`** |
+| load-time sweep | `Marker valid=False; discarded=1` | **`Marker valid=True; spare=1 discarded=0`** |
+| `outcome=refused-unflown-provisional` | absent | **fires** (the newly-required contract) |
+
+So the marker now survives the driven scene change and the sweep spares the provisional, on BOTH attempts. That half is settled.
+
+**The residual is a DIFFERENT cause, and it is more interesting than the first.** On attempt 1 the scene exit never produced a dialog at all:
+
+```
+19:37:22.405 [Flight]     IsActiveTreeIdleOnPad: all 4 recordings within 30m - idle on pad
+19:37:22.405 [SceneExit]  TryAutoDiscardIdleActiveTree: idle detected dest=SPACECENTER
+                          - tearing down live tree without finalize/stash
+19:37:22.406 [Flight]     AutoDiscardActiveTreeCore: discarding live tree
+```
+
+The tree is torn down WITHOUT stash, so `pend.tree=-`, so no merge dialog spawns, so `AnswerMergeDialog` waits 120 s for a dialog that will never exist. On attempt 2 that discard did not fire (0 occurrences) and the ordinary Limbo stash + deferred dialog path ran to completion.
+
+**This is plausibly the product question S4.1 exists to ask.** `TryAutoDiscardIdleActiveTree` does not consult the live re-fly marker, and S4.1's premise - rewind to PRELAUNCH, conclude without flying - sits exactly on the idle-on-pad boundary, which is why it lands on either side run to run. When it fires during a live re-fly session, the session's tree is silently discarded and the marker is left live with nothing to merge. Whether that is correct (an empty attempt SHOULD be discarded) or a defect (the session then dangles with no conclusion) is a product decision, NOT a harness one, and it should be settled before S4.1 is trusted as a nightly gate.
+
+**Harness state:** `[Coverage] flake quarantine scenario=S4.1-rewind-merge stage=run rate=0.75 over 7d`. That rate spans pre-fix history, so it is not a verdict on the fixed code, but the scenario IS quarantined today.
 
 ### FIXED in the SEAM, not the product
 
