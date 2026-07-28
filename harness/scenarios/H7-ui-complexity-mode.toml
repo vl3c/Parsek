@@ -1,0 +1,97 @@
+schema = 1
+id = "H7-ui-complexity-mode"
+tier = "daily"
+# The in-game UiComplexityMode category run unattended (driver shape mirrors
+# H6-route-rewind-timeline). Covers what headless xUnit structurally cannot:
+# the LIVE InputLockManager. Entering Basic must force-close every gated window
+# AND leave no Parsek control lock held (design 7.2 / section 8 edge case 2 -
+# a leaked lock soft-locks the player's mouse for the rest of the scene
+# session). Every mode flip goes through the ParsekUI.SetUiComplexityMode SEAM
+# and waits on the DEFERRED latch, so the run also proves the real
+# ParsekFlight.Update apply wiring exists.
+description = "Run the in-game UiComplexityMode category unattended: entering Basic force-closes every gated window and releases every Parsek input lock, a Basic round trip preserves gated-window state, and Advanced restores every UiSurface."
+instanceProfile = "stock-minimal"
+tags = ["ui", "ui-complexity-mode", "input-locks", "H7"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5 / H6). Its focusable Ship vessel is
+# what makes TestCommandLoadGame.DecideLoadRoute take the FLIGHT route, which the
+# category REQUIRES (all three tests are Scene = GameScenes.FLIGHT, and ParsekUI
+# .ActiveInstance is constructed by ParsekFlight). No injected recordings: the
+# tests touch window open flags and the mode setting only.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so
+# spec_expects_live_recording is False and REC-001/REC-003 are correctly
+# suppressed. RunTests is the single BATCH owner; its 540 per-step budget is the
+# deferred cap (S8), far above what three fast coroutine tests need.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "UiComplexityMode" },            expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the run is SANDBOX on the FLIGHT-scene pod host. NO NEW REGISTRY VALUE
+# is claimed. D15 (UI surfaces) is deliberately NOT claimed: it carries exactly
+# one value (timeline-projection) and lib/test_hlib.py's
+# test_real_registry_denominator pins that count, so growing it is a separate
+# reviewed decision, not a side effect of this cell.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
+# form, so this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# count.max == 0: the host carries no recordings and the category creates none.
+# Also selects the recording-rules log-validation suppression (a legitimately
+# recording-free run must not red on REC-001/REC-003).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The first two lines are PRODUCTION emissions from
+# ParsekUI.ApplyPendingUiComplexityModeIfAny - the deferred latch itself - not
+# test echoes, so they prove the real ParsekFlight.Update wiring ran in BOTH
+# directions. The next two are the tests' own measurement lines, which can only
+# be emitted after the close-set walk and the UiSurface reflection walk actually
+# completed (they sit AFTER every assertion in their tests).
+#
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The tally is pinned WHOLE: a
+# zero-executed batch (`total=0 ...`) or an all-skipped one satisfies a bare
+# `failed=0`. DERIVATION: UiComplexityModeInGameTests declares exactly 3
+# [InGameTest(Category = "UiComplexityMode", Scene = GameScenes.FLIGHT)] methods,
+# all AllowBatchExecution default-true, all scene-eligible at FLIGHT, so
+# total = executable = 3 with zero attribute-forced skips. passed=3 skipped=0 is
+# DERIVED, not yet measured: both runtime InGameAssert.Skip guards (no live
+# ParsekUI, Gloops recording in progress) are unreachable on this fixture. If a
+# test is added to the category, BOTH numbers move here in the same commit.
+# RE-PIN passed=/skipped= from the measured line on the first archived run.
+required  = [
+  "Mode changed: uiComplexityMode=Advanced->Basic",
+  "Mode changed: uiComplexityMode=Basic->Advanced",
+  "UiComplexityMode: opened \\d+ gated surfaces, locksHeldBeforeSwitch=",
+  "UiComplexityMode: \\d+ surfaces visible in Advanced after the round trip",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5/H6): 720 >= 300 LoadGame + 540 RunTests
+# ceiling headroom. The category itself is three short coroutines bounded by a
+# 10-frame latch wait, so the real batch runs far under the cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
