@@ -89,11 +89,42 @@ per facet; each award then becomes its own `kind = "milestone"` entry with the m
 constant. The spec is therefore tiered `operator` with an inline PROMOTE note naming
 `nightly`, so a systematic first-run ledger red cannot pollute the nightly sweep.
 
-**Mutation-checked.** 14 mutations over the CL-1 cells, 14 killed. The two that initially
+**Mutation-checked.** 17 mutations over the CL-1 cells, 16 killed and 1 proved
+EQUIVALENT. The survivor is the deletion of the alive-aboard conjunct from the
+success terminal: it changes no behaviour, because every not-alive frame is also a
+never-aboard frame, so the `crew-watch-never-aboard` terminal always fires first on
+any latch-less not-alive run. That is stated at the call site and the invariant it
+guards is proved by exhaustion instead
+(`test_the_success_terminal_is_unreachable_without_the_latch` walks all 1,296
+four-frame sequences over the whole roster alphabet). The two that initially
 SURVIVED were both real test gaps and both are now closed: the runner dropping the roster
 reading from a `vessel_lost` snapshot (the whole vessel-independence claim), and arming the
 watch behind an active-vessel resolve (the fake in that cell was a class with a raising
 property, so attribute access returned the property object and never raised).
+
+**Opus review panel (3 reviewers, disjoint mandates, 2026-07-28) - one REAL BUG and two
+false-claim fixes.** The bug: `crew-survived-impact` computed its `landed` streak from
+`vessel_lost` + `situation` only, never consulting the frame's roster reading, and step 5
+pre-empts step 6 only when the death debounce is ALREADY COMPLETE on that same frame. The
+real event is STAGGERED, not simultaneous - the wreck settles into LANDED and the roster
+flips one ~0.5 s poll later - so the sequence (LANDED+Assigned, LANDED+Dead) completed the
+SURVIVED streak one frame before the death streak and would have RED A SUCCESSFUL FLIGHT,
+with a reason that contradicted itself inside one line ("with the crew still alive; ...
+lastRoster=Dead"). Fixed by adding `not not_alive` to the `landed` conjunct, so any
+not-alive frame resets the survival streak. Also from the panel: `crew-watch-name-unknown`
+widened into `crew-watch-never-aboard` (an already-dead-at-load kerbal and an
+Available-forever kerbal used to burn the whole FLIGHT budget into an unnamed flake, which
+contradicts this module's own stated rule); a new `crew-watch-unnamed` PRELAUNCH terminal
+(an empty `crewName` passes the schema, arms a watch the runner treats as UNARMED, and
+surfaced as the RETRYABLE `roster-channel-lost` flake - blaming the kRPC channel for a spec
+typo); the roster latches registered in `MACHINE_DIFF_FIELDS` so a live run shows
+`rosterStatus Assigned->Dead` as a loud gate line (NOT `MACHINE_STATE_FIELDS`, which
+renders every field for every mission and would widen all 20 machine lines); the spec's
+`flown` tag corrected to `pending-flight` (`--tag` is a real selector); the builder's
+`--check` WIRED into `FixtureDriftTests`, which also re-runs the splice and asserts
+byte-identity with the committed save, so the "fixture nobody maintains" objection is
+answered mechanically rather than in prose; and roadmap item R11 struck as CLOSED with its
+two dependents unblocked.
 
 **Open after this lands.** (1) It has never flown - the first run is what pins P2 and
 promotes the tier. (2) It does not touch the EVA-4 `eva-chute-kerbal-lost` /

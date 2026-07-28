@@ -9,7 +9,9 @@ FLIGHT rather than of a KSC button. The roadmap proposed closing it with a
 `FORGE-career-pad` FLIGHT. This tool closes it without one: the two inputs are
 already committed, already proven, and the splice between them is mechanical.
 
-WHAT IT SPLICES. Exactly two edits against the `fresh-career` base:
+WHAT IT SPLICES. Exactly two edits against the `fresh-career` SAVE, plus a
+`persistent.loadmeta` restamp (vessel count + UT only - every other loadmeta
+field is left alone because the splice moves no career pool):
 
   1. `fresh-career`'s empty `FLIGHTSTATE` is replaced by `b1-pad-craft`'s, with
      every non-`Ship` `VESSEL` dropped. On `b1-pad-craft` that drops one
@@ -47,7 +49,11 @@ Usage:
 
 `--check` re-runs every post-condition against the ALREADY COMMITTED fixture, so
 CI or a reviewer can confirm the committed bytes are what this recipe produces
-without regenerating them.
+without regenerating them. It is WIRED, not decorative: `FixtureDriftTests` in
+`harness/missions/lib/test_cl1_crew_loss.py` runs the same `verify` in-process and
+additionally re-runs `build` over the CURRENT inputs and asserts byte-identity
+with the committed save, so a change to either upstream fixture reds in the suite
+rather than drifting silently into a live flight.
 
 Stdlib only; ASCII only; no em dashes.
 """

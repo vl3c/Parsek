@@ -3569,16 +3569,19 @@ def cl1_params_from_dict(params: Dict) -> Cl1Params:
 class Cl1State:
     """CL-1 machine state. ``verdict`` is None while running and at the CREW-LOST
     success terminal (the assertions decide there, exactly as at B1's LANDED); it
-    is MISSION-FLAKE on a budget overrun or on ``roster-channel-lost``.
-    ``loss_reason`` is set ONLY by the two ASSERT-FAIL ends - never by the
-    success terminal, which is the whole inversion (see the CL1_* constants)."""
+    is MISSION-FLAKE on a budget overrun or on ``roster-channel-lost``, and
+    MISSION-ASSERT-FAIL on the three named failure ends (``crew-watch-unnamed``,
+    ``crew-watch-never-aboard``, ``crew-survived-impact``), which also set
+    ``loss_reason``. ``loss_reason`` is NEVER set by the success terminal, which
+    is the whole inversion (see the CL1_* constants)."""
     params: Cl1Params
     phase: str = CL1_PRELAUNCH
     phase_entry_ut: float = 0.0
-    # Peak altitude, carried as flight evidence so a result JSON says whether the
-    # craft actually flew (a pod that died on the pad and one that died after a
-    # 12 km hop are both crew losses; only this distinguishes them).
-    peak_altitude: Optional[float] = None
+    # Last FINITE altitude from a live frame. Read by _cl1_evidence, so every
+    # failure reason names WHERE the craft was. (There is deliberately no peak:
+    # the result JSON's peakAltitude is derived from the frames by
+    # evaluate_cl1_assertions, and a second machine-side copy of it was dead
+    # weight - Opus review panel 2026-07-28.)
     last_finite_altitude: Optional[float] = None
     # The last non-empty OBSERVED roster reading. DIAGNOSTIC: it names what the
     # channel was actually saying in every failure reason.
@@ -3589,10 +3592,11 @@ class Cl1State:
     # can never pass instantly and green.
     crew_alive_aboard_seen: bool = False
     alive_aboard_streak: int = 0
-    # Consecutive not-alive / landed-while-alive / unread runs behind the three
-    # debounced terminals. Each resets to 0 on any disagreeing frame (fail-closed:
-    # the run of agreement must be unbroken).
+    # Consecutive not-alive / never-aboard / landed-while-alive / unread runs
+    # behind the debounced terminals. Each resets to 0 on any disagreeing frame
+    # (fail-closed: the run of agreement must be unbroken).
     not_alive_streak: int = 0
+    never_aboard_streak: int = 0
     landed_alive_streak: int = 0
     roster_unread_streak: int = 0
     # Evidence carried out of the success terminal for the result JSON.
@@ -3635,7 +3639,7 @@ def _cl1_evidence(state: Cl1State) -> str:
     parts = []
     if state.last_finite_altitude is not None and _is_finite(state.last_finite_altitude):
         parts.append("last altitude %.0fm" % state.last_finite_altitude)
-    parts.append("roster=%s" % (state.last_roster_status or "UNREAD"))
+    parts.append("lastRoster=%s" % (state.last_roster_status or "UNREAD"))
     parts.append("aliveAboardObserved=%s"
                  % ("yes" if state.crew_alive_aboard_seen else "no"))
     parts.append("vesselLostSeen=%s" % ("yes" if state.vessel_lost_seen else "no"))
@@ -3664,8 +3668,7 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
 
     # --- 1. evidence ------------------------------------------------------
     if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
-        state = replace(state, last_finite_altitude=snapshot.altitude,
-                        peak_altitude=_update_peak(state.peak_altitude, snapshot.altitude))
+        state = replace(state, last_finite_altitude=snapshot.altitude)
     if snapshot.vessel_lost and not state.vessel_lost_seen:
         state = replace(state, vessel_lost_seen=True)
 
@@ -3678,6 +3681,20 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
     # frame the channel is necessarily unread (the watch is being armed by this
     # same action) and no gate should read that as evidence.
     if state.phase == CL1_PRELAUNCH:
+        # crew-watch-unnamed: refuse to fly rather than fly blind. An empty
+        # crewName passes the schema (hlib's "string" check is an isinstance),
+        # arms a watch the runner treats as UNARMED, and would then read "" on
+        # every frame - surfacing minutes later as `roster-channel-lost`, which
+        # is a RETRYABLE flake blaming the kRPC channel for a spec typo. Named
+        # here, before anything is ignited, for the same reason the other three
+        # terminals are named: a deterministic outcome must not land unnamed in
+        # the flake bucket.
+        if not state.params.crew_name:
+            return replace(
+                state, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("crew-watch-unnamed: missionParams.crewName is empty, "
+                             "so there is no kerbal to watch and no statement about "
+                             "a crew could ever be made")), []
         actions = [Action(ACTION_SET_ROSTER_WATCH, text=state.params.crew_name),
                    Action(ACTION_SET_THROTTLE, state.params.throttle),
                    Action(ACTION_ACTIVATE_STAGE)]
@@ -3694,6 +3711,11 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
         roster_unread_streak=(state.roster_unread_streak + 1) if unread else 0,
         not_alive_streak=(state.not_alive_streak + 1) if not_alive else 0,
         alive_aboard_streak=(state.alive_aboard_streak + 1) if alive_aboard else 0,
+        # Any SETTLED non-Assigned reading. Distinct from not_alive_streak because
+        # `Available` is neither: the kerbal is alive and simply not aboard.
+        # UNREAD breaks it (fail-closed - a blind frame proves nothing either way).
+        never_aboard_streak=(0 if (unread or alive_aboard)
+                             else state.never_aboard_streak + 1),
     )
     if (not state.crew_alive_aboard_seen
             and state.alive_aboard_streak >= CL1_ROSTER_DEBOUNCE_K):
@@ -3708,21 +3730,47 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
                           "be made either way; %s"
                           % (state.roster_unread_streak, _cl1_evidence(state)))), []
 
-    # --- 4. crew-watch-name-unknown (ASSERT-FAIL, fast) --------------------
-    # NotInRoster BEFORE the kerbal was ever observed aboard means the spec named
-    # a kerbal this save's roster does not have. Debounced like every other
-    # terminal, and scoped by the alive-aboard latch so the SAME reading later in
-    # the flight (the kerbal left the roster) is counted as a crew loss instead.
-    if (not state.crew_alive_aboard_seen
-            and status == ROSTER_STATUS_NOT_IN_ROSTER
-            and state.not_alive_streak >= CL1_ROSTER_DEBOUNCE_K):
+    # --- 4. crew-watch-never-aboard (ASSERT-FAIL, fast) --------------------
+    # A SETTLED reading that is not Assigned, BEFORE the kerbal was ever observed
+    # alive and aboard, means the flight can never make the statement it exists to
+    # make. All three causes are deterministic and all three used to burn the whole
+    # FLIGHT budget into an unnamed "phase FLIGHT timed out" flake, which is the
+    # anti-pattern this module keeps naming:
+    #   NotInRoster - a misspelled `crewName`, the likeliest authoring error;
+    #   Dead / Missing - the fixture's kerbal was ALREADY dead at load, which is
+    #     exactly the fault the alive-aboard precondition exists to catch, so the
+    #     machine should SAY it rather than merely refuse to succeed;
+    #   Available - the kerbal is in the roster but was never aboard a vessel
+    #     (an empty pod, or the spec naming a kerbal who is not the crew).
+    # Debounced like every other terminal, and scoped by the alive-aboard latch so
+    # the SAME readings later in the flight are counted as a crew loss instead.
+    if (not state.crew_alive_aboard_seen and not unread
+            and status != ROSTER_STATUS_ASSIGNED
+            and state.never_aboard_streak >= CL1_ROSTER_DEBOUNCE_K):
+        hint = ("no kerbal of that name is in this save's crew roster"
+                if status == ROSTER_STATUS_NOT_IN_ROSTER else
+                "the kerbal was already not alive before the flight began"
+                if status in ROSTER_STATUS_NOT_ALIVE else
+                "the kerbal is in the roster but was never aboard a vessel")
         return replace(
             state, done=True, verdict=MISSION_ASSERT_FAIL,
-            loss_reason=("crew-watch-name-unknown: no kerbal named %r is in this "
-                         "save's crew roster, and none was ever observed aboard; %s"
-                         % (state.params.crew_name, _cl1_evidence(state)))), []
+            loss_reason=("crew-watch-never-aboard: %r read %s on %d consecutive "
+                         "frames and was never observed Assigned - %s; %s"
+                         % (state.params.crew_name, status,
+                            state.never_aboard_streak, hint,
+                            _cl1_evidence(state)))), []
 
     # --- 5. CREW-LOST: the SUCCESS terminal --------------------------------
+    # The `crew_alive_aboard_seen` conjunct is DELIBERATELY REDUNDANT with step 4
+    # and is kept anyway. Redundant because every not-alive frame is also a
+    # never-aboard frame and the two streaks reset on overlapping sets, so a
+    # not-alive run reaching K without the latch always trips step 4 first - which
+    # is why the mutation that deletes this conjunct is an EQUIVALENT mutant and
+    # survives the suite (`test_the_success_terminal_is_unreachable_without_the_
+    # latch` proves the property holds either way). Kept because it is the direct
+    # statement of the invariant that matters - a fixture whose kerbal was already
+    # dead can never be awarded the success terminal - and a future narrowing of
+    # step 4 must not silently make that reachable.
     if state.crew_alive_aboard_seen and state.not_alive_streak >= CL1_ROSTER_DEBOUNCE_K:
         entry = snapshot.ut if _is_finite(snapshot.ut) else state.phase_entry_ut
         return replace(
@@ -3734,9 +3782,21 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
 
     # --- 6. crew-survived-impact (ASSERT-FAIL) -----------------------------
     # The craft came to rest with the kerbal alive: the direct negation of this
-    # mission's subject. Live frames only - a vessel_lost snapshot carries the
-    # benign default situation "" and must not be read as a landing.
-    landed = (not snapshot.vessel_lost
+    # mission's subject. Two conjuncts, and the SECOND one closed a real hole
+    # (Opus review panel 2026-07-28, reviewer 1, finding 1):
+    #   - live frames only: a vessel_lost snapshot carries the benign default
+    #     situation "" and must not be read as a landing;
+    #   - AND the roster must not read not-alive ON THIS FRAME. Step 5 only
+    #     pre-empts this check when the death debounce is ALREADY COMPLETE, and
+    #     the ordinary shape of the real event is staggered, not simultaneous:
+    #     the wreck settles into LANDED and the roster flips one ~0.5 s poll
+    #     later. Without this conjunct the sequence (LANDED+Assigned,
+    #     LANDED+Dead) completed the SURVIVED streak one frame before the death
+    #     streak, and red a successful flight with a reason that contradicted
+    #     itself inside one line ("with the crew still alive; ... roster=Dead").
+    #     With it, any not-alive frame RESETS the survival streak, so the death
+    #     always wins the race it is actually in.
+    landed = (not snapshot.vessel_lost and not not_alive
               and snapshot.situation in state.params.landed_situations)
     state = replace(state,
                     landed_alive_streak=(state.landed_alive_streak + 1) if landed else 0)
@@ -11562,6 +11622,24 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # "a frame disagreed about the handoff envelope" event an operator needs to see.
     # getattr-generic: absent on every other machine, so no other mission's log moves.
     ("window_open_streak", "evaWindowStreak"),
+    # CL-1: the OBSERVED roster channel. This mission has exactly one input that
+    # decides anything, and without these lines a live run shows nothing about it
+    # (Opus review panel 2026-07-28, reviewer 1). `last_roster_status` is THE
+    # event - `rosterStatus Assigned->Dead` is the death itself, one loud line at
+    # the moment it happens - and the four streaks are bounded by their debounce
+    # depths (K=2, and CL1_ROSTER_UNREAD_GIVEUP_FRAMES for the unread run), so
+    # they are sparse by construction.
+    # DIFF_FIELDS, deliberately NOT MACHINE_STATE_FIELDS: `format_machine_state`
+    # renders every listed field for EVERY mission (absent -> '-'), so registering
+    # them there would widen the ~5 s machine line of all 20 missions, which is
+    # the exact cost the seam_command_* fields are kept out for. `diff_machine_state`
+    # contributes nothing when a field is absent on both sides, so this is free.
+    ("last_roster_status", "rosterStatus"),
+    ("crew_alive_aboard_seen", "crewAliveAboard"),
+    ("not_alive_streak", "crewNotAliveStreak"),
+    ("never_aboard_streak", "crewNeverAboardStreak"),
+    ("landed_alive_streak", "landedAliveStreak"),
+    ("roster_unread_streak", "rosterUnreadStreak"),
     # ORBIT-mission tail (B11/B12): the capture-arming and park-hold debounce
     # runs, the ever-stable latch and the observed seam commit verdict --
     # exactly the sparse decision events an operator needs when a capture or a

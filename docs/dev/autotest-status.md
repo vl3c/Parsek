@@ -789,7 +789,8 @@ six publish or compare numbers the runner already measured.
    recording TOPOLOGY; the commit itself is guarded by the logContract tokens,
    which now include the foreground SOI-crossing line and a per-recording
    terminal verdict naming `terminalOrbitBody`.
-10. PARTIALLY ADDRESSED 2026-07-28 by `CL-1-pod-impact`, the crew-loss atom -
+10. NO SCENARIO EVER KILLS ITS SUBJECT IN A LIVE FLIGHT - PARTIALLY ADDRESSED
+   2026-07-28 by `CL-1-pod-impact`, the crew-loss atom, which is
    BUILT, NOT YET FLOWN, so nothing below is retired until it flies green.
    WHAT IT WILL CLOSE, exactly: the HEADLINE sentence. CL-1 kills its subject in
    a live flight - a crewed pod with no chute, whose SUCCESS terminal is the

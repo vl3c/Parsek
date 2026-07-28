@@ -172,18 +172,26 @@ class Cl1SuccessTerminalTests(unittest.TestCase):
 
     def test_dead_without_ever_observing_alive_aboard_never_succeeds(self):
         # THE PRECONDITION. A fixture whose kerbal was already dead at load must
-        # not pass instantly and green. Many frames, no success, no assert-fail:
-        # the machine keeps flying and the budget owns the outcome.
+        # never reach the SUCCESS terminal, however many not-alive frames it
+        # produces. (It now reds by name instead of running to the budget - see
+        # test_a_kerbal_already_dead_at_load_is_named_instead_of_timing_out - but
+        # THIS cell is about the terminal it must not reach, which is the part
+        # that would be a false green.)
         state = drive(fresh(), *(["Dead"] * 20))
-        self.assertFalse(state.done)
         self.assertFalse(state.crew_alive_aboard_seen)
         self.assertNotEqual(mlib.CL1_CREW_LOST, state.phase)
+        self.assertNotEqual(mlib.MISSION_OK,
+                            mlib.resolve_flight_verdict(
+                                state,
+                                mlib.evaluate_cl1_assertions(
+                                    [], mlib.cl1_params_from_dict(PARAMS), state))[0])
 
     def test_available_does_not_earn_the_alive_aboard_latch(self):
         # Available means "in the roster, not on a vessel". The precondition is
         # specifically alive AND ABOARD, so only Assigned earns it.
-        state = drive(fresh(), "Available", "Available", "Available")
+        state = drive(fresh(), "Available")
         self.assertFalse(state.crew_alive_aboard_seen)
+        self.assertEqual(0, state.alive_aboard_streak)
 
     def test_the_alive_aboard_latch_is_sticky(self):
         # A kerbal who was aboard and is now dead must not have that erased by the
@@ -191,6 +199,64 @@ class Cl1SuccessTerminalTests(unittest.TestCase):
         state = drive(fresh(), "Assigned", "Assigned", "Available", "Dead", "Dead")
         self.assertTrue(state.crew_alive_aboard_seen)
         self.assertEqual(mlib.CL1_CREW_LOST, state.phase)
+
+    def test_a_pre_latch_flip_flop_neither_latches_nor_condemns(self):
+        # Assigned -> Available -> Assigned before the latch is earned. Neither
+        # run reaches K, so nothing latches and nothing condemns; the next two
+        # agreeing Assigned frames earn the latch normally.
+        state = drive(fresh(), "Assigned", "Available", "Assigned")
+        self.assertFalse(state.done)
+        self.assertFalse(state.crew_alive_aboard_seen)
+        state = drive(state, "Assigned", ut=20.0)
+        self.assertTrue(state.crew_alive_aboard_seen)
+
+    def test_a_duplicated_or_out_of_order_ut_changes_nothing(self):
+        # The budget is a subtraction against the phase-entry stamp and nothing
+        # else reads UT, so a repeated or regressing frame stamp is inert.
+        state = fresh()
+        for ut in (5.0, 5.0, 4.0, 5.0):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=ut, altitude=100.0,
+                            crew_roster_status="Assigned"))
+        self.assertFalse(state.done)
+        self.assertTrue(state.crew_alive_aboard_seen)
+
+    def test_the_success_terminal_is_unreachable_without_the_latch(self):
+        # THE INVARIANT, proved by exhaustion rather than by example: over EVERY
+        # sequence of four readings drawn from the whole observable alphabet, the
+        # machine never reaches CREW-LOST with the alive-aboard latch unset. That
+        # is the property a false green would have to violate.
+        #
+        # It also EXPLAINS the one surviving mutant in the CL-1 mutation run.
+        # Deleting `crew_alive_aboard_seen` from step 5's gate does not break this
+        # property, because step 4 (crew-watch-never-aboard) always fires first on
+        # any latch-less not-alive run - every not-alive frame is also a
+        # never-aboard frame. So that mutant is EQUIVALENT, not uncaught. The
+        # conjunct stays as the direct statement of the invariant; this cell is
+        # what holds the invariant if the conjunct is ever removed.
+        alphabet = (mlib.ROSTER_STATUS_UNREAD, mlib.ROSTER_STATUS_NOT_IN_ROSTER,
+                    mlib.ROSTER_STATUS_AVAILABLE, mlib.ROSTER_STATUS_ASSIGNED,
+                    mlib.ROSTER_STATUS_DEAD, mlib.ROSTER_STATUS_MISSING)
+        checked = 0
+        for a in alphabet:
+            for b in alphabet:
+                for c in alphabet:
+                    for d in alphabet:
+                        state = fresh()
+                        for i, status in enumerate((a, b, c, d)):
+                            if state.done:
+                                break
+                            state, _ = mlib.cl1_decide(
+                                state, snap(ut=float(i + 1), altitude=1000.0,
+                                            situation="FLYING",
+                                            crew_roster_status=status))
+                        checked += 1
+                        if state.phase == mlib.CL1_CREW_LOST:
+                            self.assertTrue(
+                                state.crew_alive_aboard_seen,
+                                "CREW-LOST reached without the alive-aboard latch "
+                                "on sequence %r" % ((a, b, c, d),))
+        self.assertEqual(len(alphabet) ** 4, checked)
 
     def test_the_machine_is_idempotent_once_done(self):
         state = drive(fresh(), "Assigned", "Assigned", "Dead", "Dead")
@@ -208,7 +274,8 @@ class Cl1NamedFailureTerminalTests(unittest.TestCase):
         state = drive(fresh(crewName="Jebeddiah Kermin"), "NotInRoster", "NotInRoster")
         self.assertTrue(state.done)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
-        self.assertIn("crew-watch-name-unknown", state.loss_reason)
+        self.assertIn("crew-watch-never-aboard", state.loss_reason)
+        self.assertIn("no kerbal of that name", state.loss_reason)
         self.assertIn("Jebeddiah Kermin", state.loss_reason)
         # It is an ASSERT-FAIL, so resolve_flight_verdict short-circuits on the
         # loss_reason before the assertions can see a machine that flew nothing.
@@ -216,7 +283,47 @@ class Cl1NamedFailureTerminalTests(unittest.TestCase):
             [], mlib.cl1_params_from_dict(PARAMS), state)
         verdict, reason = mlib.resolve_flight_verdict(state, outcomes)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, verdict)
-        self.assertIn("crew-watch-name-unknown", reason)
+        self.assertIn("crew-watch-never-aboard", reason)
+
+    def test_a_kerbal_already_dead_at_load_is_named_instead_of_timing_out(self):
+        # THE fixture fault the alive-aboard precondition exists to catch. It used
+        # to merely refuse to succeed and then burn the whole FLIGHT budget into an
+        # unnamed flake; the machine KNOWS it is watching a corpse and now says so.
+        state = drive(fresh(), "Dead", "Dead")
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("crew-watch-never-aboard", state.loss_reason)
+        self.assertIn("already not alive", state.loss_reason)
+        self.assertNotEqual(mlib.CL1_CREW_LOST, state.phase)
+
+    def test_a_kerbal_never_aboard_is_named_instead_of_timing_out(self):
+        # Available forever: the kerbal is in the roster and alive but was never
+        # on a vessel (an empty pod, or the spec naming the wrong kerbal).
+        state = drive(fresh(), "Available", "Available")
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("crew-watch-never-aboard", state.loss_reason)
+        self.assertIn("never aboard a vessel", state.loss_reason)
+
+    def test_an_unread_frame_breaks_the_never_aboard_run(self):
+        # Fail-closed: a blind frame proves nothing either way, so it must not
+        # help CONDEMN any more than it helps certify.
+        state = drive(fresh(), "Available", mlib.ROSTER_STATUS_UNREAD, "Available")
+        self.assertFalse(state.done)
+        self.assertEqual(1, state.never_aboard_streak)
+
+    def test_an_empty_crew_name_reds_before_anything_is_ignited(self):
+        # `crewName = ""` passes the schema (hlib's "string" check is an
+        # isinstance), arms a watch the runner treats as UNARMED, and would then
+        # surface minutes later as the RETRYABLE `roster-channel-lost` flake -
+        # blaming the kRPC channel for a spec typo. Named at PRELAUNCH instead,
+        # and no stage is activated.
+        state = mlib.cl1_initial_state(mlib.cl1_params_from_dict(params(crewName="")))
+        state, actions = mlib.cl1_decide(state, snap(ut=0.0))
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("crew-watch-unnamed", state.loss_reason)
+        self.assertEqual([], actions)
 
     def test_one_not_in_roster_frame_does_not_condemn(self):
         state = drive(fresh(), "NotInRoster")
@@ -240,6 +347,31 @@ class Cl1NamedFailureTerminalTests(unittest.TestCase):
         # reads Dead is a death, not a survival; the loss check runs first.
         state = drive(fresh(), "Assigned", "Assigned")
         state = drive(state, "Dead", "Dead", situation="LANDED", ut=10.0)
+        self.assertEqual(mlib.CL1_CREW_LOST, state.phase)
+        self.assertIsNone(state.loss_reason)
+
+    def test_a_landing_followed_one_frame_later_by_the_death_is_the_death(self):
+        # THE STAGGERED CASE, and the shape the real event actually has: the wreck
+        # settles into LANDED and the roster flips one ~0.5 s poll later. Step 5
+        # only pre-empts step 6 when the death debounce is ALREADY complete, so
+        # without the not-alive conjunct on `landed` the SURVIVED streak completed
+        # one frame first and red a successful flight with a reason that
+        # contradicted itself inside one line ("with the crew still alive; ...
+        # lastRoster=Dead"). Opus review panel 2026-07-28, reviewer 1, finding 1.
+        state = drive(fresh(), "Assigned", "Assigned")
+        state, _ = mlib.cl1_decide(state, snap(ut=10.0, altitude=70.0,
+                                               situation="LANDED",
+                                               crew_roster_status="Assigned"))
+        self.assertEqual(1, state.landed_alive_streak)
+        state, _ = mlib.cl1_decide(state, snap(ut=11.0, altitude=70.0,
+                                               situation="LANDED",
+                                               crew_roster_status="Dead"))
+        self.assertFalse(state.done,
+                         "a not-alive frame must RESET the survival streak")
+        self.assertEqual(0, state.landed_alive_streak)
+        state, _ = mlib.cl1_decide(state, snap(ut=12.0, altitude=70.0,
+                                               situation="LANDED",
+                                               crew_roster_status="Dead"))
         self.assertEqual(mlib.CL1_CREW_LOST, state.phase)
         self.assertIsNone(state.loss_reason)
 
@@ -270,7 +402,7 @@ class Cl1NamedFailureTerminalTests(unittest.TestCase):
         # someone has to re-derive from a 2 MB log.
         state = drive(fresh(), "Assigned", "Assigned")
         state = drive(state, "Assigned", "Assigned", situation="SPLASHED", ut=10.0)
-        self.assertIn("roster=Assigned", state.loss_reason)
+        self.assertIn("lastRoster=Assigned", state.loss_reason)
         self.assertIn("aliveAboardObserved=yes", state.loss_reason)
         self.assertIn("last altitude", state.loss_reason)
 
@@ -297,11 +429,11 @@ class Cl1VesselLostTests(unittest.TestCase):
 
     def test_a_vessel_lost_frame_does_not_contribute_altitude_evidence(self):
         state = drive(fresh(), "Assigned", altitude=8000.0)
-        before = state.peak_altitude
+        before = state.last_finite_altitude
         state, _ = mlib.cl1_decide(
             state, snap(ut=50.0, altitude=99999.0, vessel_lost=True,
                         crew_roster_status="Assigned"))
-        self.assertEqual(before, state.peak_altitude)
+        self.assertEqual(before, state.last_finite_altitude)
 
     def test_a_vessel_lost_frame_is_never_read_as_a_landing(self):
         # The benign default situation on a vessel_lost snapshot is "", but a
@@ -357,7 +489,7 @@ class Cl1AssertionTests(unittest.TestCase):
         self.assertEqual("Dead", rows["crewLostObserved"].value)
 
     def test_a_flight_that_never_saw_the_kerbal_leaves_both_unmet(self):
-        state = drive(fresh(), "Available", "Available")
+        state = drive(fresh(), "Available")
         rows = {o.name: o for o in mlib.evaluate_cl1_assertions(
             [], mlib.cl1_params_from_dict(PARAMS), state)}
         self.assertFalse(rows["crewAliveAboardObserved"].met)
@@ -375,8 +507,11 @@ class Cl1AssertionTests(unittest.TestCase):
         rows = {o.name: o for o in mlib.evaluate_cl1_assertions(
             [], mlib.cl1_params_from_dict(PARAMS), state)}
         detail = rows["crewLostObserved"].to_dict()
-        self.assertEqual(list(mlib.ROSTER_STATUS_NOT_ALIVE), detail["accepted"])
-        self.assertEqual(mlib.CL1_ROSTER_DEBOUNCE_K, detail["debounceK"])
+        # LITERALS, not the constants they come from: comparing a row against the
+        # same constant that produced it survives any change to the constant's
+        # CONTENT, so it pins plumbing rather than policy.
+        self.assertEqual(["Dead", "Missing", "NotInRoster"], detail["accepted"])
+        self.assertEqual(2, detail["debounceK"])
 
 
 class RosterStatusNormalizationTests(unittest.TestCase):
@@ -704,6 +839,59 @@ class SpecFixtureSyncTests(unittest.TestCase):
         # reservation to claim, which SUPPRESSES the CrewStatusChanged emit the
         # spec requires.
         self.assertNotIn("name = ParsekScenario", [l.strip() for l in self.sfs])
+
+
+class FixtureDriftTests(unittest.TestCase):
+    """WIRES THE BUILDER'S `--check` INTO THE SUITE (Opus review panel 2026-07-28,
+    reviewer 3, finding 2).
+
+    Known-gate 10's first objection was "a fixture nobody maintains", and the
+    answer given is that `career-pad-craft` is derived by a committed script from
+    two fixtures their own consumers already maintain. Unwired, that answer is
+    prose with a shebang: if `fresh-career` or `b1-pad-craft` moves, the committed
+    fixture silently stops being what the recipe produces. These two cells are
+    what make the answer mechanical."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        path = os.path.join(_HARNESS, "tools", "build_career_pad_craft.py")
+        spec = importlib.util.spec_from_file_location("build_career_pad_craft", path)
+        cls.builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.builder)
+
+    def test_the_committed_fixture_satisfies_every_post_condition(self):
+        # The `--check` path, run in-process.
+        problems = self.builder.verify(self.builder.read_lines(FIXTURE_SFS),
+                                       self.builder.CREW_NAME)
+        self.assertEqual([], problems)
+
+    def test_the_committed_fixture_is_byte_identical_to_a_fresh_rebuild(self):
+        # THE DRIFT GUARD. Re-runs the splice over the two CURRENT inputs and
+        # compares against the committed bytes, so a change to either upstream
+        # fixture reds here rather than in a live flight.
+        saves = os.path.join(_HARNESS, "fixtures", "saves")
+        base = self.builder.read_lines(
+            os.path.join(saves, self.builder.BASE_NAME, "persistent.sfs"))
+        donor = self.builder.read_lines(
+            os.path.join(saves, self.builder.DONOR_NAME, "persistent.sfs"))
+        rebuilt = self.builder.build(base, donor, self.builder.CREW_NAME,
+                                     "%s (CAREER)" % self.builder.TARGET_NAME)
+        self.assertEqual(self.builder.read_lines(FIXTURE_SFS), rebuilt,
+                         "career-pad-craft has drifted from what "
+                         "build_career_pad_craft.py produces from the current "
+                         "fresh-career + b1-pad-craft; re-run the builder and "
+                         "commit, or explain the divergence")
+
+    def test_the_loadmeta_agrees_with_the_committed_save(self):
+        lines = self.builder.read_lines(FIXTURE_SFS)
+        meta = self.builder.read_lines(
+            os.path.join(_HARNESS, "fixtures", "saves", "career-pad-craft",
+                         "persistent.loadmeta"))
+        self.assertIn("vesselCount = 1", meta)
+        self.assertIn("gameMode = CAREER", meta)
+        fs = self.builder.find_node(lines, "FLIGHTSTATE")
+        self.assertIn("UT = %s" % self.builder.get_value(lines, fs, "UT"), meta)
 
 
 class SpecContractTests(unittest.TestCase):

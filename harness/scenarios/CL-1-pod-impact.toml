@@ -90,7 +90,11 @@ tier = "operator"
 # `pending-fixture`.
 description = "Crew-loss atom: crewed pod launches, no chute, hits the ground; assert the kerbal is OBSERVED dead and the recording + career ledger record it."
 instanceProfile = "stock-minimal"
-tags = ["CL1", "crew-loss", "ledger", "flown", "pending-operator"]
+# `pending-flight`, NOT `flown`: `--tag` is a real selector, and tagging a
+# never-run scenario `flown` would sweep it in with the proven ones. No
+# `pending-operator` either - the tier is what gates, the tag is non-gating noise
+# (L1-passive-sandbox dropped the same tag for the same reason).
+tags = ["CL1", "crew-loss", "ledger", "pending-flight"]
 
 [fixture]
 # career-pad-craft: the FIRST career save in the repo with a flyable craft (roadmap
@@ -101,10 +105,14 @@ tags = ["CL1", "crew-loss", "ledger", "flown", "pending-operator"]
 # and the roster row for the crew kerbal replaced by `b1-pad-craft`'s `state = Assigned`
 # one. The craft is byte-identical to B1's, so B1's MEASURED profile applies verbatim.
 #
-# THE PROFILE IS MEASURED, NOT ASSUMED (logs/2026-07-24_2210_EVA-4-atmo-chute, the
-# same craft, and the EVA-4 spec's flight-1 forensics): peak altitude 11,965 m at
-# ut 60.6; the UNCHUTED descent reaches TERMINAL -301 m/s by ~2,700 m and holds it;
-# the whole hop is ~120 s. Against the parts' own crashTolerance values (mk1pod.v2 14,
+# THE PROFILE IS MEASURED, NOT ASSUMED. Source: the EVA-4 spec's own flight-1
+# forensics block (harness/scenarios/EVA-4-atmo-chute.toml, "FLIGHT-1 EVIDENCE"),
+# which recorded these from that flight's per-frame mission stdout - peak altitude
+# 11,965 m at ut 60.6; the UNCHUTED descent reaches TERMINAL -301 m/s by ~2,700 m
+# and holds it; the whole hop ~120 s. (Cited to that block deliberately rather than
+# to the raw `logs/2026-07-24_2210_EVA-4-atmo-chute/KSP.log`: the mission's
+# per-frame telemetry is stdout, not KSP.log, so those three numbers do not appear
+# in the collected log itself.) Against the parts' own crashTolerance values (mk1pod.v2 14,
 # parachuteSingle 12, solidBooster.sm.v2 7, basicFin 4) a 301 m/s arrival destroys
 # every part, so the kill is deterministic rather than marginal.
 #
@@ -245,8 +253,8 @@ count = { min = 1, max = 1 }
 #     transition the fixture is configured to prevent. Dead is also the transition
 #     Parsek's own contract is written against: `KerbalsModule.cs:290` makes
 #     `KerbalEndState.Dead` the permanent-reservation trigger, and
-#     `CrewReservationManager.SeatMatch.cs:437` treats Dead as permanent while Missing
-#     is "alive but orphaned".
+#     `CrewReservationManager.SeatMatch.cs:437` (`ShouldProcessCrewForReservation`)
+#     EXCLUDES Dead from reservation processing while admitting Missing.
 #  3. WHY IT CAN BE SUPPRESSED, and why it is not here. The emit is dropped for a
 #     kerbal that `KerbalsModule.IsManaged` (KerbalsModule.cs:928) claims - reserved by
 #     a prior committed Parsek recording, retired, or a stand-in. career-pad-craft
@@ -307,7 +315,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 #     run, not a Parsek defect - re-pin `reputation` here from `observedAfter=`.
 #     (The repo asserts stock emits SOMETHING and contradicts itself on the key:
 #     PostWalkActionReconciler.cs:213 maps KerbalDeath -> `CrewKilled`, while
-#     docs/dev/done/research/reputation-reservation-not-warranted.md:134 says
+#     docs/dev/done/research/reputation-reservation-not-warranted.md:133-134 says
 #     `VesselLoss`. Neither is pinned against the enum. The magnitude is nowhere.)
 #
 # (2) P2 - THE ONE KNOWN UNPINNED TERM, stated up front so a red is diagnosable in

@@ -48,9 +48,16 @@ is a career-ledger consequence of a FLIGHT rather than of a KSC button.
 Built BY CONSTRUCTION, headlessly, by `harness/tools/build_career_pad_craft.py` - no
 forge flight and no operator session. `python harness/tools/build_career_pad_craft.py
 --check` re-verifies every post-condition against the COMMITTED bytes, so a reviewer can
-confirm the fixture is what the recipe produces without regenerating it.
+confirm the fixture is what the recipe produces without regenerating it. That path
+is WIRED, not decorative: `FixtureDriftTests` in
+`harness/missions/lib/test_cl1_crew_loss.py` runs the same verify in-process AND
+re-runs the splice over the current inputs, asserting byte-identity with the
+committed save - so a change to `fresh-career` or `b1-pad-craft` reds in the suite
+instead of drifting silently into a live flight.
 
-Exactly two edits against `fresh-career`:
+Exactly two edits against `fresh-career`'s save, plus a `persistent.loadmeta`
+restamp (vessel count + UT; every other loadmeta field is unchanged because the
+splice moves no pool):
 
 1. `fresh-career`'s empty `FLIGHTSTATE` replaced by `b1-pad-craft`'s, with every
    non-`Ship` `VESSEL` dropped (that removes one `type = SpaceObject` asteroid, which
@@ -106,7 +113,15 @@ passivity proof). Left at `pending-fixture` until that is resolved.
 
 ## Re-tier
 
-All seven specs stay `pending-fixture`. Re-tier to `daily` is the LAST step of the
-first green live run (the named headless-boot follow-up), coupling re-tier with
-confirm-green per the M-B3 checklist and avoiding the never-run-daily self-quarantine
-(todo item 4). `L1-passive-sandbox` additionally needs the seed-baseline blocker above.
+The rule: re-tier from `pending-fixture` to `daily` is the LAST step of a spec's first
+green live run, coupling re-tier with confirm-green per the M-B3 checklist and avoiding
+the never-run-daily self-quarantine (todo item 4).
+
+STATUS, corrected 2026-07-28 (this section still read "all seven specs stay
+`pending-fixture`", which the status doc had already superseded): the seven L1 specs are
+DONE and LIVE-PROVEN, all re-tiered to `daily`, and the `L1-passive-sandbox`
+seed-baseline blocker described above is resolved. `docs/dev/autotest-status.md` is the
+single status authority - see its "Operator items outstanding" item 1. `career-pad-craft`
+is the exception on this page: its consumer `CL-1-pod-impact` is tiered `operator` and
+has never flown, for a reason that is not a fixture blocker (an unpinned progress-
+milestone term, stated in that spec).
