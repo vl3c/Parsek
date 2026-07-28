@@ -2659,25 +2659,25 @@ namespace Parsek.Tests
 
             int countBefore = scenario.RecordingSupersedes.Count;
 
-#if DEBUG
-            var ex = Assert.Throws<InvalidOperationException>(() =>
-                SupersedeCommit.AppendRelations(
-                    scenario.ActiveReFlySessionMarker, provisional, scenario));
-            Assert.Contains("invariant violation", ex.Message);
-            Assert.Contains("empty Points", ex.Message);
-#else
+            // R1-EMPTY-PROVISIONAL layer 3: ONE named outcome in BOTH builds. The
+            // old `#if DEBUG throw` meant the shipped path was never the tested one,
+            // and the throw escaped RunMerge at phase=Split and stranded the merge
+            // journal in a loop that could not converge.
             var subtree = SupersedeCommit.AppendRelations(
                 scenario.ActiveReFlySessionMarker, provisional, scenario);
             Assert.Empty(subtree);
-#endif
 
             Assert.Equal(countBefore, scenario.RecordingSupersedes.Count);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("AppendRelations invariant violation")
+                && l.Contains("AppendRelations outcome=refused-unflown-provisional")
                 && l.Contains("provisional=rec_provisional")
                 && l.Contains("reason=empty Points")
-                && l.Contains("refusing to write supersede rows"));
+                && l.Contains("writing 0 supersede rows"));
+            // Named outcome, not an invariant violation: no throw, so the merge
+            // orchestrator drives to completion instead of stranding the journal.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]") && l.Contains("invariant violation"));
         }
 
         [Fact]
@@ -2696,25 +2696,25 @@ namespace Parsek.Tests
 
             int countBefore = scenario.RecordingSupersedes.Count;
 
-#if DEBUG
-            var ex = Assert.Throws<InvalidOperationException>(() =>
-                SupersedeCommit.AppendRelations(
-                    scenario.ActiveReFlySessionMarker, provisional, scenario));
-            Assert.Contains("invariant violation", ex.Message);
-            Assert.Contains("null TerminalState", ex.Message);
-#else
+            // R1-EMPTY-PROVISIONAL layer 3: ONE named outcome in BOTH builds. The
+            // old `#if DEBUG throw` meant the shipped path was never the tested one,
+            // and the throw escaped RunMerge at phase=Split and stranded the merge
+            // journal in a loop that could not converge.
             var subtree = SupersedeCommit.AppendRelations(
                 scenario.ActiveReFlySessionMarker, provisional, scenario);
             Assert.Empty(subtree);
-#endif
 
             Assert.Equal(countBefore, scenario.RecordingSupersedes.Count);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
-                && l.Contains("AppendRelations invariant violation")
+                && l.Contains("AppendRelations outcome=refused-unflown-provisional")
                 && l.Contains("provisional=rec_provisional")
                 && l.Contains("reason=null TerminalState")
-                && l.Contains("refusing to write supersede rows"));
+                && l.Contains("writing 0 supersede rows"));
+            // Named outcome, not an invariant violation: no throw, so the merge
+            // orchestrator drives to completion instead of stranding the journal.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]") && l.Contains("invariant violation"));
         }
 
         // ---------- Chain-sibling expansion (item 23) ----------------------

@@ -50,32 +50,24 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 52 committed (was 38 pre-#1358)
+### Scenarios: 53 committed
 
-`ls harness/scenarios/*.toml` returns **52** files, which is also what
-`autotest-status.md` says ("all 52 committed scenarios"). Earlier framing of this work
-said 39; the correct pre-#1358 count was 38. Tiers, from
-`grep '^tier' harness/scenarios/*.toml`:
-
-| Tier | n | Scheduled by |
-|---|---|---|
-| daily | 18 | `--cadence daily`, `--cadence nightly`, `--cadence weekly` |
-| nightly | 28 | `--cadence nightly`, `--cadence weekly` |
-| operator | 6 | nothing (excluded from every cadence in `hlib.CADENCE_TIERS`) |
-
-The 14 H7-H20 batch-only specs land 13 in `nightly` and 1 in `daily`
-(`H18-pipeline-smoothing`, promoted on failure mode: it is the sole guard for the
-GameEvents subscription contract, where a dropped `Add()` is silent). Zero specs carry
-`tier = "pending-fixture"`. All 52 declare `instanceProfile = "stock-minimal"`. All 52
-declare `retry.policy = "once"`.
+`ls harness/scenarios/*.toml` returns **53** files. This baseline was written at
+38, correct at `origin/main` when the roadmap landed; #1358 took it to 52 by wiring
+14 in-game categories as batch-only specs, and PR #1357 adds `R1-rewind-loop-flown`
+as the 53rd. Coverage moved to **96 of 241** across those merges - #1358's 14 specs
+carry the gain, R1 adds none because it claims no registry value that was not
+already claimed. Adding a scenario is not the same as covering a cell. Re-derive
+these rather than editing them by memory; both numbers have moved three times in
+two days.
 
 ### Coverage: 96 of 241 registry cells (was 83 of 241 pre-#1358)
 
-`hlib.compute_coverage(specs, [], registry)` over the 52 committed specs and
+`hlib.compute_coverage(specs, [], registry)` over the committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 241   covered 96   uncovered 145   expectedFailValues 0   xpass 0
+values 241   covered 96   uncovered 145   expectedFailValues 3   xpass 0
 ```
 
 Per dimension (total / uncovered):
@@ -626,7 +618,7 @@ Flight? No.
 Code change, seam + autorun + hlib. The shakedown `H21-scene-exit-merge-isolated`
 flew PASS on attempt 1 in 101 s, printing
 `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge
-scene=FLIGHT` token for token. Coverage 96 -> 97 of 241; the one new cell is D1
+scene=FLIGHT` token for token. Coverage 96 -> 97 covered; the one new cell is D1
 `commit-scene-exit`, which this file listed among the three that no fixture, mission
 profile or verb could produce.
 
@@ -734,7 +726,8 @@ Flight? No.
   R12), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
   these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
   `GhostLifecycle` measures the loop / overlap surface over a live corpus.
-- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture, so it waits on R11),
+- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
+  R11 is closed by `career-pad-craft`),
   `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
   in ledger trust available.
@@ -763,14 +756,23 @@ flight; (c) add a RewindPoint / slot list verb, or extend `RecordingState`'s
 four-field payload. Unblocks live-authored `InvokeRewind` and every future verb that
 addresses a live tree, vessel, route, or kerbal.
 
-**R11. A CAREER fixture with a flyable craft.** One forge spec, one run.
+**R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~
+**CLOSED 2026-07-28 by `harness/fixtures/saves/career-pad-craft`** - built BY
+CONSTRUCTION rather than by a forge flight. `harness/tools/build_career_pad_craft.py`
+splices `b1-pad-craft`'s Jumping Flea `VESSEL` node into `fresh-career`'s empty
+`FLIGHTSTATE` and swaps the crew kerbal's roster row for the `state = Assigned` one,
+with a `--check` mode plus a byte-identity drift cell in
+`harness/missions/lib/test_cl1_crew_loss.py`. No flight, no operator session, no
+`FORGE-career-pad` spec. First consumer: `CL-1-pod-impact`.
 
-`FORGE-career-pad`: fresh-career plus a craft into `Ships/VAB` plus `launch_vessel`,
-a mechanical repeat of `FORGE-eva3-pad`. Unblocks the L-track end goal, D8
-`milestones` / `contracts` / `strategies` / `tombstones` in flown form, D12
-`reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`, and D8
-`ground-truth-harness` (which self-skips outside career).
-Flight? The forge run flies. The consumers after it are mostly seam boots.
+What that unblocks is now AVAILABLE, not delivered - each still needs its own spec:
+the L-track end goal, D8 `milestones` / `contracts` / `strategies` / `tombstones` in
+flown form, D12 `reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`,
+and D8 `ground-truth-harness` (which self-skips outside career).
+Flight? None to close R11 itself. The consumers after it are mostly seam boots.
+
+Original plan, kept for the record: `FORGE-career-pad`: fresh-career plus a craft
+into `Ships/VAB` plus `launch_vessel`, a mechanical repeat of `FORGE-eva3-pad`.
 
 **R12. Two scene and interaction verbs: `SimulateStockSwitchClick` plus a `scene=`
 argument on `LoadGame`.** Two seam verbs.
@@ -818,7 +820,10 @@ run lane, and runs are currently strictly serial under a per-instance run lock.
 - D10 `claw-producer`: no grapple action exists; the `ClawCouple` (2) and
   `LogisticsGrapple` (4) in-game categories are the only path.
 - D12 `crew-swap`, `seat-matching`: no crew-transfer action.
-- D8 `milestones`: a career flight that EARNS one. Rides R11, not this lane.
+- D8 `milestones`: a career flight that EARNS one. Rode R11, which is CLOSED
+  2026-07-28 (`career-pad-craft`); still not this lane. NOTE: `CL-1-pod-impact` is
+  the first career FLIGHT and will MEASURE which progress milestones a 12 km crewed
+  hop trips - that measurement is the input this cell has been missing.
 - D7 `engine-fx-waterfall-fallback`: belongs with R14, not with the part-event work.
 - A declarative multi-piece mission composer to replace bespoke phase machines.
 
@@ -958,7 +963,9 @@ today. The other 38 need R5.
 reachable via FLIGHT / SPACECENTER / scene-agnostic and 7 involving TRACKSTATION or
 MAINMENU, rather than 78 and 6.
 
-**Corrected: 39 committed specs.** There are 38, at HEAD and at `origin/main`.
+**Corrected: 39 committed specs.** There were 38 when this roadmap was written,
+at HEAD and at `origin/main`. PR #1357 makes it 39; the count above is updated and
+the coverage figure is unchanged because R1 claims no new registry value.
 
 **Reconciled: the restore-flag count.** An earlier draft reported a raw `grep` of 78
 occurrences of `RestoreBatchFlightBaselineAfterExecution = true` against an

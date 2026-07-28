@@ -21,6 +21,7 @@ namespace Parsek.Tests.Generators
         private uint spawnedPid;
         private int lastResIdx = -1;
         private string parentRecordingId;
+        private string recordedVesselGuid;
         private string evaCrewName;
         private string recordingId;
         private string chainId;
@@ -274,6 +275,21 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithParentRecordingId(string id)
         {
             parentRecordingId = id;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the launch-identity guid (<see cref="Recording.RecordedVesselGuid"/>).
+        /// Opt-in: synthetic recordings leave it null by default, which keeps
+        /// <c>QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers</c> inconclusive
+        /// and preserves the pid-only fallback every existing fixture relies on. A
+        /// fixture that also authors a live vessel for the same recording (the RP
+        /// quicksave sidecar) should set this to
+        /// <c>ScenarioWriter.DeriveVesselLaunchGuid(recordingId)</c> so the two agree.
+        /// </summary>
+        public RecordingBuilder WithRecordedVesselGuid(string guid)
+        {
+            recordedVesselGuid = guid;
             return this;
         }
 
@@ -1015,6 +1031,8 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the parent recording ID (may be null).</summary>
         public string GetParentRecordingId() => parentRecordingId;
+
+        public string GetRecordedVesselGuid() => recordedVesselGuid;
 
         /// <summary>Returns the EVA crew name (may be null).</summary>
         public string GetEvaCrewName() => evaCrewName;

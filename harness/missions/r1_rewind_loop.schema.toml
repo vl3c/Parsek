@@ -1,0 +1,177 @@
+# Declared param schema for mission r1_rewind_loop (the rewind-loop lane).
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below.
+#
+# The ASCENT half is the b2_lko_ascent schema VERBATIM (the machine delegates to
+# mlib.b2_decide over the same dict, so the same keys must be required with the
+# same bounds); the rewind half adds the InvokeRewind target, the three FRAME
+# budgets, and the two OBSERVED-gate thresholds. Every value is a target /
+# tolerance / budget, never a golden trajectory.
+
+# ---- ascent leg (delegated b2_decide; keys identical to b2_lko_ascent) ----
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.eccentricityMax]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.inclinationErrorDeg]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.launchSiteLatitude]
+required = false
+type = "float"
+min = -90.0
+max = 90.0
+
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# ---- rewind leg ----
+
+# The InvokeRewind target. REQUIRED: ParsekTestCommandAddon.InvokeRewindImpl
+# matches RewindPoint.RewindPointId EXACTLY and answers REJECTED unknown-rp
+# otherwise, so an absent id can only ever produce a rejected verb. mlib's
+# R1Params carries "" / -1 UNREAD sentinels so the machine ALSO fails closed on
+# frame 1 (`rewind-target-unresolved`) if a future caller bypasses this schema.
+[params.rewindPointId]
+required = true
+type = "string"
+
+[params.rewindSlot]
+required = true
+type = "int"
+min = 0
+
+# FRAME budgets for the post-ascent phases. Frames, NOT game seconds: past the
+# rewind the game clock runs BACKWARD, so a `ut - phase_entry_ut` budget can never
+# expire and the phase would hang with no named give-up.
+[params.commitFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# STOP (seam StopRecording) and RECORDER-IDLE (seam RecordingState polling until
+# the reply reads recording=false). Both exist because of the flight-1 failure:
+# `TestCommandDispatcher` REJECTS InvokeRewind with `recording-active` while a
+# recorder is live, and the commit-then-keep-flying promotion re-arms one ~14 ms
+# after CommitTree returns OK. idleFrames bounds the poll; each frame either
+# issues a probe or reads its reply, so it is ~half that many probes.
+[params.stopFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.idleFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.rewindFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.verifyFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# THE OBSERVED GATE: seconds the game clock must have run BACKWARD before the
+# rewind counts as having happened. Any positive value proves an earlier state
+# was loaded; the floor keeps float noise or a sub-second read from qualifying.
+[params.minUtRegressionSeconds]
+required = false
+type = "number"
+min = 0.001
+
+# Corroboration: metres the post-rewind altitude must differ from the pre-rewind
+# altitude for the WORLD state (not merely the clock) to read as having changed.
+# A situation change satisfies the same row on its own.
+[params.minAltitudeChangeMeters]
+required = false
+type = "number"
+min = 0.0
+
+# ---- closing the loop (the SECOND flight) ----
+#
+# A rewind that is never flown again is only HALF a loop, and it is the half that
+# leaves the re-fly's provisional recording EMPTY - which makes
+# SupersedeCommit.ValidateSupersedeTarget refuse to write any supersede rows
+# (`reason=empty Points`). Flight 2 (2026-07-26) rewound perfectly and still red
+# the run on exactly that. These four drive the relaunch and gate it on two
+# OBSERVED facts: the craft CLIMBED, and the climb was RECORDED.
+
+[params.relaunchThrottle]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# A FLOOR, not a target altitude: metres gained over the post-rewind reading
+# before the relaunch counts as powered flight. A craft sitting on the pad with a
+# dead engine can never cross it, which is the whole point - "we sent throttle" is
+# a commanded reading, climbing is an observed one.
+[params.relaunchMinAltitudeGainMeters]
+required = false
+type = "number"
+min = 1.0
+
+[params.relaunchFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# Bound on the post-rewind RecordingState poll (`points > 0`).
+[params.loopPointsFrames]
+required = false
+type = "int"
+min = 1
+max = 10000

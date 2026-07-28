@@ -256,9 +256,20 @@ admission test each had to pass:
    guard rather than a fixture-context guard, and `H18` documents it at length.
 3. The fixture already exists and its route is known.
 
-That is what lets 13 of the 14 pin their tally WHOLE (`total=N passed=N failed=0
-skipped=0`) from a source derivation rather than a guess. `H20-eva-spawn-position` is
-the exception and carries the honest interim form; see below.
+That is what let 13 of the 14 pin their tally WHOLE (`total=N passed=N failed=0
+skipped=0`) from a source derivation rather than a guess before any of them had flown.
+`H20-eva-spawn-position` was the exception - both its cells carry run-time
+`InGameAssert.Skip` guards and one is undecidable from source - so it shipped with the
+honest interim form instead of an invented number.
+
+**ALL 14 NOW PIN WHOLE, every one off a MEASURED line.** The group flew 2026-07-27 and
+`H20` was re-flown alone afterwards so its log would survive to be read
+(`total=2 passed=2 failed=0 skipped=0`; the endpoint-overlap probe fired and the
+walkback path executed). One asymmetry survives and is worth carrying: for 13 of the
+14, `skipped=0` is ALSO derivable from the attributes plus a reachable-Skip scan, so
+the pin can be re-derived after a source change. For `H20` it is measured only, and a
+fixture change that moves the host's collider geometry can legitimately make its
+walkback cell skip. Read that as a fixture question, not a walkback regression.
 
 | Spec | Category | Tests | Why it is worth a boot |
 |---|---|---|---|
@@ -530,11 +541,15 @@ any moment. Thirteen specs pin those splits as LITERALS, and `evaluate_expectati
 requires a required pattern to match, so a PASS means the runner printed the pinned
 line token for token. Those thirteen derivations were all correct.
 
-`H20` is the exception and is NOT settled: its pin is the loose interim form, so its
-PASS proves only `total=2`, `failed=0` and `passed >= 1`. Its exact split is not in
-any artifact (collect-logs fires only on non-PASS, and the instance KSP.log was
-overwritten by later scenarios in the same sweep), so it keeps the interim pin. One
-~49 s re-fly closes it; see the spec.
+`H20` was the exception and is now CLOSED. Its pin was the loose interim form, so the
+sweep's PASS proved only `total=2`, `failed=0` and `passed >= 1`, and its exact split
+was in no artifact (collect-logs fires only on non-PASS, and the instance KSP.log was
+overwritten by later scenarios in the same sweep). It was re-flown ALONE (59 s) so its
+log survived to be read: `total=2 passed=2 failed=0 skipped=0`. The endpoint-overlap
+probe fired, so the walkback path really executed. All 14 now pin whole off measured
+lines. `H20`'s `skipped=0` is MEASURED rather than derivable - a fixture change to a
+taller or elevated host can move the collider geometry the overlap probe depends on
+and legitimately make it skip.
 
 MEASURED COST, and it is far cheaper than this runbook estimated. **805 s (~13.4 min)
 for all 14**, 49-71 s each. The per-scenario estimates below were 4-10 min, i.e. 5-8x
@@ -561,7 +576,7 @@ change, for the reasons given.
 | 11 | `H17-flight-integration` | Corpus-backed; confirm from the log that `GhostPositionMatchesGeographic` actually found a surface recording rather than silently bailing | ~6 min |
 | 12 | `H15-corpus-ghost-visuals` | Heaviest batch in the group (a mesh per recording across 272). Most likely of the 14 to need a budget bump; re-time it | ~10 min |
 | 13 | `H16-corpus-spawn-health` | Corpus-backed, 3 tests | ~6 min |
-| 14 | `H20-eva-spawn-position` | LAST. The only one whose pin is expected to CHANGE: read the `BATCH_COMPLETE` line and replace the interim pattern with the whole tally (`passed=2 skipped=0` or `passed=1 skipped=1`), then delete the interim paragraph from the spec | ~8 min |
+| 14 | `H20-eva-spawn-position` | ~~LAST, and the only one whose pin was expected to change~~ DONE: re-flown alone 2026-07-27 and pinned whole at `total=2 passed=2 failed=0 skipped=0`. Nothing to hand-edit here any more. If a re-fly ever reds this as `passed=1 skipped=1`, do NOT re-pin to match - that is the endpoint-overlap probe not firing, i.e. the HOST's collider geometry changed; fix the fixture or explain the change, because absorbing it into the pin silently retires the walkback assertion | est ~8 min, MEASURED 59 s |
 
 Estimated at roughly 80 minutes for all 14; the 2026-07-27 sweep did it in **805 s
 (13.4 min)** in one pass via `python harness/run.py --tag ingame-batch`. At that cost

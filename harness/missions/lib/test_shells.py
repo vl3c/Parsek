@@ -51,6 +51,8 @@ import b16_eve_orbit         # noqa: E402
 import forge_station          # noqa: E402
 import forge_lko              # noqa: E402
 import bdock_dock_transfer    # noqa: E402
+import eva4_atmo_chute        # noqa: E402
+import r1_rewind_loop         # noqa: E402
 import shutil                 # noqa: E402
 import tempfile               # noqa: E402
 
@@ -106,6 +108,12 @@ B1_PARAMS = {
     "coastTimeoutSeconds": 180,
     "descentTimeoutSeconds": 360,
 }
+
+# Read from the REAL committed spec rather than restated, so the fixture cannot drift
+# from the window EVA-4 actually flies.
+_EVA4_SPEC_PATH = os.path.join(_HARNESS, "scenarios", "EVA-4-atmo-chute.toml")
+with open(_EVA4_SPEC_PATH, "rb") as _fh:
+    EVA4_SHELL_PARAMS = tomllib.load(_fh)["driver"]["missionParams"]
 
 B2_PARAMS = {
     "targetApoapsisMeters": 80000,
@@ -286,6 +294,77 @@ def run(spec, params, control, writer=None, budget=600.0, clock=None):
         control=control, log=log, clock=clock, sleep=lambda _s: None, writer=writer)
     result = mlib.parse_mission_result(writer.text)
     return code, result
+
+
+class Eva4HandoffDisclosureEmitTests(unittest.TestCase):
+    """Guards the OPERATOR-FACING half of the EVA-4 handoff disclosure (2026-07-26).
+
+    The disclaimer has to ride the `[Verdict]` LOG LINE, not just the result JSON:
+    `harness/status.py`'s _VERDICT_RE parses exactly that line and renders it live
+    while the operator watches a flight, and run.py folds the same line into the
+    harness log. An earlier revision applied the disclaimer inside
+    `mlib.build_mission_result`, which runs AFTER the emit - so the JSON was honest
+    and the line a human actually reads still said `reason=all telemetry assertions
+    met`, byte-identical to the 2026-07-25 line over a dead kerbal.
+
+    Fails if the disclosure moves back downstream of the emit, or leaks onto a
+    mission that terminates on its own outcome."""
+
+    def _fly(self, spec, params, frames):
+        lines = []
+        clock = FakeClock()
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        writer = ResultSink()
+        mission_runner.run_mission(
+            spec, params, "127.0.0.1", 50000, 50001, "unused/result.json", 600.0,
+            control=FakeMissionControl(frames), log=log, clock=clock,
+            sleep=lambda _s: None, writer=writer)
+        verdict_lines = [l for l in lines if "mission verdict=" in l]
+        self.assertEqual(1, len(verdict_lines), lines)
+        return verdict_lines[0], mlib.parse_mission_result(writer.text)
+
+    EVA4_FRAMES = [
+        snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=19746, situation="PRE_LAUNCH"),
+        snap(ut=1.0, stage_solid_fuel=0.0, apoapsis=19746, situation="FLYING"),
+        snap(ut=2.0, vertical_speed=5.0, apoapsis=19746, situation="FLYING"),
+        snap(ut=3.0, vertical_speed=-4.0, altitude=11962, apoapsis=19746,
+             situation="FLYING"),
+        snap(ut=4.0, vertical_speed=-18.0, altitude=1900, apoapsis=19746,
+             situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        snap(ut=5.0, vertical_speed=-18.0, altitude=1598, apoapsis=19746,
+             situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        snap(ut=6.0, vertical_speed=-18.0, altitude=1500, apoapsis=19746,
+             situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+    ]
+
+    def test_the_verdict_log_line_carries_the_disclaimer(self):
+        params = dict(EVA4_SHELL_PARAMS)
+        line, result = self._fly(eva4_atmo_chute.SPEC, params, self.EVA4_FRAMES)
+        self.assertIn("verdict=MISSION-OK", line)
+        self.assertIn("handoff mission", line)
+        self.assertIn("kerbalSurvival", line)
+        self.assertIn("EvaChuteDeploy", line)
+        # The JSON agrees with the line (one source of truth, applied once).
+        self.assertIn("handoff mission", result["reason"])
+        self.assertEqual(["kerbalSurvival"], result["handoff"]["unverifiedByMission"])
+        # ... and applied exactly ONCE, not re-applied by the builder.
+        self.assertEqual(1, result["reason"].count("handoff mission"))
+
+    def test_a_non_handoff_mission_log_line_is_untouched(self):
+        frames = [
+            snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+            snap(ut=1.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=2.0, vertical_speed=5.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=3.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=4.0, altitude=2000, apoapsis=14000, situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+            snap(ut=5.0, altitude=100, apoapsis=14000, situation="LANDED",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        ]
+        line, result = self._fly(b1_pad_hop.SPEC, B1_PARAMS, frames)
+        self.assertIn("reason=all telemetry assertions met", line)
+        self.assertNotIn("handoff", line)
+        self.assertNotIn("handoff", result)
 
 
 # ---------------------------------------------------------------------------
@@ -4195,6 +4274,236 @@ class LandingNoProgressDebounceFlightTests(_LandingDescentFlightFixture,
         self.assertIsNone(final.verdict, final.flake_reason)
         self.assertEqual(final.landing_stall_streak, 0)
         self.assertEqual(self._gates(lines, "landingStallStreak"), [])
+
+
+# ---------------------------------------------------------------------------
+# R1 rewind-loop shell (r1_rewind_loop): the delegated B2 ascent + the
+# generalized seam bridge + the OBSERVED backward-clock terminal, end to end
+# over the fake seam. Guards the SHELL wiring (build_state / decide / evaluate /
+# the MissionSpec knobs), not the machine, which test_r1_rewind.py owns.
+# ---------------------------------------------------------------------------
+
+R1_PARAMS = dict(
+    B2_PARAMS,
+    rewindPointId="rp_b9_root",
+    rewindSlot=1,
+    minUtRegressionSeconds=5.0,
+    minAltitudeChangeMeters=1000.0,
+)
+
+
+class R1RewindLoopShellTests(unittest.TestCase):
+
+    def _ascent_frames(self):
+        """The B2 happy-path ascent VERBATIM (the leg R1 delegates)."""
+        return [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, eccentricity=0.9,
+                 inclination=0.3, situation="PRE_LAUNCH"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, eccentricity=0.8,
+                 inclination=0.3, situation="FLYING", mj_ascent_complete=True),
+            snap(ut=120.0, apoapsis=80000, periapsis=40000, eccentricity=0.3,
+                 inclination=0.3, situation="FLYING"),
+            snap(ut=140.0, apoapsis=80000, periapsis=70000, eccentricity=0.1,
+                 inclination=0.3, situation="FLYING"),
+            snap(ut=200.0, apoapsis=80000, periapsis=80000, eccentricity=0.005,
+                 inclination=0.3, situation="ORBITING"),          # -> B2 ORBIT, R1 COMMIT
+        ]
+
+    def _seam(self, tag, result="OK", payload=(), **kw):
+        return snap(seam_command_result=result, seam_command_tag=tag,
+                    seam_command_payload=tuple(payload), **kw)
+
+    def _cycle_frames(self, idle_payload=(("recording", "false"),)):
+        """COMMIT ok -> STOP ok -> the recorder-idle probe -> REWIND ok."""
+        return [
+            self._seam(mlib.R1_TAG_COMMIT, ut=210.0, altitude=80000,
+                       situation="ORBITING", body="Kerbin"),
+            self._seam(mlib.R1_TAG_STOP, ut=211.0, altitude=80000,
+                       situation="ORBITING", body="Kerbin"),
+            self._seam(mlib.r1_state_probe_tag(0), payload=idle_payload,
+                       ut=212.0, altitude=80000, situation="ORBITING", body="Kerbin"),
+            self._seam(mlib.R1_TAG_REWIND, ut=213.0, altitude=80000,
+                       situation="ORBITING", body="Kerbin"),
+        ]
+
+    def _loop_frames(self, points="120"):
+        """The post-rewind half: the observed backward clock, the REWOUND
+        waypoint, the climb, and the recorded-points probe."""
+        return [
+            # VERIFY: the clock ran BACKWARD and the craft is back on the pad.
+            snap(ut=60.0, altitude=100, situation="PRE_LAUNCH", body="Kerbin"),
+            # REWOUND waypoint (relaunch commanded on entry).
+            snap(ut=61.0, altitude=100, situation="PRE_LAUNCH", body="Kerbin"),
+            # RELAUNCH: the craft actually climbs.
+            snap(ut=70.0, altitude=900, situation="FLYING", body="Kerbin"),
+            # LOOP-POINTS: the climb was RECORDED.
+            self._seam(mlib.r1_loop_probe_tag(0), payload=(("points", points),),
+                       ut=71.0, altitude=1000, situation="FLYING", body="Kerbin"),
+        ]
+
+    def test_happy_path_writes_mission_ok_with_the_observed_rewind(self):
+        frames = self._ascent_frames() + self._cycle_frames() + self._loop_frames()
+        control = FakeMissionControl(frames)
+        code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "r1_rewind_loop")
+        self.assertEqual(result["phasesReached"][-1], mlib.R1_LOOP_CLOSED)
+        kinds = [a.kind for a in control.actions]
+        self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, kinds)
+        self.assertIn(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION, kinds)
+        # FIVE seam commands, each with its OWN verb + tag. Shared tags would be
+        # duplicate wire ids the C# seam silently skips.
+        seam_actions = [a for a in control.actions
+                        if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
+        self.assertEqual([(a.seam_verb, a.seam_tag) for a in seam_actions],
+                         [("CommitTree", mlib.R1_TAG_COMMIT),
+                          ("StopRecording", mlib.R1_TAG_STOP),
+                          ("RecordingState", mlib.r1_state_probe_tag(0)),
+                          ("InvokeRewind", mlib.R1_TAG_REWIND),
+                          ("RecordingState", mlib.r1_loop_probe_tag(0))])
+        self.assertEqual(len({a.seam_tag for a in seam_actions}), 5)
+        self.assertEqual(seam_actions[3].seam_args,
+                         (("rp", "rp_b9_root"), ("slot", "1")))
+        # The relaunch was actually commanded on the rewound craft.
+        self.assertIn(mlib.ACTION_SET_THROTTLE, kinds)
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
+        self.assertGreater(rows["clockRewound"]["value"], 5.0)
+        self.assertEqual(rows["clockRewound"]["channel"], "observed")
+        self.assertEqual(rows["recorderIdleBeforeRewind"]["value"], "false")
+        self.assertEqual(rows["postRewindFlightRecordedSomewhere"]["value"], 120)
+        self.assertGreater(rows["postRewindFlightObserved"]["value"], 100.0)
+
+    def test_a_rewind_with_no_second_flight_is_not_mission_ok(self):
+        """THE FLIGHT-2 SHAPE, end to end. Flight 2 rewound correctly and the RUN
+        still red because R1 tore down without re-flying: the re-fly provisional
+        carried zero Points and the merge refused to write supersede rows
+        (`AppendRelations invariant violation ... reason=empty Points`). The
+        mission must not call that a closed loop.
+
+        MUTATION: make R1_REWOUND the terminal again (the machine flight 2 flew)
+        and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames() + [
+            snap(ut=60.0, altitude=100, situation="PRE_LAUNCH", body="Kerbin"),
+        ]
+        # The craft never leaves the pad, however long we wait.
+        frames += [snap(ut=61.0 + i, altitude=100, situation="PRE_LAUNCH",
+                        body="Kerbin") for i in range(300)]
+        control = FakeMissionControl(frames)
+        code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertNotEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertIn("never climbed", result["reason"])
+        self.assertNotIn(mlib.R1_LOOP_CLOSED, result["phasesReached"])
+        self.assertNotEqual(code, 0)
+        # The rewind half still REPORTS as met, so the diagnosis is unambiguous.
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(rows["clockRewound"]["met"])
+        self.assertFalse(rows["postRewindFlightObserved"]["met"])
+        self.assertFalse(rows["postRewindFlightRecordedSomewhere"]["met"])
+
+    def test_a_second_flight_that_records_nothing_is_not_a_closed_loop(self):
+        """Flying is not the same as being RECORDED, and it is the RECORDING that
+        must be non-empty for the merge to write supersede rows.
+
+        MUTATION: drop the `points > 0` test in LOOP-POINTS and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames() + self._loop_frames(
+            points="0")
+        frames += [self._seam(mlib.r1_loop_probe_tag(i), payload=(("points", "0"),),
+                              ut=72.0 + i, altitude=1000, situation="FLYING")
+                   for i in range(1, 80)]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("points=0", result["reason"])
+        self.assertNotIn(mlib.R1_LOOP_CLOSED, result["phasesReached"])
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(rows["postRewindFlightObserved"]["met"])
+        self.assertFalse(rows["postRewindFlightRecordedSomewhere"]["met"])
+
+    def test_the_rewind_is_never_commanded_while_the_recorder_reads_live(self):
+        """THE FLIGHT-1 REGRESSION, at shell level. Flight 1 went COMMIT -> REWIND
+        with the post-commit promotion recorder live, and Parsek answered
+        `reject cmd=InvokeRewind reason=recording-active`. The machine must not
+        emit InvokeRewind while RecordingState still reads recording=true.
+
+        MUTATION: emit the rewind from the STOP OK branch (an order-only fix with
+        no observation) and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames(
+            idle_payload=(("recording", "true"),))
+        # Every later probe also reads live: the recorder never goes idle.
+        frames += [self._seam(mlib.r1_state_probe_tag(i),
+                              payload=(("recording", "true"),), ut=213.0 + i,
+                              altitude=80000, situation="ORBITING")
+                   for i in range(1, 60)]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("still read recording=true", result["reason"])
+        verbs = [a.seam_verb for a in control.actions
+                 if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
+        self.assertNotIn("InvokeRewind", verbs)
+        self.assertEqual(result["phasesReached"][-1], mlib.R1_RECORDER_IDLE)
+
+    def test_a_seam_ok_with_no_backward_clock_is_not_mission_ok(self):
+        """THE anti-vacuity shell cell: InvokeRewind answers OK and the clock keeps
+        going FORWARD. The mission must NOT report MISSION-OK."""
+        frames = self._ascent_frames() + self._cycle_frames()
+        frames += [snap(ut=214.0 + i, altitude=80000, situation="ORBITING")
+                   for i in range(60)]
+        control = FakeMissionControl(frames)
+        code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertNotEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("never ran backward", result["reason"])
+        self.assertNotEqual(code, 0)
+
+    def test_a_rejected_rewind_reports_parseks_own_reason(self):
+        """FLIGHT-1 DIAGNOSABILITY. The verdict must name what Parsek refused on,
+        not speculate. MUTATION: drop the msg read and this reds."""
+        frames = self._ascent_frames() + self._cycle_frames()[:-1] + [
+            self._seam(mlib.R1_TAG_REWIND, result="ERROR",
+                       payload=(("msg", "recording-active"),),
+                       ut=213.0, altitude=80000, situation="ORBITING"),
+        ]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("Parsek's reason: recording-active", result["reason"])
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertEqual(rows["rewindSeamAccepted"]["rejectReason"], "recording-active")
+
+    def test_an_unresolved_rewind_target_flakes_before_any_action_is_performed(self):
+        params = dict(R1_PARAMS)
+        params["rewindPointId"] = ""
+        control = FakeMissionControl(self._ascent_frames())
+        code, result = run(r1_rewind_loop.SPEC, params, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("rewind target unresolved", result["reason"])
+        self.assertEqual(control.actions, [],
+                         "no ascent action may be performed once the target is unresolvable")
+        self.assertNotEqual(code, 0)
+
+    def test_a_failed_commit_seam_never_reaches_the_stop_or_the_rewind(self):
+        frames = self._ascent_frames() + [
+            self._seam(mlib.R1_TAG_COMMIT, result="ERROR", ut=210.0,
+                       altitude=80000, situation="ORBITING"),
+        ]
+        control = FakeMissionControl(frames)
+        _code, result = run(r1_rewind_loop.SPEC, R1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn("no committed state to rewind FROM", result["reason"])
+        verbs = [a.seam_verb for a in control.actions
+                 if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
+        self.assertEqual(verbs, ["CommitTree"])
+
+    def test_spec_knobs_match_the_delegated_ascent_and_the_reload_straddle(self):
+        # Inherited from B2 (same flight); settle_frames 0 because the frames after
+        # the rewind terminal are read across a just-reloaded scene.
+        self.assertTrue(r1_rewind_loop.SPEC.allow_rails_warp)
+        self.assertEqual(r1_rewind_loop.SPEC.max_physics_warp,
+                         b2_lko_ascent.SPEC.max_physics_warp)
+        self.assertEqual(r1_rewind_loop.SPEC.settle_frames, 0)
 
 
 if __name__ == "__main__":
