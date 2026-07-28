@@ -110,7 +110,14 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY plus an R5-specific discrimination requirement.
 #
-# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 (result
+# EVIDENCE STANDING: MEASURED, twice. Re-flown 2026-07-28 after the isolated
+# dispatch was collapsed into InGameTestRunner.RunBatchSelector, because the
+# first flight proved the PRE-refactor code and a refactor of the very routing
+# under test invalidates its own evidence. Same verdict, same tally, and the log
+# now also carries `batch dispatch: entry=RunCategoryIsolated category=SceneExitMerge
+# isolated=True`, which names the resolved entry point directly.
+#
+# First flight 2026-07-27 (result
 # harness/results/2026-07-27_1834_H21-scene-exit-merge-isolated.json: PASS on
 # attempt 1, 101 s wall, every verifier PASS, expectations mismatches=0). All three
 # required patterns below are LITERAL or near-literal and evaluate_expectations
