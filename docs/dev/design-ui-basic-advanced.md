@@ -161,7 +161,7 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 | Settings: Sample Density | **Hide** | Recorder fidelity tuning. A wrong value degrades recordings; the Medium default is correct for normal play. |
 | Settings: Data Management | **Keep** | Includes the pre-Parsek backup control and destructive data actions the player may legitimately need. Keep, but see section 8 edge case 6. |
 
-**Result.** Basic shows four main-window buttons (Timeline, Missions, Logistics, Settings) instead of eight, one tab instead of two in the Missions window, and five Settings sections instead of seven.
+**Result.** Basic shows four main-window buttons (Timeline, Missions, Logistics, Settings) instead of eight, one tab instead of two in the Missions window, and six Settings sections instead of eight (this feature itself adds the always-visible `Interface` section that hosts the toggle, making eight total in Advanced; Basic hides Diagnostics and Sample Density).
 
 ### 4.1 Naming and tab order (DECIDED, applies to BOTH modes)
 
@@ -207,7 +207,7 @@ Exactly four user-facing strings change: the button at `ParsekUI.cs:239`, the wi
 
 ### 4.3 Known Basic v1 limitation: retroactive playback-disable (from review)
 
-The only UI writing `Recording.PlaybackEnabled` is the hidden Recordings tab (per-row toggle `RecordingsTableUI.cs:1459`, select-all `:938`, group aggregates `:2026`, `:2647`, chain block `:3645`). The Missions tab deliberately has no per-row enable ("Blank enable slot", `MissionsWindowUI.cs:619-621`); its include checkboxes write `Mission.ExcludedIntervalKeys`, consumed only by the loop-unit pipeline, while non-loop ghost playback, KSC showcase, and map presence gate on `PlaybackEnabled`. Mission Archive explicitly leaves loop/ghost state untouched (`MissionsWindowUI.cs:378-381`), and mission Delete is view-only and disabled for a tree's last mission.
+The only UI writing `Recording.PlaybackEnabled` is the hidden Recordings tab (per-row toggle `RecordingsTableUI.cs:1459`, select-all `:942`, group aggregates `:2030`, `:2651`, chain block `:3645`). The Missions tab deliberately has no per-row enable ("Blank enable slot", `MissionsWindowUI.cs:619-621`); its include checkboxes write `Mission.ExcludedIntervalKeys`, consumed only by the loop-unit pipeline, while non-loop ghost playback, KSC showcase, and map presence gate on `PlaybackEnabled`. Mission Archive explicitly leaves loop/ghost state untouched (`MissionsWindowUI.cs:378-381`), and mission Delete is view-only and disabled for a tree's last mission.
 
 Consequence: "I committed this flight and later want its ghost gone" is Advanced-only in v1. Pre-commit regret is fully covered in Basic by the Merge dialog's Discard. This is a deliberate, documented exception to philosophy 3, accepted because fixing it inside this feature would require a new Missions-tab control in both modes, violating philosophy 6 (no other Advanced-visible change). The follow-up is section 17.8 (mission-level ghost-visibility toggle). Related: debris recordings never become mission legs (`MissionStructure.cs:139` - debris rides its parent), so individual debris enable/hide is likewise Advanced-only; acceptable because debris follows its parent's loop inclusion.
 
@@ -249,7 +249,7 @@ Consequence: "I committed this flight and later want its ghost gone" is Advanced
 `UiComplexityMode` (new file `Source/Parsek/UI/UiComplexityMode.cs`), explicit int values because the value is persisted:
 
 ```
-Basic    = 0 - reduced surface set, default for fresh Parsek saves
+Basic    = 0 - reduced surface set, default for new installs only (section 7.3)
 Advanced = 1 - today's full UI, unchanged
 ```
 
@@ -297,6 +297,7 @@ The Timeline GoTo button (section 4.1a) reuses `UiSurface.TabRecordings` as its 
 - `UiComplexityModeKey` const (`:45` area) and `RecordUiComplexityMode(int)`.
 - The `LoadIfNeeded` parse call, the stored-value restore branch in `ApplyTo` (`:246-253` shape), the `Save()` AddValue branch (`:382-383` shape), and BOTH diagnostic lines (load-side `:142` shape, save-side `:406` shape).
 - `ResetForTesting` (`:426`) and the `GetStored...` / `SetStored...ForTesting` seams (`:447`, `:494`) that every other persisted setting carries; section 13.1's tests need them.
+- A new `HasAnyStoredValue()` query (or equivalent settings-file-exists check): footprint signal 3 of section 7.3 needs "does the store contain any stored keys", which no current member exposes.
 
 **Single setter seam (from review).** ALL mode writes route through one entry point, `ParsekUI.SetUiComplexityMode(UiComplexityMode next)` (or an equivalent static seam reachable from SettingsWindowUI and tests), which performs: settings write + `RecordUiComplexityMode` + scheduling the deferred apply of section 7.2 (close handler + clamp). Rationale: window BODIES are deliberately not gated, so any writer that bypasses the seam (an in-game test writing `ParsekSettings.Current.uiComplexityMode` directly, or a future Settings "Defaults" button) would leave hidden windows open in Basic. The 13.3 in-game tests MUST call the seam, not the field, or they test nothing.
 
@@ -339,7 +340,7 @@ Rule: the toggle click calls the setter seam (section 6.2), which writes + persi
 Apply sequence (in `Update()`, not mid-OnGUI):
 
 1. Latch the applied mode; log at Info: `Mode changed: uiComplexityMode=Advanced->Basic`.
-2. Advanced -> Basic close set, each wrapped in its own try/catch (`InputLockManager.RemoveControlLock` fires `GameEvents.onInputLocksModified`; a throwing listener must not abort the loop - precedent `RouteCreationDialog.cs:466-480`): for each of `careerUI`, `kerbalsUI`, `gloopsUI`, `spawnControlUI`, and the Settings-launched `testRunnerUI`, set `IsOpen = false` and call `ReleaseInputLock()`; also call `groupPicker.Close()` (reachable only from the hidden Recordings tab, but it can already be open at switch time and would otherwise keep drawing from `RecordingsTableUI.DrawIfOpen:448`; existing close precedent `RecordingsTableUI.cs:1102`). Apply the tab clamp (7.4). Log one Verbose line per closed window (window name, whether it held a lock).
+2. Advanced -> Basic close set, each wrapped in its own try/catch (`InputLockManager.RemoveControlLock` fires `GameEvents.onInputLocksModified`; a throwing listener must not abort the loop - precedent `RouteCreationDialog.cs:466-480`): for each of `careerStateUI`, `kerbalsUI`, `gloopsUI`, `spawnControlUI`, and the Settings-launched `testRunnerUI`, set `IsOpen = false` and call `ReleaseInputLock()`; also call `groupPicker.Close()` (reachable only from the hidden Recordings tab, but it can already be open at switch time and would otherwise keep drawing from `RecordingsTableUI.DrawIfOpen:448`; existing close precedent `RecordingsTableUI.cs:1102`). Apply the tab clamp (7.4). Log one Verbose line per closed window (window name, whether it held a lock).
 3. Basic -> Advanced: nothing to close. Windows reopen on demand with preserved state.
 
 Notes on the close set:
@@ -348,7 +349,7 @@ Notes on the close set:
 - Do not copy `ParsekUI.Cleanup()` (`ParsekUI.cs:2047-2053`) as the enumeration source: it omits `gloopsUI`, `logisticsUI`, and `testRunnerUI`. The handler owns its own explicit list, and 13.1 has a test pinning that list to the lock-owning gated windows.
 - A missed close self-heals in bounded time: `DrawIfOpen` keeps running ungated (7.1) and releases the lock next frame once `IsOpen` is false, and KSP clears all input locks on scene transition regardless.
 
-**Gloops in-progress guard (from review).** Gloops manual-recording state lives in `ParsekFlight` (`IsGloopsRecording`, driven from `GloopsRecorderUI.cs:199-251`), not in the window; hiding the window does not stop the recording, which would leave it sampling with no reachable Stop/Discard control in Basic. Rule: while `IsGloopsRecording` is true, the Basic option in the Settings toggle is disabled with the inline reason `Stop the Gloops recording first`; the refusal is logged at Info. Zero behavior change, one rare interaction.
+**Gloops in-progress guard (from review).** Gloops manual-recording state lives in `ParsekFlight` (`IsGloopsRecording`, driven from `GloopsRecorderUI.cs:199-251`), not in the window; hiding the window does not stop the recording, which would leave it sampling with no reachable Stop/Discard control in Basic. Rule: while `IsGloopsRecording` is true, the Basic option in the Settings toggle is disabled with the inline reason `Stop the Gloops recording first`; the refusal is logged at Info. Zero behavior change, one rare interaction. In SPACECENTER the UI has no `ParsekFlight` (`parentUI.Flight` is null under the `UIMode.KSC` constructor); the check falls back to "not recording", which is sound - Gloops live-recording state dies with the FLIGHT-scene `ParsekFlight`, so it can never be in progress there.
 
 ### 7.3 First-run default (DECIDED; mechanism reworked after review)
 
@@ -506,7 +507,7 @@ Existing in-game tests that drive gated windows must force Advanced for their du
 
 ### 13.4 Grep gate
 
-`scripts/grep-audit-ui-complexity-mode.ps1`, modeled on `scripts/grep-audit-ers-els.ps1` specifically (allowlist file with directory-prefix entries, exit codes 0/1/2, scan root `Source/Parsek` - which makes "tests allowed" free), NOT on the zero-reference gates (`grep-audit-active-leg-recordings.ps1` hardcodes per-file patterns). Run from an xUnit test in the `GrepAuditTests` style (pwsh-on-PATH check with graceful skip, 60s timeout, exit-code assert, repo-root walk-up): assert `uiComplexityMode` and `UiSurfaceVisibility` appear only in `Source/Parsek/UI/**`, `ParsekUI.cs`, `ParsekFlight.cs` (deferred apply site), and `ParsekSettings*.cs`. Enforces the section 9 invariant mechanically, so a future change cannot quietly make recording or dispatch mode-dependent.
+`scripts/grep-audit-ui-complexity-mode.ps1`, modeled on `scripts/grep-audit-ers-els.ps1` specifically (allowlist file with directory-prefix entries, exit codes 0/1/2, scan root `Source/Parsek` - which makes "tests allowed" free), NOT on the zero-reference gates (`grep-audit-active-leg-recordings.ps1` hardcodes per-file patterns). Run from an xUnit test in the `GrepAuditTests` style (pwsh-on-PATH check with graceful skip, 60s timeout, exit-code assert, repo-root walk-up): assert `uiComplexityMode` and `UiSurfaceVisibility` appear only in `Source/Parsek/UI/**`, `ParsekUI.cs`, `ParsekFlight.cs` and `ParsekKSC.cs` (the two deferred-apply hosts), and `ParsekSettings*.cs`. `ParsekScenario.cs` is deliberately NOT allowlisted: the 7.3 footprint resolution keeps the mode symbols out of it by passing the scenario-node signal as a bare bool into the persistence layer (the scenario knows "is my node populated", not "what is the mode"). Enforces the section 9 invariant mechanically, so a future change cannot quietly make recording or dispatch mode-dependent.
 
 ---
 
