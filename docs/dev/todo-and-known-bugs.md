@@ -152,7 +152,11 @@ On the S1.5 first-flight that is `invokerewind refused: unknown-rp rp=rp_b9_root
 
 `inject-recordings.ps1` appends `--no-build` to its `dotnet test` invocation unless `-Build` is passed, and `Runtime.run_inject` never passes it (deliberately - the flag exists so an injection cannot rebuild and clobber the plugin DLL while KSP holds it). In a worktree where `Source/Parsek.Tests` has never been built there is no assembly for `--no-build` to run, so `InjectRewindB9` never executes. The script's only guard is `if ($LASTEXITCODE -ne 0) { throw }`, so whatever that invocation returned did not trip it.
 
-The trigger is therefore FRESH WORKTREE, and it is deterministic, not racy: the first injected-fixture run in any new worktree burns one attempt, and the retry passes because the first attempt's `dotnet test` left the assembly built behind it.
+The trigger is therefore FRESH WORKTREE, and it is deterministic, not racy: the first injected-fixture run in any new worktree burns one attempt.
+
+WHAT MAKES THE RETRY PASS IS NOT THE INJECTION, and this is the part worth carrying forward. It cannot be that attempt 1's own `dotnet test` left the assembly behind - `--no-build` builds nothing (observed below). The actual builder is a VERIFIER: `Runtime.run_analyzer` (`harness/run.py:273-279`) invokes `scripts/analyze-recordings.ps1` WITHOUT `-NoBuild`, and that script runs its own `dotnet test Source/Parsek.Tests/Parsek.Tests.csproj` (`analyze-recordings.ps1:118-129`), which does build. The analyzer runs on the FAILED attempt too - attempt 1's harness log line 42 is `verify analyzer status=PASS red=0 ... (triage-only)` - so the failing attempt is what warms the assembly for its own retry.
+
+So the "deterministic, self-recovering" property is a HIDDEN COUPLING to an unrelated verifier happening to build. If `run_analyzer` ever gains `-NoBuild` - entirely plausible, for exactly the KSP-DLL-lock reason the injector already passes it - the fresh-worktree miss stops self-recovering and becomes a hard two-attempt burn that exhausts `retry.policy = "once"` and reds the scenario. Nothing anywhere records that `analyze-recordings.ps1` is load-bearing for injection; the postcondition fix below removes the coupling rather than documenting it.
 
 ### Evidence
 
@@ -160,10 +164,10 @@ The trigger is therefore FRESH WORKTREE, and it is deterministic, not racy: the 
 - The staged save at that moment held `Parsek/GameState` only: no `Parsek/Recordings/`, no `Parsek/RewindPoints/`.
 - `KSP.log`: `[Parsek][WARN][TestCommands] invokerewind refused: unknown-rp rp=rp_b9_root`.
 - Attempt 2 staged the SAME preset and produced `Parsek/RewindPoints/rp_b9_root.sfs` plus the three `b9-*` recordings, then PASSed (`2026-07-29_1528_S1.5-rewind-loop_a2`, wall 69 s).
-- `Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll` mtime `18:28:31`, `obj/` `18:28:29` - the test assembly was first built DURING attempt 2, about three minutes after attempt 1's injection had already reported success.
+- `Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll` mtime `18:28:31.9 +0300` = `15:28:31.9Z`, `obj/` `15:28:29Z` - the test assembly was first built inside ATTEMPT 1's verifier tail (attempt 1 ran `15:25:31Z -> 15:28:41Z`, attempt 2 `15:28:47Z -> 15:29:56Z`, per the two result JSONs' `startedUtc`/`endedUtc`), 10 s before attempt 1 ended and 15 s before attempt 2 began. An earlier draft of this entry said "built DURING attempt 2, about three minutes after attempt 1's injection": that was a UTC-vs-local slip, comparing a local-time mtime against UTC run ids. The corrected timeline is what identifies the analyzer as the builder.
 - Corroboration from the next scenario: S4.1 drives the same `rewind-b9` preset and injected correctly on ATTEMPT 1 with the assembly now warm.
 
-NOT DIRECTLY OBSERVED: the exit code `dotnet test --no-build` returns when the assembly is absent. It is pinned to 0 by inference (the absent warn line is conclusive that `res.ok` was True), not by a captured console. The fix below does not depend on which number it was.
+OBSERVED (was inference in the first draft of this entry): `dotnet test <Parsek.Tests.csproj> --filter InjectRewindB9 -v minimal --no-build` against a never-built copy of `Source/` (copied without `bin`/`obj`) **exits 0, prints nothing at all, and creates no `bin/` or `obj/`**. Reproduced directly on this machine's dotnet 6.0.428, so the exit-0 half of the fail-open is a captured fact rather than a deduction from the absent warn line. The fix below is mechanism-independent either way.
 
 ### Why it matters beyond one wasted boot
 
@@ -179,6 +183,10 @@ Assert the POSTCONDITION in `run.py` staging rather than trusting the exit code 
 - `all-synthetic` -> require a non-empty `Parsek/Recordings/`.
 
 A miss should fail the stage immediately with a named subkind (`stage-inject-noop`) so the run never boots KSP, and the message should name the likely cause and its one-line remedy (`dotnet build Source/Parsek.Tests` in this worktree). Optionally make the script itself fail loud when `--no-build` finds no assembly, but the staging postcondition is the load-bearing half: it catches every way an injection can no-op, not just this one.
+
+Do NOT "fix" this by dropping `--no-build` from the injector. That flag is deliberate (an injection must not rebuild and clobber the plugin DLL while KSP holds it), and removing it would trade a loud, cheap, pre-boot stage failure for exactly the silent cross-worktree DLL clobber the intentional-only deploy gate exists to prevent.
+
+Worth doing in the same pass, since the coupling above is only visible once: assert the assembly EXISTS before invoking the injector, and if `run_analyzer` is ever given `-NoBuild`, that assertion becomes the only thing standing between a fresh worktree and a two-attempt red.
 
 ---
 
