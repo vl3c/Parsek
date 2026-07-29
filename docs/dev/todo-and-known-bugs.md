@@ -14,6 +14,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SAFEWRITE-DESTROYS-ON-FAILED-WRITE: the shared safe-write deleted the destination and then failed to replace it~~ [FOUND 2026-07-29 by a read of `FileIOUtils`. FIXED, branch `fix-safewrite-file-destruction`]
+
+### What happened
+
+`FileIOUtils.SafeWriteConfigNode` called `node.Save(tmpPath)` and **ignored the bool it returns**. KSP's `ConfigNode.Save` swallows its own IO exception and reports failure only through that return, so on a full disk / permission denial / locked file the method carried on to its `File.Delete(path)` + `File.Move(tmpPath, path)` sequence: the caller's existing file was DELETED, then the move threw because the temp file had never been written. Net effect of a failed write: the previous data destroyed, nothing written in its place. Every store on that path was exposed - recording `.prec` sidecars, the ledger, `ParsekSettings`, the milestone store, `GameStateStore`, and the offline-analyzer baseline.
+
+The delete-then-move sequence was a second, independent hazard shared with `SafeWriteBytes` and `SafeMove`: even on a *successful* write there was a window in which the destination was deleted and the replacement was not yet in place, so a crash inside it lost the file.
+
+There were no unit tests for any of the three methods.
+
+### Fix
+
+- `SafeWriteConfigNode` checks `ConfigNode.Save`'s return, and belt-and-braces that the temp file exists (and is non-empty when the node has content). On failure it deletes the temp file, logs a grep-stable `SafeWrite: failed to write temp file '<tmp>' (<reason>) - destination '<path>' left untouched` Warn, and throws an `IOException` **without ever touching the destination**. `SafeWriteBytes` does the same around `File.WriteAllBytes` (which throws rather than returning a status, so its exception is re-thrown verbatim).
+- All three methods now swap through one private `ReplaceDestination` helper whose documented ordering invariant is *the original is recoverable at every step*: no destination yet -> a bare `File.Move`; destination present -> `File.Replace(tmp, dest, null)`, the single-call swap; and if `File.Replace` is unavailable (Mono is not dependable on every filesystem) the original is MOVED ASIDE to a sibling `.bak`, the replacement is moved in, and only then is the aside copy deleted - restoring it if the second move fails, and saying so in the log if even the restore fails.
+- Callers keep their contract: same signatures, same tag parameter, still throw on failure.
+
+Guarded by `Source/Parsek.Tests/FileIOUtilsSafeWriteTests.cs`. The temp-write failure is simulated by pre-creating a DIRECTORY on the `.tmp` path (neither `ConfigNode.Save` nor `File.WriteAllBytes` can open a directory for writing) - deliberately chosen over a read-only parent directory because it fails ONLY the temp write, leaving the destination perfectly writable, so a surviving destination proves the code chose not to touch it rather than that the OS refused. The replace-step failure is simulated by holding the destination open with `FileShare.None`; those cells no-op on a platform that does not enforce sharing (Mono on Unix).
+
+---
+
 ## HARNESS-MIDMISSION-COMMIT-BYPASS: a mid-mission seam CommitTree bypasses the unmet-mission tail gate [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT, NOT CAUSING FAILURES. Decision wanted: gate it, or document it as intended]
 
 ### What happens
