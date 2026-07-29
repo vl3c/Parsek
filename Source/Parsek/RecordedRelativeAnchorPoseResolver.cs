@@ -4,8 +4,48 @@ using UnityEngine;
 
 namespace Parsek
 {
+    /// <summary>
+    /// Body-pose read seam for recorded-anchor playback. The live implementation
+    /// walks <c>FlightGlobals.Bodies</c> and reads
+    /// <c>CelestialBody.GetWorldSurfacePosition</c> / <c>bodyTransform.rotation</c>;
+    /// injecting a deterministic stand-in makes the selection, interpolation, and
+    /// RELATIVE-frame composition around it exercisable headless. Implementations
+    /// return false when the body (or its transform) is unavailable; the caller
+    /// then yields the same non-finite position / identity rotation the live path
+    /// has always produced for an unknown body.
+    /// </summary>
+    internal interface IAnchorBodyPoseSource
+    {
+        bool TryGetSurfaceWorldPosition(
+            string bodyName,
+            double latitude,
+            double longitude,
+            double altitude,
+            out Vector3d worldPos);
+
+        bool TryGetBodyWorldRotation(string bodyName, out Quaternion rotation);
+    }
+
     internal static class RecordedRelativeAnchorPoseResolver
     {
+        private static readonly IAnchorBodyPoseSource LiveBodyPoseSource =
+            new FlightGlobalsBodyPoseSource();
+
+        /// <summary>
+        /// Test-only override for <see cref="LiveBodyPoseSource"/>. Null in
+        /// production; set by headless tests and cleared by
+        /// <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static IAnchorBodyPoseSource BodyPoseSourceForTesting;
+
+        private static IAnchorBodyPoseSource ActiveBodyPoseSource =>
+            BodyPoseSourceForTesting ?? LiveBodyPoseSource;
+
+        internal static void ResetForTesting()
+        {
+            BodyPoseSourceForTesting = null;
+        }
+
         internal static bool TryResolveSectionAnchorPose(
             Recording focusRecording,
             TrackSection section,
@@ -215,24 +255,66 @@ namespace Parsek
             return false;
         }
 
-        private static Vector3d ResolveAbsoluteWorldPosition(TrajectoryPoint point)
+        /// <summary>
+        /// Absolute-frame world position for a recorded point. ONLY valid for
+        /// Absolute / body-fixed points: in a RELATIVE section the
+        /// latitude / longitude / altitude fields carry anchor-local Cartesian
+        /// METRE offsets, and feeding those to a surface-position read puts the
+        /// ghost deep inside the planet. Relative sections resolve through
+        /// <c>RelativeAnchorResolver.TryResolveRelativeSectionPose</c> instead.
+        /// </summary>
+        internal static Vector3d ResolveAbsoluteWorldPosition(TrajectoryPoint point)
         {
-            CelestialBody body = ResolveBody(point.bodyName);
-            if (body == null)
-                return new Vector3d(double.NaN, double.NaN, double.NaN);
-
-            return body.GetWorldSurfacePosition(
+            return ActiveBodyPoseSource.TryGetSurfaceWorldPosition(
+                point.bodyName,
                 point.latitude,
                 point.longitude,
-                point.altitude);
+                point.altitude,
+                out Vector3d worldPos)
+                ? worldPos
+                : new Vector3d(double.NaN, double.NaN, double.NaN);
         }
 
-        private static Quaternion ResolveBodyWorldRotation(TrajectoryPoint point)
+        internal static Quaternion ResolveBodyWorldRotation(TrajectoryPoint point)
         {
-            CelestialBody body = ResolveBody(point.bodyName);
-            return body != null && body.bodyTransform != null
-                ? body.bodyTransform.rotation
+            return ActiveBodyPoseSource.TryGetBodyWorldRotation(point.bodyName, out Quaternion rotation)
+                ? rotation
                 : Quaternion.identity;
+        }
+
+        /// <summary>
+        /// Live body-pose read. Behaviour-identical to the inline FlightGlobals
+        /// reads this seam replaced: an unresolvable body yields false so the
+        /// caller returns NaN / identity.
+        /// </summary>
+        private sealed class FlightGlobalsBodyPoseSource : IAnchorBodyPoseSource
+        {
+            public bool TryGetSurfaceWorldPosition(
+                string bodyName,
+                double latitude,
+                double longitude,
+                double altitude,
+                out Vector3d worldPos)
+            {
+                worldPos = default;
+                CelestialBody body = ResolveBody(bodyName);
+                if (body == null)
+                    return false;
+
+                worldPos = body.GetWorldSurfacePosition(latitude, longitude, altitude);
+                return true;
+            }
+
+            public bool TryGetBodyWorldRotation(string bodyName, out Quaternion rotation)
+            {
+                rotation = Quaternion.identity;
+                CelestialBody body = ResolveBody(bodyName);
+                if (body == null || body.bodyTransform == null)
+                    return false;
+
+                rotation = body.bodyTransform.rotation;
+                return true;
+            }
         }
 
         private static bool TryResolveOrbitalAnchorPose(
