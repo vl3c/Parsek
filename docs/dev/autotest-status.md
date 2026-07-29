@@ -37,13 +37,13 @@ measured lines. Tiering decided on failure mode rather than cost:
 H18 promoted to daily because it is the sole guard for the GameEvents subscription
 contract and a dropped Add() is silent; the other 13 stay nightly pending flake data.
 Prior: 2026-07-26 (THE IN-GAME CATEGORY GAP, measured and half closed.
-Parsek ships 539 in-game runtime tests across 97 categories; committed scenarios
+Parsek ships 542 in-game runtime tests across 98 categories; committed scenarios
 drove EIGHT of those categories, so 89 were written, passed under Ctrl+Shift+T, and
 never executed in any unattended run. The inventory is now DERIVED from the C#
 attributes rather than guessed at, every category triaged A/B/C with the reason
 stated, and 14 categories wired as batch-only specs H7-H20 over the existing
-gloops-airshow fixture: 22 of 97 categories driven, 201 of 539 declarations inside a
-driven category and 179 of them that would actually execute.
+gloops-airshow fixture: 22 of 97 categories driven at the time, 201 of 539
+declarations inside a driven category and 179 of them that would actually execute.
 None has flown - 13 pin their tally WHOLE from a source derivation that closes
 (attribute-exact total, plus a transitive scan proving no reachable
 InGameAssert.Skip), and H20 carries the honest interim form because its split is
@@ -315,7 +315,9 @@ Each fact about this system lives in exactly one place:
 | `harness/README.md` | Harness module mechanics: ownership boundary, how to run, submodule readiness |
 | `todo-and-known-bugs.md` | Finding forensics: the full evidence trail behind every live finding |
 | `harness/coverage/registry.toml` | The machine-readable coverage denominator (authoritative cell list) |
-| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 97 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 PENDING-OPERATOR runbook |
+| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 98 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 fly-order runbook |
+| `test-coverage-audit-2026-07-29.md` | Full-stack coverage SNAPSHOT (all three systems + design-doc contracts, measured 2026-07-29) and the consolidated ranked gap register. A dated audit, not a living status doc |
+| `design-testing-unified.md` | The cross-system explainer (how the three testing systems work and compose, the validation-pyramid/atomic-decomposition model, binding constraints) and the beyond-R14 program (visual validation, mode-axis expansion, fuzz/perf lanes); its build-order extension is indexed as roadmap Tier 5 |
 
 If a status statement appears anywhere else, it is a pointer to this file or
 it is wrong. MAINTENANCE RULE: any PR that changes a module's status,
@@ -328,7 +330,7 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Twenty-five test cases are live-proven green end-to-end (the 21
+expectations). Twenty-six test cases are live-proven green end-to-end (the 22
 rows in the Live-proven table below plus the four EVA cases in their own
 section), including Mun/Minmus/Duna flybys with a certified no-1x-coast warp
 profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair and the Eve
@@ -348,12 +350,12 @@ commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
 2026-07-25, as is the Mun/Minmus LANDING lane (B13/B14: a recording that ENDS on
 foreign soil and is COMMITTED there); B15-eve-flyby is green and B16-eve-orbit
 is committed but not yet flown. PLAYBACK is no longer a blind spot either:
-S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 84 of
-241 registry cells claimed by at least one scenario (83 at the 2026-07-26
-recompute; +1 for D3 `parent-anchored-debris`, claimed 2026-07-27 when the five
-Kerbal X flights gained the debris-population token and a measured `count.min`).
-That 84 is RECOMPUTED from
-`hlib.compute_coverage` over the 38 committed specs + the registry at this
+S1.6 + S1.7 drive 47 in-game parity tests between them. Coverage stands at 97 of
+242 registry cells claimed by at least one scenario (84 of 241 at the 2026-07-27
+recompute; the batch-wiring + isolated-batch wave and the UI-mode cell landed
+since, and the registry grew one cell).
+That 97 is RECOMPUTED from
+`hlib.compute_coverage` over the 56 committed specs + the registry at this
 merge, not carried forward from either side: the "52" this sentence used to
 print had drifted across many spec additions (it predates the EVA, B-DOCK,
 ORBIT, LANDING and EVE lanes), the "70 of 239" the ORBIT lane measured on
@@ -386,7 +388,7 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings. DE-LISTED from live-proven 2026-07-25 (the first full sweep red'd it: the kerbal's canopy cut itself mid-descent and the kerbal died) and FIXED HEADLESSLY 2026-07-26 from the archived log + decompiled KerbalEVA, no new flight: (b) a >3.5 m/s collision fires `On_stumble` from `st_semi_deployed_parachute` into `st_ragdoll`, and leaving that state calls `evaChute.CutParachute()` - closed by a bounded OBSERVED pre-chute standoff on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30, debounced 2 polls, TWO non-fatal bounds - 8 s wall clock AND `standoffFloorAltMeters` 500, the latter load-bearing because the kerbal is unchuted and free-falling for the stage); (a) the MISSION cannot see the kerbal at all (its terminal is the handoff and its process exits before the EVA), so the closure is the harness-side `missionOutcome` gate plus an mlib handoff declaration. RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers) with the closure verified STRUCTURALLY rather than by the green outcome - a live kerbal proves nothing about a dead one; see the runbook + residual in `todo-and-known-bugs.md` |
 
-## Test cases (all 55 committed scenarios)
+## Test cases (all 56 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -458,30 +460,34 @@ branch with the kerbal's own falling-vessel recording.
 | EVA-3-multi-kerbal | nightly | Two sequential EVA branch points + two board merges in one tree; the F2 quiescence conjunct protects the second exit | Fixture `eva3-pad-3crew` COMMITTED (P2 done, forged 2026-07-24). First flight 2026-07-24: driverValidity PASS (all 4 EVA verbs OK, each exit->board cycle under 0.8 s wall), analyzer red=0, logValidate PASS, anomalySweep PASS; the only red was 2 missing logContract tokens (`detected boarding from EVA`, `Tree board merge completed`) for BOTH cycles. A PARSEK defect FOUND + FIXED: an EVA branch parks the kerbal's recording in BackgroundMap and only the post-switch first-modification watcher promotes it, so a `release=false` exit-then-board inside ~0.18 s left `recorder=null` at the board and BOTH the boarding detection and `HandleTreeBoardMerge` failed closed - the saved tree carried 2 EVA branch points and ZERO Board branch points, kerbal recordings terminal Destroyed instead of Boarded. `OnCrewBoardVessel` now rebinds a background-only EVA recording to the live recorder at the board (`DecideEvaBoardPromotion`, 11 xUnit cells); the seam was deliberately NOT changed (a wait-for-merge there would reclassify a dropped merge as driver INVALID instead of PARSEK-FAIL). Re-flight pending to pin the P3 count window and confirm 2 EVA branches + 2 boarding detections + 2 board merges. Batch autorun evaluated = NOT wired (batchComplete SKIPPED, see EVA-1 spec) ; LIVE-PROVEN 2026-07-24 (flight 2 full PASS after the board-merge data-loss fix; 2 promotions/2 merges/7 recordings) |
 | EVA-4-atmo-chute | nightly | Mid-flight ATMOSPHERIC EVA branch (every other EVA case exits on the ground or in orbit), atmospheric TrackSections on the KERBAL's own falling-vessel recording, the EVA chute captured as a two-phase part event on the kerbal (D7 chute-two-phase, previously unclaimed), and the DOWN terminal applied to a KERBAL recording with the kerbal ALIVE | FLIGHT 1 (2026-07-24) ASSERT-FAILED AS DESIGNED, re-tuned, re-fly pending. The machine, the named-failure design and the diagnostics all worked: `eva-window-missed: altitude 702m fell below the window floor 800m (vspeed -295.2m/s, situation FLYING, craftChute armed)`, phasesReached PRELAUNCH/ASCENT/COAST/DESCENT, apoapsisWindow met (19,879 m), no budget burn (107 s wall). MEASURED profile: peak altitude 11,965 m at ut 60.6; unchuted descent settles at TERMINAL -301 m/s by ~2,700 m; chute armed at 2,382 m / -301 m/s and 5.1 s later at 855 m the rate had moved 4.7 m/s. ROOT CAUSE (recording + decompile, not inference): the pod's `.prec` carries ZERO Parachute* part events, and decompiled `ModuleParachute.cs:1255-1290` gates ACTIVE->SEMIDEPLOYED on `automateSafeDeploy >= deploymentSafeState` while the fixture persists `automateSafeDeploy = 0` (only while SAFE) - which DeploySafe never reads at ~300 m/s in dense air. Arming low was INERT, not late; a craft at terminal velocity never slows on its own. THREE FIXES: (1) ARM WHILE SLOW - the machine now arms on the COAST->DESCENT transition frame itself (falling through into the descent body so there is no one-poll delay; measured entry rates -7.4/-16.9/-26.1/-35.5 m/s, bound 30), i.e. at the apoapsis crossing where DeploySafe is trivially SAFE and Kerbin is already ~0.2 atm; (2) RAISE the stock full-deploy altitude from the fixture's 1000 m to 2500 m via kRPC `Parachute.DeployAltitude` (a PAW tweakable) so the full canopy exists well above the EVA band - the Mk16 animation is ~8 s (`deploymentSpeed = 0.12`); (3) GATE ON OBSERVED STATE - new opt-in `craft_chute_state` telemetry channel (kRPC `ParachuteState`, "" unread = fail-closed) so the window requires the chute to READ Deployed, never the commanded latch that was true for the whole failed flight. Window re-tuned [800,2400]/60 -> [700,2100]/25; descent budget provisionally raised 240 -> 480 s and runtime 1560 -> 1920 s because the semi-deployed rate was not measured yet. A new `craftCanopyObserved` assertion row reports observed-vs-commanded in the result JSON. Same-evidence FINDING SPUN OFF: B1-pad-hop's chute never opens either (its 2026-07-20 recording has zero Parachute* events and ends at 65 m) - B1 passes because its DOWN terminal only checks the COMMANDED latch. NOTE on the failed attempt's artifacts: run.py USED TO drive the remaining seam steps regardless of the mission outcome, so flight 1 DID perform a terminal-velocity hatch EVA after the ASSERT-FAIL (EvaExit at ~356 m / -277 m/s, kerbal chute semi-deployed at 221 m, landed alive, tree committed) - no false PASS (the run classifies INVALID(mission) before the tail and the save is re-staged per attempt), but a window-missed run's collected save/log carried a spurious EVA branch + landing and could burn ~120 + 420 s of deferral budget. FIXED harness-side 2026-07-25 (see the M-A5 row): an UNMET mission step now drives the CLEANUP tail only (StopRecording + FlushAndQuit), so this scenario's EvaExit / EvaChuteDeploy / CommitTree are skipped on a window-missed attempt ; LIVE-PROVEN 2026-07-24 (flight 2 FULL PASS, all seven verifiers: canopy observed Deployed, handoff 1,606 m / -23.2 m/s, kerbal chuted descent steady -4.5 m/s, ParachuteCut at touchdown, down=true situation=LANDED alive=true. All four pins closed: P1 count PINNED 3, P2 `'kerbalEVA` token confirmed, P3 semi-deployed rate MEASURED at about -236 m/s peak with the whole DESCENT phase 61.6 s -> descentTimeoutSeconds trimmed 480 -> 240 (~3.9x margin; step/runtime budgets deliberately left at 900/1920 as wall-clock envelopes), P4 kerbal lands alive. Post-live hardenings: K=2 EVA-window debounce and the RAW-alive CompleteOk conjunct) ; DE-LISTED from live-proven 2026-07-25 by the first full sweep and FIXED HEADLESSLY 2026-07-26 (branch `eva4-failopen`), then RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers: apoapsisWindow 19696.874, evaWindowReached 1592.752, evaWindowDescentRate -18.560, craftCanopyObserved 11964.692, missionOutcome PASS gating=2, expectations mismatches=0). FLIGHT 3 red'd `PARSEK-FAIL(expectations)` at 187 s wall: the kerbal's canopy went SemiDeployed at 1,650 m and Cut 200 ms later, and the kerbal accelerated -11 -> -109 m/s into the ground. TWO defects, both diagnosed from the archive with no new flight. (b) THE CUT: not a parachute decision at all - `On_stumble` is registered on `st_semi_deployed_parachute` (KerbalEVA.cs:8153) with `GoToStateOnEvent = st_ragdoll`, is fired only from the collision callback above `stumbleThreshold = 3.5` m/s (KerbalEVA.cs:12700), and `OnSemiDeployedParachuteModeLeft` calls `evaChute.CutParachute()` on every exit but a full-deploy transition (KerbalEVA.cs:11152-11169). The collected log's ONE `Event Stumble not assigned to state Ragdoll` line, 16 ms after the cut, is the second frame of that contact. The collider is MEASURED, not inferred (corrected in panel review): the kerbal's own `.prec` carries a pod-anchored `Relative` section whose anchor-local metres put it 0.82 m from the pod at `ParachuteSemiDeployed` and 1.50 m at the cut. ALSO CORRECTED: the first draft blamed the LENGTH of the semi-deployed window, but `OnFullyDeployedParachuteModeLeft` (KerbalEVA.cs:11219) cuts UNCONDITIONALLY and `On_stumble` is registered on the full-deploy state too, so a full canopy is equally exposed and the `deployAltitude` knob would NOT have fixed this - the operative variable is PROXIMITY AT CANOPY TIME. FIX: bounded OBSERVED standoff on `EvaExit` (`minStandoffMeters=30`, 2-poll debounce, and TWO non-fatal bounds - 8 s wall clock plus `standoffFloorAltMeters=500`; the wall-clock-only first draft was sized on a 6.2x-wrong altitude figure and would have flown a low handoff into the ground with the canopy never armed). (a) THE FAIL-OPEN: the mission returned MISSION-OK over the dead kerbal, and NO mission assertion could ever have caught it - the machine's terminal is the handoff and the subprocess exits before `EvaExit` creates the kerbal vessel. The observed channel that DID see it (`eva-chute-kerbal-lost`) was recorded as `driver.steps[6].verdict=ERROR` and consulted by nothing; `driverValidity` reported PASS beside `allExpectedMet: false`. FIX: `SEAM_VERB_POST_MISSION_ROLE` + the `missionOutcome` verifier row + `PARSEK-FAIL(mission-outcome)`, plus an mlib handoff declaration so MISSION-OK states what it did not verify) |
 
-### In-game batch wiring H7-H20, all 14 LIVE-PROVEN (14)
+### In-game batch wiring H7-H20 + H22, all 15 LIVE-PROVEN (15)
 
-The gap these close: Parsek ships 539 in-game runtime tests across 97 categories, and
-before this group committed specs drove EIGHT of them. The other 89 were written,
+The gap these close: Parsek ships 542 in-game runtime tests across 98 categories, and
+before this group committed specs drove EIGHT of them. The other 90 were written,
 passed when an operator pressed Ctrl+Shift+T, and never executed in any unattended
 run. Full enumeration, the A/B/C triage behind which 14 were picked, and the
-PENDING-OPERATOR fly order live in
+fly order live in
 [`autotest-ingame-category-inventory.md`](autotest-ingame-category-inventory.md).
 
-All 14 are batch-only specs on the S1.4 / H6 shape: LoadGame the committed
+All 15 are batch-only specs on the S1.4 / H6 shape: LoadGame the committed
 `gloops-airshow` host, pin `autoRecordOnLaunch` false, one `RunTests` step naming one
-category, FlushAndQuit. Driven categories go 8 -> 22 of 97. Declarations inside a
-driven category go 125 -> 201 of 539, and the subset that actually EXECUTES (surviving
-both runner filters at the scene each spec drives) goes 103 -> 179. All 76
-declarations the new group adds execute; the whole 22-declaration gap sits in the
-eight pre-existing driven categories, over half of it at FLIGHT rather than
+category, FlushAndQuit. Fourteen of them (`H7`-`H20`) shipped as one wave; `H22`
+joined afterward, arriving with the Basic/Advanced UI-mode feature, and flew
+separately. Counting `H21`'s isolated `SceneExitMerge` alongside them, driven
+categories go 8 -> 24 of 98. Declarations inside a driven category go 125 -> 206 of
+542, and the subset that actually EXECUTES (surviving both runner filters at the scene
+each spec drives) goes 103 -> 184. All 79 declarations this group adds execute; the
+whole 22-declaration gap sits in the eight pre-existing driven categories, over half of it at FLIGHT rather than
 SPACECENTER (`GhostMap` alone is 9) and 4 of it `AllowBatchExecution=false` rather
 than scene-skipped. Per-category decomposition is in the inventory doc.
 
-EVIDENCE STANDING FOR THE WHOLE GROUP: **ALL 14 FLOWN 2026-07-27**
+EVIDENCE STANDING FOR THE WHOLE GROUP: **ALL 14 OF THE WAVE FLOWN 2026-07-27**
 (`python run.py --tag ingame-batch`, against a DLL built and provisioned from the
 branch). All 14 PASS on attempt 1, every verifier PASS or SKIPPED,
 `batchComplete found=True failed=0 perCategory=1` on each, **805 s (13.4 min) wall for
-the whole group**, 49-71 s per scenario.
+the whole wave**, 49-71 s per scenario. `H22` was not part of that sweep - it arrived
+later with the Basic/Advanced UI-mode feature and flew on its own on 2026-07-28 (FULL
+PASS attempt 1, 53 s, under its pre-rename id `H7-ui-complexity-mode`).
 
 WHAT THE FLIGHTS ADDED OVER THE PRE-FLIGHT DERIVATION, precisely, because the two are
 easy to conflate. The `total=` values were already statically derivable from the
@@ -500,22 +506,25 @@ KSP.log was overwritten by the later scenarios in the same sweep - the identical
 evidence gap S1.4 documented). It was re-flown ALONE on 2026-07-27 so its log would
 survive, measured `total=2 passed=2 failed=0 skipped=0` (corroborated by that run's
 parsek-test-results.txt export: `captured=2 Passed=2 Failed=0 Skipped=0`), and is now
-pinned whole. **All 14 members of the group pin their tally whole, and every one of
+pinned whole. **All 15 members of the group pin their tally whole, and every one of
 those tallies has been measured off a live batch.**
 
-One asymmetry worth keeping in view: for 13 of the 14, `skipped=0` is also DERIVABLE
+One asymmetry worth keeping in view: for 13 of the 15, `skipped=0` is also DERIVABLE
 from the attributes plus a reachable-Skip scan, so the pin is re-derivable after a
 source change. For `H20` it is measured only - both its cells carry run-time Skip
 guards, and the walkback cell's endpoint-overlap probe is a live `Physics.OverlapBox`
 whose outcome depends on the host's collider geometry. A fixture change to a taller or
 elevated host can legitimately make it skip and red the pin as `passed=1 skipped=1`;
-that is a FIXTURE change, not a walkback regression.
+that is a FIXTURE change, not a walkback regression. `H22` is in the same position for
+the same kind of reason: all three of its cells carry run-time Skip guards (no live
+ParsekUI, Gloops recording in progress), so its `skipped=0` is a FIXTURE claim about
+`gloops-airshow` that the 2026-07-28 run measured, not an attribute derivation.
 
 COST, and the estimate that was wrong: this runbook estimated ~4-10 min per scenario
 and ~80 min for the group, extrapolating from mission-flying scenarios. A batch-only
 scenario is dominated by KSP boot plus save load, not by the batch, so the real figure
-is 49-71 s each. For scale, `B13` alone is a measured 2,825 s - the whole H7-H20 group
-costs under a third of one landing mission.
+is 49-71 s each (`H22` measured 53 s in the same band). For scale, `B13` alone is a
+measured 2,825 s - the whole H7-H20 wave costs under a third of one landing mission.
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
@@ -533,6 +542,7 @@ costs under a third of one landing mission.
 | H18-pipeline-smoothing | daily | Coast-jitter suppression, structural-event flag alignment and child-seed parity, and the LIVE GameEvents subscription contract - a dropped `GameEvents.X.Add(...)` compiles, unit-tests green, and silently stops recording docks (D2 structural-event-snapshots) | LIVE-PROVEN 2026-07-27, 50 s, matched token for token: `total=4 passed=4 failed=0 skipped=0`, plus the `asserted=5 of 5 GameEvents bindings` line. One caveat stated in the spec: the wiring helper's only Skip branch is a KSP field rename, unreachable on 1.12.5 |
 | H19-recording-finalization | nightly | BackgroundRecorder finalization-cache apply: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, active-crash tail append (D1 finalization-cache) | LIVE-PROVEN 2026-07-27, 49 s, matched token for token: `total=3 passed=3 failed=0 skipped=0` |
 | H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | LIVE-PROVEN 2026-07-27, 49 s in the sweep + a 59 s solo re-fly to capture the split. Pinned WHOLE: `total=2 passed=2 failed=0 skipped=0`. The overlap probe DID fire, so the walkback path really executed. Its `skipped=0` is measured, not derivable - see the group note |
+| H22-ui-complexity-mode | daily | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held (design 7.2 / section 8 edge case 2 - a leaked lock soft-locks the player's mouse for the rest of the scene session), a Basic round trip must preserve gated-window state, and Advanced must restore every `UiSurface`. Every mode flip goes through the `ParsekUI.SetUiComplexityMode` seam and waits on the DEFERRED latch, so the run also proves the real `ParsekFlight.Update` apply wiring exists - the two `Mode changed: uiComplexityMode=` contract lines are PRODUCTION emissions, not test echoes (D14 sandbox/scene-flight only - NO NEW REGISTRY VALUE; D15 UI surfaces deliberately NOT claimed, because it carries exactly one value and `test_real_registry_denominator` pins that count, so growing it is a separate reviewed decision) | LIVE-PROVEN 2026-07-28, 53 s, flown under its pre-rename id `H7-ui-complexity-mode` (runId `2026-07-28_1808_H7-ui-complexity-mode`; renamed to H22 in the PR #1370 merge because main's batch-wiring wave took H7-H20). FULL PASS on attempt 1, all six verifiers green (driverValidity, batchComplete perCategory=1, analyzer red=0, logValidate recRulesSuppressed=True, anomalySweep hits=[], expectations mismatches=0). Matched token for token: `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT` - all three `InGameAssert.Skip` guards (no live ParsekUI, Gloops recording in progress) were indeed unreachable on the gloops-airshow fixture, and the FLIGHT LoadGame route inferred from it is confirmed. Measured alongside: `opened 6 gated surfaces, locksHeldBeforeSwitch=0`, `12 surfaces visible in Advanced after the round trip`, `round trip preserved Career tab=3`, zero `[Parsek][ERROR]` lines. Adding a test to the category moves BOTH numbers in the spec, same commit |
 
 ### In-game ISOLATED batch wiring, R5 (1)
 
@@ -670,16 +680,17 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   (and `-s lib -q`, `-s provision -q`), plus
   `cd Source/Parsek.Tests && dotnet test`.
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
-- In-game: 539 runtime tests / 97 categories (autorun-able), H5 invariants,
+- In-game: 542 runtime tests / 98 categories (autorun-able), H5 invariants,
   log-contract tests. Counted mechanically by
   `hlib.parse_ingame_test_declarations` over `Source/Parsek`, not by hand
   (the hand-and-grep number was 534 / 96: five namespace-qualified
   declarations were invisible to both). AUTORUN-ABLE IS NOT THE SAME AS
-  AUTORUN: **22 of the 97 categories are driven by a committed spec** (up from
-  8 before the H7-H20 group). That covers 201 of the 539 declarations, 179 of
+  AUTORUN: **24 of the 98 categories are driven by a committed spec** (up from
+  8 before the H7-H20 group, plus H21's isolated `SceneExitMerge` and H22's
+  `UiComplexityMode`). That covers 206 of the 542 declarations, 184 of
   which would actually execute; the 22-declaration gap is decomposed per category
   in the inventory doc (it is NOT simply the SPACECENTER categories - over half is
-  at FLIGHT). The remaining 75 categories still run only when an operator presses
+  at FLIGHT). The remaining 74 categories still run only when an operator presses
   Ctrl+Shift+T.
   Per-category eligibility, the A/B/C triage of what is left, and the reason
   each un-wired category is un-wired live in

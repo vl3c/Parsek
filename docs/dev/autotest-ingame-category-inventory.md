@@ -1,4 +1,4 @@
-# In-game test category inventory (all 97 categories)
+# In-game test category inventory (all 98 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -28,7 +28,7 @@ category axis. Counts stated in both must agree.
   first, then `PrepareBatchExecution` on `AllowBatchExecution = false` over what
   survived. A test failing both is counted once, in the scene bucket, exactly as the
   runner counts it. These three columns model the ORDINARY batch path only, which is
-  what makes them the right derivation for the pinned `skipped=` floor of the 14
+  what makes them the right derivation for the pinned `skipped=` floor of the 15
   ordinary specs. For the isolated path see the next entry.
 - **Batch-disabled** - declarations carrying `AllowBatchExecution = false`.
   CORRECTED BY R5 (2026-07-27). This entry used to end "These are isolated-run-only;
@@ -180,6 +180,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | - | C |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | - | B |
+| `UiComplexityMode` | 3 | 3 | 0 | 0 | 0 | 3 | H22 | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
 | `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | - | B |
 | `Watch` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
@@ -187,12 +188,11 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **97 categories / 539 declarations**. Buckets **A 15 categories
-(78 declarations)**, **B 81 categories (451 declarations)**, **C 1 category (10
-declarations)**. Driven by a committed spec after this change: **23 of 97
-categories**, up from 8. Measured against declarations rather than categories, that
-is 203 of 539 inside a driven category (was 125) of which 181 actually execute (was
-103).
+Totals, re-derived: **98 categories / 542 declarations**. Buckets **A 16 categories
+(81 declarations)**, **B 81 categories (451 declarations)**, **C 1 category (10
+declarations)**. Driven by a committed spec: **24 of 98 categories**, up from 8.
+Measured against declarations rather than categories, that is 206 of 542 inside a
+driven category (was 125) of which 184 actually execute (was 103).
 
 R5 MOVED 6 CATEGORIES OUT OF BUCKET C (2026-07-27). Bucket C's C1 sub-reason held
 that `AutoRecord`, `Coalescer`, `MergeDialog`, `SceneExitMerge`, `PlaybackControl`
@@ -206,7 +206,7 @@ entry point that admits them. Only the unattended CALLERS were missing. R5 added
 bucket A and the other five are in bucket B, needing a spec and a launchable fixture
 rather than a C# redesign. C retains only C2, which R5 does not touch.
 
-The 22-declaration gap between 203 and 181 is entirely in the eight PRE-EXISTING
+The 22-declaration gap between 206 and 184 is entirely in the eight PRE-EXISTING
 driven categories - all 78 declarations these groups add execute. Decomposed, because
 the one-line summary "the SPACECENTER categories scene-skip" is wrong on all three
 counts (half the gap is at FLIGHT, one of the three SPACECENTER categories
@@ -229,14 +229,15 @@ one wired category costs one KSP boot per cadence. Wiring all 74 undriven catego
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (15 categories, 78 declarations)
+### Bucket A - wired now (16 categories, 81 declarations)
 
 Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
 spec would end up pinned against the wrong derivation.
 
-**A1 - the ordinary batch path (14 categories, 76 declarations).** All 14 ship as
-`H7`-`H20`, tier `nightly`, over the committed `gloops-airshow` fixture. The
-admission test each had to pass:
+**A1 - the ordinary batch path (15 categories, 79 declarations).** Fourteen shipped
+as one wave, `H7`-`H20`, tier `nightly`, over the committed `gloops-airshow`
+fixture; `H22-ui-complexity-mode` joined afterward with the Basic/Advanced UI-mode
+feature, tier `daily`, over the same fixture. The admission test each had to pass:
 
 1. Every declaration survives both runner filters at FLIGHT (Exec FLIGHT == Decls),
    so the attribute-derived `skipped` floor is 0.
@@ -246,14 +247,19 @@ admission test each had to pass:
    in `Ledger` members, 1 in `RouteLiveAnchor`, 1 in `TestRunnerIsolation` - so a
    per-file answer would have been wrong for both `IncompleteBallistic` and
    `SwitchSegment`, neither of which has any).
-   ONE MEMBER OF BUCKET A DOES NOT SATISFY THIS CRITERION AS WRITTEN, and saying so
-   is cheaper than a footnote nobody reads: `Pipeline-Smoothing`'s
+   TWO MEMBERS OF BUCKET A DO NOT SATISFY THIS CRITERION AS WRITTEN, and saying so
+   is cheaper than a footnote nobody reads. (a) `Pipeline-Smoothing`'s
    `Pipeline_Smoothing_StructuralEvent_HandlersRegistered` reaches an
    `InGameAssert.Skip` through its private `AssertHandlerRegistered` helper. That
    branch fires only if reflection cannot find `EventData<T>`'s internal `events`
    field, i.e. if a KSP version renamed it, which is unreachable on the pinned
    1.12.5. It is admitted on the narrower ground that the skip is a KSP-VERSION
    guard rather than a fixture-context guard, and `H18` documents it at length.
+   (b) ALL THREE `UiComplexityMode` cells carry in-body `InGameAssert.Skip` guards
+   (no live `ParsekUI`, Gloops recording in progress). Those ARE fixture-context
+   guards, so `H22` is admitted on the same ground as `H20` rather than on this
+   criterion: its `skipped=0` is a claim about `gloops-airshow` that a live run
+   settles, and the 2026-07-28 flight settled it.
 3. The fixture already exists and its route is known.
 
 That is what let 13 of the 14 pin their tally WHOLE (`total=N passed=N failed=0
@@ -262,14 +268,18 @@ skipped=0`) from a source derivation rather than a guess before any of them had 
 `InGameAssert.Skip` guards and one is undecidable from source - so it shipped with the
 honest interim form instead of an invented number.
 
-**ALL 14 NOW PIN WHOLE, every one off a MEASURED line.** The group flew 2026-07-27 and
-`H20` was re-flown alone afterwards so its log would survive to be read
+**ALL 15 NOW PIN WHOLE, every one off a MEASURED line.** The wave of 14 flew
+2026-07-27 and `H20` was re-flown alone afterwards so its log would survive to be read
 (`total=2 passed=2 failed=0 skipped=0`; the endpoint-overlap probe fired and the
-walkback path executed). One asymmetry survives and is worth carrying: for 13 of the
-14, `skipped=0` is ALSO derivable from the attributes plus a reachable-Skip scan, so
-the pin can be re-derived after a source change. For `H20` it is measured only, and a
-fixture change that moves the host's collider geometry can legitimately make its
-walkback cell skip. Read that as a fixture question, not a walkback regression.
+walkback path executed). `H22` arrived later with the Basic/Advanced UI-mode feature
+and flew on its own on 2026-07-28 (`total=3 passed=3 failed=0 skipped=0`, 53 s, under
+its pre-rename id `H7-ui-complexity-mode`). One asymmetry survives and is worth
+carrying: for 13 of the 15, `skipped=0` is ALSO derivable from the attributes plus a
+reachable-Skip scan, so the pin can be re-derived after a source change. For `H20` it
+is measured only, and a fixture change that moves the host's collider geometry can
+legitimately make its walkback cell skip. Read that as a fixture question, not a
+walkback regression. `H22` is measured only for the same kind of reason - all three
+of its cells carry run-time Skip guards that only the fixture rules out.
 
 | Spec | Category | Tests | Why it is worth a boot |
 |---|---|---|---|
@@ -287,6 +297,7 @@ walkback cell skip. Read that as a fixture question, not a walkback regression.
 | `H16-corpus-spawn-health` | SpawnHealth | 3 | Stuck `SpawnAbandoned` and out-of-bounds `SpawnDeathCount` across the corpus (one of its three cells is inert here, stated in the spec) |
 | `H19-recording-finalization` | RecordingFinalization | 3 | BackgroundRecorder finalization-cache apply: destroyed-tail trim, stable-cache Orbiting, crash-tail append |
 | `H20-eva-spawn-position` | EvaSpawnPosition | 2 | The category the 2026-07-25 EVA decision deferred to a dedicated batch-only spec; runs from the crewed landed pod host |
+| `H22-ui-complexity-mode` | UiComplexityMode | 3 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
 
 **A2 - the ISOLATED batch path (1 category, 2 declarations).** `SceneExitMerge`,
 wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It

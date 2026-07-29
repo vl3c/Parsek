@@ -16,6 +16,8 @@ namespace Parsek
         private bool settingsWindowHasInputLock;
         private const string SettingsInputLockId = "Parsek_SettingsWindow";
         private Rect lastSettingsWindowRect;
+        private bool settingsWindowHeightRemeasurePending;
+        private bool tooltipShownLastDraw;
 
         // Auto-loop editing
         private string settingsAutoLoopText = "";
@@ -62,6 +64,27 @@ namespace Parsek
             // Pass both Width+Height like every other Parsek window so the shared
             // opaqueWindowStyle padding renders identically (the previous height=10
             // reset + Width-only call caused the title-bar spacing to look off).
+            //
+            // The ONE exception is a pending re-measure (see RequestHeightRemeasure): for
+            // that single Layout pass the Height option is dropped so GUILayout sizes the
+            // window to whatever content the current UI mode draws, and the measured height
+            // comes straight back in the returned rect. The passed rect keeps its old
+            // height, so the window chrome is never drawn at a stale size - that, not the
+            // Width-only call itself, was what made the old every-frame auto-size look off.
+            //
+            // Held back while the bottom tooltip box is showing: the mode toggle is the
+            // control the mouse rests on right after the click, and measuring then would
+            // latch a height that includes a tooltip which disappears the moment the pointer
+            // moves - dead space again, just less of it. The request survives, so the fit
+            // lands on the first tooltip-free frame.
+            bool remeasuring = settingsWindowHeightRemeasurePending && !tooltipShownLastDraw;
+            GUILayoutOption[] sizeOptions = remeasuring
+                ? new[] { GUILayout.Width(settingsWindowRect.width) }
+                : new[]
+                {
+                    GUILayout.Width(settingsWindowRect.width),
+                    GUILayout.Height(settingsWindowRect.height)
+                };
             ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
             try
             {
@@ -71,14 +94,26 @@ namespace Parsek
                     DrawSettingsWindow,
                     "Parsek - Settings",
                     opaqueWindowStyle,
-                    GUILayout.Width(settingsWindowRect.width),
-                    GUILayout.Height(settingsWindowRect.height)
+                    sizeOptions
                 );
             }
             finally
             {
                 ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
             }
+
+            // Consume on the LAYOUT pass only: layout options are ignored on every other
+            // event type, so clearing the flag on (say) a Repaint would eat the request
+            // without ever re-measuring. Unity sends Layout first each frame, and the mode
+            // latch runs in Update, so the request is always honoured on the next frame.
+            if (remeasuring && Event.current.type == EventType.Layout)
+            {
+                settingsWindowHeightRemeasurePending = false;
+                var ric = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI",
+                    $"Settings window height re-measured: h={settingsWindowRect.height.ToString("F0", ric)}");
+            }
+
             parentUI.LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
 
             if (settingsWindowRect.Contains(Event.current.mousePosition))
@@ -93,6 +128,38 @@ namespace Parsek
             {
                 ReleaseInputLock();
             }
+        }
+
+        /// <summary>
+        /// Queues a one-shot content re-measure of the window height. Called from
+        /// <c>ParsekUI.OnUiComplexityModeApplied</c> in BOTH directions (design 7.2): Basic
+        /// drops the Diagnostics + Sample Density sections and Advanced restores them, so the
+        /// stored height - fixed, never player-resized, this window has no resize handle - no
+        /// longer matches the content either way. Without this the window keeps its old size:
+        /// dead space below the buttons in Basic, clipped content back in Advanced.
+        ///
+        /// <para>Only the HEIGHT is re-derived; x / y / width are untouched, so the window
+        /// does not jump. Safe to call while the window is closed - the request simply waits
+        /// for the next draw. Runs from the deferred mode latch (Update), never mid-OnGUI, so
+        /// it cannot change an IMGUI control count inside a frame.</para>
+        /// </summary>
+        internal void RequestHeightRemeasure()
+        {
+            settingsWindowHeightRemeasurePending = true;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.Verbose("UI",
+                $"Settings window height re-measure requested: storedHeight={settingsWindowRect.height.ToString("F0", ic)} " +
+                $"open={showSettingsWindow}");
+        }
+
+        /// <summary>
+        /// Test seam for the pending re-measure flag. Settable so a headless test can drive
+        /// both mode directions without an OnGUI pass to consume the request.
+        /// </summary>
+        internal bool HeightRemeasurePendingForTesting
+        {
+            get { return settingsWindowHeightRemeasurePending; }
+            set { settingsWindowHeightRemeasurePending = value; }
         }
 
         internal void ReleaseInputLock()
@@ -163,6 +230,19 @@ namespace Parsek
                     CommitAutoLoopEdit(s);
             }
 
+            // Basic / Advanced gating (design 7.1). Read the FRAME-LATCHED mode ONCE per
+            // draw pass, never the settings field: the Interface section below hosts the
+            // mode toggle itself and draws BEFORE the gated sections, so a raw read would
+            // change the control count between this frame's Layout and Repaint passes
+            // (`ArgumentException: Getting control N's position in a group with only M
+            // controls`). Each hidden section's trailing GUILayout.Space separator lives
+            // INSIDE its gate, or Basic shows a double gap where the section used to be.
+            // Interface / Recording / Looping / Ghosts / Stock UI / Data Management are
+            // visible in both modes and stay unwrapped.
+            UiComplexityMode complexity = ParsekUI.AppliedUiComplexityMode;
+
+            DrawInterfaceSettings(s);
+            GUILayout.Space(SpacingSmall);
             DrawRecordingSettings(s);
             GUILayout.Space(SpacingSmall);
             DrawLoopingSettings(s);
@@ -171,10 +251,27 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
             DrawStockUiSettings(s);
             GUILayout.Space(SpacingSmall);
-            DrawDiagnosticsSettings(s);
-            GUILayout.Space(SpacingSmall);
-            DrawSamplingSettings(s);
-            GUILayout.Space(SpacingSmall);
+
+            // Developer instrumentation (verbose logging, the three tracing toggles, the
+            // RewindPoints disk-usage readout, and the Settings-launched Test Runner).
+            // Hiding the section takes that launcher with it; the SEPARATE global
+            // Ctrl+Shift+T `ParsekTestRunnerGlobal` window and its shortcut are never gated
+            // in either mode (design 6.3) - the automated-testing harness needs them and
+            // never opens this window.
+            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionDiagnostics, complexity))
+            {
+                DrawDiagnosticsSettings(s);
+                GUILayout.Space(SpacingSmall);
+            }
+
+            // Recorder fidelity tuning: a wrong value degrades recordings, and the Medium
+            // default is correct for normal play (design section 4).
+            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionSampleDensity, complexity))
+            {
+                DrawSamplingSettings(s);
+                GUILayout.Space(SpacingSmall);
+            }
+
             DrawDataManagementSettings(s);
 
             GUILayout.Space(SpacingLarge);
@@ -225,6 +322,9 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             string tooltip = GUI.tooltip ?? "";
+            // Read by the height re-measure gate in DrawIfOpen (next frame): a measurement
+            // taken while this box is up would bake in a height that vanishes with the box.
+            tooltipShownLastDraw = tooltip.Length > 0;
             GUILayout.Space(tooltip.Length > 0 ? SpacingSmall : 0f);
             GUILayout.Label(
                 tooltip.Length > 0 ? tooltip : string.Empty,
@@ -256,6 +356,84 @@ namespace Parsek
                 };
             }
         }
+
+        /// <summary>
+        /// Basic / Advanced UI complexity toggle (design 6.2). Drawn FIRST because it
+        /// governs which of the sections below a player even sees once the phase 4-6
+        /// gates land. Uses the two-option selected-is-a-box button row of
+        /// <see cref="DrawSamplingSettings"/> rather than a checkbox: the two modes are
+        /// peers, not an on/off of one of them.
+        ///
+        /// <para>The click routes through <see cref="ParsekUI.SetUiComplexityMode"/>, the
+        /// single setter seam - never a direct write to the settings field.</para>
+        /// </summary>
+        private void DrawInterfaceSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Interface", parentUI.GetSectionHeaderStyle());
+
+            // Design 7.2 / edge case 11: Basic hides the Gloops window WITHOUT stopping the
+            // recording (philosophy 1), which would strand a running recorder with no
+            // reachable Stop / Discard control. Null-safe: in SPACECENTER parentUI.Flight is
+            // null and this falls back to "not recording", which is sound - Gloops
+            // live-recording state dies with the FLIGHT-scene ParsekFlight.
+            //
+            // Deliberately NOT logged: this runs every frame the Settings window is open.
+            // ParsekUI.SetUiComplexityMode logs the refusal at Info if a click ever gets
+            // through, and that seam - not this disable - is the load-bearing half.
+            bool gloopsRecording = parentUI.Flight != null && parentUI.Flight.IsGloopsRecording;
+
+            GUILayout.BeginHorizontal();
+            foreach (UiComplexityMode mode in new[] { UiComplexityMode.Basic, UiComplexityMode.Advanced })
+            {
+                bool isSelected = s.UiComplexityModeLevel == mode;
+                GUIStyle style = isSelected ? GUI.skin.box : GUI.skin.button;
+
+                // GUI.enabled changes how the control renders and whether it reports a
+                // click; it does NOT change the control COUNT, so this is safe to vary
+                // between one frame's Layout and Repaint passes.
+                bool prevEnabled = GUI.enabled;
+                GUI.enabled = prevEnabled && !IsModeOptionDisabled(mode, gloopsRecording);
+                bool clicked = GUILayout.Button(
+                    new GUIContent(UiComplexityModeLabel(mode), UiComplexityModeTooltip(mode)), style);
+                GUI.enabled = prevEnabled;
+
+                if (clicked && !isSelected)
+                    ParsekUI.SetUiComplexityMode(mode);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label(InterfaceSectionHint(gloopsRecording), GUI.skin.label);
+        }
+
+        /// <summary>
+        /// Whether the given mode's option button is disabled (design 7.2, edge case 11).
+        /// Only Basic is ever disabled, and only while a manual Gloops recording is running.
+        /// Advanced is never disabled: it only reveals surfaces.
+        /// </summary>
+        internal static bool IsModeOptionDisabled(UiComplexityMode mode, bool gloopsRecording)
+        {
+            return mode == UiComplexityMode.Basic && gloopsRecording;
+        }
+
+        /// <summary>
+        /// The Interface section's hint label. One label either way (never a second control),
+        /// so the inline Gloops reason cannot change the IMGUI control count mid-frame.
+        /// </summary>
+        internal static string InterfaceSectionHint(bool gloopsRecording)
+        {
+            const string BaseHint = "Basic hides power-user windows. Advanced is the full UI.";
+            return gloopsRecording
+                ? BaseHint + " Stop the Gloops recording first."
+                : BaseHint;
+        }
+
+        private static string UiComplexityModeLabel(UiComplexityMode mode)
+            => mode == UiComplexityMode.Basic ? "Basic" : "Advanced";
+
+        private static string UiComplexityModeTooltip(UiComplexityMode mode)
+            => mode == UiComplexityMode.Basic
+                ? "Show only the core loop: Timeline, Missions, Logistics, and Settings."
+                : "Show every Parsek window and settings section.";
 
         private void DrawRecordingSettings(ParsekSettings s)
         {

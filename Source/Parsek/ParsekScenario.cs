@@ -1723,6 +1723,111 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Outcome of <see cref="PlanActiveTreeSidecarSaves"/>: which active-tree
+        /// recordings are sidecar-write candidates, the per-save observability
+        /// counters, and whether any recording was skipped.
+        /// <para>
+        /// Observability (2026-04-09 debris-flow investigation, bug #280): the counters
+        /// track how many of the iterated recordings were dirty vs saved, so future
+        /// playtest logs can diagnose a FilesDirty-propagation gap. The outer
+        /// <c>wrote ACTIVE tree ... (N recording(s))</c> log only reports the total
+        /// iteration count, which once hid all debris recordings silently failing to save.
+        /// </para>
+        /// </summary>
+        internal sealed class ActiveTreeSidecarSavePlan
+        {
+            /// <summary>Recordings whose sidecars may be written, in iteration order.</summary>
+            internal readonly List<Recording> WriteCandidates = new List<Recording>();
+
+            /// <summary>Parallel to <see cref="WriteCandidates"/>: each candidate's
+            /// <c>FilesDirty</c> value as observed by the classify pass.</summary>
+            internal readonly List<bool> WriteCandidateWasDirty = new List<bool>();
+
+            internal int RecordingCount;
+            internal int DirtyCount;
+            internal int SkippedDegradedCount;
+            internal int SkippedCommittedRestoreOverlapCount;
+
+            /// <summary>
+            /// False when at least one recording was skipped by the classify pass. The
+            /// active-tree node is then NOT written, so no sidecar may be written either
+            /// — that is the both-or-neither invariant.
+            /// </summary>
+            internal bool AllRecordingsWritable = true;
+        }
+
+        /// <summary>
+        /// CLASSIFY pass for <see cref="SaveActiveTreeIfAny"/>: decides, for every
+        /// recording in the active tree and WITHOUT writing anything, whether its
+        /// sidecar may be written. Two skips exist, both pure functions of recording
+        /// state — a committed-restore overlap that is not marker-owned (merge-consent
+        /// guard) and a hydration-failed recording with an empty trajectory payload.
+        /// Either skip means the whole active-tree node is skipped, so the caller must
+        /// abandon every deferred sidecar write rather than orphan the ones it had
+        /// already flushed. <c>internal static</c> for direct testability.
+        /// </summary>
+        internal static ActiveTreeSidecarSavePlan PlanActiveTreeSidecarSaves(RecordingTree activeTree)
+        {
+            var plan = new ActiveTreeSidecarSavePlan();
+            if (activeTree == null || activeTree.Recordings == null)
+                return plan;
+
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                bool wasDirty = rec.FilesDirty;
+                if (wasDirty)
+                {
+                    plan.DirtyCount++;
+                    if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
+                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
+                    {
+                        plan.SkippedCommittedRestoreOverlapCount++;
+                        ParsekLog.Warn("Scenario",
+                            $"SaveActiveTreeIfAny: skipped dirty sidecar save for committed-restore overlap " +
+                            $"recording '{rec.RecordingId ?? "<no-id>"}' in active tree '{activeTree.TreeName}' " +
+                            "to avoid mutating committed history before merge consent");
+                        plan.AllRecordingsWritable = false;
+                        plan.RecordingCount++;
+                        continue;
+                    }
+
+                    // Switch-segment narrowing (segment-scoped-switch-fly-autorecord
+                    // Phase D): marker-owned new segment recordings must be durable
+                    // enough to survive F5/save/reload. They share id space with the
+                    // committed-restore attempt only when both run concurrently
+                    // (e.g. a switch/Fly under a #866 clone-restore), but the new
+                    // segment id is a fresh-owned recording, not an original
+                    // committed parent. Allow the dirty sidecar save through.
+                    if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
+                    {
+                        var bypassSession = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
+                        ParsekLog.Verbose("Scenario",
+                            $"SaveActiveTreeIfAny: dirty sidecar save bypassed for " +
+                            $"reason=marker-owned-switch-segment recId={rec.RecordingId ?? "<no-id>"} " +
+                            $"sessionId={(bypassSession != null ? bypassSession.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
+                    }
+
+                    if (ShouldSkipActiveTreeEmptySidecarOverwrite(rec))
+                    {
+                        plan.SkippedDegradedCount++;
+                        ParsekLog.Warn("Scenario",
+                            $"SaveActiveTreeIfAny: skipped empty sidecar overwrite for hydration-failed " +
+                            $"recording '{rec.RecordingId ?? "<no-id>"}' vessel='{rec.VesselName ?? "<no-name>"}' " +
+                            $"reason={rec.SidecarLoadFailureReason ?? "<unknown>"}");
+                        plan.AllRecordingsWritable = false;
+                        continue;
+                    }
+                }
+
+                plan.WriteCandidates.Add(rec);
+                plan.WriteCandidateWasDirty.Add(wasDirty);
+                plan.RecordingCount++;
+            }
+
+            return plan;
+        }
+
+        /// <summary>
         /// Writes the currently-active (in-flight) recording tree as an extra RECORDING_TREE
         /// ConfigNode marked with <c>isActive=True</c>, plus any recorder state needed to
         /// resume on quickload (chain id, boundary anchor UT, rewind save filename).
@@ -1784,83 +1889,70 @@ namespace Parsek
                     "recording(s) from the committed tree before saving sidecars");
             }
 
-            //
-            // Observability (2026-04-09 debris-flow investigation, bug #280): track how many
-            // of the iterated recordings were dirty vs saved, so future playtest logs can
-            // diagnose any FilesDirty-propagation gap. The outer `wrote ACTIVE tree ... (N
-            // recording(s))` log only reports the total iteration count, which hid the fact
-            // that all debris recordings were silently failing to save.
-            int activeRecCount = 0;
-            int activeDirtyCount = 0;
+            // Both-or-neither sidecar invariant (BUG-C latent secondary, 2026-06-07
+            // career playtest): CLASSIFY every recording before writing ANY sidecar.
+            // Both skip predicates below are pure functions of recording state, so
+            // "will this tree node be written?" is knowable before the first write.
+            // Writing sidecars inline used to let a legitimately-new marker-owned
+            // switch-segment recording's sidecar land on disk and then have the whole
+            // active-tree node skipped by a LATER committed-restore-overlap recording
+            // in the same tree — a sidecar on disk with no metadata referencing it
+            // (an orphan). Dictionary iteration order is unspecified, so which
+            // recordings had already been written was luck, not design.
+            ActiveTreeSidecarSavePlan sidecarPlan = PlanActiveTreeSidecarSaves(activeTree);
+            int activeRecCount = sidecarPlan.RecordingCount;
+            int activeDirtyCount = sidecarPlan.DirtyCount;
             int activeSavedCount = 0;
             int activeSaveFailedCount = 0;
-            int activeSkippedDegradedCount = 0;
-            int activeSkippedCommittedRestoreOverlapCount = 0;
-            bool activeFilesCurrent = true;
-            foreach (var rec in activeTree.Recordings.Values)
+            int activeSkippedDegradedCount = sidecarPlan.SkippedDegradedCount;
+            int activeSkippedCommittedRestoreOverlapCount =
+                sidecarPlan.SkippedCommittedRestoreOverlapCount;
+            bool activeFilesCurrent = sidecarPlan.AllRecordingsWritable;
+
+            // Single emit point for the per-save summary so the skip path and the
+            // post-write path can never drift apart. Local function, so it reads the
+            // counters at call time (0 saved / 0 failed on the skip path, by
+            // construction: nothing was written).
+            void LogActiveTreeSaveSummary()
             {
-                bool wasDirty = rec.FilesDirty;
-                if (wasDirty)
-                {
-                    activeDirtyCount++;
-                    if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(rec.RecordingId)
-                        && !RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
-                    {
-                        activeSkippedCommittedRestoreOverlapCount++;
-                        ParsekLog.Warn("Scenario",
-                            $"SaveActiveTreeIfAny: skipped dirty sidecar save for committed-restore overlap " +
-                            $"recording '{rec.RecordingId ?? "<no-id>"}' in active tree '{activeTree.TreeName}' " +
-                            "to avoid mutating committed history before merge consent");
-                        activeFilesCurrent = false;
-                        activeRecCount++;
-                        continue;
-                    }
+                ParsekLog.Info("Scenario",
+                    $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
+                    $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
+                    $"{activeSkippedDegradedCount} skippedDegraded, " +
+                    $"{activeSkippedCommittedRestoreOverlapCount} skippedCommittedRestoreOverlap");
+            }
 
-                    // Switch-segment narrowing (segment-scoped-switch-fly-autorecord
-                    // Phase D): marker-owned new segment recordings must be durable
-                    // enough to survive F5/save/reload. They share id space with the
-                    // committed-restore attempt only when both run concurrently
-                    // (e.g. a switch/Fly under a #866 clone-restore), but the new
-                    // segment id is a fresh-owned recording, not an original
-                    // committed parent. Allow the dirty sidecar save through.
-                    if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(rec.RecordingId))
-                    {
-                        var bypassSession = ParsekScenario.Instance?.ActiveSwitchSegmentSession;
-                        ParsekLog.Verbose("Scenario",
-                            $"SaveActiveTreeIfAny: dirty sidecar save bypassed for " +
-                            $"reason=marker-owned-switch-segment recId={rec.RecordingId ?? "<no-id>"} " +
-                            $"sessionId={(bypassSession != null ? bypassSession.SessionId.ToString("D", CultureInfo.InvariantCulture) : "<null>")}");
-                    }
+            if (!activeFilesCurrent)
+            {
+                LogActiveTreeSaveSummary();
+                ParsekLog.Warn("Scenario",
+                    $"SaveActiveTreeIfAny: skipped active tree '{activeTree.TreeName}' " +
+                    "because at least one recording could not be written with current v0 sidecars; " +
+                    $"outcome=both-or-neither deferredSidecarWrites={sidecarPlan.WriteCandidates.Count} " +
+                    "(tree node NOT written, so no sidecar was written either)");
+                return;
+            }
 
-                    if (ShouldSkipActiveTreeEmptySidecarOverwrite(rec))
-                    {
-                        activeSkippedDegradedCount++;
-                        ParsekLog.Warn("Scenario",
-                            $"SaveActiveTreeIfAny: skipped empty sidecar overwrite for hydration-failed " +
-                            $"recording '{rec.RecordingId ?? "<no-id>"}' vessel='{rec.VesselName ?? "<no-name>"}' " +
-                            $"reason={rec.SidecarLoadFailureReason ?? "<unknown>"}");
-                        activeFilesCurrent = false;
-                        continue;
-                    }
-                }
-
-                if (!EnsureRecordingFilesCurrentForSave(rec, "active tree"))
+            // WRITE pass. Every recording here passed the classify pass, so the tree
+            // node WILL be written unless a sidecar write itself fails. A genuine I/O
+            // failure mid-pass is the one residual case the invariant cannot cover: it
+            // is only knowable by attempting the write, and a recording whose sidecar
+            // could not be written is already not-current on disk either way.
+            for (int i = 0; i < sidecarPlan.WriteCandidates.Count; i++)
+            {
+                Recording writeCandidate = sidecarPlan.WriteCandidates[i];
+                if (!EnsureRecordingFilesCurrentForSave(writeCandidate, "active tree"))
                 {
                     activeFilesCurrent = false;
                     activeSaveFailedCount++;
                 }
-                else if (wasDirty)
+                else if (sidecarPlan.WriteCandidateWasDirty[i])
                 {
                     activeSavedCount++;
                 }
-                activeRecCount++;
             }
 
-            ParsekLog.Info("Scenario",
-                $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
-                $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
-                $"{activeSkippedDegradedCount} skippedDegraded, " +
-                $"{activeSkippedCommittedRestoreOverlapCount} skippedCommittedRestoreOverlap");
+            LogActiveTreeSaveSummary();
 
             if (!activeFilesCurrent)
             {
@@ -2796,7 +2888,16 @@ namespace Parsek
                 // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
                 // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
                 loadPhase = "settings";
-                ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current);
+                // scenarioNodePopulated is a BARE BOOL: "does my own SCENARIO node carry
+                // real Parsek data", judged exactly as PreParsekBackup.HasParsekGameplayFootprint
+                // judges it (any child node, or any value beyond the stock name+scene pair;
+                // the empty node KSP injects on first AddToAllGames contact is NOT data).
+                // The settings layer owns what that signal MEANS - this file deliberately
+                // names no UI-mode symbol.
+                bool scenarioNodePopulated =
+                    node != null && (node.nodes.Count > 0 || node.values.Count > 2);
+                ParsekSettingsPersistence.ApplyTo(
+                    ParsekSettings.Current, scenarioNodePopulated: scenarioNodePopulated);
                 ParsekLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
                 var recordings = RecordingStore.CommittedRecordings;

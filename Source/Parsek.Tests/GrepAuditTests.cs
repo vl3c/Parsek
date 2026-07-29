@@ -8,16 +8,34 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 3 of Rewind-to-Staging (design §11.7): regression harness for the
-    /// ERS/ELS grep-audit CI gate. Runs <c>scripts/grep-audit-ers-els.ps1</c>
-    /// against the current source tree and asserts exit 0 — i.e. every
-    /// <c>RecordingStore.CommittedRecordings</c> and <c>Ledger.Actions</c>
-    /// reader outside the allowlist is a build break.
+    /// Allowlist-shaped grep-audit CI gates.
+    ///
+    /// <para><b>ERS/ELS</b> (Phase 3 of Rewind-to-Staging, design §11.7): runs
+    /// <c>scripts/grep-audit-ers-els.ps1</c> against the current source tree and
+    /// asserts exit 0 — i.e. every <c>RecordingStore.CommittedRecordings</c> and
+    /// <c>Ledger.Actions</c> reader outside the allowlist is a build break.</para>
+    ///
+    /// <para><b>UI complexity mode</b> (Phase 8 of Basic / Advanced UI mode,
+    /// design §13.4): runs <c>scripts/grep-audit-ui-complexity-mode.ps1</c> and
+    /// asserts exit 0 — i.e. the mode vocabulary appearing in any file outside
+    /// the UI / deferred-apply / settings allowlist is a build break. That is the
+    /// mechanical enforcement of the design §9 visibility-only invariant.</para>
     /// </summary>
     public class GrepAuditTests
     {
         [Fact]
         public void GrepAudit_AllRawAccessIsAllowlisted()
+        {
+            RunGrepAuditScript("grep-audit-ers-els.ps1");
+        }
+
+        [Fact]
+        public void GrepAudit_UiComplexityModeVocabularyIsAllowlisted()
+        {
+            RunGrepAuditScript("grep-audit-ui-complexity-mode.ps1");
+        }
+
+        private static void RunGrepAuditScript(string scriptFileName)
         {
             // Non-Windows CI runners may not have pwsh; also skip if the binary
             // isn't on PATH. This is a regression gate, not a correctness test
@@ -26,12 +44,12 @@ namespace Parsek.Tests
             {
                 // xUnit v2.4 has no first-class Skip; emitting via stdout keeps
                 // the intent auditable without failing the suite.
-                Console.WriteLine("GrepAuditTests: skipped (pwsh not available).");
+                Console.WriteLine("GrepAuditTests: skipped (pwsh not available): " + scriptFileName);
                 return;
             }
 
             string repoRoot = ResolveRepoRoot();
-            string scriptPath = Path.Combine(repoRoot, "scripts", "grep-audit-ers-els.ps1");
+            string scriptPath = Path.Combine(repoRoot, "scripts", scriptFileName);
             Assert.True(File.Exists(scriptPath),
                 "grep-audit script missing: " + scriptPath);
 
@@ -59,13 +77,15 @@ namespace Parsek.Tests
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
                 bool finished = proc.WaitForExit(60_000);
-                Assert.True(finished, "grep-audit script did not finish within 60s.");
+                Assert.True(finished,
+                    "grep-audit script did not finish within 60s: " + scriptFileName);
                 // Flush async reads.
                 proc.WaitForExit();
 
                 string combined = "stdout:\n" + stdout + "\nstderr:\n" + stderr;
                 Assert.True(proc.ExitCode == 0,
-                    "grep-audit script exited with " + proc.ExitCode + ".\n" + combined);
+                    "grep-audit script " + scriptFileName + " exited with "
+                        + proc.ExitCode + ".\n" + combined);
             }
         }
 
