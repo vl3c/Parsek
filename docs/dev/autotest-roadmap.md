@@ -868,16 +868,20 @@ highest-leverage item; R5's unlock remains almost entirely unconsumed).
 
 Clusters, in the design doc's phase order:
 
-- **Fail-open closures** (spec/config; extends Tier 0's spirit): raw-Unity-exception
-  forbidden patterns on every spec; the `STOCK_AWARD_PATTERNS` rewrite from the
-  archived CL-1 log (known-gate 3); anomaly count-budgets replacing the binary
-  allowlist (known-gate 0); the B4 chute-latch diagnosis (known-gate 7);
-  converting the ~19 silent early-return PASS sites to loud Skips; ERS/ELS gate
-  hardening (`CommittedTrees` pattern, fail-on-missing-pwsh).
+- **Fail-open closures** (spec/config; extends Tier 0's spirit): the
+  `STOCK_AWARD_PATTERNS` rewrite (known-gate 3), anomaly count-budgets
+  (known-gate 0), and a report-only raw-Unity-exception scan LANDED via
+  PR #1377 - arming stays operator-blocked on a calibration nightly (see
+  status-doc gates 0/3/11). Still open: the B4 chute-latch diagnosis
+  (known-gate 7); converting the ~19 silent early-return PASS sites to loud
+  Skips; ERS/ELS gate hardening (`CommittedTrees` pattern,
+  fail-on-missing-pwsh).
 - **Data-integrity units** (xUnit, no flight time): `SafeWriteConfigNode`
-  destroy-on-failed-save; the schema-reject prune chain end-to-end;
-  rewind-across-SOI; RP-slot ambiguity; the crew-death -> tombstone -> rep-penalty
-  chain; journal crash matrix as a `[Theory]` over the phase enum.
+  destroy-on-failed-save LANDED via PR #1375; the schema-reject prune chain
+  end-to-end and the `SaveActiveTreeIfAny` both-or-neither fix LANDED via
+  PR #1376. Still open: rewind-across-SOI; RP-slot ambiguity; the
+  crew-death -> tombstone -> rep-penalty chain; journal crash matrix as a
+  `[Theory]` over the phase enum.
 - **Property/fuzz lane** (xUnit): `RecalculationFuzzer` extended to all 9 modules
   with state invariants; a seeded random-tree fuzzer for the supersede/chain/
   closure walkers.
