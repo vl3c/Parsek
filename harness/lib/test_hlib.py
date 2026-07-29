@@ -6235,9 +6235,12 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
     def test_a_multi_facet_entry_corroborates_one_award_per_pool(self):
         # SECOND-ORDER REGRESSION, same class as the kind join one level down:
         # consumption used to be per ENTRY, so the canonical contract-complete shape -
-        # ONE entry declaring BOTH funds and reputation, which stock logs as TWO award
-        # lines at the same seqKey - was swallowed whole by whichever line matched
-        # first, stranding its sibling as permanently "unexpected".
+        # ONE entry declaring BOTH funds and reputation against TWO award lines at the
+        # same seqKey - was swallowed whole by whichever line matched first, stranding
+        # its sibling as permanently "unexpected". NOTE the two-line premise is
+        # SYNTHETIC: KSP logs no funds award, so a real log never carries the funds half
+        # (hlib.STOCK_AWARD_PATTERNS_DEAD). The per-pool rule is kept as fail-closed
+        # structure against a future second-pool producer, not as live behaviour.
         parse = oracle.parse_manifest_entries([
             {"ut": 500.0, "kind": "contract-complete", "funds": 1000.0,
              "reputation": 5.0, "contractGuid": "g1"}])

@@ -849,10 +849,17 @@ six publish or compare numbers the runner already measured.
    <subject>. Subject value is <v>`, which is not a currency delta and stays
    inadmissible. Pinned by
    `test_no_science_award_line_exists_in_ksp_so_none_is_enumerated`.
-   TWO KNOWN CAPTURE GAPS, both real KSP lines deliberately unmatched because
-   neither carries a `TransactionReasons` key: `Reputation.addReputation_discrete`
-   logs `Adding ...` (not `Added ...`), and the no-reason `AddReputation` branch logs
-   `Added <n> (<r>) reputation. Total Rep: <total>` (period, not colon). Both move
+   TWO KNOWN CAPTURE GAPS, both real KSP lines deliberately unmatched - but for
+   DIFFERENT reasons, and conflating them would mislead. (a)
+   `Reputation.addReputation_discrete` logs
+   `Adding <n> (<r>) reputation: '<reason>'.` - it DOES carry the
+   `TransactionReasons` key in exactly the form the live pattern reads, and the only
+   thing excluding it is the verb (`Adding`, not `Added`). A pattern for it is
+   writable and would correlate; it is absent purely because nobody has MEASURED
+   that line in the field, which is the rule governing this whole table. (b) The
+   no-reason `AddReputation` branch logs
+   `Added <n> (<r>) reputation. Total Rep: <total>` (period, not colon) and carries
+   NO reason key, so it has no identity to correlate on even if matched. Both move
    the produced save, so the seam-declared-vs-save diff still catches them.
    CONSEQUENCE FOR `fill-from-capture`: it is legal only on the funds facet (science
    and reputation fills are rejected to preserve M-B2 leg independence), so with the
@@ -1090,8 +1097,8 @@ six publish or compare numbers the runner already measured.
    - The 158 is a single old outlier (`2026-07-10_2339_rerun4-green`, a long career
      run predating most of the suite). Excluding it the corpus max is **7**
      (`BDOCK-1-station-interceptor`, the longest/most complex flown scenario), with
-     the next band at 4 (`H5`, `B5`) and a broad cluster at 3 (`B1`, `B2`, `B5`,
-     `B6`).
+     the next band at 4 (`H5`, `B5`) and a broad cluster at 3 spanning `B1`, `B2`,
+     `B5`, `B6`, `B7`, `EVA-1`, `BDOCK-1` and `FORGE-bdock-station`.
    CAVEAT before arming off these numbers: the corpus is not segmented green-vs-red,
    it spans many builds, and per-spec sample counts are uneven (27 `B5` runs, 1
    `S1.7`). Treat it as an order-of-magnitude floor, not a per-spec baseline. On that

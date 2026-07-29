@@ -1638,9 +1638,16 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         # dropped. Here a genuine rep award IS captured, and it still cannot fill the
         # funds entry.
         #
-        # The fill mechanism is retained, not deleted: if a future KSP build or a mod
-        # starts logging funds, StockAwardCaptureTests.test_retired_funds_shape_is_
-        # not_captured reds first and the facet gets re-decided.
+        # The fill mechanism is retained, not deleted - but BE HONEST ABOUT WHAT STILL
+        # GUARDS IT. The pure mechanism keeps its coverage in test_oracle.py
+        # (`test_fill_from_capture_state_independent_single_match` and siblings, which
+        # feed synthetic captured entries directly). What this cell no longer guards is
+        # the SF6b WIRING at run.py's `captured=captured_entries`: the FAIL asserted
+        # here is satisfied identically by the pre-SF6b regression (captured never
+        # passed -> the same ambiguous FAIL), so dropping that kwarg would go unnoticed
+        # by the whole suite. That is accepted rather than fixed, because the only way
+        # to restore an end-to-end positive is to feed a funds award line KSP does not
+        # emit - the exact fiction this retirement removed.
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
                + self.STOCK_REP_LINE + "\n")
         ledger = self._ledger_block(manifest=[

@@ -3712,13 +3712,20 @@ LEDGER_TOLERANCE_VALUES: Tuple[str, ...] = ("default",)
 # gate, but it has never once run with a working capture: STOCK_AWARD_PATTERNS
 # matched invented shapes, so the captured set was empty on every flight and the
 # gate could not fire. Making the patterns real turns that dormant gate live in one
-# step, against scenarios NOBODY has measured it on - and the measurement that does
-# exist says it would red them: the CL-1 flights show a career pad hop tripping
-# `RecordsSpeed` / `FirstLaunch` / `RecordsAltitude` funds awards plus two
-# `Progression` rep awards, none of which any L1 seam manifest declares. So the
-# mechanism lands report-only, the counts land in the result JSON, and an operator
-# arms `captureCrossCheck = "gate"` per scenario once a green run shows what that
+# step, against scenarios NOBODY has measured it on. So the mechanism lands
+# report-only, the counts land in the result JSON, and an operator arms
+# `captureCrossCheck = "gate"` per scenario once a green run shows what that
 # scenario's baseline award set actually is.
+#
+# CORRECTED 2026-07-29: this comment used to justify the deferral with "a career pad
+# hop trips RecordsSpeed / FirstLaunch / RecordsAltitude funds awards plus two
+# Progression rep awards, none declared by any L1 manifest". The three FUNDS awards
+# are invisible to the capture - KSP logs none of them (STOCK_AWARD_PATTERNS_DEAD) -
+# so only the `Progression` rep awards could ever surface as unexpected. The deferral
+# still stands, for a stronger reason: no L1 spec can capture ANYTHING (all six are
+# funds-only / science-only / all-zero / manifest-less, and all six are scene-ksc runs
+# that never fly), so arming `gate` there would be a no-op gate reading green forever.
+# Arming wants a REPUTATION-producing scenario.
 LEDGER_CAPTURE_CROSS_CHECK_KEY = "captureCrossCheck"
 LEDGER_CAPTURE_CROSS_CHECK_REPORT = "report"
 LEDGER_CAPTURE_CROSS_CHECK_GATE = "gate"
@@ -3853,9 +3860,13 @@ _STOCK_UT_RE = re.compile(r"\[Parsek\].*?\but=(?P<ut>-?\d+(?:\.\d+)?)")
 #
 #   1. Assembly string table (KSP 1.12.5 Assembly-CSharp.dll, UTF-16LE literal
 #      counts): `") reputation: '"` = 1, `") reputation. Total Rep: "` = 1,
-#      `" funds: '"` = 0, `" science: '"` = 0. A concatenated Debug.Log keeps its
-#      format fragment as one literal, so a zero count is conclusive: no code path
-#      can emit `Added <n> funds: '<reason>'` or the science equivalent.
+#      `" funds: '"` = 0, `" science: '"` = 0. Read this as STRONG BUT NOT
+#      SELF-SUFFICIENT: it rules out a per-pool literal, but a shared
+#      pool-parameterised formatter (`"Added " + n + " " + pool + ": '"`) would
+#      defeat a literal count. Proofs 2 and 3 close that hole; the three together
+#      are conclusive, proof 1 alone is not. NOTE also that the `") reputation: '"`
+#      count of 1 is a DEDUPED user-string-heap entry shared by TWO emit sites
+#      (the `Added` and `Adding` branches below), not evidence of a single emitter.
 #   2. Decompiled bodies: `Funding.AddFunds(double, TransactionReasons)` and
 #      `ResearchAndDevelopment.AddScience(float, TransactionReasons)` mutate the pool
 #      and fire GameEvents with NO Debug.Log of any kind. Only `Reputation` logs.
@@ -3874,11 +3885,19 @@ _STOCK_UT_RE = re.compile(r"\[Parsek\].*?\but=(?P<ut>-?\d+(?:\.\d+)?)")
 # in place advertising coverage it cannot have (same call, same reasoning, as the
 # `icon-jump` retirement in ANOMALY_TOKENS_DEAD).
 #
-# KNOWN CAPTURE GAPS, both real KSP lines this enumeration deliberately does NOT
-# match, because neither carries a TransactionReasons key to correlate on:
-#   - `Reputation.addReputation_discrete` logs "Adding ...", not "Added ...".
+# KNOWN CAPTURE GAPS, two real KSP lines this enumeration deliberately does NOT
+# match. They are NOT the same case, and conflating them would mislead whoever picks
+# this up next:
+#   - `Reputation.addReputation_discrete` logs `Adding <n> (<r>) reputation: '<reason>'.`
+#     It DOES carry the TransactionReasons key, in exactly the quoted-tail form the
+#     live pattern reads - the only thing that excludes it is the verb ("Adding", not
+#     "Added"). So a pattern for it is technically writable and WOULD correlate. It is
+#     absent for the one reason that governs this whole table: nobody has measured
+#     that line in the field. Add it when a collected log produces one, not before.
 #   - The no-reason `AddReputation` branch logs
-#     `Added <n> (<r>) reputation. Total Rep: <total>` - period, not colon.
+#     `Added <n> (<r>) reputation. Total Rep: <total>` - period, not colon. This one
+#     genuinely carries NO reason key, so it has no identity to correlate on even if
+#     it were matched.
 # An award on either path moves the produced save, so the seam-declared-vs-save diff
 # still catches it; only the leg-A corroboration is blind to it.
 STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (
@@ -3901,12 +3920,26 @@ STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (
 )
 
 # RETIRED patterns: enumerated once, emitted by NOTHING in KSP, REMOVED from
-# STOCK_AWARD_PATTERNS (2026-07-29). Kept as a named constant for the same two
-# mechanical reasons ANOMALY_TOKENS_DEAD is: the retirement is evidenced rather than
-# silent, and a test asserts the shape stays unmatched by the live enumeration, so a
-# future KSP build that DOES start logging funds reds here instead of quietly
-# re-opening a dead facet. Removing these moves no verdict by construction - a shape
-# no build emits can never be captured.
+# STOCK_AWARD_PATTERNS (2026-07-29). Kept as a named constant so the retirement is
+# evidenced rather than silent, and so a maintainer who re-adds a funds pattern has
+# to delete this entry and its test - a RE-DECISION forcing function.
+#
+# BE PRECISE ABOUT WHAT THIS DOES NOT DO. It is a WEAKER guard than the
+# ANOMALY_TOKENS_DEAD precedent it is modelled on, and the difference matters. A dead
+# anomaly token that gains a producer is caught at RUNTIME, because
+# `unlisted_anomaly_reasons` reports any raised reason outside the gated set. There is
+# no equivalent reporter here: `parse_stock_award_lines` never says "this line looked
+# like an award and matched nothing". So if a future KSP build (or a mod) starts
+# logging funds, NOTHING in this module reds - `test_retired_funds_shape_is_not_
+# captured` is a pure unit test over these tables and cannot observe the game. The
+# actual net for an unmatched award stays what it has always been: the award moves the
+# produced save, and the seam-declared-vs-save diff catches it. Closing the gap
+# properly would mean an unmatched-award-shape reporter mirroring
+# `unlisted_anomaly_reasons`; that is deliberately NOT built here, because no measured
+# line motivates it yet.
+#
+# Removing these moves no verdict by construction - a shape no build emits can never
+# be captured.
 #
 # INVARIANT: this tuple and STOCK_AWARD_PATTERNS are DISJOINT by `kind`.
 STOCK_AWARD_PATTERNS_DEAD: Tuple[StockAwardPattern, ...] = (
@@ -3938,12 +3971,16 @@ class CapturedAward:
     ordinal (the seqKey when ``ut`` is null). Every captured amount is a DELTA.
 
     ``reason`` is the stock ``TransactionReasons`` key the award line quotes
-    (``'VesselLoss'``, ``'RecordsSpeed'``, ...). It is the ONLY identity a stock
-    award line carries - there is no guid and no subject id on one - so it is what
-    distinguishes two same-amount awards at the same UT (``RecordsSpeed`` 4800 and
-    ``RecordsAltitude`` 4800 fired on the same CL-1 hop; without the reason in the
-    dedupe key they would collapse into one). OPTIONAL with a default so every
-    existing positional/keyword construction still builds."""
+    (``'VesselLoss'``, ``'Progression'``, ...). It is the ONLY identity a stock award
+    line carries - there is no guid and no subject id on one - so it is what
+    distinguishes two same-amount awards that differ only in cause. NOTE the capture
+    is REPUTATION-ONLY (see STOCK_AWARD_PATTERNS): an earlier version of this
+    docstring motivated the field with ``RecordsSpeed`` 4800 vs ``RecordsAltitude``
+    4800 on one CL-1 hop, but KSP logs no funds award, so that pair never reaches the
+    capture. The measured same-amount case is CL-1's two ``'Progression'`` +1 rep
+    awards, which share amount AND reason and are separated by their distinct seqKeys.
+    OPTIONAL with a default so every existing positional/keyword construction still
+    builds."""
     kind: str
     facet: str
     amount: float
@@ -4053,9 +4090,12 @@ def _captured_identity(award: "CapturedAward") -> str:
     """The identity a captured award carries: contract guid, else science subject,
     else the stock reason key. The reason fallback is load-bearing for the rewritten
     patterns - a stock award line has NO guid and NO subject, so without it two
-    DIFFERENT awards of the same size at the same UT (CL-1 measured `RecordsSpeed`
-    4800 and `RecordsAltitude` 4800 on one hop) share an identity and the dedupe
-    silently collapses them into one effect."""
+    DIFFERENT awards of the same size share an identity and the dedupe silently
+    collapses them into one effect. (An earlier version cited `RecordsSpeed` 4800 vs
+    `RecordsAltitude` 4800 on one CL-1 hop; those are funds awards KSP never logs, so
+    they never reach the capture - see STOCK_AWARD_PATTERNS.) Note the reason is NOT
+    sufficient on its own: CL-1's two `'Progression'` awards share amount AND reason,
+    and are separated by the seqKey the dedupe key also carries."""
     return award.contract_guid or award.subject_id or award.reason
 
 
@@ -4148,18 +4188,23 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
 
     ONE-TO-ONE PER (ENTRY, POOL): a match CONSUMES the pair ``(entry, facet)``, so one
     declared effect explains at most one award ON EACH POOL IT DECLARES. That is what
-    stops the CL-1 pair (`RecordsSpeed` 4800 and `RecordsAltitude` 4800, same UT, same
-    size) from BOTH corroborating a single declared 4800 - the second stays unexpected,
-    which is the correct signal.
+    stops two same-size awards at one seqKey from BOTH corroborating a single declared
+    amount - the second stays unexpected, which is the correct signal. The measured
+    instance is CL-1's two ``'Progression'`` +1 rep awards. (An earlier version of this
+    docstring used `RecordsSpeed` 4800 / `RecordsAltitude` 4800; KSP logs no funds
+    award, so that pair never reaches the capture - see STOCK_AWARD_PATTERNS.)
 
     The PER-POOL part is not a refinement, it is the multi-facet case: a
-    contract-complete entry declares funds AND reputation, and stock logs those as TWO
-    separate award lines at the same seqKey. Consuming per ENTRY let whichever line
-    matched first swallow the whole entry and left its sibling permanently
-    "unexpected" (reproduced: a funds 1000 + rep 5 entry against its own two log lines
-    -> 1 unexpected). oracle's fill path already documents exactly this pairing and
-    carries a facet filter for it; this is the same rule on the matching side. An entry
-    that declares one pool is unchanged - it can still only ever explain one award.
+    contract-complete entry declares funds AND reputation, and consuming per ENTRY let
+    whichever line matched first swallow the whole entry and leave its sibling
+    permanently "unexpected" (reproduced: a funds 1000 + rep 5 entry against two log
+    lines -> 1 unexpected). That reproduction used a synthetic funds line; against a
+    REAL log the funds half never arrives, so today the rule is load-bearing only if a
+    future producer starts logging a second pool. It is kept because the cost is nil
+    and the alternative is a latent stranding bug. oracle's fill path already documents
+    exactly this pairing and carries a facet filter for it; this is the same rule on
+    the matching side. An entry that declares one pool is unchanged - it can still only
+    ever explain one award.
 
     INDEPENDENCE IS PRESERVED (M-B2). This function only classifies; it never feeds
     ``compute_expected``, so a captured amount is still never summed into EXPECTED,
