@@ -855,6 +855,51 @@ run lane, and runs are currently strictly serial under a per-instance run lock.
 - D7 `engine-fx-waterfall-fallback`: belongs with R14, not with the part-event work.
 - A declarative multi-piece mission composer to replace bespoke phase machines.
 
+### Tier 5 (added 2026-07-29): beyond R14 - pointer index only
+
+The 2026-07-29 full-stack audit (`test-coverage-audit-2026-07-29.md`) and the
+unified testing design (`design-testing-unified.md`) extend this roadmap past
+R14. The ranked detail and rationale live in `design-testing-unified.md` §8 -
+this tier is a pointer index so the roadmap stays the single forward-order
+surface, and it does NOT reorder R1-R14: the audit independently re-confirmed
+this file's sequencing rule (gate what already flies before growing the flight
+lane) and its top unbuilt items (R9 structural expectations remains the single
+highest-leverage item; R5's unlock remains almost entirely unconsumed).
+
+Clusters, in the design doc's phase order:
+
+- **Fail-open closures** (spec/config; extends Tier 0's spirit): the
+  `STOCK_AWARD_PATTERNS` rewrite (known-gate 3), anomaly count-budgets
+  (known-gate 0), and a report-only raw-Unity-exception scan LANDED via
+  PR #1377 - arming stays operator-blocked on a calibration nightly (see
+  status-doc gates 0/3/11). Still open: the B4 chute-latch diagnosis
+  (known-gate 7); converting the ~19 silent early-return PASS sites to loud
+  Skips; ERS/ELS gate hardening (`CommittedTrees` pattern,
+  fail-on-missing-pwsh).
+- **Data-integrity units** (xUnit, no flight time): `SafeWriteConfigNode`
+  destroy-on-failed-save LANDED via PR #1375; the schema-reject prune chain
+  end-to-end and the `SaveActiveTreeIfAny` both-or-neither fix LANDED via
+  PR #1376. Still open: rewind-across-SOI; RP-slot ambiguity; the
+  crew-death -> tombstone -> rep-penalty chain; journal crash matrix as a
+  `[Theory]` over the phase enum.
+- **Property/fuzz lane** (xUnit): `RecalculationFuzzer` extended to all 9 modules
+  with state invariants; a seeded random-tree fuzzer for the supersede/chain/
+  closure walkers.
+- **Visual validation program** (V1-V7 in `design-testing-unified.md` §6):
+  map-dwell phases on flown missions aiming the existing parity oracle at real
+  geometry; gating the FX emission probe; always-collect + HTML contact sheets;
+  `Screenshot`/`MapCamera` seam verbs; the self-consistency double-render pixel
+  oracle; pixel-free geometric invariants; the `UiSmokeRender` window sweep.
+- **Mode-axis expansion**: a science-mode spec lane; seam-forged career fixtures
+  (`KscAction` progression -> harvest, the FORGE pattern applied to career state);
+  the templated mid-career matrix; `LedgerGroundTruthHarness` wired to a career
+  spec; the L-track grand oracle (depends on the `STOCK_AWARD_PATTERNS` rewrite).
+- **Mission-fleet growth** (after the gates above): `b5_decide` body sweeps; a
+  curated craft fleet including vetted downloaded craft (persisted-VESSEL intake
+  for career; the dead `[fixture].craft` spec key needs fixing or deleting);
+  Duna landing; rendezvous-without-docking; perf/soak scenarios (ghost-count
+  frame-cost budgets, long-recording round-trip budgets).
+
 ---
 
 ## Open bugs blocking or degrading the system
