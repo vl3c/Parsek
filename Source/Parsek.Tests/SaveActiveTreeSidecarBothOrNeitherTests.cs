@@ -45,8 +45,8 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
-            GameStateStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
+            GameStateStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
@@ -118,18 +118,24 @@ namespace Parsek.Tests
 
         // Fails if: the classify pass is order-dependent. The orphan was created by
         // dictionary iteration order (segment first, overlap second); the plan must
-        // reach the same verdict whichever order the recordings are walked in.
-        [Fact]
-        public void OverlapPlusMarkerOwnedSegment_VerdictIsIndependentOfIterationOrder()
+        // reach the same verdict whichever order the recordings are walked in, so
+        // both orders are asserted against the same expectations.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void OverlapPlusMarkerOwnedSegment_VerdictIsIndependentOfIterationOrder(
+            bool segmentFirst)
         {
-            RecordingTree segmentFirst = BuildOverlapPlusSegmentActiveTree(
-                out _, out _, segmentFirst: true);
-            ParsekScenario.ActiveTreeSidecarSavePlan planSegmentFirst =
-                ParsekScenario.PlanActiveTreeSidecarSaves(segmentFirst);
+            RecordingTree activeTree = BuildOverlapPlusSegmentActiveTree(
+                out _, out _, segmentFirst: segmentFirst);
+            ParsekScenario.ActiveTreeSidecarSavePlan plan =
+                ParsekScenario.PlanActiveTreeSidecarSaves(activeTree);
 
-            Assert.False(planSegmentFirst.AllRecordingsWritable);
-            Assert.Equal(1, planSegmentFirst.SkippedCommittedRestoreOverlapCount);
-            Recording candidate = Assert.Single(planSegmentFirst.WriteCandidates);
+            Assert.False(plan.AllRecordingsWritable);
+            Assert.Equal(1, plan.SkippedCommittedRestoreOverlapCount);
+            Assert.Equal(2, plan.RecordingCount);
+            Assert.Equal(2, plan.DirtyCount);
+            Recording candidate = Assert.Single(plan.WriteCandidates);
             Assert.Equal(SegmentRecordingId, candidate.RecordingId);
         }
 

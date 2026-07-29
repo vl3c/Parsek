@@ -1909,13 +1909,22 @@ namespace Parsek
                 sidecarPlan.SkippedCommittedRestoreOverlapCount;
             bool activeFilesCurrent = sidecarPlan.AllRecordingsWritable;
 
-            if (!activeFilesCurrent)
+            // Single emit point for the per-save summary so the skip path and the
+            // post-write path can never drift apart. Local function, so it reads the
+            // counters at call time (0 saved / 0 failed on the skip path, by
+            // construction: nothing was written).
+            void LogActiveTreeSaveSummary()
             {
                 ParsekLog.Info("Scenario",
                     $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
                     $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
                     $"{activeSkippedDegradedCount} skippedDegraded, " +
                     $"{activeSkippedCommittedRestoreOverlapCount} skippedCommittedRestoreOverlap");
+            }
+
+            if (!activeFilesCurrent)
+            {
+                LogActiveTreeSaveSummary();
                 ParsekLog.Warn("Scenario",
                     $"SaveActiveTreeIfAny: skipped active tree '{activeTree.TreeName}' " +
                     "because at least one recording could not be written with current v0 sidecars; " +
@@ -1943,11 +1952,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Info("Scenario",
-                $"SaveActiveTreeIfAny: iterated {activeRecCount} recording(s), " +
-                $"{activeDirtyCount} dirty, {activeSavedCount} saved, {activeSaveFailedCount} failed, " +
-                $"{activeSkippedDegradedCount} skippedDegraded, " +
-                $"{activeSkippedCommittedRestoreOverlapCount} skippedCommittedRestoreOverlap");
+            LogActiveTreeSaveSummary();
 
             if (!activeFilesCurrent)
             {

@@ -627,10 +627,9 @@ namespace Parsek.Tests
         /// <summary>
         /// Serializes the tree the way <c>ParsekScenario</c> does, optionally
         /// stamping ONE recording's on-disk <c>recordingSchemaGeneration</c> to an
-        /// incompatible value, then writes it to a real file. The stamp has to
-        /// happen on the SERIALIZED node: the codec's save path force-writes the
-        /// current generation onto every recording, so setting the in-memory field
-        /// would be overwritten.
+        /// incompatible value, then writes it to a real file. The stamp is applied
+        /// on the SERIALIZED node so the fixture is independent of whether the codec
+        /// writes the in-memory field or the current constant.
         /// </summary>
         private string WriteTreeToDisk(
             RecordingTree tree, string fileName, string rejectedRecordingId, int rejectedGeneration)
