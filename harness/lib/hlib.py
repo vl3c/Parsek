@@ -3836,45 +3836,59 @@ _STOCK_UT_RE = re.compile(r"\[Parsek\].*?\but=(?P<ut>-?\d+(?:\.\d+)?)")
 # dressed as a gate.
 #
 # The real KSP 1.12 idiom, MEASURED (both CL-1 flights, 2026-07-28, identical
-# across them - quoted in docs/dev/todo-and-known-bugs.md:248-257,
-# harness/scenarios/CL-1-pod-impact.toml:135-140 and, for the rep line,
-# docs/dev/done/todo-and-known-bugs-v4.md:1954):
+# across them - quoted in docs/dev/todo-and-known-bugs.md:248-257 and, for the
+# Progression line, docs/dev/done/todo-and-known-bugs-v4.md:1954):
 #
 #     Added -9.999828 (-10) reputation: 'VesselLoss'.
 #     Added 0.9999995 (1) reputation: 'Progression'.
-#     Added 4800 funds: 'RecordsSpeed'
 #
-# i.e. `Added <appliedDelta> [(<nominal>)] <pool>: '<TransactionReasons key>'`. The
+# i.e. `Added <appliedDelta> (<nominal>) reputation: '<TransactionReasons key>'`. The
 # leading number is the APPLIED per-event DELTA (the parenthesised value is stock's
 # rounded display of the nominal); the quoted tail is the stock reason key, which
-# is the only identity a stock award line carries. Both facets share one shape, so
-# the `(<nominal>)` group is OPTIONAL in both - the measured rep lines carry it and
-# the measured funds line does not, and pinning that difference into two divergent
-# regexes would be a guess about a formatting detail nobody has a reason to rely on.
+# is the only identity a stock award line carries.
 #
-# SCIENCE IS DELIBERATELY NOT ENUMERATED. No science award line is quoted ANYWHERE
-# in this repo - not in the todo doc, not in a spec comment, not in an archived log
-# excerpt - so its exact shape is UNMEASURED. It is very likely the same
-# `Added <n> science: '<reason>'` idiom, and that is exactly why it is absent: a
-# guessed pattern is what this rewrite is fixing, and a science award that no
-# pattern matches still moves the produced save, so the save-diff catches it. ADD
-# IT when a flight produces the line (an L1 science scenario's collected KSP.log is
-# the cheapest source).
+# ONLY REPUTATION IS CAPTURABLE. KSP LOGS NO FUNDS AWARD AND NO SCIENCE AWARD, and
+# that is a property of the game, not a gap in our measurement (2026-07-29,
+# known-gate 3 follow-up). Three independent proofs, all reproducible:
+#
+#   1. Assembly string table (KSP 1.12.5 Assembly-CSharp.dll, UTF-16LE literal
+#      counts): `") reputation: '"` = 1, `") reputation. Total Rep: "` = 1,
+#      `" funds: '"` = 0, `" science: '"` = 0. A concatenated Debug.Log keeps its
+#      format fragment as one literal, so a zero count is conclusive: no code path
+#      can emit `Added <n> funds: '<reason>'` or the science equivalent.
+#   2. Decompiled bodies: `Funding.AddFunds(double, TransactionReasons)` and
+#      `ResearchAndDevelopment.AddScience(float, TransactionReasons)` mutate the pool
+#      and fire GameEvents with NO Debug.Log of any kind. Only `Reputation` logs.
+#   3. Field corpus: 137 collected KSP.logs, including a career run that credited
+#      +4800 `RecordsSpeed` milestone funds (logs/2026-07-10_2339_rerun4-green),
+#      contain ZERO stock funds/science award lines and exactly the rep lines above.
+#
+# The `Added 4800 funds: 'RecordsSpeed'` line the 2026-07-29 rewrite shipped was
+# NEVER MEASURED - it was composed by analogy from the rep line. Its cited source
+# (CL-1-pod-impact.toml "progress milestones: RecordsSpeed funds=4800") quotes
+# PARSEK's own `[Parsek][INFO][GameStateRecorder] Game state: MilestoneAchieved ...
+# funds=4800` line, and `parse_stock_award_lines` skips [Parsek]-tagged lines. So the
+# rewrite reproduced, on the funds facet, the exact defect it closed on the others:
+# a pattern and its tests agreeing with each other and both disagreeing with KSP.
+# The funds pattern is RETIRED to STOCK_AWARD_PATTERNS_DEAD below rather than left
+# in place advertising coverage it cannot have (same call, same reasoning, as the
+# `icon-jump` retirement in ANOMALY_TOKENS_DEAD).
+#
+# KNOWN CAPTURE GAPS, both real KSP lines this enumeration deliberately does NOT
+# match, because neither carries a TransactionReasons key to correlate on:
+#   - `Reputation.addReputation_discrete` logs "Adding ...", not "Added ...".
+#   - The no-reason `AddReputation` branch logs
+#     `Added <n> (<r>) reputation. Total Rep: <total>` - period, not colon.
+# An award on either path moves the produced save, so the seam-declared-vs-save diff
+# still catches it; only the leg-A corroboration is blind to it.
 STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (
-    # Funds. `kind` is the generic stock-award kind (see oracle.KINDS): a stock line
-    # names its TransactionReasons key, not a manifest semantic, so mapping
-    # 'RecordsSpeed' onto `milestone` / 'CrewRecruited' onto `kerbal-hire` would be
-    # an unmeasured inference layered on top of the capture.
-    StockAwardPattern(
-        "stock-funds-award", "funds",
-        re.compile(r"\bAdded\s+(?P<amount>-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*"
-                   r"(?:\(\s*-?\d+(?:\.\d+)?\s*\)\s*)?"
-                   r"funds:\s*'(?P<reason>[^']*)'"),
-        "Funding.AddFunds",
-        "Added 4800 funds: 'RecordsSpeed'  (CL-1 flights 1+2, 2026-07-28)"),
-    # Reputation. The captured amount is the APPLIED delta (post stock rep curve),
-    # which is why `to_entry_dict` stamps repMode=applied rather than letting the
-    # oracle re-curve a number that is already curved.
+    # Reputation - the ONLY stock award KSP writes to the log. `kind` is the generic
+    # stock-award kind (see oracle.KINDS): a stock line names its TransactionReasons
+    # key, not a manifest semantic, so mapping 'CrewRecruited' onto `kerbal-hire`
+    # would be an unmeasured inference layered on top of the capture. The captured
+    # amount is the APPLIED delta (post stock rep curve), which is why
+    # `to_entry_dict` stamps repMode=applied rather than letting the oracle re-curve
+    # a number that is already curved.
     StockAwardPattern(
         "stock-reputation-award", "reputation",
         re.compile(r"\bAdded\s+(?P<amount>-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*"
@@ -3884,6 +3898,26 @@ STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (
         "Added -9.999828 (-10) reputation: 'VesselLoss'.  (CL-1 flights 1+2, "
         "2026-07-28); Added 0.9999995 (1) reputation: 'Progression'. "
         "(logs/2026-04-19_0049_career-ledger, archived in todo-and-known-bugs-v4.md:1954)"),
+)
+
+# RETIRED patterns: enumerated once, emitted by NOTHING in KSP, REMOVED from
+# STOCK_AWARD_PATTERNS (2026-07-29). Kept as a named constant for the same two
+# mechanical reasons ANOMALY_TOKENS_DEAD is: the retirement is evidenced rather than
+# silent, and a test asserts the shape stays unmatched by the live enumeration, so a
+# future KSP build that DOES start logging funds reds here instead of quietly
+# re-opening a dead facet. Removing these moves no verdict by construction - a shape
+# no build emits can never be captured.
+#
+# INVARIANT: this tuple and STOCK_AWARD_PATTERNS are DISJOINT by `kind`.
+STOCK_AWARD_PATTERNS_DEAD: Tuple[StockAwardPattern, ...] = (
+    StockAwardPattern(
+        "stock-funds-award", "funds",
+        re.compile(r"\bAdded\s+(?P<amount>-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*"
+                   r"(?:\(\s*-?\d+(?:\.\d+)?\s*\)\s*)?"
+                   r"funds:\s*'(?P<reason>[^']*)'"),
+        "Funding.AddFunds (NO Debug.Log exists in this method)",
+        "NEVER MEASURED - composed by analogy 2026-07-29, retired the same day. "
+        "Assembly-CSharp.dll contains zero occurrences of \" funds: '\"."),
 )
 
 # A line reporting a post-grant running BALANCE (not a per-event DELTA) is

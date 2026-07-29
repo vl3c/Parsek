@@ -1502,11 +1502,16 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
             block[hlib.LEDGER_CAPTURE_CROSS_CHECK_KEY] = capture_cross_check
         return block
 
-    # A MEASURED stock funds-award line (CL-1 flights, 2026-07-28) - the shape the
-    # rewritten STOCK_AWARD_PATTERNS actually match. The pre-2026-07-29 fixtures used
-    # an INVENTED `ContractSystem ... funds=1000` shape that no KSP build emits, which
-    # is why these cells passed while the capture was a structural no-op in the field.
-    STOCK_FUNDS_LINE = "[LOG] Added 1000 funds: 'RecordsSpeed'"
+    # A MEASURED stock award line (CL-1 flight 2, logs/2026-07-28_1913_CL-1-pod-impact
+    # /KSP.log:10361) - the shape STOCK_AWARD_PATTERNS actually matches. Two earlier
+    # generations of this fixture were INVENTED (`ContractSystem ... funds=1000`, then
+    # `Added 1000 funds: 'RecordsSpeed'`), and both let these cells pass green while
+    # the capture was a structural no-op in the field. REPUTATION IS THE ONLY FACET
+    # KSP LOGS: `Funding.AddFunds` and `ResearchAndDevelopment.AddScience` carry no
+    # Debug.Log at all, so a funds- or science-shaped fixture line here is by
+    # definition a fiction. Keep this constant pinned to a line lifted verbatim from a
+    # collected log.
+    STOCK_REP_LINE = "[LOG] Added 0.9999995 (1) reputation: 'Progression'."
 
     def _run(self, ledger_block, career_block, log_text="", world_block=None, seed_capture=None):
         return run._run_ledger_oracle(
@@ -1553,7 +1558,7 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         # rewrite made the capture actually fire, the HARD path is opt-in so a live
         # capture cannot flip a committed scenario's verdict before calibration.
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
-               + self.STOCK_FUNDS_LINE + "\n")
+               + self.STOCK_REP_LINE + "\n")
         result, drift, tooling = self._run(
             self._ledger_block(capture_cross_check=hlib.LEDGER_CAPTURE_CROSS_CHECK_GATE),
             self._career_block(), log_text=log)
@@ -1564,7 +1569,7 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         with open(os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json"), "r", encoding="utf-8") as fh:
             manifest = json.load(fh)
         self.assertEqual(1, len(manifest["capturedRaw"]))
-        self.assertEqual("RecordsSpeed", manifest["capturedRaw"][0]["stockReason"])
+        self.assertEqual("Progression", manifest["capturedRaw"][0]["stockReason"])
 
     def test_unexpected_award_is_report_only_by_default(self):
         # THE FAIL-OPEN-SAFETY CELL for the pattern rewrite. The SAME log that reds
@@ -1575,7 +1580,7 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         # (report-only divergence + capturedRaw), so the calibration data an operator
         # needs to arm the gate is produced by the very runs that stay green.
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
-               + self.STOCK_FUNDS_LINE + "\n")
+               + self.STOCK_REP_LINE + "\n")
         result, drift, tooling = self._run(self._ledger_block(), self._career_block(),
                                            log_text=log)
         self.assertEqual("PASS", result["status"])
@@ -1617,29 +1622,39 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         self.assertEqual("FAIL", result["status"])
         self.assertTrue(drift)
 
-    def test_funds_fill_from_capture_is_wired(self):
-        # Review SF6b: the deduped captured award pool is now passed to the seam parse,
-        # so a funds fill-from-capture seam entry resolves from the matching stock award
-        # (before the fix captured was never passed and this ALWAYS failed ambiguous).
-        # The seam declares a null funds amount; the stock line supplies 1000; expected
-        # funds = seed 25000 + 1000, matched by the save -> PASS.
-        # The declared KIND is the generic `stock-funds-award` because the fill matches
-        # on (seqKey, kind, contractGuid, funds-facet) and a real stock award line
-        # carries only its TransactionReasons key - the capture cannot honestly stamp a
-        # semantic kind (see hlib.STOCK_AWARD_PATTERNS).
+    def test_funds_fill_from_capture_is_unreachable_in_the_field(self):
+        # Review SF6b wired the deduped capture pool into the seam parse so a funds
+        # fill-from-capture entry could resolve from a matching stock award. That
+        # mechanism is now provably UNREACHABLE against a real KSP.log, and this cell
+        # pins the consequence rather than manufacturing an input to hide it.
+        #
+        # Two facts compose: (a) fill-from-capture is legal ONLY on the funds facet
+        # (science and reputation fills are rejected outright - filling a
+        # state-dependent facet from the capture would destroy M-B2 leg independence,
+        # see oracle.parse_manifest_entries), and (b) KSP writes no funds award line
+        # at all, so the funds capture pool is always empty. A funds `null` amount
+        # therefore ALWAYS fails ambiguous -> hard drift, which is the correct
+        # fail-closed outcome: an un-fillable expected effect must never be silently
+        # dropped. Here a genuine rep award IS captured, and it still cannot fill the
+        # funds entry.
+        #
+        # The fill mechanism is retained, not deleted: if a future KSP build or a mod
+        # starts logging funds, StockAwardCaptureTests.test_retired_funds_shape_is_
+        # not_captured reds first and the facet gets re-decided.
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
-               + self.STOCK_FUNDS_LINE + "\n")
+               + self.STOCK_REP_LINE + "\n")
         ledger = self._ledger_block(manifest=[
             {"ut": 500.0, "kind": "stock-funds-award", "funds": None}])
         result, drift, tooling = self._run(ledger, self._career_block(funds=26000.0), log_text=log)
-        self.assertEqual("PASS", result["status"])
-        self.assertFalse(drift)
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
         self.assertFalse(tooling)
-        # The manifest records the FILLED seam entry (funds resolved from capture).
+        # The rep award was captured and recorded for audit - the failure is the
+        # un-fillable funds entry, NOT an empty capture.
         with open(os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json"), "r", encoding="utf-8") as fh:
             manifest = json.load(fh)
-        self.assertEqual(1, len(manifest["entries"]))
-        self.assertEqual(1000.0, manifest["entries"][0]["funds"])
+        self.assertEqual(1, len(manifest["capturedRaw"]))
+        self.assertEqual("Progression", manifest["capturedRaw"][0]["stockReason"])
 
     def test_absent_career_block_is_tooling_invalid(self):
         # An ACTIVE ledger verifier with an ABSENT careerSave block (old/broken
