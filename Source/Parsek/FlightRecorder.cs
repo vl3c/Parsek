@@ -2168,6 +2168,11 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyRetractableLadderStateFromFieldValues{TFields}"/> core, which owns
+        /// the probed field names and the fallback order.
+        /// </summary>
         internal static bool TryClassifyRetractableLadderState(
             PartModule ladderModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2175,78 +2180,14 @@ namespace Parsek
             isRetracted = false;
             if (ladderModule == null) return false;
 
-            string stateName;
-            if (TryGetModuleStringField(ladderModule, "StateName", out stateName))
-            {
-                if (TryClassifyRetractableLadderStateName(
-                    stateName, out isDeployed, out isRetracted))
-                    return true;
-
-                if (IsRetractableLadderTransientStateName(stateName))
-                    return false;
-            }
-
-            bool sawExtendEvent = false;
-            bool sawRetractEvent = false;
-            bool canExtend = false;
-            bool canRetract = false;
-
-            // Fallback to event activity, which reflects action availability when StateName is absent.
-            if (ladderModule.Events != null)
-            {
-                for (int i = 0; i < ladderModule.Events.Count; i++)
-                {
-                    BaseEvent evt = ladderModule.Events[i];
-                    if (evt == null) continue;
-
-                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
-                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
-
-                    bool isExtendEvent = evtName.Contains("extend") || guiName.Contains("extend");
-                    bool isRetractEvent = evtName.Contains("retract") || guiName.Contains("retract");
-
-                    if (isExtendEvent)
-                    {
-                        sawExtendEvent = true;
-                        canExtend = canExtend || evt.active;
-                    }
-
-                    if (isRetractEvent)
-                    {
-                        sawRetractEvent = true;
-                        canRetract = canRetract || evt.active;
-                    }
-                }
-            }
-
-            if ((sawExtendEvent || sawRetractEvent) &&
-                TryClassifyLadderStateFromEventActivity(
-                    canExtend, canRetract, out isDeployed, out isRetracted))
-                return true;
-
-            // Fallback: some module variants expose direct bool fields.
-            bool boolValue;
-            if (TryGetModuleBoolField(ladderModule, "isDeployed", out boolValue) ||
-                TryGetModuleBoolField(ladderModule, "deployed", out boolValue) ||
-                TryGetModuleBoolField(ladderModule, "isExtended", out boolValue) ||
-                TryGetModuleBoolField(ladderModule, "extended", out boolValue))
-            {
-                isDeployed = boolValue;
-                isRetracted = !boolValue;
-                return true;
-            }
-
-            if (TryGetModuleBoolField(ladderModule, "isRetracted", out boolValue) ||
-                TryGetModuleBoolField(ladderModule, "retracted", out boolValue))
-            {
-                isRetracted = boolValue;
-                isDeployed = !boolValue;
-                return true;
-            }
-
-            return false;
+            return TryClassifyRetractableLadderStateFromFieldValues(
+                new LegacyPartModuleFieldValues(ladderModule), out isDeployed, out isRetracted);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyAnimationGroupStateFromFieldValues{TFields}"/> core.
+        /// </summary>
         internal static bool TryClassifyAnimationGroupState(
             PartModule animationGroupModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2254,72 +2195,15 @@ namespace Parsek
             isRetracted = false;
             if (animationGroupModule == null) return false;
 
-            bool sawDeployEvent = false;
-            bool sawRetractEvent = false;
-            bool canDeploy = false;
-            bool canRetract = false;
-
-            // Prefer event activity: for ModuleAnimationGroup this directly tracks whether
-            // the opposite action is currently available (deploy vs retract).
-            if (animationGroupModule.Events != null)
-            {
-                for (int i = 0; i < animationGroupModule.Events.Count; i++)
-                {
-                    BaseEvent evt = animationGroupModule.Events[i];
-                    if (evt == null) continue;
-
-                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
-                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
-
-                    bool isDeployEvent =
-                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
-                        evtName.Contains("extend") || guiName.Contains("extend");
-                    bool isRetractEvent =
-                        evtName.Contains("retract") || guiName.Contains("retract");
-
-                    if (isDeployEvent)
-                    {
-                        sawDeployEvent = true;
-                        canDeploy = canDeploy || evt.active;
-                    }
-
-                    if (isRetractEvent)
-                    {
-                        sawRetractEvent = true;
-                        canRetract = canRetract || evt.active;
-                    }
-                }
-            }
-
-            if ((sawDeployEvent || sawRetractEvent) &&
-                TryClassifyLadderStateFromEventActivity(
-                    canExtend: canDeploy, canRetract: canRetract,
-                    out isDeployed, out isRetracted))
-                return true;
-
-            // Fallback: some variants expose direct bool fields.
-            bool boolValue;
-            if (TryGetModuleBoolField(animationGroupModule, "isDeployed", out boolValue) ||
-                TryGetModuleBoolField(animationGroupModule, "deployed", out boolValue) ||
-                TryGetModuleBoolField(animationGroupModule, "isExtended", out boolValue) ||
-                TryGetModuleBoolField(animationGroupModule, "extended", out boolValue))
-            {
-                isDeployed = boolValue;
-                isRetracted = !boolValue;
-                return true;
-            }
-
-            if (TryGetModuleBoolField(animationGroupModule, "isRetracted", out boolValue) ||
-                TryGetModuleBoolField(animationGroupModule, "retracted", out boolValue))
-            {
-                isRetracted = boolValue;
-                isDeployed = !boolValue;
-                return true;
-            }
-
-            return false;
+            return TryClassifyAnimationGroupStateFromFieldValues(
+                new LegacyPartModuleFieldValues(animationGroupModule),
+                out isDeployed, out isRetracted);
         }
 
+        /// <summary>
+        /// Reflection probe half: reads the typed animTime off the module and hands both it and the
+        /// module to the pure <see cref="TryClassifyAnimateGenericStateFromFieldValues{TFields}"/> core.
+        /// </summary>
         internal static bool TryClassifyAnimateGenericState(
             ModuleAnimateGeneric animateModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2327,81 +2211,15 @@ namespace Parsek
             isRetracted = false;
             if (animateModule == null) return false;
 
-            float animTime = animateModule.animTime;
-            if (!float.IsNaN(animTime) && !float.IsInfinity(animTime))
-            {
-                ClassifyLadderState(animTime, out isDeployed, out isRetracted);
-                if (isDeployed || isRetracted)
-                    return true;
-            }
-
-            bool sawDeployEvent = false;
-            bool sawRetractEvent = false;
-            bool canDeploy = false;
-            bool canRetract = false;
-
-            if (animateModule.Events != null)
-            {
-                for (int i = 0; i < animateModule.Events.Count; i++)
-                {
-                    BaseEvent evt = animateModule.Events[i];
-                    if (evt == null) continue;
-
-                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
-                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
-
-                    bool isDeployEvent =
-                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
-                        evtName.Contains("extend") || guiName.Contains("extend") ||
-                        evtName.Contains("open") || guiName.Contains("open") ||
-                        evtName.Contains("inflate") || guiName.Contains("inflate");
-                    bool isRetractEvent =
-                        evtName.Contains("retract") || guiName.Contains("retract") ||
-                        evtName.Contains("close") || guiName.Contains("close") ||
-                        evtName.Contains("deflate") || guiName.Contains("deflate");
-
-                    if (isDeployEvent)
-                    {
-                        sawDeployEvent = true;
-                        canDeploy = canDeploy || evt.active;
-                    }
-
-                    if (isRetractEvent)
-                    {
-                        sawRetractEvent = true;
-                        canRetract = canRetract || evt.active;
-                    }
-                }
-            }
-
-            if ((sawDeployEvent || sawRetractEvent) &&
-                TryClassifyLadderStateFromEventActivity(
-                    canExtend: canDeploy, canRetract: canRetract,
-                    out isDeployed, out isRetracted))
-                return true;
-
-            bool boolValue;
-            if (TryGetModuleBoolField(animateModule, "isDeployed", out boolValue) ||
-                TryGetModuleBoolField(animateModule, "deployed", out boolValue) ||
-                TryGetModuleBoolField(animateModule, "isExtended", out boolValue) ||
-                TryGetModuleBoolField(animateModule, "extended", out boolValue))
-            {
-                isDeployed = boolValue;
-                isRetracted = !boolValue;
-                return true;
-            }
-
-            if (TryGetModuleBoolField(animateModule, "isRetracted", out boolValue) ||
-                TryGetModuleBoolField(animateModule, "retracted", out boolValue))
-            {
-                isRetracted = boolValue;
-                isDeployed = !boolValue;
-                return true;
-            }
-
-            return false;
+            return TryClassifyAnimateGenericStateFromFieldValues(
+                new LegacyPartModuleFieldValues(animateModule), animateModule.animTime,
+                out isDeployed, out isRetracted);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyAeroSurfaceStateFromFieldValues{TFields}"/> core.
+        /// </summary>
         internal static bool TryClassifyAeroSurfaceState(
             PartModule aeroSurfaceModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2409,106 +2227,8 @@ namespace Parsek
             isRetracted = false;
             if (aeroSurfaceModule == null) return false;
 
-            bool sawDeployEvent = false;
-            bool sawRetractEvent = false;
-            bool canDeploy = false;
-            bool canRetract = false;
-
-            if (aeroSurfaceModule.Events != null)
-            {
-                for (int i = 0; i < aeroSurfaceModule.Events.Count; i++)
-                {
-                    BaseEvent evt = aeroSurfaceModule.Events[i];
-                    if (evt == null) continue;
-
-                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
-                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
-
-                    ClassifyAeroEventName(evtName, guiName,
-                        out bool isDeployEvent, out bool isRetractEvent);
-
-                    if (isDeployEvent)
-                    {
-                        sawDeployEvent = true;
-                        canDeploy = canDeploy || evt.active;
-                    }
-
-                    if (isRetractEvent)
-                    {
-                        sawRetractEvent = true;
-                        canRetract = canRetract || evt.active;
-                    }
-                }
-            }
-
-            if ((sawDeployEvent || sawRetractEvent) &&
-                TryClassifyLadderStateFromEventActivity(
-                    canExtend: canDeploy, canRetract: canRetract,
-                    out isDeployed, out isRetracted))
-                return true;
-
-            bool boolValue;
-            string[] deployedFields =
-            {
-                "isDeployed",
-                "deployed",
-                "isExtended",
-                "extended",
-                "isBraking",
-                "brakesOn",
-                "isActivated",
-                "active"
-            };
-            for (int i = 0; i < deployedFields.Length; i++)
-            {
-                if (TryReadModuleBoolField(aeroSurfaceModule, deployedFields[i], out boolValue))
-                {
-                    isDeployed = boolValue;
-                    isRetracted = !boolValue;
-                    return true;
-                }
-            }
-
-            string[] retractedFields =
-            {
-                "isRetracted",
-                "retracted",
-                "isStowed",
-                "stowed",
-                "isPacked",
-                "packed"
-            };
-            for (int i = 0; i < retractedFields.Length; i++)
-            {
-                if (TryReadModuleBoolField(aeroSurfaceModule, retractedFields[i], out boolValue))
-                {
-                    isRetracted = boolValue;
-                    isDeployed = !boolValue;
-                    return true;
-                }
-            }
-
-            string[] deflectionFields =
-            {
-                "currentDeflection",
-                "deflection",
-                "deployPercent",
-                "position"
-            };
-            for (int i = 0; i < deflectionFields.Length; i++)
-            {
-                if (!TryReadModuleFloatField(aeroSurfaceModule, deflectionFields[i], out float deflection))
-                    continue;
-
-                if (float.IsNaN(deflection) || float.IsInfinity(deflection))
-                    continue;
-
-                isDeployed = Math.Abs(deflection) > 0.01f;
-                isRetracted = !isDeployed;
-                return true;
-            }
-
-            return false;
+            return TryClassifyAeroSurfaceStateFromFieldValues(
+                new PartModuleFieldValues(aeroSurfaceModule), out isDeployed, out isRetracted);
         }
 
         internal static bool TryClassifyControlSurfaceState(
@@ -2518,6 +2238,10 @@ namespace Parsek
             return TryClassifyAeroSurfaceState(controlSurfaceModule, out isDeployed, out isRetracted);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyRobotArmScannerStateFromFieldValues{TFields}"/> core.
+        /// </summary>
         internal static bool TryClassifyRobotArmScannerState(
             PartModule robotArmScannerModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2525,109 +2249,14 @@ namespace Parsek
             isRetracted = false;
             if (robotArmScannerModule == null) return false;
 
-            bool sawDeployEvent = false;
-            bool sawRetractEvent = false;
-            bool canDeploy = false;
-            bool canRetract = false;
-
-            if (robotArmScannerModule.Events != null)
-            {
-                for (int i = 0; i < robotArmScannerModule.Events.Count; i++)
-                {
-                    BaseEvent evt = robotArmScannerModule.Events[i];
-                    if (evt == null) continue;
-
-                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
-                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
-
-                    bool isDeployEvent =
-                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
-                        evtName.Contains("unpack") || guiName.Contains("unpack") ||
-                        evtName.Contains("extend") || guiName.Contains("extend") ||
-                        evtName.Contains("scan") || guiName.Contains("scan") ||
-                        evtName.Contains("start") || guiName.Contains("start");
-                    bool isRetractEvent =
-                        evtName.Contains("retract") || guiName.Contains("retract") ||
-                        ((evtName.Contains("pack") || guiName.Contains("pack")) &&
-                            !evtName.Contains("unpack") && !guiName.Contains("unpack")) ||
-                        evtName.Contains("stow") || guiName.Contains("stow") ||
-                        evtName.Contains("stop") || guiName.Contains("stop") ||
-                        evtName.Contains("cancel") || guiName.Contains("cancel");
-
-                    if (isDeployEvent)
-                    {
-                        sawDeployEvent = true;
-                        canDeploy = canDeploy || evt.active;
-                    }
-
-                    if (isRetractEvent)
-                    {
-                        sawRetractEvent = true;
-                        canRetract = canRetract || evt.active;
-                    }
-                }
-            }
-
-            if ((sawDeployEvent || sawRetractEvent) &&
-                TryClassifyLadderStateFromEventActivity(
-                    canExtend: canDeploy, canRetract: canRetract,
-                    out isDeployed, out isRetracted))
-                return true;
-
-            bool boolValue;
-            string[] deployedFields =
-            {
-                "isUnpacked",
-                "unpacked",
-                "isDeployed",
-                "deployed",
-                "isExtended",
-                "extended",
-                "isScanning",
-                "scanning",
-                "isWorking",
-                "working"
-            };
-            for (int i = 0; i < deployedFields.Length; i++)
-            {
-                if (TryReadModuleBoolField(robotArmScannerModule, deployedFields[i], out boolValue))
-                {
-                    isDeployed = boolValue;
-                    isRetracted = !boolValue;
-                    return true;
-                }
-            }
-
-            string[] retractedFields =
-            {
-                "isRetracted",
-                "retracted",
-                "isPacked",
-                "packed",
-                "isStowed",
-                "stowed"
-            };
-            for (int i = 0; i < retractedFields.Length; i++)
-            {
-                if (TryReadModuleBoolField(robotArmScannerModule, retractedFields[i], out boolValue))
-                {
-                    isRetracted = boolValue;
-                    isDeployed = !boolValue;
-                    return true;
-                }
-            }
-
-            if (TryReadModuleFloatField(robotArmScannerModule, "animTime", out float animTime) &&
-                !float.IsNaN(animTime) && !float.IsInfinity(animTime))
-            {
-                ClassifyLadderState(animTime, out isDeployed, out isRetracted);
-                if (isDeployed || isRetracted)
-                    return true;
-            }
-
-            return false;
+            return TryClassifyRobotArmScannerStateFromFieldValues(
+                new PartModuleFieldValues(robotArmScannerModule), out isDeployed, out isRetracted);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyAnimateHeatFromFieldValues{TFields}"/> core.
+        /// </summary>
         internal static bool TryClassifyAnimateHeatState(
             PartModule animateHeatModule, out float normalizedHeat, out string sourceField)
         {
@@ -2635,31 +2264,8 @@ namespace Parsek
             sourceField = null;
             if (animateHeatModule == null) return false;
 
-            string[] candidateFields =
-            {
-                "animTime",
-                "heatAnimTime",
-                "thermalAnimState",
-                "normalizedHeat",
-                "heat",
-                "heatValue",
-                "temperatureRatio",
-                "tempRatio"
-            };
-
-            for (int i = 0; i < candidateFields.Length; i++)
-            {
-                if (!TryReadModuleFloatField(animateHeatModule, candidateFields[i], out float raw))
-                    continue;
-                if (float.IsNaN(raw) || float.IsInfinity(raw))
-                    continue;
-
-                normalizedHeat = NormalizeAnimateHeatScalar(raw);
-                sourceField = candidateFields[i];
-                return true;
-            }
-
-            return false;
+            return TryClassifyAnimateHeatFromFieldValues(
+                new PartModuleFieldValues(animateHeatModule), out normalizedHeat, out sourceField);
         }
 
         private static bool TryGetModuleBoolField(PartModule module, string fieldName, out bool value)
@@ -4335,27 +3941,21 @@ namespace Parsek
             return TryParseQuaternionValue(field.GetValue(module), out value);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyRoboticMovingFromFieldValues{TFields}"/> core.
+        /// </summary>
         internal static bool TryGetRoboticMovingState(PartModule module, out bool moving)
         {
-            moving = false;
-            string[] movingFields =
-            {
-                "servoIsMoving",
-                "isMoving",
-                "moving",
-                "isTraversing",
-                "isRotating"
-            };
-
-            for (int i = 0; i < movingFields.Length; i++)
-            {
-                if (TryReadModuleBoolField(module, movingFields[i], out moving))
-                    return true;
-            }
-
-            return false;
+            return TryClassifyRoboticMovingFromFieldValues(
+                new PartModuleFieldValues(module), out moving);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyWheelRoboticPositionFromFieldValues{TFields}"/> core, which owns
+        /// the per-module-name field plan and deadband.
+        /// </summary>
         internal static bool TryGetWheelRoboticPositionValue(
             PartModule module,
             string moduleName,
@@ -4363,147 +3963,23 @@ namespace Parsek
             out float deadband,
             out string sourceField)
         {
-            positionValue = 0f;
-            sourceField = null;
-
-            string[] preferredScalarFields;
-            if (string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal))
-            {
-                deadband = 0.0025f;
-                preferredScalarFields = new[]
-                {
-                    "currentSuspensionOffset",
-                    "suspensionOffset",
-                    "compression",
-                    "suspensionCompression",
-                    "suspensionTravel"
-                };
-            }
-            else if (string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal))
-            {
-                deadband = 0.25f;
-                preferredScalarFields = new[]
-                {
-                    "steeringAngle",
-                    "currentSteering",
-                    "steerAngle",
-                    "steeringInput"
-                };
-            }
-            else
-            {
-                deadband = 1f;
-                preferredScalarFields = new[]
-                {
-                    "currentRPM",
-                    "rpm",
-                    "wheelRPM",
-                    "motorRPM",
-                    "targetRPM",
-                    "driveOutput",
-                    "motorOutput",
-                    "wheelSpeed"
-                };
-            }
-
-            for (int i = 0; i < preferredScalarFields.Length; i++)
-            {
-                if (TryReadModuleFloatField(module, preferredScalarFields[i], out positionValue))
-                {
-                    sourceField = preferredScalarFields[i];
-                    return true;
-                }
-            }
-
-            if (string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal))
-            {
-                if (TryReadModuleVector3Field(module, "suspensionPos", out Vector3 suspensionPos))
-                {
-                    positionValue = suspensionPos.magnitude;
-                    sourceField = "suspensionPos";
-                    return true;
-                }
-            }
-
-            if (string.Equals(moduleName, "ModuleWheelMotorSteering", StringComparison.Ordinal) &&
-                TryReadModuleFloatField(module, "steeringAngle", out positionValue))
-            {
-                deadband = 0.25f;
-                sourceField = "steeringAngle";
-                return true;
-            }
-
-            return false;
+            return TryClassifyWheelRoboticPositionFromFieldValues(
+                new PartModuleFieldValues(module), moduleName,
+                out positionValue, out deadband, out sourceField);
         }
 
+        /// <summary>
+        /// Reflection probe half: hands the module to the pure
+        /// <see cref="TryClassifyRoboticPositionFromFieldValues{TFields}"/> core, which owns the
+        /// wheel dispatch, the per-module-name field plan and the deadband.
+        /// </summary>
         internal static bool TryGetRoboticPositionValue(
             PartModule module, string moduleName, out float positionValue,
             out float deadband, out string sourceField)
         {
-            positionValue = 0f;
-            sourceField = null;
-            deadband = string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal)
-                ? roboticLinearDeadbandMeters
-                : roboticAngularDeadbandDegrees;
-
-            if (IsWheelRoboticModuleName(moduleName))
-                return TryGetWheelRoboticPositionValue(
-                    module, moduleName, out positionValue, out deadband, out sourceField);
-
-            string[] preferredScalarFields;
-            if (string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal))
-            {
-                preferredScalarFields = new[]
-                {
-                    "currentPosition",
-                    "position",
-                    "targetPosition",
-                    "traverseVelocity"
-                };
-            }
-            else if (string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal))
-            {
-                preferredScalarFields = new[]
-                {
-                    "currentRPM",
-                    "rpm",
-                    "rpmLimit"
-                };
-            }
-            else
-            {
-                preferredScalarFields = new[]
-                {
-                    "currentAngle",
-                    "angle",
-                    "targetAngle"
-                };
-            }
-
-            for (int i = 0; i < preferredScalarFields.Length; i++)
-            {
-                if (TryReadModuleFloatField(module, preferredScalarFields[i], out positionValue))
-                {
-                    sourceField = preferredScalarFields[i];
-                    return true;
-                }
-            }
-
-            if (TryReadModuleVector3Field(module, "servoTransformPosition", out Vector3 servoPos))
-            {
-                positionValue = servoPos.magnitude;
-                sourceField = "servoTransformPosition";
-                return true;
-            }
-
-            if (TryReadModuleQuaternionField(module, "servoTransformRotation", out Quaternion servoRot))
-            {
-                positionValue = Quaternion.Angle(Quaternion.identity, servoRot);
-                sourceField = "servoTransformRotation";
-                return true;
-            }
-
-            return false;
+            return TryClassifyRoboticPositionFromFieldValues(
+                new PartModuleFieldValues(module), moduleName,
+                out positionValue, out deadband, out sourceField);
         }
 
         private static string DescribeModuleFields(PartModule module)
