@@ -1076,6 +1076,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryPropagate_DegreeArgumentOfPeriapsisSegment_RotatesPeriapsisAxis()
+        {
+            // Equatorial eccentric orbit with argPe=90 degrees, vessel at periapsis:
+            // the epoch position must sit on the +y axis at the periapsis radius.
+            // Reading 90 as radians rotates the periapsis to an arbitrary angle.
+            double sma = 700000.0;
+            double ecc = 0.2;
+            double periapsisRadius = sma * (1.0 - ecc);
+            var segment = new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 0.0,
+                endUT = 1000.0,
+                inclination = 0.0,
+                eccentricity = ecc,
+                semiMajorAxis = sma,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 90.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = 0.0
+            };
+
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segment, KerbinGravParameter, 0.0, out Vector3d position, out _));
+
+            Assert.True(Math.Abs(position.x) < periapsisRadius * 1e-9,
+                $"x should be ~0 for argPe=90deg at periapsis, was {position.x:F1}");
+            Assert.True(Math.Abs(position.y - periapsisRadius) < periapsisRadius * 1e-9,
+                $"y should be ~{periapsisRadius:F0} for argPe=90deg at periapsis, was {position.y:F1}");
+            Assert.True(Math.Abs(position.z) < periapsisRadius * 1e-9,
+                $"z should be ~0 for an equatorial orbit, was {position.z:F1}");
+        }
+
+        [Fact]
+        public void Extrapolate_ProducedSegments_CarryDegreeLanAndArgPe()
+        {
+            // Eccentric polar orbit seeded at periapsis ON the +z (polar) axis with
+            // velocity along +x: h = (0, r*v, 0), so the ascending node points along
+            // -x (LAN 180 degrees) and the periapsis sits a quarter turn above the
+            // node (argPe 90 degrees). The produced segment must store 180 / 90
+            // degrees, not pi / pi-over-2 radians.
+            double periapsisAltitude = 100000.0;
+            double radius = KerbinRadius + periapsisAltitude;
+            double speed = 1.1 * Math.Sqrt(KerbinGravParameter / radius);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                new BallisticStateVector
+                {
+                    ut = 0.0,
+                    bodyName = "Kerbin",
+                    position = new Vector3d(0.0, 0.0, radius),
+                    velocity = new Vector3d(speed, 0.0, 0.0)
+                },
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0001,
+                    maxSoiTransitions = 2,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.True(result.segments.Count > 0, "expected at least one produced segment");
+            OrbitSegment produced = result.segments[0];
+            Assert.True(Math.Abs(produced.inclination - 90.0) < 1e-6,
+                $"produced inclination should be 90 degrees, was {produced.inclination:F6}");
+            Assert.True(Math.Abs(produced.longitudeOfAscendingNode - 180.0) < 1e-6,
+                $"produced LAN should be 180 degrees, was {produced.longitudeOfAscendingNode:F6}");
+            Assert.True(Math.Abs(produced.argumentOfPeriapsis - 90.0) < 1e-6,
+                $"produced argPe should be 90 degrees, was {produced.argumentOfPeriapsis:F6}");
+        }
+
+        [Fact]
         public void Extrapolate_ProducedSegments_CarryDegreeInclination()
         {
             // Seed a circular orbit in the xz-plane: angular momentum lies in the

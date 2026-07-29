@@ -1410,7 +1410,9 @@ namespace Parsek
         // conventions match KSP's Orbit.UpdateFromStateVectors (z = polar axis,
         // node from +x), so state vectors live in the same frame as
         // Orbit.getRelativePositionAtUT / getOrbitalVelocityAtUT (Zup-swizzled,
-        // body-relative).
+        // body-relative). Known measure-zero divergence: for an EXACTLY equatorial
+        // retrograde eccentric orbit the degenerate-node argPe branch below measures
+        // CCW from +x where KSP flips on direction of motion, yielding 360-argPe.
         private struct TwoBodyOrbit
         {
             public double BodyRadius;

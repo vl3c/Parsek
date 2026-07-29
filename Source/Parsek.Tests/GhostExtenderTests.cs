@@ -502,6 +502,32 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Unit-contract pin for argPe (see OrbitSegment.cs): an equatorial
+        /// eccentric orbit at periapsis with argPe=90 must place the position 90
+        /// degrees of longitude away from the argPe=0 case, pinning the degree
+        /// conversion on argPe independently of LAN.
+        /// </summary>
+        [Fact]
+        public void PropagateOrbital_DegreeArgPe_ShiftsLongitudeByDegrees()
+        {
+            double epoch = 1000.0;
+            double ecc = 0.2;
+
+            var pos0 = GhostExtender.PropagateOrbital(
+                0.0, ecc, CircularSMA, 0.0, 0.0, 0.0, epoch,
+                KerbinRadius, KerbinGM, epoch);
+            var pos90 = GhostExtender.PropagateOrbital(
+                0.0, ecc, CircularSMA, 0.0, 90.0, 0.0, epoch,
+                KerbinRadius, KerbinGM, epoch);
+
+            double lonDiff = pos90.lon - pos0.lon;
+            while (lonDiff < 0.0) lonDiff += 360.0;
+            while (lonDiff >= 360.0) lonDiff -= 360.0;
+            Assert.True(Math.Abs(lonDiff - 90.0) < 1e-6,
+                $"argPe=90deg should shift longitude by exactly 90 degrees, shift was {lonDiff:F6}");
+        }
+
+        /// <summary>
         /// Backward propagation (currentUT before epoch) also works.
         /// Guards: negative dt does not produce NaN or crash.
         /// </summary>
