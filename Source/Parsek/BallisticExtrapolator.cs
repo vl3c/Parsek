@@ -1399,7 +1399,10 @@ namespace Parsek
             return Math.Log(value + Math.Sqrt((value - 1.0) * (value + 1.0)));
         }
 
-        private struct TwoBodyOrbit
+        // Internal (not private) purely so the Kepler core is reachable from
+        // Parsek.Tests through InternalsVisibleTo("Parsek.Tests"); behavior is
+        // unchanged. See BallisticExtrapolatorKeplerTests.
+        internal struct TwoBodyOrbit
         {
             public double BodyRadius;
             public double GravitationalParameter;
