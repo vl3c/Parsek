@@ -278,10 +278,20 @@ across them, so they are reproducible rather than incidental:**
 - stock reputation on the death: `Added -9.999828 (-10) reputation: 'VesselLoss'.` So stock
   KSP DOES penalize a crew death, nominal **-10**, and **the reason key is `VesselLoss`, not
   `CrewKilled`**. That settles a contradiction the repo carried against itself:
-  `GameActions/PostWalkActionReconciler.cs:213` maps `ReputationPenaltySource.KerbalDeath ->
-  "CrewKilled"` and is WRONG;
+  `GameActions/PostWalkActionReconciler.cs` mapped `ReputationPenaltySource.KerbalDeath ->
+  "CrewKilled"` and was WRONG;
   `docs/dev/done/research/reputation-reservation-not-warranted.md:133-134` said `VesselLoss`
-  and is right. Neither had ever been pinned against the enum.
+  and is right. Neither had ever been pinned against the enum. ~~FIXED~~ - the mapping now
+  reads `"VesselLoss"`, and the direction was re-verified independently of the audit before
+  changing it: the archived flight log
+  (`logs/2026-07-28_1913_CL-1-pod-impact/KSP.log:10660`) carries the measured line, and
+  `Assembly-CSharp.dll` has no `CrewKilled` member on `TransactionReasons` at all (the string
+  sits in the `GameEvents` block as `onCrewKilled`, while `VesselLoss` sits in the
+  `TransactionReasons` block next to `ContractReward` / `ContractPenalty` / `VesselRollout`).
+  The old key was therefore unpairable by construction and produced a false
+  "missing earning channel" WARN on every crew death. Pinned by
+  `Source/Parsek.Tests/PostWalkActionReconcilerTests.cs` (the per-case
+  `PostWalkActionReconciler` suite, audit item A2's unit tier).
 - progress milestones on a 12 km crewed hop: `RecordsSpeed` funds=4800, `FirstLaunch`
   funds=800, `RecordsAltitude` funds=4800, all `rep=0.0`, plus two
   `Added 0.9999995 (1) reputation: 'Progression'`.
@@ -393,9 +403,11 @@ input the extension needs and nobody has.
 Also NOT established, and needed before any death-rep constant is declared: nothing in
 `Source/Parsek/` ever CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action (the enum
 member is referenced only by the UI label formatter, the post-walk reason-key map, and
-deserialization), and the repo contradicts itself on the stock `TransactionReasons` key -
-`PostWalkActionReconciler.cs:213` says `CrewKilled`, `reputation-reservation-not-warranted.md:133-134`
-says `VesselLoss`. Neither is pinned against the enum; the magnitude is nowhere.
+deserialization). The `TransactionReasons`-key half of that gap is now CLOSED: the map says
+`VesselLoss`, matching `reputation-reservation-not-warranted.md:133-134`, the measured CL-1
+line, and the actual `TransactionReasons` member list in `Assembly-CSharp.dll`. Still open:
+nothing constructs the action, so the magnitude is still nowhere and the end-to-end
+crew-death -> ledger row -> tombstone -> rep-penalty chain still has no flown proof.
 
 **Mutation-checked.** 17 mutations over the CL-1 cells, 16 killed and 1 proved
 EQUIVALENT. The survivor is the deletion of the alive-aboard conjunct from the
