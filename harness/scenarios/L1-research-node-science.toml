@@ -56,8 +56,13 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # Science-mode single-module script: only ScienceModule produces an assertable delta. The
 # seed's funds/rep pools are ABSENT, so the oracle asserts science ONLY (never a false red
-# on a missing pool, M-B2 edge 7). The nonzero capture leg is UNTRUSTED, identical to the
-# career research-node script (shipped patterns dead -> no captures today).
+# on a missing pool, M-B2 edge 7). The nonzero capture leg is STRUCTURALLY BLIND here and
+# always will be, identical to the career research-node script: KSP writes no science award
+# line at all (verified 2026-07-29 - zero occurrences of `" science: '"` in
+# Assembly-CSharp.dll, and ResearchAndDevelopment.AddScience carries no Debug.Log), so this
+# spec captures ZERO awards by construction rather than through an unfinished pattern table.
+# Do NOT add a science pattern to "fix" it (known-gate 3, closed negatively), and note this
+# spec can never meaningfully arm `captureCrossCheck = "gate"`.
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"

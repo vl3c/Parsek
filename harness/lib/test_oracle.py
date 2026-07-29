@@ -238,8 +238,10 @@ class ManifestParseTests(unittest.TestCase):
         self.assertTrue(any("ambiguous" in e for e in parse.errors))
 
     def test_fill_from_capture_facet_filter_ignores_shared_key_rep_award(self):
-        # Review SF6c: a single stock contract-complete emits a funds award AND a
-        # reputation award at the SAME (kind, guid, seqKey). Without a facet filter both
+        # Review SF6c: an entry whose captured siblings span a funds AND a reputation
+        # award at the SAME (kind, guid, seqKey). SYNTHETIC by construction - KSP logs no
+        # funds award line, so a real capture never carries the funds half; this pins the
+        # filter as fail-closed structure. Without a facet filter both
         # captured entries match the funds fill key and it fails ambiguous (over-strict).
         # With the funds-facet filter (c.funds != 0), only the funds award is a
         # candidate, so the fill resolves to exactly one match.

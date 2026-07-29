@@ -1,5 +1,25 @@
 # Design: L1-L2 Ledger Action Scripts (Module M-B3)
 
+> **SUPERSEDED PREMISE (2026-07-29), read before the capture-leg sections.** This
+> document repeatedly says "the shipped `STOCK_AWARD_PATTERNS` are DEAD against a real
+> EN log, so the nonzero capture leg is an empty no-op today", and frames the fix as a
+> future pattern rewrite. Half of that is now resolved and half is now known to be
+> permanent:
+>
+> - The **reputation** pattern was rewritten from measured lines (PR #1377) and is LIVE:
+>   it captures correctly, so "the shipped patterns are dead" no longer holds in general.
+> - **Funds and science are permanently uncapturable.** KSP writes no funds award and no
+>   science award line at all (zero occurrences of `" funds: '"` / `" science: '"` in
+>   `Assembly-CSharp.dll`; `Funding.AddFunds` and `ResearchAndDevelopment.AddScience`
+>   carry no `Debug.Log`). The funds pattern is retired to
+>   `hlib.STOCK_AWARD_PATTERNS_DEAD` and no science pattern will be added (PR #1379).
+>
+> Consequence for this design: the L1 scripts below are funds-only or science-only, so
+> their capture leg captures nothing **by construction**, not pending a rewrite. The
+> "deferred UT-agnostic single-action match" hazard this doc describes cannot be
+> triggered by them. The save-diff leg is and remains the sole trusted leg for those
+> facets. Authority for the current state: `docs/dev/autotest-status.md` known-gate 3.
+
 Status: DRAFT (2026-07-14). Module M-B3 of the Automated Testing Plan
 (`docs/dev/automated-testing-plan.md`, section 6 the L-track L0-L5, the module
 table row M-B3 ~line 501). This is the Step 3 design doc the plan mandates
