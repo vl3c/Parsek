@@ -6194,6 +6194,61 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
         award = self._award(-9.999828, "VesselLoss", facet="reputation", ut=119.7)
         self.assertEqual([], hlib.unmatched_captured_awards(parse.entries, [award]))
 
+    def test_a_multi_facet_entry_corroborates_one_award_per_pool(self):
+        # SECOND-ORDER REGRESSION, same class as the kind join one level down:
+        # consumption used to be per ENTRY, so the canonical contract-complete shape -
+        # ONE entry declaring BOTH funds and reputation, which stock logs as TWO award
+        # lines at the same seqKey - was swallowed whole by whichever line matched
+        # first, stranding its sibling as permanently "unexpected".
+        parse = oracle.parse_manifest_entries([
+            {"ut": 500.0, "kind": "contract-complete", "funds": 1000.0,
+             "reputation": 5.0, "contractGuid": "g1"}])
+        self.assertEqual([], list(parse.errors))
+        awards = [self._award(1000.0, "ContractReward", ut=500.0),
+                  self._award(5.0, "ContractReward", facet="reputation", ut=500.0)]
+        self.assertEqual([], hlib.unmatched_captured_awards(parse.entries, awards),
+                         "a funds+rep entry must explain BOTH of its own award lines")
+        # ... in either log order.
+        self.assertEqual([], hlib.unmatched_captured_awards(parse.entries,
+                                                            list(reversed(awards))))
+
+    def test_one_to_one_still_holds_within_each_pool(self):
+        # The per-pool relaxation must not become per-pool-unlimited: a SECOND funds
+        # award at the same seqKey has nothing left to explain it.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 500.0, "kind": "contract-complete", "funds": 1000.0,
+             "reputation": 5.0, "contractGuid": "g1"}])
+        awards = [self._award(1000.0, "ContractReward", ut=500.0),
+                  self._award(5.0, "ContractReward", facet="reputation", ut=500.0),
+                  self._award(1000.0, "ContractReward", ut=500.0)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(1, len(unmatched))
+        self.assertEqual("funds", unmatched[0].facet)
+
+    def test_a_pinned_entry_is_not_stranded_by_a_greedy_unconstrained_match(self):
+        # GREEDY-ORDER TRAP: one entry pinned to a reason and one unconstrained entry,
+        # same amount and seqKey. The match is greedy, so without trying pinned
+        # entries FIRST the pinned award could take the unconstrained entry and leave
+        # the other award unexplained - penalizing the author who pinned reasons.
+        # Must hold in BOTH log orders and regardless of declaration order.
+        for manifest in (
+                [{"ut": 0.0, "kind": "milestone", "funds": 4800.0},
+                 {"ut": 0.0, "kind": "milestone", "funds": 4800.0,
+                  "stockReason": ["RecordsSpeed"]}],
+                [{"ut": 0.0, "kind": "milestone", "funds": 4800.0,
+                  "stockReason": ["RecordsSpeed"]},
+                 {"ut": 0.0, "kind": "milestone", "funds": 4800.0}]):
+            parse = oracle.parse_manifest_entries(manifest)
+            self.assertEqual([], list(parse.errors))
+            awards = [self._award(4800.0, "RecordsSpeed"),
+                      self._award(4800.0, "RecordsAltitude")]
+            for order in (awards, list(reversed(awards))):
+                with self.subTest(declared=manifest[0].get("stockReason"),
+                                  first=order[0].reason):
+                    self.assertEqual(
+                        [], hlib.unmatched_captured_awards(parse.entries, order),
+                        "both awards must be explained in every order")
+
     def test_declared_stock_reason_tightens_the_match(self):
         # The OPTIONAL tightener: an author who has read a green run's capturedRaw can
         # pin the entry to a named stock effect, so a coincidental same-amount award
@@ -6219,19 +6274,40 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
         self.assertTrue(any("stockReason" in e for e in bad.errors))
 
     def test_corroboration_never_touches_the_expected_totals(self):
-        # M-B2 INDEPENDENCE: a corroborated award must not be summed into EXPECTED,
-        # or the capture would start certifying itself. EXPECTED is computed from the
-        # seam entries alone and is identical whether or not an award corroborated.
+        # M-B2 INDEPENDENCE: a captured award must not be summed into EXPECTED, or the
+        # capture would start certifying itself.
+        #
+        # THE PINNED 437887 IS THE INDEPENDENCE WITNESS - seed 500000 plus the ONE
+        # seam-declared -62113, and nothing else. It is what distinguishes the two
+        # worlds: in a world where captured amounts leaked into EXPECTED, running the
+        # capture over a log carrying FIVE more awards would move this number. (A bare
+        # double-compute over identical args would prove nothing - compute_expected is
+        # pure, so it is a tautology.)
         seed = oracle.SeedBaseline(funds=500000.0, science=0.0, reputation=0.0)
         parse = oracle.parse_manifest_entries([
             {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0}])
         expected = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
         self.assertEqual(437887.0, expected.funds)
-        award = self._award(-62113.0, "CrewRecruited")
-        self.assertEqual([], hlib.unmatched_captured_awards(parse.entries, [award]))
-        again = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
-        self.assertEqual(expected.funds, again.funds,
-                         "corroboration must not feed the expected total")
+
+        # One corroborating award plus several UNRELATED ones the manifest never
+        # declared (each worth real funds/science/rep).
+        awards = [self._award(-62113.0, "CrewRecruited"),
+                  self._award(4800.0, "RecordsSpeed", ut=119.7),
+                  self._award(800.0, "FirstLaunch", ut=119.7),
+                  self._award(4800.0, "RecordsAltitude", ut=119.7),
+                  self._award(-9.999828, "VesselLoss", facet="reputation", ut=119.7),
+                  self._award(0.9999995, "Progression", facet="reputation", ut=119.7)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(5, len(unmatched), "only the declared hire corroborates")
+
+        after = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
+        self.assertEqual(
+            437887.0, after.funds,
+            "EXPECTED must STILL be seed + the one seam-declared delta after "
+            "corroborating over a log carrying 10,400 more funds of stock awards")
+        self.assertEqual(0.0, after.reputation,
+                         "captured rep awards must not reach the expected rep pool")
+        self.assertEqual(0.0, after.science)
 
     def test_no_committed_spec_arms_the_capture_cross_check(self):
         # NIT 1 / the HARD SAFETY PROPERTY for gap 1, mirroring the unityExceptions

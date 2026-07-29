@@ -4112,10 +4112,20 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
         key. That optional field TIGHTENS the match for an author who has read a green
         run's ``capturedRaw`` and wants the entry pinned to a named stock effect.
 
-    ONE-TO-ONE: a matched entry is CONSUMED, so one declared effect explains at most
-    one award. That is what stops the CL-1 pair (`RecordsSpeed` 4800 and
-    `RecordsAltitude` 4800, same UT, same size) from BOTH corroborating a single
-    declared 4800 - the second stays unexpected, which is the correct signal.
+    ONE-TO-ONE PER (ENTRY, POOL): a match CONSUMES the pair ``(entry, facet)``, so one
+    declared effect explains at most one award ON EACH POOL IT DECLARES. That is what
+    stops the CL-1 pair (`RecordsSpeed` 4800 and `RecordsAltitude` 4800, same UT, same
+    size) from BOTH corroborating a single declared 4800 - the second stays unexpected,
+    which is the correct signal.
+
+    The PER-POOL part is not a refinement, it is the multi-facet case: a
+    contract-complete entry declares funds AND reputation, and stock logs those as TWO
+    separate award lines at the same seqKey. Consuming per ENTRY let whichever line
+    matched first swallow the whole entry and left its sibling permanently
+    "unexpected" (reproduced: a funds 1000 + rep 5 entry against its own two log lines
+    -> 1 unexpected). oracle's fill path already documents exactly this pairing and
+    carries a facet filter for it; this is the same rule on the matching side. An entry
+    that declares one pool is unchanged - it can still only ever explain one award.
 
     INDEPENDENCE IS PRESERVED (M-B2). This function only classifies; it never feeds
     ``compute_expected``, so a captured amount is still never summed into EXPECTED,
@@ -4135,14 +4145,27 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     are exactly what an operator must review before arming)."""
     tolerances = facet_tolerances or DEFAULT_CAPTURE_MATCH_TOLERANCES
     available = list(seam_entries or ())
-    consumed = [False] * len(available)
+    # CANDIDATE ORDER: `stockReason`-PINNED entries first. The match is greedy (first
+    # acceptable entry wins, no bipartite search), so with one pinned entry and one
+    # unconstrained entry of the same amount at the same seqKey, LOG ORDER decided the
+    # outcome: an award whose reason the pinned entry names could take the
+    # unconstrained entry instead, stranding the pinned one and leaving the second
+    # award unexpected. That penalizes exactly the author who did the extra work of
+    # pinning reasons. Trying constrained entries first fixes it in both log orders,
+    # because a pinned entry only accepts the award it names. Stable sort, so
+    # declaration order is preserved inside each group.
+    order = sorted(range(len(available)),
+                   key=lambda i: 0 if getattr(available[i], "stock_reasons", ()) else 1)
+    # Consumption is keyed (entry index, FACET) - see the per-pool rule above.
+    consumed = set()
     out: List[CapturedAward] = []
     for c in captured:
         tol = float(tolerances.get(c.facet, 0.0))
         matched = False
-        for i, e in enumerate(available):
-            if consumed[i]:
+        for i in order:
+            if (i, c.facet) in consumed:
                 continue
+            e = available[i]
             if e.seq_key != c.seq_key:
                 continue
             declared_amount = _entry_facet_amount(e, c.facet)
@@ -4155,7 +4178,7 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
             reasons = tuple(getattr(e, "stock_reasons", ()) or ())
             if reasons and c.reason not in reasons:
                 continue
-            consumed[i] = True
+            consumed.add((i, c.facet))
             matched = True
             break
         if not matched:

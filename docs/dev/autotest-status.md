@@ -812,10 +812,14 @@ six publish or compare numbers the runner already measured.
    never match and EVERY captured award - including the scenario's own declared one
    - reported "unexpected" (reproduced against L1-hire-kerbal-career's own -62113
    hire debit), which would have made `gate` impossible to arm. The key is now
-   (seqKey, FACET, AMOUNT within the facet tolerance), matched ONE-TO-ONE, with the
-   structured identity (contract guid / science subject) as a fail-closed
+   (seqKey, FACET, AMOUNT within the facet tolerance), matched ONE-TO-ONE PER
+   (ENTRY, POOL) - the canonical contract-complete entry declares funds AND
+   reputation and stock logs those as two separate award lines, so it corroborates
+   one award per pool while a second award on the SAME pool stays unexpected - with
+   the structured identity (contract guid / science subject) as a fail-closed
    discriminator and an OPTIONAL per-entry `stockReason = ["CrewRecruited"]` as a
-   tightener. The rep facet needs the tolerance window rather than an exact compare:
+   tightener (pinned entries are tried first, so a greedy match cannot strand one).
+   The rep facet needs the tolerance window rather than an exact compare:
    a seam entry declares the NOMINAL delta (-10), the stock line reports the APPLIED
    post-curve one (-9.999828). M-B2 independence is untouched - a corroborated
    amount is still never summed into EXPECTED, and the seam-declared-vs-save diff
