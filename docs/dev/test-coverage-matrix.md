@@ -2,7 +2,7 @@
 
 Date: 2026-04-21
 
-This is a current-tree subsystem matrix, not a percentage report. It complements [test-coverage-audit-2026-04-19.md](test-coverage-audit-2026-04-19.md) by mapping the major production areas in `Source/Parsek` to the four coverage styles the repo actually uses today:
+This is a current-tree subsystem matrix, not a percentage report. It complements [test-coverage-audit-2026-04-19.md](test-coverage-audit-2026-04-19.md) (superseded as the current-state audit by [test-coverage-audit-2026-07-29.md](test-coverage-audit-2026-07-29.md), which also covers the harness) by mapping the major production areas in `Source/Parsek` to the four coverage styles the repo actually uses today:
 
 - headless xUnit tests in `Source/Parsek.Tests`
 - live runtime checks in `Source/Parsek/InGameTests`

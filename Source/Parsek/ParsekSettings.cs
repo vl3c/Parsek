@@ -81,6 +81,39 @@ namespace Parsek
             toolTip = "When on, each committed same-body supply route draws its recorded launch-to-dock path as a line on the flight map and Tracking Station, so you can see where a route runs")]
         public bool showRouteLines = true;
 
+        /// <summary>
+        /// UI complexity mode (0 = Basic, 1 = Advanced; design
+        /// `docs/dev/design-ui-basic-advanced.md` sections 6.2 / 7.3). Stored as an int
+        /// to match the existing `samplingDensity` / `autoLoopTimeUnit` persisted-int
+        /// convention rather than introducing an enum-typed persisted field.
+        ///
+        /// <para>Deliberately carries NO <c>CustomParameterUI</c> attribute: every mode
+        /// write must route through the single setter seam
+        /// <see cref="ParsekUI.SetUiComplexityMode"/> (design 6.2), and a stock
+        /// difficulty-screen control would be a second writer that bypasses it.</para>
+        ///
+        /// <para>Raw default is <b>Advanced</b>, not Basic. The default is nearly
+        /// irrelevant in practice because `ParsekSettingsPersistence.ApplyTo` always
+        /// resolves the effective value (stored key, else the first-run install-footprint
+        /// resolution of design 7.3, which persists immediately). It matters only if some
+        /// path reads the field before any restore has run, and there Advanced is the
+        /// fail-open answer that matches <see cref="UiSurfaceVisibility.FromStoredInt"/>:
+        /// showing everything is the safe wrong answer, hiding windows is not.</para>
+        /// </summary>
+        public int uiComplexityMode = (int)UiComplexityMode.Advanced;
+
+        /// <summary>
+        /// Typed accessor for <see cref="uiComplexityMode"/> following the
+        /// <see cref="SamplingDensityLevel"/> precedent. Conversion goes through
+        /// <see cref="UiSurfaceVisibility.FromStoredInt"/> so the out-of-range clamp
+        /// (fail-open to Advanced, design 6.2) lives in exactly one place.
+        /// </summary>
+        internal UiComplexityMode UiComplexityModeLevel
+        {
+            get => UiSurfaceVisibility.FromStoredInt(uiComplexityMode);
+            set => uiComplexityMode = (int)value;
+        }
+
         // The map-view non-orbital ghost trajectory polyline is always on (no
         // setting). It renders unconditionally in the DDOL Driver; there is no
         // useGhostTrajectoryPolyline field, CustomParameterUI, or persistence.

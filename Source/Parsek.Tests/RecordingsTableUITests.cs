@@ -2168,7 +2168,7 @@ namespace Parsek.Tests
             Assert.Equal(0, RecordingsTableUI.BulkSetLoopPlayback(null, indices: null, true, false));
         }
 
-        // ── Tab switch (Recordings | Missions) ──
+        // ── Tab switch (Missions | Recordings) ──
 
         [Fact]
         public void LogTabSwitch_Logs_OldAndNew()
@@ -2650,6 +2650,160 @@ namespace Parsek.Tests
                 RecordingsTableUI.ResolveLastChildSection(false, true, true));
             Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
                 RecordingsTableUI.ResolveLastChildSection(true, true, true));
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // Basic/Advanced UI mode - phase 1 rename guards (design §4.1, §4.1a, §4.2)
+        // ════════════════════════════════════════════════════════════════
+
+        // Missions is the primary identity of this window: first tab AND default
+        // selection. Fails if a future edit reorders the tabs back, which would
+        // silently restore the raw Recordings table as the landing view.
+        [Fact]
+        public void MissionsIsTheDefaultAndFirstTab()
+        {
+            Assert.Equal(0, RecordingsTableUI.TabMissions);
+            Assert.Equal(1, RecordingsTableUI.TabRecordings);
+
+            Assert.Equal(2, RecordingsTableUI.TabLabels.Length);
+            Assert.Equal("Missions", RecordingsTableUI.TabLabels[0]);
+            Assert.Equal("Recordings", RecordingsTableUI.TabLabels[1]);
+
+            var ui = new RecordingsTableUI(null);
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+
+            // Design 13.1 (phase 5): the single TabLabels array serves Advanced; Basic
+            // draws NO toolbar at all rather than a one-button one.
+            Assert.Equal(0, RecordingsTableUI.VisibleTabCount(UiComplexityMode.Basic));
+            Assert.Equal(2, RecordingsTableUI.VisibleTabCount(UiComplexityMode.Advanced));
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        // Basic/Advanced UI mode - phase 5 tab-bar gate + clamp (design §7.4, §13.1)
+        // ════════════════════════════════════════════════════════════════
+
+        // Advanced draws the full two-entry toolbar; Basic draws zero tabs (not one).
+        // Derived from the single IsVisible decision point, so a Basic decision flip on
+        // TabRecordings cannot leave the toolbar rule behind.
+        [Fact]
+        public void VisibleTabCountIsZeroInBasicAndTwoInAdvanced()
+        {
+            Assert.Equal(0, RecordingsTableUI.VisibleTabCount(UiComplexityMode.Basic));
+            Assert.Equal(RecordingsTableUI.TabLabels.Length,
+                RecordingsTableUI.VisibleTabCount(UiComplexityMode.Advanced));
+
+            // The zero-toolbar rule is the TabRecordings gate, not a second list.
+            Assert.False(UiSurfaceVisibility.IsVisible(
+                UiSurface.TabRecordings, UiComplexityMode.Basic));
+            Assert.True(UiSurfaceVisibility.IsVisible(
+                UiSurface.TabRecordings, UiComplexityMode.Advanced));
+        }
+
+        // Design §7.4: the only out-of-range case is a player sitting on the Recordings tab
+        // (index 1) when Basic is selected; it clamps to Missions (0). Index 0 is already
+        // valid in both modes, and Advanced is never clamped.
+        [Fact]
+        public void TabIndexClampsIntoRange()
+        {
+            Assert.Equal(RecordingsTableUI.TabMissions,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabRecordings, UiComplexityMode.Basic));
+
+            Assert.Equal(RecordingsTableUI.TabMissions,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabMissions, UiComplexityMode.Basic));
+
+            // Advanced untouched: every Basic index is valid there, so entering Advanced
+            // never needs a clamp.
+            Assert.Equal(RecordingsTableUI.TabMissions,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabMissions, UiComplexityMode.Advanced));
+            Assert.Equal(RecordingsTableUI.TabRecordings,
+                RecordingsTableUI.ClampTabIndexForMode(
+                    RecordingsTableUI.TabRecordings, UiComplexityMode.Advanced));
+        }
+
+        // The instance clamp the deferred mode-apply calls (design §7.2 step 2, §7.4),
+        // including its §12.2 Verbose line (old index, new index, active tab count).
+        [Fact]
+        public void ClampTabForBasicMovesTheSelectionOffTheHiddenTab()
+        {
+            var rec = MakeRecWithId("clamp-target", "ClampVessel");
+            RecordingStore.AddCommittedInternal(rec);
+            EffectiveState.ResetCachesForTesting();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            logLines.Clear();
+
+            var ui = new RecordingsTableUI(null);
+            ui.ScrollToRecording("clamp-target");
+            Assert.Equal(RecordingsTableUI.TabRecordings, ui.SelectedTabForTesting);
+            logLines.Clear();
+
+            ui.ClampTabForBasic();
+
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("tab index clamped 1->0")
+                && l.Contains("activeTabs=0")
+                && l.Contains("origin=mode apply"));
+
+            // Idempotent and silent once already on Missions.
+            logLines.Clear();
+            ui.ClampTabForBasic();
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("tab index clamped"));
+        }
+
+        // Design §4.2: the window rename must NOT touch the on-disk sidecar
+        // directory. Renaming Parsek/Recordings would orphan every existing
+        // recording on disk.
+        [Fact]
+        public void RecordingStoragePathsAreUnaffectedByRename()
+        {
+            string expectedDir = System.IO.Path.Combine("Parsek", "Recordings");
+
+            string trajectory = RecordingPaths.BuildTrajectoryRelativePath("rec-1");
+            string vessel = RecordingPaths.BuildVesselSnapshotRelativePath("rec-1");
+            string ghost = RecordingPaths.BuildGhostSnapshotRelativePath("rec-1");
+            string annotations = RecordingPaths.BuildAnnotationsRelativePath("rec-1");
+
+            Assert.StartsWith(expectedDir, trajectory);
+            Assert.StartsWith(expectedDir, vessel);
+            Assert.StartsWith(expectedDir, ghost);
+            Assert.StartsWith(expectedDir, annotations);
+
+            Assert.Equal(
+                System.IO.Path.Combine(expectedDir, "rec-1.prec"), trajectory);
+            Assert.Equal(
+                System.IO.Path.Combine(expectedDir, "rec-1_vessel.craft"), vessel);
+            Assert.Equal(
+                System.IO.Path.Combine(expectedDir, "rec-1_ghost.craft"), ghost);
+        }
+
+        // Design §4.1a: the pending scroll id is consumed only inside the
+        // Recordings-tab row draw, which sits after the Missions-tab early return.
+        // With Missions as the default tab, the cross-link must select the
+        // Recordings tab explicitly or the scroll silently never lands.
+        [Fact]
+        public void ScrollToRecordingSelectsRecordingsTab()
+        {
+            var rec = MakeRecWithId("cross-link-target", "GoToVessel");
+            RecordingStore.AddCommittedInternal(rec);
+            EffectiveState.ResetCachesForTesting();
+            ParsekLog.SuppressLogging = false;
+            logLines.Clear();
+
+            var ui = new RecordingsTableUI(null);
+            Assert.Equal(RecordingsTableUI.TabMissions, ui.SelectedTabForTesting);
+
+            ui.ScrollToRecording("cross-link-target");
+
+            Assert.Equal(RecordingsTableUI.TabRecordings, ui.SelectedTabForTesting);
+            Assert.True(ui.IsOpen);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]") && l.Contains("Cross-link: selecting Recordings tab"));
         }
     }
 }
