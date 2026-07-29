@@ -14,6 +14,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ORBITSEGMENT-ANGLE-UNITS: OrbitSegment angular fields carried degrees from recorder producers and radians from the extrapolator~~ [FOUND 2026-07-29 by the PR #1378 test-coverage campaign. FIXED, branch `orbitsegment-angle-units`]
+
+### What happened
+
+The intended `OrbitSegment` contract is KSP-native units (documented in `ReaimOrbitSegmentConverter` and assumed by every `new Orbit(...)` consumer): `inclination` / `longitudeOfAscendingNode` / `argumentOfPeriapsis` in DEGREES, `meanAnomalyAtEpoch` in RADIANS. Every recorder-side producer (`FlightRecorder` / `BackgroundRecorder` `CreateOrbitSegmentFromVessel`, `PatchedConicSnapshot`, the finalizer reseeds, `ReFlyCanonicalization`) complied, but `BallisticExtrapolator` violated it in both directions: `TwoBodyOrbit.TryCreateFromSegment` read the degree fields straight into radians trig (so `TryPropagate` returned wrongly oriented positions for recorder-authored segments, poisoning the extrapolation seed states), and `CreateSegment` wrote its radians-internal elements back into the predicted `OrbitSegment`s it appends to recordings (so every degrees consumer - map render, playback, terminal-orbit capture - misoriented them). `GhostExtender.PropagateOrbital` had the same read-side bug: fed degree values by `RecordingEndpointResolver.TryGetOrbitEndpointCoordinates` and `VesselGhoster.ComputePropagatedPosition` while doing `Math.Cos(inc)` directly. Radius-vs-time is rotation-invariant (only sma / ecc / mEp / epoch matter, all unit-consistent), which is why the atmospheric-clip search and altitude profiles worked and the bug survived: only orientations and derived lat/lon were wrong.
+
+### Fix
+
+One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees for inc/LAN/argPe, radians for mEp. `TwoBodyOrbit` stays radians-internal and converts at the boundary (`TryCreateFromSegment` deg->rad, `CreateSegment` rad->deg); `GhostExtender.PropagateOrbital` converts deg->rad at entry. No schema generation bump: the serialized meaning (degrees) is unchanged - the extrapolator was writing non-conforming values into an unchanged contract, and per the no-migration rule old recordings carrying radian-valued predicted segments are left as they are (they mis-render today and keep mis-rendering identically). Guarded by orientation-pinning tests in `BallisticExtrapolatorTests` (degree LAN places the epoch position on the rotated axis, degree inclination reaches the polar axis, `Extrapolate` output carries 90-degree - not pi/2 - inclination for a polar seed) and `GhostExtenderTests` (LAN=90 shifts longitude by exactly 90 degrees).
+
+---
+
+## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)
+
+Found during the units audit, deliberately NOT fixed there because world-frame sign/swizzle conventions must be calibrated in-game, never re-derived on paper. With the units fixed, `TwoBodyOrbit` state vectors are well-defined: KSP Zup-swizzled body-relative (the `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` frame). Three extrapolator consumers do not honor that frame:
+
+1. `IncompleteBallisticSceneExitFinalizer.ResolveBodyFixedSurfaceCoordinates` computes `worldPos = body.position + position` with no `.xzy` unswizzle, so terrain-altitude sampling and the recorded terminal impact lat/lon interpret Zup vectors as Y-up world offsets (lat/lon wrong by an axis swap).
+2. `TryBuildStartStateFromVessel` seeds `position = vessel.orbit.getPositionAtUT(commitUT)` - ABSOLUTE world position (includes `referenceBody.position`), not body-relative - mixed with a Zup-relative velocity. In practice this is the destroyed-vessel fallback path (the garbage state is what `SubSurfaceStart` classifies on), but a live vessel reaching it would extrapolate from a nonsense frame. The likely-correct seed is `getRelativePositionAtUT(commitUT)` + `getOrbitalVelocityAtUT(commitUT)` (both Zup body-relative); note the `SubSurfaceStart` destroyed-fingerprint classification depends on the current behavior, so any change must re-verify that path.
+3. The `ParentFrameState` resolver in `TryBuildExtrapolationBodies` returns `bodyOrbit.getPositionAtUT(ut)` (absolute world) where SOI entry/exit logic compares against Zup parent-relative vessel states; should likely be `getRelativePositionAtUT(ut)`.
+4. `SeedPredictedSegmentOrbitalFrameRotations` computes `orbitalFrameRotation` from `TryPropagate`'s Zup-frame vectors, while playback's `ParsekFlight.ComputeOrbitalRotation` resolves that rotation against `orbit.getPositionAtUT` world-frame positions - predicted-segment ghost attitude is off by the frame difference (cosmetic; found by the PR #1386 review).
+
+Each is a behavioral change on live extrapolation paths; fix together with an in-game proof (a known-impact descent whose recorded terminal lat/lon can be compared against the actual crash site).
+
+---
+
 ## ~~SAFEWRITE-DESTROYS-ON-FAILED-WRITE: the shared safe-write deleted the destination and then failed to replace it~~ [FOUND 2026-07-29 by a read of `FileIOUtils`. FIXED, branch `fix-safewrite-file-destruction`]
 
 ### What happened

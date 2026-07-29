@@ -9,6 +9,17 @@ namespace Parsek
     public struct OrbitSegment
     {
         public double startUT, endUT;
+
+        /// <summary>
+        /// UNIT CONTRACT (all producers and consumers): the angular elements use
+        /// KSP's native Orbit units - <c>inclination</c>, <c>longitudeOfAscendingNode</c>
+        /// and <c>argumentOfPeriapsis</c> are DEGREES, <c>meanAnomalyAtEpoch</c> is
+        /// RADIANS, <c>epoch</c> is UT seconds. This matches
+        /// <c>new Orbit(inc, e, sma, lan, argPe, mEp, epoch, body)</c>, so a segment's
+        /// fields feed that constructor verbatim. Consumers with radians-internal math
+        /// (BallisticExtrapolator.TwoBodyOrbit, GhostExtender.PropagateOrbital) convert
+        /// at their own boundary.
+        /// </summary>
         public double inclination, eccentricity, semiMajorAxis;
         public double longitudeOfAscendingNode, argumentOfPeriapsis;
         public double meanAnomalyAtEpoch, epoch;
