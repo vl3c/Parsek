@@ -196,14 +196,20 @@ class NonzeroManifestOracleTests(unittest.TestCase):
 
 
 class CaptureLegDeadTests(unittest.TestCase):
-    """The nonzero capture leg is UNTRUSTED (design Behavior "Stock-award capture
-    sequencing" ~700). These tests characterize WHY M-B3 adds no STOCK_AWARD_PATTERNS
-    entry: the shipped patterns are dead against real stock text (a no-op today), and a
-    naive pattern rewrite WITHOUT the UT-agnostic match would false-red every nonzero run."""
+    """The nonzero capture leg is UNTRUSTED on the SCIENCE facet (design Behavior
+    "Stock-award capture sequencing" ~700). These tests characterize WHY no science
+    STOCK_AWARD_PATTERNS entry exists.
+
+    RATIONALE UPDATED 2026-07-29: the original reading was "the shipped patterns are
+    dead against real stock text". The live reputation pattern is NOT dead - it captures
+    correctly. What is permanent is that KSP writes no science award line at all, so a
+    science-only scenario captures nothing no matter what the table says. The fixture
+    below is a science scenario, which is why it still yields zero."""
 
     def test_shipped_patterns_dead_against_real_stock_text(self):
-        """A KSP.log body with REAL stock-style lines yields ZERO captures: the stock R&D
-        line matches no shipped pattern, and the Parsek delta= line is [Parsek]-skipped."""
+        """A science scenario's KSP.log body yields ZERO captures: the stock R&D line is a
+        DATA line (not a currency award, and no science award line exists to match), and the
+        Parsek delta= line is [Parsek]-skipped."""
         log = "\n".join([
             "[LOG 00:00:01.000] [Research & Development]: +5 data on Basic Rocketry.",
             "[Parsek][INFO][GameStateRecorder] Game state: TechResearched 'basicRocketry' (cost=5)",
@@ -211,7 +217,8 @@ class CaptureLegDeadTests(unittest.TestCase):
             "[Parsek][INFO][TestCommands] kscaction action=research-node target=basicRocketry applied=true manifestKind=tech-unlock observedAfter=science=95",
         ])
         result = hlib.parse_stock_award_lines(log)
-        self.assertEqual((), result.captured, "shipped patterns are DEAD; expected zero captures")
+        self.assertEqual((), result.captured,
+                         "no science award line exists in KSP; expected zero captures")
         self.assertEqual(0, result.stock_lines)
 
     def test_latent_false_red_characterized_ut0_seam_never_matches_runtime_capture(self):

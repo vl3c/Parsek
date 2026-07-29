@@ -796,6 +796,28 @@ six publish or compare numbers the runner already measured.
    OPERATOR-BLOCKED REMAINDER: (a) the per-token gate-vs-instrument call for the
    nine ungated reasons, which wants S1.4's next nightly `unlistedReasons` reading;
    (b) arming any `maxCount`, which wants a green run's `hitCounts`.
+
+   **HISTORICAL-CORPUS SWEEP (2026-07-29): the archive cannot size these budgets,
+   and reading its zeros as "measured zero" would be a false calibration.** All 137
+   `KSP.log`s in `logs/` at the time of the sweep were run through
+   `hlib.count_anomaly_tokens` / `unlisted_anomaly_reasons`: ZERO `phase=Anomaly`
+   lines, corpus-wide. That number is NOT evidence the raises are rare, because the
+   Tier-C path was barely exercised.
+   116 runs did enable `mapRenderTracing` and emitted real trace output (up to 1203
+   `[MapRenderTrace]` lines in one BDOCK run), but the flown B-specs never put a
+   ghost in front of the probe at all - `BDOCK-1` logged 1200 `probe frame summary`
+   lines every one of which reads `ghosts=0 sampled=0`, and `B6` / `B4` are the same.
+   The ONLY runs where the probe sampled a ghost are `S1.6-render-parity` and
+   `S1.7-maprender-parity`, at `maxGhosts=1 maxSampled=1` across 3 rate-limited
+   summaries each - far too thin to size a count budget from. **`S1.4` has never been
+   collected at all** (no S1.4 folder exists in `logs/`), so the spec the deferral
+   names as the deciding measurement has no historical reading whatsoever. Practical
+   consequence for the next nightly: before reading any `hitCounts` as a frequency,
+   confirm the run actually exercised the path - grep the collected log for
+   `probe frame summary` and require `sampled>0` on a meaningful number of them. A
+   `hitCounts` of zero from a run whose probe never sampled a ghost means the same
+   thing this sweep does: nothing. Do NOT set `maxCount = 0` off such a run;
+   that converts an unexercised path into a gate that reds the first time it works.
 1. B6 20 km / B7 300 km course-correct targets - see the test-case table.
 2. Runner-only kRPC behaviors are LIVE-VERIFIED ONLY (no headless guard can
    exercise MechJeb server state): intercept-only planner flags, executor
@@ -805,18 +827,56 @@ six publish or compare numbers the runner already measured.
    capture cross-check was a structural no-op. **MECHANISM CLOSED 2026-07-29
    (branch `harness-fail-open-gates`); ARMING is operator-blocked.** The patterns
    are rewritten from MEASURED lines - the CL-1 flights' `Added -9.999828 (-10)
-   reputation: 'VesselLoss'.` / `Added 0.9999995 (1) reputation: 'Progression'.`
-   and `Added 4800 funds: 'RecordsSpeed'`, i.e. the real
-   `Added <appliedDelta> [(<nominal>)] <pool>: '<reason>'` idiom - replacing the
-   invented `funds=` / `delta=` keyed forms that no KSP build emits. A captured
-   award now carries the stock `TransactionReasons` key (`CapturedAward.reason`),
-   which is the only identity a stock award line has and what keeps two
-   same-amount awards at the same UT (measured: `RecordsSpeed` 4800 and
-   `RecordsAltitude` 4800 on one hop) from deduping into one. The
-   BALANCE-inadmissibility rule is unchanged. SCIENCE IS STILL UNENUMERATED, on
-   purpose: no science award line is quoted anywhere in this repo, and guessing a
-   shape is what made the table dead - an L1 science scenario's collected KSP.log
-   is the cheapest source.
+   reputation: 'VesselLoss'.` / `Added 0.9999995 (1) reputation: 'Progression'.`,
+   i.e. the real `Added <appliedDelta> (<nominal>) reputation: '<reason>'` idiom -
+   replacing the invented `funds=` / `delta=` keyed forms that no KSP build emits.
+   A captured award now carries the stock `TransactionReasons` key
+   (`CapturedAward.reason`), which is the only identity a stock award line has. The
+   BALANCE-inadmissibility rule is unchanged.
+
+   **SECOND PASS, SAME DAY (branch `harness-gate-calibration`): the FUNDS half of
+   that rewrite was itself composed, not measured, and is now RETIRED. THE CAPTURE
+   IS REPUTATION-ONLY, permanently.** `Added 4800 funds: 'RecordsSpeed'` never
+   appeared in any KSP.log; its cited source quotes Parsek's OWN
+   `[Parsek][INFO][GameStateRecorder] Game state: MilestoneAchieved ... funds=4800`
+   line, which the capture skips as `[Parsek]`-tagged. So the rewrite reproduced,
+   on the funds facet, the exact defect it closed on the others. Three independent
+   proofs that KSP logs no funds and no science award, all reproducible:
+   (1) UTF-16LE literal counts in `Assembly-CSharp.dll`: `") reputation: '"` = 1,
+   `" funds: '"` = **0**, `" science: '"` = **0** (a concatenated `Debug.Log` keeps
+   its format fragment as one literal, so zero is conclusive);
+   (2) decompiled `Funding.AddFunds` and `ResearchAndDevelopment.AddScience` mutate
+   the pool and fire GameEvents with NO `Debug.Log` of any kind - only `Reputation`
+   logs; (3) 137 collected KSP.logs, including a career run that credited +4800
+   `RecordsSpeed` milestone funds (`logs/2026-07-10_2339_rerun4-green`), contain
+   ZERO stock funds/science award lines and exactly the rep lines above.
+   The funds pattern moves to `hlib.STOCK_AWARD_PATTERNS_DEAD` (same call, same
+   reasoning, as the `icon-jump` retirement), pinned by
+   `StockAwardCaptureTests.test_retired_funds_shape_is_not_captured` /
+   `test_live_and_dead_pattern_tables_are_disjoint`, so a future build that DOES log
+   funds reds instead of quietly re-opening the facet. SCIENCE IS CLOSED NEGATIVELY:
+   there is no shape to measure, so no science pattern will ever be added; the only
+   R&D line KSP writes is the DATA line `[Research & Development]: +<n> data on
+   <subject>. Subject value is <v>`, which is not a currency delta and stays
+   inadmissible. Pinned by
+   `test_no_science_award_line_exists_in_ksp_so_none_is_enumerated`.
+   TWO KNOWN CAPTURE GAPS, both real KSP lines deliberately unmatched - but for
+   DIFFERENT reasons, and conflating them would mislead. (a)
+   `Reputation.addReputation_discrete` logs
+   `Adding <n> (<r>) reputation: '<reason>'.` - it DOES carry the
+   `TransactionReasons` key in exactly the form the live pattern reads, and the only
+   thing excluding it is the verb (`Adding`, not `Added`). A pattern for it is
+   writable and would correlate; it is absent purely because nobody has MEASURED
+   that line in the field, which is the rule governing this whole table. (b) The
+   no-reason `AddReputation` branch logs
+   `Added <n> (<r>) reputation. Total Rep: <total>` (period, not colon) and carries
+   NO reason key, so it has no identity to correlate on even if matched. Both move
+   the produced save, so the seam-declared-vs-save diff still catches them.
+   CONSEQUENCE FOR `fill-from-capture`: it is legal only on the funds facet (science
+   and reputation fills are rejected to preserve M-B2 leg independence), so with the
+   funds capture provably empty, a `null` funds amount now ALWAYS fails ambiguous ->
+   hard drift. That is the correct fail-closed outcome and is pinned by
+   `test_funds_fill_from_capture_is_unreachable_in_the_field`.
    THE CORROBORATION KEY CHANGED WITH THE PATTERNS, and it had to: captured awards
    carry the GENERIC `stock-funds-award` / `stock-reputation-award` kinds while seam
    entries carry scenario kinds (`kerbal-hire`, ...), so a `kind`-based join can
@@ -837,16 +897,36 @@ six publish or compare numbers the runner already measured.
    reds exactly as before.
    OPERATOR-BLOCKED, and the reason the mechanism lands report-only: the
    unexpected-award cross-check was WRITTEN as a hard PARSEK-FAIL(ledger) but has
-   never once run with a working capture, and the measurement that does exist says
-   arming it blind would red the L1 career scenarios (a career pad hop trips three
-   milestone funds awards and two `Progression` rep awards no seam manifest
-   declares - those stay unexpected even with corroboration working, which is
-   exactly what an operator must review). So an unmatched captured award is a
+   never once run with a working capture. So an unmatched captured award is a
    REPORT-ONLY oracle divergence until a scenario declares
    `[expectations.ledger] captureCrossCheck = "gate"` - declared by ZERO committed
    specs. Arm per scenario after one green run shows that scenario's real award
    baseline (read `capturedRaw` in `results/<runId>.manifest.json`), declaring an
    entry - optionally with `stockReason` - for each award that should be expected.
+
+   **THE ARMING PICTURE CHANGED with the reputation-only retirement above, in both
+   directions - re-read this before sizing an arming session.** Smaller barrier: the
+   original deferral cited "a career pad hop trips three milestone funds awards and
+   two `Progression` rep awards no seam manifest declares". The three FUNDS awards
+   are invisible to the capture (KSP logs none of them), so the only undeclared
+   awards a career flight can surface here are the stock `Progression` rep awards.
+   Larger caveat, and it is the one that matters: **no L1 spec can capture anything
+   at all.** Their manifests are funds-only (`kerbal-hire` -62113,
+   `facility-upgrade` -150000), science-only (`tech-unlock` -5.0 x2), all-zero
+   (`kerbal-dismiss`) or absent (`L1-passive-sandbox`), and all six are `scene-ksc`
+   runs that never fly, so they trip no rep award either. Arming
+   `captureCrossCheck = "gate"` on an L1 spec would therefore arm a check whose input
+   is provably always empty - a no-op gate that reads green forever, which is the
+   same fail-open class this gate exists to close. **Arm it on a scenario that
+   actually produces reputation.** `CL-1-pod-impact` is the only committed spec
+   measured doing so (three awards: two `Progression`, one `VesselLoss`), but it
+   deliberately carries no `[expectations.ledger]` block at all - see the "READ THIS
+   BEFORE ADDING A LEDGER BLOCK" banner in its spec, whose unreachable-commit finding
+   is unaffected by any of this. Closing that gap is a scenario-authoring task, not a
+   calibration reading. TOLERANCE NOTE for whoever arms it: stock prints the applied
+   rep delta at 7 significant figures, so CL-1's three captured amounts sum to
+   -7.999829 against a save carrying -7.99982834. An exact compare cannot succeed;
+   budget the ~1e-6 display-rounding residual.
 4. Flake ledgers (generated, gitignored) reset 2026-07-22 post-campaigns;
    quarantine (sticky, >0.20) is reporting-only and now reflects post-merge
    reality only.
@@ -1017,6 +1097,28 @@ six publish or compare numbers the runner already measured.
    Pinned by `UnityExceptionScanTests` (including a cell asserting no committed
    spec arms it).
 
+   **HISTORICAL-CORPUS BASELINE (2026-07-29), the measurement this gate was waiting
+   for - available now, without a new run.** All 137 `KSP.log`s present in `logs/` at
+   the time of the sweep, scanned with `hlib.scan_unity_exceptions`:
+   - `NullReferenceException` **284 total**; `MissingReferenceException`,
+     `IndexOutOfRangeException` and `ArgumentException: GUILayout` are **0 across the
+     entire corpus**. So the only pattern with any field signal today is the NRE, and
+     the IMGUI-storm pattern the budget was partly designed for has never fired.
+   - Per-run total: **73 of 137 runs are exactly 0**; median 0, p90 3, max 158.
+   - The 158 is a single old outlier (`2026-07-10_2339_rerun4-green`, a long career
+     run predating most of the suite). Excluding it the corpus max is **7**
+     (`BDOCK-1-station-interceptor`, the longest/most complex flown scenario), with
+     the next band at 4 (`H5`, `B5`) and a broad cluster at 3 spanning `B1`, `B2`,
+     `B5`, `B6`, `B7`, `EVA-1`, `BDOCK-1` and `FORGE-bdock-station`.
+   CAVEAT before arming off these numbers: the corpus is not segmented green-vs-red,
+   it spans many builds, and per-spec sample counts are uneven (27 `B5` runs, 1
+   `S1.7`). Treat it as an order-of-magnitude floor, not a per-spec baseline. On that
+   basis a first ceiling in the **8-10** range is defensible for the heavy flown
+   specs and **3-5** for the short KSC/L1 runs, which leaves real headroom over
+   observed behaviour while still catching a storm (the failure mode is hundreds, not
+   a handful). Arming remains the operator's call and still wants a couple of
+   confirmed-green post-#1377 runs per spec; nothing here is armed.
+
 ## Operator items outstanding
 
 1. Career fixture saves (3) - DONE + LIVE-PROVEN (no operator session): file-
@@ -1031,15 +1133,25 @@ six publish or compare numbers the runner already measured.
    confirmed, flag capture proven). The only EVA item left is the optional
    promotion of EVA-1 / EVA-3 nightly -> daily once flake data exists.
 3. ~~Stock-award real-line capture session (unblocks the pattern rewrite)~~ -
-   the CAPTURE SESSION IS NO LONGER NEEDED for funds and reputation: the CL-1
-   flights already produced those lines and the patterns were rewritten from
-   them 2026-07-29 (gate 3). TWO operator items replace it, both wanting a
-   normal run rather than a session: (a) one collected KSP.log from an L1
-   SCIENCE scenario, to measure the science award shape that is still
-   deliberately unenumerated; (b) per-scenario arming of
-   `[expectations.ledger] captureCrossCheck = "gate"` once a green run's
+   the CAPTURE SESSION IS NO LONGER NEEDED. Reputation was measured from the
+   CL-1 flights and the pattern rewritten from it 2026-07-29 (gate 3).
+   (a) ~~one collected KSP.log from an L1 SCIENCE scenario, to measure the
+   science award shape~~ - **CLOSED NEGATIVELY 2026-07-29, no run required.**
+   There is no science award line to measure and no funds one either:
+   `Assembly-CSharp.dll` contains ZERO occurrences of `" science: '"` and
+   `" funds: '"`, and `ResearchAndDevelopment.AddScience` /
+   `Funding.AddFunds` carry no `Debug.Log`. The capture is reputation-only,
+   permanently; the funds pattern is retired (gate 3). Do not schedule a run
+   for this, and do not add a science pattern on the strength of the
+   `[Research & Development]: +<n> data` line - that is experiment DATA, not a
+   science-currency delta.
+   (b) STILL OPEN: per-scenario arming of `[expectations.ledger]
+   captureCrossCheck = "gate"` once a green run's
    `results/<runId>.manifest.json` `capturedRaw` shows that scenario's real
-   award baseline.
+   award baseline - but note it CANNOT be armed on any L1 spec (none of the six
+   can produce a captured award; see the arming-picture note in gate 3). It
+   wants a reputation-producing scenario, which today means giving
+   `CL-1-pod-impact` a ledger block it deliberately does not have.
 4. B9 rewind observation session (S1.5 + S4.1) - NO operator session needed as
    of 2026-07-26. Both are now normal unattended NIGHTLY runs (re-tiered from
    operator; the "no flight-entry verb" premise was false - `LoadGame` focuses

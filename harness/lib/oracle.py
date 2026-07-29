@@ -72,7 +72,10 @@ KINDS: Tuple[str, ...] = (
     "facility-upgrade", "facility-refund", "tech-unlock",
     "kerbal-hire", "kerbal-dismiss", "strategy-activate", "strategy-convert",
     "vessel-recovery", "vessel-build-cost", "route-delivery",
-    # The two GENERIC stock-award kinds the leg-A log capture stamps
+    # The GENERIC stock-award kinds. Only `stock-reputation-award` is stamped by the
+    # leg-A log capture: KSP logs no funds award line, so `stock-funds-award` is a
+    # LEGAL SEAM KIND an author may declare but one the capture can never produce
+    # (hlib.STOCK_AWARD_PATTERNS_DEAD, 2026-07-29). Both stay legal here
     # (hlib.STOCK_AWARD_PATTERNS, 2026-07-29). A real stock award line names its
     # `TransactionReasons` key ('RecordsSpeed', 'VesselLoss', ...) and nothing else,
     # so the capture CANNOT honestly classify one as `milestone` vs `kerbal-hire`
@@ -515,11 +518,14 @@ def parse_manifest_entries(
 
         # funds is state-INDEPENDENT: a null amount fills from an unambiguous single
         # captured line matching (seqKey, kind, contractGuid, FUNDS-FACET). The facet
-        # filter (``c.funds != 0.0``) is load-bearing: a single stock contract-complete
-        # emits a funds award AND a reputation award at the SAME (kind, guid, seqKey),
-        # so without it BOTH captured entries match and the fill fails ambiguous even
-        # though exactly one carries the funds delta being filled (still fail-closed on
-        # zero or genuine multiple funds matches).
+        # filter (``c.funds != 0.0``) guards the multi-facet case: an entry whose captured
+        # siblings span two pools at the SAME (kind, guid, seqKey) would otherwise match
+        # BOTH and fail ambiguous even though exactly one carries the funds delta being
+        # filled (still fail-closed on zero or genuine multiple funds matches). NOTE this
+        # path is UNREACHABLE against a real log: KSP logs no funds award, so the funds
+        # capture pool is always empty and a null funds amount always fails ambiguous
+        # (hlib.STOCK_AWARD_PATTERNS_DEAD). Retained as fail-closed structure, not live
+        # behaviour.
         if funds_fill:
             # TYPE-TAGGED key (must mirror ManifestEntry.seq_key) so a null-UT ordinal
             # cannot collide with a captured award's UT value (edge 8).
