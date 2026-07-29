@@ -52,11 +52,25 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Suffix of the transient copy the swap fallback parks the previous destination
-        /// under while the replacement is moved into place. It only exists between the two
+        /// Suffix PREFIX of the transient copy the swap fallback parks the previous destination
+        /// under while the replacement is moved into place; a fresh GUID is appended so the name
+        /// can never collide with a real file a user or another mod owns (a bare
+        /// <c>persistent.sfs.bak</c> would). Same convention as
+        /// <see cref="SidecarFileCommitBatch"/>, which also makes crash residue sweepable:
+        /// <c>RecordingStore.OrphanCleanup.IsTransientSidecarArtifactFile</c> matches
+        /// <c>&lt;suffix&gt;.bak.</c> with the trailing dot. The copy only exists between the two
         /// moves of <see cref="ReplaceDestination"/> and is deleted on success.
         /// </summary>
-        private const string SwapBackupExtension = ".bak";
+        private const string SwapBackupExtensionPrefix = ".bak.";
+
+        /// <summary>
+        /// TEST SEAM ONLY - always <c>false</c> in the game. When set, <see cref="ReplaceDestination"/>
+        /// skips <see cref="File.Replace(string,string,string,bool)"/> and takes the move-aside
+        /// fallback, which is otherwise unreachable from a unit test: on a healthy local filesystem
+        /// <c>File.Replace</c> always succeeds, so the fallback's success / restore paths would
+        /// carry no coverage at all. Tests must reset it in their Dispose.
+        /// </summary>
+        internal static bool ForceMoveAsideFallbackForTesting;
 
         /// <summary>
         /// Writes a ConfigNode to disk using the safe-write pattern: serialize to a sibling
@@ -64,15 +78,16 @@ namespace Parsek
         /// Ensures the parent directory exists. Logs and throws on failure.
         ///
         /// <para>
-        /// <b>Ordering invariant - the original is recoverable at every step.</b>
+        /// <b>Ordering invariant - the previous file is never the thing that gets lost.</b>
         /// <c>ConfigNode.Save</c> reports failure through its <c>bool</c> return and swallows
         /// its own IO exception (disk full, permission denied, destination locked), so that
         /// return value is checked here: a failed serialize deletes the temp file and throws
         /// WITHOUT touching the destination, leaving the caller's previous data intact.
         /// Ignoring it used to be destructive - the old delete-then-move sequence deleted the
         /// destination and then failed to move a temp file that was never written, destroying
-        /// the caller's data with nothing to show for it. The swap itself never passes through
-        /// a "destination deleted, replacement not yet in place" state either; see
+        /// the caller's data with nothing to show for it. The swap itself is atomic on the
+        /// <c>File.Replace</c> path and narrowed to a rename-pair (with the previous file kept
+        /// under a named <c>.bak.&lt;guid&gt;</c>) on the fallback; see
         /// <see cref="ReplaceDestination"/>.
         /// </para>
         /// </summary>
@@ -123,14 +138,14 @@ namespace Parsek
                     $"'{path}' was left untouched");
             }
 
-            ReplaceDestination(tmpPath, path, tag);
+            ReplaceOrDiscardTemp(tmpPath, path, tag);
         }
 
         /// <summary>
         /// Writes raw bytes to disk using the same safe-write pattern as ConfigNode files:
         /// write to a sibling <c>.tmp</c>, then swap it onto the destination. Same ordering
-        /// invariant as <see cref="SafeWriteConfigNode"/> - the original is recoverable at
-        /// every step, and a failed temp write leaves the destination untouched.
+        /// invariant as <see cref="SafeWriteConfigNode"/> - a failed temp write leaves the
+        /// destination untouched, and the swap never loses the previous bytes.
         /// <see cref="File.WriteAllBytes"/> throws rather than returning a status, so its
         /// exception is re-thrown verbatim (callers that inspect the exception type keep the
         /// behaviour they had) after the partial temp file is cleaned up.
@@ -159,14 +174,37 @@ namespace Parsek
                 throw;
             }
 
-            ReplaceDestination(tmpPath, path, tag);
+            ReplaceOrDiscardTemp(tmpPath, path, tag);
+        }
+
+        /// <summary>
+        /// Swaps a written temp file onto its destination for the two safe-write entry points.
+        /// A failed swap leaves the destination as it was (that is
+        /// <see cref="ReplaceDestination"/>'s contract), so the temp file is discarded rather
+        /// than orphaned next to the real file, and the failure is logged before it re-throws.
+        /// </summary>
+        private static void ReplaceOrDiscardTemp(string tmpPath, string path, string tag)
+        {
+            try
+            {
+                ReplaceDestination(tmpPath, path, tag);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteScratch(tmpPath, tag);
+                ParsekLog.Warn(tag,
+                    $"SafeWrite: failed to replace '{path}' with temp file '{tmpPath}' " +
+                    $"({ex.GetType().Name}: {ex.Message}); the temp file was discarded");
+                throw;
+            }
         }
 
         /// <summary>
         /// Moves <paramref name="src"/> onto <paramref name="dst"/>, overwriting an existing
         /// destination. Ensures the destination directory exists, then swaps through
-        /// <see cref="ReplaceDestination"/> so the destination is never deleted ahead of its
-        /// replacement. Logs and re-throws on failure; the caller decides how to recover.
+        /// <see cref="ReplaceDestination"/> so an existing destination is replaced rather than
+        /// deleted-then-rewritten. Logs and re-throws on failure; the caller decides how to
+        /// recover.
         ///
         /// <para>
         /// Used by <see cref="RewindPointAuthor"/> to move the stock KSP save from the
@@ -200,57 +238,93 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Warn(tag,
-                    $"SafeMove: File.Move('{src}' -> '{dst}') failed: {ex.Message}");
+                    $"SafeMove: replace('{src}' -> '{dst}') failed: {ex.GetType().Name}: {ex.Message}");
                 throw;
             }
         }
 
         /// <summary>
         /// Puts <paramref name="sourcePath"/>'s content at <paramref name="destPath"/>
-        /// (consuming the source, as <see cref="File.Move"/> does) without ever leaving the
-        /// destination deleted-and-unreplaced.
+        /// (consuming the source, as <see cref="File.Move"/> does) without the destination ever
+        /// becoming unrecoverable.
         ///
         /// <para>
-        /// <b>Ordering invariant - the original is recoverable at every step:</b>
+        /// <b>Ordering invariant - the previous file is never the thing that gets lost:</b>
         /// </para>
         /// <list type="number">
-        /// <item>No destination yet: a bare <see cref="File.Move"/> is already atomic on the
-        /// same volume, and there is nothing to lose if it fails.</item>
-        /// <item>Destination exists: <see cref="File.Replace(string,string,string)"/> swaps it
-        /// in one call - the destination holds either the old or the new content at every
-        /// instant, never neither. Mono's implementation is not dependable on every
-        /// filesystem, so a throw here is not fatal; it falls through to (3).</item>
-        /// <item>Fallback: the original is MOVED ASIDE to a sibling <c>.bak</c> (never
-        /// deleted), the replacement is moved into place, and only then is the aside copy
-        /// removed. If the second move fails, the aside copy is moved back; if even that
-        /// fails, the previous file is still on disk under <c>.bak</c> and the log says so.
-        /// At no point is the only copy of the caller's data gone.</item>
+        /// <item>Missing source: throws before anything at all is touched. A caller handing us
+        /// a source that was never produced is an input error, not a reason to disturb the
+        /// destination.</item>
+        /// <item>No destination yet: a bare <see cref="File.Move"/> is atomic on the same
+        /// volume, and there is nothing to lose if it fails. It never overwrites on .NET
+        /// Framework, so if something else wins the race for that name in the TOCTOU window
+        /// the move throws instead of clobbering it - loud, which is the safe outcome.</item>
+        /// <item>Destination exists: <see cref="File.Replace(string,string,string,bool)"/> swaps
+        /// it in one call - the destination holds either the old or the new content at every
+        /// instant, never neither. <c>ignoreMetadataErrors: true</c> matches
+        /// <see cref="SidecarFileCommitBatch"/>: the strict form fails on ACL / metadata
+        /// mismatches (cloud-synced folders, non-NTFS volumes) and would push routine writes
+        /// onto the weaker fallback. Mono's implementation is not dependable on every
+        /// filesystem, so a throw here is not fatal; it falls through to (4).</item>
+        /// <item>Fallback: the original is MOVED ASIDE to a uniquely-named sibling
+        /// <c>.bak.&lt;guid&gt;</c> (never deleted, never a name anything else could own), the
+        /// replacement is moved into place, and only then is the aside copy removed. If the
+        /// second move fails, the aside copy is moved back; if even that fails, the previous
+        /// file is still on disk under its <c>.bak.&lt;guid&gt;</c> name and the log says so.
+        /// This path is NOT atomic - between the two renames the destination is briefly absent,
+        /// and nothing restores the aside copy on the next load - but the window is a
+        /// rename-pair rather than a write, and the previous bytes always survive somewhere
+        /// named in the log.</item>
         /// </list>
         /// </summary>
         private static void ReplaceDestination(string sourcePath, string destPath, string tag)
         {
+            if (!File.Exists(sourcePath))
+            {
+                throw new FileNotFoundException(
+                    $"Safe-write source '{sourcePath}' does not exist; " +
+                    $"'{destPath}' was left untouched", sourcePath);
+            }
+
             if (!File.Exists(destPath))
             {
+                // Nothing to preserve. File.Move never overwrites on .NET Framework, so a
+                // racing creation in this window throws rather than being clobbered.
                 File.Move(sourcePath, destPath);
                 return;
             }
 
-            try
+            if (!ForceMoveAsideFallbackForTesting)
             {
-                File.Replace(sourcePath, destPath, null);
-                return;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Verbose(tag,
-                    $"SafeReplace: File.Replace('{sourcePath}' -> '{destPath}') unavailable " +
-                    $"({ex.GetType().Name}: {ex.Message}); using the move-aside fallback");
+                try
+                {
+                    File.Replace(sourcePath, destPath, null, true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    // ReplaceFile can fail AFTER the replacement has already landed
+                    // (ERROR_UNABLE_TO_MOVE_REPLACEMENT_2). If the source is gone and the
+                    // destination is there, the new content IS in place and rolling back
+                    // through the fallback would be the destructive act.
+                    if (!File.Exists(sourcePath) && File.Exists(destPath))
+                    {
+                        ParsekLog.Warn(tag,
+                            $"SafeReplace: File.Replace('{sourcePath}' -> '{destPath}') reported " +
+                            $"{ex.GetType().Name}: {ex.Message}, but the replacement is already " +
+                            "in place - treating as success");
+                        return;
+                    }
+
+                    ParsekLog.Verbose(tag,
+                        $"SafeReplace: File.Replace('{sourcePath}' -> '{destPath}') unavailable " +
+                        $"({ex.GetType().Name}: {ex.Message}); using the move-aside fallback");
+                }
             }
 
-            // A leftover .bak here can only be crash residue from an earlier swap, and the
-            // destination it was protecting is present (checked above), so it is redundant.
-            string bakPath = destPath + SwapBackupExtension;
-            TryDeleteScratch(bakPath, tag);
+            // GUID-suffixed so this can never be a file a user or another mod owns (a bare
+            // "<name>.bak" would be), and so no pre-delete is needed to claim the name.
+            string bakPath = destPath + SwapBackupExtensionPrefix + Guid.NewGuid().ToString("N");
 
             File.Move(destPath, bakPath);
             try

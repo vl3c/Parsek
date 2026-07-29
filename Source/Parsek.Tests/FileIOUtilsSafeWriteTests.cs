@@ -31,6 +31,7 @@ namespace Parsek.Tests
 
         public FileIOUtilsSafeWriteTests()
         {
+            FileIOUtils.ForceMoveAsideFallbackForTesting = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -42,6 +43,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            FileIOUtils.ForceMoveAsideFallbackForTesting = false;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             try { Directory.Delete(tempDir, recursive: true); } catch { /* best-effort */ }
@@ -95,12 +97,23 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// The move-aside copies the swap fallback may have parked next to
+        /// <paramref name="path"/>. They are GUID-suffixed (<c>&lt;name&gt;.bak.&lt;guid&gt;</c>)
+        /// so they can never collide with a real <c>.bak</c> a user or another mod owns, which
+        /// is why this globs instead of probing one fixed name.
+        /// </summary>
+        private static string[] SwapBackups(string path)
+        {
+            return Directory.GetFiles(
+                Path.GetDirectoryName(path), Path.GetFileName(path) + ".bak.*");
+        }
+
         private static void AssertNoScratchFiles(string path)
         {
             Assert.False(File.Exists(path + ".tmp"),
                 "the .tmp must not survive a successful write");
-            Assert.False(File.Exists(path + ".bak"),
-                "the swap .bak must not survive a successful write");
+            Assert.Empty(SwapBackups(path));
         }
 
         // ------------------------------------------------------- SafeWriteConfigNode: success
@@ -206,6 +219,7 @@ namespace Parsek.Tests
             // Hold the destination open with no sharing: both the File.Replace swap and the
             // move-aside fallback's first move need DELETE access to it, so the replace step
             // fails after a perfectly good temp file was written.
+            logLines.Clear();
             using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
                 if (!SharingIsEnforced(path))
@@ -217,8 +231,27 @@ namespace Parsek.Tests
 
             Assert.True(File.Exists(path), "the destination must survive a failed replace");
             Assert.Equal(before, File.ReadAllBytes(path));
-            Assert.False(File.Exists(path + ".bak"),
-                "the original must never be left parked under .bak");
+            Assert.Empty(SwapBackups(path));
+            Assert.False(File.Exists(path + ".tmp"),
+                "a failed swap must discard the temp rather than orphan it next to the real file");
+            Assert.Contains(logLines, l => l.Contains("[" + Tag + "]")
+                && l.Contains("SafeWrite: failed to replace")
+                && l.Contains(path));
+        }
+
+        [Fact]
+        public void SafeWriteConfigNode_EmptyNode_WritesWithoutTrippingTheNonEmptyCheck()
+        {
+            // The nodeHasContent gate: a node with no values and no child nodes legitimately
+            // serializes to a zero-byte file, and must NOT be read as "Save lied about
+            // succeeding".
+            string path = Path.Combine(tempDir, "empty.pcfg");
+            var empty = new ConfigNode("PARSEK_EMPTY");
+
+            FileIOUtils.SafeWriteConfigNode(empty, path, Tag);
+
+            Assert.True(File.Exists(path), "an empty node must still produce its destination file");
+            AssertNoScratchFiles(path);
         }
 
         // ------------------------------------------------------------- SafeWriteBytes
@@ -286,7 +319,9 @@ namespace Parsek.Tests
             }
 
             Assert.Equal(original, File.ReadAllBytes(path));
-            Assert.False(File.Exists(path + ".bak"));
+            Assert.Empty(SwapBackups(path));
+            Assert.False(File.Exists(path + ".tmp"),
+                "a failed swap must discard the temp rather than orphan it next to the real file");
         }
 
         // ------------------------------------------------------------------ SafeMove
@@ -303,8 +338,7 @@ namespace Parsek.Tests
 
             Assert.False(File.Exists(src), "SafeMove consumes the source");
             Assert.Equal("new-content", File.ReadAllText(dst));
-            Assert.False(File.Exists(dst + ".bak"),
-                "the previous destination must not be left parked under .bak");
+            Assert.Empty(SwapBackups(dst));
         }
 
         [Fact]
@@ -339,24 +373,75 @@ namespace Parsek.Tests
             Assert.True(File.Exists(src), "a failed SafeMove must not consume the source");
             Assert.Equal("new-content", File.ReadAllText(src));
             Assert.Equal("old-content", File.ReadAllText(dst));
-            Assert.False(File.Exists(dst + ".bak"));
+            Assert.Empty(SwapBackups(dst));
             Assert.Contains(logLines, l => l.Contains("[" + Tag + "]")
-                && l.Contains("SafeMove: File.Move(")
+                && l.Contains("SafeMove: replace(")
                 && l.Contains("failed"));
         }
 
         [Fact]
-        public void SafeMove_MissingSource_LeavesDestinationIntact()
+        public void SafeMove_MissingSource_FailsFastWithoutMovingTheDestinationAside()
         {
+            // A source that was never produced is an input error. It must be caught BEFORE the
+            // destination is disturbed - not discovered halfway through the move-aside swap,
+            // which would shuffle a healthy file through .bak for nothing.
             string src = Path.Combine(tempDir, "does_not_exist.sfs");
             string dst = Path.Combine(tempDir, "dst_survivor.sfs");
             File.WriteAllText(dst, "old-content");
 
-            Assert.ThrowsAny<Exception>(() => FileIOUtils.SafeMove(src, dst, Tag));
+            Assert.Throws<FileNotFoundException>(() => FileIOUtils.SafeMove(src, dst, Tag));
 
-            Assert.True(File.Exists(dst), "a SafeMove with no source must not delete the destination");
+            Assert.True(File.Exists(dst), "a SafeMove with no source must not touch the destination");
             Assert.Equal("old-content", File.ReadAllText(dst));
-            Assert.False(File.Exists(dst + ".bak"));
+            Assert.Empty(SwapBackups(dst));
+        }
+
+        // ------------------------------------------------------- move-aside fallback (forced)
+
+        [Fact]
+        public void ForcedMoveAsideFallback_ReplacesDestination_AndCleansUpTheBackup()
+        {
+            // On a healthy filesystem File.Replace always wins, so the fallback only gets
+            // coverage through the seam. Success path: new content in place, nothing left over.
+            string path = Path.Combine(tempDir, "fallback_ok.pcfg");
+            FileIOUtils.SafeWriteConfigNode(MakeNode("original"), path, Tag);
+
+            FileIOUtils.ForceMoveAsideFallbackForTesting = true;
+            FileIOUtils.SafeWriteConfigNode(MakeNode("replacement"), path, Tag);
+
+            Assert.Equal("replacement", ConfigNode.Load(path).GetValue("marker"));
+            AssertNoScratchFiles(path);
+        }
+
+        [Fact]
+        public void ForcedMoveAsideFallback_SecondMoveFails_RestoresTheOriginal()
+        {
+            // Driven through SafeMove because it is the only entry point where the test owns
+            // the source file and can lock it: the destination moves aside fine, the source
+            // then refuses to move, and the aside copy must come back.
+            string src = Path.Combine(tempDir, "fallback_src.sfs");
+            string dst = Path.Combine(tempDir, "fallback_dst.sfs");
+            File.WriteAllText(src, "new-content");
+            File.WriteAllText(dst, "old-content");
+
+            FileIOUtils.ForceMoveAsideFallbackForTesting = true;
+            logLines.Clear();
+
+            using (new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                if (!SharingIsEnforced(src))
+                    return;
+
+                Assert.ThrowsAny<Exception>(() => FileIOUtils.SafeMove(src, dst, Tag));
+            }
+
+            Assert.True(File.Exists(dst), "the original must be restored from the move-aside copy");
+            Assert.Equal("old-content", File.ReadAllText(dst));
+            Assert.True(File.Exists(src), "a failed move must not consume the source");
+            Assert.Empty(SwapBackups(dst));
+            Assert.Contains(logLines, l => l.Contains("[" + Tag + "]")
+                && l.Contains("restoring the original from")
+                && l.Contains(dst));
         }
 
         // ---------------------------------------------------------------- argument guards
