@@ -330,13 +330,15 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Thirty-nine test cases are live-proven green end-to-end (the 35
+expectations). Forty test cases are live-proven green end-to-end (the 36
 rows in the Live-proven table below plus the four EVA cases in their own
 section), including Mun/Minmus/Duna flybys with a certified no-1x-coast warp
-profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair and the Eve
-flyby. Counting the 15 in-game batch cases and the 1 isolated case in their own
-sections, 55 of the 56 committed scenarios have at least one fully-unattended
-PASS; the single exception is B16-eve-orbit. (B1-pad-hop was de-listed from
+profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair, and both Eve
+cases - the flyby and, as of 2026-07-29, the ORBIT with its capture tail.
+Counting the 15 in-game batch cases and the 1 isolated case in their own
+sections, ALL 56 committed scenarios now have at least one fully-unattended
+PASS, and the "not yet live-run" section is empty for the first time.
+(B1-pad-hop was de-listed from
 live-proven on 2026-07-25 - its PASSes proved the flight but its chute never
 opened, and its terminal could not tell the difference - and was RE-PROVEN on
 2026-07-29 by run `2026-07-29_1532_B1-pad-hop`, which asserts the OBSERVED
@@ -397,7 +399,7 @@ landing, docking, career-ledger lanes) is the frontier.
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (35)
+### Live-proven (36)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
@@ -436,12 +438,26 @@ The "Parsek surface verified" column is the reason the case exists.
 | L1-research-node-career | daily | Research debits science exactly | D8 science, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 career. LIVE-PROVEN 2026-07-23: run `2026-07-23_1917_L1-research-node-career`, wall 52 s. Re-confirmed 2026-07-23 (`_1953`) and 2026-07-25 (`2026-07-25_0744`). |
 | L1-research-node-science | daily | Same in science mode (no funds/rep pools) | D8 science, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 science-mode. LIVE-PROVEN 2026-07-23: run `2026-07-23_1917_L1-research-node-science`, wall 52 s. Re-confirmed 2026-07-23 (`_1954`) and 2026-07-25 (`2026-07-25_0744`). |
 | L1-upgrade-facility-career | daily | Facility upgrade debits funds per-level exactly | D8 facilities, funds, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1955_L1-upgrade-facility-career`, wall 52 s - reached after the first live run's ledger math passed (-150,000, hardDivergences=0) but its logContract red'd on `FacilityUpgraded` never being recorded, the blocker this row described, and that fix landed. Re-confirmed 2026-07-25 (`2026-07-25_0745`). |
+| B16-eve-orbit | operator (PROMOTE to nightly after its first green flight) | The FIRST mission to fly B7's five interplanetary params AND B11/B12's capture tail together: capture burn, held park and mid-mission seam CommitTree after a HELIOCENTRIC traverse. HONEST SCOPE - B11/B12 already own the D1 `commit-in-foreign-soi` cell on two bodies, so doing it a third time at Eve adds no commit path and no terminal classification. The ONE thing it adds is that the capture tail has only ever run after a LUNAR transfer: here the committed tree's terminal orbit body is reached through TWO SOI transitions with an arrival v_inf ~4x the Mun's. Eve's atmosphere is NOT claimed (the park is at ~5,000 km) - see B15 | D1 auto-record-launch, commit-in-foreign-soi; D3 orbital-checkpoint; D4 atmospheric, exo-propulsive, exo-ballistic, cohesive-cross-body-coast; D14 kerbin, eve, soi-count, warp-rails, warp-high. LIVE-PROVEN 2026-07-29 on its FIRST FLIGHT, attempt 1: run `2026-07-29_1718_B16-eve-orbit`, wall 1,825 s (mission 1,766 s), every verifier PASS/SKIPPED. All 19 phases reached through ORBIT-COMMITTED, and all six assertions met: `reachedTargetSoi` Eve, `flybyPeriapsisFloor` 4,850,416 m, `capturedInTargetOrbit` ecc 4.67e-05, `parkedStable`, `treeCommitted` OK. The committed save carries exactly 8 recordings - the number the PROVISIONAL window predicted from B11/B12/B13/B14 and the three green B7 runs, now MEASURED on the Eve lane too. Four report-only Unity NREs, all stock/third-party teardown at scene exit (KnowledgeBase map-focus, CrewHatchController, MechJebCore), none Parsek. COST, and it matters for the promotion decision: the spec's budget prose sized this lane at ~4,700 s and warned a nightly rotation with retry-once could spend ~2.6 HOURS a night. MEASURED 1,825 s makes the retry-once worst case ~61 min, and puts B16 CHEAPER than B13 (2,825 s), BDOCK-1 (2,164 s) and B14 (2,141 s), all of which are nightly. TIER NOT CHANGED. The spec's promotion rule has TWO conditions - fly green AND replace the PROVISIONAL pins with MEASURED ones - and it states the pins need a human reading the result. Only the first condition is met here, so `tier = "operator"` stands and the promotion is left as an explicit human call with the measurements above in hand. |
 
-### Committed, not yet live-run (1)
+### Committed, not yet live-run (0)
 
-| Test case | Tier | Parsek surface verified | Blocker |
-|---|---|---|---|
-| B16-eve-orbit | operator (PROMOTE to nightly after its first green flight) | The FIRST mission to fly B7's five interplanetary params AND B11/B12's capture tail together: capture burn, held park and mid-mission seam CommitTree after a HELIOCENTRIC traverse. HONEST SCOPE - B11/B12 already own the D1 `commit-in-foreign-soi` cell on two bodies, so doing it a third time at Eve adds no commit path and no terminal classification. The ONE thing it adds is that the capture tail has only ever run after a LUNAR transfer: here the committed tree's terminal orbit body is reached through TWO SOI transitions with an arrival v_inf ~4x the Mun's. Eve's atmosphere is NOT claimed (the park is at ~5,000 km) - see B15 | COVERAGE CELLS: Same as B15 plus D1 commit-in-foreign-soi. NO NEW REGISTRY VALUE: D14 already carries `eve` and D1 already carries `commit-in-foreign-soi`. D5 bg-recording NOT claimed (the B11/B12 reasoning: CommitTreeFlight nulls both recorder handles before returning and settle_frames = 0). BLOCKER: FIRST FLIGHT. FEASIBILITY IS CLOSED ON ARITHMETIC, not assumed: capture-to-circular at a 5,000 km park costs a DERIVED ~735 m/s (dv = sqrt(v_inf^2 + 2mu/r) - sqrt(mu/r), v_inf ~931 m/s calibrated from B7's three MEASURED Duna arrival hyperbolas) against ~1,850 m/s available - DERIVED from the MEASURED end-of-flight fuel state of those same three B7 runs (LF 494.560 / 496.959 / 495.479 of 720) via stock part cfgs and the rocket equation, and cross-checked against B11's MEASURED 277.016 m/s capture node. A 2.5x margin, ~2.0x after the full correction cap. The committed survey's ~1500-1600 m/s figure is PESSIMISTIC and now known why: it predates B5 finding 15, so it did not know the flameout watchdog lets the CORE fly the transfer, leaving the upper stage nearly full. The park is HIGH for a GILLY reason, not a fuel one - the dv optimum (18,157 km) sits inside Gilly's 14,175 km periapsis shell, so `parkMaxApoapsisMeters` 13,000 km doubles as the Gilly exclusion. Inherits B15's inward-transfer unknown. PROVISIONAL pins: recordings count {7, 9}, both wall budgets, `captureBurnTimeoutSeconds`. COST WARNING: at a budgeted 4200 s wall this would become the second most expensive scenario after B13's MEASURED 2,825 s. THAT COST IS WHY IT IS `operator`-TIERED, NOT `nightly`: an UNFLOWN 4,700 s lane with `retry.policy = "once"` would spend up to ~2.6 h a night, and a systematic first-flight failure (which is what all six pre-green B15 attempts were) would red the whole sweep every night until someone flew it. Fly it explicitly (`--id B16-eve-orbit`), close the PROVISIONAL pins, then set `tier = "nightly"` in the spec and here |
+EMPTY as of 2026-07-29, for the first time since the suite existed: all 56
+committed scenarios have at least one fully-unattended PASS. The last two
+holdouts both flew that day - S1.5-rewind-loop (69 s) and B16-eve-orbit
+(1,825 s, first flight, attempt 1) - and B1-pad-hop's chute re-prove closed the
+one de-listing. Keep this heading rather than deleting it: a new spec lands here
+until its first green run, and an empty section is the honest way to say the
+backlog is clear.
+
+FLAKE-LEDGER ARTIFACT worth knowing before reading `coverage/flake.json`: the
+2026-07-29 session left B1-pad-hop and S1.5-rewind-loop QUARANTINED at rate 0.50
+(1 of 2). Neither is scenario flakiness. Both attempt-1 failures were
+fresh-worktree ENVIRONMENT faults on a checkout that had never run the harness -
+B1 on a missing mission venv (`tooling-venv`, terminal before any KSP boot) and
+S1.5 on HARNESS-INJECT-FAILS-OPEN - and both passed on the retry in the same
+session. Expect the rate to decay to 0 over the 7-day window without anyone
+touching either spec; do not read the quarantine as a product signal.
 
 ### EVA (M-C2 + EVA-4), committed (4): all 4 LIVE-PROVEN
 
