@@ -1314,6 +1314,13 @@ namespace Parsek
 
         void Update()
         {
+            // Frame-latched Basic / Advanced UI mode apply (design 7.2). Unity runs Update
+            // before OnGUI, so latching here gives every UiSurfaceVisibility gate one
+            // stable mode across this frame's Layout and Repaint passes. Ahead of the
+            // teardown early-out on purpose: the main window can still draw on a frame
+            // where the rest of Update stands down.
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
             // After OnSceneChangeRequested, the scene is tearing down — skip all processing
             // to prevent ghost spawns and other work into the dying scene.
             if (sceneChangeInProgress) return;

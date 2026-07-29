@@ -16,7 +16,8 @@ namespace Parsek
         private bool showWindow;
         private Rect windowRect;
         private bool hasInputLock;
-        private const string InputLockId = "Parsek_GloopsRecorderWindow";
+        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        internal const string InputLockId = "Parsek_GloopsRecorderWindow";
 
         private Rect lastWindowRect;
 
@@ -91,6 +92,12 @@ namespace Parsek
                 ReleaseInputLock();
             }
         }
+
+        /// <summary>
+        /// Whether this window currently holds its KSP input lock (diagnostic read for the
+        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// </summary>
+        internal bool HasInputLock => hasInputLock;
 
         public void ReleaseInputLock()
         {

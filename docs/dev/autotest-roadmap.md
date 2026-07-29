@@ -133,41 +133,45 @@ feature and its entire automated proof is nominal.
 The single largest cause is not a missing capability. It is that we own roughly five
 times the test surface we execute and have no way to point the harness at it.
 
-### Cause A: written, never driven (338 tests, 75 categories; was 414 / 89 pre-#1358)
+### Cause A: written, never driven (336 tests, 74 categories; was 414 / 89 pre-#1358)
 
 Measured with `hlib.parse_ingame_test_declarations` over every `.cs` under
 `Source/Parsek`:
 
 ```
-539 [InGameTest] declarations in 97 categories, 0 unresolved
-201 declarations in the 22 categories any spec drives (179 of them execute)
-338 declarations in the 75 categories nothing drives
+542 [InGameTest] declarations in 98 categories, 0 unresolved
+206 declarations in the 24 categories any spec drives (184 of them execute)
+336 declarations in the 74 categories nothing drives
 ```
 
-The 22 driven categories are the pre-#1358 eight - `GameActionsHealth`, `GhostMap`,
+The 24 driven categories are the pre-#1358 eight - `GameActionsHealth`, `GhostMap`,
 `GhostPlayback`, `MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`,
 `RouteRewindTimeline` - plus the 14 that #1358 wired: `DataHealth`,
 `EvaSpawnPosition`, `FinalizeBackfill`, `FlightIntegration`, `GhostVisuals`,
 `IncompleteBallistic`, `KSP`, `Pipeline-Anchor`, `Pipeline-Smoothing`,
 `RecordingFinalization`, `SpawnHealth`, `SpawnRotation`, `SwitchSegment`,
-`TrajectoryMath`. The 201 / 179 split is because three of the pre-existing eight run
-at SPACECENTER where some members scene-skip; all 76 declarations the new group adds
-execute. Per-category detail, and the A/B/C triage of the 75 that remain, is in
+`TrajectoryMath` - plus two that arrived after #1358: `SceneExitMerge` (R5's isolated
+`H21`) and `UiComplexityMode` (`H22`, which ships with the Basic/Advanced UI-mode
+feature and is a category that did not exist pre-#1358). The 206 / 184 split is
+because three of the pre-existing eight run at SPACECENTER where some members
+scene-skip; all 79 declarations the later specs add execute. Per-category detail, and
+the A/B/C triage of the 74 that remain, is in
 `autotest-ingame-category-inventory.md`.
 
-Scene reachability of the 75 undriven categories (a category is "reachable" when
+Scene reachability of the 74 undriven categories (a category is "reachable" when
 every member runs in FLIGHT, SPACECENTER, or scene-agnostic, because `LoadGame` can
-route to exactly those two scenes), re-derived post-#1358:
+route to exactly those two scenes), re-derived post-#1358 and again after R5 moved
+`SceneExitMerge` (FLIGHT-only) into the driven set:
 
 | Scenes present in the category | Categories | Pre-#1358 |
 |---|---:|---:|
-| FLIGHT only | 37 | 53 |
+| FLIGHT only | 36 | 53 |
 | scene-agnostic only | 13 | 16 |
 | FLIGHT + SPACECENTER (+ agnostic) | 10 | 4 |
 | SPACECENTER only | 8 | 9 |
 | involves TRACKSTATION or MAINMENU | 7 | 7 |
 
-**68 undriven categories are reachable today on fixtures we already own** (was 82).
+**67 undriven categories are reachable today on fixtures we already own** (was 82).
 Seven are not, because there is no seam route to TRACKSTATION or MAINMENU - and that
 seven is UNCHANGED by #1358, which is the point: it wired only reachable categories,
 so the unreachable set is exactly as hard as it was. `TrackingStation` alone is 9
@@ -229,7 +233,7 @@ They are called from neither unattended path. The seam's `RunTests`
 The autorun dispatcher (`TestRunnerShortcut.cs:725,739,789`) does the same.
 (Both now branch on the R5 flag; the line numbers above are pre-R5.)
 
-Counting attribute argument lists over all 539 declarations (see the note on the
+Counting attribute argument lists over all 542 declarations (see the note on the
 fully-qualified attribute form at the end of this file - a naive `[InGameTest(` scan
 misses 5 of them):
 
@@ -1063,9 +1067,9 @@ UNVERIFIED in this pass, flagged rather than asserted:
   opposed to asserting a decision about it.
 CORRECTED 2026-07-27 (review of this file). An earlier draft of this section claimed
 "5 bare `[InGameTest]` declarations, 539 total minus 534 with argument lists, default
-to `Category = "General"`". **There are no bare declarations.** All 539 carry an
-argument list and all 539 resolve to a real category: `General` does not appear among
-the 97, and `hlib.parse_ingame_test_declarations` reports 0 unresolved. The 5-count
+to `Category = "General"`". **There are no bare declarations.** All 542 carry an
+argument list and all 542 resolve to a real category: `General` does not appear among
+the 98, and `hlib.parse_ingame_test_declarations` reports 0 unresolved. The 5-count
 was an artifact of the counting method - 5 declarations use the fully-qualified
 attribute form `[Parsek.InGameTests.InGameTest(...)]` (4 in `Ledger`, 1 in `Rewind`,
 all in `IncompleteBallisticRuntimeTests.cs`), which a `[InGameTest(` scan misses and

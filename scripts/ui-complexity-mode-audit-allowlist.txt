@@ -1,0 +1,47 @@
+# Phase 8 of Basic / Advanced UI mode (design doc §9 / §13.4).
+# Files listed here are permitted to name the UI complexity-mode vocabulary
+# (UiComplexityMode / UiSurfaceVisibility / UiSurface / uiComplexityMode).
+# Everything else under Source/Parsek must stay mode-blind: the feature is a
+# visibility gate over draw paths only, never over recording, playback,
+# logistics, ledger or rewind behavior.
+#
+# One path per line, repo-relative, forward slashes. A trailing '/' makes the
+# entry a directory prefix. '#' starts a comment.
+
+# --- UI draw paths (the gate's whole legitimate home) ---
+# Hosts UiComplexityMode.cs itself (the enums + the pure UiSurfaceVisibility
+# decision core) plus every gated window: the settings toggle, the tab bar and
+# clamp, the Timeline GoTo cross-link, and the test-runner launcher.
+Source/Parsek/UI/
+
+# --- In-game tests (inside the scan root, unlike Source/Parsek.Tests) ---
+# UiComplexityModeInGameTests.cs is the phase-7 `UiComplexityMode` in-game
+# category (input-lock release, mode round-trip, Advanced render parity). It
+# drives the mode through the ParsekUI setter seam, so it legitimately names
+# the vocabulary. Source/Parsek.Tests is out of scope for free (the gate's
+# scan root is Source/Parsek); this directory is not, so it is listed.
+Source/Parsek/InGameTests/
+
+# --- UI coordinator ---
+# ParsekUI owns the main window's button gates, the frame-latched
+# AppliedUiComplexityMode, the SetUiComplexityMode setter seam, the
+# OnUiComplexityModeApplied extension point and the gated-window close set.
+Source/Parsek/ParsekUI.cs
+
+# --- Deferred-apply Update hosts ---
+# ParsekFlight.Update and ParsekKSC.Update call
+# ParsekUI.ApplyPendingUiComplexityModeIfAny first thing, ahead of their
+# early-outs, so the latch runs before OnGUI. They name the apply method only;
+# neither reads the mode to decide any recording or playback behavior.
+Source/Parsek/ParsekFlight.cs
+Source/Parsek/ParsekKSC.cs
+
+# --- Settings layer ---
+# ParsekSettings holds the persisted uiComplexityMode int + the clamping
+# UiComplexityModeLevel accessor; ParsekSettingsPersistence owns the save /
+# restore wiring and the design §7.3 first-run footprint resolution.
+# ParsekScenario.cs is deliberately NOT allowlisted: it passes the scenario-node
+# signal into the persistence layer as a bare bool, so the mode vocabulary never
+# reaches it.
+Source/Parsek/ParsekSettings.cs
+Source/Parsek/ParsekSettingsPersistence.cs

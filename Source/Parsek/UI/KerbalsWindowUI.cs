@@ -22,7 +22,8 @@ namespace Parsek
         private bool kerbalsWindowHasInputLock;
         private bool isResizingKerbalsWindow;
         private Vector2 kerbalsScrollPos;
-        private const string KerbalsInputLockId = "Parsek_KerbalsWindow";
+        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        internal const string KerbalsInputLockId = "Parsek_KerbalsWindow";
         private const float MinWindowWidth = 280f;
         private const float MinWindowHeight = 150f;
         // Default width is half of CareerStateWindowUI.DefaultWindowWidth (820) so
@@ -188,6 +189,12 @@ namespace Parsek
                 ReleaseInputLock();
             }
         }
+
+        /// <summary>
+        /// Whether this window currently holds its KSP input lock (diagnostic read for the
+        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// </summary>
+        internal bool HasInputLock => kerbalsWindowHasInputLock;
 
         internal void ReleaseInputLock()
         {

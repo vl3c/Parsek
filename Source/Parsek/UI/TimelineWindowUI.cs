@@ -1072,6 +1072,17 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
 
+            // Basic / Advanced gating (design 4.1a). The GoTo cross-link's sole purpose is
+            // navigating to the raw Recordings TAB, so it is gated by that TARGET surface's
+            // key, not by its host window's (Timeline itself is visible in both modes). No
+            // dedicated UiSurface value exists for it. Hiding the button also prevents its
+            // side effects (unhiding the target recording, disabling the HideActive filter)
+            // from firing with no visible destination.
+            // Read the FRAME-LATCHED mode, never the settings field: GoTo is a control, and
+            // the Layout and Repaint passes of one frame must agree on the control count.
+            bool showRecordingsCrossLink = UiSurfaceVisibility.IsVisible(
+                UiSurface.TabRecordings, ParsekUI.AppliedUiComplexityMode);
+
             // Pick style based on entry state
             GUIStyle style;
             if (!entry.IsEffective)
@@ -1188,16 +1199,19 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
-                    // GoTo button — always last, right-aligned
-                    if (GUILayout.Button(
-                            new GUIContent("GoTo", "Show in Recordings Manager"),
-                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                    // GoTo button — always last, right-aligned. Hidden in Basic (design 4.1a).
+                    if (showRecordingsCrossLink)
                     {
-                        parentUI.SelectedRecordingId = entry.RecordingId;
-                        if (tableUI != null)
-                            tableUI.ScrollToRecording(entry.RecordingId);
-                        ParsekLog.Verbose("Timeline",
-                            $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId}");
+                        if (GUILayout.Button(
+                                new GUIContent("GoTo", "Show in Recordings tab"),
+                                GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                        {
+                            parentUI.SelectedRecordingId = entry.RecordingId;
+                            if (tableUI != null)
+                                tableUI.ScrollToRecording(entry.RecordingId);
+                            ParsekLog.Verbose("Timeline",
+                                $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId}");
+                        }
                     }
                 }
             }
@@ -1219,16 +1233,20 @@ namespace Parsek
                         DrawTimelineFlySealButtons(rec);
                     }
 
-                    if (GUILayout.Button(
-                            new GUIContent("GoTo", "Show in Recordings Manager"),
-                            GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                    // Hidden in Basic (design 4.1a), same gate as the RecordingStart row above.
+                    if (showRecordingsCrossLink)
                     {
-                        parentUI.SelectedRecordingId = entry.RecordingId;
-                        if (tableUI != null)
-                            tableUI.ScrollToRecording(entry.RecordingId);
-                        ParsekLog.Verbose("Timeline",
-                            $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId} " +
-                            $"(separation entry, type={entry.Type})");
+                        if (GUILayout.Button(
+                                new GUIContent("GoTo", "Show in Recordings tab"),
+                                GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
+                        {
+                            parentUI.SelectedRecordingId = entry.RecordingId;
+                            if (tableUI != null)
+                                tableUI.ScrollToRecording(entry.RecordingId);
+                            ParsekLog.Verbose("Timeline",
+                                $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId} " +
+                                $"(separation entry, type={entry.Type})");
+                        }
                     }
                 }
             }
