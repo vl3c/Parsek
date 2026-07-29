@@ -72,6 +72,15 @@ KINDS: Tuple[str, ...] = (
     "facility-upgrade", "facility-refund", "tech-unlock",
     "kerbal-hire", "kerbal-dismiss", "strategy-activate", "strategy-convert",
     "vessel-recovery", "vessel-build-cost", "route-delivery",
+    # The two GENERIC stock-award kinds the leg-A log capture stamps
+    # (hlib.STOCK_AWARD_PATTERNS, 2026-07-29). A real stock award line names its
+    # `TransactionReasons` key ('RecordsSpeed', 'VesselLoss', ...) and nothing else,
+    # so the capture CANNOT honestly classify one as `milestone` vs `kerbal-hire`
+    # without inferring a mapping nobody has measured. These carry the facet instead
+    # and keep the stock reason in the entry's `stockReason` field. Additive: no
+    # committed spec declares them, and a seam entry never should - they mark
+    # provenance `stock-log-captured` rows.
+    "stock-funds-award", "stock-reputation-award",
 )
 
 # Contract-guid set transitions (report-only facet, design ~439).

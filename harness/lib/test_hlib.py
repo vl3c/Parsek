@@ -3606,8 +3606,8 @@ class AnomalySweepTests(unittest.TestCase):
     allowedAnomalies is tolerated; a scenario cannot invent a new anomaly."""
 
     def test_unallowed_hit_returned(self):
-        hits = hlib.evaluate_anomaly_sweep(["icon-jump"], [])
-        self.assertEqual(hits, ["icon-jump"])
+        hits = hlib.evaluate_anomaly_sweep(["line-blink"], [])
+        self.assertEqual(hits, ["line-blink"])
 
     def test_allowed_token_tolerated(self):
         hits = hlib.evaluate_anomaly_sweep(["polyline-orbit-overlap"], ["polyline-orbit-overlap"])
@@ -3616,6 +3616,241 @@ class AnomalySweepTests(unittest.TestCase):
     def test_unknown_token_ignored(self):
         hits = hlib.evaluate_anomaly_sweep(["not-a-real-anomaly"], [])
         self.assertEqual(hits, [])
+
+    def test_retired_dead_token_can_never_be_a_hit(self):
+        # `icon-jump` was REMOVED from ANOMALY_TOKENS (2026-07-29): no producer raises
+        # it, so gating it advertised coverage that did not exist. Even fed directly
+        # as a hit it is ignored, which is why the removal moves no verdict.
+        self.assertNotIn("icon-jump", hlib.ANOMALY_TOKENS)
+        self.assertEqual([], hlib.evaluate_anomaly_sweep(["icon-jump"], []))
+
+
+class AnomalyBudgetParseTests(unittest.TestCase):
+    """The `allowedAnomalies` declaration surface: bare token (every committed spec's
+    form) and the `{ token, maxCount }` budget, mixed freely in one array.
+
+    Why a budget at all: a bare token tolerates an anomaly at ANY count, so a
+    regression that turns one benign transient into a per-frame storm is
+    indistinguishable from the transient. A ceiling makes those different claims."""
+
+    def test_bare_token_is_unbudgeted(self):
+        p = hlib.parse_allowed_anomalies(["line-blink"])
+        self.assertEqual([], list(p.errors))
+        self.assertEqual({"line-blink": None}, p.budgets)
+
+    def test_budgeted_token_parses(self):
+        p = hlib.parse_allowed_anomalies([{"token": "line-blink", "maxCount": 3}])
+        self.assertEqual([], list(p.errors))
+        self.assertEqual({"line-blink": 3}, p.budgets)
+
+    def test_mixed_forms_parse_together(self):
+        p = hlib.parse_allowed_anomalies(
+            ["polyline-orbit-overlap", {"token": "line-blink", "maxCount": 2}])
+        self.assertEqual([], list(p.errors))
+        self.assertEqual({"polyline-orbit-overlap": None, "line-blink": 2}, p.budgets)
+
+    def test_empty_and_none_parse_clean(self):
+        for declared in (None, [], tuple()):
+            p = hlib.parse_allowed_anomalies(declared)
+            self.assertEqual({}, p.budgets)
+            self.assertEqual([], list(p.errors))
+
+    def test_table_without_token_rejects(self):
+        p = hlib.parse_allowed_anomalies([{"maxCount": 3}])
+        self.assertTrue(any("token" in e for e in p.errors))
+
+    def test_negative_or_non_int_max_count_rejects(self):
+        for bad in (-1, 1.5, "3", True):
+            with self.subTest(maxCount=bad):
+                p = hlib.parse_allowed_anomalies([{"token": "line-blink", "maxCount": bad}])
+                self.assertTrue(any("maxCount" in e for e in p.errors), bad)
+
+    def test_unknown_table_key_rejects(self):
+        # A misspelled ceiling that silently parses as "unbudgeted" is the fail-open
+        # this surface exists to close.
+        p = hlib.parse_allowed_anomalies([{"token": "line-blink", "maxcount": 3}])
+        self.assertTrue(any("unknown key" in e for e in p.errors))
+
+    def test_non_string_non_table_entry_rejects(self):
+        p = hlib.parse_allowed_anomalies([7])
+        self.assertTrue(p.errors)
+
+    def test_duplicate_token_keeps_the_tightest_ceiling(self):
+        # A later bare entry must not widen an earlier budget back to unlimited.
+        p = hlib.parse_allowed_anomalies([{"token": "line-blink", "maxCount": 2}, "line-blink"])
+        self.assertEqual({"line-blink": 2}, p.budgets)
+        p2 = hlib.parse_allowed_anomalies([{"token": "line-blink", "maxCount": 5},
+                                           {"token": "line-blink", "maxCount": 1}])
+        self.assertEqual({"line-blink": 1}, p2.budgets)
+
+    def test_inert_token_warns_but_does_not_reject(self):
+        p = hlib.parse_allowed_anomalies(["icon-jump"])
+        self.assertEqual([], list(p.errors))
+        self.assertTrue(any("RETIRED" in w for w in p.warnings))
+
+
+class AnomalyBudgetSweepTests(unittest.TestCase):
+    """The budget's verdict behavior: at/below the ceiling passes, above it reds, and
+    an undeclared token is unchanged (any raise reds)."""
+
+    ALLOWED = [{"token": "line-blink", "maxCount": 3}]
+
+    def _sweep(self, count):
+        return hlib.evaluate_anomaly_sweep(["line-blink"], self.ALLOWED,
+                                           {"line-blink": count})
+
+    def test_below_budget_passes(self):
+        self.assertEqual([], self._sweep(1))
+
+    def test_at_budget_passes(self):
+        self.assertEqual([], self._sweep(3))
+
+    def test_above_budget_reds(self):
+        self.assertEqual(["line-blink"], self._sweep(4))
+
+    def test_zero_budget_reds_on_the_first_raise(self):
+        self.assertEqual(["line-blink"],
+                         hlib.evaluate_anomaly_sweep(["line-blink"],
+                                                     [{"token": "line-blink", "maxCount": 0}],
+                                                     {"line-blink": 1}))
+
+    def test_bare_token_still_tolerates_any_count(self):
+        self.assertEqual([], hlib.evaluate_anomaly_sweep(
+            ["line-blink"], ["line-blink"], {"line-blink": 9999}))
+
+    def test_counts_are_optional_and_default_to_one(self):
+        # BACKWARD COMPATIBILITY: every pre-existing 2-arg call must behave exactly as
+        # before. With no counts a hit counts as ONE raise, so any budget >= 1 tolerates.
+        self.assertEqual([], hlib.evaluate_anomaly_sweep(["line-blink"], self.ALLOWED))
+        self.assertEqual(["line-blink"],
+                         hlib.evaluate_anomaly_sweep(["line-blink"],
+                                                     [{"token": "line-blink", "maxCount": 0}]))
+
+    def test_undeclared_token_reds_regardless_of_budgets_elsewhere(self):
+        self.assertEqual(["parity-drift"],
+                         hlib.evaluate_anomaly_sweep(["parity-drift"], self.ALLOWED,
+                                                     {"parity-drift": 1}))
+
+
+class AnomalyTokenCountTests(unittest.TestCase):
+    """`count_anomaly_tokens` is the budget's input: per-token RAISE counts, anchored
+    on the same `phase=Anomaly ... reason=<token>` shape as the hit grep."""
+
+    def _raise(self, token, n=1):
+        return "\n".join("[Parsek][INFO][MapRenderTrace] phase=Anomaly pid=%d reason=%s"
+                         % (i, token) for i in range(n))
+
+    def test_counts_every_raise_not_just_the_first(self):
+        self.assertEqual({"line-blink": 4}, hlib.count_anomaly_tokens(self._raise("line-blink", 4)))
+
+    def test_ungated_reason_is_not_counted(self):
+        # An ungated reason rides `unlisted_anomaly_reasons`; it must never enter a
+        # gate's arithmetic.
+        self.assertEqual({}, hlib.count_anomaly_tokens(self._raise("icon-teleport", 3)))
+
+    def test_a_line_merely_naming_a_token_is_not_counted(self):
+        self.assertEqual({}, hlib.count_anomaly_tokens(
+            "[Parsek][INFO][TestRunner] SpineDrive line-blink: over=False"))
+
+    def test_empty_and_none_are_clean(self):
+        for empty in (None, "", "\n\n"):
+            self.assertEqual({}, hlib.count_anomaly_tokens(empty))
+
+
+class UnityExceptionScanTests(unittest.TestCase):
+    """GAP: nothing in the verifier chain ever read a line Parsek did not write.
+
+    Every committed spec's `logContracts.forbidden` list carries Parsek-authored
+    tokens only, and `validate-ksp-log.ps1` -> `ParsekLogContractChecker` parses ONLY
+    `[Parsek]`-tagged lines (session markers, line FORMAT, WARN content, recording
+    pairing). So a KSP.log full of raw `NullReferenceException` stack traces or an
+    IMGUI `ArgumentException: GUILayout` storm passed every gate. This scan is the
+    complement of that layer, REPORT-ONLY until a scenario arms it."""
+
+    NRE = ("NullReferenceException: Object reference not set to an instance of an object\n"
+           "  at Something.Update () [0x00000] in <filename unknown>:0 \n")
+    GUI = "ArgumentException: GUILayout: Mismatched LayoutGroup.repaint\n"
+
+    def test_counts_each_pattern(self):
+        counts = hlib.scan_unity_exceptions(self.NRE + self.GUI + self.NRE)
+        self.assertEqual(2, counts["NullReferenceException"])
+        self.assertEqual(1, counts["ArgumentException: GUILayout"])
+        self.assertEqual(0, counts["MissingReferenceException"])
+
+    def test_every_pattern_reports_a_number_even_at_zero(self):
+        # A measurement ("we looked, and saw none"), not an absence.
+        counts = hlib.scan_unity_exceptions("")
+        self.assertEqual(sorted(n for n, _ in hlib.UNITY_EXCEPTION_PATTERNS), sorted(counts))
+        self.assertEqual(0, sum(counts.values()))
+
+    def test_parsek_reported_exception_is_not_counted(self):
+        # A [Parsek] line naming an exception is the mod REPORTING a caught one -
+        # already covered by the [Parsek][ERROR] forbidden tokens and WRN-001. Counting
+        # it here would double-signal one event and make the number uncalibratable.
+        counts = hlib.scan_unity_exceptions(
+            "[Parsek][ERROR][Recorder] caught NullReferenceException in sample\n")
+        self.assertEqual(0, counts["NullReferenceException"])
+
+    def test_absent_block_is_report_only(self):
+        r = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions(self.NRE), None)
+        self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, r.status)
+        self.assertFalse(r.gating)
+        self.assertEqual(1, r.total)
+        self.assertEqual(tuple(), r.mismatches)
+
+    def test_declared_max_total_gates_over_budget(self):
+        r = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions(self.NRE + self.GUI),
+                                           {"maxTotal": 0})
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(r.gating)
+        self.assertEqual(2, r.total)
+        self.assertTrue(r.mismatches)
+        self.assertIn("maxTotal 0", r.mismatches[0])
+
+    def test_declared_max_total_passes_at_budget(self):
+        r = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions(self.NRE),
+                                           {"maxTotal": 1})
+        self.assertEqual("PASS", r.status)
+        self.assertTrue(r.gating)
+
+    def test_clean_log_with_declared_block_passes(self):
+        r = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions("all good\n"),
+                                           {"maxTotal": 0})
+        self.assertEqual("PASS", r.status)
+        self.assertEqual(0, r.total)
+
+    def test_declared_block_without_max_total_reports(self):
+        r = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions(self.NRE), {})
+        self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, r.status)
+        self.assertFalse(r.gating)
+
+    def test_block_validation_rejects_a_ceiling_that_would_degrade_silently(self):
+        self.assertEqual([], hlib.validate_unity_exception_expectations(None))
+        self.assertEqual([], hlib.validate_unity_exception_expectations({"maxTotal": 0}))
+        for bad in ({"maxTotal": -1}, {"maxTotal": "0"}, {"maxTotal": True},
+                    {"maxTotals": 0}, {"maxTotal": 0, "extra": 1}):
+            with self.subTest(block=bad):
+                self.assertTrue(hlib.validate_unity_exception_expectations(bad), bad)
+        self.assertTrue(hlib.validate_unity_exception_expectations("nope"))
+
+    def test_no_committed_spec_arms_it(self):
+        # The HARD SAFETY PROPERTY: this scan cannot move any nightly verdict, because
+        # nothing declares the block. Arming one is an operator decision taken after
+        # reading the report-only counts off a few green runs.
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if hlib.UNITY_EXCEPTIONS_BLOCK in (spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual([], armed, "a committed spec armed the report-only scan")
+
+    def test_over_budget_classifies_parsek_fail(self):
+        d, v = _clean_pass_facts()
+        v["unity_exceptions_over_budget"] = True
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(("PARSEK-FAIL", "unity-exception"),
+                         (verdict.verdict, verdict.subkind))
 
 
 class AnomalyGrepAnchoringTests(unittest.TestCase):
@@ -3675,14 +3910,18 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
         self.assertEqual(["gap-vs-retire", "icon-teleport"],
                          hlib.unlisted_anomaly_reasons(log))
 
-    def test_icon_jump_is_a_dead_token_against_what_the_mod_emits(self):
-        # Pins the drift rather than papering over it: MapRenderProbe raises the
-        # icon-teleport family with reason=icon-teleport, so the harness's
-        # `icon-jump` token can never fire. Gating is unchanged here deliberately
-        # (reconciling it is a per-token defect-vs-instrument call); the
-        # report-only channel is what makes it visible. Delete this cell when the
-        # set is reconciled.
-        self.assertIn("icon-jump", hlib.ANOMALY_TOKENS)
+    def test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported(self):
+        # HALF THE DRIFT IS CLOSED (2026-07-29), and this cell pins WHICH half.
+        # CLOSED: `icon-jump` no longer sits in the gated set advertising coverage of
+        # a raise that does not exist. It is RETIRED to ANOMALY_TOKENS_DEAD, and the
+        # two tuples are disjoint.
+        self.assertNotIn("icon-jump", hlib.ANOMALY_TOKENS)
+        self.assertIn("icon-jump", hlib.ANOMALY_TOKENS_DEAD)
+        self.assertEqual(set(), set(hlib.ANOMALY_TOKENS) & set(hlib.ANOMALY_TOKENS_DEAD))
+        # STILL OPEN: the real raise (`icon-teleport`) is REPORT-ONLY. Gating it is
+        # the per-token call the todo-doc entry defers - it needs a measurement of
+        # whether it fires on a green S1.4, which only a nightly with the
+        # unlistedReasons channel can supply.
         line = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1"
                 " reason=icon-teleport TELEPORT dPos=900m = 42x expected(21m)")
         self.assertEqual([], hlib.grep_anomaly_tokens(line))
@@ -3952,12 +4191,18 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
                           "the four wrapper-routed raises the first pass missed")
             self.assertIn(reason, self.raised)
 
-    def test_dead_token_is_raised_by_nothing(self):
+    def test_dead_token_is_retired_from_the_gate_and_raised_by_nothing(self):
+        # Post-2026-07-29 bookkeeping: a dead token is OUT of the gated set (it can
+        # never fire, so gating it was coverage theatre) and stays named here so a
+        # producer appearing for it reds instead of quietly leaving it ungated.
         for dead in hlib.ANOMALY_TOKENS_DEAD:
-            self.assertIn(dead, hlib.ANOMALY_TOKENS)
+            self.assertNotIn(dead, hlib.ANOMALY_TOKENS,
+                             "%s is RETIRED; it must not be back in the gated set "
+                             "without a producer" % (dead,))
             self.assertNotIn(dead, self.raised,
-                             "%s is gated but raised by nothing - if a producer "
-                             "appeared, it is no longer dead" % (dead,))
+                             "%s is retired as dead but a producer now raises it - "
+                             "re-decide whether it belongs in ANOMALY_TOKENS or in "
+                             "ANOMALY_REASONS_RAISED_UNGATED" % (dead,))
 
     def test_status_doc_reports_the_same_nine(self):
         # autotest-status.md is declared the single status authority for this
@@ -5587,35 +5832,82 @@ class StockAwardCaptureTests(unittest.TestCase):
     """Guards the leg-A capture (design Test Plan "Stock-log capture + dedupe" ~786):
     a scene-reload re-emit must not double-count, a genuine second award must not be
     dropped, a null-UT entry must still order, and a running-balance line must NEVER
-    be admitted as a manifest amount (it would double-count against the seed)."""
+    be admitted as a manifest amount (it would double-count against the seed).
 
-    def test_award_with_ut_stamped_parsek_neighbor(self):
-        log = (
-            "[LOG] [Parsek][INFO][Recorder] tick ut=12345.6\n"
-            "[LOG] ContractSystem: contract Foo completed guid=g-1 funds=50000\n")
+    EVERY LITERAL LINE BELOW IS MEASURED, not composed (2026-07-29 rewrite, known-gate
+    3). The cells this class shipped with fed INVENTED shapes
+    (`ContractSystem ... funds=50000`, `ResearchAndDevelopment ... delta=8.5`) and so
+    passed green while the capture matched nothing in the field - the tests and the
+    patterns agreed with each other and both disagreed with KSP. Sources:
+      docs/dev/todo-and-known-bugs.md:248,257
+      harness/scenarios/CL-1-pod-impact.toml:135-140
+      docs/dev/done/todo-and-known-bugs-v4.md:1954"""
+
+    # MEASURED, CL-1 flights 1+2 (2026-07-28), identical across both.
+    REP_LOSS_LINE = "Added -9.999828 (-10) reputation: 'VesselLoss'."
+    REP_PROGRESSION_LINE = "Added 0.9999995 (1) reputation: 'Progression'."
+    FUNDS_RECORDS_LINE = "Added 4800 funds: 'RecordsSpeed'"
+    FUNDS_LAUNCH_LINE = "Added 800 funds: 'FirstLaunch'"
+
+    def test_measured_reputation_penalty_line_captured_with_amount_and_reason(self):
+        log = ("[LOG] [Parsek][INFO][Recorder] tick ut=12345.6\n"
+               "[LOG] " + self.REP_LOSS_LINE + "\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(1, len(res.captured),
+                         "the MEASURED stock rep line must capture; an empty capture "
+                         "is the dead-pattern no-op this rewrite closes")
+        c = res.captured[0]
+        self.assertEqual("reputation", c.facet)
+        # The APPLIED delta (the leading number), NOT the parenthesised nominal -10.
+        self.assertEqual(-9.999828, c.amount)
+        self.assertEqual("VesselLoss", c.reason)
+        self.assertEqual("stock-reputation-award", c.kind)
+        self.assertEqual(12345.6, c.ut)          # correlated to the nearest UT line.
+        # Stamped `applied` so the oracle does not re-curve an already-curved delta.
+        self.assertEqual("applied", c.to_entry_dict()["repMode"])
+
+    def test_measured_reputation_award_line_captured(self):
+        log = "[LOG] " + self.REP_PROGRESSION_LINE + "\n"
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(1, len(res.captured))
+        c = res.captured[0]
+        self.assertEqual(0.9999995, c.amount)
+        self.assertEqual("Progression", c.reason)
+
+    def test_measured_funds_award_line_captured(self):
+        log = ("[LOG] [Parsek][INFO] ut=10.0\n"
+               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(1, len(res.captured))
         c = res.captured[0]
         self.assertEqual("funds", c.facet)
-        self.assertEqual(50000.0, c.amount)
-        self.assertEqual("g-1", c.contract_guid)
-        self.assertEqual(12345.6, c.ut)          # correlated to the nearest UT line.
-        self.assertEqual("contract-complete", c.kind)
+        self.assertEqual(4800.0, c.amount)
+        self.assertEqual("RecordsSpeed", c.reason)
+        self.assertEqual("stock-funds-award", c.kind)
+        self.assertEqual(10.0, c.ut)
 
-    def test_science_award_carries_subject_and_delta(self):
-        log = ("[LOG] [Parsek][INFO] ut=10.0\n"
-               "[LOG] ResearchAndDevelopment: science subject=crewReport@KerbinSrf delta=8.5\n")
-        res = hlib.parse_stock_award_lines(log)
-        self.assertEqual(1, len(res.captured))
-        c = res.captured[0]
-        self.assertEqual("science", c.facet)
-        self.assertEqual(8.5, c.amount)
-        self.assertEqual("crewReport@KerbinSrf", c.subject_id)
+    def test_the_whole_measured_cl1_burst_captures(self):
+        # The full award set both CL-1 flights produced. Four distinct effects: three
+        # funds milestones and the death rep penalty (the two `Progression` +1 rep
+        # awards are covered above). Deduping must keep all of them.
+        log = "\n".join("[LOG] " + line for line in (
+            "[Parsek][INFO][Recorder] tick ut=119.7",
+            self.FUNDS_RECORDS_LINE,
+            self.FUNDS_LAUNCH_LINE,
+            "Added 4800 funds: 'RecordsAltitude'",
+            self.REP_LOSS_LINE)) + "\n"
+        deduped = hlib.dedupe_captured_awards(hlib.parse_stock_award_lines(log).captured)
+        self.assertEqual(4, len(deduped))
+        self.assertEqual(["FirstLaunch", "RecordsAltitude", "RecordsSpeed", "VesselLoss"],
+                         sorted(c.reason for c in deduped))
+        # RecordsSpeed and RecordsAltitude are BOTH 4800 at the SAME UT - without the
+        # reason in the dedupe identity they would collapse into one effect.
+        self.assertEqual(2, len([c for c in deduped if c.amount == 4800.0]))
 
     def test_null_ut_when_no_parsek_neighbor(self):
         # No UT-stamped [Parsek] line precedes the award -> ut=None, seq=line ordinal
         # (the seqKey), still ordered + deduped deterministically (design ~394).
-        log = "[LOG] ContractSystem: contract Foo completed guid=g-1 funds=50000\n"
+        log = "[LOG] " + self.FUNDS_RECORDS_LINE + "\n"
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(1, len(res.captured))
         c = res.captured[0]
@@ -5632,12 +5924,35 @@ class StockAwardCaptureTests(unittest.TestCase):
         self.assertEqual(0, len(res.captured))
         self.assertEqual(1, res.rejected_balance)
 
+    def test_balance_line_in_the_award_idiom_still_rejected(self):
+        # The BALANCE-INADMISSIBILITY rule survives the pattern rewrite: a line
+        # reporting a post-grant RUNNING TOTAL is rejected even when it is worded in
+        # the same family as an award line. Admitting one would double-count the whole
+        # pool against the seed - the single worst error this capture can make.
+        log = ("[LOG] [Parsek][INFO] ut=10.0\n"
+               "[LOG] Funding: total funds 529600\n"
+               "[LOG] Reputation: current reputation -7.99982834\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(0, len(res.captured))
+        self.assertEqual(2, res.rejected_balance)
+
+    def test_prose_naming_a_pool_is_not_an_award(self):
+        # Negative: the shape is anchored on the whole `Added <n> <pool>: '<reason>'`
+        # idiom, so ordinary log prose that merely contains "Added" and a pool word
+        # captures nothing (the class of false positive that made the anomaly sweep
+        # red a clean S1.7 flight).
+        log = ("[LOG] Added 14 developer-only scenarios\n"
+               "[LOG] Added 1 supersede relations for subtree rooted at b9-booster-a\n"
+               "[LOG] funds: 529600 reputation: -7.99982834\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(0, len(res.captured))
+
     def test_scene_reload_reemit_same_seqkey_dedupes(self):
         # The same award line re-emitted at the SAME seqKey (no new UT between) is ONE
         # effect after dedupe (design edge 2).
         log = ("[LOG] [Parsek][INFO] ut=100.0\n"
-               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n"
-               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n")
+               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n"
+               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(2, len(res.captured))            # both matched before dedupe
         deduped = hlib.dedupe_captured_awards(res.captured)
@@ -5647,9 +5962,9 @@ class StockAwardCaptureTests(unittest.TestCase):
         # A genuine second identical award at a DISTINCT seqKey (a new UT between)
         # survives the dedupe (design edge 2): the seqKey is part of the dedupe key.
         log = ("[LOG] [Parsek][INFO] ut=100.0\n"
-               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n"
+               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n"
                "[LOG] [Parsek][INFO] ut=200.0\n"
-               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n")
+               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         deduped = hlib.dedupe_captured_awards(res.captured)
         self.assertEqual(2, len(deduped))
@@ -5661,28 +5976,35 @@ class StockAwardCaptureTests(unittest.TestCase):
         self.assertEqual(0, res.rejected_balance)
 
     def test_parsek_tagged_line_not_captured_as_award(self):
-        # Review SF7: a [Parsek] diagnostic line that MENTIONS a stock emitter class +
-        # delta= (e.g. the ledger tracer's ledger-vs-truth lines) must NOT false-capture
-        # as a stock award, which would false-red an empty-manifest B10. A genuine
-        # (untagged) stock line on the next line still captures, and the [Parsek] line's
-        # ut= stamp still drives the UT correlation of that genuine award.
-        log = ("[LOG] [Parsek][VERBOSE][LedgerTrace] ut=42.0 ResearchAndDevelopment science delta=999.0\n"
-               "[LOG] ResearchAndDevelopment: science subject=crewReport@X delta=8.5\n")
+        # Review SF7: a [Parsek] diagnostic line that QUOTES a stock award line (the
+        # ledger tracer echoing an event) must NOT false-capture as a stock award,
+        # which would false-red an empty-manifest B10. A genuine (untagged) stock line
+        # on the next line still captures, and the [Parsek] line's ut= stamp still
+        # drives the UT correlation of that genuine award.
+        log = ("[LOG] [Parsek][VERBOSE][LedgerTrace] ut=42.0 saw Added 999 funds: 'Bogus'\n"
+               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(1, len(res.captured))          # only the genuine stock line
         c = res.captured[0]
-        self.assertEqual(8.5, c.amount)
-        self.assertEqual("crewReport@X", c.subject_id)
+        self.assertEqual(4800.0, c.amount)
+        self.assertEqual("RecordsSpeed", c.reason)
         self.assertEqual(42.0, c.ut)                     # UT still read from the [Parsek] stamp
         # The 999.0 from the [Parsek] line was never admitted as an award amount.
         self.assertNotIn(999.0, [a.amount for a in res.captured])
 
-    def test_parsek_tagged_contract_line_not_captured(self):
-        # A [Parsek] line quoting a ContractSystem funds= award (a Parsek log echoing a
-        # stock event) is not captured either; capture is stock-native lines only.
-        log = "[LOG] [Parsek][INFO][Recorder] ContractSystem contract Foo completed guid=g funds=50000\n"
-        res = hlib.parse_stock_award_lines(log)
+    def test_science_shape_is_unmeasured_and_deliberately_unenumerated(self):
+        # KNOWN-GATE 3 RESIDUAL, pinned so it is a decision rather than an oversight:
+        # no science award line is quoted anywhere in this repo, so no science pattern
+        # is enumerated. Guessing one is exactly what made the old table dead. A
+        # science-shaped line therefore captures NOTHING today - and that is SAFE: an
+        # unmatched award still moves the produced save, so the save-diff catches it.
+        # DELETE this cell (and add the pattern) when a flight produces the line.
+        self.assertEqual([], [p for p in hlib.STOCK_AWARD_PATTERNS if p.facet == "science"])
+        res = hlib.parse_stock_award_lines("[LOG] Added 5 science: 'ScienceTransmission'\n")
         self.assertEqual(0, len(res.captured))
+        # Every enumerated pattern cites the archived line it was derived from.
+        for pat in hlib.STOCK_AWARD_PATTERNS:
+            self.assertTrue(pat.measured_from, "%s pattern cites no measured line" % pat.facet)
 
 
 class UnmatchedCapturedAwardTests(unittest.TestCase):
@@ -6329,6 +6651,41 @@ class MisplacedAllowedAnomaliesRejectionTests(unittest.TestCase):
         self.assertIn("polyline-orbit-overlap", body,
                       "the dead exception must stay documented, not vanish")
         self.assertIn("NEVER", body)
+
+    def test_every_committed_spec_parses_under_the_budget_surface(self):
+        # BACKWARD-COMPATIBILITY GATE for the `{ token, maxCount }` form (2026-07-29).
+        # The budget entry is ADDITIVE: an entry is either a bare token (what all 55
+        # committed specs declare) or a table. Every committed declaration must still
+        # parse with ZERO errors and produce an UNBUDGETED (None) ceiling, so the new
+        # surface cannot have changed a single scenario's tolerance.
+        names = sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml"))
+        self.assertTrue(names)
+        for name in names:
+            with self.subTest(spec=name):
+                declared = (load_spec(name).get("expectations", {}) or {}).get(
+                    "allowedAnomalies", [])
+                parsed = hlib.parse_allowed_anomalies(declared)
+                self.assertEqual([], list(parsed.errors),
+                                 "%s: %s" % (name, list(parsed.errors)))
+                self.assertEqual([], list(parsed.warnings),
+                                 "%s: %s" % (name, list(parsed.warnings)))
+                for token, budget in parsed.budgets.items():
+                    self.assertIsNone(budget,
+                                      "%s arms a count budget on %s; no committed spec "
+                                      "may, until an operator calibrates one"
+                                      % (name, token))
+
+    def test_no_committed_spec_arms_a_count_budget(self):
+        # The HARD SAFETY PROPERTY, stated once at the whole-set level: the budget
+        # mechanism ships INERT. Arming one is an operator decision taken against
+        # measured `anomalySweep.hitCounts` from a green run.
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            declared = (load_spec(name).get("expectations", {}) or {}).get(
+                "allowedAnomalies", [])
+            if any(isinstance(e, dict) for e in declared):
+                armed.append(name)
+        self.assertEqual([], armed)
 
 
 class LogContractPatternCompilabilityTests(unittest.TestCase):

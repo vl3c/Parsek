@@ -143,27 +143,26 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 
 # Harness-owned, fixed Tier-C anomaly token set (design verifier 6 / N2). A
 # scenario only ADDS known-benign exceptions via `allowedAnomalies`; it never
-# redefines this set.
+# redefines this set. Every token here is LIVE: some production `EmitAnomaly` call
+# site raises it (pinned by AnomalyGroundTruthEnumerationTests).
 #
-# KNOWN DRIFT from what the mod actually emits, found 2026-07-26 while wiring
-# S1.7. `icon-jump` is DEAD: the probe raises the icon-teleport family with
-# `reason=icon-teleport` (MapRenderProbe.cs), so this token matches no emit at
-# all. The ungated remainder is ANOMALY_REASONS_RAISED_UNGATED below - NINE
-# reasons, not the five the first pass listed (the four cutover-hardening raises
-# reached through MapRenderTrace's thin wrappers were missed; corrected after
-# review 2026-07-26, and the enumeration is now DERIVED FROM SOURCE by
-# AnomalyGroundTruthEnumerationTests rather than hand-maintained).
+# DEAD-TOKEN REMOVAL (2026-07-29). `icon-jump` used to sit in this tuple and was
+# raised by NOTHING - the probe raises the icon-teleport family with
+# `reason=icon-teleport` (MapRenderProbe.cs), so the token could never fire. It is
+# RETIRED to ANOMALY_TOKENS_DEAD below. The removal changes no verdict by
+# construction (a token no producer raises cannot be a hit), and it stops the
+# gated set advertising coverage it does not have.
 #
-# NOT resolved here because the per-token call (defect signal vs instrumentation
-# signal) has to be made one token at a time and wants its own change - see the
-# todo-doc entry. Note what the deferral is NOT: after this same change's
-# settings-sidecar baseline only three specs arm the map tracer (S1.4, S1.6,
-# S1.7), so widening the set can only move THEIR verdicts, not "every committed
-# scenario's". Until it is decided, `unlisted_anomaly_reasons` REPORTS every
-# anomaly reason seen that is not in this set, so the drift is visible on every
-# run instead of silent.
+# The DRIFT ITSELF IS NOT CLOSED: ANOMALY_REASONS_RAISED_UNGATED below still lists
+# NINE reasons the mod raises that nothing gates. That reconciliation is a
+# per-token call (defect signal vs instrumentation signal) and stays deferred -
+# see the todo-doc entry. Note what the deferral is NOT: after the settings-sidecar
+# baseline only three specs arm the map tracer (S1.4, S1.6, S1.7), so widening the
+# set can only move THEIR verdicts, not "every committed scenario's". Until it is
+# decided, `unlisted_anomaly_reasons` REPORTS every anomaly reason seen that is not
+# in this set, so the drift is visible on every run instead of silent.
 ANOMALY_TOKENS: Tuple[str, ...] = (
-    "icon-jump", "line-blink", "parity-drift", "decision-vs-truth",
+    "line-blink", "parity-drift", "decision-vs-truth",
     "polyline-orbit-overlap", "rigid-seam-tangent-discontinuity", "ledger-vs-truth",
 )
 
@@ -178,9 +177,9 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 # pinned against the C# source by AnomalyGroundTruthEnumerationTests: that test
 # walks every EmitAnomaly call site under Source/Parsek (excluding InGameTests/),
 # resolves the reason argument by position for both tracer signatures, and
-# requires the derived set to partition EXACTLY into ANOMALY_TOKENS-minus-dead
-# plus this tuple. A new raise site that nobody gates therefore reds the harness
-# suite instead of quietly widening the fail-open.
+# requires the derived set to partition EXACTLY into ANOMALY_TOKENS (all live now
+# that the dead token is retired) plus this tuple. A new raise site that nobody
+# gates therefore reds the harness suite instead of quietly widening the fail-open.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     ("icon-teleport", "Source/Parsek/MapRenderProbe.cs:753"),
     ("icon-off-orbit", "Source/Parsek/MapRenderProbe.cs:834"),
@@ -193,8 +192,16 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
 )
 
-# `icon-jump` is in ANOMALY_TOKENS but no producer raises it (see above). Named so
-# the dead-token tests and the source-derived enumeration agree on one constant.
+# RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
+# (2026-07-29). Kept as a named constant for two reasons, both mechanical: the
+# source-derived enumeration asserts each entry is still raised by NO producer (so
+# a token that gains a producer stops being dead and has to be re-decided rather
+# than silently staying out of the gate), and spec validation warns on an
+# `allowedAnomalies` entry naming one (declaring a tolerance for a token the sweep
+# cannot raise is inert, and the author should know).
+#
+# INVARIANT: this tuple and ANOMALY_TOKENS are DISJOINT. A dead token is retired
+# FROM the gated set, never carried inside it.
 ANOMALY_TOKENS_DEAD: Tuple[str, ...] = ("icon-jump",)
 
 # Both tracers build their Tier-C line the same way: MapRenderTrace.EmitAnomaly ->
@@ -2757,6 +2764,25 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                else "; the declared exception(s) %s are INERT where they sit and "
                     "the sweep would run with none allowed" % (list(declared),)))
 
+    # The allowedAnomalies ENTRY shapes (bare token or { token, maxCount } budget).
+    # Structural errors reject pre-launch for the same reason the misplaced-key guard
+    # above does: a budget that silently fails to parse is a tolerance the author
+    # believes is in force and is not. An inert declaration (a token the sweep can
+    # never raise, e.g. the RETIRED icon-jump) is a WARNING, not an error - it costs
+    # nothing at run time and hard-rejecting it would make a future token rename a
+    # spec-invalid instead of a no-op.
+    allowed_parse = parse_allowed_anomalies(expectations.get("allowedAnomalies") or [])
+    errors.extend(allowed_parse.errors)
+    warnings.extend(allowed_parse.warnings)
+
+    # The REPORT-ONLY-by-default raw-Unity-exception scan's opt-in block. Declared in
+    # ZERO committed specs; validated here so an armed ceiling that would silently
+    # degrade to report-only (misspelled key, non-int, negative) is a pre-launch
+    # rejection instead of a gate everyone believes is on.
+    if UNITY_EXCEPTIONS_BLOCK in expectations:
+        errors.extend(validate_unity_exception_expectations(
+            expectations.get(UNITY_EXCEPTIONS_BLOCK)))
+
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. Structural only; the
     # per-entry manifest validation runs at run time (oracle.parse_manifest_entries).
@@ -3284,6 +3310,33 @@ def grep_anomaly_tokens(log_text: Optional[str]) -> List[str]:
     return [t for t in ANOMALY_TOKENS if t in raised]
 
 
+def count_anomaly_tokens(log_text: Optional[str]) -> Dict[str, int]:
+    """RAISE COUNTS per harness-owned Tier-C token (design verifier 6, budget form).
+
+    Same anchoring as ``grep_anomaly_tokens`` (a ``phase=Anomaly`` line whose
+    ``reason=`` field is the whole token), but counts every raise instead of
+    collapsing to first-seen. This is the input the per-token COUNT BUDGET needs: a
+    tolerance of "this anomaly is known-benign" and a tolerance of "this anomaly
+    fires at most N times on a healthy run" are different claims, and only the
+    second can catch a regression that turns a rare transient into a storm.
+
+    Only tokens in ANOMALY_TOKENS appear (an ungated reason is reported through
+    ``unlisted_anomaly_reasons``, never counted into a gate).
+    """
+    counts: Dict[str, int] = {}
+    gated = set(ANOMALY_TOKENS)
+    for line in (log_text or "").splitlines():
+        if ANOMALY_LINE_PHASE not in line:
+            continue
+        m = _ANOMALY_REASON_RE.search(line)
+        if m is None:
+            continue
+        token = m.group(1)
+        if token in gated:
+            counts[token] = counts.get(token, 0) + 1
+    return counts
+
+
 def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
     """Anomaly reasons RAISED but absent from ``ANOMALY_TOKENS`` (REPORT-ONLY).
 
@@ -3296,18 +3349,286 @@ def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
     return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 
 
-def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequence[str]) -> List[str]:
-    """Return the anomaly hits NOT in ``allowedAnomalies`` (design verifier 6).
+# ---------------------------------------------------------------------------
+# `allowedAnomalies` declaration surface (bare token + per-token count budget).
+# ---------------------------------------------------------------------------
+
+# The budgeted entry's keys. BACKWARD-COMPATIBLE BY CONSTRUCTION: an entry is
+# EITHER a bare string (the historical form every committed spec uses, meaning
+# "tolerate this token however often it fires") OR a table carrying `token` and
+# `maxCount` ("tolerate up to N raises; the N+1st reds"). All 55 committed specs
+# parse unchanged because none of them declares the table form.
+ALLOWED_ANOMALY_TOKEN_KEY = "token"
+ALLOWED_ANOMALY_MAX_COUNT_KEY = "maxCount"
+
+# A bare token carries no ceiling. Sentinel rather than a huge int so the reporting
+# layer can say "unbudgeted" instead of printing a magic number.
+ANOMALY_BUDGET_UNLIMITED: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class AllowedAnomalyParse:
+    """Parsed ``expectations.allowedAnomalies`` (pure).
+
+    ``budgets`` maps token -> ceiling, where the ceiling is ``None`` for a bare
+    token (unbudgeted: tolerated at any count) and an ``int >= 0`` for the table
+    form. ``errors`` are STRUCTURAL rejects (spec-invalid, no KSP boot);
+    ``warnings`` are inert-declaration notes (a token the sweep can never raise).
+    """
+    budgets: Dict[str, Optional[int]] = field(default_factory=dict)
+    errors: Tuple[str, ...] = tuple()
+    warnings: Tuple[str, ...] = tuple()
+
+
+def parse_allowed_anomalies(declared: Optional[Sequence]) -> AllowedAnomalyParse:
+    """Parse the ``allowedAnomalies`` array into per-token budgets (pure).
+
+    Accepted entry forms::
+
+        "polyline-orbit-overlap"                          # bare  -> unbudgeted
+        { token = "icon-teleport", maxCount = 3 }          # table -> reds at 4+
+
+    A duplicate token keeps the TIGHTEST ceiling (a later bare entry cannot widen an
+    earlier budget back to unlimited): the whole point of the budget is to be a
+    ceiling, and a declaration that silently loosens one is the fail-open this
+    mechanism exists to close.
+
+    Structural rejects (errors): a non-string / non-table entry, a table with no
+    ``token``, a non-int or negative ``maxCount``, an unknown key in the table.
+    Inert-declaration warnings: a token outside ANOMALY_TOKENS (the sweep can never
+    raise it, so the tolerance does nothing) - RETIRED dead tokens are named as such.
+    """
+    budgets: Dict[str, Optional[int]] = {}
+    errors: List[str] = []
+    warnings: List[str] = []
+    for i, entry in enumerate(declared or ()):
+        token: Optional[str] = None
+        budget: Optional[int] = ANOMALY_BUDGET_UNLIMITED
+        if isinstance(entry, str):
+            token = entry
+        elif isinstance(entry, dict):
+            raw_token = entry.get(ALLOWED_ANOMALY_TOKEN_KEY)
+            if not isinstance(raw_token, str) or not raw_token:
+                errors.append(
+                    "expectations.allowedAnomalies[%d]: a table entry requires a "
+                    "non-empty `%s` (got %r)" % (i, ALLOWED_ANOMALY_TOKEN_KEY, entry))
+                continue
+            unknown = sorted(k for k in entry
+                             if k not in (ALLOWED_ANOMALY_TOKEN_KEY,
+                                          ALLOWED_ANOMALY_MAX_COUNT_KEY))
+            if unknown:
+                errors.append(
+                    "expectations.allowedAnomalies[%d]: unknown key(s) %s (accepted: "
+                    "%s, %s)" % (i, unknown, ALLOWED_ANOMALY_TOKEN_KEY,
+                                 ALLOWED_ANOMALY_MAX_COUNT_KEY))
+                continue
+            token = raw_token
+            if ALLOWED_ANOMALY_MAX_COUNT_KEY in entry:
+                raw_max = entry[ALLOWED_ANOMALY_MAX_COUNT_KEY]
+                if isinstance(raw_max, bool) or not isinstance(raw_max, int) or raw_max < 0:
+                    errors.append(
+                        "expectations.allowedAnomalies[%d].%s: %r must be a "
+                        "non-negative integer raise ceiling"
+                        % (i, ALLOWED_ANOMALY_MAX_COUNT_KEY, raw_max))
+                    continue
+                budget = int(raw_max)
+        else:
+            errors.append(
+                "expectations.allowedAnomalies[%d]: %r must be a token string or a "
+                "{ %s = \"...\", %s = N } table"
+                % (i, entry, ALLOWED_ANOMALY_TOKEN_KEY, ALLOWED_ANOMALY_MAX_COUNT_KEY))
+            continue
+
+        if token not in ANOMALY_TOKENS:
+            warnings.append(
+                "expectations.allowedAnomalies[%d]: %r is %s, so the sweep can never "
+                "raise it and this tolerance is INERT"
+                % (i, token,
+                   "a RETIRED dead token" if token in ANOMALY_TOKENS_DEAD
+                   else "not a harness-owned Tier-C anomaly token"))
+        if token in budgets:
+            prior = budgets[token]
+            # Tightest wins: a real ceiling beats unlimited, and the smaller of two
+            # ceilings wins.
+            if budget is None:
+                budget = prior
+            elif prior is not None:
+                budget = min(prior, budget)
+        budgets[token] = budget
+    return AllowedAnomalyParse(budgets, tuple(errors), tuple(warnings))
+
+
+def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequence,
+                           hit_counts: Optional[Dict[str, int]] = None) -> List[str]:
+    """Return the anomaly hits NOT tolerated by ``allowedAnomalies`` (verifier 6).
 
     ``hit_tokens`` is the set of harness-owned Tier-C anomaly tokens grepped from
     the KSP.log; a scenario only ADDS known-benign exceptions via
     ``allowedAnomalies`` (a DEDICATED field, never logContracts.forbidden), so
-    the harness-owned sweep set stays fixed. Any hit not allowed -> the caller
+    the harness-owned sweep set stays fixed. Any hit not tolerated -> the caller
     reds PARSEK-FAIL(anomaly). Unknown tokens (not in ANOMALY_TOKENS) are ignored
     (the sweep set is fixed; a scenario cannot invent a new anomaly).
+
+    TOLERANCE, two forms (see ``parse_allowed_anomalies``):
+      - bare token -> tolerated at ANY count (the historical behavior, unchanged);
+      - ``{ token, maxCount = N }`` -> tolerated up to N raises; N+1 reds.
+
+    ``hit_counts`` is ``count_anomaly_tokens``'s per-token raise count. It is
+    OPTIONAL so every existing 2-arg call still behaves identically: with no counts
+    a hit is assumed to have fired ONCE, so any budget >= 1 tolerates it and a
+    ``maxCount = 0`` declaration still reds. A budgeted token that is OVER budget is
+    returned as a hit (with the count named by the caller's reporting row).
     """
-    allowed = set(allowed_anomalies or ())
-    return [t for t in hit_tokens if t in ANOMALY_TOKENS and t not in allowed]
+    parse = parse_allowed_anomalies(allowed_anomalies)
+    counts = hit_counts or {}
+    unallowed: List[str] = []
+    for t in hit_tokens:
+        if t not in ANOMALY_TOKENS:
+            continue
+        if t not in parse.budgets:
+            unallowed.append(t)
+            continue
+        budget = parse.budgets[t]
+        if budget is None:
+            continue
+        if int(counts.get(t, 1)) > budget:
+            unallowed.append(t)
+    return unallowed
+
+
+# ---------------------------------------------------------------------------
+# Raw Unity exception scan (REPORT-ONLY by default; spec-armable). Pure.
+# ---------------------------------------------------------------------------
+
+# THE GAP THIS CLOSES. Every committed spec's `logContracts.forbidden` list carries
+# PARSEK-AUTHORED tokens only (`\[Parsek\]\[ERROR\]` and friends), and the
+# log-validation layer below it (`scripts/validate-ksp-log.ps1` ->
+# `ParsekLogContractChecker`) parses ONLY `[Parsek]`-tagged lines - its five rules
+# (SES-000/001, FMT-001/002, WRN-001, REC-001/003) are about session markers, the
+# Parsek line FORMAT, WARN-level content and recording start/stop pairing. So a
+# KSP.log full of raw Unity `NullReferenceException` stack traces or an IMGUI
+# `ArgumentException: GUILayout` storm passes every gate the harness has: nothing
+# in the chain looks at a line the mod did not write. No overlap is duplicated
+# here - this scan is deliberately the complement of that layer.
+#
+# REPORT-ONLY BY DEFAULT, and that is not timidity: nobody has ever measured how
+# many of these a healthy KSP 1.12 + Parsek boot emits (stock KSP itself throws
+# during scene loads), so an armed ceiling picked without a calibration run would
+# red live-proven scenarios on the next nightly. The counts land in the result JSON
+# on EVERY run; an operator reads them off a few green runs, then arms
+# `[expectations.unityExceptions] maxTotal = N` per scenario.
+#
+# Each entry is (name, regex). Matched per LINE (an exception header line; the
+# stack-trace lines below it do not repeat the type name), so the count is
+# "exception occurrences", not "log lines mentioning exceptions".
+UNITY_EXCEPTION_PATTERNS: Tuple[Tuple[str, "re.Pattern"], ...] = (
+    # The overwhelmingly common Unity/KSP crash-in-a-frame signature.
+    ("NullReferenceException", re.compile(r"\bNullReferenceException\b")),
+    # A destroyed UnityEngine.Object still being touched - the ghost/proto-vessel
+    # lifecycle class this project has hit repeatedly.
+    ("MissingReferenceException", re.compile(r"\bMissingReferenceException\b")),
+    ("IndexOutOfRangeException", re.compile(r"\bIndexOutOfRangeException\b")),
+    # IMGUI layout mismatch: one bad OnGUI frame emits this EVERY frame for the
+    # rest of the scene, which is exactly the storm a count budget catches.
+    ("ArgumentException: GUILayout", re.compile(r"\bArgumentException:\s*GUILayout\b")),
+)
+
+# The spec block that ARMS the scan. Absent (the state of all 55 committed specs)
+# -> report-only.
+UNITY_EXCEPTIONS_BLOCK = "unityExceptions"
+UNITY_EXCEPTIONS_MAX_TOTAL_KEY = "maxTotal"
+
+UNITY_EXCEPTIONS_STATUS_REPORT = "REPORT"
+
+
+@dataclass(frozen=True)
+class UnityExceptionResult:
+    """Outcome of the raw-Unity-exception scan.
+
+    ``status`` is ``REPORT`` when the scenario declares no
+    ``[expectations.unityExceptions]`` block (counts recorded, verdict untouched),
+    else ``PASS`` / ``FAIL``. ``gating`` mirrors that as a bool so the caller does
+    not string-compare. ``counts`` is per-pattern; ``total`` is their sum.
+    """
+    status: str
+    gating: bool
+    total: int
+    counts: Dict[str, int] = field(default_factory=dict)
+    max_total: Optional[int] = None
+    mismatches: Tuple[str, ...] = tuple()
+
+
+def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:
+    """Count raw Unity exception occurrences per pattern in a KSP.log body (pure).
+
+    `[Parsek]`-tagged lines are SKIPPED: a Parsek line that names an exception is
+    the mod REPORTING a caught one (already covered by the `[Parsek][ERROR]`
+    forbidden tokens and by WRN-001), while this scan is about the exceptions
+    nobody caught. Counting both would double-signal the same event and make the
+    number an operator has to calibrate against un-interpretable.
+
+    Every pattern gets a key, including a zero, so a result JSON reads as a
+    measurement ("we looked, and saw none") rather than an absence.
+    """
+    counts: Dict[str, int] = {name: 0 for name, _ in UNITY_EXCEPTION_PATTERNS}
+    for line in (log_text or "").splitlines():
+        if "[Parsek]" in line:
+            continue
+        for name, pat in UNITY_EXCEPTION_PATTERNS:
+            if pat.search(line) is not None:
+                counts[name] += 1
+    return counts
+
+
+def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
+                              block: Optional[Dict]) -> UnityExceptionResult:
+    """Judge the scanned counts against an optional ``[expectations.unityExceptions]``.
+
+    ABSENT block -> ``REPORT`` (non-gating), which is the state of every committed
+    spec and the reason this cannot move a nightly verdict. A DECLARED block with
+    ``maxTotal = N`` gates: total > N -> ``FAIL`` with a mismatch string naming the
+    per-pattern breakdown. A declared block with no ``maxTotal`` still reports (it
+    declares nothing to gate on).
+    """
+    counts = dict(counts or {})
+    total = sum(int(v) for v in counts.values())
+    if not isinstance(block, dict):
+        return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts)
+    raw_max = block.get(UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
+    if raw_max is None or isinstance(raw_max, bool) or not isinstance(raw_max, int):
+        return UnityExceptionResult(UNITY_EXCEPTIONS_STATUS_REPORT, False, total, counts)
+    max_total = int(raw_max)
+    if total <= max_total:
+        return UnityExceptionResult("PASS", True, total, counts, max_total)
+    breakdown = ", ".join("%s=%d" % (n, counts.get(n, 0))
+                          for n, _ in UNITY_EXCEPTION_PATTERNS if counts.get(n, 0))
+    return UnityExceptionResult(
+        "FAIL", True, total, counts, max_total,
+        ("unityExceptions.total %d > maxTotal %d (%s)" % (total, max_total, breakdown),))
+
+
+def validate_unity_exception_expectations(block: Optional[Dict]) -> List[str]:
+    """Validate the optional ``[expectations.unityExceptions]`` block (pre-launch).
+
+    Structural only, and deliberately strict about the ONE key it accepts: a
+    misspelled ceiling that silently degrades to report-only is precisely the
+    fail-open this block exists to close.
+    """
+    if block is None:
+        return []
+    if not isinstance(block, dict):
+        return ["expectations.%s: must be a table" % (UNITY_EXCEPTIONS_BLOCK,)]
+    errs: List[str] = []
+    unknown = sorted(k for k in block if k != UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
+    if unknown:
+        errs.append("expectations.%s: unknown key(s) %s (accepted: %s)"
+                    % (UNITY_EXCEPTIONS_BLOCK, unknown, UNITY_EXCEPTIONS_MAX_TOTAL_KEY))
+    if UNITY_EXCEPTIONS_MAX_TOTAL_KEY in block:
+        raw = block[UNITY_EXCEPTIONS_MAX_TOTAL_KEY]
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            errs.append("expectations.%s.%s: %r must be a non-negative integer"
+                        % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY, raw))
+    return errs
 
 
 # ---------------------------------------------------------------------------
@@ -3325,6 +3646,44 @@ def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequenc
 # non-default tolerance profiles are RESERVED (validate rejects an unknown value).
 LEDGER_SEED_FROM_VALUES: Tuple[str, ...] = ("template",)
 LEDGER_TOLERANCE_VALUES: Tuple[str, ...] = ("default",)
+
+# The stock-award CROSS-CHECK mode (2026-07-29, shipped with the pattern rewrite).
+# `report` (the DEFAULT, and what all 55 committed specs take by declaring nothing)
+# records every unmatched captured award as a REPORT-ONLY oracle divergence;
+# `gate` restores the hard PARSEK-FAIL(ledger) the code always intended.
+#
+# WHY THE DEFAULT IS `report` AND NOT `gate`. The cross-check was WRITTEN as a hard
+# gate, but it has never once run with a working capture: STOCK_AWARD_PATTERNS
+# matched invented shapes, so the captured set was empty on every flight and the
+# gate could not fire. Making the patterns real turns that dormant gate live in one
+# step, against scenarios NOBODY has measured it on - and the measurement that does
+# exist says it would red them: the CL-1 flights show a career pad hop tripping
+# `RecordsSpeed` / `FirstLaunch` / `RecordsAltitude` funds awards plus two
+# `Progression` rep awards, none of which any L1 seam manifest declares. So the
+# mechanism lands report-only, the counts land in the result JSON, and an operator
+# arms `captureCrossCheck = "gate"` per scenario once a green run shows what that
+# scenario's baseline award set actually is.
+LEDGER_CAPTURE_CROSS_CHECK_KEY = "captureCrossCheck"
+LEDGER_CAPTURE_CROSS_CHECK_REPORT = "report"
+LEDGER_CAPTURE_CROSS_CHECK_GATE = "gate"
+LEDGER_CAPTURE_CROSS_CHECK_VALUES: Tuple[str, ...] = (
+    LEDGER_CAPTURE_CROSS_CHECK_REPORT, LEDGER_CAPTURE_CROSS_CHECK_GATE,
+)
+
+
+def capture_cross_check_gates(ledger_block: Optional[Dict]) -> bool:
+    """Does this scenario's ``[expectations.ledger]`` ARM the stock-award
+    cross-check (pure)?
+
+    True only for an explicit ``captureCrossCheck = "gate"``. An absent block, an
+    absent key, or an unparsed value -> False (report-only). Fail-OPEN is correct
+    here and only here: the alternative is a gate armed by accident on a scenario
+    whose award baseline nobody has measured, which is how a green nightly turns
+    red on a regex rather than on a defect. A malformed value never reaches this
+    function - ``validate_ledger_expectations`` rejects it pre-launch."""
+    if not isinstance(ledger_block, dict):
+        return False
+    return ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY) == LEDGER_CAPTURE_CROSS_CHECK_GATE
 
 
 def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
@@ -3354,6 +3713,12 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     manifest = ledger_block.get("manifest", [])
     if not isinstance(manifest, list):
         errs.append("expectations.ledger.manifest: must be an array of entry tables")
+    if LEDGER_CAPTURE_CROSS_CHECK_KEY in ledger_block:
+        mode = ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY)
+        if mode not in LEDGER_CAPTURE_CROSS_CHECK_VALUES:
+            errs.append("expectations.ledger.%s: %r not in %s"
+                        % (LEDGER_CAPTURE_CROSS_CHECK_KEY, mode,
+                           list(LEDGER_CAPTURE_CROSS_CHECK_VALUES)))
     return errs
 
 
@@ -3389,18 +3754,16 @@ class StockAwardPattern:
     "Manifest capture" ~372). ``facet`` is the career pool the award credits
     (``funds`` / ``science`` / ``reputation``); ``kind`` is the manifest kind. The
     ``regex`` MUST define a named group ``amount`` (the per-event DELTA) and MAY
-    define ``guid`` (contract identity) / ``subject`` (per-subject science id).
-    Every pattern CITES its stock emitter; a candidate NOT confirmed stable on the
-    EN instance is EXCLUDED (VERIFY-PENDING-OPERATOR) until an operator verifies it
-    against a live EN KSP.log before any NONZERO-delta L1 scenario trusts it. v1
-    (B10) is a ZERO-delta cross-check, so an incomplete/imperfect set is SAFE: a
-    captured award that MISSED the enumeration still moves the produced save, so
-    the save-diff reds anyway; a false-positive capture on B10 reds as an
-    unexpected award, cross-checked by the save-diff (design Mental Model ~199)."""
+    define ``reason`` (the stock ``TransactionReasons`` key), ``guid`` (contract
+    identity) or ``subject`` (per-subject science id). ``measuredFrom`` cites the
+    ARCHIVED REAL LOG LINE the pattern was derived from - not a design paragraph, a
+    line a flight actually produced. A shape nobody has measured is NOT enumerated
+    (see the science note below); inventing one is what made this table dead."""
     kind: str
     facet: str
     regex: "re.Pattern"
     emitter: str
+    measured_from: str = ""
 
 
 # UT correlation source (design ~390): a stock award line is not self-stamped, so
@@ -3408,32 +3771,63 @@ class StockAwardPattern:
 # it. Parsek log lines carry ``ut=<value>``.
 _STOCK_UT_RE = re.compile(r"\[Parsek\].*?\but=(?P<ut>-?\d+(?:\.\d+)?)")
 
-# The v1 EN-pinned candidate enumeration (design ~380, each VERIFY-PENDING-OPERATOR
-# before a NONZERO L1 scenario trusts it). Deliberately CONSERVATIVE: the B10
-# zero-delta cross-check makes an incomplete set safe. A candidate that is not
-# stable in EN KSP.log (message-system chatter, localized text) is NOT enumerated;
-# where stock is silent the capture falls to the RESERVED gameevents-captured
-# provenance (M-B3), NEVER to a Parsek recalc read.
+# THE PATTERNS WERE DEAD AGAINST REAL LOGS, and this is the rewrite (2026-07-29,
+# known-gate 3). The previous enumeration matched INVENTED shapes - keyed forms
+# like `ContractSystem ... funds=<n>` and `ResearchAndDevelopment ... delta=<n>` -
+# that no KSP build emits. Consequence: `parse_stock_award_lines` captured NOTHING
+# on every run ever flown, so `unmatched_captured_awards` had an empty input and
+# the ledger oracle's leg-A independence cross-check was a STRUCTURAL NO-OP
+# dressed as a gate.
+#
+# The real KSP 1.12 idiom, MEASURED (both CL-1 flights, 2026-07-28, identical
+# across them - quoted in docs/dev/todo-and-known-bugs.md:248-257,
+# harness/scenarios/CL-1-pod-impact.toml:135-140 and, for the rep line,
+# docs/dev/done/todo-and-known-bugs-v4.md:1954):
+#
+#     Added -9.999828 (-10) reputation: 'VesselLoss'.
+#     Added 0.9999995 (1) reputation: 'Progression'.
+#     Added 4800 funds: 'RecordsSpeed'
+#
+# i.e. `Added <appliedDelta> [(<nominal>)] <pool>: '<TransactionReasons key>'`. The
+# leading number is the APPLIED per-event DELTA (the parenthesised value is stock's
+# rounded display of the nominal); the quoted tail is the stock reason key, which
+# is the only identity a stock award line carries. Both facets share one shape, so
+# the `(<nominal>)` group is OPTIONAL in both - the measured rep lines carry it and
+# the measured funds line does not, and pinning that difference into two divergent
+# regexes would be a guess about a formatting detail nobody has a reason to rely on.
+#
+# SCIENCE IS DELIBERATELY NOT ENUMERATED. No science award line is quoted ANYWHERE
+# in this repo - not in the todo doc, not in a spec comment, not in an archived log
+# excerpt - so its exact shape is UNMEASURED. It is very likely the same
+# `Added <n> science: '<reason>'` idiom, and that is exactly why it is absent: a
+# guessed pattern is what this rewrite is fixing, and a science award that no
+# pattern matches still moves the produced save, so the save-diff catches it. ADD
+# IT when a flight produces the line (an L1 science scenario's collected KSP.log is
+# the cheapest source).
 STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (
-    # ResearchAndDevelopment science credit on transmit / recover (design ~384). A
-    # per-event DELTA line (``delta=``), never a running R&D pool balance.
+    # Funds. `kind` is the generic stock-award kind (see oracle.KINDS): a stock line
+    # names its TransactionReasons key, not a manifest semantic, so mapping
+    # 'RecordsSpeed' onto `milestone` / 'CrewRecruited' onto `kerbal-hire` would be
+    # an unmeasured inference layered on top of the capture.
     StockAwardPattern(
-        "science-transmit", "science",
-        re.compile(r"\bResearchAndDevelopment\b.*?\bscience\b"
-                   r"(?:.*?\bsubject=(?P<subject>\S+))?.*?\bdelta=(?P<amount>-?\d+(?:\.\d+)?)"),
-        "ResearchAndDevelopment"),
-    # ContractSystem funds payout on completion (design ~383).
+        "stock-funds-award", "funds",
+        re.compile(r"\bAdded\s+(?P<amount>-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*"
+                   r"(?:\(\s*-?\d+(?:\.\d+)?\s*\)\s*)?"
+                   r"funds:\s*'(?P<reason>[^']*)'"),
+        "Funding.AddFunds",
+        "Added 4800 funds: 'RecordsSpeed'  (CL-1 flights 1+2, 2026-07-28)"),
+    # Reputation. The captured amount is the APPLIED delta (post stock rep curve),
+    # which is why `to_entry_dict` stamps repMode=applied rather than letting the
+    # oracle re-curve a number that is already curved.
     StockAwardPattern(
-        "contract-complete", "funds",
-        re.compile(r"\bContractSystem\b.*?\bcontract\b.*?\bcompleted\b"
-                   r"(?:.*?\bguid=(?P<guid>\S+))?.*?\bfunds=(?P<amount>-?\d+(?:\.\d+)?)"),
-        "ContractSystem"),
-    # ContractSystem reputation delta on completion (design ~383).
-    StockAwardPattern(
-        "contract-complete", "reputation",
-        re.compile(r"\bContractSystem\b.*?\bcontract\b.*?\bcompleted\b"
-                   r"(?:.*?\bguid=(?P<guid>\S+))?.*?\breputation=(?P<amount>-?\d+(?:\.\d+)?)"),
-        "ContractSystem"),
+        "stock-reputation-award", "reputation",
+        re.compile(r"\bAdded\s+(?P<amount>-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*"
+                   r"(?:\(\s*-?\d+(?:\.\d+)?\s*\)\s*)?"
+                   r"reputation:\s*'(?P<reason>[^']*)'"),
+        "Reputation.AddReputation",
+        "Added -9.999828 (-10) reputation: 'VesselLoss'.  (CL-1 flights 1+2, "
+        "2026-07-28); Added 0.9999995 (1) reputation: 'Progression'. "
+        "(logs/2026-04-19_0049_career-ledger, archived in todo-and-known-bugs-v4.md:1954)"),
 )
 
 # A line reporting a post-grant running BALANCE (not a per-event DELTA) is
@@ -3451,7 +3845,15 @@ BALANCE_LINE_PATTERNS: Tuple["re.Pattern", ...] = (
 class CapturedAward:
     """One ``stock-log-captured`` award (design ~85 / ~372). ``ut`` is the nearest
     preceding UT-stamped [Parsek] line's UT, or None; ``seq`` is the log line
-    ordinal (the seqKey when ``ut`` is null). Every captured amount is a DELTA."""
+    ordinal (the seqKey when ``ut`` is null). Every captured amount is a DELTA.
+
+    ``reason`` is the stock ``TransactionReasons`` key the award line quotes
+    (``'VesselLoss'``, ``'RecordsSpeed'``, ...). It is the ONLY identity a stock
+    award line carries - there is no guid and no subject id on one - so it is what
+    distinguishes two same-amount awards at the same UT (``RecordsSpeed`` 4800 and
+    ``RecordsAltitude`` 4800 fired on the same CL-1 hop; without the reason in the
+    dedupe key they would collapse into one). OPTIONAL with a default so every
+    existing positional/keyword construction still builds."""
     kind: str
     facet: str
     amount: float
@@ -3460,6 +3862,7 @@ class CapturedAward:
     ut: Optional[float]
     seq: int
     raw_line: str
+    reason: str = ""
 
     @property
     def seq_key(self):
@@ -3481,12 +3884,20 @@ class CapturedAward:
             "seq": self.seq,
             self.facet: self.amount,
         }
+        if self.facet == "reputation":
+            # A stock rep award line reports the APPLIED (post-curve) delta - the
+            # measured `-9.999828` for a nominal -10 IS the curve output. Stamping
+            # `applied` stops the oracle putting a second curve pass over a number
+            # that already carries one (the 15.1 double-curve distortion).
+            d["repMode"] = "applied"
         if self.ut is not None:
             d["ut"] = self.ut
         if self.contract_guid:
             d["contractGuid"] = self.contract_guid
         if self.subject_id:
             d["subjectIds"] = [self.subject_id]
+        if self.reason:
+            d["stockReason"] = self.reason
         return d
 
 
@@ -3542,13 +3953,24 @@ def parse_stock_award_lines(log_text: str) -> StockCaptureResult:
                 kind=pat.kind, facet=pat.facet, amount=amount,
                 contract_guid=str(gd.get("guid") or ""),
                 subject_id=str(gd.get("subject") or ""),
-                ut=last_ut, seq=idx, raw_line=line.strip()))
+                ut=last_ut, seq=idx, raw_line=line.strip(),
+                reason=str(gd.get("reason") or "")))
             break
     return StockCaptureResult(tuple(captured), rejected, len(captured))
 
 
+def _captured_identity(award: "CapturedAward") -> str:
+    """The identity a captured award carries: contract guid, else science subject,
+    else the stock reason key. The reason fallback is load-bearing for the rewritten
+    patterns - a stock award line has NO guid and NO subject, so without it two
+    DIFFERENT awards of the same size at the same UT (CL-1 measured `RecordsSpeed`
+    4800 and `RecordsAltitude` 4800 on one hop) share an identity and the dedupe
+    silently collapses them into one effect."""
+    return award.contract_guid or award.subject_id or award.reason
+
+
 def dedupe_captured_awards(captured: Sequence[CapturedAward]) -> List[CapturedAward]:
-    """Dedupe captured awards on ``(seqKey, kind, contractGuid|subjectId,
+    """Dedupe captured awards on ``(seqKey, kind, contractGuid|subjectId|reason,
     roundedAmount)`` keeping the FIRST (design ~404 / edge 2). A stock line
     re-emitted on a scene reload at the SAME seqKey is one effect; a genuine second
     identical award at a DISTINCT seqKey survives (the seqKey is in the key).
@@ -3557,7 +3979,7 @@ def dedupe_captured_awards(captured: Sequence[CapturedAward]) -> List[CapturedAw
     seen = set()
     out: List[CapturedAward] = []
     for c in captured:
-        ident = c.contract_guid or c.subject_id
+        ident = _captured_identity(c)
         key = (c.seq_key, c.kind, ident, round(c.amount, 3))
         if key in seen:
             continue
@@ -3584,15 +4006,23 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward]
     id so an award on the entry's 2nd+ subject is explained, not falsely flagged
     unmatched (the prior code registered only ``subject_ids[0]``, false-redding awards
     on any later subject). Fail-closed: an entry with no guid and no subjects registers
-    the empty identity "" (matching only an award that itself has no identity)."""
+    the empty identity "" (matching only an award that itself has no identity).
+
+    WHAT THIS RETURNS IS NOT AUTOMATICALLY A RED. Since the pattern rewrite the
+    capture actually fires, and the run.py caller decides whether an unmatched award
+    is a HARD divergence or a REPORT-ONLY row from the scenario's
+    ``[expectations.ledger] captureCrossCheck`` mode. Report-only is the default
+    precisely because nobody has yet flown a run with a LIVE capture: an L1 career
+    scenario trips stock milestone awards its seam manifest never declared, so
+    gating the cross-check before a calibration run would red live-proven
+    scenarios on the strength of a regex."""
     seam_keys = set()
     for e in seam_entries or ():
         for ident in _entry_identities(e.contract_guid, e.subject_ids):
             seam_keys.add((e.seq_key, e.kind, ident))
     out: List[CapturedAward] = []
     for c in captured:
-        ident = c.contract_guid or c.subject_id
-        if (c.seq_key, c.kind, ident) not in seam_keys:
+        if (c.seq_key, c.kind, _captured_identity(c)) not in seam_keys:
             out.append(c)
     return out
 
@@ -3831,7 +4261,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
-      log-contract / results / anomaly / expectation / ledger -> PARSEK-FAIL
+      log-contract / results / anomaly / unity-exception / expectation / ledger
+          -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -3898,6 +4329,12 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 base = V(VERDICT_PARSEK_FAIL, "results", "results FAIL rows or count mismatch")
             elif verifiers.get("anomaly_hit", False):
                 base = V(VERDICT_PARSEK_FAIL, "anomaly", "unallowed Tier-C anomaly line")
+            elif verifiers.get("unity_exceptions_over_budget", False):
+                # Only reachable for a scenario that DECLARED
+                # [expectations.unityExceptions]; the scan is report-only otherwise,
+                # so this branch is inert for every committed spec today.
+                base = V(VERDICT_PARSEK_FAIL, "unity-exception",
+                         "raw Unity exception count over the declared maxTotal")
             elif verifiers.get("expectation_mismatch", False):
                 base = V(VERDICT_PARSEK_FAIL, "expectation", "expectations manifest mismatch")
             elif verifiers.get("ledger_drift", False):

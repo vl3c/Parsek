@@ -1540,7 +1540,17 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
             logger.info("Verify", "oracle: rec3 residual retained row=%s expecting [Rec-3 residual]" % row)
         divergences += oracle.diff_expected_vs_parsed(expected, career_block, tol, rec3_whitelist)
         # Zero-delta cross-check (design ~482 / edge 4): a captured award not
-        # explained by a seam entry is an unexpected stock award -> hard drift.
+        # explained by a seam entry is an unexpected stock award.
+        #
+        # HARD ONLY WHEN THE SCENARIO ARMS IT (`captureCrossCheck = "gate"`, declared
+        # by no committed spec). Until the 2026-07-29 pattern rewrite this loop had an
+        # always-empty input - STOCK_AWARD_PATTERNS matched shapes no KSP build emits -
+        # so the hard drift it wrote was unreachable. Turning a working capture and a
+        # live gate on in one step would red scenarios against an award baseline nobody
+        # has measured (the CL-1 flights show a career pad hop tripping three milestone
+        # funds awards and two Progression rep awards that no L1 manifest declares), so
+        # the mode knob decides and the default reports.
+        cross_check_hard = hlib.capture_cross_check_gates(ledger_block)
         for c in hlib.unmatched_captured_awards(seam_entries, captured):
             facet = _AWARD_FACET_TO_DIFF.get(c.facet, c.facet)
             # Edge 4 (~582): the UT window is the captured line's UT, or the ORDINAL
@@ -1552,12 +1562,16 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
             aw = c.ut if c.ut is not None else c.seq
             divergences.append(oracle.OracleDivergence(
                 facet=facet, kind="unexpected-award",
-                identity=(c.contract_guid or c.subject_id or ""),
-                expected=None, parsed=c.amount, ut_window=(aw, aw), hard=True,
-                detail="unexpected stock award kind=%s facet=%s amount=%r ut=%s seqKey=%r line=%r"
-                       % (c.kind, c.facet, c.amount, c.ut, c.seq_key, c.raw_line)))
-            logger.warn("Verify", "manifest-capture: unexpected stock award ut=%s kind=%s line='%s'"
-                        % (c.ut, c.kind, c.raw_line))
+                identity=(c.contract_guid or c.subject_id or c.reason or ""),
+                expected=None, parsed=c.amount, ut_window=(aw, aw),
+                hard=cross_check_hard,
+                detail="unexpected stock award kind=%s facet=%s reason=%s amount=%r ut=%s "
+                       "seqKey=%r crossCheck=%s line=%r"
+                       % (c.kind, c.facet, c.reason or "(none)", c.amount, c.ut, c.seq_key,
+                          "gate" if cross_check_hard else "report", c.raw_line)))
+            logger.warn("Verify", "manifest-capture: unexpected stock award ut=%s kind=%s "
+                                  "reason=%s hard=%s line='%s'"
+                        % (c.ut, c.kind, c.reason or "(none)", cross_check_hard, c.raw_line))
 
     if world_block is not None:
         declared = _world_declared_vessels(world_block)
@@ -1813,6 +1827,20 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["analyzer"] = {"status": "SKIPPED", "reason": "killed-torn-save"}
         detail["anomalySweep"] = {"status": "SKIPPED", "reason": "killed"}
         detail["expectations"] = {"status": "SKIPPED", "reason": "killed"}
+        # The raw-Unity-exception scan DOES run on a killed attempt, triage-only. What
+        # a watchdog kill tears is the SAVE, not the log - and an exception storm is a
+        # leading suspect for the hang that got the process killed, so this is the run
+        # whose count an operator most wants. Never gating here regardless of a
+        # declared block (KILLED precedes every verifier flag in classify_verdict, and
+        # a torn attempt must not be judged on a ceiling).
+        killed_ue = hlib.evaluate_unity_exceptions(hlib.scan_unity_exceptions(log_text), None)
+        detail["unityExceptions"] = {"status": hlib.UNITY_EXCEPTIONS_STATUS_REPORT,
+                                     "gating": False, "total": killed_ue.total,
+                                     "counts": dict(killed_ue.counts),
+                                     "maxTotal": None, "mismatches": [],
+                                     "reason": "killed-triage-only"}
+        logger.info("Verify", "verify unityExceptions status=REPORT (killed-triage-only) "
+                              "total=%d counts=%s" % (killed_ue.total, dict(killed_ue.counts)))
         # The ledger-oracle verifier is SKIPPED on any KILLED attempt: a torn save is
         # never ground truth (design edge 11), regardless of whether it was declared.
         ledger_active_killed = (expectations.get("ledger") is not None
@@ -1892,7 +1920,12 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     if driver_valid and not short_circuited:
         allowed = expectations.get("allowedAnomalies", []) or []
         hits = grep_anomaly_tokens(log_text)
-        unallowed = hlib.evaluate_anomaly_sweep(hits, allowed)
+        # Per-token RAISE COUNTS: the input the `{ token, maxCount }` budget form
+        # needs. Recorded unconditionally (even with no budget declared) so an
+        # operator sizing a future ceiling reads the number off a green run instead
+        # of guessing it.
+        hit_counts = hlib.count_anomaly_tokens(log_text)
+        unallowed = hlib.evaluate_anomaly_sweep(hits, allowed, hit_counts)
         # REPORT-ONLY: anomaly reasons the mod raised that the harness token set
         # does not carry, so the known ANOMALY_TOKENS drift is visible per-run
         # rather than a silent fail-open. Never affects the verdict.
@@ -1900,17 +1933,46 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         verifiers["anomaly_hit"] = bool(unallowed)
         detail["anomalySweep"] = {"status": "FAIL" if unallowed else "PASS",
                                   "hits": unallowed, "allowed": list(allowed),
+                                  "hitCounts": hit_counts,
                                   "unlistedReasons": unlisted}
         if unallowed:
             short_circuited = True
-        logger.info("Verify", "verify anomalySweep status=%s hits=%s"
-                    % (detail["anomalySweep"]["status"], unallowed))
+        logger.info("Verify", "verify anomalySweep status=%s hits=%s counts=%s"
+                    % (detail["anomalySweep"]["status"], unallowed, hit_counts))
         if unlisted:
             logger.warn("Verify", "anomalySweep saw %d raise(s) with reason(s) NOT in the "
                                   "harness token set (REPORT-ONLY, not gating): %s"
                         % (len(unlisted), unlisted))
     else:
         detail.setdefault("anomalySweep", {"status": "SKIPPED", "reason": "short-circuit"})
+
+    # 6b. Raw Unity exception scan. REPORT-ONLY unless the scenario declares
+    # [expectations.unityExceptions] (none do), mirroring how
+    # anomalySweep.unlistedReasons surfaces a blind spot without moving a verdict.
+    # It exists because NOTHING else in the chain reads a line Parsek did not write:
+    # the forbidden tokens are all `[Parsek]`-shaped and validate-ksp-log parses only
+    # `[Parsek]` lines, so a NullReferenceException storm has always passed silently.
+    if driver_valid and not short_circuited:
+        ue = hlib.evaluate_unity_exceptions(
+            hlib.scan_unity_exceptions(log_text),
+            expectations.get(hlib.UNITY_EXCEPTIONS_BLOCK))
+        verifiers["unity_exceptions_over_budget"] = (ue.status == "FAIL")
+        detail["unityExceptions"] = {"status": ue.status, "gating": ue.gating,
+                                     "total": ue.total, "counts": dict(ue.counts),
+                                     "maxTotal": ue.max_total,
+                                     "mismatches": list(ue.mismatches)}
+        if ue.status == "FAIL":
+            short_circuited = True
+        logger.info("Verify", "verify unityExceptions status=%s gating=%s total=%d counts=%s"
+                    % (ue.status, ue.gating, ue.total, dict(ue.counts)))
+        if ue.total and not ue.gating:
+            logger.warn("Verify", "unityExceptions saw %d raw Unity exception line(s) "
+                                  "(REPORT-ONLY, not gating; arm with "
+                                  "[expectations.unityExceptions] maxTotal = N): %s"
+                        % (ue.total, dict(ue.counts)))
+    else:
+        detail.setdefault("unityExceptions",
+                          {"status": "SKIPPED", "reason": "short-circuit"})
 
     # 7. Expectations manifest.
     recording_count = count_recordings(save_dir)
@@ -2707,7 +2769,8 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                 print("  [DRIVE  ] step=%d cmd=%s expect=%s budget=%s"
                       % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
         verify_line = ("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
-                       "logValidate, results, anomalySweep, expectations")
+                       "logValidate, results, anomalySweep, unityExceptions(report-only), "
+                       "expectations")
         if is_autopilot:
             # POSITION matters: only steps AFTER the mission handoff gate through this row
             # (a pre-mission outcome verb already gates through driverValidity), so the plan

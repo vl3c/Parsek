@@ -366,6 +366,40 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertIn("verdict=%s" % hlib.VERDICT_PASS, log_body,
                       "the harness log file must carry the Classify verdict line")
 
+    def test_report_only_rows_land_on_a_clean_pass(self):
+        """The two REPORT-ONLY channels must be MEASURED on a green run, not only on
+        a red one - that is the whole point of a non-gating row.
+
+        `anomalySweep.hitCounts` and the `unityExceptions` row are the calibration
+        data an operator needs before arming either ceiling, and a PASS runs no
+        collect-logs, so if the numbers are not in results/<runId>.json on a green run
+        they do not exist anywhere. This cell also pins that neither row moves a clean
+        verdict."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        v = result["verifiers"]
+
+        sweep = v["anomalySweep"]
+        self.assertEqual("PASS", sweep["status"])
+        self.assertEqual({}, sweep["hitCounts"], "a clean log raises no gated anomaly")
+
+        ue = v["unityExceptions"]
+        self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"],
+                         "the scan must be REPORT-ONLY with no [expectations."
+                         "unityExceptions] block declared")
+        self.assertFalse(ue["gating"])
+        self.assertEqual(0, ue["total"])
+        self.assertIsNone(ue["maxTotal"])
+        # Every pattern reports a number, so "we looked and saw none" is on the record.
+        self.assertEqual(sorted(n for n, _ in hlib.UNITY_EXCEPTION_PATTERNS),
+                         sorted(ue["counts"]))
+        # ... and both rows round-trip into the durable result.
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(0, persisted["verifiers"]["unityExceptions"]["total"])
+        self.assertIn("hitCounts", persisted["verifiers"]["anomalySweep"])
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -393,6 +427,13 @@ class FakeKspSmokeTests(unittest.TestCase):
         # short-circuit / driver-INVALID branch -- see
         # test_loadgame_error_skips_mission_spawn.
         self.assertNotIn("observed", result["verifiers"]["expectations"])
+        # The raw-Unity-exception scan STILL reports on a killed attempt: the kill
+        # tears the SAVE, not the log, and an exception storm is a leading suspect for
+        # whatever hung the process. Never gating on this path.
+        ue = result["verifiers"]["unityExceptions"]
+        self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"])
+        self.assertFalse(ue["gating"])
+        self.assertEqual("killed-triage-only", ue["reason"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
@@ -1454,9 +1495,18 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
                 "activeContractGuids": [],
                 "vessels": vessels or []}
 
-    def _ledger_block(self, manifest=None):
-        return {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
-                "manifest": manifest or []}
+    def _ledger_block(self, manifest=None, capture_cross_check=None):
+        block = {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+                 "manifest": manifest or []}
+        if capture_cross_check is not None:
+            block[hlib.LEDGER_CAPTURE_CROSS_CHECK_KEY] = capture_cross_check
+        return block
+
+    # A MEASURED stock funds-award line (CL-1 flights, 2026-07-28) - the shape the
+    # rewritten STOCK_AWARD_PATTERNS actually match. The pre-2026-07-29 fixtures used
+    # an INVENTED `ContractSystem ... funds=1000` shape that no KSP build emits, which
+    # is why these cells passed while the capture was a structural no-op in the field.
+    STOCK_FUNDS_LINE = "[LOG] Added 1000 funds: 'RecordsSpeed'"
 
     def _run(self, ledger_block, career_block, log_text="", world_block=None, seed_capture=None):
         return run._run_ledger_oracle(
@@ -1495,17 +1545,43 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
         self.assertEqual(("PARSEK-FAIL", "ledger"), (verdict.verdict, verdict.subkind))
 
-    def test_unexpected_award_reds_with_named_ut_window(self):
+    def test_unexpected_award_reds_with_named_ut_window_when_armed(self):
         # Empty manifest but a stock award line fired at ut=500 -> unexpected award
         # (economy-drift signal) -> hard drift with the UT window NAMED (edge 4). The
         # save itself is clean; the capture cross-check is what reds.
+        # ARMED explicitly (`captureCrossCheck = "gate"`): since the 2026-07-29 pattern
+        # rewrite made the capture actually fire, the HARD path is opt-in so a live
+        # capture cannot flip a committed scenario's verdict before calibration.
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
-               "[LOG] ContractSystem: contract Foo completed guid=g-9 funds=1000\n")
-        result, drift, tooling = self._run(self._ledger_block(), self._career_block(), log_text=log)
+               + self.STOCK_FUNDS_LINE + "\n")
+        result, drift, tooling = self._run(
+            self._ledger_block(capture_cross_check=hlib.LEDGER_CAPTURE_CROSS_CHECK_GATE),
+            self._career_block(), log_text=log)
         self.assertEqual("FAIL", result["status"])
         self.assertTrue(drift)
         self.assertEqual([500.0, 500.0], result["utWindow"])
         # capturedRaw records the fired award for audit.
+        with open(os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json"), "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertEqual(1, len(manifest["capturedRaw"]))
+        self.assertEqual("RecordsSpeed", manifest["capturedRaw"][0]["stockReason"])
+
+    def test_unexpected_award_is_report_only_by_default(self):
+        # THE FAIL-OPEN-SAFETY CELL for the pattern rewrite. The SAME log that reds
+        # when armed must NOT red a scenario that declares no mode: the capture is
+        # live now, and the L1 career scenarios trip stock milestone awards their seam
+        # manifests never declared, so a default-on gate would red live-proven
+        # nightlies on the strength of a regex. The award is still RECORDED
+        # (report-only divergence + capturedRaw), so the calibration data an operator
+        # needs to arm the gate is produced by the very runs that stay green.
+        log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
+               + self.STOCK_FUNDS_LINE + "\n")
+        result, drift, tooling = self._run(self._ledger_block(), self._career_block(),
+                                           log_text=log)
+        self.assertEqual("PASS", result["status"])
+        self.assertFalse(drift)
+        self.assertFalse(tooling)
+        self.assertGreaterEqual(result["reportOnly"], 1)
         with open(os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json"), "r", encoding="utf-8") as fh:
             manifest = json.load(fh)
         self.assertEqual(1, len(manifest["capturedRaw"]))
@@ -1545,12 +1621,16 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         # Review SF6b: the deduped captured award pool is now passed to the seam parse,
         # so a funds fill-from-capture seam entry resolves from the matching stock award
         # (before the fix captured was never passed and this ALWAYS failed ambiguous).
-        # seam declares the contract-complete with a null funds amount; the stock line
-        # supplies 1000; expected funds = seed 25000 + 1000, matched by the save -> PASS.
+        # The seam declares a null funds amount; the stock line supplies 1000; expected
+        # funds = seed 25000 + 1000, matched by the save -> PASS.
+        # The declared KIND is the generic `stock-funds-award` because the fill matches
+        # on (seqKey, kind, contractGuid, funds-facet) and a real stock award line
+        # carries only its TransactionReasons key - the capture cannot honestly stamp a
+        # semantic kind (see hlib.STOCK_AWARD_PATTERNS).
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
-               "[LOG] ContractSystem: contract Foo completed guid=g funds=1000\n")
+               + self.STOCK_FUNDS_LINE + "\n")
         ledger = self._ledger_block(manifest=[
-            {"ut": 500.0, "kind": "contract-complete", "funds": None, "contractGuid": "g"}])
+            {"ut": 500.0, "kind": "stock-funds-award", "funds": None}])
         result, drift, tooling = self._run(ledger, self._career_block(funds=26000.0), log_text=log)
         self.assertEqual("PASS", result["status"])
         self.assertFalse(drift)
