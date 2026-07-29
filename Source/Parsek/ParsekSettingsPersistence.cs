@@ -47,6 +47,7 @@ namespace Parsek
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
         private const string LedgerTracingKey = "ledgerTracing";
+        private const string UiComplexityModeKey = "uiComplexityMode";
         private const string WarpYearKey = "warpYear";
         private const string WarpDayKey = "warpDay";
         private const string WarpHourKey = "warpHour";
@@ -62,6 +63,10 @@ namespace Parsek
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
         private static bool? storedLedgerTracing;
+        // Basic / Advanced UI complexity mode (design 6.2). Persisted as an int
+        // (0=Basic, 1=Advanced); null = never resolved on this install, which is the
+        // ONLY state that lets the first-run footprint resolution of design 7.3 run.
+        private static int? storedUiComplexityMode;
         // Warp-to-time draft inputs (Timeline window). Pure UI state persisted across
         // sessions so the user need not re-type a frequently-used target date.
         private static int? storedWarpYear;
@@ -129,6 +134,8 @@ namespace Parsek
                 TryLoadBool(root, path, MapRenderTracingKey, ref storedMapRenderTracing);
                 TryLoadBool(root, path, LedgerTracingKey, ref storedLedgerTracing);
 
+                storedUiComplexityMode = ParseStoredInt(root, UiComplexityModeKey);
+
                 storedWarpYear = ParseStoredInt(root, WarpYearKey);
                 storedWarpDay = ParseStoredInt(root, WarpDayKey);
                 storedWarpHour = ParseStoredInt(root, WarpHourKey);
@@ -143,7 +150,8 @@ namespace Parsek
                     $" autoBackupExistingSaves={(storedAutoBackupExistingSaves.HasValue ? storedAutoBackupExistingSaves.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
-                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}");
+                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}" +
+                    $" uiComplexityMode={(storedUiComplexityMode.HasValue ? storedUiComplexityMode.Value.ToString(CultureInfo.InvariantCulture) : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -211,7 +219,17 @@ namespace Parsek
         /// <see cref="ParsekSettings"/> instance. Called from
         /// <c>ParsekScenario.OnLoad</c> after KSP's GameParameters restore runs.
         /// </summary>
-        internal static void ApplyTo(ParsekSettings settings)
+        /// <param name="scenarioNodePopulated">
+        /// Footprint signal 2 of design 7.3: true when the save's
+        /// <c>SCENARIO{name=ParsekScenario}</c> node carries real Parsek data (not the
+        /// empty name+scene node KSP injects on first AddToAllGames contact). Passed as
+        /// a BARE BOOL by <c>ParsekScenario.OnLoad</c>, which is the only caller with
+        /// the node in hand: the whole mode vocabulary stays inside the UI / settings
+        /// layer so the phase-8 grep gate can keep `ParsekScenario.cs` un-allowlisted.
+        /// Defaults to false so unit tests and any future caller without a node opt out
+        /// of this signal rather than fabricating one.
+        /// </param>
+        internal static void ApplyTo(ParsekSettings settings, bool scenarioNodePopulated = false)
         {
             if (settings == null) return;
             LoadIfNeeded();
@@ -287,6 +305,137 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Restored ledgerTracing {prev} -> {storedLedgerTracing.Value} from persistent store");
             }
+
+            ApplyUiComplexityMode(settings, scenarioNodePopulated);
+        }
+
+        /// <summary>
+        /// Restores the persisted UI complexity mode, or resolves it once per install
+        /// when no key is stored yet (design 7.3).
+        ///
+        /// <para>Ordering is the whole point: the STORED branch is checked first and
+        /// returns, so an absent key is the only path that can ever reach footprint
+        /// resolution. Both branches converge on
+        /// <see cref="UiSurfaceVisibility.ResolveMode"/>, which takes the stored value as
+        /// an input, so the stored-wins precedence cannot be inverted anywhere else.</para>
+        ///
+        /// <para>Resolution PERSISTS immediately. Without that, resolution would re-run
+        /// each session, and by session 2 even a brand-new install has a footprint (its
+        /// own `Parsek/` sidecar dir and populated scenario node), silently flipping a
+        /// new player from Basic to Advanced. Persist-on-resolve makes this run at most
+        /// once per install, ever, and makes "stored value present" the steady state -
+        /// which is also why no cold-load gate is needed here.</para>
+        /// </summary>
+        private static void ApplyUiComplexityMode(ParsekSettings settings, bool scenarioNodePopulated)
+        {
+            if (storedUiComplexityMode.HasValue)
+            {
+                if (storedUiComplexityMode.Value != settings.uiComplexityMode)
+                {
+                    int prev = settings.uiComplexityMode;
+                    settings.uiComplexityMode = storedUiComplexityMode.Value;
+                    ParsekLog.Info(Tag,
+                        $"Restored uiComplexityMode {prev} -> {storedUiComplexityMode.Value} from persistent store");
+                }
+                return;
+            }
+
+            // Signal 3 must be read BEFORE the persist below, or the key this very call
+            // writes would make the store look pre-populated on its own resolution.
+            bool storedSettingsKeys = HasAnyStoredValue();
+            bool savesParsekDir = SavesRootHasParsekDirectory(SafeSavesRootPath());
+            bool footprint = savesParsekDir || scenarioNodePopulated || storedSettingsKeys;
+
+            UiComplexityMode resolved = UiSurfaceVisibility.ResolveMode(null, footprint);
+            settings.UiComplexityModeLevel = resolved;
+            RecordUiComplexityMode((int)resolved);
+
+            // Tagged [UI] rather than [SettingsStore]: design 12.1 gives the [UI] tag
+            // ownership of mode events, and this is the mode's birth line.
+            ParsekLog.Info("UI",
+                $"First-run default resolved: uiComplexityMode={resolved} " +
+                $"installHasParsekFootprint={footprint} " +
+                $"(savesParsekDir={savesParsekDir} scenarioNodePopulated={scenarioNodePopulated} " +
+                $"storedSettingsKeys={storedSettingsKeys}) persisted=true");
+        }
+
+        /// <summary>
+        /// Footprint signal 1 of design 7.3: true when ANY save folder directly under
+        /// <paramref name="savesRootPath"/> carries a <c>Parsek/</c> subdirectory. Cheap
+        /// <see cref="Directory.Exists"/> walk, no <c>.sfs</c> parsing.
+        ///
+        /// <para>Takes the saves root as a PARAMETER (rather than reading
+        /// <c>KSPUtil.ApplicationRootPath</c> itself) so xUnit can drive it with a temp
+        /// directory; <see cref="SafeSavesRootPath"/> supplies the live value.</para>
+        ///
+        /// <para>An unreadable root returns false (no footprint). That biases toward
+        /// Basic, but only when signals 2 and 3 are ALSO absent - and any install that
+        /// has really run Parsek before will have a populated scenario node or a stored
+        /// settings key, both of which are read without touching the filesystem.</para>
+        /// </summary>
+        internal static bool SavesRootHasParsekDirectory(string savesRootPath)
+        {
+            if (string.IsNullOrEmpty(savesRootPath)) return false;
+            try
+            {
+                if (!Directory.Exists(savesRootPath)) return false;
+                string[] saveDirs = Directory.GetDirectories(savesRootPath);
+                for (int i = 0; i < saveDirs.Length; i++)
+                {
+                    if (Directory.Exists(Path.Combine(saveDirs[i], "Parsek")))
+                        return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"SavesRootHasParsekDirectory('{savesRootPath}') failed " +
+                    $"({ex.GetType().Name}: {ex.Message}) — treating as no saves footprint");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The live saves root, or null when it cannot be resolved (xUnit / headless,
+        /// where <c>KSPUtil.ApplicationRootPath</c> throws). Null makes signal 1 sit out.
+        /// </summary>
+        private static string SafeSavesRootPath()
+        {
+            try
+            {
+                string root = KSPUtil.ApplicationRootPath;
+                return string.IsNullOrEmpty(root) ? null : Path.Combine(root, "saves");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Saves root unavailable ({ex.GetType().Name}: {ex.Message}) — " +
+                    "install saves-footprint signal skipped");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Footprint signal 3 of design 7.3: true when the store holds at least one
+        /// stored key, i.e. Parsek ran on this install before (the strongest cheap
+        /// signal, and the only one that needs no filesystem or save access).
+        /// </summary>
+        internal static bool HasAnyStoredValue()
+        {
+            return storedReadableSidecarMirrors.HasValue
+                || storedShowCommittedFutureOverlays.HasValue
+                || storedBlockCommittedActions.HasValue
+                || storedShowRouteLines.HasValue
+                || storedAutoBackupExistingSaves.HasValue
+                || storedGhostRenderTracing.HasValue
+                || storedMapRenderTracing.HasValue
+                || storedLedgerTracing.HasValue
+                || storedUiComplexityMode.HasValue
+                || storedWarpYear.HasValue
+                || storedWarpDay.HasValue
+                || storedWarpHour.HasValue
+                || storedWarpMinute.HasValue;
         }
 
         /// <summary>
@@ -319,6 +468,37 @@ namespace Parsek
             LoadIfNeeded();
             storedShowRouteLines = value;
             Save();
+        }
+
+        /// <summary>
+        /// Records the UI complexity mode (0=Basic, 1=Advanced) and writes it to disk
+        /// immediately, mirroring <see cref="RecordShowRouteLines"/>. Two callers only:
+        /// the single setter seam <c>ParsekUI.SetUiComplexityMode</c> (user toggle), and
+        /// the persist-on-resolve step of <see cref="ApplyUiComplexityMode"/>.
+        ///
+        /// <para>Unlike <see cref="RecordShowRouteLines"/> this guards the xUnit /
+        /// non-Unity context where <see cref="KSPUtil.ApplicationRootPath"/> throws
+        /// (the <see cref="RecordWarpDate"/> shape), because the first-run resolution
+        /// calls it from inside <see cref="ApplyTo"/>, which unit tests drive directly.
+        /// The in-memory store is still updated in that case.</para>
+        /// </summary>
+        internal static void RecordUiComplexityMode(int value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUiComplexityMode: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            storedUiComplexityMode = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordUiComplexityMode: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
         }
 
         internal static void RecordAutoBackupExistingSaves(bool value)
@@ -389,6 +569,8 @@ namespace Parsek
                     root.AddValue(MapRenderTracingKey, storedMapRenderTracing.Value.ToString());
                 if (storedLedgerTracing.HasValue)
                     root.AddValue(LedgerTracingKey, storedLedgerTracing.Value.ToString());
+                if (storedUiComplexityMode.HasValue)
+                    root.AddValue(UiComplexityModeKey, storedUiComplexityMode.Value.ToString(CultureInfo.InvariantCulture));
                 if (storedWarpYear.HasValue)
                     root.AddValue(WarpYearKey, storedWarpYear.Value.ToString(CultureInfo.InvariantCulture));
                 if (storedWarpDay.HasValue)
@@ -407,7 +589,8 @@ namespace Parsek
                     $" autoBackupExistingSaves={(storedAutoBackupExistingSaves.HasValue ? storedAutoBackupExistingSaves.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
-                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}");
+                    $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}" +
+                    $" uiComplexityMode={(storedUiComplexityMode.HasValue ? storedUiComplexityMode.Value.ToString(CultureInfo.InvariantCulture) : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -428,6 +611,7 @@ namespace Parsek
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
             storedLedgerTracing = null;
+            storedUiComplexityMode = null;
             storedWarpYear = null;
             storedWarpDay = null;
             storedWarpHour = null;
@@ -453,6 +637,12 @@ namespace Parsek
         internal static bool? GetStoredMapRenderTracing() => storedMapRenderTracing;
 
         internal static bool? GetStoredLedgerTracing() => storedLedgerTracing;
+
+        /// <summary>
+        /// Test-only: the stored UI complexity mode as a raw int, null when the install
+        /// has never resolved one. Null is the state that lets first-run resolution run.
+        /// </summary>
+        internal static int? GetStoredUiComplexityMode() => storedUiComplexityMode;
 
         internal static int? GetStoredWarpYear() => storedWarpYear;
         internal static int? GetStoredWarpDay() => storedWarpDay;
@@ -518,6 +708,17 @@ namespace Parsek
         internal static void SetStoredLedgerTracingForTesting(bool? value)
         {
             storedLedgerTracing = value;
+            loaded = true;
+        }
+
+        /// <summary>
+        /// Test-only: sets the stored UI complexity mode without disk I/O. Passing null
+        /// marks the store loaded with NO mode key, which is exactly the state that lets
+        /// the first-run footprint resolution run.
+        /// </summary>
+        internal static void SetStoredUiComplexityModeForTesting(int? value)
+        {
+            storedUiComplexityMode = value;
             loaded = true;
         }
     }

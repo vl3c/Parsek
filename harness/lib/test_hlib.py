@@ -2367,12 +2367,16 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
 
 
 class IngameBatchWiringGroupTests(unittest.TestCase):
-    """The H7-H20 in-game batch-wiring group: 14 batch-only specs that each drive one
-    previously-undriven [InGameTest] category over a committed fixture.
+    """The H7-H20 + H22 in-game batch-wiring group: 15 batch-only specs that each drive
+    one previously-undriven [InGameTest] category over a committed fixture.
+
+    H7-H20 were committed as one wave; H22 joined the same family afterward, arriving
+    with the Basic/Advanced UI-mode feature (it drives UiComplexityMode over the same
+    gloops-airshow fixture on the ordinary, non-isolated batch path).
 
     The generic sweeps above already cover these specs as members of "every committed
     spec". This class asserts the properties that are specific to the GROUP and that
-    a generic sweep cannot state: that the group is exactly this set (so a 15th
+    a generic sweep cannot state: that the group is exactly this set (so a 16th
     arrives with its doc row rather than silently), that every member is non-vacuous
     when probed DIRECTLY rather than through validate_spec, and that each pinned
     total equals the count derived from the C# attributes for the category the spec
@@ -2397,6 +2401,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4),
         "H19-recording-finalization": ("RecordingFinalization", 3),
         "H20-eva-spawn-position":    ("EvaSpawnPosition", 2),
+        "H22-ui-complexity-mode":    ("UiComplexityMode", 3),
     }
 
     # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
@@ -2411,18 +2416,22 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # form accepts 1-of-N by design and re-introducing one silently would be a real
     # weakening. Add an id back here only alongside a written reason in the spec.
     #
-    # NOTE the asymmetry this leaves: for the other 13, skipped=0 is DERIVABLE from
+    # NOTE the asymmetry this leaves: for 13 of the 15, skipped=0 is DERIVABLE from
     # the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
-    # moves the parent's collider geometry can legitimately make it skip. Only H18
-    # among the 13 has a comparable caveat (its AssertHandlerRegistered helper skips
-    # if a KSP version renames EventData<T>'s internal `events` field, unreachable on
-    # the pinned 1.12.5).
+    # moves the parent's collider geometry can legitimately make it skip. H22 is in
+    # the same position: all three UiComplexityMode cells carry in-body
+    # InGameAssert.Skip guards (no live ParsekUI, Gloops recording in progress), so
+    # its skipped=0 is a claim about the gloops-airshow fixture that the 2026-07-28
+    # run measured, not an attribute derivation. Only H18 among the remaining 13 has
+    # a comparable caveat (its AssertHandlerRegistered helper skips if a KSP version
+    # renames EventData<T>'s internal `events` field, unreachable on the pinned
+    # 1.12.5).
     INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
-    # GROUP, which is what makes "a 15th spec arrives with its doc row" true: an
+    # GROUP, which is what makes "a 16th spec arrives with its doc row" true: an
     # id-filtered intersection (the first cut) could only ever see members that were
     # in GROUP already, so a brand-new spec on disk was invisible to every cell here.
     #
@@ -2463,9 +2472,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(14, len(self.GROUP),
-                         "the H7-H20 group is 14 specs; if it genuinely changed size, "
-                         "update this floor AND the counts in "
+        self.assertEqual(15, len(self.GROUP),
+                         "the H7-H20 + H22 group is 15 specs; if it genuinely changed "
+                         "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
         self.assertEqual(len(self.GROUP), len(self.specs),
@@ -2478,7 +2487,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # when a listed member is removed/renamed AND when a new H-series spec is
         # committed without being added here.
         self.assertEqual(sorted(self.on_disk), sorted(self.GROUP),
-                         "the H7-H20 specs on disk differ from the table in this "
+                         "the H-series ordinary-path specs on disk differ from the "
+                         "table in this "
                          "test. A spec here but not on disk was removed or renamed; a "
                          "spec on disk but not here is new and must be added to GROUP, "
                          "to the enumeration table in "
@@ -2534,10 +2544,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # What this actually checks, stated precisely because it is weaker than it
         # looks for one member: nothing the ATTRIBUTES control forces a skip at
         # FLIGHT, so the attribute-derived skipped FLOOR is 0 and the pinned tally
-        # must agree with it. For 13 of the 14 that floor plus a reachable-Skip scan
-        # makes skipped=0 genuinely derivable. For H20 the floor is all the
-        # attributes give - its skipped=0 is MEASURED off a live run - so this cell
-        # confirms consistency, not derivability, there. If a member later gains a
+        # must agree with it. For 13 of the 15 that floor plus a reachable-Skip scan
+        # makes skipped=0 genuinely derivable. For H20 and H22 the floor is all the
+        # attributes give - their skipped=0 is MEASURED off a live run - so this cell
+        # confirms consistency, not derivability, for those two. If a member later gains a
         # scene-mismatched or AllowBatchExecution=false declaration, this reds
         # pointing at the member.
         for sid, spec in sorted(self.specs.items()):
@@ -3988,13 +3998,13 @@ INGAME_INVENTORY_DOC = os.path.join(DOCS_DEV_DIR,
 
 
 class IngameCategoryInventoryDocTests(unittest.TestCase):
-    """`autotest-ingame-category-inventory.md`'s 97-row table says of itself "Do NOT
+    """`autotest-ingame-category-inventory.md`'s 98-row table says of itself "Do NOT
     hand-edit the table: re-derive it" - and shipped with nothing enforcing that.
 
     The gap that leaves: add one `[InGameTest(Category = "Rewind")]` and NOTHING
     reds. `CommittedBatchTallySourceSyncTests` does not (Rewind is unpinned),
-    `IngameBatchWiringGroupTests` does not (Rewind is not in the H7-H20 group), and
-    the Rewind row, the 539 / 97 totals repeated across four documents, and the
+    `IngameBatchWiringGroupTests` does not (Rewind is not in the H-series group), and
+    the Rewind row, the 542 / 98 totals repeated across four documents, and the
     A/B/C declaration sums all go quietly stale. The table is the stated authority
     for what remains to wire, so a stale row is how the next wave plans against
     fiction.
@@ -4049,7 +4059,7 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
             "the inventory table's category set has drifted from Source/Parsek. "
             "Re-derive the table (hlib.parse_ingame_test_declarations + "
             "derive_batch_tally) rather than editing rows by hand, and update the "
-            "539 / 97 totals and the A/B/C sums in the same commit")
+            "542 / 98 totals and the A/B/C sums in the same commit")
 
     def test_every_row_matches_the_source_derivation(self):
         for cat in sorted(self.rows):
@@ -4071,7 +4081,7 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**97 categories / %d declarations**" % stated_decls, body,
+        self.assertIn("**98 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

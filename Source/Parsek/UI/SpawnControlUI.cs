@@ -16,7 +16,8 @@ namespace Parsek
         private bool showSpawnControlWindow;
         private Rect spawnControlWindowRect;
         private bool spawnControlWindowHasInputLock;
-        private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
+        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        internal const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         // Spawn Control sort state
         private SpawnControlSortColumn spawnSortColumn = SpawnControlSortColumn.Distance;
@@ -161,6 +162,12 @@ namespace Parsek
                 ReleaseInputLock();
             }
         }
+
+        /// <summary>
+        /// Whether this window currently holds its KSP input lock (diagnostic read for the
+        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// </summary>
+        internal bool HasInputLock => spawnControlWindowHasInputLock;
 
         public void ReleaseInputLock()
         {
