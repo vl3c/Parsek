@@ -68,7 +68,10 @@ namespace Parsek
         /// skips <see cref="File.Replace(string,string,string,bool)"/> and takes the move-aside
         /// fallback, which is otherwise unreachable from a unit test: on a healthy local filesystem
         /// <c>File.Replace</c> always succeeds, so the fallback's success / restore paths would
-        /// carry no coverage at all. Tests must reset it in their Dispose.
+        /// carry no coverage at all. Tests must reset it in their Dispose. It is fenced only by
+        /// the <c>Sequential</c> xUnit collection, not by any lock; a concurrent reader outside
+        /// that collection would nonetheless be benign, since the fallback is result-equivalent
+        /// to <c>File.Replace</c> - it just reaches the same end state by a different route.
         /// </summary>
         internal static bool ForceMoveAsideFallbackForTesting;
 
@@ -179,9 +182,11 @@ namespace Parsek
 
         /// <summary>
         /// Swaps a written temp file onto its destination for the two safe-write entry points.
-        /// A failed swap leaves the destination as it was (that is
-        /// <see cref="ReplaceDestination"/>'s contract), so the temp file is discarded rather
-        /// than orphaned next to the real file, and the failure is logged before it re-throws.
+        /// A failed swap leaves the previous file recoverable (see
+        /// <see cref="ReplaceDestination"/>'s ordering notes - in the double-failure corner that
+        /// means the previous bytes sit at the logged <c>.bak.&lt;guid&gt;</c> rather than at the
+        /// destination), so the temp file is discarded rather than orphaned next to the real
+        /// file, and the failure is logged before it re-throws.
         /// </summary>
         private static void ReplaceOrDiscardTemp(string tmpPath, string path, string tag)
         {
