@@ -1004,6 +1004,115 @@ namespace Parsek.Tests
             Assert.True(Distance(propagatedVelocity, result.terminalVelocity) < 0.01);
         }
 
+        // ---- OrbitSegment unit contract (see OrbitSegment.cs): inc/LAN/argPe are
+        // DEGREES, meanAnomalyAtEpoch is RADIANS. These tests pin the extrapolator's
+        // boundary conversion in both directions: recorder-authored degree segments
+        // must propagate to correctly oriented positions, and extrapolator-authored
+        // segments must come back out carrying degrees.
+
+        [Fact]
+        public void TryPropagate_DegreeLanSegment_PlacesEpochPositionOnRotatedAxis()
+        {
+            // Equatorial circular orbit with LAN=90 degrees, periapsis direction at
+            // the node, vessel at periapsis: the epoch position must sit on the +y
+            // axis. Reading 90 as radians would place it at an arbitrary in-plane
+            // angle (90 rad wraps to ~116.6 degrees).
+            double radius = 700000.0;
+            var segment = new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 0.0,
+                endUT = 1000.0,
+                inclination = 0.0,
+                eccentricity = 0.0,
+                semiMajorAxis = radius,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = 0.0
+            };
+
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segment, KerbinGravParameter, 0.0, out Vector3d position, out _));
+
+            Assert.True(Math.Abs(position.x) < radius * 1e-9,
+                $"x should be ~0 for LAN=90deg, was {position.x:F1}");
+            Assert.True(Math.Abs(position.y - radius) < radius * 1e-9,
+                $"y should be ~{radius:F0} for LAN=90deg, was {position.y:F1}");
+            Assert.True(Math.Abs(position.z) < radius * 1e-9,
+                $"z should be ~0 for an equatorial orbit, was {position.z:F1}");
+        }
+
+        [Fact]
+        public void TryPropagate_DegreeInclinationSegment_ReachesPolarAxis()
+        {
+            // Polar circular orbit (inclination=90 degrees), quarter orbit past the
+            // ascending node: the position must sit on the +z (polar) axis. Reading
+            // 90 as radians tilts the plane to cos(90 rad) = -0.448 instead.
+            double radius = 700000.0;
+            var segment = new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 0.0,
+                endUT = 1000.0,
+                inclination = 90.0,
+                eccentricity = 0.0,
+                semiMajorAxis = radius,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = Math.PI / 2.0,
+                epoch = 0.0
+            };
+
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segment, KerbinGravParameter, 0.0, out Vector3d position, out _));
+
+            Assert.True(Math.Abs(position.z - radius) < radius * 1e-9,
+                $"z should be ~{radius:F0} a quarter orbit into a polar orbit, was {position.z:F1}");
+            Assert.True(Math.Abs(position.x) < radius * 1e-9,
+                $"x should be ~0, was {position.x:F1}");
+            Assert.True(Math.Abs(position.y) < radius * 1e-9,
+                $"y should be ~0, was {position.y:F1}");
+        }
+
+        [Fact]
+        public void Extrapolate_ProducedSegments_CarryDegreeInclination()
+        {
+            // Seed a circular orbit in the xz-plane: angular momentum lies in the
+            // equatorial plane, so the orbit is polar (inclination 90). The
+            // produced segment must store 90 (degrees), not pi/2 (radians).
+            double circularAltitude = 100000.0;
+            double radius = KerbinRadius + circularAltitude;
+            double circularSpeed = Math.Sqrt(KerbinGravParameter / radius);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody("Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                new BallisticStateVector
+                {
+                    ut = 0.0,
+                    bodyName = "Kerbin",
+                    position = new Vector3d(radius, 0.0, 0.0),
+                    velocity = new Vector3d(0.0, 0.0, circularSpeed)
+                },
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0001,
+                    maxSoiTransitions = 2,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.True(result.segments.Count > 0, "expected at least one produced segment");
+            OrbitSegment produced = result.segments[0];
+            Assert.True(Math.Abs(produced.inclination - 90.0) < 1e-6,
+                $"produced inclination should be 90 degrees, was {produced.inclination:F6}");
+            Assert.InRange(produced.longitudeOfAscendingNode, 0.0, 360.0);
+            Assert.InRange(produced.argumentOfPeriapsis, 0.0, 360.0);
+        }
+
         private static BallisticStateVector MakeTangentialState(
             string bodyName,
             double bodyRadius,

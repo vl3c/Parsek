@@ -92,6 +92,10 @@ namespace Parsek
         /// Pure Keplerian propagation: compute position at currentUT from orbital elements.
         /// Returns (lat, lon, alt) on the body surface.
         /// Requires bodyRadius and gravParameter as inputs (avoids CelestialBody dependency).
+        /// Inputs follow the OrbitSegment unit contract (see OrbitSegment.cs):
+        /// inc/lan/argPe in DEGREES, meanAnomalyAtEpoch in RADIANS - callers pass
+        /// OrbitSegment / Recording.TerminalOrbit* fields verbatim. The internal
+        /// Kepler math is radians, converted here.
         /// </summary>
         internal static (double lat, double lon, double alt)
             PropagateOrbital(
@@ -100,6 +104,9 @@ namespace Parsek
                 double bodyRadius, double bodyGravParam,
                 double currentUT)
         {
+            inc *= Math.PI / 180.0;
+            lan *= Math.PI / 180.0;
+            argPe *= Math.PI / 180.0;
             // Guard: hyperbolic orbits (ecc >= 1.0) are not supported by this propagator.
             // Return last recorded position as fallback.
             if (ecc >= 1.0 || sma <= 0)

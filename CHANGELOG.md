@@ -19,6 +19,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Predicted flight tails and orbit-propagated ghost positions now keep their real orientation. The trajectory segments Parsek predicts when a falling vessel leaves the scene were saved with their orbit angles in radians while everything that draws or replays them expects degrees, and the reverse mix-up made the predictor and the ghost endpoint placement read recorded degree values as radians, so predicted map orbits and propagated ghost positions could point in essentially arbitrary directions. All recorded orbit segments now use one unit convention end to end.
 - Concluding a Re-Fly that never flew (rewind, then end the session without launching) no longer leaves the save stuck part-way through the merge and failing on every later load. The merge now completes with nothing superseded, which is the correct outcome when there is no new flight to replace the original with.
 - If a Re-Fly attempt ends up with nothing recording into it, Parsek now says so on screen and in the log at the moment it happens, instead of the attempt silently failing to replace the original at merge time.
 - Launching a second copy of the same craft in one session no longer corrupts the first craft's recording: the reload's recording-resume now refuses to adopt a freshly rolled-out vessel (or any vessel from a different launch), so the new flight gets its own recording instead of writing its events into the previous vessel's.
