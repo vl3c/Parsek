@@ -2782,6 +2782,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if UNITY_EXCEPTIONS_BLOCK in expectations:
         errors.extend(validate_unity_exception_expectations(
             expectations.get(UNITY_EXCEPTIONS_BLOCK)))
+        warnings.extend(unity_exception_expectation_warnings(
+            expectations.get(UNITY_EXCEPTIONS_BLOCK)))
 
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. Structural only; the
@@ -3322,6 +3324,14 @@ def count_anomaly_tokens(log_text: Optional[str]) -> Dict[str, int]:
 
     Only tokens in ANOMALY_TOKENS appear (an ungated reason is reported through
     ``unlisted_anomaly_reasons``, never counted into a gate).
+
+    ZERO-COUNT CONVENTION, and it differs from ``scan_unity_exceptions`` on purpose -
+    both feed operator budget-sizing, so the difference is worth naming. Here a token
+    that never fired is ABSENT (an empty dict on a clean run reads as "no anomaly
+    raised"); there every pattern reports its zero ("we looked, and saw none"). The
+    reason is what an absent key would otherwise mean: the anomaly set is fixed and
+    grep-able, so absence is unambiguous, whereas an absent exception pattern could not
+    be told apart from a scan that never ran.
     """
     counts: Dict[str, int] = {}
     gated = set(ANOMALY_TOKENS)
@@ -3393,14 +3403,31 @@ def parse_allowed_anomalies(declared: Optional[Sequence]) -> AllowedAnomalyParse
     ceiling, and a declaration that silently loosens one is the fail-open this
     mechanism exists to close.
 
-    Structural rejects (errors): a non-string / non-table entry, a table with no
-    ``token``, a non-int or negative ``maxCount``, an unknown key in the table.
-    Inert-declaration warnings: a token outside ANOMALY_TOKENS (the sweep can never
-    raise it, so the tolerance does nothing) - RETIRED dead tokens are named as such.
+    Structural rejects (errors): a NON-ARRAY declaration, a non-string / non-table
+    entry, a table with no ``token``, a non-int or negative ``maxCount``, an unknown
+    key in the table. Inert-declaration warnings: a token outside ANOMALY_TOKENS (the
+    sweep can never raise it, so the tolerance does nothing) - RETIRED dead tokens are
+    named as such.
+
+    THE WHOLE-VALUE TYPE CHECK IS LOAD-BEARING, not defensive boilerplate. Python
+    iterates a string by CHARACTER and a dict by KEY, so `allowedAnomalies =
+    "line-blink"` or a bare inline table used to walk into per-character "tokens" -
+    producing a garbage budget map with warnings only, and `validate_spec` still
+    returning ok=True. A tolerance the author believes is in force and is not is a
+    FALSE-RED risk, and it is the exact failure mode the misplaced-key guard was
+    promoted from WARN to ERROR to close.
     """
     budgets: Dict[str, Optional[int]] = {}
     errors: List[str] = []
     warnings: List[str] = []
+    if declared is not None and not isinstance(declared, (list, tuple)):
+        return AllowedAnomalyParse(
+            {},
+            ("expectations.allowedAnomalies: %r must be an array of token strings or "
+             "{ %s = \"...\", %s = N } tables (a bare string or table iterates by "
+             "character / key into garbage budgets)"
+             % (declared, ALLOWED_ANOMALY_TOKEN_KEY, ALLOWED_ANOMALY_MAX_COUNT_KEY),),
+            tuple())
     for i, entry in enumerate(declared or ()):
         token: Optional[str] = None
         budget: Optional[int] = ANOMALY_BUDGET_UNLIMITED
@@ -3568,7 +3595,15 @@ def scan_unity_exceptions(log_text: Optional[str]) -> Dict[str, int]:
     number an operator has to calibrate against un-interpretable.
 
     Every pattern gets a key, including a zero, so a result JSON reads as a
-    measurement ("we looked, and saw none") rather than an absence.
+    measurement ("we looked, and saw none") rather than an absence. This is the
+    OPPOSITE convention to ``count_anomaly_tokens`` (which omits zeros) - deliberate,
+    and explained there.
+
+    FUTURE WORK, deliberately not done here: this is one of several full passes over
+    ``log_text`` per run (anomaly reasons, anomaly counts, this scan). Consolidating
+    them into a single walk is a real saving on a multi-hundred-MB KSP.log, but it
+    couples four independent decisions into one loop and is not a change to make in a
+    fail-open-closing commit.
     """
     counts: Dict[str, int] = {name: 0 for name, _ in UNITY_EXCEPTION_PATTERNS}
     for line in (log_text or "").splitlines():
@@ -3629,6 +3664,27 @@ def validate_unity_exception_expectations(block: Optional[Dict]) -> List[str]:
             errs.append("expectations.%s.%s: %r must be a non-negative integer"
                         % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY, raw))
     return errs
+
+
+def unity_exception_expectation_warnings(block: Optional[Dict]) -> List[str]:
+    """Inert-declaration warnings for ``[expectations.unityExceptions]``.
+
+    A declared block with no ``maxTotal`` GATES NOTHING - it degrades silently to the
+    same report-only behavior an absent block gets. That is not an error (the block is
+    still well-formed, and a future key could make it meaningful), but an author who
+    wrote the header believing they had armed a ceiling must be told they have not.
+    WARN rather than ERROR for the same reason the inert-token case is a warning:
+    nothing fails at run time, and hard-rejecting would make the block's own future
+    growth a spec-invalid."""
+    if not isinstance(block, dict):
+        return []
+    if UNITY_EXCEPTIONS_MAX_TOTAL_KEY in block:
+        return []
+    return ["expectations.%s: declared with no `%s`, so it gates NOTHING - the scan "
+            "stays REPORT-ONLY exactly as if the block were absent. Add "
+            "`%s = N` (sized from a green run's unityExceptions.total) or delete the "
+            "block." % (UNITY_EXCEPTIONS_BLOCK, UNITY_EXCEPTIONS_MAX_TOTAL_KEY,
+                        UNITY_EXCEPTIONS_MAX_TOTAL_KEY)]
 
 
 # ---------------------------------------------------------------------------
@@ -3988,41 +4044,121 @@ def dedupe_captured_awards(captured: Sequence[CapturedAward]) -> List[CapturedAw
     return out
 
 
-def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward]
+# Per-facet agreement window for captured-vs-seam corroboration, mirroring
+# oracle.Tolerances defaults. run.py passes the run's ACTUAL tolerances; this is the
+# fallback for a direct call. Reputation needs a real window rather than an exact
+# compare: a seam entry declares the NOMINAL delta (-10) while the stock line reports
+# the APPLIED, post-curve one (the measured -9.999828).
+DEFAULT_CAPTURE_MATCH_TOLERANCES: Dict[str, float] = {
+    "funds": 1.0, "science": 0.1, "reputation": 0.1,
+}
+
+
+def _entry_facet_amount(entry, facet: str) -> float:
+    """The seam entry's declared delta on ``facet`` (structural read, duck-typed so
+    this module still imports nothing from oracle). Unknown facet -> 0.0."""
+    try:
+        return float(getattr(entry, facet, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _identity_conflicts(entry, award: "CapturedAward") -> bool:
+    """True when BOTH sides carry a STRUCTURED identity and they disagree.
+
+    Structured = a contract guid or a science subject id. A real stock award line
+    carries NEITHER (only its reason key), so for the funds / reputation lines this is
+    always False and the match falls to seqKey + facet + amount. When the award DOES
+    carry one (a future guid/subject-bearing capture), it must be among the entry's -
+    fail-closed, and the multi-subject rule (item 10) is preserved: ANY declared
+    subject id explains an award on that subject."""
+    award_ident = award.contract_guid or award.subject_id
+    if not award_ident:
+        return False
+    declared = _entry_identities(getattr(entry, "contract_guid", ""),
+                                getattr(entry, "subject_ids", ()) or ())
+    if declared == [""]:
+        return False
+    return award_ident not in declared
+
+
+def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
+                              facet_tolerances: Optional[Dict[str, float]] = None
                               ) -> List[CapturedAward]:
     """Return captured awards NOT explained by a seam-declared entry (design edge 4).
 
-    A captured award is EXPECTED iff a seam-declared entry shares its
-    ``(seqKey, kind, identity)``; an UNMATCHED captured award is an UNEXPECTED
-    stock award. On the empty-manifest B10 (no seam entries) EVERY captured award
-    is unexpected, which is exactly the economy-drift signal the passive-safety
-    scenario reds on (an unexpected award fired during passive play). ``seam_entries``
-    are oracle.ManifestEntry objects, read structurally (``.seq_key`` / ``.kind`` /
-    ``.contract_guid`` / ``.subject_ids``) so this imports nothing from oracle.
+    THE CORROBORATION KEY IS (seqKey, FACET, AMOUNT), NOT kind. `kind` was the join
+    until 2026-07-29 and became structurally unsatisfiable the moment the capture
+    started stamping the GENERIC `stock-funds-award` / `stock-reputation-award` kinds
+    (oracle.KINDS): a seam entry carries a scenario semantic (`kerbal-hire`,
+    `facility-upgrade`, ...) and a captured line carries the generic one, so the two
+    can never be equal and EVERY captured award reported "unexpected" - including the
+    scenario's own declared one. Reproduced against L1-hire-kerbal-career, whose own
+    -62113 hire debit read as an unexpected award, which would have made
+    `captureCrossCheck = "gate"` impossible to arm and the documented escalation path
+    unwalkable. Kind cannot be repaired by mapping reasons onto semantics (nobody has
+    measured such a mapping); what BOTH sides do carry comparably is the seqKey, the
+    POOL and the AMOUNT.
 
-    MULTI-SUBJECT (item 10): a seam entry may declare MANY ``subject_ids`` (one entry
-    covering several science subjects) while a captured award carries a SINGLE
-    ``subject_id``. Register a key for the contract guid AND for EVERY declared subject
-    id so an award on the entry's 2nd+ subject is explained, not falsely flagged
-    unmatched (the prior code registered only ``subject_ids[0]``, false-redding awards
-    on any later subject). Fail-closed: an entry with no guid and no subjects registers
-    the empty identity "" (matching only an award that itself has no identity).
+    An award is EXPECTED iff some seam entry:
+      - shares its type-tagged ``seq_key``;
+      - declares a NON-ZERO delta on the award's facet (an entry that does not touch
+        that pool cannot explain an award on it);
+      - agrees on the amount within the facet tolerance (reputation needs the window:
+        the entry is NOMINAL, the stock line is post-curve APPLIED);
+      - does not CONFLICT on a structured identity (guid / science subject) when both
+        sides carry one - fail-closed, multi-subject preserved;
+      - and, when the entry declares ``stockReason``, lists the award's stock reason
+        key. That optional field TIGHTENS the match for an author who has read a green
+        run's ``capturedRaw`` and wants the entry pinned to a named stock effect.
 
-    WHAT THIS RETURNS IS NOT AUTOMATICALLY A RED. Since the pattern rewrite the
-    capture actually fires, and the run.py caller decides whether an unmatched award
-    is a HARD divergence or a REPORT-ONLY row from the scenario's
+    ONE-TO-ONE: a matched entry is CONSUMED, so one declared effect explains at most
+    one award. That is what stops the CL-1 pair (`RecordsSpeed` 4800 and
+    `RecordsAltitude` 4800, same UT, same size) from BOTH corroborating a single
+    declared 4800 - the second stays unexpected, which is the correct signal.
+
+    INDEPENDENCE IS PRESERVED (M-B2). This function only classifies; it never feeds
+    ``compute_expected``, so a captured amount is still never summed into EXPECTED,
+    and corroboration does not touch ``diff_expected_vs_parsed`` - the seam-declared
+    vs produced-save leg reds exactly as before whether or not an award corroborated.
+    Corroboration can only SUPPRESS the extra unexpected-award row, never weaken the
+    save diff.
+
+    ``seam_entries`` are oracle.ManifestEntry objects, read structurally so this
+    imports nothing from oracle.
+
+    WHAT THIS RETURNS IS NOT AUTOMATICALLY A RED. The run.py caller decides whether an
+    unmatched award is a HARD divergence or a REPORT-ONLY row from the scenario's
     ``[expectations.ledger] captureCrossCheck`` mode. Report-only is the default
-    precisely because nobody has yet flown a run with a LIVE capture: an L1 career
-    scenario trips stock milestone awards its seam manifest never declared, so
-    gating the cross-check before a calibration run would red live-proven
-    scenarios on the strength of a regex."""
-    seam_keys = set()
-    for e in seam_entries or ():
-        for ident in _entry_identities(e.contract_guid, e.subject_ids):
-            seam_keys.add((e.seq_key, e.kind, ident))
+    because nobody has yet flown a run with a LIVE capture: an L1 career scenario also
+    trips stock MILESTONE awards no seam manifest declares (those stay unexpected and
+    are exactly what an operator must review before arming)."""
+    tolerances = facet_tolerances or DEFAULT_CAPTURE_MATCH_TOLERANCES
+    available = list(seam_entries or ())
+    consumed = [False] * len(available)
     out: List[CapturedAward] = []
     for c in captured:
-        if (c.seq_key, c.kind, _captured_identity(c)) not in seam_keys:
+        tol = float(tolerances.get(c.facet, 0.0))
+        matched = False
+        for i, e in enumerate(available):
+            if consumed[i]:
+                continue
+            if e.seq_key != c.seq_key:
+                continue
+            declared_amount = _entry_facet_amount(e, c.facet)
+            if declared_amount == 0.0:
+                continue
+            if abs(declared_amount - c.amount) > tol:
+                continue
+            if _identity_conflicts(e, c):
+                continue
+            reasons = tuple(getattr(e, "stock_reasons", ()) or ())
+            if reasons and c.reason not in reasons:
+                continue
+            consumed[i] = True
+            matched = True
+            break
+        if not matched:
             out.append(c)
     return out
 

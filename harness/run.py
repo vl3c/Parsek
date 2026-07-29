@@ -1551,7 +1551,14 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         # funds awards and two Progression rep awards that no L1 manifest declares), so
         # the mode knob decides and the default reports.
         cross_check_hard = hlib.capture_cross_check_gates(ledger_block)
-        for c in hlib.unmatched_captured_awards(seam_entries, captured):
+        # The corroboration key is (seqKey, facet, amount-within-tolerance), NOT kind:
+        # a captured kind is generic and a seam kind is a scenario semantic, so joining
+        # on kind made every award - including the scenario's own declared one - read
+        # unexpected. Pass the RUN's tolerances so the reputation window is the same
+        # one the diff uses (a seam entry is NOMINAL, a stock rep line is post-curve).
+        capture_tol = {"funds": tol.funds, "science": tol.science,
+                       "reputation": tol.reputation}
+        for c in hlib.unmatched_captured_awards(seam_entries, captured, capture_tol):
             facet = _AWARD_FACET_TO_DIFF.get(c.facet, c.facet)
             # Edge 4 (~582): the UT window is the captured line's UT, or the ORDINAL
             # seq when the award had no UT-stamped [Parsek] neighbor (never [None, None],

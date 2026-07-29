@@ -3675,6 +3675,32 @@ class AnomalyBudgetParseTests(unittest.TestCase):
         p = hlib.parse_allowed_anomalies([7])
         self.assertTrue(p.errors)
 
+    def test_a_bare_string_declaration_rejects_instead_of_iterating_characters(self):
+        # `allowedAnomalies = "line-blink"` (no array). Python iterates a string by
+        # CHARACTER, so without the whole-value type check this produced budgets like
+        # {"l": None, "i": None, ...} with warnings only - and validate_spec still
+        # returned ok=True, leaving the author believing a tolerance was in force.
+        p = hlib.parse_allowed_anomalies("line-blink")
+        self.assertEqual({}, p.budgets)
+        self.assertEqual(1, len(p.errors))
+        self.assertIn("must be an array", p.errors[0])
+
+    def test_a_bare_table_declaration_rejects_instead_of_iterating_keys(self):
+        # The other half: an inline table written without the enclosing array
+        # iterates by KEY ("token", "maxCount") into two garbage budgets.
+        p = hlib.parse_allowed_anomalies({"token": "line-blink", "maxCount": 3})
+        self.assertEqual({}, p.budgets)
+        self.assertEqual(1, len(p.errors))
+
+    def test_a_malformed_declaration_fails_spec_validation(self):
+        # The end-to-end consequence: it must be a PRE-LAUNCH spec-invalid, not a
+        # warning nobody reads (the same call the misplaced-key guard makes).
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectations"]["allowedAnomalies"] = "line-blink"
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("allowedAnomalies" in e for e in v.errors))
+
     def test_duplicate_token_keeps_the_tightest_ceiling(self):
         # A later bare entry must not widen an earlier budget back to unlimited.
         p = hlib.parse_allowed_anomalies([{"token": "line-blink", "maxCount": 2}, "line-blink"])
@@ -3832,6 +3858,22 @@ class UnityExceptionScanTests(unittest.TestCase):
             with self.subTest(block=bad):
                 self.assertTrue(hlib.validate_unity_exception_expectations(bad), bad)
         self.assertTrue(hlib.validate_unity_exception_expectations("nope"))
+
+    def test_declared_block_without_max_total_warns_that_it_gates_nothing(self):
+        # NIT 2: a declared-but-empty block degrades silently to report-only - the
+        # author wrote a header and armed nothing. WARN (nothing fails at run time),
+        # not ERROR, and it must name the missing key.
+        self.assertEqual([], hlib.unity_exception_expectation_warnings(None))
+        self.assertEqual([], hlib.unity_exception_expectation_warnings({"maxTotal": 0}))
+        warns = hlib.unity_exception_expectation_warnings({})
+        self.assertEqual(1, len(warns))
+        self.assertIn("maxTotal", warns[0])
+        # Wired into validate_spec as a WARNING, and the spec still validates.
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectations"][hlib.UNITY_EXCEPTIONS_BLOCK] = {}
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(v.ok, "an inert block is a warning, not a spec-invalid")
+        self.assertTrue(any(hlib.UNITY_EXCEPTIONS_BLOCK in w for w in v.warnings))
 
     def test_no_committed_spec_arms_it(self):
         # The HARD SAFETY PROPERTY: this scan cannot move any nightly verdict, because
@@ -6070,6 +6112,145 @@ class UnmatchedCapturedAwardTests(unittest.TestCase):
                                  contract_guid="", subject_id="subjZ", ut=50.0, seq=0,
                                  raw_line="line")
         self.assertEqual(1, len(hlib.unmatched_captured_awards(parse.entries, [aw2])))
+
+
+class CapturedAwardCorroborationKeyTests(unittest.TestCase):
+    """THE REGRESSION THE KIND GENERALIZATION INTRODUCED, and its fix.
+
+    Captured awards carry the GENERIC kinds (`stock-funds-award` /
+    `stock-reputation-award`) because a real stock line names only its
+    TransactionReasons key; seam entries carry SCENARIO kinds (`kerbal-hire`, ...).
+    While `kind` was part of the corroboration key those two vocabularies could never
+    be equal, so EVERY captured award - including the scenario's own declared one -
+    reported "unexpected", and `captureCrossCheck = "gate"` could never be armed
+    (reproduced against L1-hire-kerbal-career's own -62113 hire debit). The key is now
+    (seqKey, facet, amount within the facet tolerance), one-to-one, with structured
+    identity as a fail-closed discriminator and the optional per-entry `stockReason`
+    as a tightener."""
+
+    def _award(self, amount, reason, facet="funds", ut=0.0, guid="", subject=""):
+        kind = ("stock-reputation-award" if facet == "reputation"
+                else "stock-funds-award")
+        return hlib.CapturedAward(kind=kind, facet=facet, amount=amount,
+                                  contract_guid=guid, subject_id=subject, ut=ut,
+                                  seq=0, raw_line="line", reason=reason)
+
+    def test_the_l1_hire_debit_corroborates_its_own_seam_entry(self):
+        # The reproduction, verbatim: L1-hire-kerbal-career declares
+        # kind="kerbal-hire" funds=-62113 at ut=0.0, and stock logs the debit under
+        # its own reason key. Before the fix this read as an unexpected award.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0,
+             "provenance": "seam-declared"}])
+        self.assertEqual([], list(parse.errors))
+        award = self._award(-62113.0, "CrewRecruited")
+        self.assertEqual(
+            [], hlib.unmatched_captured_awards(parse.entries, [award]),
+            "a scenario's OWN declared award must corroborate, or the gate is unarmable")
+
+    def test_an_undeclared_award_is_still_unexpected(self):
+        # The signal must survive the fix: a milestone award no manifest declares is
+        # exactly what an operator has to review before arming the gate.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0}])
+        awards = [self._award(-62113.0, "CrewRecruited"),
+                  self._award(4800.0, "RecordsSpeed")]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(["RecordsSpeed"], [c.reason for c in unmatched])
+
+    def test_two_same_ut_same_amount_awards_do_not_cross_corroborate_one_entry(self):
+        # MEASURED on CL-1: RecordsSpeed 4800 and RecordsAltitude 4800 fire at the
+        # same UT. One declared 4800 explains exactly ONE of them (the match is
+        # one-to-one and consumes its entry); the second stays unexpected.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 119.7, "kind": "milestone", "funds": 4800.0}])
+        awards = [self._award(4800.0, "RecordsSpeed", ut=119.7),
+                  self._award(4800.0, "RecordsAltitude", ut=119.7)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(1, len(unmatched))
+        self.assertEqual("RecordsAltitude", unmatched[0].reason)
+        # Two declared entries explain both.
+        parse2 = oracle.parse_manifest_entries([
+            {"ut": 119.7, "kind": "milestone", "funds": 4800.0, "seq": 0},
+            {"ut": 119.7, "kind": "milestone", "funds": 4800.0, "seq": 1}])
+        self.assertEqual([], hlib.unmatched_captured_awards(parse2.entries, awards))
+
+    def test_a_wrong_amount_or_wrong_facet_does_not_corroborate(self):
+        parse = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0}])
+        # Same seqKey, same facet, different amount well outside the funds tolerance.
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._award(-1000.0, "CrewRecruited")])))
+        # Same seqKey and amount but on a pool the entry does not touch.
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._award(-62113.0, "X", facet="reputation")])))
+
+    def test_nominal_vs_applied_reputation_corroborates_inside_the_tolerance(self):
+        # A seam entry declares the NOMINAL rep delta (-10); the stock line reports
+        # the APPLIED post-curve one (MEASURED -9.999828). Exact-compare would make
+        # every rep award unexpected forever; the facet tolerance is what closes it.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 119.7, "kind": "milestone", "reputation": -10.0}])
+        award = self._award(-9.999828, "VesselLoss", facet="reputation", ut=119.7)
+        self.assertEqual([], hlib.unmatched_captured_awards(parse.entries, [award]))
+
+    def test_declared_stock_reason_tightens_the_match(self):
+        # The OPTIONAL tightener: an author who has read a green run's capturedRaw can
+        # pin the entry to a named stock effect, so a coincidental same-amount award
+        # at the same UT no longer corroborates it.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0,
+             "stockReason": ["CrewRecruited"]}])
+        self.assertEqual([], list(parse.errors))
+        self.assertEqual(("CrewRecruited",), parse.entries[0].stock_reasons)
+        self.assertEqual([], hlib.unmatched_captured_awards(
+            parse.entries, [self._award(-62113.0, "CrewRecruited")]))
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._award(-62113.0, "SomethingElse")])))
+
+    def test_stock_reason_accepts_a_bare_string_and_rejects_a_non_string(self):
+        one = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -1.0, "stockReason": "X"}])
+        self.assertEqual([], list(one.errors))
+        self.assertEqual(("X",), one.entries[0].stock_reasons)
+        bad = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -1.0, "stockReason": [7]}])
+        self.assertFalse(bad.ok)
+        self.assertTrue(any("stockReason" in e for e in bad.errors))
+
+    def test_corroboration_never_touches_the_expected_totals(self):
+        # M-B2 INDEPENDENCE: a corroborated award must not be summed into EXPECTED,
+        # or the capture would start certifying itself. EXPECTED is computed from the
+        # seam entries alone and is identical whether or not an award corroborated.
+        seed = oracle.SeedBaseline(funds=500000.0, science=0.0, reputation=0.0)
+        parse = oracle.parse_manifest_entries([
+            {"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0}])
+        expected = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
+        self.assertEqual(437887.0, expected.funds)
+        award = self._award(-62113.0, "CrewRecruited")
+        self.assertEqual([], hlib.unmatched_captured_awards(parse.entries, [award]))
+        again = oracle.compute_expected(seed, parse.entries, oracle.default_tolerances(), [])
+        self.assertEqual(expected.funds, again.funds,
+                         "corroboration must not feed the expected total")
+
+    def test_no_committed_spec_arms_the_capture_cross_check(self):
+        # NIT 1 / the HARD SAFETY PROPERTY for gap 1, mirroring the unityExceptions
+        # cell: the escalation path exists but nothing walks it yet.
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
+            if hlib.capture_cross_check_gates(ledger):
+                armed.append(name)
+        self.assertEqual([], armed, "a committed spec armed captureCrossCheck")
+
+    def test_gate_mode_resolution_and_validation(self):
+        self.assertFalse(hlib.capture_cross_check_gates(None))
+        self.assertFalse(hlib.capture_cross_check_gates({}))
+        self.assertFalse(hlib.capture_cross_check_gates({"captureCrossCheck": "report"}))
+        self.assertTrue(hlib.capture_cross_check_gates({"captureCrossCheck": "gate"}))
+        self.assertEqual([], hlib.validate_ledger_expectations({"captureCrossCheck": "gate"}))
+        errs = hlib.validate_ledger_expectations({"captureCrossCheck": "GATE"})
+        self.assertTrue(any("captureCrossCheck" in e for e in errs))
 
 
 class ParseCareerSaveBlockTests(unittest.TestCase):

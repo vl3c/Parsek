@@ -806,16 +806,32 @@ six publish or compare numbers the runner already measured.
    purpose: no science award line is quoted anywhere in this repo, and guessing a
    shape is what made the table dead - an L1 science scenario's collected KSP.log
    is the cheapest source.
+   THE CORROBORATION KEY CHANGED WITH THE PATTERNS, and it had to: captured awards
+   carry the GENERIC `stock-funds-award` / `stock-reputation-award` kinds while seam
+   entries carry scenario kinds (`kerbal-hire`, ...), so a `kind`-based join can
+   never match and EVERY captured award - including the scenario's own declared one
+   - reported "unexpected" (reproduced against L1-hire-kerbal-career's own -62113
+   hire debit), which would have made `gate` impossible to arm. The key is now
+   (seqKey, FACET, AMOUNT within the facet tolerance), matched ONE-TO-ONE, with the
+   structured identity (contract guid / science subject) as a fail-closed
+   discriminator and an OPTIONAL per-entry `stockReason = ["CrewRecruited"]` as a
+   tightener. The rep facet needs the tolerance window rather than an exact compare:
+   a seam entry declares the NOMINAL delta (-10), the stock line reports the APPLIED
+   post-curve one (-9.999828). M-B2 independence is untouched - a corroborated
+   amount is still never summed into EXPECTED, and the seam-declared-vs-save diff
+   reds exactly as before.
    OPERATOR-BLOCKED, and the reason the mechanism lands report-only: the
    unexpected-award cross-check was WRITTEN as a hard PARSEK-FAIL(ledger) but has
    never once run with a working capture, and the measurement that does exist says
    arming it blind would red the L1 career scenarios (a career pad hop trips three
    milestone funds awards and two `Progression` rep awards no seam manifest
-   declares). So an unmatched captured award is a REPORT-ONLY oracle divergence
-   until a scenario declares `[expectations.ledger] captureCrossCheck = "gate"` -
-   declared by ZERO committed specs. Arm per scenario after one green run shows
-   that scenario's real award baseline (read `capturedRaw` in
-   `results/<runId>.manifest.json`).
+   declares - those stay unexpected even with corroboration working, which is
+   exactly what an operator must review). So an unmatched captured award is a
+   REPORT-ONLY oracle divergence until a scenario declares
+   `[expectations.ledger] captureCrossCheck = "gate"` - declared by ZERO committed
+   specs. Arm per scenario after one green run shows that scenario's real award
+   baseline (read `capturedRaw` in `results/<runId>.manifest.json`), declaring an
+   entry - optionally with `stockReason` - for each award that should be expected.
 4. Flake ledgers (generated, gitignored) reset 2026-07-22 post-campaigns;
    quarantine (sticky, >0.20) is reporting-only and now reflects post-merge
    reality only.
