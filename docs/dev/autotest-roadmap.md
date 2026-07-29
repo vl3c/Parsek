@@ -868,7 +868,7 @@ Clusters, in the design doc's phase order:
   forbidden patterns on every spec; the `STOCK_AWARD_PATTERNS` rewrite from the
   archived CL-1 log (known-gate 3); anomaly count-budgets replacing the binary
   allowlist (known-gate 0); the B4 chute-latch diagnosis (known-gate 7);
-  converting the 19 silent early-return PASS sites to loud Skips; ERS/ELS gate
+  converting the ~19 silent early-return PASS sites to loud Skips; ERS/ELS gate
   hardening (`CommittedTrees` pattern, fail-on-missing-pwsh).
 - **Data-integrity units** (xUnit, no flight time): `SafeWriteConfigNode`
   destroy-on-failed-save; the schema-reject prune chain end-to-end;
