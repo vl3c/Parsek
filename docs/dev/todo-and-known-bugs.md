@@ -95,6 +95,48 @@ Make an unresolvable `AllowBatchExecution` argument resolve to a loud marker (or
 
 ---
 
+## HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. REPORTED, NOT FIXED. Driver-side only - no Parsek code on the path]
+
+### What happens
+
+`run.py`'s staging step 3 shells out to `scripts/inject-recordings.ps1` and records the outcome as `injected = res.ok`, where `ToolResult.ok` is `(not timed_out) and exit_code == 0`. Nothing downstream checks that the injection actually WROTE anything. When the script exits 0 having produced no fixture, staging logs its ordinary `stage save=... inject=rewind-b9 ...` line, the run launches KSP, and the first verb that needs the fixture fails for a reason that names the SYMPTOM rather than the cause.
+
+On the S1.5 first-flight that is `invokerewind refused: unknown-rp rp=rp_b9_root` - which reads as "this spec asked for a RewindPoint that does not exist", i.e. a spec-authoring error, when the truth is "staging silently declined to create it". The run burned a full KSP boot and 190 s to say so.
+
+### Root cause: `--no-build` against a never-built test assembly
+
+`inject-recordings.ps1` appends `--no-build` to its `dotnet test` invocation unless `-Build` is passed, and `Runtime.run_inject` never passes it (deliberately - the flag exists so an injection cannot rebuild and clobber the plugin DLL while KSP holds it). In a worktree where `Source/Parsek.Tests` has never been built there is no assembly for `--no-build` to run, so `InjectRewindB9` never executes. The script's only guard is `if ($LASTEXITCODE -ne 0) { throw }`, so whatever that invocation returned did not trip it.
+
+The trigger is therefore FRESH WORKTREE, and it is deterministic, not racy: the first injected-fixture run in any new worktree burns one attempt, and the retry passes because the first attempt's `dotnet test` left the assembly built behind it.
+
+### Evidence
+
+- Attempt 1 (`2026-07-29_1525_S1.5-rewind-loop`, INVALID `driver-arg`, wall 190 s): harness log carries `[Stage] stage save=gloops-airshow template=fixtures/saves/gloops-airshow inject=rewind-b9 craft=0` with NO accompanying `[Warn][Stage] inject-recordings failed` line - so `res.ok` was True and pwsh exited 0.
+- The staged save at that moment held `Parsek/GameState` only: no `Parsek/Recordings/`, no `Parsek/RewindPoints/`.
+- `KSP.log`: `[Parsek][WARN][TestCommands] invokerewind refused: unknown-rp rp=rp_b9_root`.
+- Attempt 2 staged the SAME preset and produced `Parsek/RewindPoints/rp_b9_root.sfs` plus the three `b9-*` recordings, then PASSed (`2026-07-29_1528_S1.5-rewind-loop_a2`, wall 69 s).
+- `Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll` mtime `18:28:31`, `obj/` `18:28:29` - the test assembly was first built DURING attempt 2, about three minutes after attempt 1's injection had already reported success.
+- Corroboration from the next scenario: S4.1 drives the same `rewind-b9` preset and injected correctly on ATTEMPT 1 with the assembly now warm.
+
+NOT DIRECTLY OBSERVED: the exit code `dotnet test --no-build` returns when the assembly is absent. It is pinned to 0 by inference (the absent warn line is conclusive that `res.ok` was True), not by a captured console. The fix below does not depend on which number it was.
+
+### Why it matters beyond one wasted boot
+
+The failure is silent in the direction that costs the most: staging claims success, so the run proceeds, and the diagnosis surfaces attached to the wrong component. `unknown-rp` points an investigator at the spec's `rp` argument and at `RewindB9Fixture`, both of which were correct. On a scenario with a real flight in front of the fixture-consuming verb this would cost the whole flight, not 190 s - and the classification would still be `driver-arg`, which reads as a spec defect.
+
+It also erodes the retry budget: `retry.policy = "once"` exists to absorb genuine flakes, and a deterministic first-run miss consumes it before any real flake can.
+
+### Fix shape when picked up
+
+Assert the POSTCONDITION in `run.py` staging rather than trusting the exit code - the check is mechanism-independent, so it holds whatever `dotnet test` returns:
+
+- `rewind-b9` -> require `saves/<run save>/Parsek/RewindPoints/rp_b9_root.sfs` and a non-empty `Parsek/Recordings/`.
+- `all-synthetic` -> require a non-empty `Parsek/Recordings/`.
+
+A miss should fail the stage immediately with a named subkind (`stage-inject-noop`) so the run never boots KSP, and the message should name the likely cause and its one-line remedy (`dotnet build Source/Parsek.Tests` in this worktree). Optionally make the script itself fail loud when `--no-build` finds no assembly, but the staging postcondition is the load-bearing half: it catches every way an injection can no-op, not just this one.
+
+---
+
 ## S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. REPORTED, NOT FIXED. Severity UNDECIDED pending a product call - see the question below]
 
 ### What happens
