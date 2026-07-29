@@ -14,10 +14,10 @@ Headline numbers:
 
 | Metric | Value |
 |---|---|
-| xUnit: files / cases | 848 files, 16,266 `[Fact]` + 493 `[Theory]` (~19k cases), zero skipped |
+| xUnit: files / cases | 848 files, 16,266 `[Fact]` + 493 `[Theory]` (~19k cases), one explicitly-skipped Fact |
 | xUnit: pure-method coverage | 2,463 / 3,179 `internal static` methods named in tests (77%) |
 | In-game: declarations / categories | 539 `[InGameTest]` in 97 categories |
-| In-game: categories driven unattended | **23 of 97** — 338 declarations in the 75 undriven categories execute in zero automated runs |
+| In-game: categories driven unattended | **23 of 97** — 336 declarations in the 74 undriven categories execute in zero automated runs |
 | Harness: committed scenarios | 55 (32 nightly, 18 daily, 5 operator) |
 | Harness: registry coverage | **97 / 242 dimension cells claimed** (and claimed ≠ green: last measured 58 green of 70 claimed) |
 | Harness: cost per claimed cell | batch lane 5.8–17.2 s/cell; flight lane 39.8–235.4 s/cell (4–20× cheaper in batch) |
@@ -37,7 +37,7 @@ The five findings that matter most:
 
 ### 2.1 xUnit unit tests (`Source/Parsek.Tests/`)
 
-Strong overall; the convention of extracting pure `internal static` decision cores is genuinely followed (the biggest MonoBehaviour files have the *most* extraction — `ParsekFlight.cs` 148/172 statics named). Verified-dark files (zero references of any kind): `WarpToTimeController.cs`, `RecordedRelativeAnchorPoseResolver.cs` (Relative-frame anchor pose — the ghost-inside-the-planet hazard, in-game-only net), `TechResearchPatch.cs` + `FacilityUpgradePatch.cs` (both **block real career spends**), `OrbitArcSampler.cs`, `OverlayBadge.cs`, `ParsekHarmony.cs`, `ParsekToolbarRegistration.cs`, `FloatingOriginSetOffsetPatch.cs`, `KspFacilityIds.cs`.
+Strong overall; the convention of extracting pure `internal static` decision cores is genuinely followed (the biggest MonoBehaviour files have the *most* extraction — `ParsekFlight.cs` 148/172 statics named). Verified-dark files (zero references of any kind): `WarpToTimeController.cs`, `RecordedRelativeAnchorPoseResolver.cs` (Relative-frame anchor pose — the ghost-inside-the-planet hazard, in-game-only net), `TechResearchPatch.cs` + `FacilityUpgradePatch.cs` (both **block real career spends**), `OrbitArcSampler.cs`, `OverlayBadge.cs`, `ParsekHarmony.cs`, `ParsekToolbarRegistration.cs`, `KspFacilityIds.cs`. (`FloatingOriginSetOffsetPatch.cs` is symbol-dark too, but its one-line delegate `RecordFloatingOriginShift` is tested — not a behavior gap.)
 
 Riskiest thin spots (full list of 20 in §5):
 
@@ -48,24 +48,24 @@ Riskiest thin spots (full list of 20 in §5):
 - `RecalculationFuzzer` registers only `ContractsModule` and asserts sort-call counts — **no property test anywhere asserts resulting career state** (finiteness, permutation-invariance, idempotence, ELS ⊆ Ledger).
 - The supersede/chain/closure graph walkers (`EffectiveState`) are cycle-prone and tested only with hand-built fixtures of ≤4 nodes; there is no randomized-tree invariant harness in the repo.
 
-Generator ceilings limit what tests are *writable*: `RecordingBuilder.BuildV3Metadata` emits 32 of the codec's 83 keys (no `recordedVesselGuid` on disk ⇒ no guid-gating round-trip; no `mergeState`/`supersedeTargetId`/`tOrb*`/tree-topology keys ⇒ no persisted Re-Fly or terminal-orbit fixtures); `VesselSnapshotBuilder` cannot emit a `MODULE` node (no docking/engine/inventory/chute fixtures) and hardcodes identity rotation (exactly the field the untested spawn-rotation code operates on); `ScenarioWriter` emits 5 of the 16 node types `ParsekScenario.OnSave` writes — ~40 test files hand-roll the missing 11.
+Generator ceilings limit what tests are *writable*: `RecordingBuilder.BuildV3Metadata` emits only ~30 of the codec's 83 keys, leaving ~50 no fixture can carry (no `recordedVesselGuid` on disk ⇒ no guid-gating round-trip; no `mergeState`/`supersedeTargetId`/`tOrb*`/tree-topology keys ⇒ no persisted Re-Fly or terminal-orbit fixtures); `VesselSnapshotBuilder` cannot emit a `MODULE` node (no docking/engine/inventory/chute fixtures) and hardcodes identity rotation (exactly the field the untested spawn-rotation code operates on); `ScenarioWriter` covers only a fraction of what `ParsekScenario.OnSave` writes — 11 node types (SUPERSEDES, TOMBSTONES, session markers, merge journal, routes, kerbal slots…) are producible by no generator, so ~40 test files hand-roll them.
 
 Infrastructure notes: 72% of test files sit in the `Sequential` collection (suite effectively serial); `ReentryPotentialTests` leaks `TestSinkForTesting` (no `IDisposable`); 53 files assert on production source *text* (legitimate wiring gates, but several are the sole coverage for their subject).
 
 ### 2.2 In-game runtime tests (`Source/Parsek/InGameTests/` + assembly-wide)
 
-539 declarations / 97 categories; authoritative per-category table at `docs/dev/autotest-ingame-category-inventory.md` (machine-derived, gated). Scene split: FLIGHT 363, AnyScene 104, SPACECENTER 46, TRACKSTATION 25, MAINMENU 1, EDITOR 0 (enforced ban). 58 of 97 categories hold ≤2 tests — fragmentation that costs one KSP boot per category under the one-batch-one-category rule (R13 addresses).
+539 declarations / 97 categories; authoritative per-category table at `docs/dev/autotest-ingame-category-inventory.md` (machine-derived, gated). Scene split: FLIGHT 363, AnyScene 104, SPACECENTER 46, TRACKSTATION 25, MAINMENU 1, EDITOR 0 (enforced ban). 44 of 97 categories hold ≤2 tests (72 declarations) — fragmentation that costs one KSP boot per category under the one-batch-one-category rule (R13 addresses).
 
 Dimension gaps (things no in-game test exercises):
 
 - **Live docking**: zero `ModuleDockingNode` references — no test docks or undocks a real port (the mod's most gotcha-dense KSP interaction; only claw `Couple()` and xUnit/flight coverage exist).
 - **Warp regimes**: no rate sweep, zero `physicsWarp` references, no rails↔physics transition matrix; `GhostPlaybackLogic.WarpLoopPolicy.cs` has zero in-game references; the one high-warp canary is `AllowBatchExecution=false` so no batch ever drives real high warp.
 - **UI**: 14 of 15 IMGUI window hosts never drawn by any test; the only real Layout+Repaint drive in the repo is `LogisticsTooltipEchoImguiTest` (whose probe-MonoBehaviour pattern is the proven template for a general window smoke test).
-- **Settings**: 5 of 13 toggles have zero exercise, including `blockCommittedActions` and `autoBackupExistingSaves` — both act on the player's real campaign. `PreParsekBackup.cs` (the one-shot pre-Parsek save backup) has zero test references.
-- **Harmony patches**: 28 of 40 patch classes have zero in-game references — and a patch is the archetypal runtime-only construct (compiles clean and unit-tests green when silently broken). `SwitchIntentPatch`'s `*_RegisteredWithHarmony` smoke cells are the extendable template.
+- **Settings**: 5 of 13 toggles have zero exercise, including `blockCommittedActions` and `autoBackupExistingSaves` — both act on the player's real campaign. `PreParsekBackup.cs` (the one-shot pre-Parsek save backup) has headless unit coverage of its pure helpers (`PreParsekBackupTests`, 24 facts) but zero in-game references — the live one-shot backup path against a real save directory is exercised nowhere.
+- **Harmony patches**: 28 of the ~40 patch classes have zero in-game references — and a patch is the archetypal runtime-only construct (compiles clean and unit-tests green when silently broken). `SwitchIntentPatch`'s `*_RegisteredWithHarmony` smoke cells are the extendable template.
 - **Stress/soak**: ghost cap is asserted (200), per-frame cost never measured; zero long-session/memory-growth tests.
-- **Fixture ceilings**: ~250 of the 669 `InGameAssert.Skip` sites trace to fixture shape (`gloops-airshow`'s vessel is a 1-part engineless capsule); `RecordingBuilder.WithSpawnedPid` has zero callers so the corpus carries no spawned-endpoint recording (`CrewReservationLive` permanently inert); no fixture puts two loaded vessels in physics range (precondition for every live dock/undock/delivery/grapple test).
-- **Vacuous-pass trap**: 19 silent early-return sites report PASSED (not Skipped) over an empty store — invisible to the anti-vacuity gate by proven construction; only the fixture defends.
+- **Fixture ceilings**: roughly a third of the 816 `InGameAssert.Skip` sites trace to fixture shape (`gloops-airshow`'s vessel is a 1-part engineless capsule); `RecordingBuilder.WithSpawnedPid` has zero callers so the corpus carries no spawned-endpoint recording (`CrewReservationLive` permanently inert); no fixture puts two loaded vessels in physics range (precondition for every live dock/undock/delivery/grapple test).
+- **Vacuous-pass trap**: ~19 silent early-return sites report PASSED (not Skipped) over an empty store — invisible to the anti-vacuity gate by proven construction; only the fixture defends.
 
 ### 2.3 Automated flight harness (`harness/`)
 
@@ -75,7 +75,7 @@ The orchestration itself is the best-tested code in the audit (404 xUnit cells o
 - **Structural blind spots**: log expectations are bare `re.search` (occurrence counts and ordering inexpressible — a regression dropping one of two board merges passes every contract); the only save-content assertion is an integer recording-count window; the three reserved expectation families (`route`/`rewind`/`loop`) are parsed and SKIPPED (S4.1 already declares supersede/tombstone asserts that do nothing); `[expectations.world]` is implemented and used by zero specs. R9 (structural save-content expectations) is the single highest-leverage unbuilt item — without it, additional flights buy proportionally less.
 - **Reach**: vessel switching is structurally impossible (kRPC bypasses `StockActionIntentMarker`; `SimulateStockSwitchClick` reserved, unimplemented); TRACKSTATION/MAP/EDITOR scenes unreachable (`DecideLoadRoute` is two-valued), stranding 7 categories; playback/watch verbs reserved, unimplemented.
 - **Missions**: 18 shells but only ~5 distinct phase machines; 9 of 18 are parameter aliases over `b5_decide` (huge sweep leverage). No mission exists for: planes, rovers, Jool system, aerobraking (B15 deliberately avoids Eve's atmosphere), rendezvous-without-docking, asteroid/claw, N-vessel assembly, ISRU, high-part-count stress, revert/quickload, or a long career arc.
-- **Modes**: 49 specs SANDBOX, 6 CAREER (5 vessel-less seam specs + CL-1, the only flown career mission), 1 SCIENCE. Career fixtures are clean-slate by construction; nothing in the repo templates *mid-career* progression (feasible — see the design doc — but unbuilt).
+- **Modes**: 48 specs SANDBOX, 6 CAREER (5 vessel-less seam specs + CL-1, the only flown career mission), 1 SCIENCE. Career fixtures are clean-slate by construction; nothing in the repo templates *mid-career* progression (feasible — see the design doc — but unbuilt).
 - **Detection classes that escape entirely**: visual glitches (zero screenshot capability), UI faults, FPS/perf, memory, frame-interleaved warp thrash, commanded-vs-observed drift, mutation adequacy (no mutation tooling exists; every "this cell bites" claim is prose).
 
 ---
@@ -98,7 +98,7 @@ Abbreviated verdicts; the per-slice detail lives in the section references.
 | UI windows | pure cores good (`Settings`/`StructureList` weak) | 14/15 windows never drawn | D15 0/1 | IMGUI exception storm passes everything |
 | FX (engine/RCS/Waterfall/ReStock) | good units | 17 compat tests skip on stock | **0** — modded instance never provisioned | entire fallback machinery never ran where the mods exist |
 | TestCommands seam | best-tested slice (404 cells + fake-KSP) | hollow category (2 unconditional skips) | all 55 specs exercise it | addon shells (3,300 LOC) no direct owner |
-| Timeline | 122 facts | 0 | 0 | D15 `timeline-projection` = the registry's only fully-uncovered dimension |
+| Timeline | 122 facts | 0 | 0 | D15 `timeline-projection` = the only fully-uncovered single-cell dimension (D17's six cells are likewise all uncovered) |
 
 ---
 
@@ -146,7 +146,7 @@ Deduplicated across all slices, ranked by (player consequence × absence of any 
 | B3 | `icon-jump` dead token; `icon-teleport`/`icon-off-orbit` ungated; count budgets absent | hlib + spec |
 | B4 | 52/55 specs tracer-off ⇒ anomaly rows vacuously green; `ghostRenderTracing` armed by zero specs; `GhostRenderTrace` emits no sweep-matchable lines | C# (small) + spec |
 | B5 | B4 `chuteDeployed` commanded latch (audit-debt gate 7) | spec (grep part events from a B4 recording) |
-| B6 | 19 silent early-return PASS sites in in-game tests | mechanical conversion to `InGameAssert.Skip` |
+| B6 | ~19 silent early-return PASS sites in in-game tests | mechanical conversion to `InGameAssert.Skip` |
 | B7 | ERS/ELS grep gate holes: `CommittedTrees` unpoliced (6 files), partial-class paths escape exact-path allowlist, silently skips without pwsh | script/unit |
 | B8 | Log expectations can't express counts/ordering; recording assertions are one integer window | R9 (structural expectations) |
 

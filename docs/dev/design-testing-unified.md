@@ -35,7 +35,7 @@ Three axes cut across the pyramid, and coverage must be tracked on all three:
 1. **Subsystem** (recorder, playback, rewind, ledger, logistics, render, UI…) — what the audit measures per-slice.
 2. **Runtime dimension** — the committed D1–D18 registry (`harness/coverage/registry.toml`, 242 cells). This is the machine denominator; a behavior without a registry cell is invisible to coverage accounting.
 3. **Game mode** — sandbox / science / career (registry D14 carries all three as first-class values):
-   - **Sandbox** tests flight, recording, playback, rendering, crew *reservation* mechanics — everything with no currency attached. 49 of 55 specs live here; it is the correct default for mechanics.
+   - **Sandbox** tests flight, recording, playback, rendering, crew *reservation* mechanics — everything with no currency attached. 48 of 55 specs live here; it is the correct default for mechanics.
    - **Science mode is the deliberately cheap middle rung.** It exercises the science-points ledger path (research-node debits, science capture/transmission) with *none* of career's confounds — no funds, no contracts, no facility gating, no part-purchase state. Any ledger behavior that touches only science should be proven here first (one spec exists today: `L1-research-node-science`; §5.4 expands this).
    - **Career** adds funds, reputation, contracts, facilities, tech gating, hiring costs. It is the hardest mode to reach by *playing* — and §5.4's central claim is that it mostly doesn't have to be played: career states can be **seeded** (templated into `persistent.sfs`) or **forged** (driven through real stock code via seam `KscAction` steps, then harvested), so the ledger can be validated at arbitrary progression points without automating the progression itself.
 
@@ -51,7 +51,7 @@ Finally, the goal metric: **human-eyeball minutes per release**. Every proposal 
 
 - **Pure-core extraction.** Any logic (guards, state transitions, math, serialization) is extracted to `internal static` methods so xUnit can reach it; MonoBehaviours keep only glue. This is followed well enough that 77% of the 3,179 pure methods are test-named, and the largest files have the most extraction. When you find KSP-coupled logic, the first question is always "what is the pure core here" (`SwitchSegmentBuilder` is the proof this works even for tree mutation).
 - **Shared-static discipline.** Classes touching `ParsekLog` / `RecordingStore` / `ParsekScenario` statics take `[Collection("Sequential")]` + `ResetForTesting()` calls; log assertions go through `ParsekLog.TestSinkForTesting` (set in ctor, `ResetTestOverrides()` in `Dispose` — the sink *diverts*, it does not tee).
-- **Generators** (`Tests/Generators/`): `RecordingBuilder`, `VesselSnapshotBuilder`, `ScenarioWriter`, `RouteFixtureBuilder`, etc. produce recordings, snapshots, saves, and RP quicksaves. They are the fixture supply chain for the *other two systems* too (the 272-recording corpus, the rewind-b9 fixtures) — which is why their ceilings (audit §2.1: 51 un-emittable metadata keys, no MODULE nodes, 11 un-emittable scenario node types) are stack-wide constraints, not unit-test trivia.
+- **Generators** (`Tests/Generators/`): `RecordingBuilder`, `VesselSnapshotBuilder`, `ScenarioWriter`, `RouteFixtureBuilder`, etc. produce recordings, snapshots, saves, and RP quicksaves. They are the fixture supply chain for the *other two systems* too (the 272-recording corpus, the rewind-b9 fixtures) — which is why their ceilings (audit §2.1: ~50 un-emittable metadata keys, no MODULE nodes, 11 un-emittable scenario node types) are stack-wide constraints, not unit-test trivia.
 - **Structural gates.** ~53 files assert on production source text (wiring gates, grep audits like ERS/ELS routing). Legitimate and cheap, but they are *presence* proofs — never let one be the sole coverage for behavior.
 
 **What it can never prove:** Harmony patches actually applying, KSP API behavior, scene lifecycle, IMGUI, anything reflection-bound to live `PartModule` fields, `ParsekScenario.OnSave/OnLoad` against a real game (accepted limitation; source-text gates are the house pattern there).
@@ -64,7 +64,7 @@ Finally, the goal metric: **human-eyeball minutes per release**. Every proposal 
 
 - **Attribute surface**: `Category`, `Scene` (FLIGHT/SPACECENTER/TRACKSTATION/AnyScene; EDITOR is banned by an enforced contract test), `RunLast`, `AllowBatchExecution` (71 false), `RestoreBatchFlightBaselineAfterExecution` (72 true), `BatchSkipReason`. Tests are `void` (sync, 411) or `IEnumerator` (coroutine, 128).
 - **Batch isolation** (campaign safety): FLIGHT-with-vessel/TS batches get in-memory quicksave/quickload *plus* on-disk `.bak` revert; the `.bak` is written *before* the `PARSEK_TEST_BATCH_MARKER`, so a mid-batch crash is reconciled on the next `ParsekScenario.OnLoad` in a fresh process. The R5 isolated path (`RunTests isolated="true"`, shipped 2026-07-27) admits restore-flagged batch-disabled tests — this is what makes the 68 previously-manual tests unattended-reachable.
-- **Self-setup or skip loudly**: a FLIGHT test that cannot construct its context must `InGameAssert.Skip` naming what it needed (669 sites do). `InGameFixtureMath` self-sizes tolerances to the floating-origin float grid — the model for any world-position assertion.
+- **Self-setup or skip loudly**: a FLIGHT test that cannot construct its context must `InGameAssert.Skip` naming what it needed (816 sites do). `InGameFixtureMath` self-sizes tolerances to the floating-origin float grid — the model for any world-position assertion.
 - **Automation hooks** (all read once at Awake, unset = inert): `PARSEK_AUTORUN_TESTS`, `PARSEK_AUTORUN_EXIT`, `PARSEK_AUTORUN_ISOLATED`, `PARSEK_TEST_COMMANDS`.
 
 **The two traps every new in-game test must avoid** (both bit us; audit §2.2):
@@ -151,7 +151,7 @@ Green must mean something before coverage grows.
 2. Rewrite `STOCK_AWARD_PATTERNS` from the archived CL-1 log + literal-line oracle unit test — revives the ledger oracle's independence leg (B2, operator item 3).
 3. Anomaly bookkeeping: retire the dead `icon-jump` token, budget-gate `icon-teleport`/`icon-off-orbit`, arm `ghostRenderTracing` on one spec with a raise shape the sweep can match (B3/B4).
 4. Diagnose B4's chute from part events in an archived recording; replace the commanded latch (B5).
-5. Convert the 19 silent early-return PASS sites to loud Skips (B6).
+5. Convert the ~19 silent early-return PASS sites to loud Skips (B6).
 6. ERS/ELS gate: add `CommittedTrees` to the patterns, fail (not skip) on missing pwsh in CI (B7).
 
 ### Phase 1 — Execute the coverage that is already written (weeks; ~30 specs ≈ +30 min wall)
