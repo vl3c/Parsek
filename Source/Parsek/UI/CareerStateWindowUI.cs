@@ -51,7 +51,10 @@ namespace Parsek
         private const float DefaultWindowHeight = 400f;
         internal const float MinWindowWidth = 520f;
         private const float MinWindowHeight = 200f;
-        private const string CareerStateInputLockId = "Parsek_CareerStateWindow";
+        // Internal so the design-7.2 mode-change close set (`ParsekUI.BuildGatedWindowCloseSet`)
+        // can carry the id, which lets the in-game lock-leak test assert directly against
+        // InputLockManager instead of hardcoding a duplicate string.
+        internal const string CareerStateInputLockId = "Parsek_CareerStateWindow";
 
         // Column widths — shared between header and body for alignment (mirrors RecordingsTableUI:30-42).
         // Contracts tab.
@@ -1198,6 +1201,28 @@ namespace Parsek
                 ReleaseInputLock();
             }
         }
+
+        /// <summary>
+        /// Whether this window currently holds its KSP input lock. Read by the design-7.2
+        /// mode-change close handler purely for its diagnostic line: the release itself is
+        /// unconditional, so a wrong read here can never leak a lock.
+        /// </summary>
+        internal bool HasInputLock => careerStateWindowHasInputLock;
+
+        /// <summary>
+        /// Test seam for the transient tab selection. Writable so the in-game
+        /// `ModeRoundTripPreservesWindowState` check can set a distinguishable bit of state
+        /// and assert the design-7.2 auto-close preserved it (edge case 1: nothing is
+        /// destroyed, only hidden).
+        /// </summary>
+        internal int SelectedTabForTesting
+        {
+            get { return selectedTab; }
+            set { selectedTab = value; }
+        }
+
+        /// <summary>Number of tabs this window draws (test seam for the round-trip check).</summary>
+        internal static int TabCountForTesting => TabLabels.Length;
 
         internal void ReleaseInputLock()
         {

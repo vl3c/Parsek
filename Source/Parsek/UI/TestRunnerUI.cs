@@ -17,7 +17,11 @@ namespace Parsek
         private Rect testRunnerWindowRect;
         private Vector2 testRunnerScrollPos;
         private bool testRunnerWindowHasInputLock;
-        private const string TestRunnerInputLockId = "Parsek_TestRunnerWindow";
+        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        // This is the SETTINGS-launched runner window; the global Ctrl+Shift+T
+        // `ParsekTestRunnerGlobal` window is a separate window with a separate lock and is
+        // never gated (design 6.3, edge case 13).
+        internal const string TestRunnerInputLockId = "Parsek_TestRunnerWindow";
         private Rect lastTestRunnerWindowRect;
         private InGameTestRunner testRunner;
         private readonly HashSet<string> expandedTestCategories = new HashSet<string>();
@@ -127,7 +131,18 @@ namespace Parsek
             }
         }
 
-        private void ReleaseInputLock()
+        /// <summary>
+        /// Whether this window currently holds its KSP input lock (diagnostic read for the
+        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// </summary>
+        internal bool HasInputLock => testRunnerWindowHasInputLock;
+
+        /// <summary>
+        /// Internal (was private) so the design-7.2 mode-change close handler can release
+        /// this window's lock explicitly. The Settings-launched runner has no reopen path in
+        /// Basic, so it is in the close set even though it maps to no `UiSurface`.
+        /// </summary>
+        internal void ReleaseInputLock()
         {
             if (!testRunnerWindowHasInputLock) return;
             InputLockManager.RemoveControlLock(TestRunnerInputLockId);

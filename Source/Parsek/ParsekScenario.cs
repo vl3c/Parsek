@@ -2888,7 +2888,16 @@ namespace Parsek
                 // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
                 // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
                 loadPhase = "settings";
-                ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current);
+                // scenarioNodePopulated is a BARE BOOL: "does my own SCENARIO node carry
+                // real Parsek data", judged exactly as PreParsekBackup.HasParsekGameplayFootprint
+                // judges it (any child node, or any value beyond the stock name+scene pair;
+                // the empty node KSP injects on first AddToAllGames contact is NOT data).
+                // The settings layer owns what that signal MEANS - this file deliberately
+                // names no UI-mode symbol.
+                bool scenarioNodePopulated =
+                    node != null && (node.nodes.Count > 0 || node.values.Count > 2);
+                ParsekSettingsPersistence.ApplyTo(
+                    ParsekSettings.Current, scenarioNodePopulated: scenarioNodePopulated);
                 ParsekLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
 
                 var recordings = RecordingStore.CommittedRecordings;

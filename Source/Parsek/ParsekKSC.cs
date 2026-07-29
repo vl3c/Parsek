@@ -236,6 +236,13 @@ namespace Parsek
 
         void Update()
         {
+            // Frame-latched Basic / Advanced UI mode apply (design 7.2). Unity runs Update
+            // before OnGUI, so latching here gives every UiSurfaceVisibility gate one
+            // stable mode across this frame's Layout and Repaint passes. Ahead of every
+            // early-out below on purpose: the main window draws regardless of whether
+            // there is any committed recording to play back.
+            ParsekUI.ApplyPendingUiComplexityModeIfAny();
+
             // During rewind, Planetarium UT is still the pre-rewind future value until
             // the deferred coroutine sets the correct UT. Skip all playback + spawn logic
             // to prevent future ghosts and premature vessel spawns.
