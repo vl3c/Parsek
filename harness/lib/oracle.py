@@ -72,6 +72,27 @@ KINDS: Tuple[str, ...] = (
     "facility-upgrade", "facility-refund", "tech-unlock",
     "kerbal-hire", "kerbal-dismiss", "strategy-activate", "strategy-convert",
     "vessel-recovery", "vessel-build-cost", "route-delivery",
+    # The two GENERIC stock-award kinds the leg-A log capture stamps
+    # (hlib.STOCK_AWARD_PATTERNS, 2026-07-29). A real stock award line names its
+    # `TransactionReasons` key ('RecordsSpeed', 'VesselLoss', ...) and nothing else,
+    # so the capture CANNOT honestly classify one as `milestone` vs `kerbal-hire`
+    # without inferring a mapping nobody has measured. These carry the facet instead
+    # and keep the stock reason in the entry's `stockReason` field. Additive: no
+    # committed spec declares them, and a seam entry never should - they mark
+    # provenance `stock-log-captured` rows.
+    #
+    # CONSEQUENCE FOR THE CORROBORATION KEY, and it is load-bearing: because a
+    # captured kind is generic and a seam kind is a scenario semantic, THE TWO CAN
+    # NEVER BE EQUAL, so `kind` cannot be part of the captured-vs-seam join. If it
+    # were, every captured award - including the scenario's own declared one - would
+    # report "unexpected" and `captureCrossCheck = "gate"` could never be armed.
+    # `hlib.unmatched_captured_awards` therefore corroborates on
+    # (seqKey, FACET, AMOUNT within the facet tolerance), one-to-one, with the
+    # structured identity (contract guid / science subject) as a fail-closed
+    # discriminator when BOTH sides carry one and the optional per-entry
+    # `stockReason` as a tightener. `kind` survives only on the FILL path
+    # (`funds_fill` below), where both sides are captured-shaped.
+    "stock-funds-award", "stock-reputation-award",
 )
 
 # Contract-guid set transitions (report-only facet, design ~439).
@@ -191,7 +212,15 @@ class ManifestEntry:
     line with no UT-stamped ``[Parsek]`` neighbor; ``seq`` is the ordinal seqKey used
     for the (ut, seq) sort. ``rep_mode`` dispatches the reputation accumulation.
     ``rec3_row`` (additive) carries the route-row identity a non-rewind discard would
-    roll back, consulted against the Rec-3 whitelist."""
+    roll back, consulted against the Rec-3 whitelist.
+
+    ``stock_reasons`` (additive, OPTIONAL, default empty) is the stock
+    ``TransactionReasons`` key set this entry expects the game to log for it
+    (``stockReason = ["CrewRecruited"]``). It TIGHTENS the leg-A corroboration key:
+    when declared, a captured stock award only corroborates this entry if the award's
+    reason is in the set. Empty (every committed spec today) leaves corroboration on
+    seqKey + facet + amount alone. It is a MATCHING hint only and never enters
+    ``compute_expected`` - a captured amount is still never summed into EXPECTED."""
     ut: Optional[float]
     seq: int
     kind: str
@@ -203,6 +232,7 @@ class ManifestEntry:
     contract_guid: str
     provenance: str
     rec3_row: str = ""
+    stock_reasons: Tuple[str, ...] = tuple()
 
     @property
     def seq_key(self):
@@ -463,6 +493,25 @@ def parse_manifest_entries(
         subject_ids = tuple(str(s) for s in (raw.get("subjectIds", raw.get("subject_ids", [])) or []))
         contract_guid = str(raw.get("contractGuid", raw.get("contract_guid", "")) or "")
         rec3_row = str(raw.get("rec3Row", raw.get("rec3_row", "")) or "")
+        # OPTIONAL corroboration tightener (see ManifestEntry.stock_reasons). Accepts a
+        # single string or an array; a non-string member is a scenario-authoring defect
+        # and rejects rather than being coerced (a silently-dropped reason would loosen
+        # the match back to amount-only without the author knowing).
+        raw_reasons = raw.get("stockReason", raw.get("stock_reason", raw.get("stockReasons")))
+        if raw_reasons is None:
+            stock_reasons: Tuple[str, ...] = tuple()
+        elif isinstance(raw_reasons, str):
+            stock_reasons = (raw_reasons,) if raw_reasons else tuple()
+        elif isinstance(raw_reasons, (list, tuple)):
+            if any(not isinstance(s, str) or not s for s in raw_reasons):
+                errors.append("entry[%d].stockReason: %r must be a non-empty string or an "
+                              "array of non-empty strings" % (i, raw_reasons))
+                continue
+            stock_reasons = tuple(str(s) for s in raw_reasons)
+        else:
+            errors.append("entry[%d].stockReason: %r must be a non-empty string or an "
+                          "array of non-empty strings" % (i, raw_reasons))
+            continue
 
         # funds is state-INDEPENDENT: a null amount fills from an unambiguous single
         # captured line matching (seqKey, kind, contractGuid, FUNDS-FACET). The facet
@@ -493,6 +542,7 @@ def parse_manifest_entries(
             funds=funds, science=science, reputation=reputation,
             rep_mode=rep_mode, subject_ids=subject_ids,
             contract_guid=contract_guid, provenance=provenance, rec3_row=rec3_row,
+            stock_reasons=stock_reasons,
         ))
 
     return ManifestParse(tuple(entries), tuple(errors))

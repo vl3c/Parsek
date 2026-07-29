@@ -735,11 +735,25 @@ six publish or compare numbers the runner already measured.
 ## Known gates and latent items (forensics in todo-and-known-bugs.md)
 
 0. ANOMALY_TOKENS has DRIFTED from what the mod raises, and the drift is a
-   FAIL-OPEN. Found 2026-07-26 while anchoring the sweep. `icon-jump` is a DEAD
-   token: `MapRenderProbe` raises the icon-teleport family with
-   `reason=icon-teleport`, so the harness's token can never fire and a real icon
-   teleport - the exact class the map-render wave has been chasing - passes the
-   sweep. NINE further reasons are raised and ungated: `icon-teleport`,
+   FAIL-OPEN. Found 2026-07-26 while anchoring the sweep. **PARTIALLY CLOSED
+   2026-07-29 (branch `harness-fail-open-gates`); the ungated-reason half stays
+   open and is still the operator call described below.** What changed: the DEAD
+   `icon-jump` token is REMOVED from `hlib.ANOMALY_TOKENS` and retired to
+   `hlib.ANOMALY_TOKENS_DEAD` (the two tuples are now disjoint, and the
+   source-derived enumeration asserts a retired token is still raised by nothing,
+   so one gaining a producer reds instead of quietly staying ungated). The removal
+   moves NO verdict by construction - a token no producer raises can never be a
+   hit - it stops the gated set advertising coverage it does not have. Also
+   shipped: a per-token COUNT BUDGET on `allowedAnomalies`
+   (`{ token = "...", maxCount = N }` beside the historical bare-token form, which
+   all 55 committed specs keep using unchanged), so "this anomaly is benign" and
+   "this anomaly fires at most N times on a healthy run" become different claims.
+   NO committed spec arms a budget - `anomalySweep.hitCounts` now records the
+   per-token raise counts on every run so an operator can size one from a green
+   flight first. What is STILL OPEN, unchanged: `icon-teleport` (the real raise, and
+   the one that most likely should be gated) remains REPORT-ONLY, because nobody
+   has yet measured whether it fires on a green S1.4.
+   NINE reasons are raised and ungated: `icon-teleport`,
    `icon-off-orbit`, `unaccounted-drawn-recording`, `gap-vs-retire`,
    `decision-vs-old-truth`, `clock-not-ready`, `retire-not-held`,
    `anchor-resolve-fail` and `factory-parity`. (The first version of this gate
@@ -765,16 +779,63 @@ six publish or compare numbers the runner already measured.
    run.py warn-logs it and records it in the result JSON as
    `anomalySweep.unlistedReasons` - non-gating, but the drift is now visible on
    every run instead of silent. Pinned by
-   `AnomalyGrepAnchoringTests.test_icon_jump_is_a_dead_token_against_what_the_mod_emits`
-   plus `AnomalyGroundTruthEnumerationTests`.
+   `AnomalyGrepAnchoringTests.test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported`
+   plus `AnomalyGroundTruthEnumerationTests`, and the budget surface by
+   `AnomalyBudgetParseTests` / `AnomalyBudgetSweepTests` / `AnomalyTokenCountTests`.
+   OPERATOR-BLOCKED REMAINDER: (a) the per-token gate-vs-instrument call for the
+   nine ungated reasons, which wants S1.4's next nightly `unlistedReasons` reading;
+   (b) arming any `maxCount`, which wants a green run's `hitCounts`.
 1. B6 20 km / B7 300 km course-correct targets - see the test-case table.
 2. Runner-only kRPC behaviors are LIVE-VERIFIED ONLY (no headless guard can
    exercise MechJeb server state): intercept-only planner flags, executor
    abort-before-native-AP, deceleration_time override, Smart A.S.S. off.
    Their symptom signatures are the first triage suspects on recurrence.
-3. STOCK_AWARD_PATTERNS are dead against real KSP logs: the ledger-oracle
-   capture cross-check is a structural no-op until the pattern rewrite
-   (needs the operator stock-award capture session).
+3. STOCK_AWARD_PATTERNS were dead against real KSP logs: the ledger-oracle
+   capture cross-check was a structural no-op. **MECHANISM CLOSED 2026-07-29
+   (branch `harness-fail-open-gates`); ARMING is operator-blocked.** The patterns
+   are rewritten from MEASURED lines - the CL-1 flights' `Added -9.999828 (-10)
+   reputation: 'VesselLoss'.` / `Added 0.9999995 (1) reputation: 'Progression'.`
+   and `Added 4800 funds: 'RecordsSpeed'`, i.e. the real
+   `Added <appliedDelta> [(<nominal>)] <pool>: '<reason>'` idiom - replacing the
+   invented `funds=` / `delta=` keyed forms that no KSP build emits. A captured
+   award now carries the stock `TransactionReasons` key (`CapturedAward.reason`),
+   which is the only identity a stock award line has and what keeps two
+   same-amount awards at the same UT (measured: `RecordsSpeed` 4800 and
+   `RecordsAltitude` 4800 on one hop) from deduping into one. The
+   BALANCE-inadmissibility rule is unchanged. SCIENCE IS STILL UNENUMERATED, on
+   purpose: no science award line is quoted anywhere in this repo, and guessing a
+   shape is what made the table dead - an L1 science scenario's collected KSP.log
+   is the cheapest source.
+   THE CORROBORATION KEY CHANGED WITH THE PATTERNS, and it had to: captured awards
+   carry the GENERIC `stock-funds-award` / `stock-reputation-award` kinds while seam
+   entries carry scenario kinds (`kerbal-hire`, ...), so a `kind`-based join can
+   never match and EVERY captured award - including the scenario's own declared one
+   - reported "unexpected" (reproduced against L1-hire-kerbal-career's own -62113
+   hire debit), which would have made `gate` impossible to arm. The key is now
+   (seqKey, FACET, AMOUNT within the facet tolerance), matched ONE-TO-ONE PER
+   (ENTRY, POOL) - the canonical contract-complete entry declares funds AND
+   reputation and stock logs those as two separate award lines, so it corroborates
+   one award per pool while a second award on the SAME pool stays unexpected - with
+   the structured identity (contract guid / science subject) as a fail-closed
+   discriminator and an OPTIONAL per-entry `stockReason = ["CrewRecruited"]` as a
+   tightener (pinned entries are tried first, so a greedy match cannot strand one).
+   The rep facet needs the tolerance window rather than an exact compare:
+   a seam entry declares the NOMINAL delta (-10), the stock line reports the APPLIED
+   post-curve one (-9.999828). M-B2 independence is untouched - a corroborated
+   amount is still never summed into EXPECTED, and the seam-declared-vs-save diff
+   reds exactly as before.
+   OPERATOR-BLOCKED, and the reason the mechanism lands report-only: the
+   unexpected-award cross-check was WRITTEN as a hard PARSEK-FAIL(ledger) but has
+   never once run with a working capture, and the measurement that does exist says
+   arming it blind would red the L1 career scenarios (a career pad hop trips three
+   milestone funds awards and two `Progression` rep awards no seam manifest
+   declares - those stay unexpected even with corroboration working, which is
+   exactly what an operator must review). So an unmatched captured award is a
+   REPORT-ONLY oracle divergence until a scenario declares
+   `[expectations.ledger] captureCrossCheck = "gate"` - declared by ZERO committed
+   specs. Arm per scenario after one green run shows that scenario's real award
+   baseline (read `capturedRaw` in `results/<runId>.manifest.json`), declaring an
+   entry - optionally with `stockReason` - for each award that should be expected.
 4. Flake ledgers (generated, gitignored) reset 2026-07-22 post-campaigns;
    quarantine (sticky, >0.20) is reporting-only and now reflects post-merge
    reality only.
@@ -918,6 +979,32 @@ six publish or compare numbers the runner already measured.
    `&& standoffSatisfied` conjunct would keep every suite green - the live
    `evaexit standoff cleared` logContract token is the only thing that catches
    it, and it now has one green run behind it.
+11. RAW UNITY EXCEPTIONS are unjudged. Nothing in the verifier chain has ever
+   read a KSP.log line Parsek did not write: every committed spec's
+   `logContracts.forbidden` list carries Parsek-authored tokens only
+   (`\[Parsek\]\[ERROR\]` and relatives), and the layer below it
+   (`scripts/validate-ksp-log.ps1` -> `ParsekLogContractChecker`) parses ONLY
+   `[Parsek]`-tagged lines - its rules (SES-000/001, FMT-001/002, WRN-001,
+   REC-001/003) are about session markers, the Parsek line FORMAT, WARN content
+   and recording start/stop pairing. So a run whose log is full of raw
+   `NullReferenceException` stack traces, or an IMGUI
+   `ArgumentException: GUILayout` storm, passed every gate the harness has.
+   INSTRUMENTED 2026-07-29 (branch `harness-fail-open-gates`), REPORT-ONLY:
+   `hlib.scan_unity_exceptions` counts four patterns
+   (`NullReferenceException`, `MissingReferenceException`,
+   `IndexOutOfRangeException`, `ArgumentException: GUILayout`), skipping
+   `[Parsek]`-tagged lines so a caught-and-reported exception is not
+   double-signalled, and run.py records a `unityExceptions` row (status
+   `REPORT`, per-pattern counts, total) in every result JSON - including on a
+   KILLED attempt, where a storm is a leading suspect for the hang. NOT GATING,
+   and that is the operator-blocked half: nobody has ever measured how many a
+   healthy KSP 1.12 + Parsek boot emits (stock KSP itself throws during scene
+   loads), so any ceiling picked now would be a guess that could red
+   live-proven scenarios. ARMING: add `[expectations.unityExceptions] maxTotal =
+   N` to a spec - declared by ZERO committed specs - after reading the counts
+   off a few green runs. Over-budget classifies `PARSEK-FAIL(unity-exception)`.
+   Pinned by `UnityExceptionScanTests` (including a cell asserting no committed
+   spec arms it).
 
 ## Operator items outstanding
 
@@ -932,7 +1019,16 @@ six publish or compare numbers the runner already measured.
    settled P1/P3/P4/P5/P6 (count windows now pinned exactly, log-token wording
    confirmed, flag capture proven). The only EVA item left is the optional
    promotion of EVA-1 / EVA-3 nightly -> daily once flake data exists.
-3. Stock-award real-line capture session (unblocks the pattern rewrite).
+3. ~~Stock-award real-line capture session (unblocks the pattern rewrite)~~ -
+   the CAPTURE SESSION IS NO LONGER NEEDED for funds and reputation: the CL-1
+   flights already produced those lines and the patterns were rewritten from
+   them 2026-07-29 (gate 3). TWO operator items replace it, both wanting a
+   normal run rather than a session: (a) one collected KSP.log from an L1
+   SCIENCE scenario, to measure the science award shape that is still
+   deliberately unenumerated; (b) per-scenario arming of
+   `[expectations.ledger] captureCrossCheck = "gate"` once a green run's
+   `results/<runId>.manifest.json` `capturedRaw` shows that scenario's real
+   award baseline.
 4. B9 rewind observation session (S1.5 + S4.1) - NO operator session needed as
    of 2026-07-26. Both are now normal unattended NIGHTLY runs (re-tiered from
    operator; the "no flight-entry verb" premise was false - `LoadGame` focuses
