@@ -54,9 +54,9 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Fixture helpers
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         private static ConfigNode CrewSnapshot(params string[] crew)
         {
@@ -170,9 +170,9 @@ namespace Parsek.Tests
             return Walk(module ?? new KerbalsModule(), BuildAssignmentActionsForStore());
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Population: Dead
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void Dead_VesselDestroyedWithCrewAboard_IsPermanentlyReserved()
@@ -259,9 +259,9 @@ namespace Parsek.Tests
             Assert.Equal("Jeb", module.GetActiveOccupant("Jeb"));
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Population: Recovered
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void Recovered_ReservationEndsAtRecordingEndUT()
@@ -336,9 +336,9 @@ namespace Parsek.Tests
                 Walk(new KerbalsModule(), reversed).Reservations["Bob"].ReservedUntilUT);
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Population: Missing (crew left the recording to an unknown fate)
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Theory]
         [InlineData(TerminalState.Docked)]
@@ -389,9 +389,9 @@ namespace Parsek.Tests
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Population: ghost-only chain handoff
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Theory]
         // chain + ghost-only + a handoff-shaped terminal state -> use the handoff rule
@@ -506,9 +506,9 @@ namespace Parsek.Tests
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Population: stand-ins
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void StandIn_ReservedOwner_GetsGeneratedStandInAndReplacementBridgeEntry()
@@ -649,9 +649,9 @@ namespace Parsek.Tests
             Assert.Empty(module.RetiredKerbals);
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Population: MIA respawn
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void MiaRespawn_KspFlippedTheDeadKerbalBackToAvailable_ModuleKeepsThemReserved()
@@ -726,9 +726,9 @@ namespace Parsek.Tests
                 && l.Contains("preserved=1"));
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Roster-creating rows (hire / rescue / stand-in)
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Theory]
         [InlineData(GameActionType.KerbalHire, true)]
@@ -808,9 +808,9 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Tombstoned roster cleanup:"));
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Ordering and UT cutoff
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void Cutoff_RowsAfterTheCutoffAreExcludedFromTheEndStateWalk()
@@ -884,9 +884,9 @@ namespace Parsek.Tests
             Assert.True(kerbals.IsKerbalAvailable("Ghost Kerman"));
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Idempotence
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void RepeatedWalks_TheWholeEndStateSurfaceIsStable()
@@ -978,9 +978,9 @@ namespace Parsek.Tests
             return sb.ToString();
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Slot persistence summary
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         [Fact]
         public void LoadSlots_ReportsLoadedAndIgnoredEntryCounts()
@@ -1039,9 +1039,9 @@ namespace Parsek.Tests
             Assert.Equal("Hanley Kerman", module.Slots["Jeb"].Chain[0]);
         }
 
-        // ────────────────────────────────────────────────────────
+        // ========================================================
         // Fakes
-        // ────────────────────────────────────────────────────────
+        // ========================================================
 
         private sealed class FakeRoster : KerbalsModule.IKerbalRosterFacade
         {
