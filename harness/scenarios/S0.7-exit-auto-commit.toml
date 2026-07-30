@@ -1,0 +1,151 @@
+schema = 1
+id = "S0.7-exit-auto-commit"
+tier = "daily"
+# The first consumer of the R12/A2 `ExitToSpaceCenter` verb: the live FLIGHT ->
+# SPACECENTER transition no seam verb could produce before R12. All four pending-tree
+# auto-commit routes are gated on `HighLogic.LoadedScene != GameScenes.FLIGHT`, and
+# FlushAndQuit saves and quits from INSIDE flight, so an unattended run could finalize
+# a tree and then never reach any of them.
+#
+# WHAT THIS CELL PROVES, and what it deliberately does NOT - read this before adding
+# an assertion. It proves the TRANSITION and the FLIGHT-side pipeline it drives: the
+# wedge guard is evaluated on live state, the stock exit path runs (persist ->
+# LoadScene), OnSceneChangeRequested finalizes the live tree and stashes it as a
+# Finalized PENDING tree, and the verb's deferred terminal fires only once SPACECENTER
+# has settled with a game loaded.
+#
+# It does NOT prove the pending tree's AUTO-COMMIT on arrival, and that is a measured
+# limitation rather than an oversight. See the [expectations.recordings] note: with the
+# primitives a seam spec has today the recorded tree is always trivial, and a trivial
+# tree is correctly idle-discarded before the autoMerge commit branch. The auto-commit
+# half belongs to the CL-1 extension (a mission driver that actually FLIES), which is a
+# separate follow-up.
+description = "Drive the live FLIGHT -> SPACECENTER exit through ExitToSpaceCenter under autoMerge: the wedge guard passes on live state, the stock exit path runs, the live tree is finalized and stashed as a pending tree on the transition, and the verb terminates only once the Space Center has settled."
+instanceProfile = "stock-minimal"
+tags = ["scene-exit", "auto-merge", "live-recording", "S0.7", "R12"]
+
+[fixture]
+# eva2-lko-crewed (see EVA-2 for the full disclosure): a crewed Kerbal X orbital stage
+# in a stable ~100 km circular Kerbin orbit, activeVessel=1, so LoadGame takes the
+# FLIGHT route. Chosen over the gloops-airshow pad host because the tree this cell
+# finalizes closes with terminalState=Orbiting and a real terminal ORBIT block, which
+# is the finalize path a flight exit normally takes; a PRELAUNCH host would exercise
+# the degenerate one.
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoMerge = true` is the verb's v1 SUPPORTED SHAPE, not a convenience. With it OFF
+# the LoadScene prefix spawns a ControlTypes.All-locking merge modal that no seam verb
+# can answer (AnswerMergeDialog is markerLive-gated to the re-fly popup alone), so the
+# wedge guard correctly REJECTS with msg=dialog-required rather than hanging the run to
+# its budget. The `autoMerge=true hasActiveTree=true` pin below is what proves the
+# guard was evaluated against that intended state and not against a lucky empty one.
+#
+# StartRecording (not autoRecordOnLaunch) is the live-recording trigger, so
+# spec_expects_live_recording is True and REC-001/REC-003 stay UNSUPPRESSED. NOTE the
+# deliberate ABSENCE of StopRecording and CommitTree: the recorder is still LIVE when
+# the exit fires, and the exit's own finalize/stash pipeline is what closes the tree.
+# That is the whole contrast with S0.6, which commits explicitly from inside FLIGHT.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "StartRecording",                                                             expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+# Claim-is-not-gate: the only new value here is scene-ksc, and it is gated by
+# "exittospacecenter complete scene=SPACECENTER game-loaded=true" - a token
+# DecideLoadCompletion emits only from its CompleteOk branch, which requires the KSC
+# scene to be settled with a game loaded. No committed spec had ever landed a driven
+# run at the Space Center from flight before this verb existed.
+#
+# D1 is deliberately EMPTY. commit-scene-exit and auto-merge were both drafted here and
+# both REMOVED after the live runs: this cell's tree is idle-discarded rather than
+# committed (see [expectations.recordings]), so neither value has a proving token in
+# the log and claiming either would be exactly the claim-is-not-gate error.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
+# form, so this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and this number is the honest measured outcome rather than a placeholder.
+# MEASURED 2026-07-30:
+#
+#   Recording started ... 18:28:44.168   (vessel still ON RAILS at record start)
+#   exittospacecenter start ... 18:28:44.301
+#   FinalizeTreeRecordings: points=1 orbitSegs=1 terminal=Orbiting maxDist=0m
+#   Stashed pending tree 'Kerbal X' (1 recordings, state=Finalized)
+#   IsTreeIdleOnPad ... -> DiscardPendingTree: scene-exit idle-on-pad auto-discard
+#
+# A seam round trip is ~130 ms and the recorder's minimum sample interval is 200 ms, so
+# a StartRecording -> ExitToSpaceCenter pair records exactly ONE point no matter what
+# the vessel is doing, and a one-point recording has maxDist = 0 BY CONSTRUCTION. That
+# makes the tree idle-on-pad (IsIdleOnPad is a pure sub-30 m distance rule that never
+# consults the situation), and ParsekScenario.OnLoad discards a Finalized idle pending
+# tree BEFORE the autoMerge commit branch. Discarding a 0.13-second recording is
+# CORRECT product behaviour, so this pin is stable, not a quarantine.
+#
+# THE DWELL PROBLEM, recorded so the next author does not re-derive it. No seam verb
+# provides dwell WHILE recording: TimeJump is an epoch shift with FROZEN relative
+# positions (it advances the clock without moving the vessel a metre), and EvaExit's
+# `settleSeconds` - the only spec-authorable dwell in the harness - was tried here and
+# recorded ZERO points across 10 s of orbital EVA because the per-physics-frame
+# RefreshFinalizationCache threw 501 unhandled ArithmeticExceptions out of
+# BallisticExtrapolator.SolveHyperbolicKepler (see docs/dev/todo-and-known-bugs.md).
+# Proving the auto-commit therefore needs a driver that genuinely FLIES; that is the
+# CL-1 extension, not this cell.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# Ordered as the verb's own gate -> action -> pipeline -> terminal.
+#
+# 1. The WHOLE guard input set, pinned literally. This is what makes the wedge-guard
+#    claim falsifiable: a run that lost the autoMerge pin, or that arrived with a
+#    pending tree or an armed switch-segment session, would REFUSE (msg=dialog-required)
+#    and red HERE, on the state, rather than somewhere downstream.
+# 2. The stock exit path actually taken, including persisted=true - a raw LoadScene
+#    with no pre-exit persist models an exit no stock UI route performs and has already
+#    produced one fixture-shaped divergence that read as a product defect.
+# 3+4. The FLIGHT-side half of the auto-commit contract, and the part this cell really
+#    certifies: OnSceneChangeRequested finalized the live tree and handed a Finalized
+#    PENDING tree to the non-FLIGHT side. The recordings=1 literal is the numeric guard
+#    (logContracts are re.search presence checks, so without it a zero-recording stash
+#    would satisfy the pattern).
+# 5. The deferred terminal, which DecideLoadCompletion emits only once SPACECENTER is
+#    settled with a game loaded - so it is simultaneously the verb's OK and the
+#    "we actually landed at the KSC" assertion behind the D14 scene-ksc claim.
+# 6. "Recording started" (out of emission order - it fires before group 1): the proof
+#    the recorder was LIVE when the exit fired, i.e. the exit exercised the
+#    finalize-a-real-recording path and not an empty-tree pass-through. Presence
+#    checks are unordered, so listing it last does not constrain when it fired.
+required  = [
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None",
+  "exittospacecenter driving scene-exit dest=SPACECENTER persisted=true",
+  "CommitTreeSceneExit: stashed pending tree",
+  "Stashed pending tree '.+' \\(1 recordings, state=Finalized\\)",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  "Recording started",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 600 >= 300 LoadGame + 120 ExitToSpaceCenter + the fast
+# non-deferred verbs + margin. ExitToSpaceCenter's 120 matches its C# DeferralBudget.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
