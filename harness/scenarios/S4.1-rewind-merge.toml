@@ -49,8 +49,8 @@ tier = "nightly"
 # the supersede-relation / tombstone asserts still have no verifier. They are RESERVED
 # (see [expectations.rewind]; hlib.evaluate_expectations records them SKIPPED until the
 # M-C2 rewind save-parse verifier lands), so what this spec actually gates today is the
-# headless-checkable set: the four re-fly log contracts + the recording-count floor.
-# Both are named in the coordinator runbook.
+# headless-checkable set: the required re-fly + pre-transition-route log contracts and
+# the recording-count floor. Both are named in the coordinator runbook.
 description = "B9 re-fly cycle: InvokeRewind a crashed-booster slot, AnswerMergeDialog merge folds the scene-exit conclusion, corpus survives, re-fly log contracts fire."
 instanceProfile = "stock-minimal"
 tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9", "pending-operator"]
@@ -147,10 +147,32 @@ count = { min = 1 }
 # that replaced the old `#if DEBUG` throw (SupersedeCommit.cs). Requiring the token is
 # what stops that behaviour being reverted silently: without it, a regression back to
 # the throw would surface only as a forbidden-ERROR red whose cause nobody could name.
+#
+# PRE-TRANSITION ROUTE PIN (S4.1-PREFIX-RACE, 2026-07-30). The last three tokens pin
+# the conclusion to the PRE-transition scene-exit route - the route this spec's own
+# description always claimed. The driven exit used to race
+# RewindInvoker.RestoreActiveTreeFromPending (InvokeRewind completes on the MARKER
+# landing; the resume that makes the restored tree ACTIVE is a later coroutine), and
+# when the seam won, the LoadScene prefix saw no active tree + a pending-LIMBO tree ->
+# DialogVariant.None -> the exit slipped through un-intercepted and concluded via the
+# deferred post-transition dialog (all five 2026-07-30 quarantine-sweep runs; the
+# 2026-07-28_1939 run won the race the other way by 121 ms and DID enter the prefix).
+# AnswerMergeDialog now waits (bounded) for the resume to settle before driving, so:
+# - `refusing - refly-active` proves the prefix reached step (5) with a LIVE re-fly
+#   marker and the S4.1-IDLE-DISCARD guard refused the idle-on-pad teardown - the
+#   guard's first live proof;
+# - `Pre-transition tree merge dialog: .* labels=ReFlyAttempt` proves step (6) then
+#   showed the ReFlyAttempt dialog pre-transition;
+# - `answermergedialog choice=merge result=committed` is the SYNCHRONOUS answer line
+#   (the deferred post-transition path logs `deferred-dialog answered` instead), so a
+#   silent fallback to the deferred route cannot pass.
 required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
-             "AppendRelations outcome=refused-unflown-provisional"]
+             "AppendRelations outcome=refused-unflown-provisional",
+             "TryAutoDiscardIdleActiveTree: refusing - refly-active",
+             "Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
+             "answermergedialog choice=merge result=committed"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # RESERVED block (hlib evaluate_expectations records these SKIPPED until the M-C2
