@@ -39,6 +39,131 @@ Each is a behavioral change on live extrapolation paths; fix together with an in
 
 ---
 
+## AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame [FOUND 2026-07-30 by the R12 live-validation runs. NOT FIXED]
+
+Sibling of the frame-mismatch entry above - same file family (`BallisticExtrapolator`
+/ `IncompleteBallisticSceneExitFinalizer`), different failure: this one does not
+mis-orient the answer, it destroys the recording.
+
+### The measurement
+
+Run `2026-07-30_1532_S0.7-exit-auto-commit`, collected at
+`logs/2026-07-30_1833_S0.7-exit-auto-commit`. The profile was EVA-2's, on
+`eva2-lko-crewed`: `autoRecordOnEva=true`, `EvaExit settleSeconds=10`, `EvaBoard`.
+
+```
+18:33:01.503  Recording started: vessel="Valentina Kerman", parts=1, points=0
+18:33:01.531  Sample skipped at ut=422.15; waiting for motion/attitude trigger
+18:33:01.552  [EXC] ArithmeticException  <- first of 501
+18:33:11.560  [EXC] ArithmeticException  <- last
+18:33:11.638  (board merge; the Kerbal X recording promotes)
+FinalizeTreeRecordings: 'Valentina Kerman' points=1 orbitSegs=0 maxDist=0m
+FinalizeTreeRecordings: 'Kerbal X'         points=1 orbitSegs=0 maxDist=0m
+```
+
+TEN SECONDS of orbital flight at ~2.2 km/s, and exactly ONE point - the boundary
+seed. `grep -c ArithmeticException` on that log is **501**, one per physics frame for
+the whole EVA, every one on the identical stack:
+
+```
+FlightRecorder.OnPhysicsFrame
+  -> FlightRecorder.RefreshFinalizationCache
+  -> RecordingFinalizationCacheProducer.TryBuildFromLiveVessel
+  -> IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording
+  -> ...TryCompleteFinalizationFromPatchedSnapshot -> TryBuildStartStateFromSegment
+  -> BallisticExtrapolator.TryPropagate -> TwoBodyOrbit.GetStateAtUT
+  -> TwoBodyOrbit.SolveHyperbolicKepler -> System.Math.Sign(NaN)
+     ArithmeticException: Function does not accept floating point Not-a-Number values.
+```
+
+The NaN does not originate in the extrapolator. Immediately upstream, stock logs
+`CheckEncounter: failed to find any intercepts at all` and
+`dT is NaN! tA: NaN, E: NaN, M: NaN, T: NaN` from `PatchedConicSolver.Update`, driven
+by `PatchedConicSnapshot.VesselPatchedConicSnapshotSource.Update()` - so a degenerate
+patched-conic solve on the 1-part EVA kerbal feeds NaN elements into the snapshot,
+and the extrapolator consumes them without a finite check.
+
+### Why it matters more than one bad recording
+
+The exception escapes `OnPhysicsFrame` (Unity logs it as `[EXC]` from the Update
+loop), so it takes the SAMPLING with it. Everything the recorder would have done that
+frame - trajectory points, part events, the background pass - does not happen. The
+recording is not degraded, it is empty.
+
+### Why nothing caught it
+
+`EVA-2-orbital-board` is green and stays green. Its numeric guard is
+`recordings.count = { min = 2, max = 2 }`, which counts `.prec` FILES, and two empty
+recordings are still two files. This is the category inventory's "fourth trap" (a
+vacuous PASS the tally cannot see) reappearing in the RECORDINGS dimension instead of
+the batch-tally one. Nothing in the verifier chain asserts a recording has points.
+
+### Scope, as far as the evidence goes
+
+- PRE-EXISTING. R12 touched only `TestCommands/`, docs, tests and `harness/`.
+- NOT reproduced on the pad: `EVA-4-atmo-chute`'s archived log
+  (`logs/2026-07-25_1310_EVA-4-atmo-chute`) has ZERO occurrences of
+  `SolveHyperbolicKepler` and recordings of 278 / 96 points. So the trigger looks
+  specific to an orbital - or otherwise degenerate-conic - subject.
+- UNKNOWN whether an ordinary orbiting SHIP (not a 1-part EVA kerbal) hits it. The
+  only non-EVA orbital recording measured here ran 133 ms and never got far enough to
+  say.
+
+### Fix directions (not chosen)
+
+1. Guard the boundary: `TwoBodyOrbit.TryCreateFromSegment` / `GetStateAtUT` reject
+   non-finite elements and return false instead of throwing, so a degenerate conic
+   declines to extrapolate rather than killing the frame. Cheapest, and it matches
+   how the rest of the finalizer treats an unresolvable tail.
+2. Guard the source: `PatchedConicSnapshot` drops a patch whose elements are not
+   finite, so the NaN never enters a recording's predicted segments either.
+3. Defensive: wrap `RefreshFinalizationCache`'s call in `OnPhysicsFrame` so a
+   finalization-cache failure can never cost a sample. This one is worth doing
+   REGARDLESS of the other two - the finalization cache is an optimisation, and it
+   should not be able to stop the recorder.
+
+A harness-side companion is worth considering separately: an
+`expectations.recordings` assertion on POINTS, not only on file count, would have
+caught this on EVA-2's first flight.
+
+---
+
+## Intermittent stock `SpaceTracking.buildVesselsList` NRE on TRACKSTATION ghost teardown is not classified by the ghost-NRE suppressor [FOUND 2026-07-30 by `H23-tracking-station`. NOT FIXED, low cost]
+
+Observed on the FIRST `H23-tracking-station` flight (2 raw Unity exceptions) and NOT
+on the second, identical, pinned flight (0) - so it is intermittent, which is why the
+spec deliberately does not arm `[expectations.unityExceptions] maxTotal`.
+
+```
+[Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception left visible:
+  type=NullReferenceException totalVessels=0 ghostVessels=0
+  ghostMissingOrbitRenderers=0 nonGhostMissingOrbitRenderers=0
+  firstMissingOrbitRenderer=non-ghost-or-none priorStockNullCandidates=0
+  scanError="NullReferenceException: Object reference not set to an instance of an object"
+[ERR] Exception handling event onVesselDestroy in class SpaceTracking:
+  System.NullReferenceException
+```
+
+It fires during the synthetic-ghost teardown the TS tests perform
+(`SyntheticTrackingStationRecordingScope` dispose ->
+`GhostMapPresence` ProtoVessel destroy -> stock `onVesselDestroy` ->
+`SpaceTracking.buildVesselsList`).
+
+`GhostTrackingStationPatch.IsKnownGhostProtoVesselNre` declined to suppress it, and
+declined CORRECTLY on its own terms: the context scan it classifies from THREW too
+(hence `totalVessels=0 ghostVessels=0` and the populated `scanError`), so it saw a
+zero-ghost context and refused to swallow an exception it could not attribute. That
+is the right default - a suppressor that swallows on missing evidence is how a real
+defect goes quiet.
+
+THE QUESTION, not the fix: should a scan that itself failed be classified from
+`scanError` plus the known call site, rather than from counts the failed scan never
+populated? Today the answer is "leave it visible", which costs nothing - the tests it
+interrupts still pass - but it does mean a TRACKSTATION spec cannot arm a Unity
+exception budget without absorbing this.
+
+---
+
 ## ~~SAFEWRITE-DESTROYS-ON-FAILED-WRITE: the shared safe-write deleted the destination and then failed to replace it~~ [FOUND 2026-07-29 by a read of `FileIOUtils`. FIXED, branch `fix-safewrite-file-destruction`]
 
 ### What happened
@@ -1075,16 +1200,34 @@ to FLIGHT.
 Correction to carry: `Logistics` is 47 tests but 38 carry
 `AllowBatchExecution = false`, so only 9 are batch-reachable before R5 lands.
 
-**R9-R14. Machinery items** (each self-contained in the roadmap doc): structural
-save-content expectations plus landing the three inert `route` / `rewind` / `loop`
-expectation blocks; runtime-handle plumbing so a live tree / vessel / route id can
-reach a verb (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no
-response payload is ever captured); a CAREER fixture with a flyable craft
-(`FORGE-career-pad`; all three career-family fixtures currently have ZERO VESSEL
-nodes, which is what blocks the L-track end goal and D8 `milestones` / `contracts` /
-`strategies` / `tombstones` in flown form); `SimulateStockSwitchClick` plus a `scene=`
-argument on `LoadGame`; widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N
-pinned tallies; and provisioning `modded-compat` for D17.
+**R9-R14. Machinery items** (each self-contained in the roadmap doc). TWO OF THE SIX
+ARE NOW CLOSED; the list below is kept intact with the closures marked, because the
+counts around it were measured against the six-item shape:
+
+- **R9** structural save-content expectations plus landing the three inert `route` /
+  `rewind` / `loop` expectation blocks - OPEN.
+- **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb
+  (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no response
+  payload is ever captured) - OPEN. NOTE R12 solved the SPECIFIC instance that
+  blocked it worst, without solving R10: `SimulateStockSwitchClick` takes `vessel=`
+  (a stable NAME) precisely because a TOML author cannot know the pid a launch will
+  mint, the same stable-addressing dodge `InvokeRewind` used. That is a per-verb
+  workaround, not the general mechanism.
+- **R11** a CAREER fixture with a flyable craft - ~~`FORGE-career-pad`; all three
+  career-family fixtures currently have ZERO VESSEL nodes~~ **CLOSED 2026-07-28** by
+  `harness/fixtures/saves/career-pad-craft`, built by construction rather than by a
+  forge flight.
+- **R12** `SimulateStockSwitchClick` plus a `scene=` argument on `LoadGame` -
+  **SHIPPED 2026-07-30**, and it grew a third capability on the way:
+  `ExitToSpaceCenter`, the live FLIGHT -> SPACECENTER transition, without which
+  nothing could LEAVE flight either. Live-proven by `H23-tracking-station`,
+  `S0.7-exit-auto-commit` and `S0.8-switch-click-segment`. The seam is 21 implemented
+  verbs / 10 reserved. What it did NOT close is listed in the roadmap's R12 block -
+  `site=ts` / `site=ksc`, the dialog cases, unloaded targets, and the CL-1 spec
+  extension.
+- **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
+  tallies - OPEN.
+- **R14** provisioning `modded-compat` for D17 - OPEN.
 
 **Baseline caveat: three of these are already in flight.** Every count above was
 measured at `1591aa59f` and EXCLUDES work open in review at the time of writing. PR

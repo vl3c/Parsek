@@ -160,6 +160,13 @@ Grammar rules:
   MUST be percent-encoded (`%20` for space, `%25` for `%`, `%3D` for `=`). The parser
   percent-decodes values. This keeps a value with spaces (a `MissionMark` label, a path)
   on one token. Numeric values use `InvariantCulture` (no locale commas).
+  **NOTE FOR SPEC AUTHORS - this is a WIRE rule, not a TOML rule.** Everywhere this doc
+  writes "(percent-encoded)" beside an argument it is describing the token that reaches
+  the seam file, and `run.py` performs that encoding ITSELF when it writes the command
+  line. A scenario spec therefore carries the RAW value:
+  `args = { vessel = "Kerbal X Probe" }`, never `"Kerbal%20X%20Probe"`. Pre-encoding in
+  the TOML double-encodes - the seam receives `Kerbal%2520X%2520Probe` and refuses
+  `target-not-found` for a vessel the author named correctly.
 - A line that does not end in `\n` is a partial write; the pump leaves it for the next
   poll and does not parse it.
 - Blank lines and lines beginning with `#` are ignored (comments).
@@ -543,7 +550,7 @@ recorder is the PRECONDITION for the switch-segment cases the verb exists to exe
 | arg | values | meaning |
 |---|---|---|
 | `site` | `map` \| `ts` \| `ksc` | absent = `map`. v1 drives `map` only. |
-| `vessel` | exact vessel name (percent-encoded) | target by name. |
+| `vessel` | exact vessel name (percent-encoded ON THE WIRE; a spec carries the RAW name - `run.py` encodes) | target by name. |
 | `pid` | `persistentId` (uint) | target by pid. WINS when both are given. |
 
 `vessel=` exists because live pids are not spec-addressable - a TOML author cannot know the

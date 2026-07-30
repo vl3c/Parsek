@@ -2530,36 +2530,50 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
 
     H7-H20 were committed as one wave; H22 joined the same family afterward, arriving
     with the Basic/Advanced UI-mode feature (it drives UiComplexityMode over the same
-    gloops-airshow fixture on the ordinary, non-isolated batch path).
+    gloops-airshow fixture on the ordinary, non-isolated batch path). H23 joined with
+    R12 and is the one member that does NOT share the family's boot: its LoadGame
+    carries `scene = "trackstation"`, so its batch runs in TRACKSTATION rather than
+    FLIGHT. It belongs to the group anyway - one category, one RunTests step, one
+    whole pinned tally - and the `scene=` token in that tally is precisely what the
+    cross-check below has to agree with.
 
     The generic sweeps above already cover these specs as members of "every committed
     spec". This class asserts the properties that are specific to the GROUP and that
-    a generic sweep cannot state: that the group is exactly this set (so a 16th
+    a generic sweep cannot state: that the group is exactly this set (so a 17th
     arrives with its doc row rather than silently), that every member is non-vacuous
     when probed DIRECTLY rather than through validate_spec, and that each pinned
     total equals the count derived from the C# attributes for the category the spec
     actually drives.
     """
 
-    # id -> (category, total). The total is the ATTRIBUTE-EXACT declaration count,
-    # re-derived below from Source/Parsek rather than trusted from this table; the
-    # table exists so a category rename reds HERE with both names in the message.
+    # id -> (category, total, scene). The total is the ATTRIBUTE-EXACT declaration
+    # count, re-derived below from Source/Parsek rather than trusted from this table;
+    # the table exists so a category rename reds HERE with both names in the message.
+    #
+    # SCENE IS A PER-MEMBER PROPERTY, and it stopped being a constant on 2026-07-30.
+    # Every member through H22 boots the gloops-airshow Focusable route and batches in
+    # FLIGHT, so the scene used to be hardcoded in three cells below. H23 drives
+    # `LoadGame scene=trackstation` and batches in TRACKSTATION, where the
+    # scene-eligibility stage of derive_batch_tally answers completely differently -
+    # all ten TrackingStation declarations scene-SKIP at FLIGHT. A hardcoded FLIGHT
+    # would have derived total=10 skipped=10 for it and red on a CORRECT pin.
     GROUP = {
-        "H7-trajectory-math":        ("TrajectoryMath", 8),
-        "H8-spawn-rotation":         ("SpawnRotation", 10),
-        "H9-incomplete-ballistic":   ("IncompleteBallistic", 8),
-        "H10-finalize-backfill":     ("FinalizeBackfill", 7),
-        "H11-pipeline-anchor":       ("Pipeline-Anchor", 7),
-        "H12-switch-segment":        ("SwitchSegment", 6),
-        "H13-ksp-api-smoke":         ("KSP", 6),
-        "H14-corpus-data-health":    ("DataHealth", 4),
-        "H15-corpus-ghost-visuals":  ("GhostVisuals", 4),
-        "H16-corpus-spawn-health":   ("SpawnHealth", 3),
-        "H17-flight-integration":    ("FlightIntegration", 4),
-        "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4),
-        "H19-recording-finalization": ("RecordingFinalization", 3),
-        "H20-eva-spawn-position":    ("EvaSpawnPosition", 2),
-        "H22-ui-complexity-mode":    ("UiComplexityMode", 3),
+        "H7-trajectory-math":        ("TrajectoryMath", 8, "FLIGHT"),
+        "H8-spawn-rotation":         ("SpawnRotation", 10, "FLIGHT"),
+        "H9-incomplete-ballistic":   ("IncompleteBallistic", 8, "FLIGHT"),
+        "H10-finalize-backfill":     ("FinalizeBackfill", 7, "FLIGHT"),
+        "H11-pipeline-anchor":       ("Pipeline-Anchor", 7, "FLIGHT"),
+        "H12-switch-segment":        ("SwitchSegment", 6, "FLIGHT"),
+        "H13-ksp-api-smoke":         ("KSP", 6, "FLIGHT"),
+        "H14-corpus-data-health":    ("DataHealth", 4, "FLIGHT"),
+        "H15-corpus-ghost-visuals":  ("GhostVisuals", 4, "FLIGHT"),
+        "H16-corpus-spawn-health":   ("SpawnHealth", 3, "FLIGHT"),
+        "H17-flight-integration":    ("FlightIntegration", 4, "FLIGHT"),
+        "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4, "FLIGHT"),
+        "H19-recording-finalization": ("RecordingFinalization", 3, "FLIGHT"),
+        "H20-eva-spawn-position":    ("EvaSpawnPosition", 2, "FLIGHT"),
+        "H22-ui-complexity-mode":    ("UiComplexityMode", 3, "FLIGHT"),
+        "H23-tracking-station":      ("TrackingStation", 10, "TRACKSTATION"),
     }
 
     # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
@@ -2574,8 +2588,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # form accepts 1-of-N by design and re-introducing one silently would be a real
     # weakening. Add an id back here only alongside a written reason in the spec.
     #
-    # NOTE the asymmetry this leaves: for 13 of the 15, skipped=0 is DERIVABLE from
-    # the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
+    # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
+    # DERIVABLE from the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
     # moves the parent's collider geometry can legitimately make it skip. H22 is in
     # the same position: all three UiComplexityMode cells carry in-body
@@ -2584,12 +2598,17 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # run measured, not an attribute derivation. Only H18 among the remaining 13 has
     # a comparable caveat (its AssertHandlerRegistered helper skips if a KSP version
     # renames EventData<T>'s internal `events` field, unreachable on the pinned
-    # 1.12.5).
+    # 1.12.5). H23 is the THIRD measured-only member and the clearest case of the
+    # asymmetry: its skipped=1 IS attribute-derived (one TrackingStation declaration
+    # carries AllowBatchExecution = false), but its passed=9 is not - three members
+    # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
+    # session, which no attribute predicts. The 2026-07-30 flight measured all three
+    # satisfied.
     INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
-    # GROUP, which is what makes "a 16th spec arrives with its doc row" true: an
+    # GROUP, which is what makes "a 17th spec arrives with its doc row" true: an
     # id-filtered intersection (the first cut) could only ever see members that were
     # in GROUP already, so a brand-new spec on disk was invisible to every cell here.
     #
@@ -2630,8 +2649,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(15, len(self.GROUP),
-                         "the H7-H20 + H22 group is 15 specs; if it genuinely changed "
+        self.assertEqual(16, len(self.GROUP),
+                         "the H7-H20 + H22 + H23 group is 16 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -2683,46 +2702,56 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     def test_each_pinned_total_equals_the_source_derivation(self):
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
-                category, expected_total = self.GROUP[sid]
+                category, expected_total, scene = self.GROUP[sid]
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 self.assertTrue(pin.statically_checkable, sid)
                 self.assertEqual(pin.category, category)
-                self.assertEqual(pin.scene, "FLIGHT",
-                                 "%s: every member of this group loads the "
-                                 "gloops-airshow Focusable route" % sid)
-                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                self.assertEqual(pin.scene, scene,
+                                 "%s: the scene its pin claims must be the scene this "
+                                 "table says it boots into - FLIGHT for the "
+                                 "gloops-airshow Focusable route, TRACKSTATION for a "
+                                 "spec carrying LoadGame scene=trackstation" % sid)
+                derived = hlib.derive_batch_tally(self.decls, category, scene)
                 self.assertEqual(derived.total, expected_total,
                                  "%s: the source now declares %d %s test(s), not %d"
                                  % (sid, derived.total, category, expected_total))
                 self.assertEqual(pin.total, derived.total)
                 self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, self.decls))
 
-    def test_whole_tally_members_pin_a_derivable_zero_skip(self):
+    def test_whole_tally_members_pin_the_attribute_derived_skip_floor(self):
         # What this actually checks, stated precisely because it is weaker than it
-        # looks for one member: nothing the ATTRIBUTES control forces a skip at
-        # FLIGHT, so the attribute-derived skipped FLOOR is 0 and the pinned tally
-        # must agree with it. For 13 of the 15 that floor plus a reachable-Skip scan
-        # makes skipped=0 genuinely derivable. For H20 and H22 the floor is all the
-        # attributes give - their skipped=0 is MEASURED off a live run - so this cell
-        # confirms consistency, not derivability, for those two. If a member later gains a
-        # scene-mismatched or AllowBatchExecution=false declaration, this reds
-        # pointing at the member.
+        # looks for three members: the ATTRIBUTES give a skipped FLOOR at the scene
+        # each member boots into, and the pinned tally must agree with it exactly -
+        # so passed = total - skipped and failed = 0. For 13 of the 16 that floor is
+        # 0 and, plus a reachable-Skip scan, makes skipped=0 genuinely DERIVABLE. For
+        # H20 and H22 the floor is all the attributes give and their skipped=0 is
+        # MEASURED off a live run; H23's floor is 1 (one TrackingStation declaration
+        # carries AllowBatchExecution = false) while its passed=9 is likewise
+        # measured. For those three this cell confirms consistency, not derivability.
+        # If a member later gains a scene-mismatched or AllowBatchExecution=false
+        # declaration, this reds pointing at the member.
+        #
+        # RENAMED 2026-07-30 from ..._pin_a_derivable_zero_skip. The old name and its
+        # hardcoded assertEqual(0, attribute_skipped) encoded "no member ever skips"
+        # as a group invariant, which held only while every member ran a whole
+        # category, in one scene, with nothing batch-disabled in it.
         for sid, spec in sorted(self.specs.items()):
             if sid in self.INTERIM_PIN_IDS:
                 continue
             with self.subTest(spec=sid):
-                category, _ = self.GROUP[sid]
-                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
-                self.assertEqual(
-                    0, derived.attribute_skipped,
-                    "%s pins skipped=0 but the attributes force %d skip(s): %s %s"
-                    % (sid, derived.attribute_skipped,
-                       derived.scene_skipped_members, derived.batch_skipped_members))
+                category, _, scene = self.GROUP[sid]
+                derived = hlib.derive_batch_tally(self.decls, category, scene)
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
-                self.assertEqual((pin.passed, pin.failed, pin.skipped),
-                                 (derived.total, 0, 0), sid)
+                self.assertEqual(
+                    (pin.passed, pin.failed, pin.skipped),
+                    (derived.total - derived.attribute_skipped, 0,
+                     derived.attribute_skipped),
+                    "%s: pinned tally disagrees with the attribute derivation at "
+                    "scene=%s (scene-skipped %s, batch-skipped %s)"
+                    % (sid, scene, derived.scene_skipped_members,
+                       derived.batch_skipped_members))
 
     def test_the_interim_pin_member_is_declared_and_deliberately_loose(self):
         # Guards the OTHER direction: the interim form accepts 1-of-N by design, so
@@ -2752,15 +2781,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         prefix = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
-                category, total = self.GROUP[sid]
-                derived = hlib.derive_batch_tally(self.decls, category, "FLIGHT")
+                category, total, scene = self.GROUP[sid]
+                derived = hlib.derive_batch_tally(self.decls, category, scene)
                 skipped = derived.attribute_skipped
                 real = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
-                        "skipped=%d category=%s scene=FLIGHT"
-                        % (total, total - skipped, skipped, category))
+                        "skipped=%d category=%s scene=%s"
+                        % (total, total - skipped, skipped, category, scene))
                 vacuous = (prefix + "BATCH_COMPLETE v1 total=%d passed=0 failed=0 "
-                           "skipped=%d category=%s scene=FLIGHT"
-                           % (total, total, category))
+                           "skipped=%d category=%s scene=%s"
+                           % (total, total, category, scene))
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
                 batch_pats = [p for p in (lc.get("required", []) or [])
                               if "BATCH_COMPLETE" in p]

@@ -177,7 +177,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | - | B |
 | `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | - | B |
-| `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | - | C |
+| `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | - | B |
 | `UiComplexityMode` | 3 | 3 | 0 | 0 | 0 | 3 | H22 | A |
@@ -188,11 +188,18 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **98 categories / 542 declarations**. Buckets **A 16 categories
-(81 declarations)**, **B 81 categories (451 declarations)**, **C 1 category (10
-declarations)**. Driven by a committed spec: **24 of 98 categories**, up from 8.
-Measured against declarations rather than categories, that is 206 of 542 inside a
-driven category (was 125) of which 184 actually execute (was 103).
+Totals, re-derived: **98 categories / 542 declarations**. Buckets **A 17 categories
+(91 declarations)**, **B 81 categories (451 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **25 of 98 categories**, up from 8.
+Measured against declarations rather than categories, that is 216 of 542 inside a
+driven category (was 125) of which 193 actually execute (was 103).
+
+**BUCKET C IS EMPTY as of 2026-07-30.** Its last and only remaining member was
+`TrackingStation`, held there by sub-reason C2 ("the scene is unreachable from the
+command seam"). R12 shipped `LoadGame scene=trackstation`, `H23-tracking-station`
+flew green the same day, and C2 is closed - see the C2 entry below. Bucket C existing
+with nothing in it is worth keeping as a category, not deleting: it is the bucket a
+future "we cannot reach this at all" finding belongs in.
 
 R5 MOVED 6 CATEGORIES OUT OF BUCKET C (2026-07-27). Bucket C's C1 sub-reason held
 that `AutoRecord`, `Coalescer`, `MergeDialog`, `SceneExitMerge`, `PlaybackControl`
@@ -298,6 +305,7 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 | `H19-recording-finalization` | RecordingFinalization | 3 | BackgroundRecorder finalization-cache apply: destroyed-tail trim, stable-cache Orbiting, crash-tail append |
 | `H20-eva-spawn-position` | EvaSpawnPosition | 2 | The category the 2026-07-25 EVA decision deferred to a dedicated batch-only spec; runs from the crewed landed pod host |
 | `H22-ui-complexity-mode` | UiComplexityMode | 3 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
+| `H23-tracking-station` | TrackingStation | 10 | The TRACKSTATION scene itself, unreachable by any driven run until R12. The TS scene host, the span-clock TS seam, the synthetic-ghost ProtoVessel lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth. Note it breaks A1's shape: its `LoadGame` carries `scene = "trackstation"`, so it is the only spec here whose batch runs outside FLIGHT |
 
 **A2 - the ISOLATED batch path (1 category, 2 declarations).** `SceneExitMerge`,
 wired as `H21-scene-exit-merge-isolated`, tier `nightly`, over `b2-lko-craft`. It
@@ -491,14 +499,30 @@ called only from an interactive surface reads exactly like a capability that doe
 not exist. Before recording something as structurally impossible, check whether the
 gap is the mechanism or only its callers.
 
-**C2 - the scene is unreachable from the command seam**: `TrackingStation` (10
-declarations, 9 batch-eligible at TRACKSTATION, 0 anywhere else).
-`TestCommandLoadGame.DecideLoadRoute` has exactly two routes - `Focusable` (FLIGHT)
-and `NoVesselSpaceCenter` (SPACECENTER) - and no implemented seam verb transitions
-scenes (`KscAction` applies stock actions in place). So no driven run can put the
-game in the tracking station, and 9 ready-to-run tests are stranded. This is the
-cheapest large unlock in the whole inventory: one seam verb, or a third LoadGame
-route, buys 9 tests.
+**C2 - the scene is unreachable from the command seam**: ~~`TrackingStation` (10
+declarations, 9 batch-eligible at TRACKSTATION, 0 anywhere else).~~
+**CLOSED 2026-07-30 by roadmap R12.** The reasoning stood exactly as written:
+`TestCommandLoadGame.DecideLoadRoute` had exactly two routes - `Focusable` (FLIGHT)
+and `NoVesselSpaceCenter` (SPACECENTER) - and no implemented seam verb transitioned
+scenes (`KscAction` applies stock actions in place), so no driven run could put the
+game in the tracking station and 9 ready-to-run tests were stranded. It also proved
+to be exactly the cheap unlock this entry predicted: the fix was the SECOND of the
+two options named here, a third `LoadGame` route selected by an additive optional
+`scene=` argument, and it bought all 9 on its first flight
+(`H23-tracking-station`, `BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1
+category=TrackingStation scene=TRACKSTATION`, 44 s).
+
+Two things the closure is worth remembering for:
+
+- **The `scene=TRACKSTATION` token inside the tally is not cosmetic.** Every member of
+  this category is TRACKSTATION-scoped, which makes it the perfect B10 shape: a
+  silently-wrong-scene boot scene-skips all ten, reports `passed=0 skipped=10`, and
+  satisfies a bare `failed=0`. That is why the `scene=` parse is fail-closed and why
+  the spec pins the landing scene on the tally line.
+- **The 6 stranded MAINMENU / other-scene categories are NOT closed by this.** C2 was
+  written about the tracking station specifically; a MAINMENU batch still has no
+  route, and `scene=flight` is deliberately not an accepted value (see the M-A2
+  R12 update block for why).
 
 ## The fourth trap: a vacuous PASS the tally cannot see
 

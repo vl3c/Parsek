@@ -1,0 +1,106 @@
+schema = 1
+id = "H23-tracking-station"
+tier = "daily"
+# The in-game TrackingStation category run unattended - the FIRST consumer of the
+# R12/A1 `LoadGame scene=trackstation` route, and the cell that empties inventory
+# bucket C. Before R12 `TestCommandLoadGame.DecideLoadRoute` had exactly two routes
+# (Focusable -> FLIGHT, NoVesselSpaceCenter -> SPACECENTER) and no seam verb changed
+# scenes, so 9 batch-eligible TRACKSTATION tests were STRANDED: reachable only by a
+# human pressing the tracking-station button. This spec boots straight into
+# TRACKSTATION and runs them.
+description = "Boot straight into the tracking station through LoadGame scene=trackstation and run the in-game TrackingStation category unattended: the TS scene host, the span-clock TS seam, the synthetic-ghost ProtoVessel lifecycle, and the map/TS render tracer's live line truth."
+instanceProfile = "stock-minimal"
+tags = ["tracking-station", "scene-routing", "map-render", "H23", "R12"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5 / H5 / H22). Its focusable PRELAUNCH Ship
+# is LOAD-BEARING here rather than incidental: with no `scene=` this save takes the
+# FLIGHT route (that is what H22 relies on), so a TRACKSTATION landing on THIS fixture
+# can only mean the requested scene OVERRODE the save-derived route. A vessel-less
+# template would have made the pin unfalsifiable - SPACECENTER and TRACKSTATION would
+# both be "not FLIGHT". No injected recordings: every TS test that needs one builds a
+# SyntheticTrackingStationRecordingScope and restores the store on dispose.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so
+# spec_expects_live_recording is False and REC-001/REC-003 are correctly suppressed.
+# The SetSetting step is also the cheap proof that a RequiresGameLoaded verb dispatches
+# in TRACKSTATION, not only in the two pre-R12 scenes. RunTests is the single BATCH
+# owner; its 540 per-step budget is the deferred cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },                     expect = "OK" },
+  { cmd = "RunTests",   args = { category = "TrackingStation" },                                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# The scene-ts value has never been claimed by any committed spec, because until R12
+# no driven run could reach the scene. This is the cell that earns it. The run is
+# SANDBOX on the gloops-airshow host.
+D14 = ["sandbox", "scene-ts"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
+# form, so this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# count.max == 0: the host carries no recordings, and the category's synthetic TS
+# recordings live inside SyntheticTrackingStationRecordingScope, whose Dispose
+# restores the previous CommittedRecordings list. Also selects the recording-rules
+# log-validation suppression (a legitimately recording-free run must not red on
+# REC-001/REC-003).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The first two lines are the R12/A1 route's own PRODUCTION emissions, and they are
+# what makes the scene claim falsifiable end to end: the first proves the trackstation
+# BRANCH of DecideLoadRoute was taken (not the Focusable route this fixture would take
+# unasked), the second proves the load COMPLETED against the TrackingStation expected
+# scene rather than settling somewhere else.
+#
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap) AND THE B10 FAIL-OPEN. The tally is
+# pinned WHOLE, and `scene=TRACKSTATION` inside it is not decoration: a silently-wrong
+# scene boot is precisely the B10 failure - every member of a TRACKSTATION-scoped
+# category scene-skips, the batch reports total=10 passed=0 skipped=10, and a bare
+# `failed=0` reads GREEN over ZERO executed tests. Pinning the landing scene ON the
+# tally line means a wrong-scene boot cannot satisfy this contract by any route.
+#
+# DERIVATION vs MEASUREMENT. total=10 and skipped>=1 are DERIVED from the attributes
+# (10 [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION)]
+# declarations, of which TrackingStationMaterializedOrbit_FlyLoadsMaterializedVessel_
+# NotStaleSelection carries AllowBatchExecution = false, so the ordinary admission
+# filter drops exactly one). passed=/skipped= could NOT be derived and are MEASURED:
+# three members carry runtime InGameAssert.Skip guards keyed on whether KSP built a
+# Vectrosity orbit line for a synthetic ghost this session, which no attribute
+# predicts. The 2026-07-30 first live run (45 s wall, PASS) logged exactly
+#   BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=TrackingStation scene=TRACKSTATION
+# so all three runtime guards were satisfied and the single skip is the attribute one.
+# CommittedBatchTallySourceSyncTests cross-checks total= against Source/Parsek on
+# every local suite run; if a test is added to the category, BOTH numbers move here
+# in the same commit.
+required  = [
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "TrackingStationSceneEntry_HostIsActive: vessels=\\d+ ghostPids=\\d+",
+  "BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=TrackingStation scene=TRACKSTATION",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5/H22): 720 >= 300 LoadGame + 540 RunTests
+# ceiling headroom.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
