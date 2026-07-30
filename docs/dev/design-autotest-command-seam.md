@@ -366,6 +366,155 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > defer `PlantFlag` / `EvaBoard` use. Forensics + decompile evidence in
 > `todo-and-known-bugs.md` ("EVA-4 - atmospheric mid-flight EVA + kerbal personal chute").
 
+> Update (R12): scene routing. Roadmap item R12 closes Cause C ("scene entry is
+> two-valued") in two independent pieces, delivered below as **A1** (an additive `scene=`
+> ARGUMENT on the existing `LoadGame` verb) and **A2** (a new additive verb
+> `ExitToSpaceCenter`), bringing the implemented table to 20. R12's other capability,
+> `SimulateStockSwitchClick`, is a PROMOTION out of the reserved list above and is
+> documented in its own subsection appended to this block; until it lands the reserved
+> count stays at 11.
+
+#### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
+
+**Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-R12 contract
+verbatim: the SAVE's shape derives the route (focusable active vessel -> FLIGHT, otherwise
+the no-vessel SPACECENTER resume). PRESENT, the route is caller-chosen:
+`scene=trackstation` boots to TRACKSTATION regardless of vessels; `scene=spacecenter`
+forces the KSC resume even on a save that would otherwise fly. Game VALIDITY still outranks
+the request - a null / incompatible / flight-state-less game is `ERROR msg=load-failed` on
+every route, because a requested scene cannot rescue a save that did not parse.
+
+**Why an argument and not a verb.** Cause C is that scene ENTRY is two-valued; the fix is
+making the ENTRY three-valued. No consumer needs a live transition INTO the tracking
+station - a TRACKSTATION batch spec boots straight there - and boot-route parity with the
+SPACECENTER route is exactly what known-gate 6 demands. The argument is additive under the
+"readers ignore unknown keys" clause, so every existing spec is byte-unaffected.
+
+**Parse is fail-closed and case-sensitive**, matching `RunTests`' `isolated=`: only the
+lowercase literals `spacecenter` / `trackstation` are accepted, anything else (including
+an EMPTY value, `TRACKSTATION`, `ts`, `ksc`, `flight`) is `REJECTED msg=scene-arg-invalid
+scene=<raw>`, validated BEFORE the save is read so a bad ARG never presents as a bad SAVE.
+This strictness is the B10-shaped fail-open guard: a silently-ignored `scene=` would boot
+the DEFAULT route while the spec believes it asked for another one, and a wrong-scene boot
+reads GREEN through a batch whose tests all scene-skip. A TRACKSTATION spec must
+additionally pin `scene=TRACKSTATION` in its whole `BATCH_COMPLETE` tally.
+
+**`flight` is deliberately NOT an accepted value.** A forced FLIGHT boot is not
+expressible (the focusable route needs an in-range `activeVesselIdx` only the save can
+supply, so `scene=flight` on a vessel-less save could only mean "fail", which
+`load-failed` already says), and it would inherit known-gate 6 - the FLIGHT route
+deliberately does not run `UpdateScenarioModules` - a documented product asymmetry that
+must not be widened as a side effect of adding a scene argument.
+
+**Boot sequence, VERIFIED against the KSP 1.12.5 decompile rather than assumed** (known-gate
+6's own lesson is that each route owns its boot contract and must be re-derived): the
+TRACKSTATION route is byte-for-byte the SPACECENTER route's bootstrap with a different
+`startScene` - `HighLogic.CurrentGame = game` -> `game.startScene = TRACKSTATION` ->
+`GamePersistence.UpdateScenarioModules(game)` ->
+`GamePersistence.SaveGame(game, "persistent", save, OVERWRITE)` -> `game.Start()`. Evidence:
+`Game.Start()` sends any `startScene` that is neither EDITOR nor FLIGHT to
+`HighLogic.LoadScene(startScene)` (the same branch SPACECENTER takes; only FLIGHT gets
+`FlightDriver.StartAndFocusVessel`), and `SpaceTracking.Start()` calls
+`GamePersistence.LoadGame("persistent", HighLogic.SaveFolder, ...)` then `st.Load()` ->
+`HighLogic.CurrentGame = this; ScenarioRunner.SetProtoModules(scenarios)` on THAT disk
+game - identical in shape to `SpaceCenterMain.Start()`. So the tracking station also throws
+our in-memory game away and re-reads `persistent.sfs`, which makes the pre-`Start()` disk
+write just as LOAD-BEARING here: without it `SetProtoModules` instantiates a scenario set
+with no `ParsekScenario`, `OnLoad` never runs, and a TRACKSTATION batch runs against a
+Parsek that never woke up. **ZERO deltas from the SPACECENTER route were found.**
+
+**Completion.** The pre-R12 two-valued `bool expectSpaceCenter` became an expected
+`TestCommandScene` (`TestCommandLoadGame.ExpectedSceneFor(route)`), so each route completes
+ONLY on its own settled scene; a MAINMENU settle and the budget expiry keep their meanings
+on all three. The success payload's existing `scene` key now reports the landing scene.
+Budget unchanged (`LoadGameSeconds = 300`).
+
+#### R12/A2 - `ExitToSpaceCenter` (no args)
+
+**Contract.** FLIGHT-only (dispatch precondition `RequiresFlight`). Drives the live
+FLIGHT -> SPACECENTER transition through the stock Space Center exit-button path
+(`SceneExitInterceptor.SafeWritePersistent(SPACECENTER)` then
+`HighLogic.LoadScene(SPACECENTER)`), so the normal finalize / stash / auto-commit pipeline
+runs. Two-phase, LoadGame-style: the terminal is deferred until SPACECENTER settles with a
+game loaded -> `OK scene=SPACECENTER`; a MAINMENU settle -> `ERROR
+msg=exit-failed-returned-to-menu`; budget expiry -> `ERROR msg=exit-timeout`. Budget
+`ExitToSpaceCenterSeconds = 120`, sized like `AnswerMergeDialog` (the only other verb that
+DRIVES a scene exit and holds the head across its settle) rather than like `LoadGame`,
+which additionally parses a cold save off disk.
+
+**Why a narrow verb and not a generic `LoadScene`.** CL-1 needs the live FLIGHT exit WITH
+its side effects: all four pending-tree auto-commit routes are gated on
+`HighLogic.LoadedScene != GameScenes.FLIGHT`, and no seam verb produced that transition -
+a destroyed active recorded vessel stashes its tree as PENDING and nulls `activeTree`, so
+`CommitTree` fails its `HasActiveTree` guard and `FlushAndQuit` saves and quits from inside
+FLIGHT (hence that run's final `saving 0 committed tree(s)`). A generic scene loader would
+over-promise EDITOR / MAINMENU (MAINMENU always shows the merge dialog under an active
+tree, by design) and under-specify this gauntlet.
+
+**WEDGE GUARD (the load-bearing part).** Parsek's own `HighLogic.LoadScene` prefix BLOCKS a
+flight exit and spawns a `ControlTypes.All`-locking modal whenever a merge decision is
+outstanding, and nothing re-invokes `LoadScene` except that dialog's own `postChoice` - so
+a driven exit into that state does not fail, it WEDGES until the step budget expires.
+`AnswerMergeDialog` cannot rescue it: it finds its popup through `FindReFlyMergePopup`,
+which is `markerLive`-gated to the re-fly dialog alone, so a plain whole-tree merge popup
+is structurally unmatchable (that exact combination already cost one
+deterministically-INVALID S4.1 run). The verb therefore evaluates the SAME live predicates
+the prefix will, against the same destination, BEFORE initiating anything, and refuses with
+a typed `REJECTED msg=dialog-required variant=<token>`. Three refusal shapes:
+
+- `variant=RegularMerge` - autoMerge OFF with a live (or pending) tree.
+- `variant=ReFlyAttempt` - a live re-fly session marker, which forces the modal even under
+  autoMerge.
+- `variant=SwitchSegmentSession` - an armed `SwitchSegmentSession` with NO live active
+  tree. This one has no `DialogVariant` of its own: the prefix's Bug-C branch routes the
+  dialog to the SESSION'S tree without consulting the decision matrix at all, so autoMerge
+  does not suppress it. A guard built only on `ShouldShowDialogBeforeSceneChangeLive` would
+  read `None` here and wedge.
+
+Plus two dispatch-level rejects mirroring `InvokeRewind`: `load-in-flight` and
+`merge-journal-in-flight` (a driven transition must not race the
+`MergeJournalOrchestrator` finisher). NOTE the deliberate ABSENCE of a `recording-active`
+reject, the one place this verb diverges from `LoadGame`: exiting WITH a live recorder is
+the whole point, since the exit is what finalizes the tree and reaches the auto-commit.
+
+The guard is deliberately CONSERVATIVE - a SUPERSET of the wedging states. Two prefix fast
+paths (the no-op switch-segment auto-discard and the idle-on-pad auto-discard) can convert
+a would-be-modal into a silent pass-through, so the guard can refuse an exit the prefix
+would in fact have allowed. It stays conservative because both fast paths both DETECT AND
+MUTATE: probing them from a refusal check would tear down a live tree as a side effect of
+asking a question. A false REJECTED is a typed, side-effect-free answer the orchestrator
+classifies immediately; a wedge is an input lock held to the budget.
+
+**Persist-before-LoadScene is mandatory**, for the reason `AnswerMergeDialog` documents
+in-code: a raw `HighLogic.LoadScene` models a scene exit that no stock UI route performs
+(stock `saveAndExit` saves before the prefix fires), and driving one already produced a
+FIXTURE-shaped divergence that presented as a product defect.
+
+**v1 supported shape** (document this for spec authors): `SetSetting autoMerge=true`
+earlier in the spec, record something, `ExitToSpaceCenter`, observe the auto-commit. With
+autoMerge OFF the verb correctly REJECTS rather than wedging, which is a refusal, not a
+regression. The downstream commit outcome is proven through the existing grep-stable
+commit / auto-commit log lines, not through this verb's payload.
+
+**Diagnostic logging** (extending the "Per verb specifics" list below):
+
+- `LoadGame` gains `requestedScene=<Unspecified|SpaceCenter|TrackingStation>` on its
+  `Info` "loadgame start" line and `expected=<scene>` on all three completion lines; the
+  KSC route's line is now `Info` "loadgame spacecenter route (<requested|no-vessel>): ..."
+  (it names WHICH selector fired) and the new route logs `Info` "loadgame trackstation
+  route: booting to TRACKSTATION save=<folder> protoVessels=N activeVesselIdx=N" plus the
+  same persist-result Info/Warn pair the KSC route emits. A bad arg is `Warn` "loadgame
+  rejected reason=scene-arg-invalid scene=<raw>".
+- `ExitToSpaceCenter`: `Info` "exittospacecenter start scene=<current> autoMerge=<bool>
+  hasActiveTree=<bool> hasPendingTree=<bool> switchSegmentSession=<bool>
+  activeTreeVariant=<v> pendingTreeVariant=<v>" (the whole guard input set, so a refusal is
+  reconstructable from the log alone), then either `Warn` "exittospacecenter refused
+  reason=dialog-required variant=<token> gate=<decision> ..." or `Info` "exittospacecenter
+  driving scene-exit dest=SPACECENTER persisted=<bool> ...", closing with `Info`
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=<n>s", `Error`
+  "exittospacecenter failed-returned-to-menu ...", or `Error` "exittospacecenter timeout
+  ...".
+
 ## Behavior
 
 ### Addon lifecycle

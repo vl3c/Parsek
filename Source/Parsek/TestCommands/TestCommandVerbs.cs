@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4): 19 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12): 20 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -36,7 +36,13 @@ namespace Parsek.TestCommands
         // names (additive, not a promotion). The wire tokens for the promoted verbs are
         // byte-identical before and after; only the response changes (not-implemented-v1 ->
         // real). EVA-4 added EvaChuteDeploy (the kerbal personal parachute), additive in the
-        // same way - never in the reserved envelope.
+        // same way - never in the reserved envelope. R12 added ExitToSpaceCenter (the driven
+        // FLIGHT -> SPACECENTER exit that reaches the pending-tree auto-commit), additive
+        // too: the reserved envelope never carried a scene-transition verb, and a generic
+        // LoadScene verb was rejected in favour of this narrow one (see
+        // TestCommandExitToSpaceCenter). R12's OTHER half is an additive `scene=` ARG on the
+        // existing LoadGame verb, which needs no table entry at all - that is exactly the
+        // envelope-stability property the design's "readers ignore unknown keys" clause buys.
         private static readonly HashSet<string> ImplementedVerbs = new HashSet<string>
         {
             "SetSetting",
@@ -58,6 +64,7 @@ namespace Parsek.TestCommands
             "EvaBoard",
             "PlantFlag",
             "EvaChuteDeploy",
+            "ExitToSpaceCenter",
         };
 
         // Reserved (recognized, not implemented in v1): 11 verbs.

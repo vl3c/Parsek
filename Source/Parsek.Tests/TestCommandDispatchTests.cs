@@ -215,5 +215,72 @@ namespace Parsek.Tests
             Assert.Equal(DispatchDecision.Reject, r.Decision);
             Assert.Equal("load-in-flight", r.Reason);
         }
+
+        // ----- ExitToSpaceCenter (R12) dispatch gates -----
+
+        [Fact]
+        public void ExitToSpaceCenter_InFlight_Executes()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("ExitToSpaceCenter"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void ExitToSpaceCenter_OutsideFlight_Defers_NotInFlight()
+        {
+            // A DEFER, not a REJECT: the overwhelmingly common wrong-scene case is a scene
+            // still settling in from the previous step, and the budget still bounds a spec
+            // that genuinely never reaches FLIGHT.
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("ExitToSpaceCenter"), MainMenu());
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal("not-in-flight", r.Reason);
+        }
+
+        [Fact]
+        public void ExitToSpaceCenter_LiveRecorder_StillExecutes()
+        {
+            // DELIBERATE ASYMMETRY WITH LoadGame: exiting WITH a live recorder is the whole
+            // point of this verb - the exit is what finalizes the tree and reaches the
+            // pending-tree auto-commit. A recording-active reject would refuse the only
+            // case the verb exists for.
+            var st = Flight();
+            st.Recording = true;
+            st.HasTree = true;
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("ExitToSpaceCenter"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void ExitToSpaceCenter_LoadInFlight_Rejects_LoadInFlight()
+        {
+            var st = Flight();
+            st.LoadInFlight = true;
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("ExitToSpaceCenter"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("load-in-flight", r.Reason);
+        }
+
+        [Fact]
+        public void ExitToSpaceCenter_MergeJournalInFlight_Rejects_MergeJournalInFlight()
+        {
+            // Mirrors InvokeRewind: a driven transition must not race the
+            // MergeJournalOrchestrator crash-recovery finisher.
+            var st = Flight();
+            st.MergeJournalInFlight = true;
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("ExitToSpaceCenter"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("merge-journal-in-flight", r.Reason);
+        }
+
+        [Fact]
+        public void ExitToSpaceCenter_LoadInFlight_TakesPrecedenceOverMergeJournal()
+        {
+            var st = Flight();
+            st.LoadInFlight = true;
+            st.MergeJournalInFlight = true;
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("ExitToSpaceCenter"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("load-in-flight", r.Reason);
+        }
     }
 }

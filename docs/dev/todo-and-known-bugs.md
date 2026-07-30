@@ -479,10 +479,17 @@ the review panel proved the commit is UNREACHABLE on this exact profile:
   no-active-tree`, `:11325` `OnSave: saving 0 committed tree(s)`. `PopulateCrewEndStates`
   and `CreateKerbalAssignmentActions` occur ZERO times in that entire log.
 - Both auto-commit routes are gated on `HighLogic.LoadedScene != GameScenes.FLIGHT`
-  (`ParsekScenario.cs:3781` cold-load, `:1121` the OnSave safety net), and no seam verb
-  produces a FLIGHT -> SPACECENTER transition (roadmap R12: a `scene=` argument on
-  `LoadGame` is unbuilt). `FlushAndQuit` saves and quits from inside FLIGHT, which is why
-  that same log's final line is `saving 0 committed tree(s)`.
+  (`ParsekScenario.cs:3781` cold-load, `:1121` the OnSave safety net), and at the time of
+  that run no seam verb produced a FLIGHT -> SPACECENTER transition (roadmap R12).
+  `FlushAndQuit` saves and quits from inside FLIGHT, which is why that same log's final
+  line is `saving 0 committed tree(s)`. **[R12/A2, built: the `ExitToSpaceCenter` seam
+  verb now produces exactly that transition.** It drives the stock exit-button path
+  (`SafeWritePersistent` then `HighLogic.LoadScene(SPACECENTER)`) so the finalize / stash
+  pipeline runs and the pending tree auto-commits on arrival, and it REFUSES up front with
+  `REJECTED msg=dialog-required variant=<RegularMerge|ReFlyAttempt|SwitchSegmentSession>`
+  in the states where the exit would instead raise a merge modal that no seam verb can
+  answer. The route exists; the CL-1 spec extension that USES it is still unbuilt - see
+  the next paragraph.**]**
 
 An unmet `CommitTree` step would have made the run driver-INVALID, which SKIPS every
 verifier below it - the scenario would have produced NO evidence about the crew death at
@@ -492,9 +499,10 @@ are gone, and a unit cell
 without the commit route that makes them reachable.
 
 **THE LEDGER HALF IS THEREFORE THE ATOM'S FIRST EXTENSION.** What it needs, in order:
-(1) a commit route out of a destroyed-vessel flight - the shape to aim at is
-`SetSetting autoMerge=true` plus a real scene transition, which today means either a new
-`scene=` argument on `LoadGame` (R12) or a dedicated verb; (2) the commit-time tokens
+(1) ~~a commit route out of a destroyed-vessel flight~~ **BUILT (R12/A2)** - the shape to
+aim at was `SetSetting autoMerge=true` plus a real scene transition, and that is now
+exactly the `ExitToSpaceCenter` verb's documented v1 contract (autoMerge ON is what makes
+its wedge guard return Proceed rather than a `dialog-required` REJECTED); (2) the commit-time tokens
 re-derived from what THAT path emits, not carried over from the `CommitTree` path;
 (3) the career-pool arithmetic, which has a second knowably-unpinned term - a career
 FLIGHT trips stock PROGRESS MILESTONES that move pools (the EVA-4 archive carries

@@ -31,6 +31,8 @@ namespace Parsek.Tests
         [InlineData("EvaExit")]
         [InlineData("EvaBoard")]
         [InlineData("PlantFlag")]
+        [InlineData("EvaChuteDeploy")]
+        [InlineData("ExitToSpaceCenter")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -67,9 +69,16 @@ namespace Parsek.Tests
         [Fact]
         public void Table_HasExpectedCounts()
         {
-            // 19 = v1 (10) + M-C1 batch 1 (4) + M-C1.1 SaveGame (1) + M-C2 EVA (3)
-            // + EVA-4 EvaChuteDeploy (1). Mirrored by hlib.IMPLEMENTED_SEAM_VERBS.
-            Assert.Equal(19, TestCommandVerbs.ImplementedVerbNames.Count);
+            // 20 = v1 (10) + M-C1 batch 1 (4) + M-C1.1 SaveGame (1) + M-C2 EVA (3)
+            // + EVA-4 EvaChuteDeploy (1) + R12 ExitToSpaceCenter (1). Mirrored by
+            // hlib.IMPLEMENTED_SEAM_VERBS.
+            //
+            // The reserved count is UNCHANGED at 11: R12's scene routing is one ADDITIVE
+            // verb plus an additive `scene=` arg on LoadGame, neither of which was ever in
+            // the reserved envelope. (R12's OTHER capability, SimulateStockSwitchClick, IS
+            // a promotion out of that envelope and moves the reserved count to 10 when it
+            // lands.)
+            Assert.Equal(20, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(11, TestCommandVerbs.ReservedVerbNames.Count);
         }
     }
