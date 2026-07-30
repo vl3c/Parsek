@@ -259,8 +259,8 @@ namespace Parsek.Tests
         public void PropagateOrbital_CircularOrbit_AltitudeConsistent()
         {
             double epoch = 1000.0;
-            double inc = 0.5; // ~28.6 deg
-            double lan = 1.0;
+            double inc = 28.6; // degrees (OrbitSegment unit contract)
+            double lan = 60.0;
             double argPe = 0.0;
             double mAe = 0.0;
             double expectedAlt = CircularSMA - KerbinRadius; // 100000
@@ -288,9 +288,9 @@ namespace Parsek.Tests
         {
             double sma = 800000.0;
             double ecc = 0.3;
-            double inc = 0.5;
-            double lan = 0.5;
-            double argPe = 1.0;
+            double inc = 28.6; // degrees (OrbitSegment unit contract)
+            double lan = 30.0;
+            double argPe = 57.3;
             double mAe = 0.0;
             double epoch = 1000.0;
 
@@ -326,9 +326,9 @@ namespace Parsek.Tests
         public void PropagateOrbital_FullPeriod_ReturnsToStart()
         {
             double epoch = 1000.0;
-            double inc = 0.8;
-            double lan = 1.2;
-            double argPe = 0.5;
+            double inc = 45.8; // degrees (OrbitSegment unit contract)
+            double lan = 68.8;
+            double argPe = 28.6;
             double mAe = 0.3;
 
             var pos0 = GhostExtender.PropagateOrbital(
@@ -361,9 +361,9 @@ namespace Parsek.Tests
         {
             double sma = 800000.0;
             double ecc = 0.3;
-            double inc = 0.5;
-            double lan = 0.5;
-            double argPe = 1.0;
+            double inc = 28.6; // degrees (OrbitSegment unit contract)
+            double lan = 30.0;
+            double argPe = 57.3;
             double mAe = 0.5;
             double epoch = 1000.0;
 
@@ -418,7 +418,7 @@ namespace Parsek.Tests
         public void PropagateOrbital_PolarOrbit_LatitudeReachesHighValues()
         {
             double epoch = 1000.0;
-            double inc = Math.PI / 2.0; // 90 deg polar
+            double inc = 90.0; // degrees (OrbitSegment unit contract)
             double lan = 0.0;
             double argPe = 0.0;
             double mAe = 0.0;
@@ -451,9 +451,9 @@ namespace Parsek.Tests
         {
             double ecc = 1.5;
             double sma = 800000.0;
-            double inc = 0.5;
-            double lan = 0.5;
-            double argPe = 1.0;
+            double inc = 28.6; // degrees (OrbitSegment unit contract)
+            double lan = 30.0;
+            double argPe = 57.3;
             double mAe = 0.0;
             double epoch = 1000.0;
 
@@ -477,6 +477,57 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Unit-contract pin (see OrbitSegment.cs): inc/lan/argPe are DEGREES.
+        /// An equatorial circular orbit with LAN=90 must place the epoch position
+        /// 90 degrees of longitude away from the LAN=0 case. Reading 90 as radians
+        /// would rotate by ~116.6 degrees (90 rad wrapped) instead.
+        /// </summary>
+        [Fact]
+        public void PropagateOrbital_DegreeLan_ShiftsLongitudeByDegrees()
+        {
+            double epoch = 1000.0;
+
+            var pos0 = GhostExtender.PropagateOrbital(
+                0.0, CircularEcc, CircularSMA, 0.0, 0.0, 0.0, epoch,
+                KerbinRadius, KerbinGM, epoch);
+            var pos90 = GhostExtender.PropagateOrbital(
+                0.0, CircularEcc, CircularSMA, 90.0, 0.0, 0.0, epoch,
+                KerbinRadius, KerbinGM, epoch);
+
+            double lonDiff = pos90.lon - pos0.lon;
+            while (lonDiff < 0.0) lonDiff += 360.0;
+            while (lonDiff >= 360.0) lonDiff -= 360.0;
+            Assert.True(Math.Abs(lonDiff - 90.0) < 1e-6,
+                $"LAN=90deg should shift longitude by exactly 90 degrees, shift was {lonDiff:F6}");
+        }
+
+        /// <summary>
+        /// Unit-contract pin for argPe (see OrbitSegment.cs): an equatorial
+        /// eccentric orbit at periapsis with argPe=90 must place the position 90
+        /// degrees of longitude away from the argPe=0 case, pinning the degree
+        /// conversion on argPe independently of LAN.
+        /// </summary>
+        [Fact]
+        public void PropagateOrbital_DegreeArgPe_ShiftsLongitudeByDegrees()
+        {
+            double epoch = 1000.0;
+            double ecc = 0.2;
+
+            var pos0 = GhostExtender.PropagateOrbital(
+                0.0, ecc, CircularSMA, 0.0, 0.0, 0.0, epoch,
+                KerbinRadius, KerbinGM, epoch);
+            var pos90 = GhostExtender.PropagateOrbital(
+                0.0, ecc, CircularSMA, 0.0, 90.0, 0.0, epoch,
+                KerbinRadius, KerbinGM, epoch);
+
+            double lonDiff = pos90.lon - pos0.lon;
+            while (lonDiff < 0.0) lonDiff += 360.0;
+            while (lonDiff >= 360.0) lonDiff -= 360.0;
+            Assert.True(Math.Abs(lonDiff - 90.0) < 1e-6,
+                $"argPe=90deg should shift longitude by exactly 90 degrees, shift was {lonDiff:F6}");
+        }
+
+        /// <summary>
         /// Backward propagation (currentUT before epoch) also works.
         /// Guards: negative dt does not produce NaN or crash.
         /// </summary>
@@ -484,9 +535,9 @@ namespace Parsek.Tests
         public void PropagateOrbital_BackwardPropagation_NoNaN()
         {
             double epoch = 10000.0;
-            double inc = 0.5;
-            double lan = 0.5;
-            double argPe = 0.5;
+            double inc = 28.6; // degrees (OrbitSegment unit contract)
+            double lan = 30.0;
+            double argPe = 30.0;
             double mAe = 0.5;
 
             var pos = GhostExtender.PropagateOrbital(

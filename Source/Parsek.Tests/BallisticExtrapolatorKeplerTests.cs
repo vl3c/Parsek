@@ -585,14 +585,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TwoBodyOrbit_TreatsTheInclinationFieldAsRadians()
+        public void TwoBodyOrbit_ConvertsDegreeSegmentElementsToTheRadiansCore()
         {
-            // Pins the unit contract of the Kepler core: a polar orbit is inclination
-            // = pi/2, NOT 90. If the field were read as degrees the orbit normal would
-            // not lie in the equatorial plane (cos(90 rad) = -0.448).
+            // Pins the boundary unit contract: OrbitSegment stores KSP-native DEGREES
+            // for inc/LAN/argPe and TryCreateFromSegment converts into the
+            // radians-internal core. A polar orbit is segment inclination = 90, and
+            // the core must hold pi/2. If the conversion were dropped, 90 would be
+            // read as radians and the orbit normal would leave the polar plane.
             var segment = new OrbitSegment
             {
-                inclination = Math.PI / 2.0,
+                inclination = 90.0,
                 eccentricity = 0.0,
                 semiMajorAxis = 4000000.0,
                 longitudeOfAscendingNode = 0.0,
@@ -602,6 +604,10 @@ namespace Parsek.Tests
             };
 
             Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+            Assert.True(
+                Math.Abs(orbit.Inclination - Math.PI / 2.0) < 1e-9,
+                $"core inclination must be pi/2 radians for a 90-degree segment, got {orbit.Inclination}");
+
             orbit.GetStateAtUT(orbit.Period * 0.125, out Vector3d position, out Vector3d velocity);
 
             Vector3d momentum = Cross(position, velocity);
@@ -610,7 +616,8 @@ namespace Parsek.Tests
                 Math.Abs(cosInclination) < 1e-9,
                 $"polar orbit normal must lie in the equatorial plane, got cos(i)={cosInclination}");
 
-            // Round-tripping the state through TryCreate must give back pi/2, not 90.
+            // Round-tripping the state through TryCreate must give back the
+            // radians-internal pi/2, not 90.
             Assert.True(TwoBodyOrbit.TryCreate(position, velocity, KerbinMu, 0.0, out TwoBodyOrbit recovered));
             Assert.True(
                 Math.Abs(recovered.Inclination - Math.PI / 2.0) < 1e-9,

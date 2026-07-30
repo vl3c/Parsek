@@ -81,6 +81,11 @@ namespace Parsek
     internal static class BallisticExtrapolator
     {
         private const string LogTag = "Extrapolator";
+        // OrbitSegment carries KSP-native DEGREE-valued inc/LAN/argPe (see the
+        // contract note in OrbitSegment.cs); TwoBodyOrbit is radians-internal, so
+        // every read/write across that boundary converts.
+        private const double DegToRad = Math.PI / 180.0;
+        private const double RadToDeg = 180.0 / Math.PI;
         private const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
         private const double OrbitEpsilon = 1e-9;
         private const double StateVectorEpsilon = 1e-8;
@@ -694,11 +699,11 @@ namespace Parsek
             {
                 startUT = startUT,
                 endUT = endUT,
-                inclination = orbit.Inclination,
+                inclination = orbit.Inclination * RadToDeg,
                 eccentricity = orbit.Eccentricity,
                 semiMajorAxis = orbit.SemiMajorAxis,
-                longitudeOfAscendingNode = orbit.LongitudeOfAscendingNode,
-                argumentOfPeriapsis = orbit.ArgumentOfPeriapsis,
+                longitudeOfAscendingNode = orbit.LongitudeOfAscendingNode * RadToDeg,
+                argumentOfPeriapsis = orbit.ArgumentOfPeriapsis * RadToDeg,
                 meanAnomalyAtEpoch = orbit.MeanAnomalyAtEpoch,
                 epoch = orbit.Epoch,
                 bodyName = bodyName,
@@ -1399,9 +1404,18 @@ namespace Parsek
             return Math.Log(value + Math.Sqrt((value - 1.0) * (value + 1.0)));
         }
 
+        // Radians-internal Kepler propagator. All angular fields here are RADIANS;
+        // OrbitSegment stores KSP-native degrees for inc/LAN/argPe, so
+        // TryCreateFromSegment / CreateSegment convert at the boundary. Element
+        // conventions match KSP's Orbit.UpdateFromStateVectors (z = polar axis,
+        // node from +x), so state vectors live in the same frame as
+        // Orbit.getRelativePositionAtUT / getOrbitalVelocityAtUT (Zup-swizzled,
+        // body-relative). Known measure-zero divergence: for an EXACTLY equatorial
+        // retrograde eccentric orbit the degenerate-node argPe branch below measures
+        // CCW from +x where KSP flips on direction of motion, yielding 360-argPe.
         // Internal (not private) purely so the Kepler core is reachable from
-        // Parsek.Tests through InternalsVisibleTo("Parsek.Tests"); behavior is
-        // unchanged. See BallisticExtrapolatorKeplerTests.
+        // Parsek.Tests through InternalsVisibleTo("Parsek.Tests"); see
+        // BallisticExtrapolatorKeplerTests.
         internal struct TwoBodyOrbit
         {
             public double BodyRadius;
@@ -1582,11 +1596,11 @@ namespace Parsek
                 {
                     BodyRadius = 0.0,
                     GravitationalParameter = gravParameter,
-                    Inclination = segment.inclination,
+                    Inclination = segment.inclination * DegToRad,
                     Eccentricity = segment.eccentricity,
                     SemiMajorAxis = segment.semiMajorAxis,
-                    LongitudeOfAscendingNode = segment.longitudeOfAscendingNode,
-                    ArgumentOfPeriapsis = segment.argumentOfPeriapsis,
+                    LongitudeOfAscendingNode = segment.longitudeOfAscendingNode * DegToRad,
+                    ArgumentOfPeriapsis = segment.argumentOfPeriapsis * DegToRad,
                     MeanAnomalyAtEpoch = segment.meanAnomalyAtEpoch,
                     Epoch = segment.epoch,
                     PeriapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity),
