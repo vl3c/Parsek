@@ -190,7 +190,7 @@ Worth doing in the same pass, since the coupling above is only visible once: ass
 
 ---
 
-## ~~S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge~~ [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. Product call made 2026-07-30 (it IS a defect - "refuse while re-fly live"). FIXED 2026-07-30, branch `fix-s41-idle-discard`. NOT yet live-proven: the harness sweep that de-quarantines S4.1 is a separate step]
+## ~~S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge~~ [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. Product call made 2026-07-30 (it IS a defect - "refuse while re-fly live"). FIXED 2026-07-30, branch `fix-s41-idle-discard`. SWEPT 2026-07-30: five consecutive S4.1-rewind-merge runs, 5/5 PASS on attempt 1 (57-72 s), flake quarantine CLEARED (rate 0.0, quarantined=false). CAVEAT: the sweep route never entered the guarded branch (zero `idle detected` / `refusing - refly-active` lines; every run concluded through the post-transition deferred dialog), so the guard's proof is the three behavioral unit tests, not the sweep - see the S4.1 row in `docs/dev/autotest-status.md`]
 
 ### Fix
 
