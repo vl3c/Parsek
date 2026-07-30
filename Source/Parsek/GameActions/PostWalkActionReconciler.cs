@@ -210,7 +210,17 @@ namespace Parsek
                         case ReputationPenaltySource.ContractDecline:
                             key = "ContractDecline"; break;
                         case ReputationPenaltySource.KerbalDeath:
-                            key = "CrewKilled"; break;
+                            // Stock keys the crew-death reputation penalty under
+                            // TransactionReasons.VesselLoss. There is no CrewKilled
+                            // member on that enum at all (the only "CrewKilled"
+                            // symbol in Assembly-CSharp is GameEvents.onCrewKilled),
+                            // so the previous "CrewKilled" key could never pair with
+                            // any observed ReputationChanged event and guaranteed a
+                            // false "missing earning channel" WARN on every death.
+                            // Measured on both CL-1-pod-impact flights:
+                            //   "Added -9.999828 (-10) reputation: 'VesselLoss'."
+                            // (docs/dev/autotest-status.md, CL-1-pod-impact row.)
+                            key = "VesselLoss"; break;
                         case ReputationPenaltySource.Strategy:
                             // Bail-Out Grant CurrencyExchanger input: captured directly
                             // from the ReputationChanged(StrategyInput) event as an
