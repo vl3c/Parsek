@@ -844,12 +844,38 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   C-loaded-separate-committed`) and **unloaded targets** - typed refusals in v1. A
   seam verb cannot answer a `ControlTypes.All`-locking modal, so driving one needs a
   dialog-answering capability first, not a wider switch verb.
-- **The CL-1 spec extension onto `ExitToSpaceCenter`** - UNBLOCKED, NOT BUILT. This
-  is the one that matters, and `S0.7` documents why it cannot be folded into a seam
-  cell: proving the pending-tree AUTO-COMMIT needs a tree that is not idle-on-pad,
-  and no seam primitive provides dwell while recording (a StartRecording ->
-  ExitToSpaceCenter pair records exactly one point, and a one-point recording has
-  maxDist = 0 by construction). A driver that genuinely FLIES is the prerequisite.
+- **The CL-1 spec extension onto `ExitToSpaceCenter`** - **STAGE A SHIPPED
+  2026-07-30** as `CL-2-pod-impact-ledger` (a NEW spec; CL-1 itself is untouched,
+  because the committed cell
+  `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block`
+  exists precisely to forbid the naive edit). It is CL-1's step list
+  plus `SetSetting autoMerge=true`, `ExitToSpaceCenter`, and an
+  `[expectations.ledger]` block. `S0.7` was right about the prerequisite - proving
+  the pending-tree AUTO-COMMIT needs a tree that is not idle-on-pad, and no seam
+  primitive provides dwell while recording, so a driver that genuinely FLIES was
+  required. CL-1's 262-point / 11.9 km hop clears the 30 m idle threshold by three
+  orders of magnitude, and the commit fired: `Silent full-fidelity auto-commit
+  (scene-exit)`, `Committed tree ... Total committed: 1 recordings, 1 trees`,
+  `CreateKerbalAssignmentActions: 1 crew members`, and `OnSave: saving 1 committed
+  tree(s)` against the archived pre-commit run's `saving 0`. D1
+  `commit-scene-exit` + `auto-merge` - the two values S0.7 had to DROP - are now
+  claimed with tokens, and D8 gains its first crew-loss claims.
+- **Stage B, the TOMBSTONE half, remains UNBUILT**, and the split is structural
+  rather than a scoping convenience. `SupersedeCommit` is the ONLY producer of a
+  `LedgerTombstone` and `CommitTombstones` runs strictly inside the RE-FLY merge
+  tail after supersede relations land, so no auto-commit can reach D9 `tombstones`
+  / D12 `dead-crew-strip` / D12 `tombstone-rep-penalty` however the exit is driven.
+  Closing them needs a rewind ACROSS the crew loss plus a `RunTests` step driving
+  the in-game `Rewind` category, so `InGameTests/KerbalRecoveryOnSupersedeTest`
+  stops auto-skipping with "No kerbal-death actions in supersede subtree" - CL-1's
+  committed tree IS the subtree it wants. Stage B cannot be folded back into CL-2:
+  it needs `InvokeRewind`, and `hlib.validate_spec` HARD-REJECTS `InvokeRewind`
+  paired with `[expectations.ledger]` (a rewind rewrites the career pools from a
+  quicksave the seed+manifest contract cannot reconstruct). Two prerequisites to
+  settle first: `dead-crew-strip` has no pinned definition in the registry (see
+  `todo-and-known-bugs.md`), and the crew-end-state defect CL-2 flight 1 found
+  means the subtree's kerbal-death action currently carries `KerbalEndState.
+  Unknown`, which is exactly what that in-game test skips on.
 - **D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
   `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
   `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is

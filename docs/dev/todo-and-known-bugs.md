@@ -14,6 +14,201 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## A DESTROYED VESSEL'S CREW NEVER GETS AN END STATE: the kerbal-death ledger row commits as `Unknown`, not `Dead` [FOUND 2026-07-30 by the first `CL-2-pod-impact-ledger` flight. NOT FIXED]
+
+The first flight in the repo that ever reaches the pending-tree AUTO-COMMIT out of a
+destroyed crewed flight found that the whole crew-death end-state chain is inert on
+that path. It is not a logging gap: the ledger row is genuinely built with the wrong
+value, and the reservation semantics that hang off it invert.
+
+### The measurement
+
+Run `2026-07-30_1711_CL-2-pod-impact-ledger`, FULL PASS, the CL-1 profile (crewed pod,
+no chute, terminal-velocity impact, Jebediah observed `Dead` on his own roster) plus
+`SetSetting autoMerge=true` and `ExitToSpaceCenter`. The commit itself fired correctly:
+
+```
+:12611  Silent full-fidelity auto-commit (scene-exit): tree='Jumping Flea' recordings=1 spawnable=0
+:12630  Committed tree 'Jumping Flea' (1 recordings). Total committed: 1 recordings, 1 trees
+:12646  CreateKerbalAssignmentActions: 1 crew members from '5c0ed4fa57c841d3afd3ead9ab33640b'
+:12826  OnSave: saving 1 committed tree(s)
+```
+
+But `PopulateCrewEndStates` occurs **ZERO times in the entire log**, and what the
+commit then produced for a kerbal who died is a LIVE-crew reservation:
+
+```
+:12668  Reservation: 'Jebediah Kerman' endUT=Infinity (Unknown), recording '5c0ed4...'
+:12679  PostWalk summary: reservations=1 permanent=0 temporary=1 slots=1 retired=0 slotsCreated=1
+:12692  Stand-in generated: 'Dudeny Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0
+```
+
+Persisted in the produced save as a `KERBAL_SLOTS` slot with a `CHAIN_ENTRY` and a
+`CREW_REPLACEMENTS` entry mapping Jebediah to Dudeny. A dead kerbal acquired a
+stand-in.
+
+### Why that is wrong rather than merely surprising
+
+`KerbalsModule.cs`'s own comment states the contract:
+
+```
+//   Dead      -> permanent, endUT = infinity
+//   Unknown   -> open-ended temporary (conservative)
+bool permanent = (endState == KerbalEndState.Dead);
+```
+
+and `CrewReservationManager.SeatMatch.cs` (`ShouldProcessCrewForReservation`) EXCLUDES
+`Dead` from reservation processing while admitting `Missing`. So the intended outcome
+is a PERMANENT reservation and no stand-in; the observed outcome is the temporary
+branch, which is what a kerbal still ALIVE aboard a flying vessel gets.
+
+### Root cause
+
+`LedgerOrchestrator.NeedsCrewEndStatePopulation`:
+
+```csharp
+return rec != null
+    && !rec.CrewEndStatesResolved
+    && rec.CrewEndStates == null
+    && (rec.VesselSnapshot != null
+        || !string.IsNullOrEmpty(rec.EvaCrewName)
+        || KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec));
+```
+
+A DESTROYED vessel has no `VesselSnapshot` (there is no end-of-recording vessel to
+snapshot, and the commit line's `spawnable=0` is the same fact), is not an EVA, and is
+not a ghost-only chain handoff, so the predicate is false and
+`KerbalsModule.PopulateCrewEndStates` is never called. `rec.CrewEndStates` stays null,
+and `LedgerOrchestrator.ExtractCrewFromRecording` then defaults each row:
+
+```csharp
+KerbalEndState endState = KerbalEndState.Unknown;
+if (rec.CrewEndStates != null)
+    rec.CrewEndStates.TryGetValue(name, out endState);
+```
+
+The irony is that the INFERENCE is correct and would have returned the right answer:
+`KerbalsModule.InferCrewEndState` maps `TerminalState.Destroyed` to `Dead` in its first
+branch, and the recording carries `terminalState = 4` (Destroyed) on disk. The crew
+NAMES are also available - `ExtractCrewFromRecording` finds Jebediah through the
+`GhostVisualSnapshot ?? VesselSnapshot` fallback, a fallback
+`NeedsCrewEndStatePopulation` does not have. The gate is simply testing the wrong
+snapshot.
+
+### Fix (not applied here)
+
+Most likely: widen `NeedsCrewEndStatePopulation` to admit
+`rec.GhostVisualSnapshot != null` as a crew source, matching the fallback
+`ExtractCrewFromRecording` and `PopulateCrewEndStates` already use internally. Both of
+those already prefer `GhostVisualSnapshot` (recording-START crew) and only fall back to
+`VesselSnapshot`, so the gate is the one place in the chain that does not. NOT done in
+the CL-2 change: it is a product behaviour change on the commit path (it flips
+reservations from temporary to permanent and suppresses stand-in generation for dead
+crew), so it wants its own change, its own unit coverage, and its own review.
+
+### Consequences to carry
+
+- `CL-2-pod-impact-ledger` deliberately does NOT pin `PopulateCrewEndStates ... dead=1`
+  and does not claim any crew-end-state coverage. The token was drafted from the call
+  site and does not exist on this path; requiring it would red a correct run.
+  `test_cl2_crew_loss_ledger.py::test_the_crew_end_state_token_is_deliberately_not_required`
+  is the cell that stops a future author adding it back from the source.
+- It blocks the CL-1 extension's STAGE B (the tombstone half). That stage needs
+  `InGameTests/KerbalRecoveryOnSupersedeTest` to stop auto-skipping with "No
+  kerbal-death actions in supersede subtree", and its precondition is a subtree
+  containing a `GameActionType.KerbalAssignment` action with `KerbalEndState.Dead` -
+  which is exactly the value this defect prevents from ever being written. Fix this
+  first.
+- The magnitude question is separate and still open: nothing in `Source/Parsek/` ever
+  CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action, so the death's reputation
+  hit is applied by STOCK (`Added -9.999828 (-10) reputation: 'VesselLoss'.`) and
+  absorbed through the generic captured-award path. CL-2's ledger oracle passes with
+  0 hard divergences modelling it that way.
+
+---
+
+## `dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable [FOUND 2026-07-30 during the CL-2 scope fence. NOT RESOLVED]
+
+`harness/coverage/registry.toml` carries no per-cell definitions beyond the D12 block
+comment, which asserts that `dead-crew-strip` and `tombstone-rep-penalty` are "a RE-FLY
+consequence of a death that already happened". For `tombstone-rep-penalty` that is
+checkable - `SupersedeCommit.TryPairBundledRepPenalty` is the named producer. For
+`dead-crew-strip` it is not: the only code in the repo actually NAMED for stripping
+dead crew is SPAWN-time, not re-fly-time (`VesselSpawner.cs` "Individual dead crew are
+already removed by `RespawnVessel.RemoveDeadCrewFromSnapshot`", and
+`ShouldBlockSpawnForDeadCrew`), while the re-fly `Strip` is `PostLoadStripper.Strip`
+(`RewindInvoker.cs`), which strips VESSELS, not crew. The nearest re-fly-time CREW
+behaviour is `CrewReservationManager.RecomputeAfterTombstones()` plus the
+tombstoned-roster cleanup in `SupersedeCommit.CommitTombstones`.
+
+So whoever builds stage B must PIN what the cell means before claiming it, or the claim
+is unfalsifiable. The strongest available definition is the one the in-game test that
+owns the behaviour states: `InGameTests/KerbalRecoveryOnSupersedeTest` asserts that
+after the merge, every eligible kerbal-death action in the supersede subtree is
+tombstoned AND each previously-Dead kerbal is back in the roster as `Available` or
+`Assigned`. Writing that into the registry comment (or splitting the cell) is a
+registry-authoring task, not a flight.
+
+`CL-2-pod-impact-ledger` claims NEITHER cell, and
+`test_cl2_crew_loss_ledger.py::test_the_scope_fenced_re_fly_cells_stay_unclaimed` keeps
+them - and D8/D9 `tombstones` - out of its claim set.
+
+---
+
+## The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. NOT FIXED]
+
+`hlib`'s own note says `captureCrossCheck` "was WRITTEN as a hard gate, but it has never
+once run with a working capture", that no L1 spec can capture anything, and that arming
+"wants a REPUTATION-producing scenario". `CL-2-pod-impact-ledger` is that scenario and
+is the first run in the repo with a LIVE capture. What it measured is that the
+documented escalation path (fly it green, read `capturedRaw`, arm `gate`) does not
+close for a flown scenario.
+
+### The measurement
+
+Runs `2026-07-30_1711` and `2026-07-30_1721_CL-2-pod-impact-ledger`, identical:
+`manifest-capture stockLines=3 deduped=3 seamDeclared=4 seamRejected=0`. All three
+stock reputation lines were captured cleanly. All three then reported UNEXPECTED
+(report-only, `hard=False`) even though the spec's manifest declares all three at the
+right amounts with the right `stockReason` keys:
+
+```
+manifest-capture: unexpected stock award ut=12.5  kind=stock-reputation-award reason=Progression
+manifest-capture: unexpected stock award ut=19.0  kind=stock-reputation-award reason=Progression
+manifest-capture: unexpected stock award ut=119.9 kind=stock-reputation-award reason=VesselLoss
+```
+
+### Cause
+
+`hlib.unmatched_captured_awards` joins on `(seq_key, facet, amount)`, and `seq_key` is
+`("ut", <ut>)` whenever the entry has a UT, else `("ord", <seq>)`. A captured award gets
+its UT from the neighbouring `[Parsek]` line (12.5 / 19.0 / 119.9 here); a spec-declared
+entry has no UT unless the author writes one. `("ord", 0)` never equals `("ut", 12.5)`,
+so the join can never fire.
+
+The only way to make it fire from a spec is to declare the exact game UT the award will
+land on - which for a FLOWN scenario means pinning a golden trajectory value. It is also
+genuinely unstable: the same impact was ut 119.7 on the archived B1 run of this exact
+craft, 119.9 on CL-2 flight 1 and 119.8 on flight 2. (For a KSC-only scenario the awards
+land at the save's static UT, so the problem is invisible there - consistent with the
+join having been designed against the L1 shape and never exercised against a flight.)
+
+### Options, none applied
+
+Loosen the join to `(facet, amount [, stockReason])` with the seqKey as a TIE-BREAKER
+rather than a requirement; or add a UT-window tolerance; or let an entry declare
+`stockReason` alone as sufficient corroboration when the amount matches. Each changes
+what "unexpected" means, so it wants the M-B2 design owner rather than a scenario
+author. Until then `captureCrossCheck = "report"` is the correct setting for any flown
+spec, and CL-2 records the reasoning inline.
+
+NOTE, so this is not over-read: none of it weakens the oracle. The cross-check only
+CLASSIFIES; a captured amount is never summed into EXPECTED, and the
+seam-declared-vs-produced-save diff is untouched. CL-2's ledger verifier passed with 0
+hard divergences on both flights.
+
+---
+
 ## ~~ORBITSEGMENT-ANGLE-UNITS: OrbitSegment angular fields carried degrees from recorder producers and radians from the extrapolator~~ [FOUND 2026-07-29 by the PR #1378 test-coverage campaign. FIXED, branch `orbitsegment-angle-units`]
 
 ### What happened
@@ -622,8 +817,9 @@ the review panel proved the commit is UNREACHABLE on this exact profile:
   pipeline runs and the pending tree auto-commits on arrival, and it REFUSES up front with
   `REJECTED msg=dialog-required variant=<RegularMerge|ReFlyAttempt|SwitchSegmentSession>`
   in the states where the exit would instead raise a merge modal that no seam verb can
-  answer. The route exists; the CL-1 spec extension that USES it is still unbuilt - see
-  the next paragraph.**]**
+  answer. The route exists, and the CL-1 spec extension that USES it shipped 2026-07-30 as
+  `CL-2-pod-impact-ledger` (stage A: auto-commit + ledger half live-proven; the
+  tombstone stage B remains, scoped in the roadmap's R12 block).**]**
 
 An unmet `CommitTree` step would have made the run driver-INVALID, which SKIPS every
 verifier below it - the scenario would have produced NO evidence about the crew death at
@@ -1232,8 +1428,9 @@ counts around it were measured against the six-item shape:
   nothing could LEAVE flight either. Live-proven by `H23-tracking-station`,
   `S0.7-exit-auto-commit` and `S0.8-switch-click-segment`. The seam is 21 implemented
   verbs / 10 reserved. What it did NOT close is listed in the roadmap's R12 block -
-  `site=ts` / `site=ksc`, the dialog cases, unloaded targets, and the CL-1 spec
-  extension.
+  `site=ts` / `site=ksc`, the dialog cases, and unloaded targets. The CL-1 spec
+  extension's stage A shipped 2026-07-30 as `CL-2-pod-impact-ledger`; its tombstone
+  stage B remains.
 - **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
   tallies - OPEN.
 - **R14** provisioning `modded-compat` for D17 - OPEN.
