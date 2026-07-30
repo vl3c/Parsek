@@ -37,6 +37,7 @@ namespace Parsek.Tests
         private readonly List<string> logLines = new List<string>();
         private readonly CultureInfo originalCulture;
         private readonly VesselSpawner.ResolveBodyByNameDelegate originalBodyResolver;
+        private readonly bool originalSuppressLogging;
 
         // Yaw +90 deg about world Y. Stands in for "the body has rotated under the vessel".
         private static readonly Quaternion BodyRotation =
@@ -52,6 +53,7 @@ namespace Parsek.Tests
             originalCulture = Thread.CurrentThread.CurrentCulture;
             Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
             originalBodyResolver = VesselSpawner.BodyResolverForTesting;
+            originalSuppressLogging = RecordingStore.SuppressLogging;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -65,6 +67,7 @@ namespace Parsek.Tests
             VesselSpawner.BodyResolverForTesting = originalBodyResolver;
             ParsekLog.ResetTestOverrides();
             RecordingStore.ResetForTesting();
+            RecordingStore.SuppressLogging = originalSuppressLogging;
             Thread.CurrentThread.CurrentCulture = originalCulture;
         }
 
