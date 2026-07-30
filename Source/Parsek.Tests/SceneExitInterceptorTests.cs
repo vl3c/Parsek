@@ -480,6 +480,103 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        // ---------- S4.1-IDLE-DISCARD: refuse while re-fly live -----------
+        //
+        // The idle-on-pad fast path used to tear down the live tree without
+        // consulting the re-fly session marker - and a live marker is exactly
+        // what makes step (4) of the prefix return ReFlyAttempt and therefore
+        // what lets control reach the idle path at all. The result was a valid
+        // live marker with no tree, no dialog and no conclusion (LoadTimeSweep
+        // then validates the marker fine and spares the provisional forever).
+        // The guards below now run FIRST in the method, which is
+        // production-equivalent (the prefix only reaches step 5 with a live
+        // flight holding an active tree) and makes the refusal behavioral -
+        // these tests execute the product method, they are not source-text
+        // gates.
+
+        // Fails if: the idle-on-pad fast path stops refusing while a re-fly
+        // session marker is armed, orphaning the live session by destroying
+        // the only tree its conclusion dialog could act on.
+        [Fact]
+        public void TryAutoDiscardIdleActiveTree_ReFlyMarkerArmed_RefusesAndKeepsMarker()
+        {
+            const string sessionId = "sess_s41_idle_discard";
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = sessionId,
+                    TreeId = "tree_s41",
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            bool result = SceneExitInterceptor.TryAutoDiscardIdleActiveTree(
+                GameScenes.SPACECENTER, flight: null);
+
+            Assert.False(result);
+            // Never a live marker with a destroyed tree: the refusal leaves the
+            // session armed so the ReFlyAttempt dialog can conclude it.
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.Equal(sessionId, scenario.ActiveReFlySessionMarker.SessionId);
+            Assert.Contains(logLines,
+                l => l.Contains("[SceneExit]")
+                    && l.Contains("TryAutoDiscardIdleActiveTree: refusing")
+                    && l.Contains("refly-active")
+                    && l.Contains(sessionId)
+                    && l.Contains("dest=SPACECENTER"));
+        }
+
+        // Fails if: the idle-on-pad fast path stops refusing while a merge
+        // journal is live, tearing a tree down underneath a staged commit.
+        // Mirrors the sibling ParsekFlight.TryEvaluateActiveSwitchSegmentNoOp
+        // guard pair (refly-active / merge-journal-active).
+        [Fact]
+        public void TryAutoDiscardIdleActiveTree_MergeJournalActive_RefusesAndKeepsJournal()
+        {
+            const string journalId = "journal_s41_idle_discard";
+            var scenario = new ParsekScenario
+            {
+                ActiveMergeJournal = new MergeJournal
+                {
+                    JournalId = journalId,
+                    SessionId = "sess_s41_journal",
+                    TreeId = "tree_s41",
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            bool result = SceneExitInterceptor.TryAutoDiscardIdleActiveTree(
+                GameScenes.TRACKSTATION, flight: null);
+
+            Assert.False(result);
+            Assert.NotNull(scenario.ActiveMergeJournal);
+            Assert.Equal(journalId, scenario.ActiveMergeJournal.JournalId);
+            Assert.Contains(logLines,
+                l => l.Contains("[SceneExit]")
+                    && l.Contains("TryAutoDiscardIdleActiveTree: refusing")
+                    && l.Contains("merge-journal-active")
+                    && l.Contains(journalId)
+                    && l.Contains("dest=TRACKSTATION"));
+        }
+
+        // Control. Fails if: the new guards fire spuriously with neither a
+        // marker nor a journal armed - that would suppress the ordinary
+        // idle-on-pad auto-discard the feature exists for. The null-flight
+        // early-return still yields false, but with NO refusal line.
+        [Fact]
+        public void TryAutoDiscardIdleActiveTree_NoReFlyNoJournal_NoRefusalLogged()
+        {
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario());
+
+            bool result = SceneExitInterceptor.TryAutoDiscardIdleActiveTree(
+                GameScenes.SPACECENTER, flight: null);
+
+            Assert.False(result);
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("TryAutoDiscardIdleActiveTree: refusing"));
+        }
+
         // ---------- Bug: deferred merge dialog after idle-on-pad exit -----
         //
         // The idle-on-pad scene-exit fast path silently discards the live

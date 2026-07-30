@@ -190,7 +190,13 @@ Worth doing in the same pass, since the coupling above is only visible once: ass
 
 ---
 
-## S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. REPORTED, NOT FIXED. Severity UNDECIDED pending a product call - see the question below]
+## ~~S4.1-IDLE-DISCARD: the scene-exit idle-on-pad auto-discard tears down a LIVE re-fly session's tree, leaving the marker with nothing to merge~~ [FOUND 2026-07-28 by run `2026-07-28_1932` attempt 1. Product call made 2026-07-30 (it IS a defect - "refuse while re-fly live"). FIXED 2026-07-30, branch `fix-s41-idle-discard`. NOT yet live-proven: the harness sweep that de-quarantines S4.1 is a separate step]
+
+### Fix
+
+`SceneExitInterceptor.TryAutoDiscardIdleActiveTree` now REFUSES (returns false) whenever `ParsekScenario.Instance.ActiveReFlySessionMarker != null` or `ActiveMergeJournal != null`, mirroring the sibling `ParsekFlight.TryEvaluateActiveSwitchSegmentNoOp` guard pair (`refly-active` / `merge-journal-active`). On refusal control falls through to step (6) of the scene-exit prefix, which shows the `ReFlyAttempt` dialog - the designed conclusion path: Commit tolerates an unflown provisional (`AppendRelations outcome=refused-unflown-provisional`), Discard clears the marker through `MergeDialog.TryDiscardActiveReFlyAttempt`. So the idle-on-pad discard keeps doing exactly what it is for on ordinary trees, and a live re-fly session always gets a conclusion instead of being silently dropped.
+
+The two guards run FIRST in the method, before the `flight == null` / `HasActiveTree` / `IsActiveTreeIdleOnPad()` checks. That is production-equivalent (the prefix only reaches step 5 with a live flight holding an active tree), it avoids a pointless recorder flush inside the MUTATING `IsActiveTreeIdleOnPad`, and it makes the refusal behaviorally testable from xUnit without a live `ParsekFlight` - so the new coverage in `SceneExitInterceptorTests` executes product code instead of grepping source. Two new grep-stable Info lines on the `[SceneExit]` tag: `TryAutoDiscardIdleActiveTree: refusing - refly-active sess=<id> dest=<scene> - falling through to conclusion dialog` and the `merge-journal-active journal=<id>` variant. `AutoDiscardActiveTreeCore` is unchanged, so the other two auto-discard entry points keep their behavior.
 
 ### What happens
 
@@ -207,6 +213,8 @@ A re-fly is invoked, nothing is flown, and the session is concluded. At the scen
 The tree is discarded WITHOUT being stashed, so no pending tree exists, so no merge dialog is ever raised - while `ParsekScenario.ActiveReFlySessionMarker` is still LIVE and valid (`Marker valid=True; spare=1 discarded=0` in the same run). The session dangles: a live marker, a spared provisional, and no tree and no dialog to conclude it with.
 
 ### The product question, which is genuinely open
+
+**SETTLED 2026-07-30: the second reading was picked (a defect). The forensics below are preserved as written; see the Fix section above for what shipped.**
 
 `TryAutoDiscardIdleActiveTree` does not consult the re-fly marker. Two defensible readings:
 

@@ -302,10 +302,59 @@ namespace Parsek
         /// OnSceneChangeRequested no-ops; destination scene loads with no
         /// pending tree, so the OnLoad idle-on-pad branch
         /// (<c>ParsekScenario.cs:1682-1689</c>) does not fire.
+        ///
+        /// <para>S4.1-IDLE-DISCARD: REFUSES while a re-fly session marker or a
+        /// merge journal is live. A live
+        /// <see cref="ParsekScenario.ActiveReFlySessionMarker"/> is exactly what
+        /// makes step (4) of the prefix return
+        /// <see cref="DialogVariant.ReFlyAttempt"/> and therefore what lets
+        /// control reach this method at all; tearing the tree down here left a
+        /// valid live marker with no tree, no dialog and no conclusion (the
+        /// OnLoad <see cref="LoadTimeSweep"/> then validates that marker fine
+        /// and spares its provisional forever). On refusal control falls through
+        /// to step (6), which shows the ReFlyAttempt dialog - the designed
+        /// conclusion path (Commit tolerates an unflown provisional via
+        /// <c>AppendRelations outcome=refused-unflown-provisional</c>; Discard
+        /// clears the marker via
+        /// <see cref="MergeDialog.TryDiscardActiveReFlyAttempt"/>). Mirrors the
+        /// sibling <see cref="ParsekFlight.TryEvaluateActiveSwitchSegmentNoOp"/>
+        /// guards (<c>refly-active</c> / <c>merge-journal-active</c>).</para>
+        ///
+        /// <para>The guards run FIRST, before the flight / active-tree /
+        /// idle-on-pad checks: production always calls this with a live flight
+        /// holding an active tree (the prefix gates on that before step 5), so
+        /// guard-first is production-equivalent, it avoids the pointless
+        /// recorder flush inside the MUTATING
+        /// <see cref="ParsekFlight.IsActiveTreeIdleOnPad"/>, and it makes the
+        /// refusal behaviorally testable without a live
+        /// <see cref="ParsekFlight"/>.</para>
         /// </summary>
         internal static bool TryAutoDiscardIdleActiveTree(
             GameScenes destination, ParsekFlight flight)
         {
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario))
+            {
+                var marker = scenario.ActiveReFlySessionMarker;
+                if (marker != null)
+                {
+                    ParsekLog.Info("SceneExit",
+                        "TryAutoDiscardIdleActiveTree: refusing - refly-active " +
+                        $"sess={marker.SessionId ?? "<no-id>"} dest={destination} - " +
+                        "falling through to conclusion dialog");
+                    return false;
+                }
+                var journal = scenario.ActiveMergeJournal;
+                if (journal != null)
+                {
+                    ParsekLog.Info("SceneExit",
+                        "TryAutoDiscardIdleActiveTree: refusing - merge-journal-active " +
+                        $"journal={journal.JournalId ?? "<no-id>"} dest={destination} - " +
+                        "falling through to conclusion dialog");
+                    return false;
+                }
+            }
+
             if (flight == null || !flight.HasActiveTree) return false;
             if (!flight.IsActiveTreeIdleOnPad()) return false;
 
