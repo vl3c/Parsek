@@ -1532,6 +1532,157 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        // ================================================================
+        // NeedsCrewEndStatePopulation — destroyed-vessel ghost-visual gate
+        // (CL-2 finding 2026-07-30: a destroyed vessel has no VesselSnapshot,
+        // so the gate never admitted the one recording class where the crew
+        // end state matters most, and its ledger rows defaulted to Unknown.)
+        // ================================================================
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_GhostVisualOnly_AdmitsAndLogs()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-gate-ghost-visual",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Destroyed
+            };
+
+            Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Equal(1, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+        }
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_NoCrewSourceAtAll_ReturnsFalse()
+        {
+            var rec = new Recording { RecordingId = "rec-gate-empty" };
+
+            Assert.False(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Equal(0, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+        }
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_GhostVisualOnlyButResolved_ReturnsFalse()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-gate-resolved",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Destroyed,
+                CrewEndStatesResolved = true
+            };
+
+            Assert.False(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Equal(0, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+        }
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_GhostVisualOnlyIntactTerminal_ReturnsFalse()
+        {
+            // Intact terminal states must NOT be admitted through the
+            // ghost-visual-only path: with no VesselSnapshot at all,
+            // InferCrewEndState would read "absent from the end snapshot" as
+            // EVA'd-and-lost Dead for crew that is actually alive aboard.
+            var rec = new Recording
+            {
+                RecordingId = "rec-gate-intact",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            Assert.False(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Equal(0, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+        }
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_VesselSnapshotPresent_AdmitsWithoutGhostVisualLog()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-gate-vessel-snapshot",
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Equal(0, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+        }
+
+        [Fact]
+        public void PopulateUnpopulatedCrewEndStates_DestroyedVesselGhostVisualOnly_PopulatesDead()
+        {
+            // CL-2 run 2026-07-30_1711 shape: crewed pod destroyed on impact,
+            // no VesselSnapshot (nothing left to snapshot), crew only in the
+            // recording-start GhostVisualSnapshot, terminalState=Destroyed.
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-destroyed-populate",
+                VesselName = "Jumping Flea",
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "PopulateUnpopulatedCrewEndStates", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates["Jebediah Kerman"]);
+            Assert.Equal(1, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+            Assert.Equal(1, CountLogs("[KerbalsModule]", "dead=1"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void MigrateKerbalAssignments_DestroyedVesselGhostVisualOnly_WritesDeadEndState()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-destroyed-migrate",
+                VesselName = "Jumping Flea",
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitStartUT = 10,
+                ExplicitEndUT = 20
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "MigrateKerbalAssignments", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(GameActionType.KerbalAssignment, Ledger.Actions[0].Type);
+            Assert.Equal("Jebediah Kerman", Ledger.Actions[0].KerbalName);
+            Assert.Equal(KerbalEndState.Dead, Ledger.Actions[0].KerbalEndStateField);
+            Assert.True(rec.CrewEndStatesResolved);
+
+            RecordingStore.ResetForTesting();
+        }
+
         [Fact]
         public void MigrateKerbalAssignments_EvaOnlyRecording_PopulatesEndStateBeforeActionCreation()
         {

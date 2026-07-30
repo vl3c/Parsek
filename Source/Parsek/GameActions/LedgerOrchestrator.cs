@@ -1240,14 +1240,41 @@ namespace Parsek
             return result;
         }
 
-        private static bool NeedsCrewEndStatePopulation(Recording rec)
+        internal static bool NeedsCrewEndStatePopulation(Recording rec)
         {
-            return rec != null
-                && !rec.CrewEndStatesResolved
-                && rec.CrewEndStates == null
-                && (rec.VesselSnapshot != null
-                    || !string.IsNullOrEmpty(rec.EvaCrewName)
-                    || KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec));
+            if (rec == null || rec.CrewEndStatesResolved || rec.CrewEndStates != null)
+                return false;
+
+            if (rec.VesselSnapshot != null
+                || !string.IsNullOrEmpty(rec.EvaCrewName)
+                || KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec))
+                return true;
+
+            // A DESTROYED vessel has no end-of-recording VesselSnapshot, so the
+            // recording-start GhostVisualSnapshot is the only crew source left.
+            // PopulateCrewEndStates and ExtractCrewFromRecording both already
+            // prefer GhostVisualSnapshot; without this admission the one class
+            // of recording where the end state matters most (crew died with the
+            // vessel) never got populated and its ledger rows defaulted to
+            // Unknown instead of Dead. Admitted ONLY for terminal states whose
+            // inference does not consult the end-of-recording crew set
+            // (Destroyed -> Dead, Recovered -> Recovered): for intact terminal
+            // states InferCrewEndState reads "absent from the end snapshot" as
+            // EVA'd-and-lost Dead, which with no VesselSnapshot at all would
+            // falsely kill live crew on ghost-only stable chain tips (pinned by
+            // CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered).
+            if (rec.GhostVisualSnapshot != null
+                && (rec.TerminalStateValue == TerminalState.Destroyed
+                    || rec.TerminalStateValue == TerminalState.Recovered))
+            {
+                ParsekLog.Info(Tag,
+                    $"NeedsCrewEndStatePopulation: recording='{rec.RecordingId}' " +
+                    $"admitted via ghost-visual-only crew source (no vessel snapshot, " +
+                    $"terminalState={rec.TerminalStateValue.Value})");
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>

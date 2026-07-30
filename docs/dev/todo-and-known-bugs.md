@@ -14,6 +14,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~A DESTROYED VESSEL'S CREW NEVER GETS AN END STATE: the kerbal-death ledger row commits as `Unknown`, not `Dead`~~ [FOUND 2026-07-30 by the first `CL-2-pod-impact-ledger` flight (PR #1393, run `2026-07-30_1711`). FIXED 2026-07-30, branch `crew-endstate-destroyed-gate`]
+
+The full finding text (measurement, contract quotes, consequence list) is in this
+entry's original NOT FIXED form on PR #1393's branch (`cl1-ledger-mission`); when
+that branch merges, fold its entry into this one.
+
+**Root cause:** `LedgerOrchestrator.NeedsCrewEndStatePopulation` gated on
+`rec.VesselSnapshot != null`, which is exactly false for a DESTROYED vessel (no
+end-of-recording vessel to snapshot), so `KerbalsModule.PopulateCrewEndStates`
+never ran for the one recording class where the crew end state matters most.
+`ExtractCrewFromRecording` then defaulted the KerbalAssignment row to
+`KerbalEndState.Unknown`, flipping the reservation from the intended permanent
+(Dead) branch to the temporary branch - the dead kerbal's slot generated a
+stand-in (`Stand-in generated: 'Dudeny Kerman' ... for slot 'Jebediah Kerman'`).
+The inference chain itself was correct (`InferCrewEndState` maps Destroyed ->
+Dead, and the recording carried `terminalState=4`); only the gate tested the
+wrong snapshot.
+
+**Fix:** the gate now admits `rec.GhostVisualSnapshot != null` as a crew source,
+matching the `GhostVisualSnapshot ?? VesselSnapshot` fallback that
+`PopulateCrewEndStates` and `ExtractCrewFromRecording` already use internally -
+but ONLY for terminal states whose inference does not consult the
+end-of-recording crew set (Destroyed, Recovered). A blind admission was tried
+first and immediately red'd
+`CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered`:
+for intact terminal states (Orbiting etc.) with no VesselSnapshot at all,
+`InferCrewEndState` reads "absent from the end snapshot" as EVA'd-and-lost Dead
+and would falsely kill live crew on ghost-only stable chain tips, so those stay
+unresolved as before. The newly-taken path logs a grep-stable Info line
+(`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew source`),
+one-shot per recording (`CrewEndStatesResolved` is persisted). Behavioral unit
+coverage in `LedgerOrchestratorTests` (gate decisions plus the CL-2-shaped
+destroyed-pod population and ledger-row tests).
+
+**Follow-ups once PR #1393 merges:** (1) `CL-2-pod-impact-ledger` can now pin
+`PopulateCrewEndStates ... dead=1` and the new gate token - retire
+`test_the_crew_end_state_token_is_deliberately_not_required` when doing so;
+(2) this unblocks CL stage B (the tombstone half): `KerbalRecoveryOnSupersedeTest`
+stops auto-skipping once a supersede subtree can contain a `KerbalEndState.Dead`
+assignment (stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`).
+
+---
+
 ## ~~ORBITSEGMENT-ANGLE-UNITS: OrbitSegment angular fields carried degrees from recorder producers and radians from the extrapolator~~ [FOUND 2026-07-29 by the PR #1378 test-coverage campaign. FIXED, branch `orbitsegment-angle-units`]
 
 ### What happened
