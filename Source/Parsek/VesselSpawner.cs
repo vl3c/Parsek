@@ -5177,6 +5177,58 @@ namespace Parsek
                 && rec.TerminalOrbitSemiMajorAxis > 0.0;
         }
 
+        /// <summary>
+        /// Atmosphere depth the terminal-orbit spawn-safety margin is built on. An airless
+        /// body (or a body that could not be resolved) contributes no depth, so
+        /// <see cref="TerminalOrbitSpawnSafety.ComputeSafeAltitude"/> also drops the margin
+        /// and the safe altitude collapses to 0 - a Sun/Mun-referenced coast is geometrically
+        /// safe at any positive altitude.
+        /// </summary>
+        internal static double ResolveSpawnSafetyAtmosphereDepth(
+            bool bodyHasAtmosphere,
+            double bodyAtmosphereDepth)
+        {
+            return bodyHasAtmosphere ? bodyAtmosphereDepth : 0.0;
+        }
+
+        /// <summary>
+        /// Pure geometry half of <see cref="TryPassTerminalOrbitSpawnSafety"/>: normalize the
+        /// body's atmosphere depth and run the shared safety predicate. Split out from the
+        /// KSP-coupled wrapper so the decision can be driven headlessly with no
+        /// <c>CelestialBody</c> / <c>Orbit</c> instance.
+        /// </summary>
+        internal static TerminalOrbitSpawnSafetyDecision EvaluateTerminalOrbitSpawnSafetyGeometry(
+            bool bodyHasAtmosphere,
+            double bodyAtmosphereDepth,
+            double currentAltitude,
+            double periapsisAltitude,
+            double apoapsisAltitude)
+        {
+            return TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude,
+                ResolveSpawnSafetyAtmosphereDepth(bodyHasAtmosphere, bodyAtmosphereDepth),
+                TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude,
+                apoapsisAltitude);
+        }
+
+        /// <summary>
+        /// Pure downgrade applied when a <c>DeferUntilSafe</c> decision has no future safe UT:
+        /// the soft deferral becomes a hard <c>CannotSpawnSafely</c> carrying
+        /// <see cref="TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT"/>.
+        /// </summary>
+        internal static void DowngradeTerminalOrbitDeferralToNoFutureSafeUT(
+            ref TerminalOrbitSpawnSafetyDecision decision,
+            double currentAltitude)
+        {
+            decision.Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely;
+            decision.ReasonCode = TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT;
+            decision.Reason = string.Format(CultureInfo.InvariantCulture,
+                "propagated altitude {0:F1}m is below safe altitude {1:F1}m and no future safe UT was found",
+                currentAltitude,
+                decision.SafeAltitude);
+        }
+
         internal static bool TryPassTerminalOrbitSpawnSafety(
             Recording rec,
             int index,
@@ -5186,17 +5238,14 @@ namespace Parsek
             double currentAltitude,
             out TerminalOrbitSpawnSafetyDecision decision)
         {
-            double atmosphereDepth = body != null && body.atmosphere
-                ? body.atmosphereDepth
-                : 0.0;
             double periapsisAltitude = ComputeOrbitPeriapsisAltitude(orbit, body);
             double apoapsisAltitude = ComputeOrbitApoapsisAltitude(orbit, body);
             double pressure = TryGetAtmosphericPressure(body, currentAltitude);
 
-            decision = TerminalOrbitSpawnSafety.Evaluate(
+            decision = EvaluateTerminalOrbitSpawnSafetyGeometry(
+                body != null && body.atmosphere,
+                body != null ? body.atmosphereDepth : 0.0,
                 currentAltitude,
-                atmosphereDepth,
-                TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude,
                 apoapsisAltitude);
 
@@ -5237,12 +5286,7 @@ namespace Parsek
                     return false;
                 }
 
-                decision.Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely;
-                decision.ReasonCode = TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT;
-                decision.Reason = string.Format(CultureInfo.InvariantCulture,
-                    "propagated altitude {0:F1}m is below safe altitude {1:F1}m and no future safe UT was found",
-                    currentAltitude,
-                    decision.SafeAltitude);
+                DowngradeTerminalOrbitDeferralToNoFutureSafeUT(ref decision, currentAltitude);
             }
 
             LogTerminalSpawnSafetyDecision(rec, index, body, currentUT, decision, pressure);
@@ -5280,9 +5324,9 @@ namespace Parsek
             double currentUT,
             double fallbackAltitude)
         {
-            double atmosphereDepth = body != null && body.atmosphere
-                ? body.atmosphereDepth
-                : 0.0;
+            double atmosphereDepth = ResolveSpawnSafetyAtmosphereDepth(
+                body != null && body.atmosphere,
+                body != null ? body.atmosphereDepth : 0.0);
             double pressure = TryGetAtmosphericPressure(body, fallbackAltitude);
             var decision = new TerminalOrbitSpawnSafetyDecision
             {

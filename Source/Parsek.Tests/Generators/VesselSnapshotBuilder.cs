@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using UnityEngine;
 
 namespace Parsek.Tests.Generators
 {
@@ -14,6 +15,11 @@ namespace Parsek.Tests.Generators
         private double lat, lon, alt;
         private bool landed = true;
         private bool splashed;
+
+        // VESSEL.rot is ProtoVessel.rotation, which ProtoVessel.Load() assigns straight to
+        // vesselRef.srfRelRotation - so this is the vessel's SURFACE-RELATIVE rotation, never
+        // a world rotation. Identity by default so every pre-existing caller is unchanged.
+        private Quaternion surfaceRelativeRotation = Quaternion.identity;
 
         // Orbit params
         private double sma, ecc, inc, lan, argPe, mna, epoch;
@@ -120,6 +126,19 @@ namespace Parsek.Tests.Generators
         public VesselSnapshotBuilder WithType(string t) { type = t; return this; }
         public VesselSnapshotBuilder WithSituation(string s) { sit = s; return this; }
 
+        /// <summary>
+        /// Sets the snapshot's <c>rot</c> value. The argument is the recorded
+        /// SURFACE-RELATIVE rotation (<c>Inverse(body.bodyTransform.rotation) *
+        /// v.transform.rotation</c>), because that is exactly what KSP reads back out of
+        /// <c>VESSEL.rot</c> into <c>Vessel.srfRelRotation</c>. Pass a non-identity value to
+        /// build a fixture where the surface-relative and world frames are distinguishable.
+        /// </summary>
+        public VesselSnapshotBuilder WithSurfaceRelativeRotation(Quaternion srfRelRotation)
+        {
+            surfaceRelativeRotation = srfRelRotation;
+            return this;
+        }
+
         public VesselSnapshotBuilder AsLanded(double latitude, double longitude, double altitude)
         {
             sit = "LANDED";
@@ -215,6 +234,17 @@ namespace Parsek.Tests.Generators
 
         private static string D(double v) => v.ToString("R", IC);
 
+        private static string F(float v) => v.ToString("R", IC);
+
+        /// <summary>
+        /// Serializes a quaternion the way KSP writes <c>VESSEL.rot</c>: four comma-separated
+        /// components, x/y/z/w. Formatted through InvariantCulture so a comma-decimal machine
+        /// locale cannot turn one component into two tokens. Identity renders as the historical
+        /// literal "0,0,0,1", so snapshots built without an explicit rotation are unchanged.
+        /// </summary>
+        private static string Q(Quaternion q) =>
+            F(q.x) + "," + F(q.y) + "," + F(q.z) + "," + F(q.w);
+
         public ConfigNode Build()
         {
             var v = new ConfigNode("VESSEL");
@@ -234,7 +264,7 @@ namespace Parsek.Tests.Generators
             v.AddValue("alt", D(alt));
             v.AddValue("hgt", "-1");
             v.AddValue("nrm", "0,1,0");
-            v.AddValue("rot", "0,0,0,1");
+            v.AddValue("rot", Q(surfaceRelativeRotation));
             v.AddValue("CoM", "0,0,0");
             v.AddValue("stg", "0");
             v.AddValue("prst", "True");
