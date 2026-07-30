@@ -476,12 +476,12 @@ Plus two dispatch-level rejects mirroring `InvokeRewind`: `load-in-flight` and
 reject, the one place this verb diverges from `LoadGame`: exiting WITH a live recorder is
 the whole point, since the exit is what finalizes the tree and reaches the auto-commit.
 
-The guard is deliberately CONSERVATIVE - a SUPERSET of the wedging states. Two prefix fast
-paths (the no-op switch-segment auto-discard and the idle-on-pad auto-discard) can convert
-a would-be-modal into a silent pass-through, so the guard can refuse an exit the prefix
-would in fact have allowed. It stays conservative because both fast paths both DETECT AND
-MUTATE: probing them from a refusal check would tear down a live tree as a side effect of
-asking a question. A false REJECTED is a typed, side-effect-free answer the orchestrator
+The guard is deliberately CONSERVATIVE - a SUPERSET of the wedging states. Three prefix
+fast paths (the no-op switch-segment auto-discard, the no-op no-session committed-resume
+auto-discard, and the idle-on-pad auto-discard) can convert a would-be-modal into a silent
+pass-through, so the guard can refuse an exit the prefix would in fact have allowed. It
+stays conservative because all three fast paths both DETECT AND MUTATE: probing them from
+a refusal check would tear down a live tree as a side effect of asking a question. A false REJECTED is a typed, side-effect-free answer the orchestrator
 classifies immediately; a wedge is an input lock held to the budget.
 
 **Persist-before-LoadScene is mandatory**, for the reason `AnswerMergeDialog` documents

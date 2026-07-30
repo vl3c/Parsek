@@ -3,6 +3,11 @@ using System.Collections.Generic;
 namespace Parsek.TestCommands
 {
     /// <summary>
+    /// The two-phase LoadGame completion outcome (F2). Distinguishes the success
+    /// (a settled FLIGHT scene with a game loaded), the two terminal FAILURES a
+    /// bad load can produce, and the still-in-progress case.
+    /// </summary>
+    /// <remarks>
     /// Pure decision + payload helpers for the two-phase <c>LoadGame</c> boot verb
     /// (P5.7). The Unity side realises the <c>.sfs</c> into a KSP <c>Game</c> via
     /// <c>GamePersistence.LoadGame</c> and hands the primitive shape of that result here:
@@ -11,12 +16,7 @@ namespace Parsek.TestCommands
     /// <c>FlightDriver.StartAndFocusVessel</c> a bad index (design edge case 27). Kept
     /// pure so the focusability decision + completion payload are xUnit-covered without
     /// a live KSP <c>Game</c>.
-    /// </summary>
-    /// <summary>
-    /// The two-phase LoadGame completion outcome (F2). Distinguishes the success
-    /// (a settled FLIGHT scene with a game loaded), the two terminal FAILURES a
-    /// bad load can produce, and the still-in-progress case.
-    /// </summary>
+    /// </remarks>
     internal enum LoadCompletionDecision
     {
         /// <summary>The load has not settled yet: keep polling.</summary>
@@ -229,7 +229,7 @@ namespace Parsek.TestCommands
         /// never settles anywhere. Any other settled scene keeps waiting until one of those
         /// three fires. Kept pure so every cell is xUnit-covered without a live KSP scene.
         /// </summary>
-        /// <summary>
+        /// <remarks>
         /// <paramref name="expectedScene"/> is the route's landing scene (R12; it
         /// replaced the pre-R12 two-valued <c>bool expectSpaceCenter</c> when the
         /// TRACKSTATION route made the destination three-valued). Supply it from
@@ -237,7 +237,7 @@ namespace Parsek.TestCommands
         /// expiry keep their meanings on EVERY route; only the success scene moves.
         /// The default keeps FLIGHT, so every pre-R12 four-argument call site reads
         /// unchanged.
-        /// </summary>
+        /// </remarks>
         internal static LoadCompletionDecision DecideLoadCompletion(
             double elapsedSeconds, TestCommandScene currentScene, bool currentGameNonNull,
             double budgetSeconds, TestCommandScene expectedScene = TestCommandScene.Flight)

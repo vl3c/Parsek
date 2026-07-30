@@ -65,10 +65,11 @@ namespace Parsek.TestCommands
         /// actually have spawned.</para>
         ///
         /// <para>DELIBERATELY CONSERVATIVE - this is a SUPERSET of the wedging states, and
-        /// that is the point. Two prefix fast paths (the no-op switch-segment auto-discard
-        /// and the idle-on-pad auto-discard) can convert a would-be-modal into a silent
+        /// that is the point. Three prefix fast paths (the no-op switch-segment
+        /// auto-discard, the no-op no-session committed-resume auto-discard, and the
+        /// idle-on-pad auto-discard) can convert a would-be-modal into a silent
         /// pass-through, so this gate can refuse an exit the prefix would in fact have
-        /// allowed. It stays conservative because both fast paths both DETECT AND MUTATE:
+        /// allowed. It stays conservative because all three fast paths both DETECT AND MUTATE:
         /// probing them from a refusal check would tear down a live tree as a side effect
         /// of asking a question. A false REJECTED is a typed, side-effect-free answer the
         /// harness classifies immediately; a wedge is a <c>ControlTypes.All</c> input lock
