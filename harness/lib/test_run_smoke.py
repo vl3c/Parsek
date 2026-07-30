@@ -2040,6 +2040,176 @@ class MultiCategoryBatchSmokeTests(unittest.TestCase):
         self.assertEqual(2, bc["perCategoryCount"])
 
 
+class SceneRoutedBootSmokeTests(unittest.TestCase):
+    """R12 over the REAL run loop (fake runtime). Two things are proven here.
+
+    THE HAPPY PATH: a spec may now drive `LoadGame scene=trackstation`,
+    `SimulateStockSwitchClick` and `ExitToSpaceCenter` end to end - which before this
+    wave was impossible twice over (the switch verb failed validation as RESERVED, and
+    no verb could leave FLIGHT at all).
+
+    THE NEGATIVE CONTROL, which is the load-bearing half. `scene-route-wrong` answers
+    the boot OK but lands at SPACECENTER anyway, so the batch scene-skips every member:
+    `total=5 passed=0 failed=0 skipped=5 ... scene=SPACECENTER`. That is B10 verbatim -
+    the run that shipped at daily tier reading GREEN while executing ZERO tests. Note
+    what still passes on that run: exit 0, a clean analyzer, log-validate, and the
+    batchComplete verifier itself (`failed=0` is TRUE of an all-skipped batch). The ONLY
+    thing standing between a silently-wrong-scene boot and a green run is the
+    anti-vacuity WHOLE-tally pin naming the scene. The A/B is the same spec against two
+    fake modes, so a PASS under `pass` and a PARSEK-FAIL under `scene-route-wrong` prove
+    the pin is what did it, not some unrelated redness."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-sceneroute-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "sceneroute_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _ts_spec(self):
+        """A TRACKSTATION-routed batch spec pinned the anti-vacuity way: the WHOLE
+        tally, scene token included."""
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-scene-ts"
+        for step in spec["driver"]["steps"]:
+            if step.get("cmd") == "LoadGame":
+                step["args"]["scene"] = "trackstation"
+            elif step.get("cmd") == "RunTests":
+                step["args"]["category"] = "TrackingStation"
+        spec["expectations"]["logContracts"]["required"] = [
+            "BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 "
+            "category=TrackingStation scene=TRACKSTATION"]
+        return spec
+
+    def _switch_and_exit_spec(self):
+        """Both R12 verbs as ordinary steps, no batch: record, drive a stock-click
+        switch, then exit to the Space Center (the v1 CL-1 shape)."""
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-switch-exit"
+        spec["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 30},
+            {"cmd": "SetSetting", "args": {"name": "autoMerge", "value": "true"},
+             "expect": "OK"},
+            {"cmd": "StartRecording", "expect": "OK"},
+            # NOTE the RAW vessel name. run.py's encode_value percent-encodes every arg
+            # on the way out, so a spec that pre-encodes gets DOUBLE-encoded
+            # (`Test%2520Craft`) and the seam resolves a vessel literally named
+            # "Test%20Craft", which does not exist -> target-not-found. The M-A2 doc's
+            # "(percent-encoded)" describes the WIRE token, not the TOML value.
+            {"cmd": "SimulateStockSwitchClick",
+             "args": {"site": "map", "vessel": "Test Craft"}, "expect": "OK"},
+            {"cmd": "ExitToSpaceCenter", "expect": "OK", "budget": 120},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        # No RunTests step, so the required pin must not name BATCH_COMPLETE (the
+        # batch-owner rule rejects a spec that demands one with nobody to own it).
+        spec["expectations"]["logContracts"]["required"] = ["armed session=fake"]
+        return spec
+
+    def _run(self, spec, mode):
+        rt = FakeRuntime(mode)
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def _commands_written(self):
+        path = os.path.join(self.instance, "parsek-test-commands.txt")
+        with open(path, "r", encoding="utf-8") as fh:
+            return [l.strip() for l in fh if l.strip()]
+
+    # ---- happy paths -----------------------------------------------------
+
+    def test_scene_routed_boot_passes_when_the_route_takes(self):
+        result = self._run(self._ts_spec(), "pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"],
+                                                         result.get("subkind")))
+        self.assertEqual("PASS", result["verifiers"]["expectations"]["status"])
+        # The arg actually reached the wire in the seam's lowercase spelling. A
+        # `scene=Trackstation` would be a typed REJECTED, and validate_spec now refuses
+        # it pre-launch, but this pins that run.py forwards the arg at all.
+        load = next(l for l in self._commands_written() if "cmd=LoadGame" in l)
+        self.assertIn("scene=trackstation", load)
+
+    def test_both_new_verbs_drive_end_to_end(self):
+        result = self._run(self._switch_and_exit_spec(), "pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"],
+                                                         result.get("subkind")))
+        self.assertTrue(result["driver"]["allExpectedMet"])
+        self.assertEqual(["LoadGame", "SetSetting", "StartRecording",
+                          "SimulateStockSwitchClick", "ExitToSpaceCenter", "FlushAndQuit"],
+                         [s["cmd"] for s in result["driver"]["steps"]])
+        self.assertTrue(all(s["met"] for s in result["driver"]["steps"]))
+        lines = self._commands_written()
+        click = next(l for l in lines if "cmd=SimulateStockSwitchClick" in l)
+        self.assertIn("site=map", click)
+        # THE SPEC-AUTHORING TRAP, pinned. `vessel=` is the arg that exists because live
+        # pids are not spec-addressable, so it is the one R12 arg a TOML routinely gives
+        # a value with a SPACE in it. run.py encodes on the way out, so the raw name
+        # above becomes exactly one whitespace-delimited wire token - and a spec that
+        # pre-encodes would ship `Test%2520Craft` and be refused target-not-found for a
+        # vessel it named correctly.
+        self.assertIn("vessel=Test%20Craft", click)
+        self.assertNotIn("%25", click)
+        self.assertTrue(any("cmd=ExitToSpaceCenter" in l for l in lines))
+
+    # ---- the negative control -------------------------------------------
+
+    def test_wrong_scene_boot_reds_instead_of_reading_green(self):
+        result = self._run(self._ts_spec(), "scene-route-wrong")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"],
+                         "a silently-wrong-scene boot must RED; got %s (%s)"
+                         % (result["verdict"], result.get("subkind")))
+        self.assertEqual("expectation", result["subkind"])
+        self.assertEqual("FAIL", result["verifiers"]["expectations"]["status"])
+
+    def test_the_wrong_scene_run_is_green_on_every_channel_but_the_tally_pin(self):
+        """Why the WHOLE-tally pin is not optional ceremony. On the same run above,
+        every cheap signal reads clean: the driver met every step (the seam answered OK
+        - it BELIEVES it booted), batchComplete PASSes because `failed=0` is true of a
+        batch that ran nothing, the analyzer is RED=0, log-validate passes and KSP
+        exited 0. Delete the scene token from the pin and this run reports PASS."""
+        result = self._run(self._ts_spec(), "scene-route-wrong")
+        v = result["verifiers"]
+        self.assertTrue(result["driver"]["allExpectedMet"])
+        self.assertEqual("PASS", v["driverValidity"]["status"])
+        self.assertEqual("PASS", v["batchComplete"]["status"])
+        self.assertEqual(0, v["batchComplete"]["failed"])
+        self.assertEqual("PASS", v["analyzer"]["status"])
+        self.assertEqual("PASS", v["logValidate"]["status"])
+        self.assertEqual(0, result["kspExit"]["code"])
+        # ... and the one that did the work.
+        self.assertEqual("FAIL", v["expectations"]["status"])
+
+    def test_a_failed_zero_only_pin_would_have_passed_the_wrong_scene_boot(self):
+        """The B10 regression itself, reproduced. The contract this design doc's own
+        example once recommended - `BATCH_COMPLETE v1 .* failed=0\\b` - matches
+        `total=5 passed=0 failed=0 skipped=5` exactly as well as five passes. Kept as an
+        executable statement of WHY the anti-vacuity rule exists: this cell asserts the
+        weak pin reads GREEN on a run that executed zero tests."""
+        spec = self._ts_spec()
+        spec["id"] = "SMOKE-scene-ts-weakpin"
+        spec["expectations"]["logContracts"]["required"] = [
+            "BATCH_COMPLETE v1 .* failed=0\\b"]
+        result = self._run(spec, "scene-route-wrong")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "the weak pin is expected to MISS this fault -- if it now "
+                         "catches it, the anti-vacuity rationale has changed and this "
+                         "cell should be rewritten, not deleted")
+
+
 def _clean_ledger_facts():
     """A clean driver-valid facts pair (mirrors test_hlib's _clean_pass_facts) with
     every verifier PASS, so a single toggled verifier flag drives the verdict."""

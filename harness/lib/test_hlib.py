@@ -925,10 +925,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The other eleven names stay RESERVED (not v1-drivable).
+        # The remaining TEN names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
+        # WAS in this list and left it in R12 - see the R12 cells below.
         for verb in ("StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot",
                      "StashSlot", "FlySlot", "RouteCommand", "MissionConfig",
-                     "SimulateStockSwitchClick", "CrashAfterJournalPhase", "RunInvariantReport"):
+                     "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
@@ -965,14 +966,171 @@ class SpecValidationRejectTests(unittest.TestCase):
     def test_mc2_eva_verbs_implemented_not_reserved(self):
         # M-C2: EvaExit / EvaBoard / PlantFlag are NEW implemented verbs (never in the
         # RESERVED envelope), additive like SaveGame; EVA-4 added EvaChuteDeploy the same
-        # way. Verb table is 19 implemented / 11 reserved (mirrors the C#
-        # TestCommandVerbs counts).
+        # way. Verb table is 21 implemented / 10 reserved after R12 (mirrors the C#
+        # TestCommandVerbs counts: 19 + ExitToSpaceCenter additive + the
+        # SimulateStockSwitchClick promotion, which also takes reserved 11 -> 10).
         for verb in ("EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 19)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 11)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 21)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 10)
+
+    def test_r12_verbs_implemented_not_reserved(self):
+        # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
+        # ExitToSpaceCenter is ADDITIVE (never in the reserved envelope, like SaveGame
+        # and the EVA family), SimulateStockSwitchClick is a PROMOTION out of it - the
+        # first since M-C1. Both must end up implemented and neither reserved.
+        for verb in ("ExitToSpaceCenter", "SimulateStockSwitchClick"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_r12_switchclick_step_is_no_longer_rejected_as_reserved(self):
+        # The BEHAVIOURAL half of the promotion: before R12 a spec naming this verb
+        # failed validation with "is RESERVED, not v1-drivable", which is what made a
+        # switch-segment spec unauthorable. Fails if the promotion is cosmetic.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "SimulateStockSwitchClick",
+                    "args": {"site": "map", "vessel": "Test Craft"}, "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(any("SimulateStockSwitchClick" in e for e in v.errors),
+                         "SimulateStockSwitchClick wrongly flagged: %s" % list(v.errors))
+
+    def test_r12_exit_to_space_center_step_accepted(self):
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(1, {"cmd": "ExitToSpaceCenter", "expect": "OK",
+                                            "budget": 120})
+        v = self._reject(m)
+        self.assertFalse(any("ExitToSpaceCenter" in e for e in v.errors),
+                         "ExitToSpaceCenter wrongly flagged: %s" % list(v.errors))
+
+    def test_r12_verbs_are_not_two_phase_deferred(self):
+        # Neither joins DEFERRED_SEAM_VERBS, and each for its OWN reason.
+        # ExitToSpaceCenter IS two-phase but sits in the AnswerMergeDialog class (drives a
+        # scene exit, completes on the settle, 120 s), so it rides the per-verb dispatch
+        # dict; SimulateStockSwitchClick is single-phase and rides the 60 s default.
+        # Membership in DEFERRED_SEAM_VERBS is about the 540 s cap governing a
+        # spec-declared budget, which neither needs.
+        for verb in ("ExitToSpaceCenter", "SimulateStockSwitchClick"):
+            with self.subTest(verb=verb):
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertLess(hlib.dispatch_deferral_budget(verb),
+                                hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+
+    def test_r12_dispatch_budgets_mirror_c_sharp(self):
+        # Mirrors TestCommandDispatcher.DeferralBudget: ExitToSpaceCenterSeconds = 120,
+        # SimulateStockSwitchClick falls through to DefaultSeconds = 60. Without the
+        # ExitToSpaceCenter row the harness step-wait would ride 60 s + margin and could
+        # KILL a healthy KSC bootstrap at ~120 s, converting a retryable seam TIMEOUT into
+        # a terminal KILLED.
+        self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
+        self.assertEqual(hlib.required_dispatch_step_wait("ExitToSpaceCenter"), 180.0)
+
+    def test_r12_typed_refusals_map_to_finer_driver_subkinds(self):
+        # Both verbs ship a typed refusal taxonomy; without these rows every one of them
+        # collapses to the coarse driver-verdict-mismatch and the taxonomy is decorative
+        # harness-side. Retryability is unchanged either way - this refines WHICH
+        # driver-* subkind the report names. The wire msg is percent-encoded, so a
+        # compound reason arrives with its detail after %20 and matches on the head.
+        for msg, expected in (
+                ("scene-arg-invalid%20scene%3DTRACKSTATION", "driver-arg"),
+                ("dialog-required%20variant%3DRegularMerge", "driver-gate"),
+                ("dialog-required%20case%3DA-session", "driver-gate"),
+                ("site-arg-invalid%20site%3DMAP", "driver-arg"),
+                ("site-not-implemented%20site%3Dts", "driver-arg"),
+                ("target-arg-missing", "driver-arg"),
+                ("pid-arg-invalid%20pid%3Dxyz", "driver-arg"),
+                ("vessel-arg-invalid%20vessel%3D", "driver-arg"),
+                ("target-not-found%20vessel%3DNope", "driver-arg"),
+                ("target-name-ambiguous%20vessel%3DPod%20matches%3D2", "driver-arg"),
+                ("target-is-ghost%20pid%3D7", "driver-arg"),
+                ("scenario-not-ready", "driver-gate"),
+                ("cannot-switch-vessels-far", "driver-gate"),
+                ("target-already-active", "driver-gate"),
+                ("target-unloaded", "driver-gate"),
+                ("dialog-pending", "driver-dialog")):
+            with self.subTest(msg=msg):
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+        # The two POST-arm ERROR terminals are NOT refusals: they stay unmapped and
+        # ride the coarse driver-verdict-mismatch, because the verb ACTED.
+        for msg in ("switch-threw", "switch-refused-by-stock"):
+            with self.subTest(msg=msg):
+                self.assertEqual("", hlib.classify_seam_refusal_subkind(msg))
+
+    def test_r12_loadgame_scene_arg_is_validated_pre_launch(self):
+        # The seam's scene= parse is fail-closed and case-sensitive, so a typo is a typed
+        # REJECTED - but only after a whole KSP boot. Catch it in validate_spec instead,
+        # exactly as the `isolated` guard does.
+        def _scene_step(value, cmd="LoadGame"):
+            def m(s):
+                s.get("expectations", {}).pop("ledger", None)
+                s["driver"]["steps"].insert(
+                    1, {"cmd": cmd, "args": {"scene": value}, "expect": "OK"})
+            return m
+
+        for good in ("spacecenter", "trackstation"):
+            with self.subTest(scene=good):
+                v = self._reject(_scene_step(good))
+                self.assertFalse(any("args.scene" in e for e in v.errors),
+                                 "%r wrongly flagged: %s" % (good, list(v.errors)))
+        # Rejected spellings, including the two the C# doc calls out by name and
+        # `flight`, which is deliberately NOT an accepted value (a forced FLIGHT boot is
+        # not expressible and would widen known-gate 6).
+        for bad in ("TRACKSTATION", "ts", "ksc", "flight", ""):
+            with self.subTest(scene=bad):
+                v = self._reject(_scene_step(bad))
+                self.assertTrue(any("args.scene" in e for e in v.errors),
+                                "%r not rejected: %s" % (bad, list(v.errors)))
+        # The arg on a verb that does not read it is silently inert on the wire.
+        v = self._reject(_scene_step("trackstation", cmd="RecordingState"))
+        self.assertTrue(any("args.scene" in e and "only the LoadGame verb" in e
+                            for e in v.errors),
+                        "scene= on a non-LoadGame step not rejected: %s" % list(v.errors))
+
+        # A case-variant KEY would be sent and silently ignored (the C# lookup is an
+        # exact dictionary hit), so it is caught on the KEY, not the value.
+        def key_variant(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "LoadGame", "args": {"Scene": "trackstation"}, "expect": "OK"})
+        v = self._reject(key_variant)
+        self.assertTrue(any("args.Scene" in e for e in v.errors),
+                        "case-variant scene key not rejected: %s" % list(v.errors))
+
+    def test_r12_switchclick_site_arg_is_validated_pre_launch(self):
+        # Same treatment as scene=, with one deliberate difference: `ts` / `ksc` are LEGAL
+        # spellings v1 answers REJECTED site-not-implemented, so a capability-probe spec
+        # driving one with expect = "REJECTED" must still validate. Only the SPELLING is
+        # closed here, never the implementedness.
+        def _site_step(value, cmd="SimulateStockSwitchClick", expect="OK"):
+            def m(s):
+                s.get("expectations", {}).pop("ledger", None)
+                s["driver"]["steps"].insert(
+                    1, {"cmd": cmd, "args": {"site": value, "vessel": "Test Craft"},
+                        "expect": expect})
+            return m
+
+        for good in ("map", "ts", "ksc"):
+            with self.subTest(site=good):
+                v = self._reject(_site_step(good, expect="REJECTED"))
+                self.assertFalse(any("args.site" in e for e in v.errors),
+                                 "%r wrongly flagged: %s" % (good, list(v.errors)))
+        for bad in ("MAP", "trackstation", "flight", ""):
+            with self.subTest(site=bad):
+                v = self._reject(_site_step(bad))
+                self.assertTrue(any("args.site" in e for e in v.errors),
+                                "%r not rejected: %s" % (bad, list(v.errors)))
+        v = self._reject(_site_step("map", cmd="RecordingState"))
+        self.assertTrue(any("args.site" in e and
+                            "only the SimulateStockSwitchClick verb" in e
+                            for e in v.errors),
+                        "site= on a non-switchclick step not rejected: %s" % list(v.errors))
 
     def test_eva4_chute_verb_is_deferred_and_capped(self):
         # EVA-4: EvaChuteDeploy holds the FIFO head through the kerbal's whole chuted
@@ -3475,6 +3633,10 @@ class BudgetArithmeticTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 120.0)
         self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
+        # R12: ExitToSpaceCenterSeconds = 120 (sized like AnswerMergeDialog, the other
+        # scene-exit driver), and SimulateStockSwitchClick is single-phase on the default.
+        self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
         # An unlisted verb rides the 60s default (the C# DefaultSeconds).
         self.assertEqual(hlib.dispatch_deferral_budget("SetSetting"), 60.0)
         # RunTests defers to the declared scenario budget when supplied.
@@ -5356,6 +5518,22 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                      "RunTests", "InvokeRewind", "SetSetting", "RecordingState"):
             self.assertFalse(hlib.post_mission_step_gates(verb), verb)
 
+    def test_r12_verbs_are_recording_not_outcome(self):
+        # Both R12 verbs are `recording`, and each has a concrete reason to be:
+        #   ExitToSpaceCenter's OK means "SPACECENTER settled with a game loaded"; the
+        #     auto-commit it exists to reach is proven by the spec's pinned commit log
+        #     lines, so a Parsek failure to commit belongs in the expectation channel.
+        #   SimulateStockSwitchClick's OK deliberately does NOT mean "a switch segment
+        #     armed" - the consume site refuses surface targets by design and still
+        #     reports OK switched=true - so gating on it would certify nothing.
+        # Note the two axes disagree on purpose: both are WORLD-MUTATING on the tail
+        # axis (asserted in SeamVerbTailRoleTests) and `recording` here.
+        for verb in ("ExitToSpaceCenter", "SimulateStockSwitchClick"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
     def test_unknown_verb_does_not_gate(self):
         # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
         # unrecognised verb is a spec fault validate_spec already rejects, and
@@ -5524,6 +5702,19 @@ class SeamVerbTailRoleTests(unittest.TestCase):
                      "InvokeRewind", "CommitTree", "DiscardTree", "SaveGame"):
             self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                              hlib.seam_verb_tail_role(verb), verb)
+
+    def test_r12_verbs_are_world_mutating_not_cleanup(self):
+        # ExitToSpaceCenter is the trap here: it LOOKS like teardown (it leaves the
+        # flight scene) but it reaches the pending-tree AUTO-COMMIT on KSC entry, which
+        # is CommitTree's durable write arriving by another route - so it inherits
+        # CommitTree's call verbatim and must never be driven on an unmet run.
+        # FlushAndQuit already owns the quit, so nothing needs it to be cleanup.
+        # SimulateStockSwitchClick arms a real StockActionIntentMarker and switches the
+        # active vessel, starting a switch-segment branch on the live tree.
+        for verb in ("ExitToSpaceCenter", "SimulateStockSwitchClick"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                                 hlib.seam_verb_tail_role(verb))
 
     def test_read_only_verbs_are_inert_not_mislabelled_mutating(self):
         for verb in ("RecordingState", "MissionMark"):

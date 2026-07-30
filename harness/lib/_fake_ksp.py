@@ -52,6 +52,22 @@ Modes:
              category than per-category lines present (a category batch cut off before
              its BATCH_COMPLETE) -- the SF2 count-mismatch defined fault the harness must
              red batch-incomplete instead of reading green off the mis-counted aggregate.
+  scene-route-wrong
+             R12 negative control. Like `pass`, but the boot LoadGame IGNORES its
+             scene= argument: it still answers verdict=OK (with scene=SPACECENTER in the
+             payload, so the divergence is on the wire) and the batch then runs at
+             SPACECENTER with every test scene-skipped -- `total=5 passed=0 failed=0
+             skipped=5 ... scene=SPACECENTER`. This is the B10 shape verbatim: a batch
+             that executed ZERO tests while every cheap contract (`failed=0`, a nonzero
+             BATCH_COMPLETE, exit 0, a clean analyzer) reads green. The ONLY thing that
+             can red it is the anti-vacuity WHOLE-tally pin naming the scene, so a spec
+             carrying one must go PARSEK-FAIL here and PASS under `pass` -- same spec,
+             only the fake lies. See test_run_smoke.SceneRoutedBootSmokeTests.
+
+The honest modes HONOUR `scene=`: absent -> FLIGHT (the pre-R12 focusable route),
+`scene=spacecenter` -> SPACECENTER, `scene=trackstation` -> TRACKSTATION. The landing
+scene is reported on the LoadGame response AND on the BATCH_COMPLETE line, which is
+where a spec's tally pin reads it from.
 
 ASCII only; stdlib only.
 """
@@ -68,6 +84,14 @@ RESPONSES = "parsek-test-responses.txt"
 JOURNAL = "parsek-test-commands.journal"
 RESULTS = "parsek-test-results.txt"
 KSP_LOG = "KSP.log"
+
+# R12. The seam's `scene=` argument is fail-closed and lowercase-only; these are the
+# GameScenes tokens each accepted spelling lands on, and absent = the pre-R12 focusable
+# route. The fake reports the landing scene on both surfaces a real run carries it on
+# (the LoadGame response payload and the BATCH_COMPLETE line) so a scene-route spec has
+# something real to pin.
+SCENE_ARG_LANDING = {"spacecenter": "SPACECENTER", "trackstation": "TRACKSTATION"}
+DEFAULT_LANDING_SCENE = "FLIGHT"
 
 
 def _read_commands(path):
@@ -101,7 +125,8 @@ def main(argv=None):
     parser.add_argument("--mode", default="pass",
                         choices=["pass", "hang", "bootcrash", "autopilot", "autopilot-loadfail",
                                  "autopilot-kerballost", "autopilot-evarefused",
-                                 "multipass", "multinoagg", "multimismatch"])
+                                 "multipass", "multinoagg", "multimismatch",
+                                 "scene-route-wrong"])
     parser.add_argument("--max-seconds", type=float, default=120.0)
     args = parser.parse_args(argv)
 
@@ -119,6 +144,10 @@ def main(argv=None):
     processed = set()
     seq = 0
     deadline = time.time() + args.max_seconds
+    # The scene the (fake) game is sitting in. Set by LoadGame, read by RunTests when it
+    # stamps its BATCH_COMPLETE line -- the same coupling a real run has, and the whole
+    # reason a wrong-scene boot is observable at all.
+    landing_scene = DEFAULT_LANDING_SCENE
 
     while time.time() < deadline:
         for line in _read_commands(os.path.join(root, COMMANDS)):
@@ -142,6 +171,15 @@ def main(argv=None):
             # dies, so the verb's own bounded wait gives up on its named terminal.
             kerbal_lost = (args.mode == "autopilot-kerballost" and cmd == "EvaChuteDeploy")
             eva_refused = (args.mode == "autopilot-evarefused" and cmd == "EvaExit")
+            # R12 scene routing. An honest boot lands where scene= asked; the
+            # scene-route-wrong mode answers OK and lands at SPACECENTER regardless,
+            # which is the B10 fail-open shape a spec's whole-tally pin must catch.
+            if cmd == "LoadGame":
+                requested = fields.get("scene")
+                if args.mode == "scene-route-wrong":
+                    landing_scene = "SPACECENTER"
+                else:
+                    landing_scene = SCENE_ARG_LANDING.get(requested, DEFAULT_LANDING_SCENE)
             if args.mode in ("autopilot", "autopilot-loadfail", "autopilot-kerballost",
                              "autopilot-evarefused") and not load_failed:
                 # Simulate Parsek auto-record around the flown mission: start on
@@ -158,10 +196,20 @@ def main(argv=None):
                     _emit_multi_batch(log_path, category,
                                       emit_aggregate=(args.mode != "multinoagg"),
                                       count_delta=(1 if args.mode == "multimismatch" else 0))
+                elif args.mode == "scene-route-wrong":
+                    # Booted to the wrong scene, so BOTH runner filters skip every
+                    # member: total is unchanged (it counts declarations) while passed
+                    # collapses to 0. failed=0 is still true, which is exactly why
+                    # `failed=0\b` alone cannot gate this.
+                    _append(log_path,
+                            "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
+                            "passed=0 failed=0 skipped=5 category=%s scene=%s\n"
+                            % (category, landing_scene))
                 else:
                     _append(log_path,
                             "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
-                            "passed=5 failed=0 skipped=0 category=%s scene=FLIGHT\n" % category)
+                            "passed=5 failed=0 skipped=0 category=%s scene=%s\n"
+                            % (category, landing_scene))
                 _write_results(os.path.join(root, RESULTS), category)
             if eva_refused:
                 _append(responses_path,
@@ -178,7 +226,19 @@ def main(argv=None):
                         % (cid, cmd, seq))
                 continue
             verdict = "ERROR" if load_failed else "OK"
-            _append(responses_path, "id=%s cmd=%s verdict=%s seq=%d\n" % (cid, cmd, verdict, seq))
+            # Both scene-routing verbs report their LANDING scene in the payload, as the
+            # real seam does. Nothing in run.py reads it today (no payload field is ever
+            # captured -- roadmap Cause C's "no runtime-to-spec data path"), so it is on
+            # the wire for a human reading a collected channel file, and for whatever
+            # closes that gap later. The gate is the BATCH_COMPLETE tally, not this key.
+            payload = ""
+            if verdict == "OK" and cmd == "LoadGame":
+                payload = " scene=%s" % landing_scene
+            elif verdict == "OK" and cmd == "ExitToSpaceCenter":
+                landing_scene = "SPACECENTER"
+                payload = " scene=SPACECENTER"
+            _append(responses_path, "id=%s cmd=%s verdict=%s seq=%d%s\n"
+                    % (cid, cmd, verdict, seq, payload))
             if cmd == "FlushAndQuit":
                 _append(log_path, "[LOG] [Parsek][INFO][TestCommands] flushandquit: quitting (fake)\n")
                 return 0
