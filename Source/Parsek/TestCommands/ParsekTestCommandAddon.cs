@@ -1950,7 +1950,13 @@ namespace Parsek.TestCommands
                             $"{TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds.ToString("F0", CultureInfo.InvariantCulture)}s " +
                             "- driving the conclusion anyway (deferred-dialog fallback path)");
                     mergeAnswerDrivePending = false;
-                    PopupDialog drivenPopup = DriveReFlyConclusion(driveScenario);
+                    // Parity with the Execute branch (PR #1394 review): a dialog may
+                    // already be live if something else exited FLIGHT during the wait
+                    // (marker survives, deferred dialog spawned) - answer it instead of
+                    // firing a second driven exit on top of it.
+                    PopupDialog drivenPopup = FindReFlyMergePopup();
+                    if (drivenPopup == null)
+                        drivenPopup = DriveReFlyConclusion(driveScenario);
                     if (drivenPopup != null)
                     {
                         if (TryInvokeMergeButton(drivenPopup, mergeAnswerChoice, out string driveInvokeError))
