@@ -959,10 +959,22 @@ Clusters, in the design doc's phase order:
   with state invariants; a seeded random-tree fuzzer for the supersede/chain/
   closure walkers.
 - **Visual validation program** (V1-V7 in `design-testing-unified.md` §6):
-  map-dwell phases on flown missions aiming the existing parity oracle at real
-  geometry; gating the FX emission probe; always-collect + HTML contact sheets;
-  `Screenshot`/`MapCamera` seam verbs; the self-consistency double-render pixel
-  oracle; pixel-free geometric invariants; the `UiSmokeRender` window sweep.
+  **V1 LANDED 2026-07-30** (branch `v1-map-dwell`): the `V1-map-dwell-mun-orbit`
+  operator-tier scenario aims the existing parity oracle at real flown geometry
+  across time - delegated B11 flight + the R1 rewind cycle (LOAD-BEARING:
+  PlaybackScopeTracker keeps a forward-play committed tree dormant, so a dwell
+  without the rewind is structurally vacuous, measured in BDOCK-1's 674
+  post-commit ghosts=0 probe frames) + a staged kRPC map camera (new
+  `read_camera` OBSERVED channel) + a 1x hold, a rails-warp stair, and a held
+  re-cross of the recorded Kerbin->Mun SOI boundary UT, gated on the probe's
+  own nonzero-ghosts / parity-sampled summary lines. Its green runs'
+  `anomalySweep.hitCounts` / `unlistedReasons` are the calibration data the
+  anomaly count-budget arming pass (known-gate 0) waits on. Run evidence +
+  baseline: `autotest-status.md`. Still open, in order: gating the FX emission
+  probe (V2); always-collect + HTML contact sheets (V3); `Screenshot`/
+  `MapCamera` seam verbs (V4); the self-consistency double-render pixel oracle
+  (V5); pixel-free geometric invariants (V6); the `UiSmokeRender` window sweep
+  (V7).
 - **Mode-axis expansion**: a science-mode spec lane; seam-forged career fixtures
   (`KscAction` progression -> harvest, the FORGE pattern applied to career state);
   the templated mid-career matrix; `LedgerGroundTruthHarness` wired to a career

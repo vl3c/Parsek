@@ -450,7 +450,7 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings. DE-LISTED from live-proven 2026-07-25 (the first full sweep red'd it: the kerbal's canopy cut itself mid-descent and the kerbal died) and FIXED HEADLESSLY 2026-07-26 from the archived log + decompiled KerbalEVA, no new flight: (b) a >3.5 m/s collision fires `On_stumble` from `st_semi_deployed_parachute` into `st_ragdoll`, and leaving that state calls `evaChute.CutParachute()` - closed by a bounded OBSERVED pre-chute standoff on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30, debounced 2 polls, TWO non-fatal bounds - 8 s wall clock AND `standoffFloorAltMeters` 500, the latter load-bearing because the kerbal is unchuted and free-falling for the stage); (a) the MISSION cannot see the kerbal at all (its terminal is the handoff and its process exits before the EVA), so the closure is the harness-side `missionOutcome` gate plus an mlib handoff declaration. RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers) with the closure verified STRUCTURALLY rather than by the green outcome - a live kerbal proves nothing about a dead one; see the runbook + residual in `todo-and-known-bugs.md` |
 
-## Test cases (all 60 committed scenarios)
+## Test cases (all 61 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -501,13 +501,18 @@ The "Parsek surface verified" column is the reason the case exists.
 
 ### Committed, not yet live-run (0)
 
-EMPTY as of 2026-07-29, for the first time since the suite existed: all 56
-committed scenarios have at least one fully-unattended PASS. The last two
-holdouts both flew that day - S1.5-rewind-loop (69 s) and B16-eve-orbit
-(1,825 s, first flight, attempt 1) - and B1-pad-hop's chute re-prove closed the
-one de-listing. Keep this heading rather than deleting it: a new spec lands here
-until its first green run, and an empty section is the honest way to say the
-backlog is clear.
+EMPTY again as of 2026-07-30 (V1-map-dwell-mun-orbit landed here and flew the
+same day; its row now lives in the visual-validation section below). Before
+that it had been empty since 2026-07-29, when the last two holdouts
+(S1.5-rewind-loop and B16-eve-orbit) flew. Keep this heading rather than
+deleting it: a new spec lands here until its first flight, and an empty section
+is the honest way to say the backlog is clear.
+
+### Visual-validation program (V1): flown, RED BY FINDING (1)
+
+| Test case | Tier | What it proves | Cells / notes |
+|-----------|------|----------------|---------------|
+| V1-map-dwell-mun-orbit | operator | THE FIRST VISUAL-PROGRAM lane (design-testing-unified section 6, V1): aims the shipped render parity oracle (MapRenderProbe + RenderParityOracle, previously exercised only by S1.6/S1.7's one-frame synthetic fixtures) at REAL flown geometry ACROSS TIME. Machine: the LIVE-PROVEN B11 profile (delegated `mlib.b5_decide`, captureEnabled) flies and commits in the Mun SOI, then the R1-proven rewind tail (STOP -> RECORDER-IDLE -> InvokeRewind rp_b9_root -> OBSERVED backward clock) puts the flown tree back into replay scope - LOAD-BEARING, not decoration: PlaybackScopeTracker (BUG-B historical-not-replayed) keeps a forward-play committed tree DORMANT, measured in BDOCK-1's archived log (674 post-commit probe frames, all ghosts=0), so a dwell without the rewind is structurally vacuous (the S1.4 552-frames-ghosts=0 class). Then the dwell: kRPC map camera staged (OBSERVED camera_mode readback, new `read_camera` opt-in channel), native warp to just past the flown launch, 45 s held 1x, a rails stair 10x->1000x->10x, and a held 10x re-cross of the RECORDED Kerbin->Mun SOI boundary UT. Anti-vacuity pins: `probe frame summary ... ghosts=[1-9]` + `faithful-parity summary sampled=[1-9]` required (verboseLogging pinned - the summaries are VerboseRateLimited). NO anomaly budget armed, NO overTolerance gate: this scenario IS the calibration instrument known-gate 0 defers to. Post-mission tail is AnswerMergeDialog choice=DISCARD (never merge: the never-flown re-fly provisional is empty, and merging one is R1-EMPTY-PROVISIONAL, a [Parsek][ERROR]) | D6 recorded-vs-rendered-parity (first claim over non-synthetic recordings across time; gated by the two dwell tokens); D14 scene-map (gated by the OBSERVED mapCameraObserved mission row + the dwell tokens). NOT claimed: B11's flight cells, R1's D9 cells, any anomaly cell. **FLOWN TWICE 2026-07-30, both flights end-to-end green at the mission layer and RED `PARSEK-FAIL(anomaly)` on the same real finding - the intended shape of a first calibration flight, not a regression.** Flight 1 (run `2026-07-30_1955`, wall 1,598 s, OPERATOR-ASSISTED: a manual helping warp during the in-SOI coast, so it does not count as unattended): mission PASS, all 20 assertion rows met, driverValidity/analyzer/logValidate/testResults PASS, sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]`. Flight 2 (run `2026-07-30_2023`, wall 2,044 s, FULLY UNATTENDED): MISSION-OK, zero unmet rows, identical verifier picture and the IDENTICAL baseline `hitCounts={line-blink: 2}` `unlistedReasons=[]`. The sweep FAIL preempts the expectations verifier, so all 12 required pins + the forbidden-ERROR contract were evaluated MANUALLY against both collected logs (`logs/2026-07-30_2322`, `logs/2026-07-30_2357`): all 12 matched on both (130/130 nonzero-ghost probe frames, 12/12 `faithful-parity summary sampled=1 overTolerance=0` passes, zero `[Parsek][ERROR]`), so the faithful-parity `sampled>0` pin's stated measurement protocol is CLOSED - the lens measures real replayed geometry, and its 55-per-run `skip.reaimed-or-foreign-seed` passes are the injected-b9-corpus ghost, not the flown one. WHAT THE BASELINE SAYS FOR ARMING (known-gate 0): across three dwells (incl. the discarded first attempt) `line-blink` fired EXACTLY 2x per dwell on the flown MAIN recording's proto orbit line under the 100x ramp step, at ownership-handoff frames, and NOTHING else fired - zero unlisted reasons, zero icon-teleport/icon-off-orbit. So: (a) `line-blink` is deterministic on this geometry and is a REAL defect signal or a benign handoff transient - diagnose before arming (forensics: todo `V1-REPLAY-LINE-BLINK`); (b) a future budget of `{ token = "line-blink", maxCount = 2 }` would exactly fit the measured behavior IF the blink is ruled benign - do not arm it before the diagnosis; (c) the nine ungated reasons stayed SILENT on real geometry, which is the first actual evidence for the gate-vs-instrument call on them. PROMOTE TO a cadence only after the line-blink call is made (either fixed -> green runs, or ruled benign -> budgeted). An earlier same-day invocation burned two full flights on HARNESS-INJECT-FAILS-OPEN (fresh worktree; evidence appended to that todo entry) |
 
 FLAKE-LEDGER ARTIFACT worth knowing before reading `coverage/flake.json`: the
 2026-07-29 session left B1-pad-hop and S1.5-rewind-loop QUARANTINED at rate 0.50
@@ -885,6 +890,19 @@ six publish or compare numbers the runner already measured.
    OPERATOR-BLOCKED REMAINDER: (a) the per-token gate-vs-instrument call for the
    nine ungated reasons, which wants S1.4's next nightly `unlistedReasons` reading;
    (b) arming any `maxCount`, which wants a green run's `hitCounts`.
+
+   **FIRST REAL-GEOMETRY BASELINE (2026-07-30, V1-map-dwell-mun-orbit; the
+   first runs ever whose probe sampled ghosts over a sustained window):** both
+   flights (runs `2026-07-30_1955` / `2026-07-30_2023`, 130 nonzero-ghost probe
+   frames each) read `hitCounts={line-blink: 2}` and `unlistedReasons=[]` -
+   deterministic 2x per dwell, raised at ownership-handoff frames under the
+   100x ramp step (forensics: todo `V1-REPLAY-LINE-BLINK`), and the NINE
+   ungated reasons all stayed silent. That is the first actual evidence toward
+   (a) - real geometry across time raises none of the nine - and toward (b) a
+   `line-blink maxCount=2` budget on V1 IF the blink is ruled benign; do not
+   arm before that diagnosis. The zeros here are MEANINGFUL, unlike the
+   historical-corpus sweep's: these runs demonstrably exercised the path
+   (`sampled>0` on 130 summaries per flight).
 
    **HISTORICAL-CORPUS SWEEP (2026-07-29): the archive cannot size these budgets,
    and reading its zeros as "measured zero" would be a false calibration.** All 137

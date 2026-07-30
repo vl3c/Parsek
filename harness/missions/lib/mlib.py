@@ -522,6 +522,22 @@ def normalize_docking_state(name) -> str:
     return "".join(seg.capitalize() for seg in str(name).split("_"))
 
 
+def normalize_camera_mode(name) -> str:
+    """Normalize a kRPC CameraMode.name (lower_snake, e.g. 'map', 'automatic',
+    'iva') to the PascalCase spelling the V1 dwell machine gates on ('Map'), or
+    "" for an empty/None read (fail-closed: matches no gate, so a runner that
+    does not opt into the camera read can never satisfy the staged-map gate
+    with a fabricated value)."""
+    if not name:
+        return ""
+    return "".join(seg.capitalize() for seg in str(name).split("_"))
+
+
+# The camera mode the V1 map-dwell machine requires OBSERVED before the dwell
+# starts: kRPC CameraMode.map, normalized.
+CAMERA_MODE_MAP = "Map"
+
+
 # The stock parachute states the EVA-4 machine gates on, spelled as the PascalCase
 # normalization of kRPC's ParachuteState enum (decompiled
 # KRPC.SpaceCenter.Services.Parts.ParachuteState: Stowed / Armed / SemiDeployed /
@@ -843,6 +859,18 @@ ACTION_MJ_LAND_UNTARGETED = "mj_land_untargeted"           # landing_config = cf
 # follows IS the recorded landed coverage, and it must not run with a
 # still-attached autopilot holding attitude/thrust users.
 ACTION_MJ_STOP_LANDING = "mj_stop_landing"                 # value = None
+# --- V1 map-dwell camera staging (design-testing-unified section 6, V1). All
+# three are COMMANDS against kRPC's SpaceCenter.Camera surface; the machine
+# never trusts them -- the OBSERVED channel is ``TelemetrySnapshot.camera_mode``
+# (read back each poll when the control opts in via ``read_camera=True``), the
+# same commanded-vs-observed discipline as the landing/chute/executor lanes.
+# Staging a DETERMINISTIC map camera is what makes a dwell's rendered frames
+# comparable across flights (V3/V4 will consume them); the parity oracle itself
+# is camera-independent, so a failed pose write degrades observability, never
+# geometry.
+ACTION_CAMERA_SET_MAP = "camera_set_map"                   # value = None
+ACTION_CAMERA_FOCUS_BODY = "camera_focus_body"             # text = body name
+ACTION_CAMERA_SET_POSE = "camera_set_pose"                 # camera_pose = tuple
 
 # ORBIT-mission capture arming debounce (B11/B12): consecutive frames inside the
 # target SOI with a finite ABOVE-SURFACE periapsis before PLAN-CAPTURE is
@@ -2140,6 +2168,15 @@ class TelemetrySnapshot:
     # their floors, so an unread horizontal component can never certify a
     # sliding or tumbling craft as stable.
     horizontal_speed: float = float("nan")
+    # The live camera mode, normalized by normalize_camera_mode over kRPC's
+    # SpaceCenter.Camera.Mode name ("Map" / "Automatic" / ...). "" = UNREAD,
+    # the fail-closed sentinel (same discipline as craft_chute_state): it
+    # matches no gate, so a mission that does not opt into the camera read
+    # (every mission but the V1 map-dwell lane, via ``read_camera=True``) can
+    # never satisfy the staged-map-camera gate with a fabricated value. THE
+    # V1 rationale: "we set camera.mode = Map" is a COMMAND; only this read
+    # is evidence the map camera actually engaged.
+    camera_mode: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -2251,6 +2288,11 @@ class Action:
     seam_verb: Optional[str] = None
     seam_args: Optional[Tuple[Tuple[str, str], ...]] = None
     seam_tag: Optional[str] = None
+    # ACTION_CAMERA_SET_POSE payload: ``(pitchDeg, headingDeg, distanceMeters)``.
+    # A plain TUPLE (the landing_config precedent) so Action stays frozen /
+    # hashable and emitted-action equality in tests keeps working. None for
+    # every non-camera action, so no pre-existing Action moves.
+    camera_pose: Optional[Tuple[float, float, float]] = None
 
 
 def seam_command_id(reserved_id: str, tag: str) -> str:
@@ -5160,6 +5202,774 @@ def evaluate_r1_assertions(frames, params: R1Params,
          "channel": "commanded"})
 
     return [orbit, committed, recorder_idle, rewound, changed, reflew, recorded, seam]
+
+
+# ---------------------------------------------------------------------------
+# V1 map-dwell machine (mission v1_map_dwell; design-testing-unified section 6,
+# V1). Pure. Aims the SHIPPED render parity oracle (MapRenderProbe +
+# RenderParityOracle, gated live by S1.6/S1.7 over synthetic one-frame
+# fixtures) at REAL flown-mission geometry ACROSS TIME.
+#
+# WHY THE REWIND LEG EXISTS (read before "simplifying" it away). A committed
+# tree in normal forward play draws NO map ghosts: PlaybackScopeTracker (BUG-B,
+# "historical-not-replayed") keeps every committed recording dormant unless the
+# live playhead was observed at-or-before its activation start, exactly so a
+# forward playthrough never draws a duplicate ghost of a still-live vessel.
+# MEASURED, not assumed: BDOCK-1 committed mid-mission with the tracer on and
+# logged 674 post-commit `probe frame summary` lines, EVERY one ghosts=0.
+# A post-commit "map dwell" without the rewind is therefore structurally
+# vacuous -- the exact 552-frames-all-ghosts=0 green that S1.4 once passed on.
+# The ONLY unattended route that puts REAL flown recordings into replay scope
+# is the R1-proven rewind cycle: InvokeRewind lands the playhead BEFORE the
+# flown launch, the flown tree re-enters the forward path, and warping forward
+# REPLAYS the real recorded geometry as ghosts in front of the per-frame probe.
+#
+# THE MACHINE: FLIGHT delegates every frame to the live-proven B11 profile
+# (``b5_decide`` with captureEnabled -- ascent, transfer, Kerbin->Mun SOI
+# crossing, capture, park, mid-mission CommitTree). On its clean
+# ORBIT-COMMITTED terminal the R1-proven rewind tail runs (STOP ->
+# RECORDER-IDLE -> REWIND -> VERIFY, all four lifted from ``r1_decide``
+# verbatim in semantics), then the NEW dwell tail:
+#
+#   DWELL-CAMERA     stage a deterministic map camera (mode=Map, focus body,
+#                    pitch/heading/distance), OBSERVED via camera_mode readback
+#   DWELL-WARP-IN    native warp to flight_start_ut + lead (just past the
+#                    flown launch, where the replaying ghost is in early
+#                    ascent)
+#   DWELL-HOLD-1X    hold 1x for dwellHoldSeconds: per-frame probe sampling at
+#                    the densest cadence over the replayed ascent
+#   DWELL-WARP-RAMP  a rails-factor stair up and back down (the high-warp
+#                    reseed/icon behavior no scenario has ever gated), with an
+#                    early-exit guard so the ramp can never overshoot the
+#                    recorded SOI crossing
+#   DWELL-SOI-WARP   native warp to soi_entry_ut - lead
+#   DWELL-SOI-CROSS  held moderate rails across the RECORDED Kerbin->Mun SOI
+#                    boundary UT (the bodyChanged / re-frame moment)
+#   DWELL-DONE       cancel warp; terminal (verdict None -- assertions judge)
+#
+# WHAT THE DWELL PHASES ASSERT AND WHAT THEY DO NOT. The dwell drives the
+# STAGE; the MEASURING is MapRenderProbe's (per-frame, C#-side, gated by the
+# scenario's logContract pins on the probe's own summary lines). Ramp steps
+# are COMMANDED rails factors -- the machine never gates on an achieved rate
+# (the server may clamp; a clamped step still advances the stair), because a
+# warp-rate assertion here would re-derive KSP's own altitude/landed rules.
+# The UT milestones (warp-in target reached, SOI boundary UT crossed) are
+# OBSERVED off the live clock and are what make an empty dwell impossible to
+# green at the mission layer.
+#
+# THE VESSEL NEVER FLIES AGAIN, ON PURPOSE (contrast R1's RELAUNCH). The
+# rewound craft sits PRE_LAUNCH on the pad (landed => every rails factor is
+# legal) while the GHOSTS do the flying. The re-fly provisional therefore
+# stays EMPTY, which is exactly why the scenario's post-mission step must be
+# AnswerMergeDialog choice=DISCARD, never merge: merging an empty provisional
+# is the known R1-EMPTY-PROVISIONAL defect ([Parsek][ERROR] AppendRelations
+# invariant violation ... reason=empty Points) and would red the forbidden-
+# ERROR contract on every flight.
+# ---------------------------------------------------------------------------
+
+V1_FLIGHT = "FLIGHT"
+V1_STOP = "STOP"
+V1_RECORDER_IDLE = "RECORDER-IDLE"
+V1_REWIND = "REWIND"
+V1_VERIFY = "VERIFY"
+V1_CAMERA = "DWELL-CAMERA"
+V1_WARP_IN = "DWELL-WARP-IN"
+V1_HOLD = "DWELL-HOLD-1X"
+V1_RAMP = "DWELL-WARP-RAMP"
+V1_SOI_WARP = "DWELL-SOI-WARP"
+V1_SOI_CROSS = "DWELL-SOI-CROSS"
+V1_DONE = "DWELL-DONE"
+V1_PHASES: Tuple[str, ...] = (V1_FLIGHT, V1_STOP, V1_RECORDER_IDLE, V1_REWIND,
+                              V1_VERIFY, V1_CAMERA, V1_WARP_IN, V1_HOLD,
+                              V1_RAMP, V1_SOI_WARP, V1_SOI_CROSS, V1_DONE)
+
+# Per-command tags (the R1 discipline: distinct by construction so wire ids
+# never collide -- the C# seam SKIPS duplicate ids). The RECORDER-IDLE probes
+# reuse ``r1_state_probe_tag`` ("state0", "state1", ...), which is already a
+# per-probe family.
+V1_TAG_STOP = "stop"
+V1_TAG_REWIND = "rewind"
+
+# How the DWELL-WARP-RAMP ended; carried evidence for the warpRampDriven row.
+# "no-factors-configured" is the honest reading for a spec that legally sets
+# dwellRampFactors = [] (the stair is skipped entirely, V1_RAMP is never
+# entered, and the row must not claim a stair "completed" that never ran).
+V1_RAMP_ENDED_COMPLETED = "completed"
+V1_RAMP_ENDED_SOI_GUARD = "soi-guard"
+V1_RAMP_ENDED_EMPTY = "no-factors-configured"
+
+# The replay-scope tolerance for the rewoundBeforeFlightStart row, matching
+# PlaybackScopeTracker.ActivationToleranceSeconds (the C# latch enters a
+# committed recording into replay scope when the playhead is observed at or
+# before activationStart + 2.0 s). The row compares the post-rewind UT against
+# the mission's FIRST-frame UT, which is a LOWER bound on the flown recording's
+# activation start (the recording starts at launch, seconds later), so
+# post <= firstFrame + tolerance implies post <= activationStart + tolerance.
+# THE FLIGHT-1 LESSON (2026-07-30, run 1917): a strict `post <= firstFrame`
+# failed the whole otherwise-green mission on a 0.22 s gap -- the rp_b9_root
+# quicksave is authored from the SAME pre-launch pad state the mission's first
+# frame reads, so the two UTs are equal to within save/load jitter and the
+# strict form asserted against the wrong instant.
+V1_REPLAY_SCOPE_TOLERANCE_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class V1MapDwellParams:
+    """V1 map-dwell tuning. The flight half is the delegated B11 machine's own
+    params VERBATIM (``b5`` is built by ``b5_params_from_dict`` over the same
+    missionParams dict -- no new flight tuning surface); the rewind half mirrors
+    R1Params; everything else stages the dwell. Every value is a lead / hold /
+    budget, never a golden trajectory."""
+    b5: B5Params
+    # The InvokeRewind target (R1 discipline: "" / -1 = UNREAD -> frame-1
+    # fail-closed give-up, never a flown mission whose dwell was unreachable).
+    rewind_point_id: str = ""
+    rewind_slot: int = -1
+    # FRAME budgets for the seam-driven phases (game-time budgets cannot bound
+    # a phase whose clock runs backward; the seam bridge blocks inside
+    # perform() so a terminal token normally lands on the very next frame).
+    stop_frames: int = 40
+    idle_frames: int = 40
+    rewind_frames: int = 40
+    verify_frames: int = 40
+    # THE OBSERVED rewind gate (R1 verbatim).
+    min_ut_regression: float = 1.0
+    # --- Camera staging ---
+    camera_focus_body: str = "Kerbin"
+    camera_pitch_deg: float = 45.0
+    camera_heading_deg: float = 0.0
+    camera_distance_m: float = 40000000.0
+    # Frames allowed for the OBSERVED camera_mode readback to land on "Map".
+    camera_frames: int = 40
+    # --- Dwell staging ---
+    # Warp-in target = flight_start_ut + this lead: just past the flown launch,
+    # so the hold watches the replaying ghost's early ascent (atmospheric legs,
+    # the polyline surface) rather than an empty pre-launch pad.
+    dwell_start_lead: float = 60.0
+    warp_in_frames: int = 600
+    # 1x hold: the densest per-frame probe sampling window.
+    dwell_hold_seconds: float = 45.0
+    hold_frames: int = 600
+    # The rails stair, up and back down. COMMANDED factor indices; the server
+    # clamps to legality (the craft is LANDED, so every factor is legal at
+    # stock rules). Each step is held ramp_step_frames poll frames.
+    ramp_factors: Tuple[int, ...] = (2, 3, 4, 5, 4, 3, 2)
+    ramp_step_frames: int = 10
+    ramp_frames: int = 600
+    # --- The recorded-SOI-crossing leg ---
+    # Native-warp target = soi_entry_ut - this lead; the crossing is then taken
+    # at held soi_cross_factor rails until soi_entry_ut + trail.
+    soi_dwell_lead: float = 300.0
+    soi_warp_frames: int = 1200
+    soi_cross_factor: int = 2
+    soi_dwell_trail: float = 300.0
+    soi_cross_frames: int = 1200
+
+
+def v1_map_dwell_params_from_dict(params: Dict) -> V1MapDwellParams:
+    """Build ``V1MapDwellParams`` from a spec ``missionParams`` dict. The flight
+    block is parsed by ``b5_params_from_dict`` over the SAME dict, so the B11
+    keys keep their exact spellings and defaults (captureEnabled included)."""
+    params = params or {}
+    raw_factors = params.get("dwellRampFactors", None)
+    if raw_factors is None:
+        factors: Tuple[int, ...] = V1MapDwellParams.ramp_factors
+    else:
+        factors = tuple(int(v) for v in raw_factors)
+    return V1MapDwellParams(
+        b5=b5_params_from_dict(params),
+        rewind_point_id=str(params.get("rewindPointId", "") or ""),
+        rewind_slot=int(params.get("rewindSlot", -1)),
+        stop_frames=int(params.get("stopFrames", 40)),
+        idle_frames=int(params.get("idleFrames", 40)),
+        rewind_frames=int(params.get("rewindFrames", 40)),
+        verify_frames=int(params.get("verifyFrames", 40)),
+        min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
+        camera_focus_body=str(params.get("cameraFocusBody", "Kerbin")),
+        camera_pitch_deg=float(params.get("cameraPitchDeg", 45.0)),
+        camera_heading_deg=float(params.get("cameraHeadingDeg", 0.0)),
+        camera_distance_m=float(params.get("cameraDistanceMeters", 40000000.0)),
+        camera_frames=int(params.get("cameraFrames", 40)),
+        dwell_start_lead=float(params.get("dwellStartLeadSeconds", 60.0)),
+        warp_in_frames=int(params.get("dwellWarpInFrames", 600)),
+        dwell_hold_seconds=float(params.get("dwellHoldSeconds", 45.0)),
+        hold_frames=int(params.get("dwellHoldFrames", 600)),
+        ramp_factors=factors,
+        ramp_step_frames=int(params.get("dwellRampStepFrames", 10)),
+        ramp_frames=int(params.get("dwellRampFrames", 600)),
+        soi_dwell_lead=float(params.get("soiDwellLeadSeconds", 300.0)),
+        soi_warp_frames=int(params.get("soiDwellWarpFrames", 1200)),
+        soi_cross_factor=int(params.get("soiDwellCrossFactor", 2)),
+        soi_dwell_trail=float(params.get("soiDwellTrailSeconds", 300.0)),
+        soi_cross_frames=int(params.get("soiDwellCrossFrames", 1200)),
+    )
+
+
+@dataclass(frozen=True)
+class V1MapDwellState:
+    """V1 map-dwell machine state. ``flight`` is the nested, delegated B11
+    machine (``B5State`` with captureEnabled params); ``done`` fires at
+    V1_DONE (verdict None -- the assertions judge the carried evidence) or on
+    a named give-up."""
+    params: V1MapDwellParams
+    flight: "B5State"
+    phase: str = V1_FLIGHT
+    phase_entry_ut: float = 0.0
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (V1_FLIGHT,)
+    # --- flown-geometry UT stamps (OBSERVED during the flight leg; the dwell
+    # steers by these, never by ghost telemetry it cannot read) ---
+    # The first mission frame's UT: the floor the rewind must land below for
+    # the flown tree to re-enter replay scope.
+    flight_start_ut: float = float("nan")
+    # The first frame the ACTIVE vessel's SOI body read the transfer target:
+    # the recorded Kerbin->Mun crossing UT the dwell re-visits.
+    soi_entry_ut: float = float("nan")
+    # --- rewind-cycle evidence (R1 verbatim) ---
+    stop_result: str = ""
+    rewind_result: str = ""
+    rewind_reject_reason: str = ""
+    state_probe: int = 0
+    recorder_idle_reading: str = ""
+    recorder_idle_observed: bool = False
+    pre_rewind_ut: float = float("nan")
+    pre_rewind_altitude: float = float("nan")
+    pre_rewind_situation: str = ""
+    post_rewind_ut: float = float("nan")
+    post_rewind_altitude: float = float("nan")
+    post_rewind_situation: str = ""
+    ut_regression: float = float("nan")
+    # --- dwell evidence ---
+    # Latched TRUE only on an OBSERVED camera_mode == "Map" readback.
+    camera_map_observed: bool = False
+    # Game seconds actually spent in DWELL-HOLD-1X (exit ut - entry ut).
+    hold_elapsed: float = float("nan")
+    # Ramp progress: NEXT stair index, and how the ramp ended ("" = never ran).
+    ramp_index: int = 0
+    ramp_step_frame: int = 0
+    ramp_ended_reason: str = ""
+    # UT stamped on DWELL-SOI-CROSS exit: >= soi_entry_ut + trail proves the
+    # dwell's live clock actually crossed the recorded boundary UT while the
+    # probe sampled.
+    soi_cross_exit_ut: float = float("nan")
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    done: bool = False
+    loss_reason: Optional[str] = None
+
+
+def v1_map_dwell_initial_state(params: V1MapDwellParams) -> V1MapDwellState:
+    """Fresh V1 machine at FLIGHT, carrying a fresh nested B11 machine."""
+    return V1MapDwellState(params=params, flight=b5_initial_state(params.b5))
+
+
+def _v1_enter(state: V1MapDwellState, new_phase: str, ut: float) -> V1MapDwellState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        phase_frames=0,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == V1_DONE),
+    )
+
+
+def _v1_flake(state: V1MapDwellState, reason: str) -> V1MapDwellState:
+    """Terminate with MISSION-FLAKE and a DISTINCTLY NAMED reason (the R1
+    discipline: every give-up names which of the ways the cycle can stall
+    actually fired)."""
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _v1_stop_action() -> Action:
+    # Idempotent-OK whether or not the post-commit promotion re-armed a
+    # recorder (see _r1_stop_action).
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="StopRecording",
+                  seam_args=(), seam_tag=V1_TAG_STOP)
+
+
+def _v1_state_action(probe: int) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
+                  seam_args=(), seam_tag=r1_state_probe_tag(probe))
+
+
+def _v1_rewind_action(params: V1MapDwellParams) -> Action:
+    return Action(
+        ACTION_PARSEK_SEAM_COMMAND, seam_verb="InvokeRewind",
+        seam_args=(("rp", str(params.rewind_point_id)),
+                   ("slot", str(int(params.rewind_slot)))),
+        seam_tag=V1_TAG_REWIND)
+
+
+def _v1_camera_actions(params: V1MapDwellParams) -> List[Action]:
+    return [
+        Action(ACTION_CAMERA_SET_MAP),
+        Action(ACTION_CAMERA_FOCUS_BODY, text=params.camera_focus_body),
+        Action(ACTION_CAMERA_SET_POSE,
+               camera_pose=(params.camera_pitch_deg, params.camera_heading_deg,
+                            params.camera_distance_m)),
+    ]
+
+
+def _v1_soi_target(state: V1MapDwellState) -> float:
+    """The native-warp target for the SOI leg: soi_entry_ut - lead. NaN when
+    the crossing UT was never observed (fail closed: no target to warp to)."""
+    if not _is_finite(state.soi_entry_ut):
+        return float("nan")
+    return state.soi_entry_ut - state.params.soi_dwell_lead
+
+
+def v1_map_dwell_decide(state: V1MapDwellState,
+                        snapshot: TelemetrySnapshot
+                        ) -> Tuple[V1MapDwellState, List[Action]]:
+    """Advance the V1 map-dwell machine one frame; return (new_state, actions).
+
+    FLIGHT delegates every frame to ``b5_decide`` over the nested state (and
+    stamps flight_start_ut / soi_entry_ut off the live snapshot as it goes).
+    The rewind tail advances ONLY on its own tagged terminal tokens / the
+    OBSERVED backward clock (R1 verbatim). The dwell tail advances on OBSERVED
+    UT milestones and frame-held stair steps; every give-up is distinctly
+    named."""
+    if state.done:
+        return state, []
+
+    # PRE-FLIGHT FAIL-CLOSED (R1 verbatim): a mission whose rewind target
+    # cannot resolve must say so on frame 1, not after a ~20-minute flight.
+    if state.phase == V1_FLIGHT and state.phase_frames == 0:
+        if not state.params.rewind_point_id or state.params.rewind_slot < 0:
+            return _v1_flake(
+                state,
+                "phase %s: rewind target unresolved before launch "
+                "(rewindPointId=%r rewindSlot=%d); InvokeRewind matches the "
+                "RewindPoint id EXACTLY, so an unset target can only ever be "
+                "REJECTED unknown-rp / unknown-slot"
+                % (V1_FLIGHT, state.params.rewind_point_id,
+                   state.params.rewind_slot)), []
+
+    state = replace(state, phase_frames=state.phase_frames + 1)
+
+    # OBSERVED flown-geometry stamps, taken while the flight leg lives. Both
+    # are stamp-once latches.
+    if state.phase == V1_FLIGHT:
+        if not _is_finite(state.flight_start_ut) and _is_finite(snapshot.ut):
+            state = replace(state, flight_start_ut=snapshot.ut)
+        if (not _is_finite(state.soi_entry_ut)
+                and snapshot.body == state.params.b5.target_body
+                and _is_finite(snapshot.ut)):
+            state = replace(state, soi_entry_ut=snapshot.ut)
+
+    # Runner-signaled vessel loss. SUPPRESSED in REWIND only (the scene reload
+    # legitimately destroys the active vessel there; the R1 rationale).
+    if snapshot.vessel_lost and state.phase != V1_REWIND:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost (unreadable after repeated telemetry "
+                         "failures) in phase %s" % state.phase)), []
+
+    if state.phase == V1_FLIGHT:
+        flight, actions = b5_decide(state.flight, snapshot)
+        st = replace(state, flight=flight)
+        if not flight.done:
+            return st, actions
+        # The nested machine terminated. A loss terminal is a deterministic
+        # failure; a flake is a flake; only a clean ORBIT-COMMITTED opens the
+        # rewind cycle.
+        if flight.loss_reason:
+            return replace(st, done=True, verdict=MISSION_ASSERT_FAIL,
+                           loss_reason=("flight leg: %s" % flight.loss_reason)), actions
+        if flight.verdict is not None:
+            return _v1_flake(
+                st,
+                "phase %s: the delegated B11 flight leg terminated %s in its "
+                "phase %s (the dwell was never reached)"
+                % (V1_FLIGHT, flight.verdict,
+                   flight.flake_phase or flight.phase)), actions
+        if B5_ORBIT_COMMITTED not in flight.phases_reached:
+            return _v1_flake(
+                st,
+                "phase %s: the delegated B11 flight leg reported done with a "
+                "clean verdict but never reached %s (phases=%s)"
+                % (V1_FLIGHT, B5_ORBIT_COMMITTED,
+                   list(flight.phases_reached))), actions
+        if not _is_finite(st.soi_entry_ut):
+            # Fail CLOSED here rather than discover it after the rewind: with
+            # no observed crossing UT the SOI leg has no target, and a dwell
+            # that silently skipped its headline moment must not read green.
+            return _v1_flake(
+                st,
+                "phase %s: the flight leg completed but the %s SOI-entry UT "
+                "was never observed off the live body channel, so the dwell "
+                "has no recorded crossing to re-visit"
+                % (V1_FLIGHT, st.params.b5.target_body)), actions
+        return (_v1_enter(st, V1_STOP, snapshot.ut),
+                list(actions) + [_v1_stop_action()])
+
+    if state.phase == V1_STOP:
+        result = _r1_seam_result(snapshot, V1_TAG_STOP)
+        if result == "OK":
+            return (_v1_enter(replace(state, stop_result="OK", state_probe=0),
+                              V1_RECORDER_IDLE, snapshot.ut),
+                    [_v1_state_action(0)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _v1_flake(
+                replace(state, stop_result=result),
+                "phase %s: the StopRecording seam command returned %s (%s); "
+                "the recorder cannot be confirmed stopped, and InvokeRewind "
+                "is refused `recording-active` while one is live"
+                % (V1_STOP, result,
+                   _r1_because(_r1_reject_reason(snapshot, V1_TAG_STOP)))), []
+        if state.phase_frames > state.params.stop_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the StopRecording seam command never answered "
+                "within %d frames" % (V1_STOP, state.params.stop_frames)), []
+        return state, []
+
+    if state.phase == V1_RECORDER_IDLE:
+        # The dispatcher's `recording-active` gate carried as an OBSERVED
+        # precondition (R1 flight-1 lesson, verbatim semantics).
+        tag = r1_state_probe_tag(state.state_probe)
+        result = _r1_seam_result(snapshot, tag)
+        if result == "OK":
+            reading = _r1_seam_payload(snapshot, tag, "recording")
+            if reading == "false":
+                st = replace(state, recorder_idle_reading=reading,
+                             recorder_idle_observed=True,
+                             pre_rewind_ut=snapshot.ut,
+                             pre_rewind_altitude=snapshot.altitude,
+                             pre_rewind_situation=snapshot.situation or "")
+                return (_v1_enter(st, V1_REWIND, snapshot.ut),
+                        [_v1_rewind_action(state.params)])
+            if reading == "true":
+                st = replace(state, recorder_idle_reading=reading,
+                             state_probe=state.state_probe + 1)
+                if st.phase_frames > st.params.idle_frames:
+                    return _v1_flake(
+                        st,
+                        "phase %s: StopRecording reported OK but "
+                        "RecordingState still read recording=true after %d "
+                        "frames (%d probe(s)); InvokeRewind would be REJECTED "
+                        "`recording-active`"
+                        % (V1_RECORDER_IDLE, st.params.idle_frames,
+                           st.state_probe)), []
+                return st, [_v1_state_action(st.state_probe)]
+            return _v1_flake(
+                replace(state, recorder_idle_reading=reading),
+                "phase %s: the RecordingState reply carried no readable "
+                "`recording` field (read %r); refusing to command "
+                "InvokeRewind on an unverified gate"
+                % (V1_RECORDER_IDLE, reading)), []
+        if result in ("ERROR", "TIMEOUT"):
+            return _v1_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); "
+                "the recorder-idle precondition could not be observed"
+                % (V1_RECORDER_IDLE, result,
+                   _r1_because(_r1_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > state.params.idle_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered "
+                "within %d frames"
+                % (V1_RECORDER_IDLE, state.params.idle_frames)), []
+        return state, []
+
+    if state.phase == V1_REWIND:
+        result = _r1_seam_result(snapshot, V1_TAG_REWIND)
+        if result == "OK":
+            return _v1_enter(replace(state, rewind_result="OK"),
+                             V1_VERIFY, snapshot.ut), []
+        if result in ("ERROR", "TIMEOUT"):
+            reason = _r1_reject_reason(snapshot, V1_TAG_REWIND)
+            return _v1_flake(
+                replace(state, rewind_result=result,
+                        rewind_reject_reason=reason),
+                "phase %s: the InvokeRewind seam command returned %s for "
+                "rp=%s slot=%d; %s"
+                % (V1_REWIND, result, state.params.rewind_point_id,
+                   state.params.rewind_slot, _r1_because(reason))), []
+        if state.phase_frames > state.params.rewind_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the InvokeRewind seam command never answered "
+                "within %d frames" % (V1_REWIND, state.params.rewind_frames)), []
+        return state, []
+
+    if state.phase == V1_VERIFY:
+        # THE OBSERVED GATE (R1 verbatim): did the game clock actually run
+        # backward.
+        regression = float("nan")
+        if _is_finite(state.pre_rewind_ut) and _is_finite(snapshot.ut):
+            regression = state.pre_rewind_ut - snapshot.ut
+        if _is_finite(regression) and regression >= state.params.min_ut_regression:
+            st = replace(state,
+                         post_rewind_ut=snapshot.ut,
+                         post_rewind_altitude=snapshot.altitude,
+                         post_rewind_situation=snapshot.situation or "",
+                         ut_regression=regression)
+            # Stage the camera on the transition frame; DWELL-CAMERA then
+            # OBSERVES the mode readback before any warp is commanded.
+            return (_v1_enter(st, V1_CAMERA, snapshot.ut),
+                    _v1_camera_actions(state.params))
+        if state.phase_frames > state.params.verify_frames:
+            return _v1_flake(
+                replace(state, ut_regression=regression),
+                "phase %s: InvokeRewind reported OK but the OBSERVED game "
+                "clock never ran backward within %d frames (preUT=%s "
+                "postUT=%s regression=%s s, required >= %.1f s)"
+                % (V1_VERIFY, state.params.verify_frames,
+                   _obs_fmt(state.pre_rewind_ut), _obs_fmt(snapshot.ut),
+                   _obs_fmt(regression), state.params.min_ut_regression)), []
+        return state, []
+
+    if state.phase == V1_CAMERA:
+        if snapshot.camera_mode == CAMERA_MODE_MAP:
+            st = replace(state, camera_map_observed=True)
+            target = st.flight_start_ut + st.params.dwell_start_lead
+            if _is_finite(snapshot.ut) and snapshot.ut >= target - 1.0:
+                # Already at/past the warp-in target (a deep rewind is not
+                # guaranteed): hold immediately.
+                return _v1_enter(st, V1_HOLD, snapshot.ut), []
+            return (_v1_enter(st, V1_WARP_IN, snapshot.ut),
+                    [Action(ACTION_WARP_TO_UT, target)])
+        if state.phase_frames > state.params.camera_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the map camera was COMMANDED but camera_mode "
+                "never read %r within %d frames (last read %r). A dwell "
+                "without an observed map camera cannot claim the map render "
+                "surface it exists to exercise"
+                % (V1_CAMERA, CAMERA_MODE_MAP, state.params.camera_frames,
+                   snapshot.camera_mode)), []
+        return state, []
+
+    if state.phase == V1_WARP_IN:
+        target = state.flight_start_ut + state.params.dwell_start_lead
+        if _is_finite(snapshot.ut) and snapshot.ut >= target - 1.0:
+            return (_v1_enter(state, V1_HOLD, snapshot.ut),
+                    [Action(ACTION_CANCEL_WARP)])
+        if state.phase_frames > state.params.warp_in_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the native warp toward flight_start+lead "
+                "(target UT %s) never arrived within %d frames (ut=%s)"
+                % (V1_WARP_IN, _obs_fmt(target), state.params.warp_in_frames,
+                   _obs_fmt(snapshot.ut))), []
+        return state, []
+
+    if state.phase == V1_HOLD:
+        elapsed = float("nan")
+        if _is_finite(snapshot.ut) and _is_finite(state.phase_entry_ut):
+            elapsed = snapshot.ut - state.phase_entry_ut
+        if _is_finite(elapsed) and elapsed >= state.params.dwell_hold_seconds:
+            st = replace(state, hold_elapsed=elapsed,
+                         ramp_index=0, ramp_step_frame=0)
+            factors = st.params.ramp_factors
+            if not factors:
+                # A legal empty stair: skip V1_RAMP entirely, honestly marked
+                # (never "completed" -- no stair ran).
+                st = replace(st, ramp_ended_reason=V1_RAMP_ENDED_EMPTY)
+                return (_v1_enter(st, V1_SOI_WARP, snapshot.ut),
+                        [Action(ACTION_WARP_TO_UT, _v1_soi_target(st))])
+            return (_v1_enter(st, V1_RAMP, snapshot.ut),
+                    [Action(ACTION_SET_RAILS_WARP, float(factors[0]))])
+        if state.phase_frames > state.params.hold_frames:
+            return _v1_flake(
+                replace(state, hold_elapsed=elapsed),
+                "phase %s: the 1x hold never accumulated %.0f game seconds "
+                "within %d frames (elapsed=%s); the game clock is not "
+                "advancing" % (V1_HOLD, state.params.dwell_hold_seconds,
+                               state.params.hold_frames, _obs_fmt(elapsed))), []
+        return state, []
+
+    if state.phase == V1_RAMP:
+        # EARLY-EXIT GUARD, checked before the stair advances: never let the
+        # high-factor steps overshoot the recorded SOI crossing. The guard
+        # hands off to the crossing leg with the ramp honestly marked
+        # "soi-guard" rather than "completed".
+        soi_target = _v1_soi_target(state)
+        if (_is_finite(soi_target) and _is_finite(snapshot.ut)
+                and snapshot.ut >= soi_target):
+            st = replace(state, ramp_ended_reason=V1_RAMP_ENDED_SOI_GUARD)
+            return (_v1_enter(st, V1_SOI_CROSS, snapshot.ut),
+                    [Action(ACTION_SET_RAILS_WARP,
+                            float(st.params.soi_cross_factor))])
+        step_frame = state.ramp_step_frame + 1
+        if step_frame >= state.params.ramp_step_frames:
+            nxt = state.ramp_index + 1
+            if nxt >= len(state.params.ramp_factors):
+                st = replace(state, ramp_index=nxt, ramp_step_frame=0,
+                             ramp_ended_reason=V1_RAMP_ENDED_COMPLETED)
+                return (_v1_enter(st, V1_SOI_WARP, snapshot.ut),
+                        [Action(ACTION_CANCEL_WARP),
+                         Action(ACTION_WARP_TO_UT, soi_target)])
+            st = replace(state, ramp_index=nxt, ramp_step_frame=0)
+            return st, [Action(ACTION_SET_RAILS_WARP,
+                               float(st.params.ramp_factors[nxt]))]
+        st = replace(state, ramp_step_frame=step_frame)
+        if st.phase_frames > st.params.ramp_frames:
+            return _v1_flake(
+                st,
+                "phase %s: the warp stair never finished within %d frames "
+                "(stair index %d of %d)"
+                % (V1_RAMP, st.params.ramp_frames, st.ramp_index,
+                   len(st.params.ramp_factors))), []
+        return st, []
+
+    if state.phase == V1_SOI_WARP:
+        target = _v1_soi_target(state)
+        if _is_finite(snapshot.ut) and _is_finite(target) \
+                and snapshot.ut >= target - 1.0:
+            return (_v1_enter(state, V1_SOI_CROSS, snapshot.ut),
+                    [Action(ACTION_SET_RAILS_WARP,
+                            float(state.params.soi_cross_factor))])
+        if state.phase_frames > state.params.soi_warp_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the native warp toward the recorded SOI crossing "
+                "(target UT %s) never arrived within %d frames (ut=%s)"
+                % (V1_SOI_WARP, _obs_fmt(target),
+                   state.params.soi_warp_frames, _obs_fmt(snapshot.ut))), []
+        return state, []
+
+    if state.phase == V1_SOI_CROSS:
+        end = state.soi_entry_ut + state.params.soi_dwell_trail
+        if _is_finite(snapshot.ut) and snapshot.ut >= end:
+            st = replace(state, soi_cross_exit_ut=snapshot.ut)
+            return (_v1_enter(st, V1_DONE, snapshot.ut),
+                    [Action(ACTION_CANCEL_WARP)])
+        if state.phase_frames > state.params.soi_cross_frames:
+            return _v1_flake(
+                state,
+                "phase %s: the held rails crossing never reached "
+                "soi_entry+trail (target UT %s) within %d frames (ut=%s)"
+                % (V1_SOI_CROSS, _obs_fmt(end), state.params.soi_cross_frames,
+                   _obs_fmt(snapshot.ut))), []
+        return state, []
+
+    if state.phase == V1_DONE:
+        return state, []
+
+    return _v1_flake(state, "phase %s: unreachable machine phase" % state.phase), []
+
+
+def evaluate_v1_map_dwell_assertions(
+        frames, params: V1MapDwellParams,
+        state: Optional[V1MapDwellState] = None) -> List["AssertionOutcome"]:
+    """V1's assertion rows: the FULL delegated B11 row set over the nested
+    flight state (the flight leg must hold to the same standard it holds as a
+    standalone nightly), then the rewind rows (R1 semantics), then the dwell
+    rows. Every dwell row is machine-CARRIED evidence stamped on the frame
+    that produced it, so ``frames`` rides the shared evaluate seam unused."""
+    st = state
+    phases = tuple(getattr(st, "phases_reached", ()) or ())
+    flight = getattr(st, "flight", None)
+    flight_phases = tuple(getattr(flight, "phases_reached", ()) or ())
+
+    rows: List[AssertionOutcome] = list(evaluate_b5_assertions(
+        frames, params.b5,
+        phases_reached=flight_phases,
+        min_target_altitude=getattr(flight, "min_target_altitude", None),
+        state=flight))
+
+    idle_reading = str(getattr(st, "recorder_idle_reading", "") or "")
+    idle_met = (bool(getattr(st, "recorder_idle_observed", False))
+                and idle_reading == "false"
+                and V1_REWIND in phases)
+    rows.append(AssertionOutcome(
+        "recorderIdleBeforeRewind", idle_met, (idle_reading or None),
+        {"required": V1_REWIND, "seamVerb": "RecordingState",
+         "stopSeamResult": str(getattr(st, "stop_result", "") or "") or None,
+         "probes": int(getattr(st, "state_probe", 0)) + 1,
+         "channel": "observed"}))
+
+    regression = getattr(st, "ut_regression", float("nan"))
+    rewound_met = (_is_finite(regression)
+                   and regression >= params.min_ut_regression)
+    rows.append(AssertionOutcome(
+        "clockRewound", rewound_met, regression,
+        {"required": V1_CAMERA,
+         "minRegressionSeconds": params.min_ut_regression,
+         "preUt": _json_safe(getattr(st, "pre_rewind_ut", float("nan"))),
+         "postUt": _json_safe(getattr(st, "post_rewind_ut", float("nan"))),
+         "channel": "observed"}))
+
+    # THE REPLAY-SCOPE PRECONDITION, observed: the rewind landed the playhead
+    # BEFORE the flown mission's first frame. PlaybackScopeTracker latches a
+    # committed recording into replay scope only when the live playhead is
+    # observed at-or-before its activation start, so a rewind that lands
+    # AFTER flight_start leaves the flown tree dormant and the whole dwell
+    # vacuous -- this row is what names that failure instead of leaving it to
+    # the logContract miss.
+    post_ut = getattr(st, "post_rewind_ut", float("nan"))
+    start_ut = getattr(st, "flight_start_ut", float("nan"))
+    scope_met = (_is_finite(post_ut) and _is_finite(start_ut)
+                 and post_ut <= start_ut + V1_REPLAY_SCOPE_TOLERANCE_SECONDS)
+    rows.append(AssertionOutcome(
+        "rewoundBeforeFlightStart", scope_met,
+        _json_safe(post_ut),
+        {"flightStartUt": _json_safe(start_ut),
+         "toleranceSeconds": V1_REPLAY_SCOPE_TOLERANCE_SECONDS,
+         "why": "PlaybackScopeTracker enters a committed recording into "
+                "replay scope when the playhead is observed at-or-before its "
+                "activation start + 2.0 s; the mission's first-frame UT is a "
+                "LOWER bound on that activation start (launch is later), so "
+                "this comparison is conservative-sound",
+         "channel": "observed"}))
+
+    cam_met = (bool(getattr(st, "camera_map_observed", False))
+               and (V1_WARP_IN in phases or V1_HOLD in phases))
+    rows.append(AssertionOutcome(
+        "mapCameraObserved", cam_met,
+        (CAMERA_MODE_MAP if getattr(st, "camera_map_observed", False) else None),
+        {"required": CAMERA_MODE_MAP,
+         "focusBody": params.camera_focus_body,
+         "channel": "observed"}))
+
+    hold = getattr(st, "hold_elapsed", float("nan"))
+    # V1_SOI_WARP is the empty-stair exit (dwellRampFactors = [] skips V1_RAMP
+    # entirely), so either successor phase proves the hold completed.
+    hold_met = (_is_finite(hold)
+                and hold >= params.dwell_hold_seconds - 1.0
+                and (V1_RAMP in phases or V1_SOI_WARP in phases))
+    rows.append(AssertionOutcome(
+        "dwellHeld1x", hold_met, _json_safe(hold),
+        {"requiredSeconds": params.dwell_hold_seconds,
+         "channel": "observed"}))
+
+    ramp_reason = str(getattr(st, "ramp_ended_reason", "") or "")
+    ramp_met = ramp_reason in (V1_RAMP_ENDED_COMPLETED, V1_RAMP_ENDED_SOI_GUARD,
+                               V1_RAMP_ENDED_EMPTY)
+    rows.append(AssertionOutcome(
+        "warpRampDriven", ramp_met, (ramp_reason or None),
+        {"factors": list(params.ramp_factors),
+         "stairIndexReached": int(getattr(st, "ramp_index", 0)),
+         # COMMANDED, honestly labelled: the stair advances on held frames,
+         # never on an achieved warp rate (the server may clamp a factor).
+         "channel": "commanded"}))
+
+    soi_ut = getattr(st, "soi_entry_ut", float("nan"))
+    rows.append(AssertionOutcome(
+        "soiEntryUtObservedInFlight", _is_finite(soi_ut), _json_safe(soi_ut),
+        {"targetBody": params.b5.target_body, "channel": "observed"}))
+
+    exit_ut = getattr(st, "soi_cross_exit_ut", float("nan"))
+    crossed_met = (_is_finite(exit_ut) and _is_finite(soi_ut)
+                   and exit_ut >= soi_ut + params.soi_dwell_trail - 1.0
+                   and V1_DONE in phases)
+    rows.append(AssertionOutcome(
+        "dwellCrossedRecordedSoiUt", crossed_met, _json_safe(exit_ut),
+        {"recordedSoiEntryUt": _json_safe(soi_ut),
+         "trailSeconds": params.soi_dwell_trail,
+         "why": "the dwell's LIVE clock re-crossed the recorded Kerbin->%s "
+                "boundary UT while the per-frame probe sampled"
+                % params.b5.target_body,
+         "channel": "observed"}))
+
+    return rows
 
 
 # ---------------------------------------------------------------------------

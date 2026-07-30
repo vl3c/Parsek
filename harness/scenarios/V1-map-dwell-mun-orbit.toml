@@ -1,0 +1,349 @@
+# =============================================================================
+# V1 MAP-DWELL (design-testing-unified section 6, V1): aim the SHIPPED render
+# parity oracle (MapRenderProbe + RenderParityOracle, gated one-frame-synthetic
+# by S1.6/S1.7) at REAL flown-mission geometry ACROSS TIME.
+#
+# THE SHAPE: the live-proven B11 profile flies and commits in the Mun SOI
+# (delegated mlib.b5_decide with captureEnabled -- byte-identical machine to
+# the four B11 flights on record), then the R1-proven rewind tail runs (STOP ->
+# RECORDER-IDLE -> InvokeRewind -> the OBSERVED backward clock), then the NEW
+# dwell: a deterministic kRPC map camera is staged (OBSERVED via the
+# camera_mode readback), the clock warps to just past the flown launch, holds
+# 1x, drives a rails-factor stair up and back down, and finally re-crosses the
+# RECORDED Kerbin->Mun SOI boundary UT at held moderate rails -- all while the
+# per-frame probe samples the REPLAYING ghosts of the just-flown mission.
+#
+# WHY THE REWIND LEG IS LOAD-BEARING (the anti-vacuity doctrine, S1.4's
+# 552-probe-frames-all-ghosts=0 green being the enemy): a committed tree in
+# normal forward play draws NO map ghosts. PlaybackScopeTracker (BUG-B,
+# `historical-not-replayed`) keeps every committed recording dormant unless
+# the live playhead was observed at-or-before its activation start. MEASURED,
+# not assumed: BDOCK-1 committed mid-mission with the tracer on and logged 674
+# post-commit `probe frame summary` lines, EVERY one `ghosts=0`
+# (logs/2026-07-24_0718_BDOCK-1-station-interceptor). A "dwell after commit"
+# without the rewind is therefore structurally vacuous. The rewind lands the
+# playhead BEFORE the flown launch (rp_b9_root sits at the fixture's pre-launch
+# UT; R1 measured the regression live), the flown tree re-enters replay scope,
+# and warping forward REPLAYS the real recorded geometry in front of the
+# probe. The mission carries that precondition as the OBSERVED
+# `rewoundBeforeFlightStart` assertion row.
+#
+# WHY DISCARD, NEVER MERGE, in the post-mission tail: this lane never flies
+# the rewound craft (the ghosts do the flying), so the re-fly provisional
+# stays EMPTY. Merging an empty provisional is the KNOWN R1-EMPTY-PROVISIONAL
+# defect (`TryCommitReFlySupersede: orchestrator threw
+# InvalidOperationException: AppendRelations invariant violation ... reason=
+# empty Points`, a [Parsek][ERROR] line) and would red the forbidden-ERROR
+# contract on every flight. `choice = "discard"` disposes the never-flown
+# provisional through the product's own abandon path and leaves every
+# committed tree (the flown B11 tree AND the injected b9 corpus) untouched.
+#
+# TIER: operator, reason (b) EXPENSIVE AND NOT YET GREEN (the R1 precedent).
+# Worst case is ~4,900 s x `retry.policy = "once"` = ~2.7 h, so a systematic
+# failure must never ride a nightly until cost and flake data exist.
+# PROMOTE TO: a cadence is a HUMAN call after green flights land run ids,
+# wall time and the anomaly baseline in docs/dev/autotest-status.md.
+#
+# GATING DISCIPLINE (first flights):
+#  - REQUIRED tokens make an empty dwell impossible: the probe summary with
+#    NONZERO ghosts and the faithful-parity summary with NONZERO sampled (see
+#    the logContracts block for line provenance + the measurement protocol).
+#  - NO anomaly count budget is armed and parity overTolerance is NOT gated:
+#    the green-run frequency of icon-teleport / icon-off-orbit / parity drift
+#    on REAL geometry is exactly the unknown this scenario exists to measure.
+#    The run's `anomalySweep.unlistedReasons` + `hitCounts` (report-only
+#    channels) are the calibration output; they go into autotest-status.md and
+#    are what the later arming pass sizes budgets from.
+#  - claim-is-not-gate: only D6 recorded-vs-rendered-parity and D14 scene-map
+#    are claimed, and each is named to the required token / observed assertion
+#    that actually gates it on a green run.
+# =============================================================================
+schema = 1
+id = "V1-map-dwell-mun-orbit"
+tier = "operator"
+description = "V1 visual validation: fly and commit the B11 Mun-orbit profile, rewind so the flown tree re-enters replay scope, stage a deterministic kRPC map camera, and dwell (1x hold, warp ramp, recorded-SOI re-cross) while the per-frame MapRenderProbe + RenderParityOracle measure the REPLAYING real geometry."
+instanceProfile = "stock-minimal"
+tags = ["V1", "visual", "map-dwell", "render-parity", "rewind", "mun", "mechjeb",
+        "pending-operator"]
+
+[fixture]
+# The B11 fixture VERBATIM (the stock Kerbal X on the pad) with rewind-b9
+# injected ON TOP so a rewind TARGET exists at all -- the same composition R1
+# flies, for the same reason: a Kerbal X ascent authors NO RewindPoint (only a
+# multi-controllable split does), and InvokeRewind matches RewindPointId
+# EXACTLY, so the injected rp_b9_root is the only nameable target. The RP's
+# quicksave carries the fixture's PRE-LAUNCH pad state, which is exactly what
+# the dwell wants: the rewind must land BEFORE the flown launch for the flown
+# tree to re-enter replay scope.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "v1_map_dwell"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams]
+# header (a key after the sub-table header would be scoped to
+# driver.missionParams.steps and the spec would validate as having zero steps).
+#
+# SETTINGS, all three explicit:
+#  - autoRecordOnLaunch=true: the flight leg IS a live recording (the B11
+#    contract; "Recording started" gates it).
+#  - mapRenderTracing=true: MANDATORY and explicit. run.py writes a
+#    deterministic tracers-OFF baseline at stage AND teardown (the 2026-07-26
+#    settings-sidecar lesson), so nothing is inherited: a scenario that wants
+#    the tracer arms it itself. Without it MapRenderProbe never runs and the
+#    whole dwell is dark.
+#  - verboseLogging=true: the probe's two summary lines go out through
+#    ParsekLog.VerboseRateLimited (MapRenderProbe.cs), which early-returns on
+#    !IsVerboseEnabled. S1.6/S1.7 inherit this from their fixture save and
+#    carry a documented caveat; this spec pins the dependency explicitly.
+#
+# AnswerMergeDialog is a POST-mission step (its completion contract requires
+# the scene to LEAVE FLIGHT, which ends the mission's kRPC telemetry -- the
+# R1/EVA-4 split). It is world-mutating, so on an UNMET mission the default
+# skipTailOnUnmetMission drops it and only FlushAndQuit runs.
+#
+# BUDGET ARITHMETIC (M-A5 S8). Mission: the B11 lane's own measured band
+# (~1,300 nominal / ~2,100 worst with a bounded capture re-plan) + the rewind
+# cycle (~120: seam commit/stop/state polls + the InvokeRewind scene reload)
+# + the dwell (~400: warp-in <=60, hold 45, stair ~40, native SOI warp <=120,
+# crossing ~60 at 10x over 600 game-s, margin) => ~2,600 worst; 3600 is ~1.4x
+# that. Runtime: LoadGame max(240,600)+60 = 660 (deferred verb) + 3 SetSetting
+# x60 + 3600 mission + 240 AnswerMergeDialog + 60 FlushAndQuit = 4740; +160
+# margin = 4900.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "mapRenderTracing",   value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 3600 },
+  { cmd = "AnswerMergeDialog", args = { choice = "discard" },             expect = "OK", budget = 240 },
+  { cmd = "FlushAndQuit",                                                 expect = "OK" },
+]
+
+[driver.missionParams]
+# ---- FLIGHT half: the B11 spec's LIVE-PROVEN values VERBATIM (validated
+# against v1_map_dwell.schema.toml, whose flight block is B11's). Re-tuning
+# any of these here would silently fork the certified flight profile.
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# ---- REWIND half: R1's proven target pair. rp_b9_root / slot 1 are the
+# identifiers RewindB9Fixture bakes (slot 1 = the crashed booster), the same
+# pair R1 and S4.1 drive. Frame budgets, not game seconds: past the rewind the
+# clock runs backward.
+rewindPointId              = "rp_b9_root"
+rewindSlot                 = 1
+stopFrames                 = 40
+idleFrames                 = 40
+rewindFrames               = 40
+verifyFrames               = 40
+# rp_b9_root sits at the fixture's pre-launch UT, well before the ~6-game-hour
+# B11 flight's end; the regression is hours. 5 s is a floor against float
+# noise, never a tuned target.
+minUtRegressionSeconds     = 5.0
+
+# ---- DWELL half. Camera: focus Kerbin at 40,000 km -- frames the whole Mun
+# orbit (radius 12,000 km) so the replayed ascent, transfer AND the crossing
+# stay in view; pitch/heading pinned for cross-flight determinism (pose values
+# are clamped runner-side to the camera's live bounds).
+cameraFocusBody            = "Kerbin"
+cameraPitchDeg             = 45.0
+cameraHeadingDeg           = 0.0
+cameraDistanceMeters       = 40000000
+cameraFrames               = 40
+# Warp-in: land the clock just past the flown launch, where the replaying
+# ghost is in early ascent (the atmospheric/polyline surface).
+dwellStartLeadSeconds      = 60.0
+dwellWarpInFrames          = 600
+# The densest sampling window: 45 game seconds at 1x (~45 wall s, ~9 probe
+# rate-limit periods).
+dwellHoldSeconds           = 45.0
+dwellHoldFrames            = 600
+# The stair: 10x -> 50x -> 100x -> 1000x and back (stock rails table indices
+# 2..5). Each step held 10 poll frames (~5 wall s). Total stair game-time
+# ~6,100 s -- comfortably short of the ~16,000 s gap to the recorded SOI
+# crossing, and the machine's SOI guard exits the stair early rather than
+# overshoot. COMMANDED factors: the craft is LANDED (pre-launch pad), so every
+# stock factor is legal; the machine never gates on an achieved rate.
+dwellRampFactors           = [2, 3, 4, 5, 4, 3, 2]
+dwellRampStepFrames        = 10
+dwellRampFrames            = 600
+# The headline moment: native-warp to soi_entry - 300 s, then cross the
+# RECORDED Kerbin->Mun boundary UT at held 10x (factor 2) until entry + 300 s.
+# ~600 game-s at 10x = ~60 wall s of dense sampling bracketing the crossing.
+soiDwellLeadSeconds        = 300.0
+soiDwellWarpFrames         = 1200
+soiDwellCrossFactor        = 2
+soiDwellTrailSeconds       = 300.0
+soiDwellCrossFrames        = 1200
+
+# Coverage. claim-is-not-gate, applied strictly:
+#  - D6 recorded-vs-rendered-parity: gated by the two required dwell tokens
+#    below -- the probe tracked NONZERO ghosts and the faithful-parity lens
+#    MEASURED (sampled>0) on real replayed geometry. This is the first D6
+#    claim over non-synthetic recordings ACROSS TIME (S1.6/S1.7 are one-frame
+#    synthetic).
+#  - D14 scene-map: gated by the mission's OBSERVED mapCameraObserved row
+#    (camera_mode readback == Map; an unmet mission assertion fails the
+#    MISSION-OK expect) plus the same dwell tokens, which only the map/TS
+#    render path emits.
+# NOT claimed, deliberately: the B11 flight cells (D1/D3/D4/D14 mun etc.) --
+# B11 owns them; re-claiming here adds ledger noise, not coverage. NOT claimed:
+# R1's D9 rewind cells -- this spec drives the same machinery but R1 is the
+# spec that PROVES it; a second claim gates nothing new. NOT claimed: any D6
+# anomaly cell -- the nine raised-but-ungated reasons stay report-only here BY
+# DESIGN (this scenario is their calibration instrument, not their gate).
+[dimensionsCovered]
+D6  = ["recorded-vs-rendered-parity"]
+D14 = ["scene-map"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and
+# a bare key after an `[expectations.<sub>]` header is TOML-scoped to that
+# sub-table (hlib.validate_spec REJECTS the misplaced form).
+#
+# EMPTY ON PURPOSE, and NOT the S1.6/S1.7 "zero tolerated anomalies" claim:
+# with no budget armed, every Tier-C raise on this run lands in the REPORT-ONLY
+# `anomalySweep.hitCounts` / `unlistedReasons` channels (shipped 2026-07-29)
+# instead of moving the verdict. That is the point of the first flights: the
+# green-run frequency of icon-teleport / icon-off-orbit on real geometry is
+# the unknown this scenario measures, and known-gate 0 in autotest-status.md
+# says budgets are sized from a green run's hitCounts, never guessed. Arming
+# any maxCount here before that data exists would convert an unexercised path
+# into a gate that reds the first time it works.
+allowedAnomalies = []
+
+[expectations.recordings]
+# FLOOR, not a pin. On disk at run end: the flown B11 topology (8 on every
+# archived run of this fixture at HEAD: 1 main + 6 booster debris + 1
+# flameout-staged core -- see the B11 spec's measured accounting) PLUS the
+# injected rewind-b9 corpus PLUS whatever the discarded re-fly session leaves.
+# The composition makes an exact pin run-shaped, so the floor guards "the
+# rewind did not eat the committed corpus" (the R1 rationale: a rewind that
+# lost committed state sinks below the flown count) and the flown topology is
+# guarded by the terminal logContract token instead.
+count = { min = 9 }
+
+[expectations.logContracts]
+# Every token is sourced from its ACTUAL emitting call site, and every one was
+# verified REACHABLE before pinning -- with the measurement protocol for the
+# two dwell tokens stated honestly:
+#
+# FLIGHT half (all VERIFIED in archived B11 logs, e.g.
+# logs/2026-07-25_0253_B11-mun-orbit + the B11 spec's own flown evidence):
+#   "Recording started" / "Recording stopped" - the lifecycle pair.
+#   "SOI change boundary suppressed in tree mode: Kerbin to Mun" - THE
+#       foreground Kerbin->Mun crossing (ParsekFlight.HandleSoiChangeSplit);
+#       without it the lane could green a mission that never left Kerbin.
+#   "CommitTreeFlight: starting tree commit at UT=" + "committree
+#       committed=true" - the mid-mission seam commit ran and returned OK.
+#   "CommitTreeFlight terminal: ... terminalOrbitBody=Mun" - the headline
+#       B11 claim: the tree closed ORBITING THE MUN (flown+proven 2026-07-25).
+#       The Kerbin/Destroyed sibling rows and the exact count=8 pin stay in
+#       B11's spec; the injected corpus + re-fly residue make them
+#       composition-shaped here.
+#
+# REWIND half (all VERIFIED in archived R1 runs, e.g. 2026-07-28_1509):
+#   "Re-Fly \(Rewind-to-Separation\) StartInvoke" + "Invocation complete" -
+#       the pre-load phase entered AND the post-load consume completed
+#       (RewindInvoker.cs); both firing distinguishes an end-to-end re-fly
+#       from a verb that merely returned.
+#   "ConsumePostLoad: restoring bundle with route-retire cutoffUT=" +
+#       "Restored: recs=.* pendingScience=" - the reconciliation bundle
+#       carried the committed state (the flown tree included) across the RP
+#       load; this is what "the rewind did not eat the corpus" looks like in
+#       the log.
+#   NO "Added N supersede relations" token, deliberately: that is the MERGE
+#       path's row (R1 owns it); this lane DISCARDS.
+#
+# DWELL half - THE ANTI-VACUITY PINS. Line shapes from MapRenderProbe.cs
+# (LateUpdate summary + the faithful-parity pass accounting), both
+# VerboseRateLimited (hence the verboseLogging SetSetting):
+#   "probe frame summary frame=\d+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]*" -
+#       the per-frame probe TRACKED AND SAMPLED at least one live map ghost.
+#       The nonzero-ghosts shape is VERIFIED reachable in archived logs
+#       (S1.6 2026-07-26_1207 / S1.7 2026-07-26_1316: "ghosts=1 sampled=1");
+#       every ghostless run in the archive reads ghosts=0, so this token is
+#       exactly the line between a real dwell and S1.4's vacuous green.
+#   "faithful-parity summary sampled=[1-9][0-9]* overTolerance=[0-9]+" - the
+#       faithful orbit-parity lens MEASURED at least one ghost orbit.
+#       MEASUREMENT PROTOCOL, stated honestly: no archived log shows
+#       sampled>0 (S1.6/S1.7's synthetic ghosts read "sampled=0" with skip
+#       accounting -- their parity flows through the in-game category's own
+#       seam instead). A replaying committed recording on the live-clock path
+#       is precisely the case the lens exists for, so flight 1 is the
+#       measurement; if its green log shows the lens standing down with a
+#       skip reason instead, this token gets re-pinned from that evidence and
+#       the header rewritten -- re-derived, never silently weakened below
+#       "nonzero ghosts sampled".
+#   overTolerance is deliberately NOT constrained ([0-9]+, any value) and
+#       there is NO forbidden overTolerance pattern (contrast S1.7): parity
+#       drift frequency on real geometry is this scenario's measurement
+#       output, not its gate -- first flights must be able to OBSERVE drift
+#       without dying on it.
+required  = ["Recording started",
+             "Recording stopped",
+             "SOI change boundary suppressed in tree mode: Kerbin to Mun",
+             "CommitTreeFlight: starting tree commit at UT=",
+             "committree committed=true",
+             "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Mun",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+             "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience=",
+             "probe frame summary frame=\\d+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]*",
+             "faithful-parity summary sampled=[1-9][0-9]* overTolerance=[0-9]+"]
+# The forbidden-ERROR contract and NOTHING else. It is load-bearing here twice
+# over: it is what caught R1-EMPTY-PROVISIONAL (and why this spec discards),
+# and it is the only hard line a real render/rewind defect on these first
+# flights must cross to red the run. No anomaly tokens, no overTolerance
+# forbid -- see the gating-discipline header.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# See the step-level budget arithmetic above the steps table.
+budgetSeconds = 4900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
