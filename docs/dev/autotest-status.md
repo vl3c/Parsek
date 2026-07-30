@@ -544,11 +544,12 @@ joined afterward, arriving with the Basic/Advanced UI-mode feature, and flew
 separately. `H23` joined 2026-07-30 with R12 and is the ONE that breaks the shape in
 a load-bearing way: its LoadGame carries `scene = "trackstation"`, so it is the first
 committed spec whose batch runs anywhere other than FLIGHT or the KSC. Counting `H21`'s isolated `SceneExitMerge` alongside them, driven
-categories go 8 -> 24 of 98. Declarations inside a driven category go 125 -> 206 of
+categories go 8 -> 25 of 98. Declarations inside a driven category go 125 -> 216 of
 542, and the subset that actually EXECUTES (surviving both runner filters at the scene
-each spec drives) goes 103 -> 184. All 79 declarations this group adds execute; the
-whole 22-declaration gap sits in the eight pre-existing driven categories, over half of it at FLIGHT rather than
-SPACECENTER (`GhostMap` alone is 9) and 4 of it `AllowBatchExecution=false` rather
+each spec drives) goes 103 -> 193. Of the 89 declarations this group adds, 88 execute -
+H23's single `AllowBatchExecution=false` declaration is the one exception; the rest of
+the 23-declaration gap sits in the eight pre-existing driven categories, over half of it at FLIGHT rather than
+SPACECENTER (`GhostMap` alone is 9) and 4 more of it `AllowBatchExecution=false` rather
 than scene-skipped. Per-category decomposition is in the inventory doc.
 
 EVIDENCE STANDING FOR THE WHOLE GROUP: **ALL 14 OF THE WAVE FLOWN 2026-07-27**

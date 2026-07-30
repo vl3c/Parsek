@@ -125,6 +125,10 @@ count = { min = 0, max = 0 }
 # 5. The deferred terminal, which DecideLoadCompletion emits only once SPACECENTER is
 #    settled with a game loaded - so it is simultaneously the verb's OK and the
 #    "we actually landed at the KSC" assertion behind the D14 scene-ksc claim.
+# 6. "Recording started" (out of emission order - it fires before group 1): the proof
+#    the recorder was LIVE when the exit fired, i.e. the exit exercised the
+#    finalize-a-real-recording path and not an empty-tree pass-through. Presence
+#    checks are unordered, so listing it last does not constrain when it fired.
 required  = [
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None",
   "exittospacecenter driving scene-exit dest=SPACECENTER persisted=true",
