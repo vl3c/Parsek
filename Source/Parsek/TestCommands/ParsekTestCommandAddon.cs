@@ -1090,6 +1090,12 @@ namespace Parsek.TestCommands
         // the sibling ParsekTestCommandAddon.ExitToSpaceCenter.cs partial.
         void ITestCommandExecutor.ExitToSpaceCenter(ParsedCommand cmd) => ExitToSpaceCenterImpl(cmd);
 
+        // R12 stock switch click: the body lives in the sibling
+        // ParsekTestCommandAddon.SimulateSwitchClick.cs partial. Single-phase - the switch
+        // and Parsek's consume both complete synchronously inside SetActiveVessel - so it
+        // has no TryComplete* counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.SimulateStockSwitchClick(ParsedCommand cmd) => SimulateStockSwitchClickImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1115,6 +1121,7 @@ namespace Parsek.TestCommands
                 case "PlantFlag": exec.PlantFlag(cmd); break;
                 case "EvaChuteDeploy": exec.EvaChuteDeploy(cmd); break;
                 case "ExitToSpaceCenter": exec.ExitToSpaceCenter(cmd); break;
+                case "SimulateStockSwitchClick": exec.SimulateStockSwitchClick(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

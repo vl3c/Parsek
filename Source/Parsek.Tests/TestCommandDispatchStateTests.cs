@@ -38,6 +38,7 @@ namespace Parsek.Tests
             public void PlantFlag(ParsedCommand cmd) => Calls.Add("PlantFlag");
             public void EvaChuteDeploy(ParsedCommand cmd) => Calls.Add("EvaChuteDeploy");
             public void ExitToSpaceCenter(ParsedCommand cmd) => Calls.Add("ExitToSpaceCenter");
+            public void SimulateStockSwitchClick(ParsedCommand cmd) => Calls.Add("SimulateStockSwitchClick");
         }
 
         [Fact]
@@ -75,6 +76,7 @@ namespace Parsek.Tests
         [InlineData("PlantFlag", "RequiresFlight")]
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
+        [InlineData("SimulateStockSwitchClick", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -105,6 +107,7 @@ namespace Parsek.Tests
             fake.PlantFlag(cmd);
             fake.EvaChuteDeploy(cmd);
             fake.ExitToSpaceCenter(cmd);
+            fake.SimulateStockSwitchClick(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

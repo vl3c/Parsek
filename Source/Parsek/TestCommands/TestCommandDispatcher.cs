@@ -169,6 +169,9 @@ namespace Parsek.TestCommands
 
         // ----- R12 (scene routing) -----
         void ExitToSpaceCenter(ParsedCommand cmd);
+
+        // ----- R12 (stock switch click; the promoted reserved verb) -----
+        void SimulateStockSwitchClick(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -240,6 +243,15 @@ namespace Parsek.TestCommands
                 // (StartRecording / InvokeRewind / TimeJump / the EVA family). The verb's
                 // REAL refusals - the wedge guard - are executor-side and typed REJECTED.
                 ["ExitToSpaceCenter"] = VerbSceneRequirement.RequiresFlight,
+                // R12. SimulateStockSwitchClick reproduces the map-view "Switch To" click,
+                // which only exists in FLIGHT (the map view is a FLIGHT overlay), so FLIGHT is
+                // a hard precondition. RequiresFlight for the same reason ExitToSpaceCenter
+                // uses it: the wrong-scene case is overwhelmingly a scene still settling from
+                // the previous step, and the budget still bounds a spec that never gets there.
+                // When site=ts / site=ksc land they will need their OWN scenes, which is a
+                // sub-gate question for that change, not a reason to widen this entry now -
+                // both are typed REJECTED (site-not-implemented) today.
+                ["SimulateStockSwitchClick"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -360,6 +372,20 @@ namespace Parsek.TestCommands
                     // recorder is the whole point - the exit is what finalizes the tree and
                     // reaches the auto-commit. Rejecting on Recording here would refuse the
                     // only case the verb exists for.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
+                    break;
+
+                case "SimulateStockSwitchClick":
+                    // Same pair as ExitToSpaceCenter, for the same two reasons: a vessel
+                    // switch mid-load would race the boot channel's own scene change, and a
+                    // re-fly merge journal mid-finalize must not be raced by a driven switch
+                    // (an unloaded target's switch is itself a scene reload). NO
+                    // recording-active guard, and deliberately so: a live recorder is the
+                    // PRECONDITION for the switch-segment cases this verb exists to exercise,
+                    // not a hazard. The dialog / scope refusals are executor-side and typed.
                     if (state.LoadInFlight)
                         return DispatchResult.Reject("load-in-flight");
                     if (state.MergeJournalInFlight)
@@ -499,7 +525,10 @@ namespace Parsek.TestCommands
                 case "ExitToSpaceCenter":
                     return ExitToSpaceCenterSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
-                // action itself is immediate).
+                // action itself is immediate). SimulateStockSwitchClick rides it too: it is
+                // SINGLE-phase (the switch and its consume are synchronous inside
+                // SetActiveVessel), so the budget only bounds the not-in-flight DEFER - a
+                // scene settle, exactly what the default is sized for.
                 default:
                     return DefaultSeconds;
             }

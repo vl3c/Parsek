@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12): 20 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12): 21 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -43,6 +43,12 @@ namespace Parsek.TestCommands
         // TestCommandExitToSpaceCenter). R12's OTHER half is an additive `scene=` ARG on the
         // existing LoadGame verb, which needs no table entry at all - that is exactly the
         // envelope-stability property the design's "readers ignore unknown keys" clause buys.
+        // R12 ALSO PROMOTED SimulateStockSwitchClick out of the reserved list below (20 -> 21
+        // implemented, 11 -> 10 reserved). That one IS a promotion in the strict sense the
+        // comment above describes: the wire token is byte-identical before and after, and
+        // only the response changes (REJECTED not-implemented-v1 -> a real terminal), so no
+        // existing spec's bytes move. It is the first reserved name to be promoted since
+        // M-C1.
         private static readonly HashSet<string> ImplementedVerbs = new HashSet<string>
         {
             "SetSetting",
@@ -65,9 +71,11 @@ namespace Parsek.TestCommands
             "PlantFlag",
             "EvaChuteDeploy",
             "ExitToSpaceCenter",
+            "SimulateStockSwitchClick",
         };
 
-        // Reserved (recognized, not implemented in v1): 11 verbs.
+        // Reserved (recognized, not implemented in v1): 10 verbs.
+        // SimulateStockSwitchClick left this set in R12 (see the implemented-table comment).
         private static readonly HashSet<string> ReservedVerbs = new HashSet<string>
         {
             "StartLoopPlayback",
@@ -78,7 +86,6 @@ namespace Parsek.TestCommands
             "FlySlot",
             "RouteCommand",
             "MissionConfig",
-            "SimulateStockSwitchClick",
             "CrashAfterJournalPhase",
             "RunInvariantReport",
         };

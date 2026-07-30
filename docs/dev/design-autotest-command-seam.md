@@ -369,10 +369,9 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > Update (R12): scene routing. Roadmap item R12 closes Cause C ("scene entry is
 > two-valued") in two independent pieces, delivered below as **A1** (an additive `scene=`
 > ARGUMENT on the existing `LoadGame` verb) and **A2** (a new additive verb
-> `ExitToSpaceCenter`), bringing the implemented table to 20. R12's other capability,
-> `SimulateStockSwitchClick`, is a PROMOTION out of the reserved list above and is
-> documented in its own subsection appended to this block; until it lands the reserved
-> count stays at 11.
+> `ExitToSpaceCenter`), plus **B** (`SimulateStockSwitchClick`), which is a PROMOTION out of
+> the reserved list above rather than an addition to it. The three together bring the
+> implemented table to 21 and the reserved list to 10.
 
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 
@@ -514,6 +513,160 @@ commit / auto-commit log lines, not through this verb's payload.
   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=<n>s", `Error`
   "exittospacecenter failed-returned-to-menu ...", or `Error` "exittospacecenter timeout
   ...".
+
+#### R12/B - `SimulateStockSwitchClick` (the promoted reserved verb)
+
+**What it closes.** kRPC's `active_vessel` setter calls `FlightGlobals.SetActiveVessel`
+DIRECTLY and bypasses the patched stock handler entirely, so a switch-segment scenario
+driven through the mission driver certifies the WRONG code path: no
+`StockActionIntentMarker` is armed, the consume site reads `NoIntent`, no segment starts,
+and the scenario goes green while `MapFocusObjectOnSelectPatch` rots. This verb reproduces
+the CLICK's own contract - the marker, then the same `SetActiveVessel` the patched handler
+performs. It is the first PROMOTION out of the reserved list since M-C1 (implemented
+20 -> 21, reserved 11 -> 10); the wire token is byte-identical before and after, only the
+response changes.
+
+**Contract.** FLIGHT-only (dispatch precondition `RequiresFlight`; the map view is a FLIGHT
+overlay). SINGLE-phase: after the unloaded-target refusal below the whole path is
+synchronous - `SetActiveVessel` fires `onVesselSwitching` -> `MakeActive` ->
+`onVesselChange` (hence Parsek's consume) INSIDE the call - so there is nothing left to
+wait for and a two-phase terminal would hold the FIFO head polling for an event that
+already happened. At-most-once is unaffected: the pump journals CLAIMED before invoking ANY
+executor, so a crash mid-switch replays as INTERRUPTED and never re-switches. It rides the
+default 60 s budget, which therefore only ever bounds the `not-in-flight` DEFER. Two
+dispatch-level rejects mirror `ExitToSpaceCenter`: `load-in-flight` and
+`merge-journal-in-flight`. There is deliberately NO `recording-active` reject - a live
+recorder is the PRECONDITION for the switch-segment cases the verb exists to exercise.
+
+**Arguments.**
+
+| arg | values | meaning |
+|---|---|---|
+| `site` | `map` \| `ts` \| `ksc` | absent = `map`. v1 drives `map` only. |
+| `vessel` | exact vessel name (percent-encoded) | target by name. |
+| `pid` | `persistentId` (uint) | target by pid. WINS when both are given. |
+
+`vessel=` exists because live pids are not spec-addressable - a TOML author cannot know the
+pid a launch will get - the same stable-addressing problem `InvokeRewind` solved. `pid=`
+wins when both are supplied because it is the unambiguous selector (KSP dedups
+`persistentId` among CURRENTLY-LIVE vessels; names are freely duplicated), so a spec that
+supplies both gets the precise one rather than a refusal to debug. The `site=` parse is
+fail-closed and case-sensitive like `LoadGame`'s `scene=`; the `pid=` parse is
+`NumberStyles.Integer` + `InvariantCulture`, the seam's one numeric-arg style (shared with
+`EvaBoard`'s `targetPid`), which tolerates surrounding whitespace. The asymmetry is
+deliberate: a mis-spelled site silently drives the wrong click, stray whitespace around a
+number cannot mis-target anything. Target resolution sweeps `FlightGlobals.Vessels` (NOT
+`VesselsLoaded` - the unloaded case must be DETECTED and refused with its own reason, not
+read as "no such vessel") and excludes Parsek ghosts, which are real entries in that list.
+
+**Typed-error taxonomy.** Every refusal below happens BEFORE any side effect and therefore
+rides `REJECTED`, per the seam's existing verdict split (a no-side-effect refusal is
+`REJECTED`, a terminal after the verb ACTED is `ERROR`). The two `ERROR`s are the only
+post-arm outcomes.
+
+| verdict | `msg` | when |
+|---|---|---|
+| REJECTED | `site-arg-invalid site=<raw>` | `site=` present and not one of the three spellings (incl. empty, `MAP`, `trackstation`) |
+| REJECTED | `site-not-implemented site=<ts\|ksc>` | a known site v1 does not drive |
+| REJECTED | `target-arg-missing` | neither `vessel=` nor `pid=` |
+| REJECTED | `pid-arg-invalid pid=<raw>` | `pid=` present and not a uint |
+| REJECTED | `vessel-arg-invalid vessel=` | `vessel=` present but empty |
+| REJECTED | `target-not-found <pid=N\|vessel=X>` | no live vessel matched |
+| REJECTED | `target-name-ambiguous vessel=<name> matches=<n>` | more than one live vessel carries that name |
+| REJECTED | `target-is-ghost <pid=N\|vessel=X>` | the only matches were Parsek ghost map vessels |
+| REJECTED | `scenario-not-ready` | `ParsekScenario.Instance` is null (nothing can hold the marker) |
+| REJECTED | `cannot-switch-vessels-far` | the Prefix's gate 5 is off, so stock would not arm at all |
+| REJECTED | `target-already-active` | the target IS the active vessel (a guaranteed no-op) |
+| REJECTED | `dialog-required case=<A-session\|B-unloaded\|C-loaded-separate-committed>` | a pre-switch merge dialog would spawn |
+| REJECTED | `dialog-pending` | a merge dialog is already open (the Prefix's re-entry branch) |
+| REJECTED | `target-unloaded` | the target is out of the physics bubble (v1 scope) |
+| ERROR | `switch-threw` | `SetActiveVessel` threw |
+| ERROR | `switch-refused-by-stock` | the call returned but the active vessel is not the target |
+
+Three of those deserve their reasons stated:
+
+- **The dialog cases are refusals, never driven dialogs.** The real Prefix has three dialog
+  branches - Case A (armed `SwitchSegmentSession`, different target), Case B (no session, an
+  in-flight recording, unloaded target), Case C (no session, an in-flight recording, a
+  LOADED separate previously-committed target) - plus a re-entry branch when a popup is
+  already open. A seam verb cannot answer a `ControlTypes.All`-locking modal
+  (`AnswerMergeDialog` is `markerLive`-gated to the re-fly popup alone), so each is a typed
+  refusal naming the case. The classification comes from the patch's OWN
+  `DecidePreSwitchDialogAction`, called with the same seven inputs the Prefix computes,
+  including the Case C committed-tree lookup - a restatement of the predicate would drift
+  out of step with the product's case analysis, and Case C would have been missed entirely.
+  The case tokens are byte-identical to the Prefix's own `openCase` log string.
+- **`target-already-active` and `switch-refused-by-stock` exist to prevent a green no-op.**
+  Stock `SetActiveVessel` returns false without switching for an already-active vessel, six
+  `ClearToSave` reasons (not in atmosphere, under acceleration, moving over surface, about
+  to crash, on a ladder, throttled up), and a non-`Owned` discovery level. The first is
+  knowable before arming and refuses; the rest are caught AFTER the call by comparing the
+  OBSERVED active vessel against the target.
+- **`target-unloaded` is v1 scope, not a bug.** An unloaded target sends stock through
+  `onVesselSwitchingToUnloaded` + `FlightDriver.StartAndFocusVessel` - a FLIGHT scene reload
+  that the 2 s `MapSwitchTo` TTL cannot survive, and which by DESIGN starts no segment (the
+  patch's Postfix clears `refused-no-switch` and the new scene has no in-scene marker). It
+  would also make an otherwise-synchronous verb straddle a scene load. Refusing keeps v1
+  in-bubble and honest. `dialog-required case=B-unloaded` outranks it when a recording is
+  live, so the design's named case is what a spec sees.
+
+**Marker fidelity (the load-bearing guarantee).** The marker is built FIELD-FOR-FIELD as
+`MapFocusObjectOnSelectPatch` builds it at both of its arm sites: `Action = MapSwitchTo`,
+`SourceScene = Flight`, `TargetVesselPersistentId` = the target's pid, `CapturedRealtime` =
+`Time.realtimeSinceStartup`, `CapturedUT` = `Planetarium.GetUniversalTime()` behind the same
+null guard, `ProcessSessionId` = `ParsekProcess.ProcessSessionId`, `IntentId` = a fresh
+GUID. **The TTL is not an input and must never become one**: it is derived from `Action`
+(2 s for `MapSwitchTo`) and re-evaluated by the consume site's `EvaluateStaleness` on every
+path. Lengthening it, or arranging to skip that evaluation, would certify a marker lifetime
+no player click can produce - which is the very failure the verb exists to close. A unit
+cell pins the marker's field SET so an eighth field added later cannot be silently left at
+its default by the factory.
+
+The verb also performs the patch's **Postfix-equivalent cleanup itself** - it has no Harmony
+Postfix - clearing the marker with the identical `refused-no-switch` reason under the
+identical "still armed under MY IntentId" guard. Without it a refused switch would leave an
+armed marker for the NEXT switch in the same 2 s window to mis-consume.
+
+**Consume-outcome contract.** The payload reports what was ARMED (`intentId`, `targetPid`,
+`targetName`, `site`, `route`) and what was OBSERVED after the call (`activeVesselPid`,
+`switched`) - never what the consume site DECIDED. The consume runs synchronously inside
+`SetActiveVessel` and is already fully instrumented (`TryConsumeStockActionIntent` logs its
+route, and on a refusal `FormatRefusalDiagnostic` plus the clear reason), so re-deriving the
+outcome into the payload would duplicate a grep-stable signal and invite the two to
+disagree. The verb does not wait for it. The observed pair is not optional decoration: a
+payload that reported only "we armed and called" would be a commanded-not-observed claim,
+and `switched=false` is what turns a stock refusal into a red.
+
+**NOTE FOR SPEC AUTHORS - the surface-target trap.** The consume REFUSES surface targets by
+design (`Refused_OnSurfaceTarget` / clear reason `on-surface-defer-to-trigger`, deferring to
+the normal auto-record trigger): the switch still happens and the verb still reports
+`OK switched=true`, but NO segment arms. Every existing harness fixture launches from the
+pad, so a switch-segment scenario that targets a landed/pre-launch/splashed vessel will read
+green and certify nothing. A live proof of segment-arming must target a genuinely FLYING /
+ORBITING vessel and assert on the consume LOG line, not on this verb's verdict.
+
+**What v1 leaves for later**: `site=ts` / `site=ksc` (both cross scenes into a fresh FLIGHT
+load and must go through their own patched handlers - the TS one runs
+`RemoveAllGhostVesselsBeforeStockFly`, a live-list/saved-file index desync fix a hand-rolled
+`FlightDriver.StartAndFocusVessel` would reintroduce), unloaded targets, and any
+dialog-driving route.
+
+**Diagnostic logging**: `Info` "switchclick start site=<token> selector=<pid=N|vessel=X>
+scene=<current> activeVesselPid=<n>", then `Info` "switchclick gate targetPid=<n>
+targetName=<name> scenarioReady=<bool> canSwitchVesselsFar=<bool> targetIsActiveVessel=<bool>
+targetIsUnloaded=<bool> hasActiveRecording=<bool> hasActiveSession=<bool> priorFocusedPid=<n>
+anotherDialogOpen=<bool> targetIsSeparateCommittedVessel=<bool> dialogDecision=<d>" (the
+whole gate input set on one line, so a refusal is reconstructable from the log alone). Then
+one of: `Warn` "switchclick rejected reason=<msg> ..." (arg / site / resolution), `Warn`
+"switchclick refused gate=<decision> reason=<msg> targetPid=<n> ...", or the action pair
+`Info` "switchclick armed intent: intentId=<guid> action=MapSwitchTo targetPid=<n>
+sourceScene=Flight capturedUT=<R> ttl=2s route=plain-arm-and-switch" followed by `Info`
+"switchclick complete site=map targetPid=<n> targetName=<name> intentId=<guid>
+route=plain-arm-and-switch activeVesselPid=<n> switched=true". Failure tails: `Info`
+"switchclick cleared own marker intentId=<guid> reason=refused-no-switch ...", `Warn`
+"switchclick failed reason=switch-refused-by-stock targetPid=<n> activeVesselPid=<n>
+setActiveVesselReturned=<bool> ...", `Error` "switchclick SetActiveVessel threw ...", and the
+Case C `Verbose` pair.
 
 ## Behavior
 
