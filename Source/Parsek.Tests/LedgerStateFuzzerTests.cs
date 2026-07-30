@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -826,7 +826,7 @@ namespace Parsek.Tests
 
             // Deadline UTs are handed out uniquely: two synthetic ContractFail rows at
             // one UT are order-ambiguous by construction (see the class remarks and
-            // SyntheticContractFail_CollidingDeadlines_OrderIsInputDependent).
+            // SyntheticContractFail_CollidingDeadlines_ResolveDeterministically).
             double nextDeadline = 400.0;
 
             // Every non-seed type appears at least once per ledger, plus a random tail
@@ -848,7 +848,11 @@ namespace Parsek.Tests
 
             double maxUT = actions.Max(a => a.UT);
 
-            var utGroups = actions.GroupBy(a => a.UT).Count(g => g.Count() > 1);
+            // Seeds all share UT 0.0 and would satisfy the collision guard trivially;
+            // count only non-seed groups (non-seed UTs start at 10.0) so the guard
+            // actually proves the collision-UT mechanism produced colliding rows.
+            var utGroups = actions.Where(a => a.UT > 0.0)
+                .GroupBy(a => a.UT).Count(g => g.Count() > 1);
 
             return new FuzzLedger
             {
