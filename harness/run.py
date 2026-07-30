@@ -1547,9 +1547,17 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         # always-empty input - STOCK_AWARD_PATTERNS matched shapes no KSP build emits -
         # so the hard drift it wrote was unreachable. Turning a working capture and a
         # live gate on in one step would red scenarios against an award baseline nobody
-        # has measured (the CL-1 flights show a career pad hop tripping three milestone
-        # funds awards and two Progression rep awards that no L1 manifest declares), so
-        # the mode knob decides and the default reports.
+        # has measured, so the mode knob decides and the default reports.
+        #
+        # WHAT AN ARMING OPERATOR IS ACTUALLY UP AGAINST (corrected 2026-07-29): the
+        # capture sees REPUTATION ONLY. KSP logs no funds and no science award line, so
+        # the three milestone FUNDS awards a career pad hop trips are invisible here -
+        # they move the produced save (where the seam-declared-vs-save diff catches
+        # them) but can never surface as unexpected captured awards. The only
+        # undeclared awards a career flight can produce on this path are the stock
+        # `Progression` rep awards. That makes the baseline far smaller than the
+        # original deferral assumed, and a scenario that declares its rep effects can
+        # realistically arm the gate.
         cross_check_hard = hlib.capture_cross_check_gates(ledger_block)
         # The corroboration key is (seqKey, facet, amount-within-tolerance), NOT kind:
         # a captured kind is generic and a seam kind is a scenario semantic, so joining

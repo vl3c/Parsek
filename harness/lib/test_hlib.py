@@ -5892,14 +5892,24 @@ class StockAwardCaptureTests(unittest.TestCase):
     passed green while the capture matched nothing in the field - the tests and the
     patterns agreed with each other and both disagreed with KSP. Sources:
       docs/dev/todo-and-known-bugs.md:248,257
-      harness/scenarios/CL-1-pod-impact.toml:135-140
-      docs/dev/done/todo-and-known-bugs-v4.md:1954"""
+      docs/dev/done/todo-and-known-bugs-v4.md:1954
+      logs/2026-07-28_1913_CL-1-pod-impact/KSP.log:10361,10382,10660
 
-    # MEASURED, CL-1 flights 1+2 (2026-07-28), identical across both.
+    SECOND PASS, same day: the FUNDS half of that rewrite was itself composed, not
+    measured - `Added 4800 funds: 'RecordsSpeed'` never appeared in any KSP.log. Its
+    cited source quotes PARSEK's own `MilestoneAchieved ... funds=4800` line, which
+    the capture skips as [Parsek]-tagged. KSP writes NO funds and NO science award
+    line at all (assembly literal counts for `" funds: '"` and `" science: '"` are
+    both ZERO; `Funding.AddFunds` / `ResearchAndDevelopment.AddScience` carry no
+    Debug.Log). The funds pattern is retired to `STOCK_AWARD_PATTERNS_DEAD`, and every
+    mechanical cell below now drives a REAL reputation line."""
+
+    # MEASURED, CL-1 flights 1+2 (2026-07-28), identical across both. These three
+    # lines ARE the complete stock-award output of that flight, in order.
     REP_LOSS_LINE = "Added -9.999828 (-10) reputation: 'VesselLoss'."
     REP_PROGRESSION_LINE = "Added 0.9999995 (1) reputation: 'Progression'."
-    FUNDS_RECORDS_LINE = "Added 4800 funds: 'RecordsSpeed'"
-    FUNDS_LAUNCH_LINE = "Added 800 funds: 'FirstLaunch'"
+    # NOT a KSP line - the retired funds shape, kept only to prove it stays unmatched.
+    DEAD_FUNDS_LINE = "Added 4800 funds: 'RecordsSpeed'"
 
     def test_measured_reputation_penalty_line_captured_with_amount_and_reason(self):
         log = ("[LOG] [Parsek][INFO][Recorder] tick ut=12345.6\n"
@@ -5926,40 +5936,57 @@ class StockAwardCaptureTests(unittest.TestCase):
         self.assertEqual(0.9999995, c.amount)
         self.assertEqual("Progression", c.reason)
 
-    def test_measured_funds_award_line_captured(self):
+    def test_retired_funds_shape_is_not_captured(self):
+        # KSP emits NO funds award line: `" funds: '"` occurs ZERO times in
+        # Assembly-CSharp.dll and `Funding.AddFunds` has no Debug.Log. The shape the
+        # 2026-07-29 rewrite briefly enumerated is retired, and must stay unmatched by
+        # the LIVE table - if a future KSP build starts logging funds, this cell reds
+        # and the facet gets re-decided instead of quietly re-opening.
         log = ("[LOG] [Parsek][INFO] ut=10.0\n"
-               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
-        res = hlib.parse_stock_award_lines(log)
-        self.assertEqual(1, len(res.captured))
-        c = res.captured[0]
-        self.assertEqual("funds", c.facet)
-        self.assertEqual(4800.0, c.amount)
-        self.assertEqual("RecordsSpeed", c.reason)
-        self.assertEqual("stock-funds-award", c.kind)
-        self.assertEqual(10.0, c.ut)
+               "[LOG] " + self.DEAD_FUNDS_LINE + "\n")
+        self.assertEqual(0, len(hlib.parse_stock_award_lines(log).captured))
+        self.assertEqual([], [p for p in hlib.STOCK_AWARD_PATTERNS if p.facet == "funds"])
+        # Retired, not deleted: the shape is still named, with its evidence.
+        self.assertEqual(["stock-funds-award"],
+                         [p.kind for p in hlib.STOCK_AWARD_PATTERNS_DEAD])
+
+    def test_live_and_dead_pattern_tables_are_disjoint(self):
+        # Mirrors the ANOMALY_TOKENS / ANOMALY_TOKENS_DEAD invariant: a retired shape
+        # is retired FROM the live table, never carried inside it.
+        live = {p.kind for p in hlib.STOCK_AWARD_PATTERNS}
+        dead = {p.kind for p in hlib.STOCK_AWARD_PATTERNS_DEAD}
+        self.assertEqual(set(), live & dead)
+        self.assertTrue(live, "the live table must not be empty")
 
     def test_the_whole_measured_cl1_burst_captures(self):
-        # The full award set both CL-1 flights produced. Four distinct effects: three
-        # funds milestones and the death rep penalty (the two `Progression` +1 rep
-        # awards are covered above). Deduping must keep all of them.
+        # The COMPLETE stock-award output of both CL-1 flights, read off the collected
+        # log: two `Progression` +1 rep awards and the death penalty. Nothing else -
+        # the flight also credited three funds milestones, and KSP logged none of them.
+        # Deduping must keep all three (the two Progression awards are identical in
+        # amount and reason, and are distinguished ONLY by their distinct UTs).
         log = "\n".join("[LOG] " + line for line in (
-            "[Parsek][INFO][Recorder] tick ut=119.7",
-            self.FUNDS_RECORDS_LINE,
-            self.FUNDS_LAUNCH_LINE,
-            "Added 4800 funds: 'RecordsAltitude'",
+            "[Parsek][INFO][Recorder] tick ut=12.0",
+            self.REP_PROGRESSION_LINE,
+            "[Parsek][INFO][Recorder] tick ut=15.98",
+            self.REP_PROGRESSION_LINE,
+            "[Parsek][INFO][Recorder] tick ut=119.8",
             self.REP_LOSS_LINE)) + "\n"
         deduped = hlib.dedupe_captured_awards(hlib.parse_stock_award_lines(log).captured)
-        self.assertEqual(4, len(deduped))
-        self.assertEqual(["FirstLaunch", "RecordsAltitude", "RecordsSpeed", "VesselLoss"],
+        self.assertEqual(3, len(deduped))
+        self.assertEqual(["Progression", "Progression", "VesselLoss"],
                          sorted(c.reason for c in deduped))
-        # RecordsSpeed and RecordsAltitude are BOTH 4800 at the SAME UT - without the
-        # reason in the dedupe identity they would collapse into one effect.
-        self.assertEqual(2, len([c for c in deduped if c.amount == 4800.0]))
+        # The arithmetic closes against the MEASURED produced pool: CL-1's career save
+        # carried reputation -7.99982834 (seed 0) and the captured deltas sum to
+        # -7.999829. The residual ~6.6e-7 is the LOG's display rounding, not drift -
+        # stock prints the applied delta at 7 significant figures while the save keeps
+        # full precision. Anyone arming a rep cross-check tolerance must budget for
+        # this: an exact compare against a summed capture cannot succeed.
+        self.assertAlmostEqual(-7.99982834, sum(c.amount for c in deduped), places=5)
 
     def test_null_ut_when_no_parsek_neighbor(self):
         # No UT-stamped [Parsek] line precedes the award -> ut=None, seq=line ordinal
         # (the seqKey), still ordered + deduped deterministically (design ~394).
-        log = "[LOG] " + self.FUNDS_RECORDS_LINE + "\n"
+        log = "[LOG] " + self.REP_PROGRESSION_LINE + "\n"
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(1, len(res.captured))
         c = res.captured[0]
@@ -6003,8 +6030,8 @@ class StockAwardCaptureTests(unittest.TestCase):
         # The same award line re-emitted at the SAME seqKey (no new UT between) is ONE
         # effect after dedupe (design edge 2).
         log = ("[LOG] [Parsek][INFO] ut=100.0\n"
-               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n"
-               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
+               "[LOG] " + self.REP_PROGRESSION_LINE + "\n"
+               "[LOG] " + self.REP_PROGRESSION_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(2, len(res.captured))            # both matched before dedupe
         deduped = hlib.dedupe_captured_awards(res.captured)
@@ -6014,9 +6041,9 @@ class StockAwardCaptureTests(unittest.TestCase):
         # A genuine second identical award at a DISTINCT seqKey (a new UT between)
         # survives the dedupe (design edge 2): the seqKey is part of the dedupe key.
         log = ("[LOG] [Parsek][INFO] ut=100.0\n"
-               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n"
+               "[LOG] " + self.REP_PROGRESSION_LINE + "\n"
                "[LOG] [Parsek][INFO] ut=200.0\n"
-               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
+               "[LOG] " + self.REP_PROGRESSION_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         deduped = hlib.dedupe_captured_awards(res.captured)
         self.assertEqual(2, len(deduped))
@@ -6033,27 +6060,38 @@ class StockAwardCaptureTests(unittest.TestCase):
         # which would false-red an empty-manifest B10. A genuine (untagged) stock line
         # on the next line still captures, and the [Parsek] line's ut= stamp still
         # drives the UT correlation of that genuine award.
-        log = ("[LOG] [Parsek][VERBOSE][LedgerTrace] ut=42.0 saw Added 999 funds: 'Bogus'\n"
-               "[LOG] " + self.FUNDS_RECORDS_LINE + "\n")
+        log = ("[LOG] [Parsek][VERBOSE][LedgerTrace] ut=42.0 saw Added 999 (999) "
+               "reputation: 'Bogus'\n"
+               "[LOG] " + self.REP_PROGRESSION_LINE + "\n")
         res = hlib.parse_stock_award_lines(log)
         self.assertEqual(1, len(res.captured))          # only the genuine stock line
         c = res.captured[0]
-        self.assertEqual(4800.0, c.amount)
-        self.assertEqual("RecordsSpeed", c.reason)
+        self.assertEqual(0.9999995, c.amount)
+        self.assertEqual("Progression", c.reason)
         self.assertEqual(42.0, c.ut)                     # UT still read from the [Parsek] stamp
         # The 999.0 from the [Parsek] line was never admitted as an award amount.
         self.assertNotIn(999.0, [a.amount for a in res.captured])
 
-    def test_science_shape_is_unmeasured_and_deliberately_unenumerated(self):
-        # KNOWN-GATE 3 RESIDUAL, pinned so it is a decision rather than an oversight:
-        # no science award line is quoted anywhere in this repo, so no science pattern
-        # is enumerated. Guessing one is exactly what made the old table dead. A
-        # science-shaped line therefore captures NOTHING today - and that is SAFE: an
-        # unmatched award still moves the produced save, so the save-diff catches it.
-        # DELETE this cell (and add the pattern) when a flight produces the line.
+    def test_no_science_award_line_exists_in_ksp_so_none_is_enumerated(self):
+        # KNOWN-GATE 3, RESOLVED 2026-07-29 - and resolved NEGATIVELY, which is why
+        # this cell is a permanent pin rather than a TODO. The open question was
+        # "measure the science award shape from an L1 science flight". There is no
+        # shape to measure: `ResearchAndDevelopment.AddScience` mutates the pool with
+        # NO Debug.Log, and `" science: '"` occurs ZERO times in Assembly-CSharp.dll.
+        # The only R&D line KSP writes is the DATA line
+        # `[Research & Development]: +<n> data on <subject>. Subject value is <v>`,
+        # which reports experiment data, not a science-currency delta, and is
+        # correctly inadmissible. Do NOT add a science pattern on the strength of that
+        # line - an unmatched award still moves the produced save, so the
+        # seam-declared-vs-save diff remains the trusted leg for the science facet.
         self.assertEqual([], [p for p in hlib.STOCK_AWARD_PATTERNS if p.facet == "science"])
         res = hlib.parse_stock_award_lines("[LOG] Added 5 science: 'ScienceTransmission'\n")
         self.assertEqual(0, len(res.captured))
+        # The real R&D data line is likewise not an award.
+        rd = hlib.parse_stock_award_lines(
+            "[LOG] [Research & Development]: +5 data on Crew Report from LaunchPad. "
+            "Subject value is 1.00\n")
+        self.assertEqual(0, len(rd.captured))
         # Every enumerated pattern cites the archived line it was derived from.
         for pat in hlib.STOCK_AWARD_PATTERNS:
             self.assertTrue(pat.measured_from, "%s pattern cites no measured line" % pat.facet)
@@ -6207,9 +6245,12 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
     def test_a_multi_facet_entry_corroborates_one_award_per_pool(self):
         # SECOND-ORDER REGRESSION, same class as the kind join one level down:
         # consumption used to be per ENTRY, so the canonical contract-complete shape -
-        # ONE entry declaring BOTH funds and reputation, which stock logs as TWO award
-        # lines at the same seqKey - was swallowed whole by whichever line matched
-        # first, stranding its sibling as permanently "unexpected".
+        # ONE entry declaring BOTH funds and reputation against TWO award lines at the
+        # same seqKey - was swallowed whole by whichever line matched first, stranding
+        # its sibling as permanently "unexpected". NOTE the two-line premise is
+        # SYNTHETIC: KSP logs no funds award, so a real log never carries the funds half
+        # (hlib.STOCK_AWARD_PATTERNS_DEAD). The per-pool rule is kept as fail-closed
+        # structure against a future second-pool producer, not as live behaviour.
         parse = oracle.parse_manifest_entries([
             {"ut": 500.0, "kind": "contract-complete", "funds": 1000.0,
              "reputation": 5.0, "contractGuid": "g1"}])

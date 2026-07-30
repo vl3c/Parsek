@@ -16,9 +16,11 @@ craft = []
 kind = "seam"
 # upgrade-facility requires SPACECENTER (the funds debit lives in the scene
 # SpaceCenterBuilding instance, FacilityUpgradeSpendPatch.cs); the fresh-career fixture
-# loads to SPACECENTER. NIT A-N1: upgrade a NON-R&D facility (Tracking Station) so the
-# funds-debit line stays clear of the science-transmit capture regex keyed on
-# ResearchAndDevelopment. The chosen facility is pinned in the fixture README.
+# loads to SPACECENTER. NIT A-N1: upgrade a NON-R&D facility (Tracking Station), originally
+# to keep the funds-debit line clear of a science-transmit capture regex keyed on
+# ResearchAndDevelopment. That regex no longer exists (deleted 2026-07-29 with the pattern
+# rewrite) and KSP logs no funds or science award anyway, so the separation is now
+# incidental rather than load-bearing. The chosen facility is pinned in the fixture README.
 steps = [
   { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -61,9 +63,10 @@ rec3CarveOut = false
   # AUTHOR CONSTANT (DETERMINISTIC PER LEVEL: a facility's upgrade cost is fixed data per
   # (facility, level) in the building config, the value SpaceCenterBuilding.GetUpgradeCost
   # returns for level 0 -> 1; state-INDEPENDENT, so an author constant is valid, OQ4).
-  # funds is the fill-eligible pool-only facet, but an author constant is preferred here
-  # because the cost is fixed and fill-from-capture depends on a (deferred) facility-upgrade
-  # capture pattern. Tracking Station level 0 -> 1, stock KSP 1.12.5.
+  # funds is the fill-eligible pool-only facet, but an author constant is REQUIRED here in
+  # practice: fill-from-capture would need a stock funds award line, and KSP emits none, so
+  # a null funds amount always fails ambiguous (known-gate 3). Not "deferred" - impossible.
+  # Tracking Station level 0 -> 1, stock KSP 1.12.5.
   # VERIFY-PENDING-OPERATOR: the operator reads GetUpgradeCost off the observedAfter= field
   # of the "kscaction action=upgrade-facility applied=true" line during fixture creation and
   # records it in the fixture README. If the chosen facility's cost turns out

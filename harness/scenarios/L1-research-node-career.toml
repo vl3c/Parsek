@@ -58,12 +58,17 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # baseline over the staged fixture, accumulate the ONE declared manifest entry, compute
 # expected = seed + (-nodeCost), diff HARD against the produced save's careerSave block.
 # The seam-declared-vs-save diff is the SOLE trusted leg (design Nonzero-manifest primary
-# assertion). The nonzero capture leg is UNTRUSTED: the shipped STOCK_AWARD_PATTERNS are
-# DEAD against a real EN log (stock logs "[Research & Development]: +N data" with no
-# delta=; Parsek's own delta= lines are [Parsek]-tagged and skipped), so a nonzero run
-# captures ZERO awards and the cross-check is a structural no-op today. M-B3 adds NO
-# pattern (a rewritten pattern would false-red its own award; deferred to a combined
-# pattern-rewrite + UT-agnostic single-action match).
+# assertion), and on the SCIENCE facet it is the only leg there will ever be. The capture
+# leg is structurally blind here, PERMANENTLY: KSP writes no science award line at all
+# (verified 2026-07-29 - `Assembly-CSharp.dll` contains ZERO occurrences of `" science: '"`
+# and `ResearchAndDevelopment.AddScience` carries no Debug.Log). The only R&D line stock
+# writes is "[Research & Development]: +N data on <subject>", which reports experiment
+# DATA, not a science-currency delta, and is correctly inadmissible; Parsek's own delta=
+# lines are [Parsek]-tagged and skipped. So this scenario captures ZERO awards by
+# construction, not by an unfinished pattern table. Do NOT "fix" that by adding a science
+# pattern - see known-gate 3, closed negatively. Corollary for arming: this spec can never
+# declare `captureCrossCheck = "gate"` meaningfully, because its capture input is always
+# empty and the gate would read green forever.
 [expectations.ledger]
 seedFrom     = "template"
 tolerances   = "default"
