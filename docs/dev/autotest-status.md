@@ -1,6 +1,21 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-29 (THE NEVER-RUN BACKLOG IS EMPTY. All four scenarios that
+Last updated: 2026-07-30 (S4.1's FLAKE QUARANTINE IS CLEARED, and the second of the
+two human calls the 2026-07-29 session left open is now made. S4.1-IDLE-DISCARD - the
+scene-exit idle-on-pad auto-discard tearing down a LIVE re-fly session's tree - was
+ruled a real defect and FIXED on branch `fix-s41-idle-discard`
+(`SceneExitInterceptor.TryAutoDiscardIdleActiveTree` now refuses while a re-fly marker
+or a merge journal is live, falling through to the conclusion dialog). The deliberate
+multi-run sweep the S4.1 row demanded then flew: FIVE consecutive runs, every one PASS
+on attempt 1, 57-72 s, and the generated flake ledger now reads total=5 numerator=0
+rate=0.0 quarantined=false. Lifetime 7 PASS / 3 INVALID. THE CAVEAT, carried in full
+by the S4.1 row: not one of the five runs ENTERED the new refusal guard - zero
+`TryAutoDiscardIdleActiveTree: idle detected` lines and zero `refusing - refly-active`
+lines - so what the sweep proves is that S4.1 is deterministically green, NOT that the
+guard fires live. The guard's proof is its three behavioral xUnit cells. Of the two
+calls that session deliberately deferred, B16's tier promotion is the one still open.)
+
+Prior: 2026-07-29 (THE NEVER-RUN BACKLOG IS EMPTY. All four scenarios that
 had never produced a green unattended run flew that day and passed: S1.5-rewind-loop
 (`2026-07-29_1528_..._a2`, 69 s - its first execution EVER), S4.1-rewind-merge
 (`2026-07-29_1530`, 71 s), B1-pad-hop's chute re-prove (`2026-07-29_1532`, 408 s,
@@ -16,8 +31,8 @@ product findings: HARNESS-INJECT-FAILS-OPEN, where a no-op fixture injection rep
 success and the miss surfaces three minutes later as an unrelated seam rejection. Two
 things deliberately NOT done, both left as human calls: B16's tier promotion (its
 spec's rule has two conditions and only the green flight is met) and clearing S4.1's
-flake quarantine (lifetime 2 PASS / 3 INVALID against the unfixed
-S4.1-IDLE-DISCARD).)
+flake quarantine (lifetime 2 PASS / 3 INVALID against the then-unfixed
+S4.1-IDLE-DISCARD - that second call was made 2026-07-30, above).)
 
 Prior: 2026-07-27 (R5 SHIPPED: the isolated-batch seam argument. `RunTests`
 takes `isolated = "true"` and the autorun dispatcher reads `PARSEK_AUTORUN_ISOLATED=1`,
@@ -450,7 +465,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | FORGE-eva3-pad | operator | (Not a Parsek-surface test) FIXTURE-FORGE (EVA-3 sibling): launch_vessel the Kerbal X onto the pad with THREE named crew + SaveGame -> stamps the eva3-pad-3crew fixture headlessly. Uses the review-follow-up-2 crew (by NAME) + launch_site plumbing | D14 kerbin, scene-flight, sandbox (tooling). LIVE-PROVEN 2026-07-24: run `2026-07-24_1720_FORGE-eva3-pad`, wall 54 s; output fixture `eva3-pad-3crew` committed the same day (`8d07890e4`), which unblocked EVA-3. |
 | FORGE-eva2-lko | operator | (Not a Parsek-surface test) FIXTURE-FORGE, the FIRST ORBITAL one (mission `forge_lko`): boots the SAME bdock-forge-base, launch_vessel the Kerbal X with TWO named crew (Valentina + Bob), then flies the LIVE-PROVEN B-DOCK Interceptor-leg shape - MechJeb ascent, circularization with node-executor autowarp EXPLICIT (flight-12 lesson), the two-step separation contract (drop the spent core AND ignite the orbital stage, thrust-verified, cap 2), then a PARK phase that cuts throttle, clears nodes, holds SAS+RCS and requires a HELD stable ~100 km circular orbit (pe >= 75 km, tumble <= 0.05 rad/s) before SaveGame. Crew is gated ON THE PAD (crew_count >= minCrew, fail-closed on the -1 unread sentinel) so an uncrewed stamp flakes in 300 s instead of after a 10-minute flight. autoRecordOnLaunch pinned false so the fixture carries no recordings / trees / ledger state (the stamped .sfs does keep an inert populated `SCENARIO{name=ParsekScenario}` node - `gameStateEventCount=18` + one MILESTONE_STATE row - which is what suppresses PreParsekBackup at load) | D14 kerbin, scene-flight, sandbox (tooling). LIVE-PROVEN 2026-07-24: run `2026-07-24_1807_FORGE-eva2-lko`, wall 323 s - the first ORBITAL forge; output fixture `eva2-lko-crewed` committed the same day (`d4380ef52`), which unblocked EVA-2. |
 | S1.5-rewind-loop | nightly (RE-TIERED from operator 2026-07-26) | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | D6 time-jump; D18 time-jump-observables, rewind-strip-respawn-cycle; D8 epoch-isolation, recalc-engine; D9 rewind-to-separation, refly-gate. LIVE-PROVEN 2026-07-29, on its first execution ever: run `2026-07-29_1528_S1.5-rewind-loop_a2`, wall 69 s, every verifier PASS/SKIPPED. The 2026-07-26 re-tier note's central prediction held exactly - `LoadGame` took the FOCUS route into FLIGHT from the `gloops-airshow` host and all eight verbs EXECUTED rather than deferring, so the happy path came in at 69 s against a 2,400 s ceiling that only ever bounded the defer path. Attempt 1 (`2026-07-29_1525`) was driver-INVALID(`driver-arg`) on a STAGING fail-open, not on anything this spec asserts - see HARNESS-INJECT-FAILS-OPEN in todo-and-known-bugs.md. The `pending-operator` tag can now drop; the three PENDING-OPERATOR live asserts named in its GAP note (crew re-reservation, resource reset, self-authored RewindPoint) stay out of scope for the drivable subset. |
-| S4.1-rewind-merge | nightly (RE-TIERED from operator 2026-07-26) - **seam fix PROVEN 2026-07-28; PASSES but still FLAKE-QUARANTINED on a second finding (S4.1-IDLE-DISCARD); lifetime rate in the cells column** | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | D9 rewind-to-separation, refly-gate, reconciliation-bundle, read-back-guard, terminal-kind-classify, merge-journal; D8 recalc-engine. LIVE-PROVEN 2026-07-28: run `2026-07-28_1639_S4.1-rewind-merge_a2`, wall 61 s (flakedThenPassed). CONFIRMED clean on attempt 1 2026-07-29: run `2026-07-29_1530_S4.1-rewind-merge`, wall 71 s, all verifiers green, and it did NOT reproduce S4.1-IDLE-DISCARD. Lifetime 2 PASS / 3 INVALID. THE FLAKE QUARANTINE STAYS: one clean attempt is evidence against the 1-in-2 rate, not a clearance, and the open bug it flakes on is unfixed. Do not de-quarantine without a deliberate multi-run sweep. |
+| S4.1-rewind-merge | nightly (RE-TIERED from operator 2026-07-26) - **seam fix PROVEN 2026-07-28; S4.1-IDLE-DISCARD FIXED 2026-07-30 (branch `fix-s41-idle-discard`); FLAKE QUARANTINE CLEARED 2026-07-30 by a deliberate 5-run sweep; lifetime rate in the cells column** | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | D9 rewind-to-separation, refly-gate, reconciliation-bundle, read-back-guard, terminal-kind-classify, merge-journal; D8 recalc-engine. LIVE-PROVEN 2026-07-28: run `2026-07-28_1639_S4.1-rewind-merge_a2`, wall 61 s (flakedThenPassed). CONFIRMED clean on attempt 1 2026-07-29: run `2026-07-29_1530_S4.1-rewind-merge`, wall 71 s, all verifiers green, and it did NOT reproduce S4.1-IDLE-DISCARD. FLAKE QUARANTINE CLEARED 2026-07-30 by the deliberate multi-run sweep the previous note demanded, flown off the `fix-s41-idle-discard` build (provision result=OK, deployed automation DLL sha256 4bd6f246 identical to the worktree's `bin/Debug`, fix string verified present): FIVE consecutive runs, every one PASS on attempt 1, no retries - `2026-07-30_0940` 72 s, `_0942` 58 s, `_0944` 57 s, `_0945` 57 s, `_0947` 58 s. Every run: all 6 driver steps verdict=OK, kspExit.code=0, recordings.count=4, expectations mismatches=[], analyzer red=0, logValidate PASS, anomalySweep hits=[], zero `[Parsek][ERROR]`, and the required `AppendRelations outcome=refused-unflown-provisional` token present once. The generated flake ledger now reads total=5 numerator=0 rate=0.0 quarantined=false. Lifetime 7 PASS / 3 INVALID. HONESTY CAVEAT, and it is why this row does NOT claim the fix is live-proven: across all five runs the guard branch was NEVER ENTERED - zero `TryAutoDiscardIdleActiveTree: idle detected` lines and zero `refusing - refly-active` lines. The scene-exit prefix logged nothing at all in any run; each one instead concluded through the post-transition deferred dialog (`Deferred merge dialog fired - pre-transition intercept missed scene=SPACECENTER`) and committed correctly. So the sweep proves S4.1 is deterministically green and the flake is gone; the REFUSAL GUARD's proof is the three behavioral xUnit cells in `SceneExitInterceptorTests`, not this sweep. Candidate cause for the route change: seam commit `f97717744` (2026-07-28, "S4.1: persist before the driven scene exit"), after which S4.1's driven exit may no longer reach the idle fast path at all. The player-facing defect is still real on the manual path - a real scene exit while idle with a live re-fly marker goes through the prefix - so do not read the unentered guard as evidence the bug was not there. |
 | R1-rewind-loop-flown | operator (promotion EARNED 2026-07-28, DELIBERATELY NOT APPLIED - see the FLIGHT 4 note) | FIRST rewind cycle driven from a REAL FLOWN flight: the delegated live-proven B2 ascent machine, a mid-flight CommitTree + StopRecording + RecordingState issued through the NEW verb-agnostic seam bridge (`ACTION_PARSEK_SEAM_COMMAND`), the dispatcher's `recording-active` gate carried as an OBSERVED precondition (`recorderIdleBeforeRewind` reads `recording=false` off a RecordingState reply before the rewind is commanded), then a real Rewind-to-Separation from FLIGHT judged by an OBSERVATION - the game clock RUNNING BACKWARD (`clockRewound`, corroborated by `vesselStateChanged`), never by InvokeRewind's own OK (which rides as one strictly-additional `rewindSeamAccepted` row). Also the first mission to prove a mission can drive ANY seam verb mid-flight, not only CommitTree | D1 auto-record-launch; D4 atmospheric, exo-propulsive; D14 kerbin; D9 rewind-to-separation, refly-gate, reconciliation-bundle, read-back-guard, supersede-relation, merge-journal; D8 recalc-engine. LIVE-PROVEN 2026-07-28: run `2026-07-28_1509_R1-rewind-loop-flown`, wall 304 s, attempt 1 - the flight the row's own "PROMOTION NOW EARNED, not yet applied" note was waiting on, and the discriminating experiment that resolved R1-EMPTY-PROVISIONAL as a fixture artifact. PROMOTION EARNED BUT NOT APPLIED: `R1-rewind-loop-flown.toml` still reads `tier = "operator"`, and operator is in NO `hlib.CADENCE_TIERS` set, so R1 runs ONLY under an explicit `--id` / `--tier operator` - it does NOT fly nightly. An earlier draft of this cell claimed the promotion was applied on 2026-07-29; that was wrong and no spec was ever edited. Flipping the tier is a real scheduling change (it adds ~304 s to every nightly and R1's spec carries a long "what its next run is for" list, item 6 of which only just closed), so it is left as a deliberate human call - the same standard applied to B16 in this same pass. |
 | L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | D8 kerbals, funds, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D12 hire-dismiss-patches; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1952_L1-hire-kerbal-career`, wall 52 s - reached after the first live run that day red'd on the seam double-debit this row's blocker described, and that fix landed. Re-confirmed 2026-07-25 (`2026-07-25_0742`). |
 | L1-dismiss-kerbal-career | daily | Dismiss is pool-neutral | D8 kerbals, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D12 hire-dismiss-patches; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1914_L1-dismiss-kerbal-career`, wall 52 s. Re-confirmed 2026-07-23 (`_1951`) and 2026-07-25 (`2026-07-25_0741`). |
@@ -1213,12 +1228,20 @@ six publish or compare numbers the runner already measured.
    contested premise is now settled by observation, not argument: `LoadGame` did
    focus `gloops-airshow`'s active vessel into FLIGHT and every verb EXECUTED,
    so the LIVE-LOAD fidelity of the B9 fixture's cloned per-slot vessels is
-   established. TWO things stay open and neither is an operator session: S4.1's
+   established. ONE thing stays open and it is not an operator session: S4.1's
    supersede-row / tombstone asserts under `[expectations.rewind]` remain
-   PENDING-VERIFIER until the M-C2 rewind save-parse verifier lands, and S4.1
-   keeps its FLAKE QUARANTINE (lifetime 2 PASS / 3 INVALID) because the bug it
-   flakes on - S4.1-IDLE-DISCARD - is unfixed and one clean attempt does not
-   clear a 1-in-2 rate.
+   PENDING-VERIFIER until the M-C2 rewind save-parse verifier lands. The other -
+   S4.1's FLAKE QUARANTINE - is CLOSED 2026-07-30. S4.1-IDLE-DISCARD was ruled a
+   real defect and fixed on branch `fix-s41-idle-discard`, and the deliberate
+   multi-run sweep this doc demanded then flew five consecutive runs, all PASS on
+   attempt 1 (`2026-07-30_0940` 72 s, `_0942` 58 s, `_0944` 57 s, `_0945` 57 s,
+   `_0947` 58 s), taking the lifetime to 7 PASS / 3 INVALID with the generated
+   flake ledger at total=5 numerator=0 rate=0.0 quarantined=false. Caveat carried
+   in full by the S4.1 row: no run ENTERED the new refusal guard (zero
+   `idle detected` lines; every run concluded through the post-transition deferred
+   dialog), so the guard's proof is its three behavioral xUnit cells and S4.1's
+   current driven route may no longer reach the idle fast path at all - candidate
+   cause seam commit `f97717744`.
 5. ~~B1 chute re-prove~~ - CLOSED 2026-07-29 by run `2026-07-29_1532_B1-pad-hop`
    (PASS, attempt 1, wall 408 s). B1 is back on the live-proven list, and the
    re-prove landed the thing the de-listing existed for: `craftCanopyObserved`
