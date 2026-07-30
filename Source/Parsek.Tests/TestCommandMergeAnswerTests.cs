@@ -148,5 +148,71 @@ namespace Parsek.Tests
             Assert.Equal("committed", Val(p, "result"));
             Assert.Equal(new[] { "applied", "choice", "result" }, p.Select(kv => kv.Key).ToArray());
         }
+
+        // ----- DecideConclusionDrive (S4.1-PREFIX-RACE) -----
+        // The marker-live-no-dialog branch must not drive the conclusion scene-exit while
+        // the in-place-continuation resume has not yet made the restored tree active: a
+        // drive in that window slips past the scene-exit prefix un-intercepted (tree still
+        // pending-Limbo -> DialogVariant.None) and concludes via the deferred
+        // post-transition dialog instead of the pre-transition ReFlyAttempt dialog.
+
+        private const double SettleBudget = TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds;
+
+        [Fact]
+        public void DecideConclusionDrive_ActiveTreeInFlight_DrivesNow()
+        {
+            Assert.Equal(ConclusionDriveDecision.DriveNow,
+                TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: true, hasActiveTree: true,
+                    elapsedSeconds: 0.0, settleBudgetSeconds: SettleBudget));
+        }
+
+        [Fact]
+        public void DecideConclusionDrive_NonFlightScene_DrivesNowEvenWithoutActiveTree()
+        {
+            // The degenerate marker-live-non-FLIGHT state keeps today's behavior: drive
+            // immediately (the design doc notes it is practically unreachable).
+            Assert.Equal(ConclusionDriveDecision.DriveNow,
+                TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: false, hasActiveTree: false,
+                    elapsedSeconds: 0.0, settleBudgetSeconds: SettleBudget));
+        }
+
+        [Fact]
+        public void DecideConclusionDrive_FlightNoActiveTreeWithinBudget_Waits()
+        {
+            Assert.Equal(ConclusionDriveDecision.WaitForResume,
+                TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: true, hasActiveTree: false,
+                    elapsedSeconds: 0.0, settleBudgetSeconds: SettleBudget));
+            Assert.Equal(ConclusionDriveDecision.WaitForResume,
+                TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: true, hasActiveTree: false,
+                    elapsedSeconds: SettleBudget - 0.001, settleBudgetSeconds: SettleBudget));
+        }
+
+        [Fact]
+        public void DecideConclusionDrive_FlightNoActiveTreeAtBudget_DrivesUnsettled()
+        {
+            // At-or-past the settle budget the drive proceeds anyway so a restore
+            // give-up / placeholder-mode attempt still concludes through the deferred
+            // post-transition dialog instead of wedging the verb.
+            Assert.Equal(ConclusionDriveDecision.DriveUnsettled,
+                TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: true, hasActiveTree: false,
+                    elapsedSeconds: SettleBudget, settleBudgetSeconds: SettleBudget));
+        }
+
+        [Fact]
+        public void ReFlyResumeSettleBudget_LeavesRoomInTheVerbBudget()
+        {
+            // The settle wait consumes the front of the verb's own completion budget; the
+            // fallback drive plus the post-answer scene settle must still fit behind it.
+            Assert.True(
+                TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds
+                    <= DeferralBudget.AnswerMergeDialogSeconds / 2.0,
+                "ReFlyResumeSettleBudgetSeconds must leave at least half the " +
+                "AnswerMergeDialog budget for the driven exit and scene settle");
+        }
     }
 }
