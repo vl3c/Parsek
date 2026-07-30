@@ -429,7 +429,8 @@ class KrpcMissionControl(MissionControl):
                  read_chute: bool = False,
                  read_node_executor: bool = False,
                  read_periapsis: bool = False,
-                 read_landing: bool = False) -> None:
+                 read_landing: bool = False,
+                 read_camera: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -478,6 +479,14 @@ class KrpcMissionControl(MissionControl):
         # the B11 flight-1 NodeExecutor defect, the B1 chute latch and the
         # EVA-4 ladder release.
         self._read_landing = bool(read_landing)
+        # OPT-IN camera-mode telemetry (V1 map-dwell lane). OFF everywhere else
+        # so every other mission's read_snapshot stays byte-identical
+        # (camera_mode keeps its "" UNREAD sentinel, which fails the V1
+        # staged-map-camera gate closed). ONE extra RPC per poll, taken only by
+        # the mission whose dwell must OBSERVE that the map camera actually
+        # engaged rather than trust that camera.mode was assigned -- the same
+        # commanded-vs-observed discipline as every other opt-in channel here.
+        self._read_camera = bool(read_camera)
         # DARK-CHANNEL WARN LATCHES (reviewer finding, 2026-07-25). Both opt-in
         # reads degrade to their UNREAD sentinel on a bare `except Exception`,
         # and both sentinels DISABLE machinery downstream (-1 grants no executor
@@ -733,6 +742,17 @@ class KrpcMissionControl(MissionControl):
             # the fail-closed sentinels (-1 / "" / NaN): a landing-surface fault
             # must NEVER count toward the vessel-lost read-fail streak, and it
             # must never be silent (the sentinels stand real machinery down).
+            # Camera mode (opt-in, V1 map-dwell). Own try/except with the ""
+            # UNREAD sentinel: a camera read fault must degrade to fail-closed
+            # (the staged-map gate can never be met on a blind frame), NEVER
+            # count toward the vessel-lost read-fail streak.
+            camera_mode = ""
+            if self._read_camera:
+                try:
+                    camera_mode = mlib.normalize_camera_mode(
+                        sc.camera.mode.name)
+                except Exception:
+                    camera_mode = ""
             landing_ap_enabled = -1
             landing_ap_status = ""
             horizontal_speed = float("nan")
@@ -855,6 +875,9 @@ class KrpcMissionControl(MissionControl):
                 landing_ap_enabled=landing_ap_enabled,
                 landing_ap_status=landing_ap_status,
                 horizontal_speed=horizontal_speed,
+                # OBSERVED camera mode ("" = not read / read failed; fails the
+                # V1 staged-map-camera gate closed).
+                camera_mode=camera_mode,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1344,6 +1367,39 @@ class KrpcMissionControl(MissionControl):
             if self._warp is not None:
                 self._warp.cancel(sc)
             self._warp_stall.reset()
+        elif kind == mlib.ACTION_CAMERA_SET_MAP:
+            # V1 map-dwell camera staging: switch the game camera to MAP view
+            # (kRPC SpaceCenter.Camera.Mode, pinned 0.5.4 -- the map camera is
+            # scriptable exactly like the flight camera). COMMANDED only: the
+            # machine gates on the OBSERVED snapshot.camera_mode readback
+            # (read_camera=True), never on this assignment having run.
+            sc.camera.mode = sc.CameraMode.map
+        elif kind == mlib.ACTION_CAMERA_FOCUS_BODY:
+            # Focus the map camera on a named body. In map mode
+            # focussed_body drives which object the camera orbits; the body
+            # dict lookup raises loudly on a bad name (a spec typo must be a
+            # diagnosable fault, not a silently un-aimed dwell).
+            sc.camera.focussed_body = sc.bodies[str(action.text)]
+        elif kind == mlib.ACTION_CAMERA_SET_POSE:
+            # Deterministic pitch / heading / distance, clamped to the
+            # camera's own live min/max bounds (kRPC exposes them; writing
+            # outside the bounds is a server-side error, and the bounds are
+            # mode- and focus-dependent so a spec value cannot pre-clamp).
+            pitch, heading, distance = action.camera_pose
+            cam = sc.camera
+            try:
+                pitch = max(float(cam.min_pitch),
+                            min(float(cam.max_pitch), float(pitch)))
+            except Exception:
+                pitch = float(pitch)
+            cam.pitch = float(pitch)
+            cam.heading = float(heading)
+            try:
+                distance = max(float(cam.min_distance),
+                               min(float(cam.max_distance), float(distance)))
+            except Exception:
+                distance = float(distance)
+            cam.distance = float(distance)
         elif kind == mlib.ACTION_AP_POINT_NODE:
             # DIY correction burner (live finding 8): point kRPC's NATIVE
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's

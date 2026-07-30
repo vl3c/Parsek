@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 - Supply routes no longer lose cargo when the destination is full: a route now waits ("Held: no room for X" / "Held: no slot for 'part'") until the destination has room for the full delivery, instead of charging the origin and silently dropping whatever did not fit. If room disappears mid-cycle, the route's detail panel now reports exactly what was lost.
 - A supply route held on a missing stored part now names the part instead of showing an internal code, and says when the part is actually there but its charge, fuel, or contents no longer match the recorded cargo.
+- Added a developer-only automated visual-validation scenario, the first of its kind: after flying and committing the automated Mun-orbit mission, the harness rewinds so the just-flown mission replays as ghosts, points the map camera at it, and watches the whole replay - at 1x, through a time-warp ramp, and across the recorded Mun boundary crossing - while Parsek's own render-parity instrumentation measures every frame. The scenario fails if the watched replay turns out to be empty (the exact false-green an earlier scenario once passed on), and it records how often the map-render anomaly detectors fire on a real flight so those detectors can later be armed as hard checks with evidence-based budgets. Test-tooling only; no gameplay change.
 
 ### Fixes
 

@@ -14,6 +14,84 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. TUNING TODO on the SHARED b5 capture machine - not picked up on the `v1-map-dwell` branch]
+
+The stretch from Mun SOI entry to the capture (circularize-at-periapsis) node
+runs slower than it needs to. Today capture mode warps TARGET-FLYBY to
+`periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900 s) off the orbit's own
+periapsis clock, then PLAN-CAPTURE plans at `planWarpFactor` (2) and the
+executor autowarps the rest; the operator's observation is that the whole
+in-SOI approach up to the node should carry a higher warp so the pass reaches
+the burn faster. Constraints when picking this up: the machine is SHARED
+(B11/B12 fly it nightly, both LIVE-PROVEN, so a profile change owes a
+confirmation flight per the standing rule), the periapsis-clock bound exists
+because the B12 flight-3 rails stair sailed past the only capture point on the
+pass (never re-derive that the altitude-trend way), and MechJeb's own ~600 s 1x
+pre-ignition WARPALIGN hold is the executor's, not ours - the tunable stretch
+is the coast INTO the lead window plus the plan-phase warp, not the hold.
+
+---
+
+## V1-REPLAY-LINE-BLINK: the replaying flown ghost's proto orbit line blinks off/on under 100x rails warp [FOUND 2026-07-30 by V1-map-dwell-mun-orbit's FIRST dwell (run `2026-07-30_2251` collected log; that mission red on an unrelated over-strict assertion, so the sweep never classified it). REPRODUCED the same day by the SECOND dwell (run `2026-07-30_1955`, collected log `2026-07-30_2322`): mission PASS, every other verifier green, anomaly sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]` -> the scenario's first honest `PARSEK-FAIL(anomaly)`. Two independent replays, two raises each. REPORTED, NOT DIAGNOSED. The first real-geometry finding of the visual-validation program]
+
+### What happens
+
+During the V1 map dwell - the just-flown B11 tree replaying as a ghost after the
+rewind, map view open, rails warp at 100x (ramp stair step, `Time warp rate
+changed to 100.0x at UT=935.39`) - the flown MAIN recording's proto orbit line
+(`recId=ee9ea1f9be6846e1893293594f568e58`, the root "Kerbal X" recording;
+`pid=3388325605`) toggled inactive and back twice, and `MapRenderProbe` raised
+the gated Tier-C `line-blink` both times:
+
+```
+phase=Anomaly surface=ProtoOrbitLine ... frame=87767 currentUT=1329.352 reason=line-blink lineActive=True prevActive=False lastToggleFrame=87763 sinceFrames=4 body=Kerbin
+phase=Anomaly surface=ProtoOrbitLine ... frame=87807 currentUT=1996.390 reason=line-blink lineActive=True prevActive=False lastToggleFrame=87799 sinceFrames=8 body=Kerbin
+```
+
+The blink windows are 4 and 8 frames at 100x (~50-670 game seconds of replayed
+ascent/early-transfer per toggle span), i.e. a visible flicker of the ghost's
+orbit line exactly where a human watching the map would see it. The surrounding
+Tier-B truth shows the line owned by `director-stockconic-visible` on the
+re-activation frames.
+
+DIAGNOSTIC HINT from the second dwell's decision lines: the toggles sit inside
+OWNERSHIP HANDOFFS - the orbit-line decision cycles
+`director-traced-path-suppress` -> `director-stockconic-visible` ->
+`polyline-owns-phase` around the raises, so the first suspect is the
+polyline/TracedPath <-> StockConic ownership transition going dark for a few
+frames at high warp (phase-boundary handoff lag), not the map-orbit reseed
+cadence itself. DETERMINISTIC: exactly 2 raises per dwell across all three
+dwells flown 2026-07-30, and nothing else raised (zero unlisted reasons).
+
+### Why this entry exists before a diagnosis
+
+`line-blink` is in the GATED `hlib.ANOMALY_TOKENS` set, so the moment a V1
+flight is otherwise green the sweep classifies `PARSEK-FAIL(anomaly)` against
+`allowedAnomalies = []`. Per the scenario's own gating discipline that red is a
+FINDING to file, not a reason to soften the spec - this entry is the filing.
+The open call (it is the known-gate-0 shape): diagnose whether this is the
+loop/warp reseed-lag blink class the anomaly taxonomy already names (the
+warp-aware reseed exists precisely because high warp outruns the 0.5 s map-orbit
+reseed cadence), fix it if it is a real render defect, or - if it proves benign
+at bounded frequency - arm a measured `{ token = "line-blink", maxCount = N }`
+budget on the V1 spec from green-run `hitCounts` evidence. Do NOT whitelist the
+bare token; do NOT set a budget from this single run.
+
+### Evidence
+
+- `logs/2026-07-30_2251_V1-map-dwell-mun-orbit/KSP.log` (the full dwell: 131
+  `probe frame summary` lines with `ghosts=1 sampled=1`, 13 `faithful-parity
+  summary sampled=1 overTolerance=0` passes, and these 2 raises - the dwell
+  itself worked end to end).
+- The mission result for that attempt
+  (`results/2026-07-30_1917_V1-map-dwell-mun-orbit_mission.json`) is
+  MISSION-ASSERT-FAIL on `rewoundBeforeFlightStart` ONLY - a mission-side
+  over-strict comparison fixed the same day (the row now carries the
+  PlaybackScopeTracker 2.0 s activation tolerance) - with every flight, rewind
+  and dwell phase reached and every other assertion met.
+
+---
+
 ## ~~ORBITSEGMENT-ANGLE-UNITS: OrbitSegment angular fields carried degrees from recorder producers and radians from the extrapolator~~ [FOUND 2026-07-29 by the PR #1378 test-coverage campaign. FIXED, branch `orbitsegment-angle-units`]
 
 ### What happened
@@ -166,6 +244,17 @@ So the "deterministic, self-recovering" property is a HIDDEN COUPLING to an unre
 - Attempt 2 staged the SAME preset and produced `Parsek/RewindPoints/rp_b9_root.sfs` plus the three `b9-*` recordings, then PASSed (`2026-07-29_1528_S1.5-rewind-loop_a2`, wall 69 s).
 - `Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll` mtime `18:28:31.9 +0300` = `15:28:31.9Z`, `obj/` `15:28:29Z` - the test assembly was first built inside ATTEMPT 1's verifier tail (attempt 1 ran `15:25:31Z -> 15:28:41Z`, attempt 2 `15:28:47Z -> 15:29:56Z`, per the two result JSONs' `startedUtc`/`endedUtc`), 10 s before attempt 1 ended and 15 s before attempt 2 began. An earlier draft of this entry said "built DURING attempt 2, about three minutes after attempt 1's injection": that was a UTC-vs-local slip, comparing a local-time mtime against UTC run ids. The corrected timeline is what identifies the analyzer as the builder.
 - Corroboration from the next scenario: S4.1 drives the same `rewind-b9` preset and injected correctly on ATTEMPT 1 with the assembly now warm.
+- 2026-07-30, V1-map-dwell-mun-orbit first invocation: the "whole flight" cost
+  prediction below came true - attempt 1 flew the FULL ~21-minute B11 profile
+  green and then red `invokerewind refused: unknown-rp rp=rp_b9_root` (fresh
+  `v1-map-dwell` worktree, `Parsek.Tests` never built), and attempt 2 burned a
+  second full flight the same way. Attempt 2 also exposed a SECOND silent
+  trigger on the same fail-open path: the injector's KSP.log lock probe refuses
+  when ANY process holds the automation instance's `KSP.log` open (attempt 2
+  restaged while attempt 1's KSP was still exiting; reproduced standalone with
+  a `tail -f` on that log), and that refusal exits through the same
+  reports-success staging path. Two full flights (~42 min wall) to learn what a
+  staging postcondition would have said pre-boot.
 
 OBSERVED (was inference in the first draft of this entry): `dotnet test <Parsek.Tests.csproj> --filter InjectRewindB9 -v minimal --no-build` against a never-built copy of `Source/` (copied without `bin`/`obj`) **exits 0, prints nothing at all, and creates no `bin/` or `obj/`**. Reproduced directly on this machine's dotnet 6.0.428, so the exit-0 half of the fail-open is a captured fact rather than a deduction from the absent warn line. The fix below is mechanism-independent either way.
 
