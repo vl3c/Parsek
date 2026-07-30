@@ -5281,8 +5281,12 @@ V1_TAG_STOP = "stop"
 V1_TAG_REWIND = "rewind"
 
 # How the DWELL-WARP-RAMP ended; carried evidence for the warpRampDriven row.
+# "no-factors-configured" is the honest reading for a spec that legally sets
+# dwellRampFactors = [] (the stair is skipped entirely, V1_RAMP is never
+# entered, and the row must not claim a stair "completed" that never ran).
 V1_RAMP_ENDED_COMPLETED = "completed"
 V1_RAMP_ENDED_SOI_GUARD = "soi-guard"
+V1_RAMP_ENDED_EMPTY = "no-factors-configured"
 
 # The replay-scope tolerance for the rewoundBeforeFlightStart row, matching
 # PlaybackScopeTracker.ActivationToleranceSeconds (the C# latch enters a
@@ -5754,13 +5758,14 @@ def v1_map_dwell_decide(state: V1MapDwellState,
             st = replace(state, hold_elapsed=elapsed,
                          ramp_index=0, ramp_step_frame=0)
             factors = st.params.ramp_factors
-            first = [Action(ACTION_SET_RAILS_WARP, float(factors[0]))] \
-                if factors else []
             if not factors:
-                st = replace(st, ramp_ended_reason=V1_RAMP_ENDED_COMPLETED)
+                # A legal empty stair: skip V1_RAMP entirely, honestly marked
+                # (never "completed" -- no stair ran).
+                st = replace(st, ramp_ended_reason=V1_RAMP_ENDED_EMPTY)
                 return (_v1_enter(st, V1_SOI_WARP, snapshot.ut),
                         [Action(ACTION_WARP_TO_UT, _v1_soi_target(st))])
-            return _v1_enter(st, V1_RAMP, snapshot.ut), first
+            return (_v1_enter(st, V1_RAMP, snapshot.ut),
+                    [Action(ACTION_SET_RAILS_WARP, float(factors[0]))])
         if state.phase_frames > state.params.hold_frames:
             return _v1_flake(
                 replace(state, hold_elapsed=elapsed),
@@ -5915,16 +5920,19 @@ def evaluate_v1_map_dwell_assertions(
          "channel": "observed"}))
 
     hold = getattr(st, "hold_elapsed", float("nan"))
+    # V1_SOI_WARP is the empty-stair exit (dwellRampFactors = [] skips V1_RAMP
+    # entirely), so either successor phase proves the hold completed.
     hold_met = (_is_finite(hold)
                 and hold >= params.dwell_hold_seconds - 1.0
-                and V1_RAMP in phases)
+                and (V1_RAMP in phases or V1_SOI_WARP in phases))
     rows.append(AssertionOutcome(
         "dwellHeld1x", hold_met, _json_safe(hold),
         {"requiredSeconds": params.dwell_hold_seconds,
          "channel": "observed"}))
 
     ramp_reason = str(getattr(st, "ramp_ended_reason", "") or "")
-    ramp_met = ramp_reason in (V1_RAMP_ENDED_COMPLETED, V1_RAMP_ENDED_SOI_GUARD)
+    ramp_met = ramp_reason in (V1_RAMP_ENDED_COMPLETED, V1_RAMP_ENDED_SOI_GUARD,
+                               V1_RAMP_ENDED_EMPTY)
     rows.append(AssertionOutcome(
         "warpRampDriven", ramp_met, (ramp_reason or None),
         {"factors": list(params.ramp_factors),

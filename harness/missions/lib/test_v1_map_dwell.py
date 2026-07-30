@@ -344,6 +344,27 @@ class V1DwellTests(unittest.TestCase):
         st2, _ = mlib.v1_map_dwell_decide(st, snap(ut=1080.0, camera_mode="Map"))
         self.assertEqual(st2.phase, mlib.V1_HOLD)
 
+    def test_empty_ramp_factors_skip_the_stair_honestly(self):
+        """Review finding (2026-07-31): with dwellRampFactors = [] the hold
+        used to stamp ramp_ended_reason='completed' for a stair that never ran
+        while dwellHeld1x (gated on V1_RAMP) became unmeetable. The empty
+        stair must skip to SOI-WARP with the honest 'no-factors-configured'
+        reason, and BOTH rows must read met."""
+        st = drive_to_hold(dwellRampFactors=[])
+        st2, actions = mlib.v1_map_dwell_decide(
+            st, snap(ut=1060.5 + 46.0, camera_mode="Map"))
+        self.assertEqual(st2.phase, mlib.V1_SOI_WARP)
+        self.assertEqual(st2.ramp_ended_reason, mlib.V1_RAMP_ENDED_EMPTY)
+        self.assertTrue(any(a.kind == mlib.ACTION_WARP_TO_UT for a in actions))
+        self.assertFalse(any(a.kind == mlib.ACTION_SET_RAILS_WARP
+                             for a in actions))
+        rows = {r.name: r for r in mlib.evaluate_v1_map_dwell_assertions(
+            [], st2.params, state=st2)}
+        self.assertTrue(rows["dwellHeld1x"].met)
+        self.assertTrue(rows["warpRampDriven"].met)
+        self.assertEqual(rows["warpRampDriven"].value,
+                         mlib.V1_RAMP_ENDED_EMPTY)
+
     def test_hold_elapsed_is_observed_and_opens_the_ramp(self):
         st = drive_to_hold()
         st2, actions = mlib.v1_map_dwell_decide(

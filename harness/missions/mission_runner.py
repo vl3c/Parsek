@@ -482,11 +482,15 @@ class KrpcMissionControl(MissionControl):
         # OPT-IN camera-mode telemetry (V1 map-dwell lane). OFF everywhere else
         # so every other mission's read_snapshot stays byte-identical
         # (camera_mode keeps its "" UNREAD sentinel, which fails the V1
-        # staged-map-camera gate closed). ONE extra RPC per poll, taken only by
-        # the mission whose dwell must OBSERVE that the map camera actually
-        # engaged rather than trust that camera.mode was assigned -- the same
-        # commanded-vs-observed discipline as every other opt-in channel here.
+        # staged-map-camera gate closed). Two extra RPCs per poll (the Camera
+        # handle get + the Mode get), taken only by the mission whose dwell
+        # must OBSERVE that the map camera actually engaged rather than trust
+        # that camera.mode was assigned -- the same commanded-vs-observed
+        # discipline as every other opt-in channel here.
         self._read_camera = bool(read_camera)
+        # The camera channel's own dark-channel Warn latch (same rationale as
+        # the executor/periapsis/landing latches below).
+        self._warned_camera_read = False
         # DARK-CHANNEL WARN LATCHES (reviewer finding, 2026-07-25). Both opt-in
         # reads degrade to their UNREAD sentinel on a bare `except Exception`,
         # and both sentinels DISABLE machinery downstream (-1 grants no executor
@@ -738,21 +742,35 @@ class KrpcMissionControl(MissionControl):
                             "warp and the capture arming gate. Logged once "
                             "per run."
                             % (type(exc).__name__, str(exc)[:160])))
-            # LANDING channel (opt-in, B13/B14). Own try/except per read with
-            # the fail-closed sentinels (-1 / "" / NaN): a landing-surface fault
-            # must NEVER count toward the vessel-lost read-fail streak, and it
-            # must never be silent (the sentinels stand real machinery down).
             # Camera mode (opt-in, V1 map-dwell). Own try/except with the ""
             # UNREAD sentinel: a camera read fault must degrade to fail-closed
             # (the staged-map gate can never be met on a blind frame), NEVER
-            # count toward the vessel-lost read-fail streak.
+            # count toward the vessel-lost read-fail streak. NOT silent (the
+            # dark-channel Warn-latch discipline of every opt-in channel in
+            # this function): the "" sentinel stands the whole dwell down, so
+            # a drifted kRPC camera surface must name itself once instead of
+            # producing a mute camera_mode-never-read give-up 40 frames later.
             camera_mode = ""
             if self._read_camera:
                 try:
                     camera_mode = mlib.normalize_camera_mode(
                         sc.camera.mode.name)
-                except Exception:
+                except Exception as exc:
                     camera_mode = ""
+                    if not self._warned_camera_read:
+                        self._warned_camera_read = True
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Telemetry",
+                            "camera mode UNREADABLE (%s: %s); camera_mode "
+                            "degrades to the \"\" UNREAD sentinel, which "
+                            "fails the V1 staged-map-camera gate CLOSED - "
+                            "the DWELL-CAMERA phase will flake its named "
+                            "give-up at its frame bound. Logged once per run."
+                            % (type(exc).__name__, str(exc)[:160])))
+            # LANDING channel (opt-in, B13/B14). Own try/except per read with
+            # the fail-closed sentinels (-1 / "" / NaN): a landing-surface fault
+            # must NEVER count toward the vessel-lost read-fail streak, and it
+            # must never be silent (the sentinels stand real machinery down).
             landing_ap_enabled = -1
             landing_ap_status = ""
             horizontal_speed = float("nan")
