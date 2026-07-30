@@ -1,0 +1,484 @@
+schema = 1
+id = "CL-2-pod-impact-ledger"
+# =====================================================================================
+# THE CREW-LOSS ATOM'S LEDGER HALF. Stage A of the CL-1 extension.
+#
+# CL-1-pod-impact proves what Parsek RECORDS when a kerbal dies, and stops at the
+# stash: the destroyed-vessel path finalizes the tree, STASHES it as the PENDING
+# tree, nulls `recorder` and `activeTree`, and defers the merge to a scene
+# transition. CL-1's own banner says the ledger half "is therefore the atom's first
+# extension, not part of it. It needs a commit route out of a destroyed-vessel
+# flight". R12's `ExitToSpaceCenter` is that route. This spec is that extension.
+#
+# CL-1 IS DELIBERATELY UNTOUCHED, and that is a design decision rather than caution.
+# `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block`
+# exists precisely so a ledger block cannot be re-added to CL-1 "without the commit
+# route that makes them reachable". Editing CL-1 would have meant rewriting the cell
+# that guards it; a NEW spec id keeps CL-1 the atom, keeps every one of its pins
+# valid, and lets the coverage report show the atom and its extension separately.
+#
+# WHAT THIS SPEC ADDS OVER CL-1, and nothing else:
+#   1. `SetSetting autoMerge=true` BEFORE the flight. MANDATORY, not stylistic -
+#      see the step-list note.
+#   2. `ExitToSpaceCenter` after the crash, which is the FLIGHT -> SPACECENTER
+#      transition that reaches the pending-tree AUTO-COMMIT.
+#   3. `[expectations.ledger]`, the D8 half CL-1 could not carry.
+#
+# THE FEASIBILITY QUESTION, DERIVED FROM THE THREE PURE FUNCTIONS BEFORE FLYING.
+# `TestCommandExitToSpaceCenter.DecideExitGate` refuses when `!hasActiveTree` and
+# `pendingTreeVariant != None`. CL-1's post-destruction live state is
+# `hasActiveTree=false, hasPendingTree=true (Finalized), switchSegmentSession=false,
+# reFlyActive=false`, so everything rides on the pending-tree variant.
+# `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns `RegularMerge`
+# when `!isAutoMerge` and `None` when autoMerge is on and the destination is not
+# MAINMENU. So with `autoMerge = true` the gate PROCEEDS, and with it OFF the verb
+# REJECTS with `msg=dialog-required variant=RegularMerge` and this scenario proves
+# nothing. That is why step 3 exists.
+#
+# The pinned start line below is the MIRROR IMAGE of S0.7's
+# (`hasActiveTree=true hasPendingTree=false`), which makes it a genuinely new gated
+# input set rather than a copy: S0.7 exits with a LIVE tree, this exits with a
+# STASHED one.
+#
+# WHY THE IDLE-ON-PAD AUTO-DISCARD DOES NOT EAT THIS TREE. S0.7 could not prove the
+# auto-commit because a seam `StartRecording -> ExitToSpaceCenter` pair records
+# exactly ONE point (a seam round trip is ~130 ms against a 200 ms minimum sample
+# interval), and a one-point recording has `maxDist = 0` BY CONSTRUCTION - which is
+# idle-on-pad under a 30 m threshold, and `ParsekScenario.OnLoad` discards a
+# Finalized idle pending tree BEFORE the autoMerge commit branch. CL-1's flight
+# clears that threshold by three orders of magnitude: MEASURED
+# `logs/2026-07-28_1913_CL-1-pod-impact/KSP.log:10786`
+# `FinalizeTreeRecordings: ... points=262 ... maxDist=11884m` and `:10805`
+# `IsTreeIdleOnPad: 'Jumping Flea' maxDist=11884.4m - not idle`. A driver that
+# genuinely FLIES is exactly the prerequisite S0.7 and the roadmap both named.
+#
+# WHY `[expectations.ledger]` + `ExitToSpaceCenter` IS A LEGAL PAIRING, reasoned
+# about rather than inherited. `hlib.validate_spec` hard-rejects
+# `[expectations.ledger]` paired with `InvokeRewind` or `AnswerMergeDialog`, on the
+# stated grounds that a rewind REWRITES the career pools from a quicksave the
+# seed + manifest contract cannot reconstruct, and a merge dialog commits or
+# discards those REWOUND pools. Neither is true of an auto-commit: the funds /
+# science / reputation effects of this flight were applied LIVE by stock KSP while
+# it flew, and `MergeCommit` only marks the tree applied - `ParsekScenario.cs`'s own
+# comment on the `refreshQuicksaveAfterCommit: false` argument says the commit is
+# durable via the next normal OnSave and lets the OnLoad recalc patch the
+# just-committed tree's ledger actions. The seed + manifest sum therefore stays
+# valid across the commit, which is the property the incompatibility rule protects.
+# The rule is a hardcoded two-name tuple, not a role lookup, so this pairing
+# validates today; this paragraph is the reasoning, deliberately recorded next to
+# the pairing rather than left for the next reader to re-derive. If a future run
+# shows the commit MOVING a pool, the honest fix is to widen that rule, not to fudge
+# the manifest below.
+#
+# SCOPE FENCE - WHAT STAGE A DOES NOT REACH, so nobody reads the coverage report as
+# claiming it. D9 `tombstones`, D12 `dead-crew-strip` and D12 `tombstone-rep-penalty`
+# are ALL re-fly-merge-tail behaviour: `SupersedeCommit` is the only producer of a
+# `LedgerTombstone`, and `CommitTombstones` runs strictly inside the re-fly merge
+# tail after supersede relations land. No auto-commit reaches it. Closing them is
+# STAGE B: a rewind ACROSS this crew loss plus a `RunTests` step driving the in-game
+# `Rewind` category, so `InGameTests/KerbalRecoveryOnSupersedeTest` stops
+# auto-skipping with "No kerbal-death actions in supersede subtree" - CL-1's
+# committed tree IS the subtree it needs. Stage B cannot carry
+# `[expectations.ledger]` at all (it needs `InvokeRewind`), which is the second
+# reason the two stages are separate specs rather than one.
+#
+# STATUS: LIVE-PROVEN 2026-07-30, PASS on BOTH flights, attempt 1 each.
+#   flight 1  run `2026-07-30_1711_CL-2-pod-impact-ledger`, 172 s wall. Commit tokens
+#             UNPINNED (this flight existed to MEASURE them, because every one of them
+#             was derived from a call site and none had ever been observed on this
+#             profile). Every verifier PASS/SKIPPED; ledgerOracle PASS with 0 hard
+#             divergences on the first try, so the manifest below needed no
+#             recalibration. Three of the four derived tokens came back VERBATIM; the
+#             fourth (`PopulateCrewEndStates ... dead=1`) came back ABSENT, which is
+#             the product finding above.
+#   flight 2  run `2026-07-30_1721_CL-2-pod-impact-ledger`, 167 s wall, PINNED to the
+#             measured forms: `expectations mismatches=0` across all 15 required
+#             tokens, ledgerOracle PASS 0 hard divergences again.
+#
+# NOTE FOR STAGE B's AUTHOR: `dead-crew-strip` has no pinned definition in
+# `coverage/registry.toml` beyond the D12 comment's assertion that it is a "RE-FLY
+# consequence", and the only code in the repo actually NAMED for stripping dead crew
+# is spawn-time (`VesselSpawner.RemoveDeadCrewFromSnapshot` /
+# `ShouldBlockSpawnForDeadCrew`), not re-fly-time. PIN what the cell means before
+# claiming it. Filed in docs/dev/todo-and-known-bugs.md.
+#
+# WHAT THE FIRST FLIGHT FOUND, and it is the reason a flight was budgeted rather
+# than the tokens simply being derived: `PopulateCrewEndStates` NEVER RUNS on this
+# path, so the KerbalAssignment row this commit creates for a kerbal who DIED
+# carries `KerbalEndState.Unknown` instead of `Dead`. Measured, run
+# `2026-07-30_1711_CL-2-pod-impact-ledger`: zero `PopulateCrewEndStates` lines in the
+# whole log, `PostWalk summary: reservations=1 permanent=0 temporary=1`, and a
+# stand-in generated for the dead kerbal (`Stand-in generated: 'Dudeny Kerman' ...
+# for slot 'Jebediah Kerman'`, persisted as a `CREW_REPLACEMENTS` entry). The
+# product's own comment at `KerbalsModule.cs` says `Dead -> permanent, endUT =
+# infinity` and `Unknown -> open-ended temporary (conservative)`, so this is a
+# divergence from the stated contract, not a reading of it. Root cause is
+# `LedgerOrchestrator.NeedsCrewEndStatePopulation`, which requires
+# `rec.VesselSnapshot != null` - exactly false for a DESTROYED vessel - so
+# `rec.CrewEndStates` stays null and `ExtractCrewFromRecording` defaults the row to
+# `Unknown`. FILED in docs/dev/todo-and-known-bugs.md; NOT fixed here (a product
+# behaviour change belongs in its own change with its own review). The consequence
+# for this spec is in [dimensionsCovered]: the crew-end-state half is deliberately
+# NOT claimed and NOT pinned, because it does not work.
+tier = "nightly"
+# PROMOTED from `operator` 2026-07-30 after TWO green flights, which is the same
+# condition CL-1 was tiered against and cleared on ONE. 172 s and 167 s wall, both
+# PASS on attempt 1 with every verifier PASS/SKIPPED, so it is as cheap for a nightly
+# as the atom it extends (166 s) despite adding the exit and the ledger verifier.
+# It EARNS the nightly slot rather than merely affording it: it is the only committed
+# spec that exercises the pending-tree auto-commit end to end, and the four commit
+# tokens below have no other guard anywhere in the suite.
+description = "Crew-loss ledger half: the CL-1 fatal pod hop, then ExitToSpaceCenter under autoMerge so the stashed pending tree reaches the outside-Flight AUTO-COMMIT and its kerbal-death ledger rows are created."
+instanceProfile = "stock-minimal"
+tags = ["CL1", "CL2", "crew-loss", "ledger", "auto-merge", "scene-exit", "flown"]
+
+[fixture]
+# UNCHANGED from CL-1, deliberately and completely: same save template, same craft,
+# same crew, same builder. `harness/tools/build_career_pad_craft.py` still owns it
+# and `FixtureDriftTests` (in test_cl1_crew_loss.py) still asserts byte-identity
+# against a fresh rebuild. This spec introduces NO new fixture, which is a large
+# part of why the extension is cheap.
+#
+# CAREER is load-bearing here in a way it was not for CL-1. CL-1 flew career for the
+# roster-terminal and measurement reasons its own banner gives; this spec needs the
+# ECONOMY itself - a SANDBOX death awards no funds and no reputation, so there would
+# be no ledger to assert against.
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# UNCHANGED mission. `cl1_pod_impact` is a two-action mission (throttle + one
+# `activate_stage`) that flies raw kRPC with no MechJeb, kills deterministically in
+# ~120 s, and has flown green. Its success terminal reads the kerbal's OWN roster
+# status, never a commanded latch. No mlib edit, no new mission code, no new schema.
+mission = "cl1_pod_impact"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header scopes to driver.missionParams.steps and the
+# spec validates as having ZERO steps).
+#
+# SEVEN STEPS. The three that differ from CL-1:
+#   - `SetSetting autoMerge=true`, BEFORE the flight. Without it the exit verb's
+#     wedge guard REJECTS with `variant=RegularMerge` (see the header derivation)
+#     and the run proves nothing. It is set before the mission rather than after so
+#     the setting is already live on every path the destruction handler takes.
+#   - `ExitToSpaceCenter`, the whole point. Its 120 s budget matches its C#
+#     `DeferralBudget`. `hlib.SEAM_VERB_POST_MISSION_ROLE` classes it
+#     `recording`, NOT `outcome`, so its verdict does not gate as
+#     PARSEK-FAIL(mission-outcome) - whether the pending tree then auto-committed is
+#     proven by the grep-stable commit tokens below, exactly the intended carve-out:
+#     a good flight Parsek then failed to commit is a PARSEK-FAIL(expectation),
+#     never a retryable driver-INVALID. And because
+#     `hlib.SEAM_VERB_TAIL_ROLE` classes it WORLD-MUTATING, an UNMET mission runs the
+#     cleanup tail only and SKIPS it, so a failed attempt never commits its junk tree.
+#   - `RecordingState`, an INERT read-only probe placed after the exit as an audit
+#     readback. It is NOT gated on and the commit is deliberately NOT proven by it:
+#     its `points` field is the LIVE recorder's buffered count, not any committed
+#     recording's, and R1's honest-limit note records a row gated on it that "was met
+#     while the fact a reader would infer from it was false".
+#
+# Still deliberately ABSENT, same reasons CL-1 gives: no `CommitTree` (it CANNOT
+# succeed - the destroyed-vessel path already nulled `activeTree`, so its
+# `HasActiveTree` guard fails and the step would make the run driver-INVALID); no
+# `StopRecording` (the destruction path stops the recorder itself); no
+# `SetSetting verboseLogging` (every required token below is Info or Warn).
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 480 },
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# UNCHANGED from CL-1, value for value, and validated against
+# cl1_pod_impact.schema.toml. Changing any of them here would fork the flight
+# profile the two specs share and break the "same atom, one more step" claim.
+[driver.missionParams]
+throttle  = 1.0
+crewName  = "Jebediah Kerman"
+flightTimeoutSeconds = 300
+landedSituations     = ["LANDED", "SPLASHED"]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a required token in this spec's
+# own logContracts or by the ledger oracle's HARD facets. S0.7 had to EMPTY its D1
+# after its live runs showed the tree was idle-discarded rather than committed, and
+# the two values it dropped are exactly the two claimed here - now with a flight that
+# actually commits and tokens that prove it.
+#
+# `commit-scene-exit` <- "Silent full-fidelity auto-commit (scene-exit)".
+# `auto-merge`        <- the same token, whose branch predicate
+#                        `ShouldSilentFullFidelityCommit` requires isAutoMerge, plus
+#                        the pinned `autoMerge=true` on the exit start line.
+D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
+# D8, claimed for the first time by any crew-loss spec. CL-1 claims NO D8 cell at all
+# ("every ledger cell is commit-time and this scenario does not commit"); this spec
+# commits, so the commit-time cells become claimable - but only the ones with a
+# proving token or a HARD oracle facet:
+#   `kerbals`      <- "CreateKerbalAssignmentActions: 1 crew members from '<id>'".
+#                     WHAT THAT TOKEN DOES AND DOES NOT PROVE, stated exactly because
+#                     the first flight measured the difference: it proves a
+#                     `KerbalAssignment` ledger ROW is created for the flight's crew
+#                     at commit time - the path B1 showed occurring ZERO times on the
+#                     uncommitted profile. It does NOT prove the row's END STATE. On
+#                     this path `PopulateCrewEndStates` never runs and the row carries
+#                     `Unknown` where the product's own comment says `Dead`; that is
+#                     the filed defect in the header, and no token here claims it.
+#   `orchestrator` <- the same line, emitted from LedgerOrchestrator's own call chain,
+#                     reachable only through NotifyLedgerTreeCommitted.
+#   `reputation`   <- the ledger oracle's HARD reputation facet, against a save whose
+#                     rep pool actually moved (the only committed spec measured
+#                     producing reputation at all). MEASURED PASS with 0 hard
+#                     divergences on BOTH flights.
+#   `funds`        <- the ledger oracle's HARD funds facet, same runs.
+# NOT claimed: `milestones` (the milestone ROWS are stock's, and this spec asserts no
+# milestone-module token), `tombstones` (re-fly only - see the scope fence),
+# `recalc-engine` / `ksp-state-patcher` / `ers-els-routing` (no token names them).
+D8  = ["kerbals", "orchestrator", "reputation", "funds"]
+# UNCHANGED from CL-1: the death itself. The two re-fly cells stay UNCLAIMED here as
+# well - they are stage B's, and the coverage report should keep showing them as the
+# backlog.
+D12 = ["crew-death-in-flight"]
+# `scene-ksc` is new relative to CL-1 and is gated by
+# "exittospacecenter complete scene=SPACECENTER game-loaded=true", a token
+# DecideExitCompletion emits only from its CompleteOk branch.
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced form, so
+# this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACTLY ONE, inherited from CL-1's measured pin and re-measured on this spec's own
+# first flight. `run.py::count_recordings` counts `.prec` sidecars, and they are
+# written for a COMMITTED tree just as they are for a pending one; the breakup-child
+# pids never persist (`PruneSinglePointDebrisLeaves` removes the single-point debris
+# stubs at the impact, which is what keeps the count at 1).
+#
+# EXACT, not a window, for CL-1's reason: logContracts are presence-only (re.search),
+# so this is the only NUMERIC guard on the recording topology, and a window wide
+# enough to absorb breakup variance is also wide enough to absorb a dropped
+# recording. RE-PIN CONTRACT: if a live run legitimately differs, re-pin to the
+# measured value and record WHICH recordings the run produced; do not widen blindly.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# THREE GROUPS, ordered as the run emits them.
+#
+# GROUP 1 - CL-1's eight, verbatim and unchanged. They pin the RECORDER side of the
+# crew loss, and keeping them identical is what makes this spec a superset of the
+# atom rather than a divergent fork. Their derivations (why `.*` spans the U+2192
+# separator, why the FIRST Assigned -> Dead hop and not the second, why the emit can
+# be suppressed by a reservation on a fixture with prior committed flights) are in
+# CL-1-pod-impact.toml and are not repeated here.
+#
+# GROUP 2 - the exit verb. The start line pins the WHOLE guard input set literally,
+# which is what makes the wedge-guard claim falsifiable: a run that lost the
+# autoMerge pin, or that arrived with a LIVE active tree instead of a stashed pending
+# one, would REFUSE and red HERE, on the state, rather than somewhere downstream.
+# `persisted=true` matters because a raw LoadScene with no pre-exit persist models an
+# exit no stock UI route performs. The complete line is simultaneously the verb's OK
+# and the "we actually landed at the KSC" assertion behind the D14 scene-ksc claim.
+#
+# NOT copied from S0.7: `CommitTreeSceneExit: stashed pending tree`. On THIS profile
+# the tree is stashed by the DESTRUCTION path minutes earlier, not by the scene-exit
+# interceptor, so that token is not guaranteed here.
+#
+# GROUP 3 - the COMMIT, which is the entire reason this spec exists and the evidence
+# no run on this profile had ever produced. Every one of these was derived from its
+# emitting call site and then MEASURED VERBATIM on flight 1
+# (`2026-07-30_1711_CL-2-pod-impact-ledger`, FULL PASS):
+#   Silent full-fidelity auto-commit (scene-exit): tree='Jumping Flea'
+#     recordings=1 spawnable=0                                  ParsekScenario.cs
+#   Committed tree 'Jumping Flea' (1 recordings). Total committed:
+#     1 recordings, 1 trees                                     RecordingStore.cs
+#   CreateKerbalAssignmentActions: 1 crew members from
+#     '5c0ed4fa57c841d3afd3ead9ab33640b'                        LedgerOrchestrator.cs
+#   OnSave: saving 1 committed tree(s)                          ParsekScenario.cs
+# (No line numbers: a PASSING harness run does not archive its KSP.log, so the only
+# citable identity is the run id. `test_cl2_crew_loss_ledger.py::test_every_required_
+# pattern_matches_its_measured_line` carries the verbatim lines instead, and reds if a
+# pattern here stops matching what the game emitted.)
+#
+# THE LITERALS ARE THE NUMERIC GUARDS. logContract patterns are presence-only
+# (re.search), so `recordings=1 spawnable=0`, `Total committed: 1 recordings, 1
+# trees`, `1 crew members` and `saving 1 committed tree(s)` are what stop a commit
+# that produced an EMPTY tree, or no crew row at all, from satisfying them.
+#
+# `OnSave: saving 1 committed tree(s)` is the B1 NEGATIVE CONTROL READ FORWARD and is
+# the single strongest line in this file: the archived pre-commit run of this exact
+# craft logs `OnSave: saving 0 committed tree(s)` with `PopulateCrewEndStates` and
+# `CreateKerbalAssignmentActions` occurring ZERO times in its whole log. Flight 1
+# logged `saving 0` three times BEFORE the exit and `saving 1` after it, so the token
+# is a genuine before/after discriminator rather than a coincidence of wording.
+#
+# NOT REQUIRED, and this is a FINDING rather than an omission:
+# `PopulateCrewEndStates: ... dead=1` was drafted here from the call site and DOES NOT
+# EXIST on this path. Flight 1 measured zero occurrences of `PopulateCrewEndStates`
+# anywhere in the log, because `LedgerOrchestrator.NeedsCrewEndStatePopulation`
+# requires `rec.VesselSnapshot != null` and a DESTROYED vessel has none. The crew row
+# is therefore created with `KerbalEndState.Unknown`. See the header; the defect is
+# filed, and pinning a token that the product does not emit would have red'd a
+# correct run for the wrong reason.
+required  = ["Recording started",
+             "Destroy-reason override: .* reason=destroy_event",
+             "Active vessel destroyed during recording",
+             "Active vessel destroyed in tree mode",
+             "Game state: CrewStatusChanged 'Jebediah Kerman' Assigned .* Dead",
+             "ShowPostDestructionTreeMergeDialog: finalized tree",
+             "pending tree stashed",
+             "Recording stopped",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None",
+             "exittospacecenter driving scene-exit dest=SPACECENTER persisted=true",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=1 spawnable=0",
+             "Committed tree '.+' \\(1 recordings\\)\\. Total committed: 1 recordings, 1 trees",
+             "CreateKerbalAssignmentActions: 1 crew members from '.+'",
+             "OnSave: saving 1 committed tree\\(s\\)"]
+# UNCHANGED from CL-1, and it was checked against a real crewed-pod crash that killed
+# its kerbal rather than argued by analogy. The NEW error surfaces this spec adds are
+# all failures that SHOULD red: `AutoCommitPendingTreeOutsideFlight (<ctx>) threw
+# <Ex>` (Error), `exittospacecenter failed-returned-to-menu` (Error) and
+# `exittospacecenter timeout` (Error). A commit that throws must red.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[expectations.ledger]
+# THE HALF CL-1 COULD NOT CARRY. See the header for why this pairs legally with
+# `ExitToSpaceCenter`.
+seedFrom     = "template"   # parse the staged career-pad-craft save for the baseline.
+tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+rec3CarveOut = false        # no route residual anywhere in this scenario.
+# REPORT, and after flight 1 that is a MEASURED conclusion rather than a placeholder.
+# `hlib`'s own note says the cross-check "was WRITTEN as a hard gate, but it has never
+# once run with a working capture", that no L1 spec can capture anything (all six are
+# funds-only / science-only / all-zero and never fly), and that arming "wants a
+# REPUTATION-producing scenario". This is that scenario, and it is the FIRST run in
+# the repo with a LIVE capture: flight 1 captured all three stock rep lines
+# (`stockLines=3 deduped=3 seamDeclared=4 seamRejected=0`).
+#
+# WHAT THAT FIRST LIVE CAPTURE MEASURED, and why `gate` is still not armed. All three
+# captured awards reported UNEXPECTED (`hard=False`, report-only) even though this
+# manifest declares all three at the right amounts and reasons. The cause is the
+# corroboration KEY: `hlib.unmatched_captured_awards` joins on
+# `(seq_key, facet, amount)`, and `seq_key` is `("ut", <ut>)` whenever the captured
+# line has a UT - flight 1's captures carried ut 12.5 / 19.0 / 119.9, read off their
+# neighbouring `[Parsek]` lines. A spec-declared entry can only match by declaring
+# those exact UTs, which for a FLOWN scenario means pinning a golden trajectory value
+# (the same impact UT was 119.7 on the archived B1 run and 119.9 here). So arming
+# `gate` on a flown scenario is not a matter of reading a green run's `capturedRaw`;
+# the key itself has to change. Recorded in docs/dev/todo-and-known-bugs.md so the
+# next author does not re-derive it from another flight.
+#
+# NONE OF THIS WEAKENS THE ORACLE. The cross-check only classifies; a captured amount
+# is never summed into EXPECTED, and the seam-declared-vs-produced-save diff below
+# reds exactly as before. Flight 1's ledger verifier passed with 0 hard divergences.
+captureCrossCheck = "report"
+
+# THE MANIFEST DECLARES DELTAS, and every number below is MEASURED, not derived.
+# Source: the two archived CL-1 flights, identical across both, cross-checked against
+# the produced save on disk (logs/2026-07-28_1913_CL-1-pod-impact):
+#
+#   seed (career-pad-craft/persistent.sfs)      funds 500000  sci 100  rep 0
+#   produced (same run's collected save)        funds 529600  sci 100  rep -7.99982834
+#
+# SCIENCE: no entry, because the delta is ZERO. A 12 km crewed hop with no experiment
+# run and no recovery transmits nothing, and the produced pool is the seed pool
+# unchanged. An empty science declaration is the correct statement, not an omission.
+[[expectations.ledger.manifest]]
+  # The crew death's reputation hit. It is applied by STOCK KSP, not by Parsek's
+  # ledger: nothing in Source/Parsek/ ever CONSTRUCTS a
+  # `ReputationPenaltySource.KerbalDeath` action (the enum member is referenced only
+  # by the UI label formatter, the post-walk reason-key map and deserialization), so
+  # Parsek's ledger absorbs the penalty through the generic captured-award path. That
+  # is why the kind is the generic `stock-reputation-award` and not a crew-loss kind:
+  # the oracle has no `kerbal-death` kind, deliberately - a real stock award line
+  # names its `TransactionReasons` key and nothing else, so the capture cannot
+  # honestly classify one as a scenario semantic.
+  #
+  # THE REASON KEY IS `VesselLoss`, NOT `CrewKilled`. `Assembly-CSharp.dll` has no
+  # `CrewKilled` member on `TransactionReasons` at all;
+  # `PostWalkActionReconciler` used to map KerbalDeath -> "CrewKilled" and was WRONG,
+  # now corrected and pinned by Source/Parsek.Tests/PostWalkActionReconcilerTests.cs.
+  # `stockReason` is the optional corroboration TIGHTENER for the cross-check.
+  #
+  # `repMode = applied`: the MEASURED value is what stock actually applied AFTER its
+  # own reputation curve (`Added -9.999828 (-10) reputation: 'VesselLoss'.`), so
+  # running it through `apply_rep_curve` a second time would double-distort it. The
+  # `gameevents-captured` provenance defaults to `applied` for exactly this reason;
+  # it is written explicitly here so the intent survives a default change.
+  seq        = 2
+  kind       = "stock-reputation-award"
+  reputation = -9.999828
+  repMode    = "applied"
+  stockReason = "VesselLoss"
+  provenance = "gameevents-captured"
+
+[[expectations.ledger.manifest]]
+  # The two stock `Progression` reputation awards, +1 nominal each, that a first
+  # career launch trips. They MUST be declared: the oracle accumulates reputation
+  # sequentially from the seed, so omitting them would compute an expected -9.999828
+  # against a produced -7.99982834 - a 2.0 drift on a HARD facet with a 0.1
+  # tolerance, i.e. a self-inflicted PARSEK-FAIL(ledger).
+  #
+  # They are declared as TWO entries rather than one summed row because they are two
+  # distinct stock events with two distinct log lines, and the capture cross-check
+  # corroborates one-to-one on (seqKey, facet, amount).
+  seq        = 0
+  kind       = "stock-reputation-award"
+  reputation = 0.9999995
+  repMode    = "applied"
+  stockReason = "Progression"
+  provenance = "gameevents-captured"
+
+[[expectations.ledger.manifest]]
+  seq        = 1
+  kind       = "stock-reputation-award"
+  reputation = 0.9999995
+  repMode    = "applied"
+  stockReason = "Progression"
+  provenance = "gameevents-captured"
+
+[[expectations.ledger.manifest]]
+  # THE FUNDS DELTA: +29600, measured as `produced 529600 - seed 500000` on both
+  # archived CL-1 flights.
+  #
+  # WHY IT IS ONE AGGREGATE ROW AND NOT FOUR ATTRIBUTED ONES, stated plainly so the
+  # next reader does not mistake it for laziness. The hop trips four stock progress
+  # nodes - the produced save's ProgressTracking node carries `FirstLaunch`,
+  # `RecordsAltitude`, `RecordsSpeed` and `RecordsDistance` where the fixture carries
+  # none - but only THREE of them reach a Parsek log line with an amount
+  # (`MilestoneAchieved (standalone) 'RecordsSpeed' funds=4800`, `'FirstLaunch'
+  # funds=800`, `'RecordsAltitude' funds=4800`), summing to 10400 of the 29600.
+  # The remaining 19200 cannot be attributed from the log because KSP LOGS NO FUNDS
+  # AWARD LINE AT ALL - that is `hlib.STOCK_AWARD_PATTERNS_DEAD`, measured, and it is
+  # the same fact that makes `stock-funds-award` a legal kind the capture can never
+  # produce. Splitting 29600 into four invented per-node constants would be a
+  # fabricated attribution dressed as precision; one row carrying the measured pool
+  # delta is the honest statement of what is actually known.
+  #
+  # RE-PIN CONTRACT: this is a MEASUREMENT of what a 12 km crewed career hop awards on
+  # THIS fixture, not a derivation. If a run legitimately differs, re-pin to the
+  # observed `produced - seed` and record the run id; do not widen a tolerance.
+  seq        = 3
+  kind       = "milestone"
+  funds      = 29600.0
+  provenance = "seam-declared"
+
+[runtime]
+# WALL clock, bounding the WHOLE drive phase INCLUDING KSP boot: CL-1's 1080
+# (300 LoadGame + 480 mission + the fast verbs + ~290 boot and margin) plus the
+# exit's 120. ExitToSpaceCenter's step budget matches its C# DeferralBudget.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

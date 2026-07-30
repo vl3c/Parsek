@@ -122,6 +122,22 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # not nameable. The two re-fly cells stay uncovered on purpose: they are what this
 # atom is meant to be extended into, and the coverage report should keep showing them
 # as the backlog rather than absorbing them into this claim.
+#
+# STILL UNCOVERED after `CL-2-pod-impact-ledger` (the extension's STAGE A, 2026-07-30),
+# and deliberately so: CL-2 reaches the pending-tree AUTO-COMMIT and claims the D8
+# commit-time cells, but `SupersedeCommit` is the ONLY producer of a `LedgerTombstone`
+# and `CommitTombstones` runs strictly inside the RE-FLY merge tail, which no
+# auto-commit can reach. Both cells belong to stage B (a rewind ACROSS the crew loss).
+#
+# BEFORE CLAIMING `dead-crew-strip`, PIN WHAT IT MEANS. The comment above asserts it is
+# a "RE-FLY consequence", but the only code in the repo NAMED for stripping dead crew is
+# SPAWN-time (`VesselSpawner`'s `RemoveDeadCrewFromSnapshot` note and
+# `ShouldBlockSpawnForDeadCrew`); the re-fly `Strip` is `PostLoadStripper.Strip`, which
+# strips VESSELS. The strongest available definition is the one
+# `InGameTests/KerbalRecoveryOnSupersedeTest` asserts: after the merge every eligible
+# kerbal-death action in the supersede subtree is tombstoned AND each previously-Dead
+# kerbal is back in the roster as Available or Assigned. Details in
+# docs/dev/todo-and-known-bugs.md.
 values = ["reservation-auto-hire", "stand-ins", "seat-matching", "rescue-marker",
           "crew-death-in-flight",
           "dead-crew-strip", "tombstone-rep-penalty", "missed-endut-auto-free", "crew-swap",

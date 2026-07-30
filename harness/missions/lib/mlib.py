@@ -2329,6 +2329,16 @@ SEAM_COMMAND_POLL_SECONDS_BY_VERB: Dict[str, float] = {
     "InvokeRewind": 420.0,       # StartInvoke + the scene reload + ConsumePostLoad
     "AnswerMergeDialog": 240.0,  # answer-applied AND the post-answer scene settle
     "LoadGame": 420.0,           # realize the .sfs + StartAndFocusVessel
+    # R12. ExitToSpaceCenter is the third scene-straddling verb, and it is entered here
+    # for the SAME reason AnswerMergeDialog is: its terminal waits on a SPACECENTER
+    # settle whose bootstrap re-reads persistent.sfs and runs SetProtoModules ->
+    # ParsekScenario.OnLoad -> the pending-tree auto-commit. Its C# budget is 120 s and
+    # the DEFAULT here is also 120 s, so riding the default would poll with ZERO margin
+    # and manufacture a TIMEOUT out of a healthy exit; 240 s doubles it exactly as
+    # AnswerMergeDialog does. R12's OTHER verb, SimulateStockSwitchClick, is deliberately
+    # ABSENT: it is single-phase (the switch and Parsek's consume both run synchronously
+    # inside SetActiveVessel), so it answers within a frame and the default is correct.
+    "ExitToSpaceCenter": 240.0,
 }
 
 

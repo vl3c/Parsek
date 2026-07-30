@@ -556,6 +556,21 @@ two-phase:
    SPACECENTER, the natural post-flight destination). The `SceneExitInterceptor` prefix
    fires synchronously, spawns the pre-transition re-fly merge dialog, and blocks the
    stock transition. The popup is now live in the same execution frame.
+   **Resume-settle wait (S4.1-PREFIX-RACE, 2026-07-30):** the drive is DEFERRED while
+   the scene is FLIGHT and `ParsekFlight.HasActiveTree` is still false - the
+   in-place-continuation resume that makes the restored tree active
+   (`RewindInvoker.RestoreActiveTreeFromPending`) is an asynchronous coroutine that
+   runs after `InvokeRewind`'s marker-keyed completion, and a drive issued in that
+   window models a scene exit faster than any human route: the prefix sees no active
+   tree and a pending-LIMBO tree, returns `DialogVariant.None`, and the exit slips
+   through un-intercepted to the deferred post-transition dialog (live evidence: run
+   `2026-07-28_1939` won the race by 121 ms and entered the prefix; the five
+   2026-07-30 sweep runs all lost it and missed the prefix). The wait is decided by
+   the pure `TestCommandMergeAnswer.DecideConclusionDrive` each safe-point frame and
+   bounded by `ReFlyResumeSettleBudgetSeconds` (30 s, well under the verb budget);
+   on expiry the drive proceeds anyway and the attempt concludes through the
+   deferred post-transition dialog exactly as before the wait existed (the
+   restore-give-up / placeholder-mode attempts land here by design).
 3. Locate the live `PopupDialog` by `MergeDialog.DialogName` ("ParsekMerge"), confirm it
    is the re-fly merge dialog (a re-fly marker is live), and invoke the chosen
    `DialogGUIButton`'s OWN callback directly. The button lambdas run their action INSIDE
@@ -591,7 +606,11 @@ two-phase:
 `hasActiveTree || switchSegmentActive` - the re-fly marker ALONE is insufficient
 (`SceneExitInterceptor.cs:161-165`). This holds for the normal in-place-continuation
 re-fly because `RewindInvoker.RestoreActiveTreeFromPending` restarts the recorder into
-the fork (`RewindInvoker.cs:1470`), so `HasActiveTree` is true for the whole attempt.
+the fork (`RewindInvoker.cs:1470`), so `HasActiveTree` is true for the whole attempt -
+but NOT instantly: the resume is a coroutine with its own vessel wait, so "the whole
+attempt" starts a few hundred milliseconds after `InvokeRewind` reports complete, which
+is why step 2 carries the resume-settle wait above rather than assuming the tree is
+already active at Execute time.
 The exception is a placeholder-mode re-fly where the recorder never armed
 (`ParsekFlight.Finalization.cs:26-29`): there the driven exit passes the prefix
 un-intercepted and the dialog arrives via the deferred POST-transition coroutine - the

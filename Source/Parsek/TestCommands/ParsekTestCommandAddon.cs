@@ -90,9 +90,11 @@ namespace Parsek.TestCommands
         private long responseSeq;
         // Set true while a LoadGame is in flight (P5.7); read now by the LoadGame guard.
         private bool loadInFlight = false;
-        // No-vessel LoadGame route (ledger lane): completion expects a settled
-        // SPACECENTER instead of FLIGHT. Reset with the other two-phase state.
-        private bool loadExpectSpaceCenter = false;
+        // The scene the in-flight LoadGame's route must settle in (R12; was a two-valued
+        // `loadExpectSpaceCenter` bool until the TRACKSTATION route made it three-valued).
+        // Sourced from TestCommandLoadGame.ExpectedSceneFor(route). Reset with the other
+        // two-phase state.
+        private TestCommandScene loadExpectedScene = TestCommandScene.Flight;
 
         // Two-phase verbs (RunTests P5.6 / LoadGame P5.7). The executor INITIATES the
         // long-running side effect and returns PendingVerdict; the pump journals CLAIMED
@@ -115,9 +117,14 @@ namespace Parsek.TestCommands
         // callback has already been invoked, and the result token. When the driven exit takes
         // the post-transition path the button is invoked LATER by the completion re-scan, so
         // mergeAnswerApplied starts false and flips when the callback runs.
+        // mergeAnswerDrivePending (S4.1-PREFIX-RACE) means the Execute found a live re-fly
+        // marker but the in-place-continuation resume had not yet made the restored tree
+        // active, so the conclusion scene-exit is deferred to TryCompleteAnswerMergeDialog
+        // (bounded by TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds).
         private MergeAnswerChoice mergeAnswerChoice;
         private bool mergeAnswerApplied;
         private string mergeAnswerResult;
+        private bool mergeAnswerDrivePending;
 
         // FlushAndQuit (P5.8): the response + journal DONE are written and flushed BEFORE
         // Application.Quit, which is deferred one frame via a coroutine scheduled only
@@ -777,6 +784,14 @@ namespace Parsek.TestCommands
                 TryCompleteEvaChuteDeploy(now);
                 return;
             }
+            // R12: the driven FLIGHT -> SPACECENTER exit, in the
+            // ParsekTestCommandAddon.ExitToSpaceCenter.cs partial. Same bounded-completion
+            // contract as LoadGame (it is the same scene-settle question).
+            if (completionVerb == "ExitToSpaceCenter")
+            {
+                TryCompleteExitToSpaceCenter(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -829,13 +844,14 @@ namespace Parsek.TestCommands
             TestCommandScene scene = MapScene(HighLogic.LoadedScene);
             bool gameLoaded = HighLogic.CurrentGame != null;
             LoadCompletionDecision decision =
-                TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, gameLoaded, budget, loadExpectSpaceCenter);
+                TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, gameLoaded, budget, loadExpectedScene);
 
             if (decision == LoadCompletionDecision.StillWaiting)
                 return;
 
+            TestCommandScene expected = loadExpectedScene;
             loadInFlight = false;
-            loadExpectSpaceCenter = false;
+            loadExpectedScene = TestCommandScene.Flight;
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             ClearTwoPhase();
 
@@ -847,14 +863,14 @@ namespace Parsek.TestCommands
                     List<KeyValuePair<string, string>> payload =
                         TestCommandLoadGame.BuildCompletePayload(sceneName, loadGameSave);
                     ParsekLog.Info(Tag,
-                        $"loadgame complete scene={sceneName} save={loadGameSave ?? string.Empty} game-loaded=true");
+                        $"loadgame complete scene={sceneName} save={loadGameSave ?? string.Empty} game-loaded=true expected={expected}");
                     EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
                     break;
                 }
                 case LoadCompletionDecision.LoadFailedMenu:
                 {
                     ParsekLog.Error(Tag,
-                        $"loadgame failed-returned-to-menu save={loadGameSave ?? string.Empty} scene={scene} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        $"loadgame failed-returned-to-menu save={loadGameSave ?? string.Empty} scene={scene} expected={expected} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                     EmitExecutedTerminal(id, seq, verb, "ERROR", null, "load-failed-returned-to-menu", dequeueHead: true);
                     break;
                 }
@@ -862,7 +878,7 @@ namespace Parsek.TestCommands
                 {
                     TestCommandDiagnostics.Timeout(id, verb, elapsed, "load-timeout");
                     ParsekLog.Error(Tag,
-                        $"loadgame timeout save={loadGameSave ?? string.Empty} scene={scene} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        $"loadgame timeout save={loadGameSave ?? string.Empty} scene={scene} expected={expected} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                     EmitExecutedTerminal(id, seq, verb, "ERROR", null, "load-timeout", dequeueHead: true);
                     break;
                 }
@@ -878,6 +894,7 @@ namespace Parsek.TestCommands
             rewindSlotArg = null;
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
+            mergeAnswerDrivePending = false;
             // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
             // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
             // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
@@ -1075,6 +1092,16 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.PlantFlag(ParsedCommand cmd) => PlantFlagImpl(cmd);
         void ITestCommandExecutor.EvaChuteDeploy(ParsedCommand cmd) => EvaChuteDeployImpl(cmd);
 
+        // R12 scene routing: the ExitToSpaceCenter body + its two-phase completion live in
+        // the sibling ParsekTestCommandAddon.ExitToSpaceCenter.cs partial.
+        void ITestCommandExecutor.ExitToSpaceCenter(ParsedCommand cmd) => ExitToSpaceCenterImpl(cmd);
+
+        // R12 stock switch click: the body lives in the sibling
+        // ParsekTestCommandAddon.SimulateSwitchClick.cs partial. Single-phase - the switch
+        // and Parsek's consume both complete synchronously inside SetActiveVessel - so it
+        // has no TryComplete* counterpart in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.SimulateStockSwitchClick(ParsedCommand cmd) => SimulateStockSwitchClickImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1099,6 +1126,8 @@ namespace Parsek.TestCommands
                 case "EvaBoard": exec.EvaBoard(cmd); break;
                 case "PlantFlag": exec.PlantFlag(cmd); break;
                 case "EvaChuteDeploy": exec.EvaChuteDeploy(cmd); break;
+                case "ExitToSpaceCenter": exec.ExitToSpaceCenter(cmd); break;
+                case "SimulateStockSwitchClick": exec.SimulateStockSwitchClick(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
@@ -1354,12 +1383,28 @@ namespace Parsek.TestCommands
         // ERROR load-failed; a focusable game enters two-phase (PENDING), completing when
         // the new scene settles with HighLogic.CurrentGame != null. save=<folder> maps to
         // HighLogic.SaveFolder + the saveName param; name=<slot/file> maps to slotName.
+        //
+        // [R12] The optional `scene` arg overrides the derived route: `trackstation` is the
+        // ONLY way into the TRACKSTATION scene (nothing in Parsek ever entered it
+        // programmatically before), and `spacecenter` forces the KSC resume on a save that
+        // would otherwise fly. It is parsed and validated BEFORE the save is touched so a
+        // mis-spelled scene is a REJECTED arg error, never a load-failed save error.
         private void LoadGameImpl(ParsedCommand cmd)
         {
             string save = ArgOrNull(cmd, "save");
             string name = ArgOrNull(cmd, "name");
+            string sceneArg = ArgOrNull(cmd, "scene");
+
+            if (!TestCommandLoadGame.TryParseRequestedScene(sceneArg, out RequestedBootScene requestedScene))
+            {
+                ParsekLog.Warn(Tag,
+                    $"loadgame rejected reason={TestCommandLoadGame.SceneArgInvalidReason} scene={sceneArg ?? string.Empty} (accepted: spacecenter, trackstation)");
+                SetExecResult("REJECTED", null, $"{TestCommandLoadGame.SceneArgInvalidReason} scene={sceneArg ?? string.Empty}");
+                return;
+            }
+
             ParsekLog.Info(Tag,
-                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene}");
+                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene} requestedScene={requestedScene}");
 
             Game game;
             try
@@ -1382,7 +1427,8 @@ namespace Parsek.TestCommands
                 game != null && game.flightState != null && game.flightState.protoVessels != null,
                 game != null && game.flightState != null ? game.flightState.activeVesselIdx : -1,
                 game != null && game.flightState != null && game.flightState.protoVessels != null
-                    ? game.flightState.protoVessels.Count : 0);
+                    ? game.flightState.protoVessels.Count : 0,
+                requestedScene);
 
             if (route == LoadRoute.Failed)
             {
@@ -1391,19 +1437,75 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (route == LoadRoute.NoVesselSpaceCenter)
+            if (route == LoadRoute.TrackingStation)
             {
-                // NO-VESSEL route (the ledger-lane extension, first live L-track
-                // run 2026-07-23): a valid game with no focusable vessel (the
-                // vessel-less clean-slate career fixtures; also activeVessel=-1
-                // with only parked vessels) resumes to SPACECENTER exactly like
-                // the stock Load menu: adopt the game, point startScene at the
-                // KSC, and let Game.Start() route the boot. Completion waits for
-                // a settled SPACECENTER (TryCompleteLoadGame, expectSpaceCenter).
-                int pvCount = game.flightState != null && game.flightState.protoVessels != null
+                // [R12] TRACKSTATION route. Byte-for-byte the SPACECENTER route's bootstrap
+                // with a different startScene, and that is VERIFIED against the KSP 1.12.5
+                // decompile rather than assumed (known-gate 6 says each route owns its own
+                // boot contract and must be re-derived, not inherited):
+                //
+                //   Game.Start()            -> startScene is neither EDITOR nor FLIGHT, so
+                //                              it falls through to HighLogic.LoadScene(startScene)
+                //                              - the SAME branch SPACECENTER takes. (Only
+                //                              FLIGHT gets FlightDriver.StartAndFocusVessel;
+                //                              only EDITOR gets EditorDriver.StartEditor.)
+                //   SpaceTracking.Start()   -> GamePersistence.LoadGame("persistent",
+                //                              HighLogic.SaveFolder, ...) then st.Load()
+                //                              - identical in shape to SpaceCenterMain.Start().
+                //   Game.Load()             -> HighLogic.CurrentGame = this;
+                //                              ScenarioRunner.SetProtoModules(scenarios)
+                //                              on THAT disk game.
+                //
+                // So the tracking station, exactly like the KSC, throws our in-memory
+                // HighLogic.CurrentGame away and re-reads persistent.sfs. The
+                // UpdateScenarioModules -> SaveGame(persistent, OVERWRITE) -> Start()
+                // ordering is therefore just as LOAD-BEARING here: without the disk write,
+                // SetProtoModules would instantiate a scenario set with no ParsekScenario,
+                // OnLoad would never run, and a TRACKSTATION batch would run against a
+                // Parsek that never woke up. ZERO deltas from the SPACECENTER route were
+                // found; if a future KSP version changes SpaceTracking's bootstrap, this
+                // comment is the thing to re-verify.
+                int tsPvCount = game.flightState != null && game.flightState.protoVessels != null
                     ? game.flightState.protoVessels.Count : 0;
                 ParsekLog.Info(Tag,
-                    $"loadgame no-vessel route: resuming to SPACECENTER save={save ?? string.Empty} protoVessels={pvCount} activeVesselIdx={game.flightState?.activeVesselIdx ?? -1}");
+                    $"loadgame trackstation route: booting to TRACKSTATION save={save ?? string.Empty} protoVessels={tsPvCount} activeVesselIdx={game.flightState?.activeVesselIdx ?? -1}");
+                HighLogic.CurrentGame = game;
+                game.startScene = GameScenes.TRACKSTATION;
+                GamePersistence.UpdateScenarioModules(game);
+                string tsPersistResult = GamePersistence.SaveGame(game, "persistent", save, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(tsPersistResult))
+                    ParsekLog.Warn(Tag,
+                        $"loadgame trackstation route: SaveGame(persistent, OVERWRITE) returned empty for save={save ?? string.Empty} (autosave disabled?); ParsekScenario may not re-add on the TS disk re-read");
+                else
+                    ParsekLog.Info(Tag,
+                        $"loadgame trackstation route: persisted augmented game (with ParsekScenario) to persistent.sfs save={save ?? string.Empty} path={tsPersistResult}");
+                game.Start();
+                loadInFlight = true;
+                loadGameSave = save;
+                loadExpectedScene = TestCommandLoadGame.ExpectedSceneFor(route);
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
+
+            if (route == LoadRoute.NoVesselSpaceCenter)
+            {
+                // SPACECENTER route. Selected two ways: DERIVED (the ledger-lane
+                // extension, first live L-track run 2026-07-23) when a valid game
+                // has no focusable vessel - the vessel-less clean-slate career
+                // fixtures, also activeVessel=-1 with only parked vessels - or
+                // REQUESTED (R12) via scene=spacecenter, which forces the KSC
+                // resume even on a save that would otherwise fly. Either way it
+                // resumes exactly like the stock Load menu: adopt the game, point
+                // startScene at the KSC, and let Game.Start() route the boot.
+                // Completion waits for a settled SPACECENTER (TryCompleteLoadGame,
+                // loadExpectedScene). The log names WHICH selector fired so a spec
+                // that asked for spacecenter and a fixture that merely has no
+                // vessel are never confused in the log.
+                int pvCount = game.flightState != null && game.flightState.protoVessels != null
+                    ? game.flightState.protoVessels.Count : 0;
+                string kscSelector = requestedScene == RequestedBootScene.SpaceCenter ? "requested" : "no-vessel";
+                ParsekLog.Info(Tag,
+                    $"loadgame spacecenter route ({kscSelector}): resuming to SPACECENTER save={save ?? string.Empty} protoVessels={pvCount} activeVesselIdx={game.flightState?.activeVesselIdx ?? -1}");
                 HighLogic.CurrentGame = game;
                 game.startScene = GameScenes.SPACECENTER;
                 // Re-add AddToAllGames ScenarioModules (ParsekScenario!) that the
@@ -1434,14 +1536,14 @@ namespace Parsek.TestCommands
                 string persistResult = GamePersistence.SaveGame(game, "persistent", save, SaveMode.OVERWRITE);
                 if (string.IsNullOrEmpty(persistResult))
                     ParsekLog.Warn(Tag,
-                        $"loadgame no-vessel route: SaveGame(persistent, OVERWRITE) returned empty for save={save ?? string.Empty} (autosave disabled?); ParsekScenario may not re-add on the KSC disk re-read");
+                        $"loadgame spacecenter route: SaveGame(persistent, OVERWRITE) returned empty for save={save ?? string.Empty} (autosave disabled?); ParsekScenario may not re-add on the KSC disk re-read");
                 else
                     ParsekLog.Info(Tag,
-                        $"loadgame no-vessel route: persisted augmented game (with ParsekScenario) to persistent.sfs save={save ?? string.Empty} path={persistResult}");
+                        $"loadgame spacecenter route: persisted augmented game (with ParsekScenario) to persistent.sfs save={save ?? string.Empty} path={persistResult}");
                 game.Start();
                 loadInFlight = true;
                 loadGameSave = save;
-                loadExpectSpaceCenter = true;
+                loadExpectedScene = TestCommandLoadGame.ExpectedSceneFor(route);
                 SetExecResult(PendingVerdict, null, null);
                 return;
             }
@@ -1475,7 +1577,7 @@ namespace Parsek.TestCommands
             FlightCameraReloadPin.Arm($"TestCommandLoadGame:{save}/{name}");
             FlightDriver.StartAndFocusVessel(game, idx);
             loadInFlight = true;
-            loadExpectSpaceCenter = false;
+            loadExpectedScene = TestCommandLoadGame.ExpectedSceneFor(route);
             loadGameSave = save;
             SetExecResult(PendingVerdict, null, null);
         }
@@ -1810,37 +1912,36 @@ namespace Parsek.TestCommands
                 // arrives via the deferred POST-transition coroutine and the completion
                 // re-scan invokes the button then.
                 //
-                // S4.1-DEFERRED-DIALOG: persist BEFORE the LoadScene, or this driven exit
-                // models a scene exit that no stock UI route performs. AtomicMarkerWrite
-                // assigns the re-fly marker IN MEMORY ONLY (RewindInvoker.cs); its
-                // durability comes from a later ParsekScenario.OnSave, and in production one
-                // always runs first - stock saveAndExit saves BEFORE the LoadScene prefix
-                // fires (see the comment in SceneExitInterceptor.TryAutoDiscardIdleActiveTree),
-                // and SafeWritePersistent exists precisely to cover the stock routes that
-                // do not. Driving a raw LoadScene skipped both, so SPACECENTER's OnLoad read
-                // `Marker loaded: none`, LoadTimeSweep discarded the provisional as a zombie
-                // (correctly - to the product an unpersisted marker plus a NotCommitted
-                // provisional is indistinguishable from a crash mid-re-fly), the session
-                // ended `<cleared>`, and the dialog that surfaced was a PLAIN whole-tree
-                // merge dialog that FindReFlyMergePopup cannot match because it is gated on
-                // markerLive. The verb then timed out at its budget with
-                // reason=answer-timeout and S4.1 was deterministically INVALID.
-                //
-                // The fix belongs HERE, in the seam, NOT in the product: making the marker
-                // durable at invoke time would change crash-recovery semantics for the worse
-                // (a crash mid-re-fly would resurrect a dead session instead of cleanly
-                // restoring the pre-rewind state), and MergeJournalOrchestrator /
-                // LoadTimeSweep marker semantics stay untouched this way. Same error class
-                // as the R1 fixture that omitted `RECORDING_TREE isActive=True`: a DRIVEN
-                // flow diverging from production shape and presenting as a product defect.
-                bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
-                ParsekLog.Info(Tag,
-                    $"answermergedialog driving re-fly conclusion scene-exit " +
-                    $"(persisted={persisted} sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
-                    "- the marker must survive into the destination scene or the load-time " +
-                    "sweep discards this session's provisional as a zombie");
-                HighLogic.LoadScene(GameScenes.SPACECENTER);
-                popup = FindReFlyMergePopup();
+                // S4.1-PREFIX-RACE: the in-place path needs the restored tree to be ACTIVE
+                // (ShouldShowDialogBeforeSceneChange requires hasActiveTree; the re-fly
+                // marker alone is insufficient), and the resume that makes it active
+                // (RewindInvoker.RestoreActiveTreeFromPending) is an asynchronous coroutine
+                // that runs AFTER InvokeRewind's marker-keyed completion. Driving in that
+                // window models a scene exit faster than any human route and slips past the
+                // prefix un-intercepted (tree still pending-Limbo -> DialogVariant.None).
+                // So when the tree is not yet active in FLIGHT, defer the drive to
+                // TryCompleteAnswerMergeDialog, bounded by ReFlyResumeSettleBudgetSeconds;
+                // a never-settling resume (restore give-up / placeholder mode) falls back
+                // to driving anyway and concluding via the deferred POST-transition dialog.
+                ParsekFlight settleFlight = ParsekFlight.Instance;
+                ConclusionDriveDecision driveDecision = TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: HighLogic.LoadedScene == GameScenes.FLIGHT,
+                    hasActiveTree: settleFlight != null && settleFlight.HasActiveTree,
+                    elapsedSeconds: 0.0,
+                    settleBudgetSeconds: TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds);
+                if (driveDecision == ConclusionDriveDecision.WaitForResume)
+                {
+                    ParsekLog.Info(Tag,
+                        $"answermergedialog waiting for re-fly resume to settle before " +
+                        $"driving the conclusion sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"} " +
+                        "(restored tree not yet active in FLIGHT - driving now would slip " +
+                        "past the scene-exit prefix un-intercepted)");
+                    mergeAnswerDrivePending = true;
+                }
+                else
+                {
+                    popup = DriveReFlyConclusion(scenario);
+                }
             }
 
             if (popup != null)
@@ -1864,10 +1965,117 @@ namespace Parsek.TestCommands
             SetExecResult(PendingVerdict, null, null);
         }
 
+        // Drive the re-fly conclusion scene-exit and return the pre-transition popup if
+        // the prefix intercepted (null on the placeholder-mode / deferred-dialog path).
+        //
+        // S4.1-DEFERRED-DIALOG: persist BEFORE the LoadScene, or this driven exit
+        // models a scene exit that no stock UI route performs. AtomicMarkerWrite
+        // assigns the re-fly marker IN MEMORY ONLY (RewindInvoker.cs); its
+        // durability comes from a later ParsekScenario.OnSave, and in production one
+        // always runs first - stock saveAndExit saves BEFORE the LoadScene prefix
+        // fires (see the comment in SceneExitInterceptor.TryAutoDiscardIdleActiveTree),
+        // and SafeWritePersistent exists precisely to cover the stock routes that
+        // do not. Driving a raw LoadScene skipped both, so SPACECENTER's OnLoad read
+        // `Marker loaded: none`, LoadTimeSweep discarded the provisional as a zombie
+        // (correctly - to the product an unpersisted marker plus a NotCommitted
+        // provisional is indistinguishable from a crash mid-re-fly), the session
+        // ended `<cleared>`, and the dialog that surfaced was a PLAIN whole-tree
+        // merge dialog that FindReFlyMergePopup cannot match because it is gated on
+        // markerLive. The verb then timed out at its budget with
+        // reason=answer-timeout and S4.1 was deterministically INVALID.
+        //
+        // That fix belongs HERE, in the seam, NOT in the product: making the marker
+        // durable at invoke time would change crash-recovery semantics for the worse
+        // (a crash mid-re-fly would resurrect a dead session instead of cleanly
+        // restoring the pre-rewind state), and MergeJournalOrchestrator /
+        // LoadTimeSweep marker semantics stay untouched this way. Same error class
+        // as the R1 fixture that omitted `RECORDING_TREE isActive=True`: a DRIVEN
+        // flow diverging from production shape and presenting as a product defect.
+        private PopupDialog DriveReFlyConclusion(ParsekScenario scenario)
+        {
+            bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+            ParsekLog.Info(Tag,
+                $"answermergedialog driving re-fly conclusion scene-exit " +
+                $"(persisted={persisted} sess={scenario?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
+                "- the marker must survive into the destination scene or the load-time " +
+                "sweep discards this session's provisional as a zombie");
+            HighLogic.LoadScene(GameScenes.SPACECENTER);
+            return FindReFlyMergePopup();
+        }
+
         private void TryCompleteAnswerMergeDialog(double now)
         {
             double elapsed = now - completionStartedAt;
             double budget = DeferralBudget.BudgetSeconds("AnswerMergeDialog");
+
+            // Deferred conclusion drive (S4.1-PREFIX-RACE): the Execute found a live
+            // marker but the in-place-continuation resume had not yet made the restored
+            // tree active. Re-evaluate each safe-point frame; once the tree is active
+            // (normal case, well under a second) drive the exit so it hits the
+            // scene-exit prefix and spawns the pre-transition dialog. On settle-budget
+            // expiry drive anyway - the deferred POST-transition dialog path below
+            // concludes the session exactly as it did before the wait existed.
+            if (!mergeAnswerApplied && mergeAnswerDrivePending)
+            {
+                ParsekScenario driveScenario = ParsekScenario.Instance;
+                bool driveMarkerLive = driveScenario != null
+                    && driveScenario.ActiveReFlySessionMarker != null;
+                if (!driveMarkerLive)
+                {
+                    // Marker vanished while waiting (something else concluded the
+                    // session). Fall through to the normal completion decider, which
+                    // bounds the wait at the verb budget.
+                    mergeAnswerDrivePending = false;
+                    ParsekLog.Warn(Tag,
+                        "answermergedialog re-fly marker vanished while waiting for the " +
+                        "resume to settle - falling through to the completion scan");
+                }
+                else
+                {
+                    ParsekFlight settleFlight = ParsekFlight.Instance;
+                    ConclusionDriveDecision driveDecision = TestCommandMergeAnswer.DecideConclusionDrive(
+                        sceneIsFlight: HighLogic.LoadedScene == GameScenes.FLIGHT,
+                        hasActiveTree: settleFlight != null && settleFlight.HasActiveTree,
+                        elapsedSeconds: elapsed,
+                        settleBudgetSeconds: TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds);
+                    if (driveDecision == ConclusionDriveDecision.WaitForResume)
+                        return;
+                    if (driveDecision == ConclusionDriveDecision.DriveUnsettled)
+                        ParsekLog.Warn(Tag,
+                            $"answermergedialog re-fly resume did not settle within " +
+                            $"{TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds.ToString("F0", CultureInfo.InvariantCulture)}s " +
+                            "- driving the conclusion anyway (deferred-dialog fallback path)");
+                    mergeAnswerDrivePending = false;
+                    // Parity with the Execute branch (PR #1394 review): a dialog may
+                    // already be live if something else exited FLIGHT during the wait
+                    // (marker survives, deferred dialog spawned) - answer it instead of
+                    // firing a second driven exit on top of it.
+                    PopupDialog drivenPopup = FindReFlyMergePopup();
+                    if (drivenPopup == null)
+                        drivenPopup = DriveReFlyConclusion(driveScenario);
+                    if (drivenPopup != null)
+                    {
+                        if (TryInvokeMergeButton(drivenPopup, mergeAnswerChoice, out string driveInvokeError))
+                        {
+                            mergeAnswerApplied = true;
+                            mergeAnswerResult = TestCommandMergeAnswer.ResultLabel(mergeAnswerChoice);
+                            ParsekLog.Info(Tag,
+                                $"answermergedialog choice={ChoiceWire(mergeAnswerChoice)} result={mergeAnswerResult}");
+                        }
+                        else
+                        {
+                            string did = completionId; long dseq = completionSeq; string dverb = completionVerb;
+                            ClearTwoPhase();
+                            ParsekLog.Warn(Tag, $"answermergedialog failed reason={driveInvokeError}");
+                            EmitExecutedTerminal(did, dseq, dverb, "ERROR", null, driveInvokeError, dequeueHead: true);
+                            return;
+                        }
+                    }
+                    // drivenPopup null: placeholder-mode path - the deferred
+                    // POST-transition dialog spawns after the exit settles and the
+                    // re-scan below invokes the button then.
+                }
+            }
 
             // Post-settle re-scan (placeholder-mode path): the deferred POST-transition dialog
             // spawns after the driven exit settles; invoke the chosen button THEN.

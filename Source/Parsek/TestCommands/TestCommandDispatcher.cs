@@ -166,6 +166,12 @@ namespace Parsek.TestCommands
 
         // ----- EVA-4 (atmospheric chute) -----
         void EvaChuteDeploy(ParsedCommand cmd);
+
+        // ----- R12 (scene routing) -----
+        void ExitToSpaceCenter(ParsedCommand cmd);
+
+        // ----- R12 (stock switch click; the promoted reserved verb) -----
+        void SimulateStockSwitchClick(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -228,6 +234,24 @@ namespace Parsek.TestCommands
                 // FLIGHT, and shares PlantFlag / EvaBoard's not-eva dispatch defer so the
                 // preceding EvaExit's auto-switch is allowed to settle first.
                 ["EvaChuteDeploy"] = VerbSceneRequirement.RequiresFlight,
+                // R12. ExitToSpaceCenter drives the FLIGHT -> SPACECENTER transition, so
+                // FLIGHT is a hard precondition. RequiresFlight (a DEFER on not-in-flight)
+                // rather than a hand-written REJECT sub-gate: the wrong-scene case here is
+                // overwhelmingly a scene still settling in from the previous step, which is
+                // exactly what a defer is for, and the budget still bounds a genuinely
+                // wrong-scene spec. That also matches every other FLIGHT-only verb
+                // (StartRecording / InvokeRewind / TimeJump / the EVA family). The verb's
+                // REAL refusals - the wedge guard - are executor-side and typed REJECTED.
+                ["ExitToSpaceCenter"] = VerbSceneRequirement.RequiresFlight,
+                // R12. SimulateStockSwitchClick reproduces the map-view "Switch To" click,
+                // which only exists in FLIGHT (the map view is a FLIGHT overlay), so FLIGHT is
+                // a hard precondition. RequiresFlight for the same reason ExitToSpaceCenter
+                // uses it: the wrong-scene case is overwhelmingly a scene still settling from
+                // the previous step, and the budget still bounds a spec that never gets there.
+                // When site=ts / site=ksc land they will need their OWN scenes, which is a
+                // sub-gate question for that change, not a reason to widen this entry now -
+                // both are typed REJECTED (site-not-implemented) today.
+                ["SimulateStockSwitchClick"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -340,6 +364,34 @@ namespace Parsek.TestCommands
                         return DispatchResult.Defer("flighteva-not-ready");
                     break;
 
+                case "ExitToSpaceCenter":
+                    // A scene exit mid-load would race the boot channel's own scene change,
+                    // and a re-fly merge journal mid-finalize must not be raced by a driven
+                    // transition (both mirror InvokeRewind's guards verbatim). NOTE the
+                    // deliberate ABSENCE of a recording-active guard: exiting WITH a live
+                    // recorder is the whole point - the exit is what finalizes the tree and
+                    // reaches the auto-commit. Rejecting on Recording here would refuse the
+                    // only case the verb exists for.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
+                    break;
+
+                case "SimulateStockSwitchClick":
+                    // Same pair as ExitToSpaceCenter, for the same two reasons: a vessel
+                    // switch mid-load would race the boot channel's own scene change, and a
+                    // re-fly merge journal mid-finalize must not be raced by a driven switch
+                    // (an unloaded target's switch is itself a scene reload). NO
+                    // recording-active guard, and deliberately so: a live recorder is the
+                    // PRECONDITION for the switch-segment cases this verb exists to exercise,
+                    // not a hazard. The dialog / scope refusals are executor-side and typed.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
+                    break;
+
                 case "PlantFlag":
                 case "EvaBoard":
                 case "EvaChuteDeploy":
@@ -431,6 +483,16 @@ namespace Parsek.TestCommands
         /// the scenario's EVA window is specified LOW rather than at apoapsis.</summary>
         internal const double EvaChuteDeploySeconds = 420.0;
 
+        /// <summary>ExitToSpaceCenter (R12): the pre-exit persist + the FLIGHT teardown
+        /// (tree finalize, dirty-sidecar force-write, background-recorder shutdown) + the
+        /// KSC scene bootstrap, which RE-READS persistent.sfs from disk and runs
+        /// ScenarioRunner.SetProtoModules -> ParsekScenario.OnLoad -> the pending-tree
+        /// auto-commit, all before the scene settles. Sized like AnswerMergeDialog (120 s),
+        /// the only other verb that DRIVES a scene exit and holds the head across its
+        /// settle, rather than like LoadGame (300 s), which additionally parses a cold save
+        /// off disk.</summary>
+        internal const double ExitToSpaceCenterSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -460,8 +522,13 @@ namespace Parsek.TestCommands
                     return EvaBoardSeconds;
                 case "EvaChuteDeploy":
                     return EvaChuteDeploySeconds;
+                case "ExitToSpaceCenter":
+                    return ExitToSpaceCenterSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
-                // action itself is immediate).
+                // action itself is immediate). SimulateStockSwitchClick rides it too: it is
+                // SINGLE-phase (the switch and its consume are synchronous inside
+                // SetActiveVessel), so the budget only bounds the not-in-flight DEFER - a
+                // scene settle, exactly what the default is sized for.
                 default:
                     return DefaultSeconds;
             }

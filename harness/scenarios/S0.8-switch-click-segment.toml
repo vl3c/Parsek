@@ -1,0 +1,144 @@
+schema = 1
+id = "S0.8-switch-click-segment"
+tier = "daily"
+# The first consumer of the R12/B `SimulateStockSwitchClick` verb, and the only
+# automated cell that drives the PATCHED stock switch handler rather than around it.
+# kRPC's active_vessel setter calls FlightGlobals.SetActiveVessel DIRECTLY, so a
+# switch-segment scenario driven through the mission driver arms no
+# StockActionIntentMarker, reads NoIntent at the consume site, starts no segment - and
+# goes green while MapFocusObjectOnSelectPatch rots. This cell reproduces the CLICK's
+# contract: arm the marker exactly as the map-site patch does, then switch.
+description = "Drive a map-site Switch-To click through SimulateStockSwitchClick onto a co-orbiting loaded vessel: the marker is armed with the patch's own field set, stock switches, and the consume site opens a continuation segment on the live tree."
+instanceProfile = "stock-minimal"
+tags = ["switch-segment", "stock-click", "S0.8", "R12", "D1"]
+
+[fixture]
+# eva2-lko-crewed, chosen for a property no other committed fixture has and EVA-2's
+# header already MEASURED: it carries TWO LOADED vessels ~16.4 m apart - the crewed
+# 28-part "Kerbal X" (activeVessel=1) and "Kerbal X Probe", the 21-part spent core the
+# forge separation dropped - BOTH ORBITING. Every one of those facts is load-bearing:
+#   - two vessels, so there is something to switch TO;
+#   - LOADED (inside the physics bubble), because v1 refuses an unloaded target
+#     (target-unloaded) - stock would send it through FlightDriver.StartAndFocusVessel,
+#     a FLIGHT scene reload the 2 s MapSwitchTo TTL cannot survive;
+#   - ORBITING rather than landed, which is THE trap for this verb. The consume site
+#     REFUSES surface targets by design (Refused_OnSurfaceTarget, deferring to the
+#     normal auto-record trigger): the switch still happens and the verb still reports
+#     OK switched=true, but NO segment arms. Every pad-launched fixture in the repo
+#     would therefore read GREEN here while certifying nothing.
+# The 4 landed "Kerbal X Debris" remnants are ~514 km downrange (never loaded) and the
+# stock asteroid is untracked, so "Kerbal X Probe" is an unambiguous name match.
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# The `vessel` arg carries the RAW vessel name. run.py percent-encodes step args on
+# the wire itself, so a spec that pre-encodes ships "Kerbal%2520X%2520Probe" and the
+# seam refuses target-not-found for a vessel the author named correctly. (The M-A2
+# arg table's "(percent-encoded)" describes the WIRE token, not the TOML value.)
+#
+# StartRecording first, because a live in-flight recording is what puts the run in the
+# state the verb's three dialog cases are actually classified against - `hasActiveRecording`
+# is an input to two of them, and without it the gate line below would assert over a
+# trivially-safe state. None of the three fires here: no session is armed (Case A), the
+# target is LOADED (Case B), and nothing has been committed (Case C). `site` is omitted,
+# exercising the documented absent-defaults-to-map path.
+#
+# MEASURED, and worth stating because it is not what the design memo's example assumed:
+# the consume still routes STANDALONE. The probe is not in the live tree's BackgroundMap
+# and matches no committed tree, so both preceding branches decline and the segment
+# attaches with `parentRecId=<standalone>`. A live recording is therefore NOT sufficient
+# to reach the BG-member route, which is why the D5 claim below is withheld.
+#
+# StopRecording, then NO CommitTree: this cell asserts the ARM and the CONSUME, not a
+# commit. StopRecording is not optional bookkeeping - StartRecording sets
+# spec_expects_live_recording, so REC-001/REC-003 stay unsuppressed, and quitting from
+# FLIGHT with the recorder still live reds the run on REC-003 ("latest session is
+# missing a Recorder 'Recording stopped' line"). That is exactly what the first
+# 2026-07-30 attempt did.
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StartRecording",                                                                    expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# D1 switch-segment: gated by the "[SwitchSegment] created intentId=..." line AND by
+# "[SwitchIntent] cleared ... reason=consumed-into-segment" below. H12 already claims
+# the same value, and deliberately so - H12 drives the ARMING DECISION as an in-game
+# batch with nothing attached to a tree, while this cell is the first that drives the
+# real patched click end to end in a live flight. Same value, different half of the
+# mechanism; the coverage registry has no finer token for the split.
+#
+# NOT claimed, on the same "claim-is-not-gate" ground H12 states: D5
+# chain-continuation-switch. The measured route is `route=standalone` with
+# `parentRecId=<standalone> branchPointId=<none>` - a second recording is attached to
+# the tree, but NO chain link is created, so the D5 topology value has no proving
+# token here. A fixture whose target is a background member of the live tree would take
+# the BG-member route and could claim it; this one does not.
+D1  = ["switch-segment"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
+# form, so this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACTLY 2, MEASURED on the 2026-07-30 first flight: the pre-switch "Kerbal X" root
+# (88d3e4b0...) plus the segment recording the consume opened on "Kerbal X Probe"
+# (2f5beb2f...). Neither is committed - there is no CommitTree here - so both are the
+# live tree's sidecars flushed at save. This is the NUMERIC guard on the branch: the
+# logContracts below are re.search PRESENCE checks, so a consume that logged its
+# creation but wrote no second recording would satisfy every pattern and only move
+# this number.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# MEASURED on the 2026-07-30 first flight, and ordered as the mechanism runs:
+# verb gate -> marker armed -> consume opens the segment -> marker consumed -> verb
+# terminal. Pins 2..5 all carry the target pid 2614652043 literally; it is baked into
+# the committed fixture's VESSEL node, so it is stable, and it is what turns the
+# assertions from "something switched" into "the vessel this spec named switched".
+#
+# The gate line pins the WHOLE input set the classification saw, which is what makes
+# the three dialog cases falsifiable here: dialogDecision=NoPriorSession together with
+# targetIsUnloaded=false and targetIsSeparateCommittedVessel=false says explicitly that
+# Cases A / B / C were evaluated and none applied, rather than leaving it inferred from
+# the run not having refused.
+#
+# `reason=consumed-into-segment` is the single strongest token in this cell. It is
+# emitted by the CONSUME site (TryConsumeStockActionIntent), not by the verb, so it
+# proves the marker reached the real patched-handler pipeline and was spent there - the
+# exact thing a kRPC-driven active_vessel setter cannot produce. `route=standalone`
+# records WHICH of the three consume branches ran, so a future routing change is a
+# visible red rather than a silent substitution.
+required  = [
+  "switchclick gate targetPid=2614652043 targetName=Kerbal X Probe scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=2614652043 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
+  "\\[SwitchSegment\\] created intentId=.* focusedPid=2614652043 focusedName='Kerbal X Probe' reason=MapSwitchTo",
+  "\\[SwitchSegment\\] route=standalone intentId=.* focusedPid=2614652043",
+  "\\[SwitchIntent\\] cleared: intentId=.* targetPid=2614652043 reason=consumed-into-segment",
+  "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe .* activeVesselPid=2614652043 switched=true",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 600 >= 300 LoadGame + 120 SimulateStockSwitchClick + the
+# fast non-deferred recorder verbs + margin. The verb's own C# budget is the 60 s
+# default (it is single-phase - the whole arm-and-switch path runs synchronously inside
+# SetActiveVessel); the 120 here only ever bounds a not-in-flight DEFER.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -750,8 +750,10 @@ Flight? No.
   left them: the batch would run and skip. Reading their guard preconditions and
   choosing a fixture that satisfies them is the actual remaining work, and it is
   still the cheapest whole-dimension close available.
-- D6: `GhostLifecycle` (15 of 17; 2 are TRACKSTATION-scene and stay stranded until
-  R12), `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
+- D6: `GhostLifecycle` (15 of 17; the other 2 are TRACKSTATION-scene - no longer
+  stranded, R12 SHIPPED `LoadGame scene=trackstation`, but they need a TRACKSTATION
+  spec of their own, since a batch names one category),
+  `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
   these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
   `GhostLifecycle` measures the loop / overlap surface over a live corpus.
 - D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
@@ -803,7 +805,7 @@ Original plan, kept for the record: `FORGE-career-pad`: fresh-career plus a craf
 into `Ships/VAB` plus `launch_vessel`, a mechanical repeat of `FORGE-eva3-pad`.
 
 **R12. Two scene and interaction verbs: `SimulateStockSwitchClick` plus a `scene=`
-argument on `LoadGame`.** Two seam verbs.
+argument on `LoadGame`.** ~~Two seam verbs.~~ **SHIPPED 2026-07-30.**
 
 kRPC cannot substitute for the first (it bypasses `StockActionIntentMarker`) and
 nothing at all substitutes for the second. Unblocks D1 `switch-segment` /
@@ -811,6 +813,77 @@ nothing at all substitutes for the second. Unblocks D1 `switch-segment` /
 D5 `chain-continuation-switch`, D18 `committed-interaction-claiming` /
 `chain-tip-original-pid`, D14 `scene-ts`, and the 7 stranded TRACKSTATION /
 MAINMENU categories including `TrackingStation` (10 tests).
+
+DELIVERED as THREE capabilities, not two - the scope grew one item while the design
+was written, because Cause C ("scene entry is two-valued") has a second half that the
+`scene=` argument does not reach: nothing could LEAVE flight either.
+
+- **A1 `LoadGame scene=<spacecenter|trackstation>`** - a third boot route, mirroring
+  the SPACECENTER bootstrap verbatim (verified against the KSP 1.12.5 decompile;
+  zero deltas). Fail-closed, case-sensitive parse.
+- **A2 `ExitToSpaceCenter`** - the live FLIGHT -> SPACECENTER transition, with the
+  wedge guard that refuses (`REJECTED msg=dialog-required variant=<v>`) rather than
+  driving into a modal no seam verb can answer.
+- **B `SimulateStockSwitchClick`** (site=map) - the first PROMOTION out of the
+  reserved verb list since M-C1.
+
+Live-proven by three first-consumer specs, all green on `stock-minimal` 2026-07-30:
+`H23-tracking-station` (44 s), `S0.7-exit-auto-commit` (47 s),
+`S0.8-switch-click-segment` (45 s). `TrackingStation` is driven, which empties
+inventory bucket C; D14 `scene-ts` is covered for the first time.
+
+WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
+
+- **`site=ts` / `site=ksc`** on `SimulateStockSwitchClick` - typed
+  `REJECTED site-not-implemented` in v1. Both cross scenes into a fresh FLIGHT load
+  and must go through their own patched handlers (the TS one runs
+  `RemoveAllGhostVesselsBeforeStockFly`, a live-list/saved-file index desync fix a
+  hand-rolled `FlightDriver.StartAndFocusVessel` would reintroduce), so each belongs
+  with its own consumer.
+- **The dialog cases** (`dialog-required case=A-session|B-unloaded|
+  C-loaded-separate-committed`) and **unloaded targets** - typed refusals in v1. A
+  seam verb cannot answer a `ControlTypes.All`-locking modal, so driving one needs a
+  dialog-answering capability first, not a wider switch verb.
+- **The CL-1 spec extension onto `ExitToSpaceCenter`** - **STAGE A SHIPPED
+  2026-07-30** as `CL-2-pod-impact-ledger` (a NEW spec; CL-1 itself is untouched,
+  because the committed cell
+  `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block`
+  exists precisely to forbid the naive edit). It is CL-1's step list
+  plus `SetSetting autoMerge=true`, `ExitToSpaceCenter`, and an
+  `[expectations.ledger]` block. `S0.7` was right about the prerequisite - proving
+  the pending-tree AUTO-COMMIT needs a tree that is not idle-on-pad, and no seam
+  primitive provides dwell while recording, so a driver that genuinely FLIES was
+  required. CL-1's 262-point / 11.9 km hop clears the 30 m idle threshold by three
+  orders of magnitude, and the commit fired: `Silent full-fidelity auto-commit
+  (scene-exit)`, `Committed tree ... Total committed: 1 recordings, 1 trees`,
+  `CreateKerbalAssignmentActions: 1 crew members`, and `OnSave: saving 1 committed
+  tree(s)` against the archived pre-commit run's `saving 0`. D1
+  `commit-scene-exit` + `auto-merge` - the two values S0.7 had to DROP - are now
+  claimed with tokens, and D8 gains its first crew-loss claims.
+- **Stage B, the TOMBSTONE half, remains UNBUILT**, and the split is structural
+  rather than a scoping convenience. `SupersedeCommit` is the ONLY producer of a
+  `LedgerTombstone` and `CommitTombstones` runs strictly inside the RE-FLY merge
+  tail after supersede relations land, so no auto-commit can reach D9 `tombstones`
+  / D12 `dead-crew-strip` / D12 `tombstone-rep-penalty` however the exit is driven.
+  Closing them needs a rewind ACROSS the crew loss plus a `RunTests` step driving
+  the in-game `Rewind` category, so `InGameTests/KerbalRecoveryOnSupersedeTest`
+  stops auto-skipping with "No kerbal-death actions in supersede subtree" - CL-1's
+  committed tree IS the subtree it wants. Stage B cannot be folded back into CL-2:
+  it needs `InvokeRewind`, and `hlib.validate_spec` HARD-REJECTS `InvokeRewind`
+  paired with `[expectations.ledger]` (a rewind rewrites the career pools from a
+  quicksave the seed+manifest contract cannot reconstruct). Two prerequisites to
+  settle first: `dead-crew-strip` has no pinned definition in the registry (see
+  `todo-and-known-bugs.md`), and the crew-end-state defect CL-2 flight 1 found
+  means the subtree's kerbal-death action currently carries `KerbalEndState.
+  Unknown`, which is exactly what that in-game test skips on.
+- **D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
+  `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
+  `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is
+  created; claiming them would need a fixture whose switch target is a background
+  member of the live tree, or a committed spawned vessel.
+- **The other 6 stranded TRACKSTATION / MAINMENU categories** (including the 2
+  TRACKSTATION-scene `GhostLifecycle` tests named under R8) are now REACHABLE through
+  `scene=trackstation`; each still needs its own spec.
 
 **R13. Widen `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned tallies.**
 One harness PR.
