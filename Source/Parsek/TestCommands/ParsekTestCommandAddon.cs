@@ -117,9 +117,14 @@ namespace Parsek.TestCommands
         // callback has already been invoked, and the result token. When the driven exit takes
         // the post-transition path the button is invoked LATER by the completion re-scan, so
         // mergeAnswerApplied starts false and flips when the callback runs.
+        // mergeAnswerDrivePending (S4.1-PREFIX-RACE) means the Execute found a live re-fly
+        // marker but the in-place-continuation resume had not yet made the restored tree
+        // active, so the conclusion scene-exit is deferred to TryCompleteAnswerMergeDialog
+        // (bounded by TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds).
         private MergeAnswerChoice mergeAnswerChoice;
         private bool mergeAnswerApplied;
         private string mergeAnswerResult;
+        private bool mergeAnswerDrivePending;
 
         // FlushAndQuit (P5.8): the response + journal DONE are written and flushed BEFORE
         // Application.Quit, which is deferred one frame via a coroutine scheduled only
@@ -889,6 +894,7 @@ namespace Parsek.TestCommands
             rewindSlotArg = null;
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
+            mergeAnswerDrivePending = false;
             // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
             // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
             // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
@@ -1906,37 +1912,36 @@ namespace Parsek.TestCommands
                 // arrives via the deferred POST-transition coroutine and the completion
                 // re-scan invokes the button then.
                 //
-                // S4.1-DEFERRED-DIALOG: persist BEFORE the LoadScene, or this driven exit
-                // models a scene exit that no stock UI route performs. AtomicMarkerWrite
-                // assigns the re-fly marker IN MEMORY ONLY (RewindInvoker.cs); its
-                // durability comes from a later ParsekScenario.OnSave, and in production one
-                // always runs first - stock saveAndExit saves BEFORE the LoadScene prefix
-                // fires (see the comment in SceneExitInterceptor.TryAutoDiscardIdleActiveTree),
-                // and SafeWritePersistent exists precisely to cover the stock routes that
-                // do not. Driving a raw LoadScene skipped both, so SPACECENTER's OnLoad read
-                // `Marker loaded: none`, LoadTimeSweep discarded the provisional as a zombie
-                // (correctly - to the product an unpersisted marker plus a NotCommitted
-                // provisional is indistinguishable from a crash mid-re-fly), the session
-                // ended `<cleared>`, and the dialog that surfaced was a PLAIN whole-tree
-                // merge dialog that FindReFlyMergePopup cannot match because it is gated on
-                // markerLive. The verb then timed out at its budget with
-                // reason=answer-timeout and S4.1 was deterministically INVALID.
-                //
-                // The fix belongs HERE, in the seam, NOT in the product: making the marker
-                // durable at invoke time would change crash-recovery semantics for the worse
-                // (a crash mid-re-fly would resurrect a dead session instead of cleanly
-                // restoring the pre-rewind state), and MergeJournalOrchestrator /
-                // LoadTimeSweep marker semantics stay untouched this way. Same error class
-                // as the R1 fixture that omitted `RECORDING_TREE isActive=True`: a DRIVEN
-                // flow diverging from production shape and presenting as a product defect.
-                bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
-                ParsekLog.Info(Tag,
-                    $"answermergedialog driving re-fly conclusion scene-exit " +
-                    $"(persisted={persisted} sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
-                    "- the marker must survive into the destination scene or the load-time " +
-                    "sweep discards this session's provisional as a zombie");
-                HighLogic.LoadScene(GameScenes.SPACECENTER);
-                popup = FindReFlyMergePopup();
+                // S4.1-PREFIX-RACE: the in-place path needs the restored tree to be ACTIVE
+                // (ShouldShowDialogBeforeSceneChange requires hasActiveTree; the re-fly
+                // marker alone is insufficient), and the resume that makes it active
+                // (RewindInvoker.RestoreActiveTreeFromPending) is an asynchronous coroutine
+                // that runs AFTER InvokeRewind's marker-keyed completion. Driving in that
+                // window models a scene exit faster than any human route and slips past the
+                // prefix un-intercepted (tree still pending-Limbo -> DialogVariant.None).
+                // So when the tree is not yet active in FLIGHT, defer the drive to
+                // TryCompleteAnswerMergeDialog, bounded by ReFlyResumeSettleBudgetSeconds;
+                // a never-settling resume (restore give-up / placeholder mode) falls back
+                // to driving anyway and concluding via the deferred POST-transition dialog.
+                ParsekFlight settleFlight = ParsekFlight.Instance;
+                ConclusionDriveDecision driveDecision = TestCommandMergeAnswer.DecideConclusionDrive(
+                    sceneIsFlight: HighLogic.LoadedScene == GameScenes.FLIGHT,
+                    hasActiveTree: settleFlight != null && settleFlight.HasActiveTree,
+                    elapsedSeconds: 0.0,
+                    settleBudgetSeconds: TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds);
+                if (driveDecision == ConclusionDriveDecision.WaitForResume)
+                {
+                    ParsekLog.Info(Tag,
+                        $"answermergedialog waiting for re-fly resume to settle before " +
+                        $"driving the conclusion sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"} " +
+                        "(restored tree not yet active in FLIGHT - driving now would slip " +
+                        "past the scene-exit prefix un-intercepted)");
+                    mergeAnswerDrivePending = true;
+                }
+                else
+                {
+                    popup = DriveReFlyConclusion(scenario);
+                }
             }
 
             if (popup != null)
@@ -1960,10 +1965,117 @@ namespace Parsek.TestCommands
             SetExecResult(PendingVerdict, null, null);
         }
 
+        // Drive the re-fly conclusion scene-exit and return the pre-transition popup if
+        // the prefix intercepted (null on the placeholder-mode / deferred-dialog path).
+        //
+        // S4.1-DEFERRED-DIALOG: persist BEFORE the LoadScene, or this driven exit
+        // models a scene exit that no stock UI route performs. AtomicMarkerWrite
+        // assigns the re-fly marker IN MEMORY ONLY (RewindInvoker.cs); its
+        // durability comes from a later ParsekScenario.OnSave, and in production one
+        // always runs first - stock saveAndExit saves BEFORE the LoadScene prefix
+        // fires (see the comment in SceneExitInterceptor.TryAutoDiscardIdleActiveTree),
+        // and SafeWritePersistent exists precisely to cover the stock routes that
+        // do not. Driving a raw LoadScene skipped both, so SPACECENTER's OnLoad read
+        // `Marker loaded: none`, LoadTimeSweep discarded the provisional as a zombie
+        // (correctly - to the product an unpersisted marker plus a NotCommitted
+        // provisional is indistinguishable from a crash mid-re-fly), the session
+        // ended `<cleared>`, and the dialog that surfaced was a PLAIN whole-tree
+        // merge dialog that FindReFlyMergePopup cannot match because it is gated on
+        // markerLive. The verb then timed out at its budget with
+        // reason=answer-timeout and S4.1 was deterministically INVALID.
+        //
+        // That fix belongs HERE, in the seam, NOT in the product: making the marker
+        // durable at invoke time would change crash-recovery semantics for the worse
+        // (a crash mid-re-fly would resurrect a dead session instead of cleanly
+        // restoring the pre-rewind state), and MergeJournalOrchestrator /
+        // LoadTimeSweep marker semantics stay untouched this way. Same error class
+        // as the R1 fixture that omitted `RECORDING_TREE isActive=True`: a DRIVEN
+        // flow diverging from production shape and presenting as a product defect.
+        private PopupDialog DriveReFlyConclusion(ParsekScenario scenario)
+        {
+            bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+            ParsekLog.Info(Tag,
+                $"answermergedialog driving re-fly conclusion scene-exit " +
+                $"(persisted={persisted} sess={scenario?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
+                "- the marker must survive into the destination scene or the load-time " +
+                "sweep discards this session's provisional as a zombie");
+            HighLogic.LoadScene(GameScenes.SPACECENTER);
+            return FindReFlyMergePopup();
+        }
+
         private void TryCompleteAnswerMergeDialog(double now)
         {
             double elapsed = now - completionStartedAt;
             double budget = DeferralBudget.BudgetSeconds("AnswerMergeDialog");
+
+            // Deferred conclusion drive (S4.1-PREFIX-RACE): the Execute found a live
+            // marker but the in-place-continuation resume had not yet made the restored
+            // tree active. Re-evaluate each safe-point frame; once the tree is active
+            // (normal case, well under a second) drive the exit so it hits the
+            // scene-exit prefix and spawns the pre-transition dialog. On settle-budget
+            // expiry drive anyway - the deferred POST-transition dialog path below
+            // concludes the session exactly as it did before the wait existed.
+            if (!mergeAnswerApplied && mergeAnswerDrivePending)
+            {
+                ParsekScenario driveScenario = ParsekScenario.Instance;
+                bool driveMarkerLive = driveScenario != null
+                    && driveScenario.ActiveReFlySessionMarker != null;
+                if (!driveMarkerLive)
+                {
+                    // Marker vanished while waiting (something else concluded the
+                    // session). Fall through to the normal completion decider, which
+                    // bounds the wait at the verb budget.
+                    mergeAnswerDrivePending = false;
+                    ParsekLog.Warn(Tag,
+                        "answermergedialog re-fly marker vanished while waiting for the " +
+                        "resume to settle - falling through to the completion scan");
+                }
+                else
+                {
+                    ParsekFlight settleFlight = ParsekFlight.Instance;
+                    ConclusionDriveDecision driveDecision = TestCommandMergeAnswer.DecideConclusionDrive(
+                        sceneIsFlight: HighLogic.LoadedScene == GameScenes.FLIGHT,
+                        hasActiveTree: settleFlight != null && settleFlight.HasActiveTree,
+                        elapsedSeconds: elapsed,
+                        settleBudgetSeconds: TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds);
+                    if (driveDecision == ConclusionDriveDecision.WaitForResume)
+                        return;
+                    if (driveDecision == ConclusionDriveDecision.DriveUnsettled)
+                        ParsekLog.Warn(Tag,
+                            $"answermergedialog re-fly resume did not settle within " +
+                            $"{TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds.ToString("F0", CultureInfo.InvariantCulture)}s " +
+                            "- driving the conclusion anyway (deferred-dialog fallback path)");
+                    mergeAnswerDrivePending = false;
+                    // Parity with the Execute branch (PR #1394 review): a dialog may
+                    // already be live if something else exited FLIGHT during the wait
+                    // (marker survives, deferred dialog spawned) - answer it instead of
+                    // firing a second driven exit on top of it.
+                    PopupDialog drivenPopup = FindReFlyMergePopup();
+                    if (drivenPopup == null)
+                        drivenPopup = DriveReFlyConclusion(driveScenario);
+                    if (drivenPopup != null)
+                    {
+                        if (TryInvokeMergeButton(drivenPopup, mergeAnswerChoice, out string driveInvokeError))
+                        {
+                            mergeAnswerApplied = true;
+                            mergeAnswerResult = TestCommandMergeAnswer.ResultLabel(mergeAnswerChoice);
+                            ParsekLog.Info(Tag,
+                                $"answermergedialog choice={ChoiceWire(mergeAnswerChoice)} result={mergeAnswerResult}");
+                        }
+                        else
+                        {
+                            string did = completionId; long dseq = completionSeq; string dverb = completionVerb;
+                            ClearTwoPhase();
+                            ParsekLog.Warn(Tag, $"answermergedialog failed reason={driveInvokeError}");
+                            EmitExecutedTerminal(did, dseq, dverb, "ERROR", null, driveInvokeError, dequeueHead: true);
+                            return;
+                        }
+                    }
+                    // drivenPopup null: placeholder-mode path - the deferred
+                    // POST-transition dialog spawns after the exit settles and the
+                    // re-scan below invokes the button then.
+                }
+            }
 
             // Post-settle re-scan (placeholder-mode path): the deferred POST-transition dialog
             // spawns after the driven exit settles; invoke the chosen button THEN.
