@@ -723,48 +723,54 @@ namespace Parsek
         /// and the position deadband that suits that quantity (suspension travel is finer-grained
         /// than steering degrees, which is finer-grained than motor RPM).
         /// </summary>
+        private static readonly string[] WheelSuspensionScalarFieldNames =
+        {
+            "currentSuspensionOffset",
+            "suspensionOffset",
+            "compression",
+            "suspensionCompression",
+            "suspensionTravel"
+        };
+
+        private static readonly string[] WheelSteeringScalarFieldNames =
+        {
+            "steeringAngle",
+            "currentSteering",
+            "steerAngle",
+            "steeringInput"
+        };
+
+        private static readonly string[] WheelMotorScalarFieldNames =
+        {
+            "currentRPM",
+            "rpm",
+            "wheelRPM",
+            "motorRPM",
+            "targetRPM",
+            "driveOutput",
+            "motorOutput",
+            "wheelSpeed"
+        };
+
         internal static void ResolveWheelRoboticFieldPlan(
             string moduleName, out float deadband, out string[] scalarFieldNames)
         {
             if (string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal))
             {
                 deadband = 0.0025f;
-                scalarFieldNames = new[]
-                {
-                    "currentSuspensionOffset",
-                    "suspensionOffset",
-                    "compression",
-                    "suspensionCompression",
-                    "suspensionTravel"
-                };
+                scalarFieldNames = WheelSuspensionScalarFieldNames;
                 return;
             }
 
             if (string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal))
             {
                 deadband = 0.25f;
-                scalarFieldNames = new[]
-                {
-                    "steeringAngle",
-                    "currentSteering",
-                    "steerAngle",
-                    "steeringInput"
-                };
+                scalarFieldNames = WheelSteeringScalarFieldNames;
                 return;
             }
 
             deadband = 1f;
-            scalarFieldNames = new[]
-            {
-                "currentRPM",
-                "rpm",
-                "wheelRPM",
-                "motorRPM",
-                "targetRPM",
-                "driveOutput",
-                "motorOutput",
-                "wheelSpeed"
-            };
+            scalarFieldNames = WheelMotorScalarFieldNames;
         }
 
         /// <summary>
@@ -810,19 +816,35 @@ namespace Parsek
         /// metres (linear deadband); hinges, rotation servos and rotors are angular.
         /// Wheel module names are dispatched away before this is reached.
         /// </summary>
+        private static readonly string[] RoboticPistonScalarFieldNames =
+        {
+            "currentPosition",
+            "position",
+            "targetPosition",
+            "traverseVelocity"
+        };
+
+        private static readonly string[] RoboticRotorScalarFieldNames =
+        {
+            "currentRPM",
+            "rpm",
+            "rpmLimit"
+        };
+
+        private static readonly string[] RoboticAngularScalarFieldNames =
+        {
+            "currentAngle",
+            "angle",
+            "targetAngle"
+        };
+
         internal static void ResolveRoboticFieldPlan(
             string moduleName, out float deadband, out string[] scalarFieldNames)
         {
             if (string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal))
             {
                 deadband = roboticLinearDeadbandMeters;
-                scalarFieldNames = new[]
-                {
-                    "currentPosition",
-                    "position",
-                    "targetPosition",
-                    "traverseVelocity"
-                };
+                scalarFieldNames = RoboticPistonScalarFieldNames;
                 return;
             }
 
@@ -830,21 +852,11 @@ namespace Parsek
 
             if (string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal))
             {
-                scalarFieldNames = new[]
-                {
-                    "currentRPM",
-                    "rpm",
-                    "rpmLimit"
-                };
+                scalarFieldNames = RoboticRotorScalarFieldNames;
                 return;
             }
 
-            scalarFieldNames = new[]
-            {
-                "currentAngle",
-                "angle",
-                "targetAngle"
-            };
+            scalarFieldNames = RoboticAngularScalarFieldNames;
         }
 
         /// <summary>
