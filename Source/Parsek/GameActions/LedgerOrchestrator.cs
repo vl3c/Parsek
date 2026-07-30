@@ -1267,10 +1267,22 @@ namespace Parsek
                 && (rec.TerminalStateValue == TerminalState.Destroyed
                     || rec.TerminalStateValue == TerminalState.Recovered))
             {
-                ParsekLog.Info(Tag,
+                // One-shot per recording: every caller populates immediately
+                // after a true result, and population always sets
+                // CrewEndStates or CrewEndStatesResolved (persisted). Crewless
+                // ghost snapshots (destroyed debris) log at Verbose so the
+                // first recalc over a pre-fix save does not flood Info with
+                // one line per debris recording.
+                bool hasCrew = CrewReservationManager
+                    .ExtractCrewFromSnapshot(rec.GhostVisualSnapshot).Count > 0;
+                string message =
                     $"NeedsCrewEndStatePopulation: recording='{rec.RecordingId}' " +
                     $"admitted via ghost-visual-only crew source (no vessel snapshot, " +
-                    $"terminalState={rec.TerminalStateValue.Value})");
+                    $"terminalState={rec.TerminalStateValue.Value}, hasCrew={hasCrew})";
+                if (hasCrew)
+                    ParsekLog.Info(Tag, message);
+                else
+                    ParsekLog.Verbose(Tag, message);
                 return true;
             }
 

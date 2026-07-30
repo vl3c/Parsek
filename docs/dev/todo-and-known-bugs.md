@@ -42,11 +42,16 @@ first and immediately red'd
 for intact terminal states (Orbiting etc.) with no VesselSnapshot at all,
 `InferCrewEndState` reads "absent from the end snapshot" as EVA'd-and-lost Dead
 and would falsely kill live crew on ghost-only stable chain tips, so those stay
-unresolved as before. The newly-taken path logs a grep-stable Info line
+unresolved as before. The newly-taken path logs a grep-stable line
 (`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew source`),
-one-shot per recording (`CrewEndStatesResolved` is persisted). Behavioral unit
-coverage in `LedgerOrchestratorTests` (gate decisions plus the CL-2-shaped
-destroyed-pod population and ledger-row tests).
+one-shot per recording (`CrewEndStatesResolved` is persisted): Info when the
+ghost snapshot carries crew, Verbose for crewless destroyed debris so the first
+recalc over a pre-fix save does not flood Info with one line per debris item
+(review finding on PR #1395). Behavioral unit coverage in
+`LedgerOrchestratorTests` (gate decisions incl. Recovered and crewless-debris
+cases, plus the CL-2-shaped destroyed-pod population and ledger-row tests).
+Live-proven 2026-07-30 run `2026-07-30_1830_CL-2-pod-impact-ledger` (PASS,
+ledger oracle 0 hard divergences, zero stand-ins, ledger row endState=Dead).
 
 **Follow-ups once PR #1393 merges:** (1) `CL-2-pod-impact-ledger` can now pin
 `PopulateCrewEndStates ... dead=1` and the new gate token - retire

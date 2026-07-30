@@ -1540,13 +1540,60 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void NeedsCrewEndStatePopulation_GhostVisualOnly_AdmitsAndLogs()
+        public void NeedsCrewEndStatePopulation_GhostVisualOnly_AdmitsAndLogsInfo()
         {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+
             var rec = new Recording
             {
                 RecordingId = "rec-gate-ghost-visual",
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+
+            Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Equal(1, CountLogs("[LedgerOrchestrator]",
+                "admitted via ghost-visual-only crew source"));
+            Assert.Contains(logLines, l => l.Contains("[INFO]")
+                && l.Contains("admitted via ghost-visual-only crew source")
+                && l.Contains("hasCrew=True"));
+        }
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_GhostVisualOnlyCrewless_AdmitsAtVerbose()
+        {
+            // Crewless destroyed debris is still admitted (population resolves
+            // it one-shot) but logs at Verbose, so the first recalc over a
+            // pre-fix save cannot flood Info with one line per debris item.
+            var rec = new Recording
+            {
+                RecordingId = "rec-gate-crewless-debris",
                 GhostVisualSnapshot = new ConfigNode("VESSEL"),
                 TerminalStateValue = TerminalState.Destroyed
+            };
+
+            Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE]")
+                && l.Contains("admitted via ghost-visual-only crew source")
+                && l.Contains("hasCrew=False"));
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO]")
+                && l.Contains("admitted via ghost-visual-only crew source"));
+        }
+
+        [Fact]
+        public void NeedsCrewEndStatePopulation_GhostVisualOnlyRecovered_Admits()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Val Kerman");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-gate-recovered",
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Recovered
             };
 
             Assert.True(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
@@ -1645,6 +1692,64 @@ namespace Parsek.Tests
             Assert.Equal(1, CountLogs("[LedgerOrchestrator]",
                 "admitted via ghost-visual-only crew source"));
             Assert.Equal(1, CountLogs("[KerbalsModule]", "dead=1"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void PopulateUnpopulatedCrewEndStates_RecoveredVesselGhostVisualOnly_PopulatesRecovered()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Val Kerman");
+
+            var rec = new Recording
+            {
+                RecordingId = "rec-recovered-populate",
+                VesselName = "Recovered Flea",
+                GhostVisualSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "PopulateUnpopulatedCrewEndStates", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            Assert.NotNull(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates["Val Kerman"]);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void PopulateUnpopulatedCrewEndStates_CrewlessDestroyedDebris_ResolvesWithoutEntries()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-crewless-debris",
+                VesselName = "Debris",
+                GhostVisualSnapshot = new ConfigNode("VESSEL"),
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            RecordingStore.ResetForTesting();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            MethodInfo method = typeof(LedgerOrchestrator).GetMethod(
+                "PopulateUnpopulatedCrewEndStates", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            method.Invoke(null, null);
+
+            // Crewless: resolves one-shot (no re-log on later recalcs) with no
+            // per-kerbal entries.
+            Assert.Null(rec.CrewEndStates);
+            Assert.True(rec.CrewEndStatesResolved);
+            Assert.False(LedgerOrchestrator.NeedsCrewEndStatePopulation(rec));
 
             RecordingStore.ResetForTesting();
         }
