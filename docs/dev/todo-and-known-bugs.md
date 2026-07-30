@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## A DESTROYED VESSEL'S CREW NEVER GETS AN END STATE: the kerbal-death ledger row commits as `Unknown`, not `Dead` [FOUND 2026-07-30 by the first `CL-2-pod-impact-ledger` flight. NOT FIXED]
+## ~~A DESTROYED VESSEL'S CREW NEVER GETS AN END STATE: the kerbal-death ledger row commits as `Unknown`, not `Dead`~~ [FOUND 2026-07-30 by the first `CL-2-pod-impact-ledger` flight. FIXED 2026-07-30, branch `crew-endstate-destroyed-gate` (PR #1395); live-proven run `2026-07-30_1830`]
 
 The first flight in the repo that ever reaches the pending-tree AUTO-COMMIT out of a
 destroyed crewed flight found that the whole crew-death end-state chain is inert on
@@ -95,30 +95,46 @@ NAMES are also available - `ExtractCrewFromRecording` finds Jebediah through the
 `NeedsCrewEndStatePopulation` does not have. The gate is simply testing the wrong
 snapshot.
 
-### Fix (not applied here)
+### Fix (branch `crew-endstate-destroyed-gate`, PR #1395)
 
-Most likely: widen `NeedsCrewEndStatePopulation` to admit
-`rec.GhostVisualSnapshot != null` as a crew source, matching the fallback
-`ExtractCrewFromRecording` and `PopulateCrewEndStates` already use internally. Both of
-those already prefer `GhostVisualSnapshot` (recording-START crew) and only fall back to
-`VesselSnapshot`, so the gate is the one place in the chain that does not. NOT done in
-the CL-2 change: it is a product behaviour change on the commit path (it flips
-reservations from temporary to permanent and suppresses stand-in generation for dead
-crew), so it wants its own change, its own unit coverage, and its own review.
+The gate now admits `rec.GhostVisualSnapshot != null` as a crew source, matching
+the `GhostVisualSnapshot ?? VesselSnapshot` fallback that `PopulateCrewEndStates`
+and `ExtractCrewFromRecording` already use internally - but ONLY for terminal
+states whose inference does not consult the end-of-recording crew set (Destroyed,
+Recovered). A blind admission was tried first and immediately red'd
+`CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered`:
+for intact terminal states (Orbiting etc.) with no VesselSnapshot at all,
+`InferCrewEndState` reads "absent from the end snapshot" as EVA'd-and-lost Dead
+and would falsely kill live crew on ghost-only stable chain tips, so those stay
+unresolved as before. The newly-taken path logs a grep-stable line
+(`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew source`),
+one-shot per recording (`CrewEndStatesResolved` is persisted): Info when the
+ghost snapshot carries crew, Verbose for crewless destroyed debris so the first
+recalc over a pre-fix save does not flood Info with one line per debris item.
+Pre-fix saves self-heal: `MigrateKerbalAssignments` recomputes the old `Unknown`
+rows into `Dead` on the next recalc. Behavioral unit coverage in
+`LedgerOrchestratorTests` (gate decisions incl. Recovered and crewless-debris
+cases, plus the CL-2-shaped destroyed-pod population and ledger-row tests).
 
-### Consequences to carry
+Live-proven: run `2026-07-30_1830_CL-2-pod-impact-ledger`, PASS on attempt 1,
+ledger oracle 0 hard divergences. The 1711 symptoms inverted exactly: gate line
+fired for the destroyed recording, `PopulateCrewEndStates: ... crew=1 aboard=0
+dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
+`Stand-in generated` lines, produced save carries the KerbalAssignment row with
+`endState = 1` (Dead), persisted CREW_END_STATES, and no CREW_REPLACEMENTS.
 
-- `CL-2-pod-impact-ledger` deliberately does NOT pin `PopulateCrewEndStates ... dead=1`
-  and does not claim any crew-end-state coverage. The token was drafted from the call
-  site and does not exist on this path; requiring it would red a correct run.
+### Consequences, updated after the fix
+
+- `CL-2-pod-impact-ledger` can now pin `PopulateCrewEndStates ... dead=1` and the
+  new gate token; retire
   `test_cl2_crew_loss_ledger.py::test_the_crew_end_state_token_is_deliberately_not_required`
-  is the cell that stops a future author adding it back from the source.
-- It blocks the CL-1 extension's STAGE B (the tombstone half). That stage needs
-  `InGameTests/KerbalRecoveryOnSupersedeTest` to stop auto-skipping with "No
-  kerbal-death actions in supersede subtree", and its precondition is a subtree
-  containing a `GameActionType.KerbalAssignment` action with `KerbalEndState.Dead` -
-  which is exactly the value this defect prevents from ever being written. Fix this
-  first.
+  when doing so (it exists to stop the token being required while the defect was
+  live).
+- CL stage B (the tombstone half) is UNBLOCKED: `KerbalRecoveryOnSupersedeTest`
+  stops auto-skipping once a supersede subtree contains a
+  `GameActionType.KerbalAssignment` action with `KerbalEndState.Dead`, which the
+  fixed path now writes. Stage B scope: the R12 residue block in
+  `docs/dev/autotest-roadmap.md`.
 - The magnitude question is separate and still open: nothing in `Source/Parsek/` ever
   CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action, so the death's reputation
   hit is applied by STOCK (`Added -9.999828 (-10) reputation: 'VesselLoss'.`) and
