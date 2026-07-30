@@ -44,6 +44,29 @@ namespace Parsek.TestCommands
         AnswerAppliedSceneStall,
     }
 
+    /// <summary>The conclusion-drive decision for the marker-live-no-dialog branch of
+    /// <c>AnswerMergeDialog</c> (S4.1-PREFIX-RACE).</summary>
+    internal enum ConclusionDriveDecision
+    {
+        /// <summary>Drive the conclusion scene-exit now (non-FLIGHT scene, or the
+        /// in-place-continuation resume has settled and the restored tree is active, so
+        /// the scene-exit prefix will intercept and spawn the pre-transition dialog).</summary>
+        DriveNow,
+
+        /// <summary>The restored tree is not active yet in FLIGHT: hold the FIFO head and
+        /// re-evaluate next safe-point frame. Driving now would race
+        /// <c>RewindInvoker.RestoreActiveTreeFromPending</c> and slip past the
+        /// scene-exit prefix un-intercepted (tree still pending-Limbo -&gt;
+        /// <c>DialogVariant.None</c>).</summary>
+        WaitForResume,
+
+        /// <summary>The settle budget expired with the tree never active (a restore
+        /// give-up / placeholder-mode attempt): drive anyway and let the deferred
+        /// POST-transition dialog conclude the session, exactly as before the wait
+        /// existed.</summary>
+        DriveUnsettled,
+    }
+
     /// <summary>
     /// Pure decision + mapping helpers for the folded conclude-and-answer
     /// <c>AnswerMergeDialog</c> seam verb (M-C1). The Unity applier on the addon locates
@@ -54,6 +77,48 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandMergeAnswer
     {
+        /// <summary>
+        /// Bound on the resume-settle wait before the driven conclusion scene-exit
+        /// (S4.1-PREFIX-RACE). The in-place-continuation resume normally lands well
+        /// under a second after InvokeRewind's marker completion
+        /// (RestoreActiveTreeFromPending's own vessel wait deadline is 3 s), so this
+        /// bound only governs the restore-give-up / placeholder-mode attempts where the
+        /// tree never becomes active. Must stay well below
+        /// <see cref="DeferralBudget.AnswerMergeDialogSeconds"/> so the fallback
+        /// drive plus the post-answer scene settle still fit in the verb budget
+        /// (guarded by a unit test).
+        /// </summary>
+        internal const double ReFlyResumeSettleBudgetSeconds = 30.0;
+
+        /// <summary>
+        /// Decide whether the marker-live-no-dialog branch may DRIVE the re-fly
+        /// conclusion scene-exit now (S4.1-PREFIX-RACE). The design's stated contract
+        /// (design-autotest-seam-verbs-c1.md, "HasActiveTree dependency") is that the
+        /// pre-transition dialog fires because the in-place-continuation resume makes
+        /// the restored tree ACTIVE for the whole attempt - but that resume is an
+        /// asynchronous coroutine (RewindInvoker.RestoreActiveTreeFromPending runs
+        /// after onFlightReady with its own vessel wait), and InvokeRewind's completion
+        /// keys on the MARKER landing, which precedes it. A driven exit issued in that
+        /// window models a scene exit faster than any human route: the tree is still in
+        /// the pending-Limbo slot, so the LoadScene prefix sees no active tree, no
+        /// switch session and a non-Finalized pending tree, returns
+        /// DialogVariant.None, and the exit slips through un-intercepted to the
+        /// deferred POST-transition dialog (live evidence: run 2026-07-28_1939 hit the
+        /// prefix, the five 2026-07-30 sweep runs all missed it - a 121 ms knife-edge).
+        /// Waiting until the tree is active pins the driven exit to the pre-transition
+        /// route the spec documents; the bound keeps a never-settling resume from
+        /// wedging the verb (fall back to the deferred-dialog route, as before).
+        /// </summary>
+        internal static ConclusionDriveDecision DecideConclusionDrive(
+            bool sceneIsFlight, bool hasActiveTree, double elapsedSeconds, double settleBudgetSeconds)
+        {
+            if (!sceneIsFlight || hasActiveTree)
+                return ConclusionDriveDecision.DriveNow;
+            if (elapsedSeconds < settleBudgetSeconds)
+                return ConclusionDriveDecision.WaitForResume;
+            return ConclusionDriveDecision.DriveUnsettled;
+        }
+
         /// <summary>Map the wire <c>choice</c> arg to a button role. <c>merge</c> (alias
         /// <c>commit</c>) -> Merge; <c>discard</c> -> Discard; <c>seal</c> -> Seal;
         /// anything else -> Unknown. Case-sensitive, matching the rest of the wire
