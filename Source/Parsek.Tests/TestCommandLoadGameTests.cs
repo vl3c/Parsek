@@ -111,12 +111,12 @@ namespace Parsek.Tests
             Assert.Equal(LoadCompletionDecision.CompleteOk,
                 TestCommandLoadGame.DecideLoadCompletion(
                     5.0, TestCommandScene.SpaceCenter, currentGameNonNull: true,
-                    budgetSeconds: 600.0, expectSpaceCenter: true));
+                    budgetSeconds: 600.0, expectedScene: TestCommandScene.SpaceCenter));
             // A FLIGHT settle does NOT complete the KSC route (and vice versa:
             // the default route still requires FLIGHT).
             Assert.Equal(LoadCompletionDecision.StillWaiting,
                 TestCommandLoadGame.DecideLoadCompletion(
-                    5.0, TestCommandScene.Flight, true, 600.0, expectSpaceCenter: true));
+                    5.0, TestCommandScene.Flight, true, 600.0, TestCommandScene.SpaceCenter));
             Assert.Equal(LoadCompletionDecision.StillWaiting,
                 TestCommandLoadGame.DecideLoadCompletion(
                     5.0, TestCommandScene.SpaceCenter, true, 600.0));
@@ -127,10 +127,10 @@ namespace Parsek.Tests
         {
             Assert.Equal(LoadCompletionDecision.LoadFailedMenu,
                 TestCommandLoadGame.DecideLoadCompletion(
-                    5.0, TestCommandScene.MainMenu, false, 600.0, expectSpaceCenter: true));
+                    5.0, TestCommandScene.MainMenu, false, 600.0, TestCommandScene.SpaceCenter));
             Assert.Equal(LoadCompletionDecision.LoadTimeout,
                 TestCommandLoadGame.DecideLoadCompletion(
-                    600.0, TestCommandScene.Loading, false, 600.0, expectSpaceCenter: true));
+                    600.0, TestCommandScene.Loading, false, 600.0, TestCommandScene.SpaceCenter));
         }
 
         [Fact]
@@ -226,6 +226,173 @@ namespace Parsek.Tests
             Assert.Equal(LoadCompletionDecision.LoadTimeout,
                 TestCommandLoadGame.DecideLoadCompletion(
                     Budget + 1.0, TestCommandScene.Flight, currentGameNonNull: false, Budget));
+        }
+
+        // ----- R12: the optional `scene=` boot-route override. The TRACKSTATION route is
+        // the only way into that scene at all (nothing in Parsek ever entered it
+        // programmatically), and the parse is FAIL-CLOSED because a silently-ignored
+        // scene arg is the B10-shaped fail-open: a wrong-scene boot reads GREEN through a
+        // batch whose tests all scene-skip. -----
+
+        [Fact]
+        public void ParseRequestedScene_Absent_Unspecified()
+        {
+            Assert.True(TestCommandLoadGame.TryParseRequestedScene(null, out RequestedBootScene scene));
+            Assert.Equal(RequestedBootScene.Unspecified, scene);
+        }
+
+        [Theory]
+        [InlineData("trackstation")]
+        [InlineData("spacecenter")]
+        public void ParseRequestedScene_AcceptedWireValues(string raw)
+        {
+            Assert.True(TestCommandLoadGame.TryParseRequestedScene(raw, out RequestedBootScene scene));
+            Assert.Equal(raw == "trackstation"
+                ? RequestedBootScene.TrackingStation
+                : RequestedBootScene.SpaceCenter, scene);
+        }
+
+        [Theory]
+        [InlineData("")]              // present but empty: a typo, not an omission
+        [InlineData(" ")]
+        [InlineData("TRACKSTATION")]  // case-sensitive, like RunTests' isolated=
+        [InlineData("TrackStation")]
+        [InlineData("SpaceCenter")]
+        [InlineData("tracking-station")]
+        [InlineData("trackingstation")]
+        [InlineData("ts")]
+        [InlineData("ksc")]
+        [InlineData("flight")]        // deliberately NOT accepted (see TryParseRequestedScene)
+        [InlineData("mainmenu")]
+        [InlineData("editor")]
+        public void ParseRequestedScene_RejectsEverythingElse(string raw)
+        {
+            Assert.False(TestCommandLoadGame.TryParseRequestedScene(raw, out RequestedBootScene scene));
+            // The out value stays at the inert default so a caller that ignores the
+            // bool cannot silently boot somewhere it did not ask for.
+            Assert.Equal(RequestedBootScene.Unspecified, scene);
+        }
+
+        [Fact]
+        public void Route_RequestedTrackStation_TakesTrackStation_EvenWithFocusableVessel()
+        {
+            // The whole point: no property of a save says "boot me to the tracking
+            // station", so the route is caller-requested and outranks focusability.
+            Assert.Equal(LoadRoute.TrackingStation, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: 0, protoVesselCount: 3,
+                requestedScene: RequestedBootScene.TrackingStation));
+        }
+
+        [Fact]
+        public void Route_RequestedTrackStation_TakesTrackStation_OnVesselLessSave()
+        {
+            Assert.Equal(LoadRoute.TrackingStation, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: -1, protoVesselCount: 0,
+                requestedScene: RequestedBootScene.TrackingStation));
+        }
+
+        [Fact]
+        public void Route_RequestedSpaceCenter_ForcesKsc_OverFocusableVessel()
+        {
+            // Without the request this exact shape is LoadRoute.Focusable.
+            Assert.Equal(LoadRoute.Focusable, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: 0, protoVesselCount: 3));
+            Assert.Equal(LoadRoute.NoVesselSpaceCenter, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: 0, protoVesselCount: 3,
+                requestedScene: RequestedBootScene.SpaceCenter));
+        }
+
+        [Fact]
+        public void Route_UnspecifiedScene_IsPreR12BehaviorVerbatim()
+        {
+            // Passing Unspecified explicitly must equal omitting the parameter, on every
+            // shape the pre-R12 cells above cover.
+            Assert.Equal(LoadRoute.Focusable, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, 0, 3, RequestedBootScene.Unspecified));
+            Assert.Equal(LoadRoute.NoVesselSpaceCenter, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, -1, 0, RequestedBootScene.Unspecified));
+            Assert.Equal(LoadRoute.NoVesselSpaceCenter, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, false, -1, 0, RequestedBootScene.Unspecified));
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                true, false, true, true, 0, 1, RequestedBootScene.Unspecified));
+        }
+
+        [Theory]
+        [InlineData("trackstation")]
+        [InlineData("spacecenter")]
+        public void Route_InvalidGame_FailsRegardlessOfRequestedScene(string raw)
+        {
+            // PRECEDENCE: validity outranks the request. A requested scene cannot rescue
+            // a save that did not parse, so these must be load-failed, never a boot into
+            // TRACKSTATION/SPACECENTER on a null or incompatible game.
+            Assert.True(TestCommandLoadGame.TryParseRequestedScene(raw, out RequestedBootScene scene));
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                false, false, false, false, 0, 0, scene));                 // null game
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                true, false, true, true, 0, 1, scene));                    // incompatible
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                true, true, false, false, -1, 0, scene));                  // no flight state
+        }
+
+        [Fact]
+        public void ExpectedSceneFor_MapsEveryRoute()
+        {
+            Assert.Equal(TestCommandScene.Flight, TestCommandLoadGame.ExpectedSceneFor(LoadRoute.Focusable));
+            Assert.Equal(TestCommandScene.SpaceCenter, TestCommandLoadGame.ExpectedSceneFor(LoadRoute.NoVesselSpaceCenter));
+            Assert.Equal(TestCommandScene.TrackingStation, TestCommandLoadGame.ExpectedSceneFor(LoadRoute.TrackingStation));
+            // Failed never reaches two-phase; it must still map to something inert
+            // rather than throwing inside a completion poll.
+            Assert.Equal(TestCommandScene.Flight, TestCommandLoadGame.ExpectedSceneFor(LoadRoute.Failed));
+        }
+
+        [Fact]
+        public void Completion_TrackStationRoute_CompletesOnlyOnSettledTrackStation()
+        {
+            Assert.Equal(LoadCompletionDecision.CompleteOk,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.TrackingStation, currentGameNonNull: true,
+                    budgetSeconds: 600.0, expectedScene: TestCommandScene.TrackingStation));
+            // Neither of the other two routes' landing scenes completes it. This is the
+            // gate that keeps a silently-wrong-scene boot from reading OK.
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.Flight, true, 600.0, TestCommandScene.TrackingStation));
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.SpaceCenter, true, 600.0, TestCommandScene.TrackingStation));
+        }
+
+        [Fact]
+        public void Completion_TrackStationSettle_DoesNotCompleteTheOtherTwoRoutes()
+        {
+            // The converse: arriving at TRACKSTATION must not satisfy a FLIGHT or KSC
+            // route either.
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.TrackingStation, true, 600.0));
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.TrackingStation, true, 600.0, TestCommandScene.SpaceCenter));
+        }
+
+        [Fact]
+        public void Completion_TrackStationRoute_NoGameYet_StillWaiting()
+        {
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.TrackingStation, currentGameNonNull: false,
+                    600.0, TestCommandScene.TrackingStation));
+        }
+
+        [Fact]
+        public void Completion_TrackStationRoute_MenuBounceAndTimeoutKeepMeanings()
+        {
+            Assert.Equal(LoadCompletionDecision.LoadFailedMenu,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.MainMenu, false, 600.0, TestCommandScene.TrackingStation));
+            Assert.Equal(LoadCompletionDecision.LoadTimeout,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    600.0, TestCommandScene.SpaceCenter, true, 600.0, TestCommandScene.TrackingStation));
         }
     }
 }

@@ -14,30 +14,94 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~A DESTROYED VESSEL'S CREW NEVER GETS AN END STATE: the kerbal-death ledger row commits as `Unknown`, not `Dead`~~ [FOUND 2026-07-30 by the first `CL-2-pod-impact-ledger` flight (PR #1393, run `2026-07-30_1711`). FIXED 2026-07-30, branch `crew-endstate-destroyed-gate`]
+## ~~A DESTROYED VESSEL'S CREW NEVER GETS AN END STATE: the kerbal-death ledger row commits as `Unknown`, not `Dead`~~ [FOUND 2026-07-30 by the first `CL-2-pod-impact-ledger` flight. FIXED 2026-07-30, branch `crew-endstate-destroyed-gate` (PR #1395); live-proven run `2026-07-30_1830`]
 
-The full finding text (measurement, contract quotes, consequence list) is in this
-entry's original NOT FIXED form on PR #1393's branch (`cl1-ledger-mission`); when
-that branch merges, fold its entry into this one.
+The first flight in the repo that ever reaches the pending-tree AUTO-COMMIT out of a
+destroyed crewed flight found that the whole crew-death end-state chain is inert on
+that path. It is not a logging gap: the ledger row is genuinely built with the wrong
+value, and the reservation semantics that hang off it invert.
 
-**Root cause:** `LedgerOrchestrator.NeedsCrewEndStatePopulation` gated on
-`rec.VesselSnapshot != null`, which is exactly false for a DESTROYED vessel (no
-end-of-recording vessel to snapshot), so `KerbalsModule.PopulateCrewEndStates`
-never ran for the one recording class where the crew end state matters most.
-`ExtractCrewFromRecording` then defaulted the KerbalAssignment row to
-`KerbalEndState.Unknown`, flipping the reservation from the intended permanent
-(Dead) branch to the temporary branch - the dead kerbal's slot generated a
-stand-in (`Stand-in generated: 'Dudeny Kerman' ... for slot 'Jebediah Kerman'`).
-The inference chain itself was correct (`InferCrewEndState` maps Destroyed ->
-Dead, and the recording carried `terminalState=4`); only the gate tested the
-wrong snapshot.
+### The measurement
 
-**Fix:** the gate now admits `rec.GhostVisualSnapshot != null` as a crew source,
-matching the `GhostVisualSnapshot ?? VesselSnapshot` fallback that
-`PopulateCrewEndStates` and `ExtractCrewFromRecording` already use internally -
-but ONLY for terminal states whose inference does not consult the
-end-of-recording crew set (Destroyed, Recovered). A blind admission was tried
-first and immediately red'd
+Run `2026-07-30_1711_CL-2-pod-impact-ledger`, FULL PASS, the CL-1 profile (crewed pod,
+no chute, terminal-velocity impact, Jebediah observed `Dead` on his own roster) plus
+`SetSetting autoMerge=true` and `ExitToSpaceCenter`. The commit itself fired correctly:
+
+```
+:12611  Silent full-fidelity auto-commit (scene-exit): tree='Jumping Flea' recordings=1 spawnable=0
+:12630  Committed tree 'Jumping Flea' (1 recordings). Total committed: 1 recordings, 1 trees
+:12646  CreateKerbalAssignmentActions: 1 crew members from '5c0ed4fa57c841d3afd3ead9ab33640b'
+:12826  OnSave: saving 1 committed tree(s)
+```
+
+But `PopulateCrewEndStates` occurs **ZERO times in the entire log**, and what the
+commit then produced for a kerbal who died is a LIVE-crew reservation:
+
+```
+:12668  Reservation: 'Jebediah Kerman' endUT=Infinity (Unknown), recording '5c0ed4...'
+:12679  PostWalk summary: reservations=1 permanent=0 temporary=1 slots=1 retired=0 slotsCreated=1
+:12692  Stand-in generated: 'Dudeny Kerman' (Pilot) for slot 'Jebediah Kerman' depth 0
+```
+
+Persisted in the produced save as a `KERBAL_SLOTS` slot with a `CHAIN_ENTRY` and a
+`CREW_REPLACEMENTS` entry mapping Jebediah to Dudeny. A dead kerbal acquired a
+stand-in.
+
+### Why that is wrong rather than merely surprising
+
+`KerbalsModule.cs`'s own comment states the contract:
+
+```
+//   Dead      -> permanent, endUT = infinity
+//   Unknown   -> open-ended temporary (conservative)
+bool permanent = (endState == KerbalEndState.Dead);
+```
+
+and `CrewReservationManager.SeatMatch.cs` (`ShouldProcessCrewForReservation`) EXCLUDES
+`Dead` from reservation processing while admitting `Missing`. So the intended outcome
+is a PERMANENT reservation and no stand-in; the observed outcome is the temporary
+branch, which is what a kerbal still ALIVE aboard a flying vessel gets.
+
+### Root cause
+
+`LedgerOrchestrator.NeedsCrewEndStatePopulation`:
+
+```csharp
+return rec != null
+    && !rec.CrewEndStatesResolved
+    && rec.CrewEndStates == null
+    && (rec.VesselSnapshot != null
+        || !string.IsNullOrEmpty(rec.EvaCrewName)
+        || KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec));
+```
+
+A DESTROYED vessel has no `VesselSnapshot` (there is no end-of-recording vessel to
+snapshot, and the commit line's `spawnable=0` is the same fact), is not an EVA, and is
+not a ghost-only chain handoff, so the predicate is false and
+`KerbalsModule.PopulateCrewEndStates` is never called. `rec.CrewEndStates` stays null,
+and `LedgerOrchestrator.ExtractCrewFromRecording` then defaults each row:
+
+```csharp
+KerbalEndState endState = KerbalEndState.Unknown;
+if (rec.CrewEndStates != null)
+    rec.CrewEndStates.TryGetValue(name, out endState);
+```
+
+The irony is that the INFERENCE is correct and would have returned the right answer:
+`KerbalsModule.InferCrewEndState` maps `TerminalState.Destroyed` to `Dead` in its first
+branch, and the recording carries `terminalState = 4` (Destroyed) on disk. The crew
+NAMES are also available - `ExtractCrewFromRecording` finds Jebediah through the
+`GhostVisualSnapshot ?? VesselSnapshot` fallback, a fallback
+`NeedsCrewEndStatePopulation` does not have. The gate is simply testing the wrong
+snapshot.
+
+### Fix (branch `crew-endstate-destroyed-gate`, PR #1395)
+
+The gate now admits `rec.GhostVisualSnapshot != null` as a crew source, matching
+the `GhostVisualSnapshot ?? VesselSnapshot` fallback that `PopulateCrewEndStates`
+and `ExtractCrewFromRecording` already use internally - but ONLY for terminal
+states whose inference does not consult the end-of-recording crew set (Destroyed,
+Recovered). A blind admission was tried first and immediately red'd
 `CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered`:
 for intact terminal states (Orbiting etc.) with no VesselSnapshot at all,
 `InferCrewEndState` reads "absent from the end snapshot" as EVA'd-and-lost Dead
@@ -46,19 +110,118 @@ unresolved as before. The newly-taken path logs a grep-stable line
 (`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew source`),
 one-shot per recording (`CrewEndStatesResolved` is persisted): Info when the
 ghost snapshot carries crew, Verbose for crewless destroyed debris so the first
-recalc over a pre-fix save does not flood Info with one line per debris item
-(review finding on PR #1395). Behavioral unit coverage in
+recalc over a pre-fix save does not flood Info with one line per debris item.
+Pre-fix saves self-heal: `MigrateKerbalAssignments` recomputes the old `Unknown`
+rows into `Dead` on the next recalc. Behavioral unit coverage in
 `LedgerOrchestratorTests` (gate decisions incl. Recovered and crewless-debris
 cases, plus the CL-2-shaped destroyed-pod population and ledger-row tests).
-Live-proven 2026-07-30 run `2026-07-30_1830_CL-2-pod-impact-ledger` (PASS,
-ledger oracle 0 hard divergences, zero stand-ins, ledger row endState=Dead).
 
-**Follow-ups once PR #1393 merges:** (1) `CL-2-pod-impact-ledger` can now pin
-`PopulateCrewEndStates ... dead=1` and the new gate token - retire
-`test_the_crew_end_state_token_is_deliberately_not_required` when doing so;
-(2) this unblocks CL stage B (the tombstone half): `KerbalRecoveryOnSupersedeTest`
-stops auto-skipping once a supersede subtree can contain a `KerbalEndState.Dead`
-assignment (stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`).
+Live-proven: run `2026-07-30_1830_CL-2-pod-impact-ledger`, PASS on attempt 1,
+ledger oracle 0 hard divergences. The 1711 symptoms inverted exactly: gate line
+fired for the destroyed recording, `PopulateCrewEndStates: ... crew=1 aboard=0
+dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
+`Stand-in generated` lines, produced save carries the KerbalAssignment row with
+`endState = 1` (Dead), persisted CREW_END_STATES, and no CREW_REPLACEMENTS.
+
+### Consequences, updated after the fix
+
+- `CL-2-pod-impact-ledger` can now pin `PopulateCrewEndStates ... dead=1` and the
+  new gate token; retire
+  `test_cl2_crew_loss_ledger.py::test_the_crew_end_state_token_is_deliberately_not_required`
+  when doing so (it exists to stop the token being required while the defect was
+  live).
+- CL stage B (the tombstone half) is UNBLOCKED: `KerbalRecoveryOnSupersedeTest`
+  stops auto-skipping once a supersede subtree contains a
+  `GameActionType.KerbalAssignment` action with `KerbalEndState.Dead`, which the
+  fixed path now writes. Stage B scope: the R12 residue block in
+  `docs/dev/autotest-roadmap.md`.
+- The magnitude question is separate and still open: nothing in `Source/Parsek/` ever
+  CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action, so the death's reputation
+  hit is applied by STOCK (`Added -9.999828 (-10) reputation: 'VesselLoss'.`) and
+  absorbed through the generic captured-award path. CL-2's ledger oracle passes with
+  0 hard divergences modelling it that way.
+
+---
+
+## `dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable [FOUND 2026-07-30 during the CL-2 scope fence. NOT RESOLVED]
+
+`harness/coverage/registry.toml` carries no per-cell definitions beyond the D12 block
+comment, which asserts that `dead-crew-strip` and `tombstone-rep-penalty` are "a RE-FLY
+consequence of a death that already happened". For `tombstone-rep-penalty` that is
+checkable - `SupersedeCommit.TryPairBundledRepPenalty` is the named producer. For
+`dead-crew-strip` it is not: the only code in the repo actually NAMED for stripping
+dead crew is SPAWN-time, not re-fly-time (`VesselSpawner.cs` "Individual dead crew are
+already removed by `RespawnVessel.RemoveDeadCrewFromSnapshot`", and
+`ShouldBlockSpawnForDeadCrew`), while the re-fly `Strip` is `PostLoadStripper.Strip`
+(`RewindInvoker.cs`), which strips VESSELS, not crew. The nearest re-fly-time CREW
+behaviour is `CrewReservationManager.RecomputeAfterTombstones()` plus the
+tombstoned-roster cleanup in `SupersedeCommit.CommitTombstones`.
+
+So whoever builds stage B must PIN what the cell means before claiming it, or the claim
+is unfalsifiable. The strongest available definition is the one the in-game test that
+owns the behaviour states: `InGameTests/KerbalRecoveryOnSupersedeTest` asserts that
+after the merge, every eligible kerbal-death action in the supersede subtree is
+tombstoned AND each previously-Dead kerbal is back in the roster as `Available` or
+`Assigned`. Writing that into the registry comment (or splitting the cell) is a
+registry-authoring task, not a flight.
+
+`CL-2-pod-impact-ledger` claims NEITHER cell, and
+`test_cl2_crew_loss_ledger.py::test_the_scope_fenced_re_fly_cells_stay_unclaimed` keeps
+them - and D8/D9 `tombstones` - out of its claim set.
+
+---
+
+## The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. NOT FIXED]
+
+`hlib`'s own note says `captureCrossCheck` "was WRITTEN as a hard gate, but it has never
+once run with a working capture", that no L1 spec can capture anything, and that arming
+"wants a REPUTATION-producing scenario". `CL-2-pod-impact-ledger` is that scenario and
+is the first run in the repo with a LIVE capture. What it measured is that the
+documented escalation path (fly it green, read `capturedRaw`, arm `gate`) does not
+close for a flown scenario.
+
+### The measurement
+
+Runs `2026-07-30_1711` and `2026-07-30_1721_CL-2-pod-impact-ledger`, identical:
+`manifest-capture stockLines=3 deduped=3 seamDeclared=4 seamRejected=0`. All three
+stock reputation lines were captured cleanly. All three then reported UNEXPECTED
+(report-only, `hard=False`) even though the spec's manifest declares all three at the
+right amounts with the right `stockReason` keys:
+
+```
+manifest-capture: unexpected stock award ut=12.5  kind=stock-reputation-award reason=Progression
+manifest-capture: unexpected stock award ut=19.0  kind=stock-reputation-award reason=Progression
+manifest-capture: unexpected stock award ut=119.9 kind=stock-reputation-award reason=VesselLoss
+```
+
+### Cause
+
+`hlib.unmatched_captured_awards` joins on `(seq_key, facet, amount)`, and `seq_key` is
+`("ut", <ut>)` whenever the entry has a UT, else `("ord", <seq>)`. A captured award gets
+its UT from the neighbouring `[Parsek]` line (12.5 / 19.0 / 119.9 here); a spec-declared
+entry has no UT unless the author writes one. `("ord", 0)` never equals `("ut", 12.5)`,
+so the join can never fire.
+
+The only way to make it fire from a spec is to declare the exact game UT the award will
+land on - which for a FLOWN scenario means pinning a golden trajectory value. It is also
+genuinely unstable: the same impact was ut 119.7 on the archived B1 run of this exact
+craft, 119.9 on CL-2 flight 1 and 119.8 on flight 2. (For a KSC-only scenario the awards
+land at the save's static UT, so the problem is invisible there - consistent with the
+join having been designed against the L1 shape and never exercised against a flight.)
+
+### Options, none applied
+
+Loosen the join to `(facet, amount [, stockReason])` with the seqKey as a TIE-BREAKER
+rather than a requirement; or add a UT-window tolerance; or let an entry declare
+`stockReason` alone as sufficient corroboration when the amount matches. Each changes
+what "unexpected" means, so it wants the M-B2 design owner rather than a scenario
+author. Until then `captureCrossCheck = "report"` is the correct setting for any flown
+spec, and CL-2 records the reasoning inline.
+
+NOTE, so this is not over-read: none of it weakens the oracle. The cross-check only
+CLASSIFIES; a captured amount is never summed into EXPECTED, and the
+seam-declared-vs-produced-save diff is untouched. CL-2's ledger verifier passed with 0
+hard divergences on both flights.
 
 ---
 
@@ -84,6 +247,131 @@ Found during the units audit, deliberately NOT fixed there because world-frame s
 4. `SeedPredictedSegmentOrbitalFrameRotations` computes `orbitalFrameRotation` from `TryPropagate`'s Zup-frame vectors, while playback's `ParsekFlight.ComputeOrbitalRotation` resolves that rotation against `orbit.getPositionAtUT` world-frame positions - predicted-segment ghost attitude is off by the frame difference (cosmetic; found by the PR #1386 review).
 
 Each is a behavioral change on live extrapolation paths; fix together with an in-game proof (a known-impact descent whose recorded terminal lat/lon can be compared against the actual crash site).
+
+---
+
+## AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame [FOUND 2026-07-30 by the R12 live-validation runs. NOT FIXED]
+
+Sibling of the frame-mismatch entry above - same file family (`BallisticExtrapolator`
+/ `IncompleteBallisticSceneExitFinalizer`), different failure: this one does not
+mis-orient the answer, it destroys the recording.
+
+### The measurement
+
+Run `2026-07-30_1532_S0.7-exit-auto-commit`, collected at
+`logs/2026-07-30_1833_S0.7-exit-auto-commit`. The profile was EVA-2's, on
+`eva2-lko-crewed`: `autoRecordOnEva=true`, `EvaExit settleSeconds=10`, `EvaBoard`.
+
+```
+18:33:01.503  Recording started: vessel="Valentina Kerman", parts=1, points=0
+18:33:01.531  Sample skipped at ut=422.15; waiting for motion/attitude trigger
+18:33:01.552  [EXC] ArithmeticException  <- first of 501
+18:33:11.560  [EXC] ArithmeticException  <- last
+18:33:11.638  (board merge; the Kerbal X recording promotes)
+FinalizeTreeRecordings: 'Valentina Kerman' points=1 orbitSegs=0 maxDist=0m
+FinalizeTreeRecordings: 'Kerbal X'         points=1 orbitSegs=0 maxDist=0m
+```
+
+TEN SECONDS of orbital flight at ~2.2 km/s, and exactly ONE point - the boundary
+seed. `grep -c ArithmeticException` on that log is **501**, one per physics frame for
+the whole EVA, every one on the identical stack:
+
+```
+FlightRecorder.OnPhysicsFrame
+  -> FlightRecorder.RefreshFinalizationCache
+  -> RecordingFinalizationCacheProducer.TryBuildFromLiveVessel
+  -> IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording
+  -> ...TryCompleteFinalizationFromPatchedSnapshot -> TryBuildStartStateFromSegment
+  -> BallisticExtrapolator.TryPropagate -> TwoBodyOrbit.GetStateAtUT
+  -> TwoBodyOrbit.SolveHyperbolicKepler -> System.Math.Sign(NaN)
+     ArithmeticException: Function does not accept floating point Not-a-Number values.
+```
+
+The NaN does not originate in the extrapolator. Immediately upstream, stock logs
+`CheckEncounter: failed to find any intercepts at all` and
+`dT is NaN! tA: NaN, E: NaN, M: NaN, T: NaN` from `PatchedConicSolver.Update`, driven
+by `PatchedConicSnapshot.VesselPatchedConicSnapshotSource.Update()` - so a degenerate
+patched-conic solve on the 1-part EVA kerbal feeds NaN elements into the snapshot,
+and the extrapolator consumes them without a finite check.
+
+### Why it matters more than one bad recording
+
+The exception escapes `OnPhysicsFrame` (Unity logs it as `[EXC]` from the Update
+loop), so it takes the SAMPLING with it. Everything the recorder would have done that
+frame - trajectory points, part events, the background pass - does not happen. The
+recording is not degraded, it is empty.
+
+### Why nothing caught it
+
+`EVA-2-orbital-board` is green and stays green. Its numeric guard is
+`recordings.count = { min = 2, max = 2 }`, which counts `.prec` FILES, and two empty
+recordings are still two files. This is the category inventory's "fourth trap" (a
+vacuous PASS the tally cannot see) reappearing in the RECORDINGS dimension instead of
+the batch-tally one. Nothing in the verifier chain asserts a recording has points.
+
+### Scope, as far as the evidence goes
+
+- PRE-EXISTING. R12 touched only `TestCommands/`, docs, tests and `harness/`.
+- NOT reproduced on the pad: `EVA-4-atmo-chute`'s archived log
+  (`logs/2026-07-25_1310_EVA-4-atmo-chute`) has ZERO occurrences of
+  `SolveHyperbolicKepler` and recordings of 278 / 96 points. So the trigger looks
+  specific to an orbital - or otherwise degenerate-conic - subject.
+- UNKNOWN whether an ordinary orbiting SHIP (not a 1-part EVA kerbal) hits it. The
+  only non-EVA orbital recording measured here ran 133 ms and never got far enough to
+  say.
+
+### Fix directions (not chosen)
+
+1. Guard the boundary: `TwoBodyOrbit.TryCreateFromSegment` / `GetStateAtUT` reject
+   non-finite elements and return false instead of throwing, so a degenerate conic
+   declines to extrapolate rather than killing the frame. Cheapest, and it matches
+   how the rest of the finalizer treats an unresolvable tail.
+2. Guard the source: `PatchedConicSnapshot` drops a patch whose elements are not
+   finite, so the NaN never enters a recording's predicted segments either.
+3. Defensive: wrap `RefreshFinalizationCache`'s call in `OnPhysicsFrame` so a
+   finalization-cache failure can never cost a sample. This one is worth doing
+   REGARDLESS of the other two - the finalization cache is an optimisation, and it
+   should not be able to stop the recorder.
+
+A harness-side companion is worth considering separately: an
+`expectations.recordings` assertion on POINTS, not only on file count, would have
+caught this on EVA-2's first flight.
+
+---
+
+## Intermittent stock `SpaceTracking.buildVesselsList` NRE on TRACKSTATION ghost teardown is not classified by the ghost-NRE suppressor [FOUND 2026-07-30 by `H23-tracking-station`. NOT FIXED, low cost]
+
+Observed on the FIRST `H23-tracking-station` flight (2 raw Unity exceptions) and NOT
+on the second, identical, pinned flight (0) - so it is intermittent, which is why the
+spec deliberately does not arm `[expectations.unityExceptions] maxTotal`.
+
+```
+[Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception left visible:
+  type=NullReferenceException totalVessels=0 ghostVessels=0
+  ghostMissingOrbitRenderers=0 nonGhostMissingOrbitRenderers=0
+  firstMissingOrbitRenderer=non-ghost-or-none priorStockNullCandidates=0
+  scanError="NullReferenceException: Object reference not set to an instance of an object"
+[ERR] Exception handling event onVesselDestroy in class SpaceTracking:
+  System.NullReferenceException
+```
+
+It fires during the synthetic-ghost teardown the TS tests perform
+(`SyntheticTrackingStationRecordingScope` dispose ->
+`GhostMapPresence` ProtoVessel destroy -> stock `onVesselDestroy` ->
+`SpaceTracking.buildVesselsList`).
+
+`GhostTrackingStationPatch.IsKnownGhostProtoVesselNre` declined to suppress it, and
+declined CORRECTLY on its own terms: the context scan it classifies from THREW too
+(hence `totalVessels=0 ghostVessels=0` and the populated `scanError`), so it saw a
+zero-ghost context and refused to swallow an exception it could not attribute. That
+is the right default - a suppressor that swallows on missing evidence is how a real
+defect goes quiet.
+
+THE QUESTION, not the fix: should a scan that itself failed be classified from
+`scanError` plus the known call site, rather than from counts the failed scan never
+populated? Today the answer is "leave it visible", which costs nothing - the tests it
+interrupts still pass - but it does mean a TRACKSTATION spec cannot arm a Unity
+exception budget without absorbing this.
 
 ---
 
@@ -536,10 +824,18 @@ the review panel proved the commit is UNREACHABLE on this exact profile:
   no-active-tree`, `:11325` `OnSave: saving 0 committed tree(s)`. `PopulateCrewEndStates`
   and `CreateKerbalAssignmentActions` occur ZERO times in that entire log.
 - Both auto-commit routes are gated on `HighLogic.LoadedScene != GameScenes.FLIGHT`
-  (`ParsekScenario.cs:3781` cold-load, `:1121` the OnSave safety net), and no seam verb
-  produces a FLIGHT -> SPACECENTER transition (roadmap R12: a `scene=` argument on
-  `LoadGame` is unbuilt). `FlushAndQuit` saves and quits from inside FLIGHT, which is why
-  that same log's final line is `saving 0 committed tree(s)`.
+  (`ParsekScenario.cs:3781` cold-load, `:1121` the OnSave safety net), and at the time of
+  that run no seam verb produced a FLIGHT -> SPACECENTER transition (roadmap R12).
+  `FlushAndQuit` saves and quits from inside FLIGHT, which is why that same log's final
+  line is `saving 0 committed tree(s)`. **[R12/A2, built: the `ExitToSpaceCenter` seam
+  verb now produces exactly that transition.** It drives the stock exit-button path
+  (`SafeWritePersistent` then `HighLogic.LoadScene(SPACECENTER)`) so the finalize / stash
+  pipeline runs and the pending tree auto-commits on arrival, and it REFUSES up front with
+  `REJECTED msg=dialog-required variant=<RegularMerge|ReFlyAttempt|SwitchSegmentSession>`
+  in the states where the exit would instead raise a merge modal that no seam verb can
+  answer. The route exists, and the CL-1 spec extension that USES it shipped 2026-07-30 as
+  `CL-2-pod-impact-ledger` (stage A: auto-commit + ledger half live-proven; the
+  tombstone stage B remains, scoped in the roadmap's R12 block).**]**
 
 An unmet `CommitTree` step would have made the run driver-INVALID, which SKIPS every
 verifier below it - the scenario would have produced NO evidence about the crew death at
@@ -549,9 +845,10 @@ are gone, and a unit cell
 without the commit route that makes them reachable.
 
 **THE LEDGER HALF IS THEREFORE THE ATOM'S FIRST EXTENSION.** What it needs, in order:
-(1) a commit route out of a destroyed-vessel flight - the shape to aim at is
-`SetSetting autoMerge=true` plus a real scene transition, which today means either a new
-`scene=` argument on `LoadGame` (R12) or a dedicated verb; (2) the commit-time tokens
+(1) ~~a commit route out of a destroyed-vessel flight~~ **BUILT (R12/A2)** - the shape to
+aim at was `SetSetting autoMerge=true` plus a real scene transition, and that is now
+exactly the `ExitToSpaceCenter` verb's documented v1 contract (autoMerge ON is what makes
+its wedge guard return Proceed rather than a `dialog-required` REJECTED); (2) the commit-time tokens
 re-derived from what THAT path emits, not carried over from the `CommitTree` path;
 (3) the career-pool arithmetic, which has a second knowably-unpinned term - a career
 FLIGHT trips stock PROGRESS MILESTONES that move pools (the EVA-4 archive carries
@@ -1124,16 +1421,35 @@ to FLIGHT.
 Correction to carry: `Logistics` is 47 tests but 38 carry
 `AllowBatchExecution = false`, so only 9 are batch-reachable before R5 lands.
 
-**R9-R14. Machinery items** (each self-contained in the roadmap doc): structural
-save-content expectations plus landing the three inert `route` / `rewind` / `loop`
-expectation blocks; runtime-handle plumbing so a live tree / vessel / route id can
-reach a verb (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no
-response payload is ever captured); a CAREER fixture with a flyable craft
-(`FORGE-career-pad`; all three career-family fixtures currently have ZERO VESSEL
-nodes, which is what blocks the L-track end goal and D8 `milestones` / `contracts` /
-`strategies` / `tombstones` in flown form); `SimulateStockSwitchClick` plus a `scene=`
-argument on `LoadGame`; widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N
-pinned tallies; and provisioning `modded-compat` for D17.
+**R9-R14. Machinery items** (each self-contained in the roadmap doc). TWO OF THE SIX
+ARE NOW CLOSED; the list below is kept intact with the closures marked, because the
+counts around it were measured against the six-item shape:
+
+- **R9** structural save-content expectations plus landing the three inert `route` /
+  `rewind` / `loop` expectation blocks - OPEN.
+- **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb
+  (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no response
+  payload is ever captured) - OPEN. NOTE R12 solved the SPECIFIC instance that
+  blocked it worst, without solving R10: `SimulateStockSwitchClick` takes `vessel=`
+  (a stable NAME) precisely because a TOML author cannot know the pid a launch will
+  mint, the same stable-addressing dodge `InvokeRewind` used. That is a per-verb
+  workaround, not the general mechanism.
+- **R11** a CAREER fixture with a flyable craft - ~~`FORGE-career-pad`; all three
+  career-family fixtures currently have ZERO VESSEL nodes~~ **CLOSED 2026-07-28** by
+  `harness/fixtures/saves/career-pad-craft`, built by construction rather than by a
+  forge flight.
+- **R12** `SimulateStockSwitchClick` plus a `scene=` argument on `LoadGame` -
+  **SHIPPED 2026-07-30**, and it grew a third capability on the way:
+  `ExitToSpaceCenter`, the live FLIGHT -> SPACECENTER transition, without which
+  nothing could LEAVE flight either. Live-proven by `H23-tracking-station`,
+  `S0.7-exit-auto-commit` and `S0.8-switch-click-segment`. The seam is 21 implemented
+  verbs / 10 reserved. What it did NOT close is listed in the roadmap's R12 block -
+  `site=ts` / `site=ksc`, the dialog cases, and unloaded targets. The CL-1 spec
+  extension's stage A shipped 2026-07-30 as `CL-2-pod-impact-ledger`; its tombstone
+  stage B remains.
+- **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
+  tallies - OPEN.
+- **R14** provisioning `modded-compat` for D17 - OPEN.
 
 **Baseline caveat: three of these are already in flight.** Every count above was
 measured at `1591aa59f` and EXCLUDES work open in review at the time of writing. PR

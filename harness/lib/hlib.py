@@ -123,21 +123,34 @@ MISSION_VERDICTS: Tuple[str, ...] = (
 # IMPLEMENTED, mirroring the C# ReservedVerbs -> ImplementedVerbs move: InvokeRewind,
 # AnswerMergeDialog, TimeJump, KscAction. The M-C1.1 follow-up added SaveGame (the M-B3
 # L2/R6 persist-before-reload dependency); it was never in the RESERVED envelope, so it
-# is a NEW implemented verb name. The other eleven stay RESERVED. The tuple order below
-# mirrors the C# ImplementedVerbs set (TestCommandVerbs.cs) exactly.
+# is a NEW implemented verb name. The tuple order below mirrors the C# ImplementedVerbs
+# set (TestCommandVerbs.cs) exactly.
 IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "SetSetting", "StartRecording", "StopRecording", "CommitTree", "DiscardTree",
     "RecordingState", "RunTests", "LoadGame", "MissionMark", "FlushAndQuit",
     "InvokeRewind", "AnswerMergeDialog", "TimeJump", "KscAction", "SaveGame",
     # M-C2 EVA batch (design-autotest-eva-missions.md): EvaExit / EvaBoard / PlantFlag,
     # additive like SaveGame (never in the RESERVED envelope). EVA-4 added EvaChuteDeploy
-    # (the kerbal personal parachute), additive in the same way. 19 total, mirroring the C#
-    # TestCommandVerbs.ImplementedVerbs set exactly.
+    # (the kerbal personal parachute), additive in the same way.
     "EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy",
+    # R12 (design "> Update (R12)" block), TWO different shapes in one wave:
+    #   ExitToSpaceCenter is ADDITIVE (never in the RESERVED envelope, like SaveGame and
+    #     the EVA family): the driven FLIGHT -> SPACECENTER transition that reaches the
+    #     pending-tree auto-commit. A generic LoadScene verb was rejected in favour of
+    #     this narrow one.
+    #   SimulateStockSwitchClick is a PROMOTION out of RESERVED_SEAM_VERBS below - the
+    #     first since M-C1. The wire token is byte-identical before and after; only the
+    #     response changes (REJECTED not-implemented-v1 -> a real terminal), so no
+    #     committed spec's bytes move.
+    # R12's THIRD piece needs no entry here at all: `scene=` is an additive ARG on the
+    # existing LoadGame verb (see the scene-arg note in validate_spec). 21 total,
+    # mirroring the C# TestCommandVerbs.ImplementedVerbs set exactly.
+    "ExitToSpaceCenter", "SimulateStockSwitchClick",
 )
+# The remaining TEN stay RESERVED (SimulateStockSwitchClick left this set in R12).
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
     "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",
-    "FlySlot", "RouteCommand", "MissionConfig", "SimulateStockSwitchClick",
+    "FlySlot", "RouteCommand", "MissionConfig",
     "CrashAfterJournalPhase", "RunInvariantReport",
 )
 
@@ -234,6 +247,13 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # EVA-4 added EvaChuteDeploy: its awaitDown stage holds the FIFO head through the kerbal's
 # WHOLE chuted descent (minutes of real time at 1x), so it is genuinely long-running and the
 # 540 s cap + step-wait margin must govern its per-step budget like the other four.
+# R12 added NEITHER of its two verbs, deliberately. ExitToSpaceCenter IS two-phase (its
+# terminal is deferred until SPACECENTER settles), but it sits in the AnswerMergeDialog
+# class, not the LoadGame class: it drives a scene exit and completes as soon as that
+# settles, so its C# budget is 120 s and it rides DISPATCH_DEFERRAL_BUDGET_SECONDS below.
+# Membership here is about the 540 s CAP governing a spec-declared budget, not about being
+# two-phase. SimulateStockSwitchClick is SINGLE-phase (the switch and Parsek's consume both
+# run synchronously inside SetActiveVessel), so it rides the plain 60 s default.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy")
 
@@ -272,6 +292,16 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # the full stock EVA canopy). 420 s covers a ~2 km opening altitude with margin and
     # stays under the 540 s cap.
     "EvaChuteDeploy": 420.0,
+    # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized like
+    # AnswerMergeDialog (the only other verb that DRIVES a scene exit and holds the head
+    # across its settle) rather than like LoadGame, which additionally parses a cold save
+    # off disk. Without the row the harness step-wait would ride the 60 s default + margin
+    # and could KILL a healthy KSC bootstrap - which re-reads persistent.sfs and runs
+    # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
+    # seam TIMEOUT into a terminal KILLED. SimulateStockSwitchClick is deliberately ABSENT:
+    # the C# switch rides DefaultSeconds (60 s) because it is single-phase, and its budget
+    # only ever bounds the not-in-flight DEFER.
+    "ExitToSpaceCenter": 120.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -350,6 +380,20 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "EvaBoard": TAIL_ROLE_WORLD_MUTATING,
     "PlantFlag": TAIL_ROLE_WORLD_MUTATING,
     "EvaChuteDeploy": TAIL_ROLE_WORLD_MUTATING,  # the EVA-4 flight-1 pair, with EvaExit
+    # R12. Both world-mutating, and neither is a borderline call.
+    #   ExitToSpaceCenter tears down the FLIGHT scene: it persists, runs the finalize /
+    #     stash pipeline, and reaches the pending-tree AUTO-COMMIT on KSC entry. That is
+    #     CommitTree's durable write arriving by another route, so it inherits CommitTree's
+    #     reasoning verbatim - driving it on an unmet run would commit the failed attempt's
+    #     junk tree and apply its resource deltas to the career. It is emphatically NOT
+    #     cleanup despite looking like teardown: FlushAndQuit already owns the quit, and an
+    #     exit that COMMITS is not a no-cost close.
+    "ExitToSpaceCenter": TAIL_ROLE_WORLD_MUTATING,
+    #   SimulateStockSwitchClick arms a real StockActionIntentMarker and switches the
+    #     active vessel, which starts a switch-segment branch on the live tree. An
+    #     in-world action against a mission that never reached its envelope, exactly the
+    #     class the unmet tail exists to stop firing.
+    "SimulateStockSwitchClick": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -408,6 +452,23 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     "EvaBoard": POST_MISSION_ROLE_OUTCOME,       # "the kerbal is aboard"
     "PlantFlag": POST_MISSION_ROLE_OUTCOME,      # "the flag is in the ground"
     "EvaChuteDeploy": POST_MISSION_ROLE_OUTCOME,  # "the canopy opened and the kerbal landed alive"
+    # R12. Both `recording`, and the reason is the same for each: their verdicts are
+    # statements about PARSEK and harness plumbing, which the analyzer / expectations /
+    # log-contract chain already owns - not about a kerbal's physical in-world state,
+    # which is the whole content of the `outcome` set. Note this axis's vocabulary is
+    # outcome-vs-recording; the "world-mutating" call belongs to SEAM_VERB_TAIL_ROLE
+    # above, and both verbs ARE world-mutating there. The two axes disagree by design.
+    #   ExitToSpaceCenter's OK means "SPACECENTER settled with a game loaded". Whether the
+    #     pending tree then auto-committed is proven by the grep-stable commit log lines
+    #     the spec pins, exactly the original carve-out: a good flight Parsek then failed
+    #     to commit is a PARSEK-FAIL(expectation), never a retryable driver-INVALID.
+    "ExitToSpaceCenter": POST_MISSION_ROLE_RECORDING,
+    #   SimulateStockSwitchClick's OK means "the marker was armed and the active vessel is
+    #     the target" - deliberately NOT "a switch segment armed". The consume site refuses
+    #     surface targets by design and still reports OK switched=true, so gating on this
+    #     verdict would certify nothing while a failed arm rode through green anyway. The
+    #     consume ROUTE is asserted from its own log line.
+    "SimulateStockSwitchClick": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -868,6 +929,38 @@ BATCH_ISOLATED_KEY = "isolated"
 
 # The only two tokens the seam's TryParseIsolatedArg accepts, as TOML strings.
 BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
+
+# ---------------------------------------------------------------------------
+# R12 CLOSED-VALUE ARGS. Two verb-scoped args landed with R12, and both parse
+# fail-closed and CASE-SENSITIVELY in C# (TestCommandLoadGame's scene= and
+# TestCommandSimulateSwitchClick's site=, each modelled on TryParseIsolatedArg).
+# So unlike `isolated`, a bad spelling is not silently inert - the seam answers a
+# typed REJECTED. Validating them here is therefore not about closing a fail-open;
+# it is about not burning a whole KSP boot to learn about a capital T, which is the
+# same argument the isolated guard above makes and the same job validate_spec has
+# everywhere else.
+#
+# What is deliberately NOT checked: whether v1 IMPLEMENTS the value. `site=ts` and
+# `site=ksc` are legal spellings the v1 verb answers REJECTED site-not-implemented,
+# and a spec that drives one with expect = "REJECTED" is a legitimate capability
+# probe. Only the SPELLING is closed here.
+#
+# `scene=flight` is absent from the accepted set on purpose and is not an oversight
+# to be "fixed": a forced FLIGHT boot is not expressible (the focusable route needs
+# an in-range activeVesselIdx only the save supplies) and it would widen known-gate
+# 6, since the FLIGHT route deliberately does not run UpdateScenarioModules.
+LOADGAME_SCENE_KEY = "scene"
+LOADGAME_SCENE_VALUES: Tuple[str, ...] = ("spacecenter", "trackstation")
+
+SWITCHCLICK_SITE_KEY = "site"
+SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
+
+# arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
+# validate_spec, so a third such arg is one row rather than a third copied block.
+VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
+    SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
+}
 
 
 def spec_batch_isolated(spec: Dict) -> bool:
@@ -2437,6 +2530,32 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (i, BATCH_ISOLATED_KEY, raw,
                        " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
                        BATCH_ISOLATED_KEY))
+        # R12 verb-scoped closed-value args (LoadGame scene=, SimulateStockSwitchClick
+        # site=). Same three failures the isolated guard above catches -- a case-variant
+        # KEY, the arg on a verb that does not read it, and a value outside the closed
+        # set -- caught pre-launch instead of costing a KSP boot to learn.
+        for arg_key, (owner_verb, allowed) in sorted(VERB_SCOPED_CLOSED_ARGS.items()):
+            for key in step_args:
+                if (isinstance(key, str) and key != arg_key
+                        and key.lower() == arg_key):
+                    errors.append(
+                        "driver.steps[%d].args.%s: the seam arg is spelled %r exactly "
+                        "(the C# lookup is case-sensitive), so this key would be sent "
+                        "and silently ignored" % (i, key, arg_key))
+            if arg_key not in step_args:
+                continue
+            if cmd != owner_verb:
+                errors.append(
+                    "driver.steps[%d].args.%s: only the %s verb reads it, but this "
+                    "step is %r -- the arg would be silently ignored"
+                    % (i, arg_key, owner_verb, cmd))
+            raw = step_args.get(arg_key)
+            if raw not in allowed:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be one of %s. The seam's parse "
+                    "is fail-closed and CASE-SENSITIVE, so any other spelling is a "
+                    "typed REJECTED that costs a whole KSP boot to discover."
+                    % (i, arg_key, raw, " or ".join(repr(v) for v in allowed)))
         if cmd in RESERVED_SEAM_VERBS:
             errors.append("driver.steps[%d].cmd: %r is RESERVED, not v1-drivable" % (i, cmd))
         elif cmd not in IMPLEMENTED_SEAM_VERBS:
@@ -4422,6 +4541,34 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "kerbal-parsek-managed": "driver-career",
     "kerbal-not-dismissable": "driver-career",
     "blocked-committed": "driver-career",
+    # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
+    # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
+    # taxonomy is decorative on the harness side. Same retryability either way - these
+    # refine WHICH driver-* subkind the report names.
+    #
+    # LoadGame scene= : a bad spelling is an ARG fault, caught before the save is read.
+    "scene-arg-invalid": "driver-arg",
+    # ExitToSpaceCenter: the wedge guard declined because a merge modal would spawn. A
+    # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
+    "dialog-required": "driver-gate",
+    # SimulateStockSwitchClick, arg half: site / selector spellings and target resolution.
+    # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
+    # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
+    "site-arg-invalid": "driver-arg",
+    "site-not-implemented": "driver-arg",
+    "target-arg-missing": "driver-arg",
+    "pid-arg-invalid": "driver-arg",
+    "vessel-arg-invalid": "driver-arg",
+    "target-not-found": "driver-arg",
+    "target-name-ambiguous": "driver-arg",
+    "target-is-ghost": "driver-arg",
+    # SimulateStockSwitchClick, gate half: the live state declined the click. Not a spec
+    # spelling - the run reached a state the v1 verb does not drive.
+    "scenario-not-ready": "driver-gate",
+    "cannot-switch-vessels-far": "driver-gate",
+    "target-already-active": "driver-gate",
+    "target-unloaded": "driver-gate",
+    "dialog-pending": "driver-dialog",
 }
 
 
