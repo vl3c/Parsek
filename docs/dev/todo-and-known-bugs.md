@@ -808,8 +808,9 @@ the review panel proved the commit is UNREACHABLE on this exact profile:
   pipeline runs and the pending tree auto-commits on arrival, and it REFUSES up front with
   `REJECTED msg=dialog-required variant=<RegularMerge|ReFlyAttempt|SwitchSegmentSession>`
   in the states where the exit would instead raise a merge modal that no seam verb can
-  answer. The route exists; the CL-1 spec extension that USES it is still unbuilt - see
-  the next paragraph.**]**
+  answer. The route exists, and the CL-1 spec extension that USES it shipped 2026-07-30 as
+  `CL-2-pod-impact-ledger` (stage A: auto-commit + ledger half live-proven; the
+  tombstone stage B remains, scoped in the roadmap's R12 block).**]**
 
 An unmet `CommitTree` step would have made the run driver-INVALID, which SKIPS every
 verifier below it - the scenario would have produced NO evidence about the crew death at
@@ -1418,8 +1419,9 @@ counts around it were measured against the six-item shape:
   nothing could LEAVE flight either. Live-proven by `H23-tracking-station`,
   `S0.7-exit-auto-commit` and `S0.8-switch-click-segment`. The seam is 21 implemented
   verbs / 10 reserved. What it did NOT close is listed in the roadmap's R12 block -
-  `site=ts` / `site=ksc`, the dialog cases, unloaded targets, and the CL-1 spec
-  extension.
+  `site=ts` / `site=ksc`, the dialog cases, and unloaded targets. The CL-1 spec
+  extension's stage A shipped 2026-07-30 as `CL-2-pod-impact-ledger`; its tombstone
+  stage B remains.
 - **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
   tallies - OPEN.
 - **R14** provisioning `modded-compat` for D17 - OPEN.
