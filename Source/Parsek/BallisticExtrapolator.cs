@@ -1413,7 +1413,10 @@ namespace Parsek
         // body-relative). Known measure-zero divergence: for an EXACTLY equatorial
         // retrograde eccentric orbit the degenerate-node argPe branch below measures
         // CCW from +x where KSP flips on direction of motion, yielding 360-argPe.
-        private struct TwoBodyOrbit
+        // Internal (not private) purely so the Kepler core is reachable from
+        // Parsek.Tests through InternalsVisibleTo("Parsek.Tests"); see
+        // BallisticExtrapolatorKeplerTests.
+        internal struct TwoBodyOrbit
         {
             public double BodyRadius;
             public double GravitationalParameter;
