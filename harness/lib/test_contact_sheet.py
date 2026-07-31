@@ -177,6 +177,18 @@ class RenderHtmlTests(unittest.TestCase):
         self.assertIn("no screenshots captured", page)
         self.assertIn("<!doctype html>", page)
 
+    def test_empty_verifiers_is_not_reported_as_a_missing_result_json(self):
+        # The live 2026-07-31 lock-refused attempt: a READABLE result JSON whose
+        # verifier chain never ran. The page must not blame a file problem.
+        page = cs.render_run_html("r", {"runId": "r", "verdict": "INVALID",
+                                        "verifiers": {}}, [],
+                                  cs.extract_key_log_lines(""))
+        self.assertIn("ended before the verifier chain ran", page)
+        self.assertNotIn("missing or unreadable", page)
+        # ...while a genuinely absent/unreadable result JSON still says so.
+        page = cs.render_run_html("r", None, [], cs.extract_key_log_lines(""))
+        self.assertIn("result JSON missing or unreadable", page)
+
     def test_image_names_are_quoted_in_hrefs_and_escaped_in_captions(self):
         page = cs.render_run_html("run-x", None, ['shot with space & "quote".png'],
                                   cs.extract_key_log_lines(""))

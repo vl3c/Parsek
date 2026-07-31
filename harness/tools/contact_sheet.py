@@ -354,6 +354,15 @@ def render_run_html(run_id: str, result_obj, images: Sequence[str],
                          % (html.escape(r["name"]), _status_cell(r["status"]),
                             html.escape(r["note"])))
         parts.append("</table>")
+    elif isinstance(result_obj, dict):
+        # HONEST empty state (V3 live proof, 2026-07-31). An attempt that ends
+        # BEFORE the verifier chain -- a refused run-lock, an invalid spec --
+        # writes a perfectly readable result JSON whose `verifiers` is {}. The
+        # first live non-PASS sheet rendered "result JSON missing or unreadable"
+        # over exactly that file, which sends a reader hunting a file problem
+        # that does not exist. Name the real reason instead.
+        parts.append('<p class="empty">no verifier rows: this attempt ended before the '
+                     'verifier chain ran (see the verdict badge and note above)</p>')
     else:
         parts.append('<p class="empty">no verifier rows (result JSON missing or unreadable)</p>')
 
