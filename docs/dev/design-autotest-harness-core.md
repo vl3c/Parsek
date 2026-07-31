@@ -1222,8 +1222,12 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    default - VERDICT NEUTRALITY: S4.1 already declared a rewind block when this
    verifier landed, so a gating default would have moved a committed nightly's
    verdict with no live run to prove the readings. A block opts in with
-   `gating = true` (declared by ZERO committed specs; guarded by a test-suite
-   sweep); armed + mismatch -> PARSEK-FAIL (save-structure). GATING IS
+   `gating = true` (declared by exactly ONE committed spec - `S4.1-rewind-merge`,
+   armed 2026-07-31 after its report-only reading run `2026-07-31_1628`, proven
+   armed by `_1635` and proven to FAIL by a `min = 1` negative control on `_1637`;
+   the guard cell is an ALLOWLIST, so a second spec arming still reds until
+   someone edits it deliberately); armed + mismatch -> PARSEK-FAIL
+   (save-structure). GATING IS
    PER-BLOCK: only an armed block's mismatches drive PASS/FAIL, so arming a
    proven block never silently promotes a second, still-exploratory block
    (`armedBlocks` / `armed_mismatches` carry the split). Measured facets are

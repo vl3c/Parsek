@@ -29,11 +29,15 @@ S4.1-rewind-merge already DECLARES an ``[expectations.rewind]`` block, so a
 naively-gating verifier would change a committed nightly's verdict without a
 live run to prove the readings. Evaluation therefore defaults to REPORT-ONLY
 (status ``REPORT``; mismatches recorded in the run JSON, verdict untouched)
-unless the block itself opts in with ``gating = true`` - a key ZERO committed
-specs declare (guarded by a test-suite sweep, mirroring the
-``[expectations.unityExceptions]`` precedent). Promotion to gating is an
-operator decision taken after reading the report-only facets off the next
-local S4.1 / CL-2 runs.
+unless the block itself opts in with ``gating = true`` - a key exactly ONE
+committed spec declares (guarded by an allowlist test-suite sweep, mirroring
+the ``[expectations.unityExceptions]`` precedent). Promotion to gating is an
+operator decision taken after reading the report-only facets off a live run.
+S4.1-rewind-merge was promoted 2026-07-31 through that workflow: reading run
+``2026-07-31_1628`` measured supersedeRows 0 / tombstones 0 against its
+declared ``max = 0`` windows, ``_1635`` then flew PASS armed, and a ``min = 1``
+negative control reddened ``_1637`` PARSEK-FAIL(save-structure). CL-2 stage B
+is the next candidate and is still unauthored.
 
 Serialization facts consumed here, pinned against the C# writers
 (``ParsekScenario.SaveRewindStagingState``, ``RecordingTree.Save``,
@@ -800,9 +804,10 @@ def armed_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
 
 
 def gating_armed(expectations: Optional[Dict]) -> bool:
-    """True iff ANY declared M-C2 block carries ``gating = true``. Zero
-    committed specs do (guarded by a test-suite sweep); arming is an operator
-    decision taken after reading report-only facets off green runs."""
+    """True iff ANY declared M-C2 block carries ``gating = true``. Exactly one
+    committed spec does - S4.1-rewind-merge, armed 2026-07-31 (guarded by an
+    allowlist test-suite sweep); arming is an operator decision taken after
+    reading report-only facets off green runs."""
     return bool(armed_structure_blocks(expectations))
 
 

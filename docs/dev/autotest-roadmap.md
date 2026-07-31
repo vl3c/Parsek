@@ -790,17 +790,45 @@ states by name, branch-point counts by type), spec-surface validation in
 REPORT-ONLY by default (verdict neutrality: S4.1 already declares a rewind
 block, so a gating default would have moved a committed nightly's verdict with
 no live run to prove the readings); a block arms with `gating = true`, declared
-by ZERO committed specs and guarded by a test-suite sweep. `rewind` LEFT
+by ZERO committed specs AT THE TIME OF LANDING and guarded by a test-suite
+sweep (S4.1 armed later the same day - see the promotion block below - and the
+guard became an allowlist rather than being deleted). `rewind` LEFT
 `RESERVED_EXPECTATION_BLOCKS` (sole-owner rule, the M-B2 `world` precedent).
 
-STILL OPEN to close R9 fully: (a) read the report-only `saveParse` facets off
-one local S4.1 + one CL-2 run, then arm `gating = true` per scenario (operator
-promotion, not a code change); (b) `route` / `loop` stay RESERVED - their
-consumers do not exist (zero committed declarers), so no evaluator was built
-for them; (c) the analyzer-PR half (TrackSection frame/anchor + per-recording
-body asserts over the analyzer's parsed model) - the .sfs surface deliberately
-does not carry those, they live in `.prec` sidecars the analyzer already
-parses.
+PROMOTION DONE 2026-07-31 (branch `r9-arm-s41`), which was item (a) below.
+S4.1-rewind-merge is now the FIRST and ONLY committed spec arming
+`gating = true`, and the rewind save surface is a real gate rather than a
+recorded reading. Three live runs against `automation/stock-minimal`:
+
+| run | what | result |
+| --- | --- | --- |
+| `2026-07-31_1628` | report-only reading | PASS 59 s; `status=REPORT parsed=true scenarioFound=true blocks=["rewind"] armedBlocks=[] mismatches=[]`; `observed.rewind = {supersedeRows 0, tombstones 0, rewindPoints 0, rewindRetirements 0}` |
+| `2026-07-31_1635` | armed | PASS 59 s; `status=PASS gating=true armedBlocks=["rewind"]` |
+| `2026-07-31_1637` | NEGATIVE CONTROL (`supersedeRows = { min = 1 }`, reverted) | `PARSEK-FAIL(save-structure)`, `mismatches=["rewind.supersedeRows 0 < min 1"]` |
+
+The negative control is the load-bearing one: a gate nobody has watched fail is
+an assumption, not a gate. Arming moved no verdict (both `max = 0` windows were
+already satisfied by the measured save) - it made existing behaviour
+load-bearing. The verdict-neutrality guard cell was NOT deleted on the way: it
+became an explicit allowlist pinning exactly `{"S4.1-rewind-merge.toml"}`, so a
+second spec arming still reds until someone edits it deliberately and cites the
+run ids. Answered on the way: the merge REAPS `rp_b9_root` (`rewindPoints` 0,
+and the save carries no `REWIND_POINTS` node at all); recorded, deliberately not
+pinned.
+
+STILL OPEN to close R9 fully: (a) CL-2 **stage B**'s windows. Stage A was
+measured 2026-07-31 (`2026-07-31_1641_CL-2-pod-impact-ledger`, PASS, declares no
+M-C2 block so the row is pure measurement): `rewind` all-zero, `structure`
+`{trees 1, committedTrees 1, recordings 1, terminalStates {Destroyed: 1},
+branchPoints {}}`. That is the PRE-REWIND baseline, not stage B's windows -
+stage B rewinds across CL-1's crew loss, so its numbers must be read off stage
+B's own report-only flight (expected `supersedeRows >= 1`, `tombstones >= 1`)
+before arming, exactly as S4.1 just did; (b) `route` / `loop` stay RESERVED -
+their consumers do not exist (zero committed declarers), so no evaluator was
+built for them; (c) the analyzer-PR half (TrackSection frame/anchor +
+per-recording body asserts over the analyzer's parsed model) - the .sfs surface
+deliberately does not carry those, they live in `.prec` sidecars the analyzer
+already parses.
 
 **R10. Runtime-handle plumbing.** One harness PR plus one seam verb.
 
@@ -1054,18 +1082,19 @@ Remaining fail-open surfaces, ranked:
    dropped-board class no longer depends on log counting; the log side itself is
    still presence-only.
 2. **The only save-content assertion is an integer**, and it is COMMIT-BLIND.
-   ADDRESSED-REPORT-ONLY by R9 2026-07-31 (closed per scenario only when that
-   scenario arms gating): the `saveParse` verifier reads tree
-   topology, terminal states, merge/commit markers, supersede rows, tombstones and
-   rewind points off the produced save on every driver-valid run. Becomes a GATE
-   per scenario only when that scenario arms `gating = true` after its report-only
-   readings are confirmed on a live run (zero committed specs armed today).
+   ADDRESSED by R9 2026-07-31, and CLOSED FOR S4.1: the `saveParse` verifier reads
+   tree topology, terminal states, merge/commit markers, supersede rows, tombstones
+   and rewind points off the produced save on every driver-valid run. It becomes a
+   GATE per scenario when that scenario arms `gating = true` after its report-only
+   readings are confirmed live. S4.1-rewind-merge is armed (runs `2026-07-31_1628`
+   read-only / `_1635` armed / `_1637` negative control); every other spec is still
+   report-only, so for them this remains ADDRESSED-REPORT-ONLY.
 3. **Three expectation verifier families are declared and inert** (`route`,
    `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
-   (report-only until armed) - S4.1's declared asserts finally read the save.
-   `route` / `loop` stay reserved BY CHOICE: zero committed declarers, so an
-   evaluator would be unused surface; the spec-author trap is bounded to blocks
-   nobody declares.
+   AND ARMED on its one declarer - S4.1's asserts stopped being comments and became
+   a gate that has been watched both pass and fail. `route` / `loop` stay reserved
+   BY CHOICE: zero committed declarers, so an evaluator would be unused surface; the
+   spec-author trap is bounded to blocks nobody declares.
 4. **The ledger oracle's independence check is a structural no-op** (see the open-bugs
    table). `compute_expected` consumes seam-declared entries only, with no live
    cross-check, in the one verifier the entire L-track depends on.

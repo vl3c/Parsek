@@ -2434,5 +2434,48 @@ class SettingsSidecarResetSmokeTests(unittest.TestCase):
         self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
 
 
+class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
+    """--dry-run's [VERIFY] line must name the verifiers that can move the verdict.
+
+    It was a hand-maintained string literal and it went stale: the M-C2 `saveParse`
+    row shipped without being added, so on 2026-07-31 - the day S4.1 ARMED
+    `gating = true` - the plan for the one gating scenario advertised a chain that
+    did not include the gate. A plan that under-reports is worse than no plan: an
+    operator reads it as "report-only" and mis-attributes the resulting red.
+
+    These cells pin the three states (armed / declared-report-only / undeclared)
+    against real committed specs, so the next verifier added without touching the
+    enumeration reds here instead of in front of an operator."""
+
+    def _plan(self, scenario_id):
+        import io
+        import contextlib
+        specs = run.load_all_specs()
+        spec = next(s for s in specs if s.get("id") == scenario_id)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run.print_dry_run_plan([spec], lambda _p: "C:/instance",
+                                   run.HarnessLogger(None))
+        return next(l for l in buf.getvalue().splitlines() if "[VERIFY " in l)
+
+    def test_an_armed_spec_names_the_gate_and_its_failure_subkind(self):
+        line = self._plan("S4.1-rewind-merge")
+        self.assertIn("saveParse(armed: rewind", line)
+        self.assertIn("PARSEK-FAIL(save-structure)", line)
+
+    def test_a_spec_declaring_no_block_says_facets_only(self):
+        # CL-2 measures the structure surface without asserting on it - that is
+        # what makes it usable as stage B's calibration reading.
+        line = self._plan("CL-2-pod-impact-ledger")
+        self.assertIn("saveParse(facets only, no block declared)", line)
+        self.assertNotIn("save-structure", line)
+
+    def test_every_scenario_plan_names_saveparse(self):
+        """The row runs on every driver-valid run, so no spec's plan may omit it."""
+        specs = run.load_all_specs()
+        missing = [s["id"] for s in specs if "saveParse(" not in self._plan(s["id"])]
+        self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
+
+
 if __name__ == "__main__":
     unittest.main()

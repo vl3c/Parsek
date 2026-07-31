@@ -44,13 +44,16 @@ tier = "nightly"
 # conclusion would starve the very AnswerMergeDialog that unblocks it (the
 # AnswerMergeDialog FIFO-starvation deadlock, design finding A-B1).
 #
-# PENDING-VERIFIER (this used to say PENDING-OPERATOR for a flight-entry reason that
-# no longer holds - see the tier note): the cycle itself is now fully unattended, but
-# the supersede-relation / tombstone asserts still have no verifier. They are RESERVED
-# (see [expectations.rewind]; hlib.evaluate_expectations records them SKIPPED until the
-# M-C2 rewind save-parse verifier lands), so what this spec actually gates today is the
-# headless-checkable set: the required re-fly + pre-transition-route log contracts and
-# the recording-count floor. Both are named in the coordinator runbook.
+# VERIFIER ARMED 2026-07-31 (this said PENDING-VERIFIER, and before that PENDING-OPERATOR
+# for a flight-entry reason that no longer holds - see the tier note). The supersede-
+# relation / tombstone asserts are no longer RESERVED comments: the M-C2 save-parse
+# verifier (harness/lib/saveparse.py, verifier chain row 7b) parses the produced save's
+# ParsekScenario surfaces and evaluates [expectations.rewind], and this spec ARMS it with
+# `gating = true` - the first committed spec to do so. So what S4.1 gates today is the
+# headless-checkable set PLUS the save's structural truth: the required re-fly +
+# pre-transition-route log contracts, the recording-count floor, and now zero supersede
+# rows / zero tombstones read out of the .sfs itself. All are named in the coordinator
+# runbook.
 description = "B9 re-fly cycle: InvokeRewind a crashed-booster slot, AnswerMergeDialog merge folds the scene-exit conclusion, corpus survives, re-fly log contracts fire."
 instanceProfile = "stock-minimal"
 tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9", "pending-operator"]
@@ -175,11 +178,24 @@ required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation comple
              "answermergedialog choice=merge result=committed"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
-# RESERVED block (hlib evaluate_expectations records these SKIPPED until the M-C2
-# rewind verifier lands). Documents the re-fly-specific asserts a save-parse
-# verifier will check: exactly one supersede row for the superseded booster
-# subtree, and no phantom tombstone (uncrewed booster). PENDING-OPERATOR /
-# PENDING-VERIFIER; named in the coordinator runbook.
+# ARMED 2026-07-31. This block is the FIRST and (as of that date) ONLY committed
+# declarer of `gating = true` for the M-C2 save-parse verifier, so S4.1 is where the
+# rewind save-surface stops being a comment and becomes a gate. The promotion followed
+# the verdict-neutrality workflow the verifier shipped with - land report-only, read the
+# facets off a real run, arm only on readings that match the declared windows:
+#
+#   READING RUN `2026-07-31_1628_S4.1-rewind-merge` (PASS, 59 s, report-only):
+#     saveParse status=REPORT parsed=true scenarioFound=true blocks=["rewind"]
+#     armedBlocks=[] mismatches=[]
+#     observed.rewind = { supersedeRows 0, tombstones 0, rewindPoints 0,
+#                         rewindRetirements 0 }
+#
+# Both declared windows (`max = 0`) were already satisfied by the measured save, so
+# arming changed no verdict - it only made the existing behaviour load-bearing. Proven
+# live in BOTH directions before landing: `2026-07-31_1635` flew PASS with
+# status=PASS/armedBlocks=["rewind"], and a negative control that temporarily flipped
+# supersedeRows to `min = 1` reddened `2026-07-31_1637` PARSEK-FAIL(save-structure) with
+# the named mismatch - the gate is seen to fail, not merely assumed to work.
 #
 # supersedeRows was `min = 1`, and that was WRONG for this scenario - it would have RED
 # S4.1 for CORRECT behaviour the day the M-C2 verifier landed. S4.1 concludes a re-fly
@@ -188,7 +204,13 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # supersede row" is R1-rewind-loop-flown's assertion (it FLIES the re-flight); this
 # scenario's assertion is the opposite one, and pinning `max = 0` makes that distinction
 # a gate rather than a comment. tombstones stays 0 (uncrewed booster, no kerbal death).
+#
+# WINDOWS DELIBERATELY UNCHANGED by the arming commit. `rewindPoints` measured 0 - the
+# merge REAPS rp_b9_root, which was a genuine open question this run answered - but it
+# is NOT pinned here: one observation is not a window, and a reap count is exactly the
+# kind of reading that wants a second scenario (CL-2 stage B) before it gates.
 [expectations.rewind]
+gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 

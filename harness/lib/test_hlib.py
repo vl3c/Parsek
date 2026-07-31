@@ -4157,27 +4157,45 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok,
                         "a well-formed structure block must validate")
 
+    # THE ARMED ALLOWLIST. This started life as `assertEqual([], armed)` - the
+    # hard verdict-neutrality property that shipped with the verifier, when
+    # nothing was armed and every arming was still unproven. S4.1 was promoted
+    # 2026-07-31 after its report-only reading run, so the property it guards is
+    # now the NEXT one along: arming stays a deliberate, per-scenario, live-proven
+    # act. An allowlist keeps that guard biting - a second spec quietly growing a
+    # `gating = true` still reds here and still needs an explicit edit plus the run
+    # ids to justify it - where relaxing to "any spec may arm" would have thrown
+    # the guarantee away entirely on the day it first got used.
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml"}
+
     def test_no_committed_spec_arms_gating(self):
-        # THE HARD SAFETY PROPERTY: the save-parse verifier cannot move any
-        # nightly verdict, because nothing declares gating = true. Arming is an
-        # operator decision taken after reading the report-only facets off the
-        # next local S4.1 / CL-2 runs.
         armed = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
             if saveparse.gating_armed(spec.get("expectations") or {}):
                 armed.append(name)
-        self.assertEqual([], armed, "a committed spec armed save-structure gating")
+        self.assertEqual(sorted(self.ARMED_ALLOWLIST), armed,
+                         "the set of specs arming save-structure gating changed; arming is "
+                         "a per-scenario operator decision taken only after a report-only "
+                         "reading run whose facets match the declared windows - add the "
+                         "spec here in the same commit that arms it, citing the run id")
 
-    def test_s41_declares_the_rewind_block_unarmed(self):
-        # S4.1 is the one committed declarer; its block must parse as declared
-        # (evaluated report-only) and NOT armed - the precise verdict-neutrality
-        # subtlety this verifier shipped around.
+    def test_s41_declares_the_rewind_block_armed(self):
+        # S4.1 is the one committed declarer AND (2026-07-31) the one armed spec.
+        # Reading run `2026-07-31_1628` measured supersedeRows=0 / tombstones=0
+        # against the block's `max = 0` windows; `2026-07-31_1635` then flew PASS
+        # armed, and the `min = 1` negative control reddened `2026-07-31_1637`
+        # PARSEK-FAIL(save-structure). Flipped from ..._unarmed, which was the
+        # verdict-neutrality assertion for the report-only landing.
         spec = load_spec("S4.1-rewind-merge.toml")
         exp = spec["expectations"]
         self.assertEqual(("rewind",), saveparse.declared_structure_blocks(exp))
-        self.assertFalse(saveparse.gating_armed(exp))
+        self.assertTrue(saveparse.gating_armed(exp))
+        # The windows themselves are deliberately untouched by the arming commit:
+        # arming must not smuggle in a re-pinned window.
+        self.assertEqual({"max": 0}, exp["rewind"]["supersedeRows"])
+        self.assertEqual({"max": 0}, exp["rewind"]["tombstones"])
 
 
 class AnomalyGrepAnchoringTests(unittest.TestCase):
