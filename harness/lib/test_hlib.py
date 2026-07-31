@@ -6662,15 +6662,19 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
     ut 119.7 / 119.9 / 119.8 across three runs of one craft. So the exact seqKey join
     could never fire on a flight and every captured award reported "unexpected",
     which made `captureCrossCheck = "gate"` unarmable exactly where it matters (the
-    only committed scenario measured producing reputation). The fix is the OPT-IN
+    only committed scenario that can ARM the check - CL-1 earns the same three
+    awards but carries no ledger block and is forbidden one). The fix is the OPT-IN
     per-entry `utWindow = [lo, hi]`: a windowed entry corroborates a captured award
     whose UT falls inside the inclusive bounds, with every OTHER predicate (facet,
     amount-within-tolerance, structured identity, stockReason, one-to-one per
-    (entry, pool) consumption) unchanged. No committed spec declares a window
-    (guarded below), so nothing moves until an author arms one."""
+    (entry, pool) consumption) unchanged. Exactly ONE committed spec declares a
+    window - CL-2 itself, ARMED 2026-07-31 over three flights (allowlisted below);
+    every other manifest is window-free and matches byte-identically to the
+    pre-window behavior."""
 
     # The three CL-2 flight-1 capture lines, VERBATIM from run
-    # 2026-07-30_1711_CL-2-pod-impact-ledger (identical on 2026-07-30_1721): all
+    # 2026-07-30_1711_CL-2-pod-impact-ledger (2026-07-30_1721 measured the same
+    # award set at 12.4 / 19.0 / 119.8 - the UTs move, the shape does not): all
     # three captured cleanly (`stockLines=3 deduped=3 seamRejected=0`) and all three
     # then reported UNEXPECTED against a manifest that declares every one of them.
     CL2_MEASURED_UNEXPECTED = [
@@ -6974,8 +6978,9 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
             block(dict(base, ut=119.9, utWindow=[100.0, 140.0])))
         self.assertTrue(any("mutually exclusive" in e for e in both))
         # A non-table entry now reds pre-launch too (it used to be left for the
-        # oracle's own indexed rejection, i.e. for after the flight).
-        self.assertTrue(any("must be a table" in e for e in
+        # oracle's own indexed rejection, i.e. for after the flight), and it reds
+        # with the ORACLE's own wording because the gate delegates to it.
+        self.assertTrue(any("not a table/object" in e for e in
                             hlib.validate_ledger_expectations(
                                 {"seedFrom": "template", "manifest": ["not-a-table"]})))
 
@@ -7018,7 +7023,7 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         #   `2026-07-31_1645`  PASS a1, `captureCrossCheck = "gate"` live.
         # The windows are PHASE BOUNDS, never pins: that same second Progression
         # award measured ut 19.0 on 2026-07-30 and 19.1 on the baseline flight, and
-        # the impact has now measured 119.7 / 119.8 / 119.9 across four runs.
+        # the impact has now measured 119.7 / 119.8 / 119.9 across six runs.
         allowed = {"CL-2-pod-impact-ledger.toml"}
         declaring = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
@@ -7035,55 +7040,68 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         # declares, so a later broadening (a window quietly widened to swallow a red,
         # which the spec's RE-PIN CONTRACT forbids) reds here rather than passing
         # silently. Bounds are the mission's two phases and both comfortably bracket
-        # every UT the four archived runs measured.
+        # every UT the six archived runs measured, with pad-dwell headroom on top
+        # (the bounds are absolute Planetarium UT, not T+ - see the spec's comment).
         ledger = ((load_spec("CL-2-pod-impact-ledger.toml").get("expectations", {}) or {})
                   .get("ledger") or {})
+        self.assertEqual(4, len(ledger["manifest"]),
+                         "a 5th entry appeared; re-derive the bounds deliberately")
         windows = {e["seq"]: e.get("utWindow") for e in ledger["manifest"]
                    if isinstance(e, dict)}
-        self.assertEqual([0.0, 60.0], windows[0], "Progression #1 = ascent phase")
-        self.assertEqual([0.0, 60.0], windows[1], "Progression #2 = ascent phase")
-        self.assertEqual([100.0, 140.0], windows[2], "VesselLoss = impact phase")
+        self.assertEqual([0.0, 100.0], windows[0], "Progression #1 = ascent phase")
+        self.assertEqual([0.0, 100.0], windows[1], "Progression #2 = ascent phase")
+        self.assertEqual([100.0, 400.0], windows[2], "VesselLoss = impact phase")
         self.assertIsNone(windows.get(3),
                           "the funds milestone entry must stay window-free: KSP logs "
                           "no funds award, so it is never capture-matched")
-        # Non-overlapping, so neither phase's entries can reach the other's awards
-        # even before the amount / stockReason predicates run.
-        self.assertLess(windows[0][1], windows[2][0])
+        # The two groups do not OVERLAP (they abut at 100). A gap between them would
+        # be a place an award could land and be unmatched for no intended reason;
+        # a true overlap would let a phase's window reach the other's awards before
+        # the amount / stockReason predicates run.
+        self.assertLessEqual(windows[0][1], windows[2][0])
 
 
 class WhatThePreLaunchGateMirrorsTests(unittest.TestCase):
-    """THE PRE-LAUNCH GATE vs THE RUN-TIME PARSER, held in lockstep on purpose.
+    """THE PRE-LAUNCH GATE **IS** THE RUN-TIME PARSER, minus one carve-out.
 
     A manifest entry the oracle rejects becomes a HARD manifest-parse-error
     PARSEK-FAIL(ledger) AFTER the flight (run.py: "a rejected seam entry ... would
     false-PASS if silently dropped; each rejection reds PARSEK-FAIL(ledger)"). So
-    every rule the pre-launch validator does NOT mirror is a shape that costs a full
+    every rule the pre-launch validator does NOT enforce is a shape that costs a full
     flight to discover - the same economics that moved `utWindow` into the gate
     (review MINOR-4) and that the stage-inject postcondition closed on the staging
     side.
 
-    THE MIRRORED SET is the entry SHAPE keys an author hand-writes while transcribing
-    a green run's `capturedRaw` into a spec, which is exactly what the known-gate 3
-    arming checklist asks an operator to do:
-      - the entry is a table
-      - `ut`      (finite number or null; bool is not a number)
-      - `utWindow` ([lo, hi], two finite numbers, lo <= hi, exclusive with `ut`)
+    HISTORY, because the boundary moved twice and the second move is the lesson. The
+    gate first mirrored `utWindow` alone, then `utWindow` + `ut` + entry-is-a-table,
+    justifying the remainder as "value/semantic rules rather than shape rules". The
+    PR #1397 review refuted that: running the oracle with `captured=None` - exactly
+    pre-launch knowledge - rejects EVERY one of its rules deterministically, and two
+    of the supposedly-semantic ones (`seq` must be an int; `stockReason` must be a
+    non-empty string or array of them) are pure type/shape rules that CL-2's own
+    manifest hand-writes on every entry. The honest question is not "shape or
+    value?" but "does the rule need the produced log?" - and only one does. The gate
+    now DELEGATES to `oracle.parse_manifest_entries`, so there is no second
+    implementation to drift.
 
-    THE DELIBERATELY-UNMIRRORED SET, recorded here so the boundary stays a decision
-    rather than an oversight: `kind`, `provenance`, `amountKind`, the
-    state-dependent-facet author-constant rule, the rep magnitude cap, `seq`,
-    `stockReason`, and the funds fill-from-capture ambiguity. Those are value /
-    semantic rules; the last genuinely cannot be judged before the produced log
-    exists. Widening the gate to any of them is a deliberate change, and this
-    class's second cell is what makes such a widening visible.
+    THE ONE CARVE-OUT: the funds fill-from-capture ambiguity reads the CAPTURED pool,
+    empty by construction pre-launch, so it would reject a spec the oracle could
+    accept at run time - the unsafe direction. It is skipped, and these cells pin
+    that it stays skipped.
+
+    These cells therefore no longer police a hand-rolled mirror; they pin the
+    DELEGATION (every oracle rule reaches the gate, the carve-out does not, key paths
+    are re-prefixed to the spec's own namespace, and no committed spec is refused).
     """
 
     BASE = {"kind": "stock-reputation-award", "reputation": 1.0,
             "repMode": "applied", "provenance": "gameevents-captured"}
 
-    # Shapes that vary ONLY the mirrored keys, everything else valid. Sweeping the
-    # two implementations against each other over this space is the W4-probe shape
-    # from the PR #1397 review: agreement must be exact, in BOTH directions.
+    # THE FULL ENTRY-SHAPE SPACE, not just the once-mirrored keys: since the gate
+    # delegates, agreement must hold over EVERY rule the oracle has, in BOTH
+    # directions (W4-probe shape from the PR #1397 review). The `_unmirrored_*`
+    # group below is the set the old hand-rolled mirror let through - it is here
+    # precisely because those shapes used to diverge.
     def _mirrored_shape_space(self):
         shapes = [("well-formed, no ut/window", dict(self.BASE)),
                   ("ut valid", dict(self.BASE, ut=119.9)),
@@ -7107,14 +7125,48 @@ class WhatThePreLaunchGateMirrorsTests(unittest.TestCase):
         # mutual exclusion, because the oracle parses ut first.
         shapes.append(("bad ut + valid window",
                        dict(self.BASE, ut="x", utWindow=[100.0, 140.0])))
+        # THE FORMERLY-UNMIRRORED RULES. Every one of these passed the hand-rolled
+        # gate and hard-failed after the flight; `seq` and `stockReason` in
+        # particular are hand-written on every CL-2 entry.
+        for label, over in (("seq float", {"seq": 1.5}),
+                            ("seq str", {"seq": "0"}),
+                            ("seq bool", {"seq": True}),
+                            ("stockReason int", {"stockReason": 5}),
+                            ("stockReason empty member", {"stockReason": ["Progression", ""]}),
+                            ("stockReason nested", {"stockReason": [["x"]]}),
+                            ("kind unknown", {"kind": "bogus"}),
+                            ("provenance unknown", {"provenance": "nope"}),
+                            ("amountKind balance", {"amountKind": "balance"}),
+                            ("repMode unknown", {"repMode": "weird"}),
+                            ("rep magnitude cap", {"reputation": 1e9}),
+                            ("rep null fill", {"reputation": None}),
+                            ("science null fill", {"kind": "science-award", "science": None}),
+                            ("facet wrong type", {"reputation": "lots"})):
+            shapes.append(("unmirrored: " + label, dict(self.BASE, **over)))
+        # UNBOUNDED INTEGER: tomllib does not clamp to int64, and float() on a
+        # 400-digit int raises OverflowError. Both sides must REJECT, never raise -
+        # an exception here escapes validate_spec, which has no try/except, and
+        # takes down the whole batch instead of one spec.
+        shapes.append(("huge int ut", dict(self.BASE, ut=10 ** 400)))
+        shapes.append(("huge negative int ut", dict(self.BASE, ut=-(10 ** 400))))
+        shapes.append(("huge int in window", dict(self.BASE, utWindow=[0.0, 10 ** 400])))
         return shapes
 
     def test_the_two_implementations_agree_over_the_mirrored_shape_space(self):
         for label, entry in self._mirrored_shape_space():
             with self.subTest(shape=label):
-                pre = hlib.validate_ledger_expectations(
-                    {"seedFrom": "template", "manifest": [entry]})
-                run = list(oracle.parse_manifest_entries([entry]).errors)
+                # NEITHER side may raise: an exception escapes validate_spec (called
+                # with no try/except) and aborts the whole batch rather than one spec.
+                try:
+                    pre = hlib.validate_ledger_expectations(
+                        {"seedFrom": "template", "manifest": [entry]})
+                except Exception as ex:                      # noqa: BLE001
+                    self.fail("pre-launch gate RAISED %r on %s (aborts the batch)"
+                              % (ex, label))
+                try:
+                    run = list(oracle.parse_manifest_entries([entry]).errors)
+                except Exception as ex:                      # noqa: BLE001
+                    self.fail("oracle RAISED %r on %s" % (ex, label))
                 self.assertEqual(
                     bool(run), bool(pre),
                     "pre-launch and run-time disagree on %s: pre=%r run=%r - a "
@@ -7125,17 +7177,37 @@ class WhatThePreLaunchGateMirrorsTests(unittest.TestCase):
     def test_the_shared_reason_is_the_same_key_on_both_sides(self):
         # Agreeing on "reject" is not enough: an author reading the pre-launch error
         # must be pointed at the SAME key the oracle would have named, otherwise the
-        # cheap gate sends them to the wrong line.
-        for label, entry, key in [("bad ut", dict(self.BASE, ut="x"), ".ut"),
-                                  ("bad window", dict(self.BASE, utWindow="oops"), ".utWindow"),
-                                  ("bad ut beats window", dict(self.BASE, ut="x",
-                                                               utWindow=[1.0, 2.0]), ".ut")]:
+        # cheap gate sends them to the wrong line. Keys carry the trailing COLON:
+        # ".ut" is a substring of ".utWindow", so a window-first implementation would
+        # satisfy a bare ".ut" assertion and the ordering claim would go unpinned.
+        for label, entry, key, forbidden in [
+                ("bad ut", dict(self.BASE, ut="x"), ".ut:", ".utWindow"),
+                ("bad window", dict(self.BASE, utWindow="oops"), ".utWindow:", None),
+                ("bad ut beats window", dict(self.BASE, ut="x",
+                                             utWindow=[1.0, 2.0]), ".ut:", ".utWindow"),
+                ("seq", dict(self.BASE, seq="0"), ".seq:", None),
+                ("stockReason", dict(self.BASE, stockReason=5), ".stockReason:", None)]:
             with self.subTest(shape=label):
                 pre = hlib.validate_ledger_expectations(
                     {"seedFrom": "template", "manifest": [entry]})
                 run = list(oracle.parse_manifest_entries([entry]).errors)
                 self.assertTrue(any(key in e for e in pre), "pre-launch: %r" % pre)
                 self.assertTrue(any(key in e for e in run), "run-time: %r" % run)
+                if forbidden:
+                    self.assertFalse(any(forbidden in e for e in pre),
+                                     "wrong key blamed pre-launch: %r" % pre)
+
+    def test_the_funds_fill_carve_out_is_the_only_accepted_oracle_rejection(self):
+        # The carve-out exists because that rule reads the CAPTURED pool, which is
+        # empty pre-launch, so raising it here would refuse a spec the oracle could
+        # accept at run time (the unsafe direction). Pin both halves: the gate stays
+        # silent, and the oracle really does reject it - so this is a deliberate
+        # carve-out and not a rule that quietly stopped existing.
+        entry = {"kind": "milestone", "funds": None, "provenance": "seam-declared"}
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [entry]}))
+        run = list(oracle.parse_manifest_entries([entry]).errors)
+        self.assertTrue(any("fill-from-capture is ambiguous" in e for e in run), run)
 
     def test_malformed_ut_now_reds_pre_launch(self):
         # THE FINDING, stated directly. Each of these used to pass ADMIT and hard-fail
@@ -7158,10 +7230,20 @@ class WhatThePreLaunchGateMirrorsTests(unittest.TestCase):
     def test_a_non_table_entry_now_reds_pre_launch_and_is_indexed(self):
         errs = hlib.validate_ledger_expectations(
             {"seedFrom": "template", "manifest": [dict(self.BASE), "not-a-table"]})
-        self.assertTrue(any("manifest[1]" in e and "must be a table" in e
+        self.assertTrue(any("manifest[1]" in e and "not a table/object" in e
                             for e in errs), errs)
         # The valid sibling is not blamed, mirroring the oracle's per-entry indexing.
         self.assertFalse(any("manifest[0]" in e for e in errs), errs)
+
+    def test_the_key_path_is_re_prefixed_into_the_spec_namespace(self):
+        # The oracle says `entry[N]`; a spec author is reading a TOML file whose path
+        # is `expectations.ledger.manifest[N]`. Delegation must not leak the oracle's
+        # internal namespace into a spec-authoring error.
+        errs = hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE, ut="x")]})
+        self.assertEqual(1, len(errs), errs)
+        self.assertTrue(errs[0].startswith("expectations.ledger.manifest[0].ut:"), errs)
+        self.assertNotIn("entry[", errs[0])
 
     def test_every_committed_spec_still_passes_the_widened_gate(self):
         # THE VERDICT-NEUTRALITY CHECK for this widening: a stricter pre-launch gate

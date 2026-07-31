@@ -3859,12 +3859,14 @@ LEDGER_SEED_FROM_VALUES: Tuple[str, ...] = ("template",)
 LEDGER_TOLERANCE_VALUES: Tuple[str, ...] = ("default",)
 
 # The stock-award CROSS-CHECK mode (2026-07-29, shipped with the pattern rewrite).
-# `report` (the DEFAULT, and what all 55 committed specs take by declaring nothing)
-# records every unmatched captured award as a REPORT-ONLY oracle divergence;
-# `gate` restores the hard PARSEK-FAIL(ledger) the code always intended.
+# `report` (the DEFAULT, and what every committed spec but ONE takes by declaring
+# nothing) records every unmatched captured award as a REPORT-ONLY oracle
+# divergence; `gate` restores the hard PARSEK-FAIL(ledger) the code always
+# intended. `CL-2-pod-impact-ledger` has declared `gate` since 2026-07-31.
 #
-# WHY THE DEFAULT IS `report` AND NOT `gate`. The cross-check was WRITTEN as a hard
-# gate, but it has never once run with a working capture: STOCK_AWARD_PATTERNS
+# WHY THE DEFAULT IS `report` AND NOT `gate` (historical, and still the default).
+# The cross-check was WRITTEN as a hard gate, but for a long time it had never once
+# run with a working capture - it first did on 2026-07-30. STOCK_AWARD_PATTERNS
 # matched invented shapes, so the captured set was empty on every flight and the
 # gate could not fire. Making the patterns real turns that dormant gate live in one
 # step, against scenarios NOBODY has measured it on. So the mechanism lands
@@ -3904,16 +3906,25 @@ def capture_cross_check_gates(ledger_block: Optional[Dict]) -> bool:
     return ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY) == LEDGER_CAPTURE_CROSS_CHECK_GATE
 
 
+# The one oracle rejection reason a PRE-LAUNCH gate must NOT raise: it reads the
+# captured pool, which is empty by construction before the flight. See the carve-out
+# note in validate_ledger_expectations.
+_LEDGER_FUNDS_FILL_MARKER = ".funds: null fill-from-capture is ambiguous"
+
+
 def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     """Validate the ``[expectations.ledger]`` spec-surface block (design ~226).
 
-    Structural spec-surface only (a malformed ledger block must never launch KSP):
-    ``seedFrom`` in the accepted set, ``tolerances`` in the accepted set,
-    ``rec3CarveOut`` a bool, ``manifest`` an array. The per-ENTRY validation (the
-    ``kind`` enum, the every-amount-is-a-DELTA rule, the state-dependent-facet
-    author-constant rule) is oracle.parse_manifest_entries's job at RUN time (a
-    captured line can only be judged against the produced log), so this stays a
-    cheap pre-launch gate. Returns every failing rule (mirrors validate_spec)."""
+    A malformed ledger block must never launch KSP. The block-level surface is
+    checked here directly (``seedFrom`` / ``tolerances`` in their accepted sets,
+    ``rec3CarveOut`` a bool, ``manifest`` an array, ``captureCrossCheck`` in its
+    accepted set), and the per-ENTRY surface is DELEGATED to
+    ``oracle.parse_manifest_entries`` - the very parser whose rejections become a
+    hard PARSEK-FAIL(ledger) after the flight - so a spec that would red post-flight
+    reds pre-boot instead, for the same reason. The single exception is the funds
+    fill-from-capture ambiguity, which reads the captured pool and is therefore
+    skipped here; see the carve-out note at the call site. Returns every failing
+    rule (mirrors validate_spec)."""
     if not isinstance(ledger_block, dict):
         return ["expectations.ledger: must be a table"]
     errs: List[str] = []
@@ -3932,62 +3943,43 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     if not isinstance(manifest, list):
         errs.append("expectations.ledger.manifest: must be an array of entry tables")
     else:
-        # PRE-LAUNCH structural check of the per-entry SHAPE keys - the entry is a
-        # table, `ut`, and `utWindow` - as a strict mirror of
-        # oracle.parse_manifest_entries's rules for exactly those three, IN THE SAME
-        # ORDER, so a given malformed entry reds pre-boot for the same reason the
-        # oracle would have given after the flight.
+        # PRE-LAUNCH ENTRY VALIDATION IS THE ORACLE'S OWN PARSER, CALLED HERE - not a
+        # hand-rolled mirror of a chosen subset of its rules.
         #
-        # WHY THESE THREE AND NOT THE WHOLE PARSER. A rejected manifest entry is a
-        # HARD manifest-parse-error PARSEK-FAIL(ledger), so ANY shape the oracle
-        # rejects costs a full flight to discover. These three are the ones an author
-        # HAND-WRITES while transcribing a `capturedRaw` readout into a spec - the
-        # exact operation the arming checklist asks for - which is where a typo
-        # actually comes from. `utWindow` was mirrored first (review MINOR-4); `ut`
-        # and the non-table entry are the same finding one step further, and the
-        # WhatThePreLaunchGateMirrorsTests sweep holds the three in lockstep with the
-        # oracle so they cannot drift apart silently.
+        # WHY DELEGATION RATHER THAN A MIRROR (PR #1397 review, second pass). A
+        # rejected manifest entry is a HARD manifest-parse-error PARSEK-FAIL(ledger)
+        # AFTER the flight, so EVERY shape the oracle rejects costs a full flight to
+        # discover. An earlier version of this function mirrored only `utWindow`,
+        # then only `utWindow` + `ut` + entry-is-a-table, and justified the remainder
+        # as "value/semantic rules rather than shape rules". That boundary did not
+        # survive scrutiny: running the oracle with `captured=None` (exactly
+        # pre-launch knowledge) rejects EVERY one of its rules deterministically, and
+        # two of the supposedly-semantic ones - `seq` (must be an int) and
+        # `stockReason` (non-empty string or array of them) - are pure type/shape
+        # rules that CL-2's own manifest hand-writes on every entry. The honest
+        # boundary is not "shape vs value", it is "does the rule need the produced
+        # log?", and the answer is no for all but one. Delegating also removes the
+        # drift surface entirely: there is no second implementation to keep in step.
         #
-        # DELIBERATELY STILL RUN-TIME, per this function's own contract above: the
-        # `kind` enum, `provenance`, `amountKind`, the state-dependent-facet
-        # author-constant rule, the rep magnitude cap, `seq`, `stockReason` and the
-        # funds fill-from-capture ambiguity. Those are value/semantic rules rather
-        # than shape rules, and the last one genuinely cannot be judged before the
-        # log exists. Moving any of them here is a deliberate widening of the gate,
-        # not a bug fix - and the sweep's own docstring records which side each rule
-        # sits on so the boundary stays a decision.
-        for i, entry in enumerate(manifest):
-            if not isinstance(entry, dict):
-                errs.append("expectations.ledger.manifest[%d]: %r must be a table "
-                            "(the oracle rejects a non-table entry at run time, "
-                            "which costs a flight)" % (i, entry))
+        # THE ONE CARVE-OUT: the funds fill-from-capture ambiguity. That rule reads
+        # the CAPTURED pool, which is empty by construction pre-launch, so a null
+        # funds amount always looks ambiguous here. Rejecting it would refuse a spec
+        # the oracle could accept at run time - the UNSAFE direction (a pre-launch
+        # gate must never be stricter than the parser it front-runs). It is skipped,
+        # which leaves exactly one entry shape that still costs a flight; today that
+        # shape is unreachable anyway (`STOCK_AWARD_PATTERNS_DEAD` - KSP logs no
+        # funds award, so the fill can never resolve), and it is the only rule whose
+        # pre-launch answer could ever differ from its run-time one.
+        #
+        # Error text is re-prefixed `entry[N]` -> `manifest[N]` so a reader is
+        # pointed at the spec's own key path rather than the oracle's internal one.
+        import oracle  # deferred sibling import: lib/ is on sys.path for every
+                       # caller that already imported hlib from it, and oracle
+                       # imports nothing from hlib (no cycle).
+        for err in oracle.parse_manifest_entries(manifest).errors:
+            if _LEDGER_FUNDS_FILL_MARKER in err:
                 continue
-            # `ut` FIRST, mirroring the oracle: an entry carrying both a malformed
-            # `ut` and a window must report the `ut` reason, not the
-            # mutually-exclusive one.
-            ut = entry.get("ut")
-            if ut is not None and (isinstance(ut, bool)
-                                   or not isinstance(ut, (int, float))
-                                   or not math.isfinite(float(ut))):
-                errs.append("expectations.ledger.manifest[%d].ut: %r must be a "
-                            "finite number or null" % (i, ut))
-                continue
-            raw_window = entry.get("utWindow", entry.get("ut_window"))
-            if raw_window is None:
-                continue
-            if (not isinstance(raw_window, (list, tuple)) or len(raw_window) != 2
-                    or any(isinstance(v, bool) or not isinstance(v, (int, float))
-                           or not math.isfinite(float(v)) for v in raw_window)):
-                errs.append("expectations.ledger.manifest[%d].utWindow: %r must be "
-                            "[lo, hi], two finite numbers" % (i, raw_window))
-                continue
-            if float(raw_window[0]) > float(raw_window[1]):
-                errs.append("expectations.ledger.manifest[%d].utWindow: lo %r > hi %r "
-                            "(empty window)" % (i, raw_window[0], raw_window[1]))
-                continue
-            if entry.get("ut") is not None:
-                errs.append("expectations.ledger.manifest[%d].utWindow: mutually "
-                            "exclusive with ut (drop one)" % (i,))
+            errs.append("expectations.ledger.manifest" + err.replace("entry[", "[", 1))
     if LEDGER_CAPTURE_CROSS_CHECK_KEY in ledger_block:
         mode = ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY)
         if mode not in LEDGER_CAPTURE_CROSS_CHECK_VALUES:
@@ -4455,7 +4447,9 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     because an unarmed career scenario also trips stock awards no seam manifest
     declares (those stay unexpected and are exactly what an operator must review
     before arming). ONE committed spec is ARMED as of 2026-07-31 -
-    ``CL-2-pod-impact-ledger``, the only one measured producing reputation - after the
+    ``CL-2-pod-impact-ledger`` - the capture is reputation-only, and of the two specs
+    that fly a reputation-producing crash it is the one that CAN carry a ledger block
+    (CL-1 is forbidden one) - after the
     three-flight checklist in autotest-status.md known-gate 3 was walked against the
     real game; for it, a return value from this function is a PARSEK-FAIL(ledger)."""
     tolerances = facet_tolerances or DEFAULT_CAPTURE_MATCH_TOLERANCES
@@ -4479,8 +4473,12 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     # narrow entry); trying the narrowest first cannot, because any award a narrower
     # entry accepts is judged against it before a wider one sees it. Exact entries
     # are width 0, so exact-before-window falls out of the same rule. Stable sort:
-    # equal widths keep declaration order. No committed entry declares a window, so
-    # this moves nothing today.
+    # equal widths keep declaration order. This ordering IS live as of 2026-07-31:
+    # `CL-2-pod-impact-ledger` declares three windowed entries, so the width key
+    # orders them (impact width 300 after the two ascent widths of 100). It cannot
+    # strand any of them - they are pinned to distinct `stockReason`s with amounts
+    # ~11 apart against a 0.1 tolerance - but this is no longer a no-op branch, so
+    # a change here must be re-checked against that spec rather than assumed inert.
     #
     # KNOWN GREEDY LIMIT, deliberate: the PINNED-FIRST primary key dominates, so a
     # stockReason-PINNED wide window is still tried before an UNPINNED exact entry

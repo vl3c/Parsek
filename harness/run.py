@@ -1675,8 +1675,17 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
 
     result = oracle.build_oracle_result(divergences)
     ledger_drift = oracle.has_hard_drift(divergences)
-    logger.info("Verify", "verify ledgerOracle status=%s hardDivergences=%d reportOnly=%d"
-                % (result["status"], result["hardDivergences"], result["reportOnly"]))
+    # `crossCheck=` is UNCONDITIONAL on purpose. It used to be emitted only inside
+    # the per-unmatched-award loop, so a run with zero unmatched awards left NO
+    # archived trace of whether the check was armed - the armed CL-2 flight
+    # `2026-07-31_1645` produced a verifier block byte-identical to the report-mode
+    # run before it, and "armed and flown green" rested on the spec's state at the
+    # time rather than on evidence. A positive, grep-stable token beats an absence
+    # proof; the next arming session can cite the log instead of the narrative.
+    cross_mode = ((ledger_block or {}).get(hlib.LEDGER_CAPTURE_CROSS_CHECK_KEY, "report")
+                  if ledger_block is not None else "n/a")
+    logger.info("Verify", "verify ledgerOracle status=%s hardDivergences=%d reportOnly=%d crossCheck=%s"
+                % (result["status"], result["hardDivergences"], result["reportOnly"], cross_mode))
     return result, ledger_drift, False
 
 

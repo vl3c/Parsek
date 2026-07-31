@@ -404,6 +404,29 @@ def _facet_state(raw: Dict, *keys: str) -> Tuple[Optional[float], bool]:
     return 0.0, False
 
 
+def _is_finite_number(v) -> bool:
+    """True iff ``v`` is a real, FINITE int/float.
+
+    Two traps this exists for, both of which bit:
+
+    - A ``bool`` is an ``int`` in Python, so ``isinstance(True, (int, float))`` is
+      True. A boolean is never an acceptable UT and must read as not-a-number.
+    - ``tomllib`` does NOT clamp integers to int64, so a spec may carry an unbounded
+      Python int and ``float(v)`` then raises ``OverflowError`` instead of returning
+      inf. Left unguarded that propagates out of ``validate_ledger_expectations`` ->
+      ``validate_spec``, which is called with no ``try/except``, and takes down the
+      WHOLE batch - defeating the "an invalid spec is SKIPPED ... so one broken spec
+      cannot abort the batch" contract at the call site. A 400-digit literal must
+      read as NOT finite (one rejected spec), never as a crash.
+    """
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(v))
+    except OverflowError:
+        return False
+
+
 def parse_manifest_entries(
     raw_entries: Optional[Sequence[Dict]],
     captured: Optional[Sequence[ManifestEntry]] = None,
@@ -506,7 +529,7 @@ def parse_manifest_entries(
 
         ut = raw.get("ut")
         if ut is not None:
-            if isinstance(ut, bool) or not isinstance(ut, (int, float)) or not math.isfinite(float(ut)):
+            if not _is_finite_number(ut):
                 errors.append("entry[%d].ut: %r must be a finite number or null" % (i, ut))
                 continue
             ut = float(ut)
@@ -519,8 +542,7 @@ def parse_manifest_entries(
         ut_window: Optional[Tuple[float, float]] = None
         if raw_window is not None:
             if (not isinstance(raw_window, (list, tuple)) or len(raw_window) != 2
-                    or any(isinstance(v, bool) or not isinstance(v, (int, float))
-                           or not math.isfinite(float(v)) for v in raw_window)):
+                    or any(not _is_finite_number(v) for v in raw_window)):
                 errors.append("entry[%d].utWindow: %r must be [lo, hi], two finite numbers"
                               % (i, raw_window))
                 continue

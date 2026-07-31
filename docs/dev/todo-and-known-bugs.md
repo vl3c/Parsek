@@ -271,27 +271,35 @@ Fail-closed edges:
 a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
 `ut` + `utWindow` on one entry all reject at parse time.
 
-**THE PRE-LAUNCH MIRROR WAS THEN WIDENED (2026-07-31, second session), because the
-same burned-flight economics applied to two more shapes the review filed as an
-in-pattern follow-up.** `validate_ledger_expectations` mirrored the oracle's
-`utWindow` rules but still passed a malformed per-entry `ut` (`true`, `"x"`, `nan`,
-`inf`) and a manifest entry that is not a table at all - both of which
-`parse_manifest_entries` rejects at RUN time, i.e. as a hard manifest-parse-error
-`PARSEK-FAIL(ledger)` after the flight has been paid for. Measured before the fix:
-all six shapes passed ADMIT and hard-failed post-flight. The gate now mirrors the
-oracle for the three ENTRY-SHAPE keys an author hand-writes off a `capturedRaw`
-readout - entry-is-a-table, `ut`, `utWindow` - in the same ORDER, so a bad `ut`
-alongside a window blames the `ut` on both sides rather than the mutual exclusion.
-`WhatThePreLaunchGateMirrorsTests` sweeps the two implementations against each other
-over the whole malformed-shape space in BOTH directions (a run-time-only rejection
-costs a flight; a pre-launch-only rejection would refuse a spec the oracle accepts),
-pins the shared reason key, and asserts every committed spec still passes the
-widened gate. The sweep has teeth: run against the pre-fix `hlib` it reports 6
-divergences. DELIBERATELY still run-time and recorded in that class's docstring so
-the boundary stays a decision: `kind`, `provenance`, `amountKind`, the
-state-dependent-facet author-constant rule, the rep magnitude cap, `seq`,
-`stockReason`, and the funds fill-from-capture ambiguity (the last genuinely cannot
-be judged before the produced log exists). M-B2 independence is
+**THE PRE-LAUNCH GATE NOW DELEGATES TO THE ORACLE (2026-07-31, second session).**
+It started as a widening: the review filed `ut` and non-table entries as the same
+burned-flight economics `utWindow` had already closed, and both were confirmed - six
+shapes passing ADMIT and hard-failing post-flight as a manifest-parse-error
+`PARSEK-FAIL(ledger)`. The first fix mirrored three ENTRY-SHAPE keys by hand and
+justified leaving the rest as "value/semantic rules". **That boundary did not survive
+its own review and was replaced.** Running the oracle with `captured=None` - exactly
+pre-launch knowledge - rejects EVERY one of its rules deterministically, and two of
+the supposedly-semantic ones (`seq` must be an int; `stockReason` a non-empty string
+or array of them) are pure type/shape rules CL-2's manifest hand-writes on every
+entry. The stated justification was also self-contradicting: it rested on the funds
+fill-from-capture rule "genuinely" needing the log, while `oracle.py`'s own comment
+says that path is unreachable against a real log.
+
+`validate_ledger_expectations` therefore calls `oracle.parse_manifest_entries`
+outright and re-prefixes `entry[N]` to `manifest[N]`, so there is no second
+implementation to drift. **The single carve-out** is the funds fill-from-capture
+ambiguity, skipped because it reads the captured pool (empty pre-launch), and
+raising it would refuse a spec the oracle could accept at run time - the unsafe
+direction. Twelve entry shapes now red pre-boot that previously cost a flight, and
+an unbounded-integer `ut` (tomllib does not clamp to int64) no longer raises
+`OverflowError` out of `validate_spec` - which is called with no `try/except` and
+would have aborted the WHOLE batch rather than one spec; `oracle._is_finite_number`
+fixes that on both sides at once. `WhatThePreLaunchGateMirrorsTests` sweeps both
+implementations against each other in BOTH directions over the full entry-shape
+space including the formerly-unmirrored rules, asserts neither side RAISES, pins the
+shared reason key with a trailing colon (`.ut` is a substring of `.utWindow`, so a
+bare match left the ordering claim unpinned), pins the carve-out explicitly, and
+asserts every committed spec still passes. M-B2 independence is
 untouched - the window is a matching hint, `compute_expected` never reads it, and a
 captured amount is still never summed into EXPECTED. OPT-IN and verdict-neutral by
 construction at the time it shipped: no committed spec declared a window; the CL-2
@@ -308,12 +316,25 @@ all PASS attempt 1:
                                             ut 12.5 / 19.1 / 119.9
 2026-07-31_1638  utWindows declared, report ZERO unexpected; reportOnly 3 -> 0
 2026-07-31_1645  captureCrossCheck = gate   PASS, hardDivergences=0 reportOnly=0
+2026-07-31_1759  bounds corrected + re-flown PASS, crossCheck=gate archived,
+                                            awards at ut 12.8 / 19.3 / 120.2
 ```
 
-The windows are the mission's PHASE BOUNDS - `[0, 60]` for the two ascent
-`Progression` awards, `[100, 140]` for the `VesselLoss` impact - and these three
+The windows are the mission's PHASE BOUNDS - `[0, 100]` for the two ascent
+`Progression` awards, `[100, 400]` for the `VesselLoss` impact - and these three
 flights are the argument for bounds over pins: the second `Progression` measured
-19.1, then 19.0, then 19.1 across them. The expected totals did NOT move
+19.1, then 19.0, then 19.1 across them. THE BOUNDS ARE ABSOLUTE PLANETARIUM UT, not
+time-from-ignition: the matched value is `fixtureUT(9.06) + padDwell + T+`, and pad
+dwell is wall-clock (game time runs 1:1, no warp), so a ceiling has to clear the
+harness's own kRPC connect budget. The first draft's `[100, 140]` left ~20 s against
+a documented 30 s budget - a latent false `PARSEK-FAIL(ledger)` that `should_retry`
+would not have absorbed. Corrected before merge, and the widening was verified to
+cost no discrimination: an extra `VesselLoss` at ut 150 and an out-of-phase
+`Progression` both still red. TWO LIMITS ARMING DOES NOT CLOSE, recorded in the spec:
+the check is one-directional (a capture yielding ZERO awards is unmatched-empty and
+GREEN - now closed at the log level by two required stock award lines), and the two
+`Progression` awards can collapse in `dedupe_captured_awards` if no UT-stamped
+[Parsek] line separates them, after which one entry corroborates nothing. The expected totals did NOT move
 (`funds=529600.0 science=100.0 rep=-7.999829000000001` before and after): CL-2's
 entries are all `ut`-less so `_sort_key` ordering is untouched, and all three rep
 entries are `repMode="applied"` so the nonlinear curve is not re-entered. The funds
@@ -683,6 +704,7 @@ claim, so no driver change was needed:
 
 ```
 19:26:47  python run.py --id S1.5-rewind-loop
+[Harness][Info][Select]  ... (Select / Admit / Lock lines elided)
 [Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
 [Harness][Error][Stage] inject postcondition failed preset=rewind-b9 exit=0
     missing=[non-empty Parsek/Recordings/, Parsek/RewindPoints/rp_b9_root.sfs];
@@ -694,7 +716,7 @@ claim, so no driver change was needed:
 ```
 
 Run `2026-07-31_1626_S1.5-rewind-loop`: `verdict=INVALID subkind=stage-inject-noop`,
-ONE SECOND wall. PRE-BOOT is proven by the result JSON rather than asserted -
+`wallSeconds=0` (wall-clock 19:26:47 -> 19:26:48). PRE-BOOT is proven by the result JSON rather than asserted -
 `kspExit={"code": null, "killed": false}`, `collectLogs={"path": null, "ran": false}`,
 `driver.steps=[]` - and NON-RETRYABLE by `attempt=1` with zero `_a2` files in
 `results/`. Note `exit=0` in that line: the injector still reported success, which is

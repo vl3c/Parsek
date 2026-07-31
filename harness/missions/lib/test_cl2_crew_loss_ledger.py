@@ -324,23 +324,67 @@ class Cl2LedgerBlockTests(unittest.TestCase):
 
     def test_the_armed_windows_are_phase_bounds_not_pins(self):
         # WHAT MAKES THE GATE SURVIVABLE. The exact award UTs are NOT stable - the
-        # second Progression measured 19.0 (2026-07-30 flights), 19.1 (the 1630
-        # baseline) and 19.0 again (the 1638 flight), and the impact measured
-        # 119.7 / 119.8 / 119.9 across four archived runs - so every armed entry must
+        # second Progression measured 15.98 (archived CL-1), 19.0 (2026-07-30),
+        # 19.1 / 19.0 / 19.1 (the three arming flights), and the impact measured
+        # 119.7 / 119.8 / 119.9 across six archived runs - so every armed entry must
         # carry a WINDOW and never an exact `ut`. An entry that regressed to an exact
         # ut would red the next flight for a reason that is not a defect.
+        self.assertEqual(4, len(self.block["manifest"]),
+                         "a 5th manifest entry appeared: re-derive the windows and "
+                         "this cell rather than letting it ride unasserted")
         windows = {}
         for e in self.block["manifest"]:
             self.assertIsNone(e.get("ut"), "an armed entry must not pin an exact ut")
+            self.assertIn("seq", e, "every entry pins its own seq ordinal")
             windows[e["seq"]] = e.get("utWindow")
-        self.assertEqual([0.0, 60.0], windows[0])
-        self.assertEqual([0.0, 60.0], windows[1])
-        self.assertEqual([100.0, 140.0], windows[2])
+        self.assertEqual([0.0, 100.0], windows[0])
+        self.assertEqual([0.0, 100.0], windows[1])
+        self.assertEqual([100.0, 400.0], windows[2])
         # The funds milestone entry stays window-free ON PURPOSE: KSP logs no funds
         # award at all (hlib.STOCK_AWARD_PATTERNS_DEAD), so it is never
         # capture-matched and a window on it would be decoration implying a check
         # that cannot run.
         self.assertIsNone(windows[3])
+
+    def test_the_armed_windows_are_bounded_in_absolute_ut_with_pad_dwell_headroom(self):
+        # THE CLOCK. The matched value is the captured award's raw Planetarium
+        # `ut=`, which is `fixtureUT + padDwell + T+` - and pad dwell is a
+        # wall-clock quantity (game time runs 1:1 here, no warp), so the ceilings
+        # must clear the harness's own connect budget, not just the flight profile.
+        # The first draft used 140 and left less headroom than
+        # CONNECT_BUDGET_SECONDS, which would red a good flight with no retry.
+        from mission_runner import CONNECT_BUDGET_SECONDS
+        windows = {e["seq"]: e.get("utWindow") for e in self.block["manifest"]}
+        worst_measured = {0: 12.5, 1: 19.1, 2: 119.9}
+        for seq, measured in worst_measured.items():
+            headroom = windows[seq][1] - measured
+            self.assertGreater(
+                headroom, CONNECT_BUDGET_SECONDS,
+                "seq=%d headroom %.1f s must exceed the %.1f s connect budget: the "
+                "award UT shifts one-for-one with pad dwell, and should_retry never "
+                "retries a PARSEK-FAIL" % (seq, headroom, CONNECT_BUDGET_SECONDS))
+
+    def test_the_armed_entries_keep_their_stock_reason_pins(self):
+        # WITHOUT THESE THE GATE SILENTLY WIDENS. `stockReason` is what makes an
+        # entry explain one NAMED stock effect; drop it and the entry accepts any
+        # award of the right amount inside its window, so a genuinely new stock
+        # reputation effect of the same size would be corroborated instead of
+        # red. Nothing else in the suite pins the two Progression entries' reasons.
+        reasons = {e["seq"]: e.get("stockReason") for e in self.block["manifest"]}
+        self.assertEqual("Progression", reasons[0])
+        self.assertEqual("Progression", reasons[1])
+        self.assertEqual("VesselLoss", reasons[2])
+        # Demonstrate the consequence rather than asserting it abstractly: an
+        # undeclared ContractReward of the same size must stay unexpected.
+        parse = oracle.parse_manifest_entries(self.block["manifest"])
+        tol = oracle.default_tolerances()
+        ctol = {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation}
+        novel = hlib.CapturedAward(
+            kind="stock-reputation-award", facet="reputation", amount=0.9999995,
+            contract_guid="", subject_id="", ut=30.0, seq=7, raw_line="",
+            reason="ContractReward")
+        self.assertEqual([30.0], [u.ut for u in hlib.unmatched_captured_awards(
+            parse.entries, [novel], ctol)])
 
     def test_the_armed_windows_corroborate_the_measured_award_set(self):
         # THE CELL THAT WOULD HAVE CAUGHT A BAD ARMING WITHOUT A FLIGHT. Replays the
@@ -361,16 +405,31 @@ class Cl2LedgerBlockTests(unittest.TestCase):
             parse.entries, awards,
             {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation})
         self.assertEqual([], [(u.ut, u.reason) for u in unmatched])
-        # And the gate still BITES: an award outside every window stays unexpected,
-        # so arming did not turn the check into a rubber stamp.
-        stray = hlib.CapturedAward(
+        # AND THE GATE STILL BITES, tested so that the WINDOW is what decides.
+        # An earlier version appended the stray AFTER the three measured awards,
+        # which had already consumed all three entries under the one-to-one rule -
+        # so the stray came back unexpected no matter how wide the windows were, and
+        # the cell was insensitive to the very bounds it claimed to test. Judge the
+        # stray ALONE against the entries instead.
+        ctol = {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation}
+        out_of_phase = hlib.CapturedAward(
             kind="stock-reputation-award", facet="reputation", amount=0.9999995,
-            contract_guid="", subject_id="", ut=80.0, seq=9, raw_line="",
+            contract_guid="", subject_id="", ut=900.0, seq=9, raw_line="",
             reason="Progression")
-        still = hlib.unmatched_captured_awards(
-            parse.entries, awards + [stray],
-            {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation})
-        self.assertEqual([80.0], [u.ut for u in still])
+        self.assertEqual([900.0], [u.ut for u in hlib.unmatched_captured_awards(
+            parse.entries, [out_of_phase], ctol)],
+            "a Progression award far outside the ascent window must stay unexpected")
+        # A SECOND VesselLoss inside the impact window is the case the one-to-one
+        # rule owns: the first consumes the entry, the second has nothing left.
+        def vessel_loss(ut, seq):
+            return hlib.CapturedAward(
+                kind="stock-reputation-award", facet="reputation", amount=-9.999828,
+                contract_guid="", subject_id="", ut=ut, seq=seq, raw_line="",
+                reason="VesselLoss")
+        doubled = hlib.unmatched_captured_awards(
+            parse.entries, [vessel_loss(119.9, 3), vessel_loss(150.0, 4)], ctol)
+        self.assertEqual([150.0], [u.ut for u in doubled],
+                         "a second VesselLoss must stay unexpected even in-window")
 
     def test_every_manifest_entry_parses_with_no_rejections(self):
         # run.py warn-logs a rejected seam entry and the caller reds it as a DROPPED
