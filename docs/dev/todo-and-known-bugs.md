@@ -263,8 +263,11 @@ between UT 100 and 140") are stable across runs even though the exact UT is not
 (119.7 / 119.9 / 119.8 across the three runs below). Everything else about the match
 is unchanged: facet + amount-within-tolerance + structured identity + optional
 `stockReason`, one-to-one per (entry, pool) consumption, pinned-first candidate order
-(windowed entries additionally sort AFTER exact-key entries within each group, so a
-window cannot greedily strand the one award an exact entry names). Fail-closed edges:
+(within each group, entries additionally sort by acceptance WIDTH - exact key = 0,
+window = hi-lo - so neither a window over an exact entry nor a wide window over a
+narrow one can greedily strand the award the tighter entry names; the residual
+pinned-wide-vs-unpinned-exact greedy limit is documented and pinned as fail-closed).
+Fail-closed edges:
 a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
 `ut` + `utWindow` on one entry all reject at parse time. M-B2 independence is
 untouched - the window is a matching hint, `compute_expected` never reads it, and a

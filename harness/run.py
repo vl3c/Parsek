@@ -1452,7 +1452,8 @@ def _manifest_entry_to_dict(e) -> Dict:
             "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
             "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
             "provenance": e.provenance, "rec3Row": e.rec3_row,
-            "utWindow": (list(e.ut_window) if e.ut_window is not None else None)}
+            "utWindow": (list(e.ut_window) if e.ut_window is not None else None),
+            "stockReason": list(e.stock_reasons)}
 
 
 def _write_accumulated_manifest(manifest: Dict, run_id: str, logger: HarnessLogger) -> None:

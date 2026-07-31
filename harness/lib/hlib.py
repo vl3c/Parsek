@@ -3931,6 +3931,33 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     manifest = ledger_block.get("manifest", [])
     if not isinstance(manifest, list):
         errs.append("expectations.ledger.manifest: must be an array of entry tables")
+    else:
+        # PRE-LAUNCH structural check of the per-entry `utWindow` key ONLY (a strict
+        # mirror of oracle.parse_manifest_entries's rules for it). Per-ENTRY
+        # validation is otherwise the oracle's job at RUN time, but a malformed
+        # window would surface AFTER the flight as a hard manifest-parse-error
+        # PARSEK-FAIL - and the window is exactly the key an author hand-writes from
+        # a capturedRaw readout, so a typo must red pre-boot as spec-invalid, not
+        # cost a full flight (same economics as the stage-inject postcondition).
+        for i, entry in enumerate(manifest):
+            if not isinstance(entry, dict):
+                continue  # the oracle rejects a non-table entry with its own reason
+            raw_window = entry.get("utWindow", entry.get("ut_window"))
+            if raw_window is None:
+                continue
+            if (not isinstance(raw_window, (list, tuple)) or len(raw_window) != 2
+                    or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                           or not math.isfinite(float(v)) for v in raw_window)):
+                errs.append("expectations.ledger.manifest[%d].utWindow: %r must be "
+                            "[lo, hi], two finite numbers" % (i, raw_window))
+                continue
+            if float(raw_window[0]) > float(raw_window[1]):
+                errs.append("expectations.ledger.manifest[%d].utWindow: lo %r > hi %r "
+                            "(empty window)" % (i, raw_window[0], raw_window[1]))
+                continue
+            if entry.get("ut") is not None:
+                errs.append("expectations.ledger.manifest[%d].utWindow: mutually "
+                            "exclusive with ut (drop one)" % (i,))
     if LEDGER_CAPTURE_CROSS_CHECK_KEY in ledger_block:
         mode = ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY)
         if mode not in LEDGER_CAPTURE_CROSS_CHECK_VALUES:
@@ -4407,15 +4434,33 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     # because a pinned entry only accepts the award it names. Stable sort, so
     # declaration order is preserved inside each group.
     #
-    # SECONDARY KEY, same greedy-strand reasoning one level down: EXACT-seqKey entries
-    # before `utWindow` entries. An exact entry accepts exactly one seqKey while a
-    # window accepts a span, so a window tried first could swallow the one award the
-    # exact entry names and strand it - trying the narrower key first cannot (any
-    # award the exact entry accepts is judged against it before a window sees it).
-    # No committed entry declares a window, so this refinement moves nothing today.
+    # SECONDARY KEY, same greedy-strand reasoning one level down: NARROWER acceptance
+    # first. An exact-seqKey entry accepts exactly one key (width 0); a `utWindow`
+    # entry accepts a span (width hi-lo). A wider candidate tried first can swallow
+    # an award a narrower entry names and strand the narrow one even when a perfect
+    # assignment exists (adversarial review of PR #1397, probe S1: wide [0,200]
+    # declared before narrow [100,140] against awards at 120 then 50 stranded the
+    # narrow entry); trying the narrowest first cannot, because any award a narrower
+    # entry accepts is judged against it before a wider one sees it. Exact entries
+    # are width 0, so exact-before-window falls out of the same rule. Stable sort:
+    # equal widths keep declaration order. No committed entry declares a window, so
+    # this moves nothing today.
+    #
+    # KNOWN GREEDY LIMIT, deliberate: the PINNED-FIRST primary key dominates, so a
+    # stockReason-PINNED wide window is still tried before an UNPINNED exact entry
+    # and can take the one award that entry names when both awards carry the pinned
+    # reason (review probe S4). The alternative - a bipartite search - is not worth
+    # its complexity for a corroboration classifier that only ever fails CLOSED
+    # (a stranded entry yields a false "unexpected" row, never a false green).
+    # AUTHORING RULE: keep pinned windows as narrow as the mission's phase bounds
+    # allow; do not pair a broad pinned window with unpinned exact entries that
+    # expect awards of the same reason.
+    def _entry_acceptance_width(e) -> float:
+        w = getattr(e, "ut_window", None)
+        return (w[1] - w[0]) if w is not None else 0.0
     order = sorted(range(len(available)),
                    key=lambda i: (0 if getattr(available[i], "stock_reasons", ()) else 1,
-                                  1 if getattr(available[i], "ut_window", None) else 0))
+                                  _entry_acceptance_width(available[i])))
     # Consumption is keyed (entry index, FACET) - see the per-pool rule above.
     consumed = set()
     out: List[CapturedAward] = []

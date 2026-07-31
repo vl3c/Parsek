@@ -1072,7 +1072,19 @@ six publish or compare numbers the runner already measured.
    the next green run, then flip `captureCrossCheck = "gate"`. Forensics + fix
    record: the struck corroboration-key entry in todo-and-known-bugs.md; shape pins:
    `test_hlib.py::FlownScenarioUtWindowCorroborationTests` (CL-2's measured lines as
-   literals). TOLERANCE
+   literals). ARMING CHECKLIST CAVEATS (from the PR #1397 adversarial review; both
+   fail-CLOSED - a false "unexpected" row, never a false green): (a) the greedy
+   matcher tries narrower acceptance first (exact keys, then windows by width), so
+   declare windows as narrow as the phase bounds allow and do not pair a broad
+   PINNED window with unpinned exact entries expecting the same reason - the
+   pinned-first primary key dominates and can strand the exact entry; (b) converting
+   a UT-stamped `repMode="nominal"` entry to a window forces `ut=null`, which moves
+   it to the tail of `compute_expected`'s accumulation order, and the rep curve is
+   nonlinear - re-check the expected total after conversion (`applied`-mode entries,
+   i.e. every stock rep capture, commute and are unaffected). A malformed `utWindow`
+   now reds PRE-LAUNCH as spec-invalid (`validate_ledger_expectations` mirrors the
+   oracle's structural rules), so a window typo costs seconds, not a flight.
+   TOLERANCE
    NOTE, now confirmed by CL-2's two flights: stock prints the applied rep delta at 7
    significant figures, so the three captured amounts sum to -7.999829 against a save
    carrying -7.99982834. An exact compare cannot succeed; budget the ~1e-6

@@ -6886,6 +6886,103 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         self.assertEqual(expected.funds, after.funds)
         self.assertEqual(expected.reputation, after.reputation)
 
+    def test_a_narrow_window_is_not_stranded_by_a_wide_one(self):
+        # PR #1397 adversarial-review finding (probe S1): with the exact-vs-window
+        # secondary key alone, a WIDE window declared first swallowed the award a
+        # NARROW window named and stranded it - a false "unexpected" row on a
+        # correct run, which under `gate` is a false PARSEK-FAIL(ledger). The
+        # secondary key is now acceptance WIDTH (exact = 0), so the narrow window is
+        # tried first in every declaration order and every log order.
+        for manifest in (
+                [{"utWindow": [0.0, 200.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 0},
+                 {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1}],
+                [{"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 0},
+                 {"utWindow": [0.0, 200.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1}]):
+            parse = oracle.parse_manifest_entries(manifest)
+            self.assertEqual([], list(parse.errors))
+            awards = [self._rep_award(-9.999828, "VesselLoss", ut=120.0),
+                      self._rep_award(-9.999828, "CrewDeath", ut=50.0)]
+            for order in (awards, list(reversed(awards))):
+                with self.subTest(wide_first="200" in str(manifest[0]),
+                                  first_award=order[0].ut):
+                    self.assertEqual(
+                        [], hlib.unmatched_captured_awards(parse.entries, order),
+                        "the narrow window must be tried before the wide one")
+
+    def test_the_documented_greedy_limit_a_pinned_wide_window_beats_an_unpinned_exact(self):
+        # KNOWN GREEDY LIMIT, pinned deliberately (review probe S4; documented in the
+        # unmatched_captured_awards ordering comment and the arming checklist): the
+        # pinned-first PRIMARY key dominates the width key, so a stockReason-PINNED
+        # wide window is tried before an UNPINNED exact entry and takes the one award
+        # that entry names when both awards carry the pinned reason. The stranding is
+        # fail-CLOSED (one false "unexpected" row, never a false green). If this
+        # assert ever flips to [], the matcher gained a bipartite search - update the
+        # ordering comment and the arming checklist in the same change.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 50.0, "kind": "milestone", "reputation": -10.0, "seq": 0},
+            {"utWindow": [0.0, 200.0], "kind": "stock-reputation-award",
+             "reputation": -10.0, "stockReason": "VesselLoss",
+             "provenance": "seam-declared", "seq": 1}])
+        self.assertEqual([], list(parse.errors))
+        awards = [self._rep_award(-9.999828, "VesselLoss", ut=50.0),
+                  self._rep_award(-9.999828, "VesselLoss", ut=120.0)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(1, len(unmatched), "the documented greedy limit")
+
+    def test_a_malformed_window_reds_pre_launch_in_the_ledger_block_validator(self):
+        # Review MINOR-4: a window typo used to survive ADMIT and surface AFTER the
+        # flight as a hard manifest-parse-error PARSEK-FAIL. validate_ledger_
+        # expectations (the same call run.py makes before launching KSP) now mirrors
+        # the oracle's structural utWindow rules, so the typo costs seconds.
+        def block(entry):
+            return {"seedFrom": "template", "manifest": [entry]}
+        base = {"kind": "stock-reputation-award", "reputation": 1.0,
+                "repMode": "applied", "provenance": "gameevents-captured"}
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            block(dict(base, utWindow=[100.0, 140.0]))))
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            block(base)), "a window-free entry stays untouched pre-launch")
+        for shape in ("oops", [1.0], [1.0, 2.0, 3.0], [True, 2.0],
+                      [float("nan"), 2.0], [1.0, "x"]):
+            with self.subTest(shape=shape):
+                errs = hlib.validate_ledger_expectations(block(dict(base, utWindow=shape)))
+                self.assertTrue(any("manifest[0].utWindow" in e for e in errs),
+                                "shape %r must red pre-launch" % (shape,))
+        inverted = hlib.validate_ledger_expectations(
+            block(dict(base, utWindow=[140.0, 100.0])))
+        self.assertTrue(any("empty window" in e for e in inverted))
+        both = hlib.validate_ledger_expectations(
+            block(dict(base, ut=119.9, utWindow=[100.0, 140.0])))
+        self.assertTrue(any("mutually exclusive" in e for e in both))
+        # A non-table entry is left for the oracle's own indexed rejection.
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": ["not-a-table"]}))
+
+    def test_manifest_artifact_round_trips_window_and_stock_reason(self):
+        # The <runId>.manifest.json audit artifact must carry the entry's full
+        # matching constraints (review NIT-1: stockReason was omitted) and parse
+        # back identically through the same entry parser.
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured"},
+            {"seq": 3, "kind": "milestone", "funds": 29600.0}])
+        self.assertEqual([], list(parse.errors))
+        serialized = [run._manifest_entry_to_dict(e) for e in parse.entries]
+        self.assertEqual([100.0, 140.0], serialized[0]["utWindow"])
+        self.assertEqual(["VesselLoss"], serialized[0]["stockReason"])
+        self.assertIsNone(serialized[1]["utWindow"])
+        self.assertEqual([], serialized[1]["stockReason"])
+        reparse = oracle.parse_manifest_entries(serialized)
+        self.assertEqual([], list(reparse.errors))
+        self.assertEqual(parse.entries[0].ut_window, reparse.entries[0].ut_window)
+        self.assertEqual(parse.entries[0].stock_reasons, reparse.entries[0].stock_reasons)
+        self.assertIsNone(reparse.entries[1].ut_window)
+
     def test_no_committed_spec_declares_a_ut_window(self):
         # THE WHOLE-SET GUARD, mirroring test_no_committed_spec_arms_the_capture_
         # cross_check: the window is a knob NO committed spec declares, which is what

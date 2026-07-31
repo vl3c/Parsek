@@ -235,7 +235,16 @@ class ManifestEntry:
     (fail-closed - there is nothing to judge against the bounds). Mutually exclusive
     with ``ut`` (an entry cannot carry both an exact key and a window). Like
     ``stock_reasons`` it is a MATCHING hint only and never enters
-    ``compute_expected``."""
+    ``compute_expected``.
+
+    MIGRATION CAVEAT for ``repMode = "nominal"`` entries: ``compute_expected``
+    accumulates in ``(ut is None, ut, seq)`` order and the reputation curve is
+    NONLINEAR, so converting a UT-stamped nominal entry to a window (which forces
+    ``ut = null``) moves it to the null-UT tail of the accumulation and can change
+    the expected reputation total. Keep windowed nominal entries in intended
+    chronological order via ``seq``, and re-check the expected total after the
+    conversion. ``applied``-mode entries (every stock rep capture, the CL-2 shape)
+    add raw deltas, which commute - order cannot move their total."""
     ut: Optional[float]
     seq: int
     kind: str
