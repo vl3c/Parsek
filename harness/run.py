@@ -2429,14 +2429,35 @@ def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdi
 # ---------------------------------------------------------------------------
 
 
+_EMPTY_ARTIFACTS: Dict = {"ran": False, "shotsDir": None, "kspLog": False,
+                          "kspLogTruncated": False, "screenshots": 0,
+                          "screenshotsSkipped": 0}
+
+
+def _copy_bounded(src, out, limit: int) -> int:
+    """Stream at most ``limit`` bytes from ``src`` to ``out``; returns bytes
+    copied. The BOUND is the point (review MINOR 3): the source KSP.log can
+    GROW between the size snapshot and the copy (a not-fully-reaped KSP child
+    still appending at high warp), and an unbounded copyfileobj would then
+    bust the cap and falsify the truncation marker."""
+    copied = 0
+    while copied < limit:
+        chunk = src.read(min(1024 * 1024, limit - copied))
+        if not chunk:
+            break
+        out.write(chunk)
+        copied += len(chunk)
+    return copied
+
+
 def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
                            run_start_epoch: float, logger: HarnessLogger) -> Dict:
     """Copy the run's KSP.log (bounded, hlib.plan_artifact_log_copy) and any
     run-window Screenshots/ images (hlib.select_run_screenshots) into
-    ``results/<runId>_shots/``. Returns the additive ``artifacts`` result block."""
-    artifacts: Dict = {"ran": False, "shotsDir": None, "kspLog": False,
-                       "kspLogTruncated": False, "screenshots": 0,
-                       "screenshotsSkipped": 0}
+    ``results/<runId>_shots/``, then run the shots-dir retention pass
+    (hlib.select_shots_dirs_to_prune). Returns the additive ``artifacts``
+    result block."""
+    artifacts: Dict = dict(_EMPTY_ARTIFACTS)
     if not instance_dir:
         return artifacts
     try:
@@ -2446,30 +2467,36 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
         artifacts["shotsDir"] = os.path.basename(shots_dir)
 
         # (1) KSP.log, bounded. Oversize keeps head + tail with an explicit
-        # marker line (rationale on the hlib constants).
+        # marker line (rationale on the hlib constants). Written tmp+rename
+        # (review NIT 9) so a mid-copy death never leaves a TORN KSP.log that
+        # the sheet would then render as the run's authoritative key lines.
+        # EVERY copy leg is byte-bounded (review MINOR 3): the source can grow
+        # under us, and the bound is what keeps the artifact <= cap + marker.
         log_src = os.path.join(instance_dir, "KSP.log")
         if os.path.isfile(log_src):
             size = os.path.getsize(log_src)
             plan = hlib.plan_artifact_log_copy(size)
             dst = os.path.join(shots_dir, "KSP.log")
-            with open(log_src, "rb") as src, open(dst, "wb") as out:
+            tmp = dst + ".harness-tmp"
+            with open(log_src, "rb") as src, open(tmp, "wb") as out:
                 if plan.copy_all:
-                    shutil.copyfileobj(src, out, 1024 * 1024)
+                    copied = _copy_bounded(src, out, hlib.ARTIFACT_LOG_CAP_BYTES)
+                    if src.read(1):
+                        # The file outgrew its copy-all snapshot past the cap
+                        # mid-copy; say so instead of silently cutting.
+                        out.write(("\n[harness-artifact] KSP.log grew past the "
+                                   "%d-byte cap during the copy; remainder dropped\n"
+                                   % hlib.ARTIFACT_LOG_CAP_BYTES).encode("utf-8"))
                 else:
-                    remaining = plan.head_bytes
-                    while remaining > 0:
-                        chunk = src.read(min(1024 * 1024, remaining))
-                        if not chunk:
-                            break
-                        out.write(chunk)
-                        remaining -= len(chunk)
+                    _copy_bounded(src, out, plan.head_bytes)
                     out.write(("\n[harness-artifact] KSP.log TRUNCATED for the "
                                "contact-sheet copy: original %d bytes, kept first "
                                "%d + last %d (hlib.ARTIFACT_LOG_CAP_BYTES)\n"
                                % (size, plan.head_bytes, plan.tail_bytes)).encode("utf-8"))
                     src.seek(max(plan.head_bytes, size - plan.tail_bytes))
-                    shutil.copyfileobj(src, out, 1024 * 1024)
+                    _copy_bounded(src, out, plan.tail_bytes)
                     artifacts["kspLogTruncated"] = True
+            os.replace(tmp, dst)
             artifacts["kspLog"] = True
 
         # (2) Screenshots stamped inside this run's wall-clock window (the
@@ -2502,6 +2529,14 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
             if prior or over_cap or copy_missed:
                 logger.verbose("Artifacts", "screenshots skipped: %d prior-run, %d over-cap, %d copy-failed"
                                % (prior, over_cap, copy_missed))
+
+        # (3) Retention (review MAJOR 1): results/ is gitignored and nothing
+        # else ever prunes it, so the heavy *_shots dirs are bounded here --
+        # newest-first keep window, this run's own dir always protected. The
+        # KB-scale history (result JSONs, summary, contact HTML -- which
+        # already embeds the extracted key lines as text) is never touched.
+        _prune_shots_dirs(os.path.basename(shots_dir), logger)
+
         logger.info("Artifacts", "artifacts collected run=%s kspLog=%s truncated=%s screenshots=%d -> %s"
                     % (run_id, artifacts["kspLog"], artifacts["kspLogTruncated"],
                        artifacts["screenshots"], shots_dir))
@@ -2512,14 +2547,82 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
     return artifacts
 
 
+def _dir_size_bytes(path: str) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                continue
+    return total
+
+
+def _prune_shots_dirs(protect_name: str, logger: HarnessLogger) -> None:
+    """Remove the oldest ``results/*_shots`` dirs past the retention budget
+    (hlib.select_shots_dirs_to_prune; the current run's dir is always kept)."""
+    entries = []
+    for name in os.listdir(RESULTS_DIR):
+        if not name.endswith("_shots"):
+            continue
+        path = os.path.join(RESULTS_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        entries.append((name, mtime, _dir_size_bytes(path)))
+    prune = hlib.select_shots_dirs_to_prune(entries, protect_name=protect_name)
+    for name in prune:
+        shutil.rmtree(os.path.join(RESULTS_DIR, name), ignore_errors=True)
+    if prune:
+        logger.info("Artifacts", "retention pruned %d old shots dir(s) "
+                                 "(keep newest %d dirs / %d MiB total): %s"
+                    % (len(prune), hlib.ARTIFACT_SHOTS_KEEP_DIRS,
+                       hlib.ARTIFACT_SHOTS_MAX_TOTAL_BYTES // (1024 * 1024),
+                       ", ".join(prune[:5]) + (" ..." if len(prune) > 5 else "")))
+
+
+_contact_sheet_module = None
+
+
+def _load_contact_sheet_module():
+    """Load harness/tools/contact_sheet.py by FILE PATH -- no sys.path mutation
+    (review NIT 11: an insert(0) of tools/ would let a future
+    ``harness/tools/<stdlib-name>.py`` silently shadow the stdlib for the rest
+    of the process). An already-imported ``contact_sheet`` (the smoke tests
+    import it from tools/ to monkeypatch) is reused, so a test's patch and
+    run.py always see the SAME module object."""
+    global _contact_sheet_module
+    if _contact_sheet_module is not None:
+        return _contact_sheet_module
+    existing = sys.modules.get("contact_sheet")
+    if existing is not None:
+        _contact_sheet_module = existing
+        return existing
+    import importlib.util
+    path = os.path.join(TOOLS_DIR, "contact_sheet.py")
+    spec = importlib.util.spec_from_file_location("contact_sheet", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load contact_sheet from %s" % path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["contact_sheet"] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop("contact_sheet", None)
+        raise
+    _contact_sheet_module = module
+    return module
+
+
 def _generate_contact_sheet(run_id: str, logger: HarnessLogger) -> None:
     """Emit ``results/<runId>_contact.html`` + refresh ``results/index.html``
     via harness/tools/contact_sheet.py. Failure-isolated: any trouble (module
     missing, disk full, malformed inputs) is a Warn, never a verdict change."""
     try:
-        if TOOLS_DIR not in sys.path:
-            sys.path.insert(0, TOOLS_DIR)
-        import contact_sheet  # noqa: PLC0415 - lazy so a broken tool never breaks run.py import
+        contact_sheet = _load_contact_sheet_module()
         sheet_path = contact_sheet.generate_run_sheet(RESULTS_DIR, run_id)
         contact_sheet.generate_index(RESULTS_DIR)
         logger.info("Sheet", "contact sheet written %s (+ index.html)" % sheet_path)
@@ -2588,10 +2691,6 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         else:
             logger.error("Collect", "collect-logs failed: exit=%s; snapshot degraded" % res.exit_code)
 
-    # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
-    # run-window screenshots into results/<runId>_shots/), verdict-neutral.
-    artifacts = _collect_run_artifacts(run_id, instance_dir, start_wall, logger)
-
     result = {
         "schema": hlib.SCHEMA_VERSION,
         "runId": run_id,
@@ -2619,10 +2718,18 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                          "matched": verdict.expected_fail_matched},
         "kspExit": {"code": exit_code, "killed": killed},
         "collectLogs": collect,
-        # V3 additive key: what the always-collect step snapshotted.
-        "artifacts": artifacts,
+        # V3 additive key: what the always-collect step snapshotted. Written
+        # FIRST as the empty placeholder so the VERDICT is durable before the
+        # (possibly slow) artifact copy runs (review MINOR 4: a Ctrl-C or a
+        # process-tree kill landing inside a multi-MB copy must not cost the
+        # attempt's result), then enriched and re-written below.
+        "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
+    # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
+    # run-window screenshots into results/<runId>_shots/), verdict-neutral.
+    result["artifacts"] = _collect_run_artifacts(run_id, instance_dir, start_wall, logger)
+    write_result(result, logger, append_summary=False)
     # V3 contact sheet: AFTER the durable result lands so the sheet reads the
     # written record. Failure-isolated; never moves the verdict.
     _generate_contact_sheet(run_id, logger)
@@ -3100,10 +3207,15 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
 
 def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
     scenario_id = spec.get("id") or os.path.basename(spec.get("_path", "unknown")).replace(".toml", "")
+    # This id belongs to a spec that FAILED validation -- possibly on the
+    # filename-safety rule itself -- and the runId becomes a results/ path
+    # component (the .json and now the contact sheet's .html). Sanitize the
+    # runId only; scenarioId in the record keeps the raw value (review NIT 10).
+    safe_id = "".join(c if (c.isalnum() or c in "._-") else "_" for c in scenario_id)
     started = utcnow_iso()
     result = {
         "schema": hlib.SCHEMA_VERSION,
-        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), scenario_id),
+        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), safe_id),
         "scenarioId": scenario_id,
         "tier": spec.get("tier"),
         "instanceProfile": spec.get("instanceProfile"),
@@ -3121,9 +3233,7 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
                          "matched": False},
         "kspExit": {"code": None, "killed": False},
         "collectLogs": {"ran": False, "path": None},
-        "artifacts": {"ran": False, "shotsDir": None, "kspLog": False,
-                      "kspLogTruncated": False, "screenshots": 0,
-                      "screenshotsSkipped": 0},
+        "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
     _generate_contact_sheet(result["runId"], logger)

@@ -120,7 +120,12 @@ Every attempt - PASS included - runs a light UNCONDITIONAL artifact step in
 `hlib.plan_artifact_log_copy`) plus any `Screenshots/` files stamped inside
 the run's wall-clock window (`hlib.select_run_screenshots`; the V4 capture
 verbs will feed this) land in `results/<runId>_shots/`. The heavy non-PASS
-collect-logs snapshot is unchanged.
+collect-logs snapshot is unchanged, and the verdict is written durably BEFORE
+the artifact copy starts (a kill mid-copy can never cost a result). A
+retention pass then bounds cross-run growth (`hlib.select_shots_dirs_to_prune`:
+newest 40 `*_shots` dirs / 2 GiB total kept, the current run's dir always
+protected) -- only the heavy shots dirs are pruned; result JSONs, summary, and
+the contact pages (which embed the extracted key lines as text) are permanent.
 
 `tools/contact_sheet.py` then renders `results/<runId>_contact.html` - any
 captured images next to the run's key log lines (`BATCH_COMPLETE`, every

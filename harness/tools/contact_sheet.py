@@ -48,6 +48,7 @@ import argparse
 import bisect
 import html
 import json
+import math
 import os
 import sys
 import urllib.parse
@@ -109,10 +110,20 @@ STATUS_COLORS = {
 # ---------------------------------------------------------------------------
 
 
+# A clipped line keeps its TAIL too (adversarial review NIT 8): the trailing
+# tokens of a long line are often the payload (a BATCH_COMPLETE tally, a
+# parity summary's skip.* counters), so a head-only clip would show a marker
+# line with its numbers cut off.
+CLIP_TAIL_CHARS = 80
+
+
 def _clip(line: str, max_chars: int = MAX_LINE_CHARS) -> str:
     if len(line) <= max_chars:
         return line
-    return line[:max_chars] + " ...[clipped %d chars]" % (len(line) - max_chars)
+    tail_keep = min(CLIP_TAIL_CHARS, max_chars // 2)
+    head_keep = max(0, max_chars - tail_keep)
+    dropped = len(line) - head_keep - tail_keep
+    return "%s ...[clipped %d chars]... %s" % (line[:head_keep], dropped, line[-tail_keep:])
 
 
 def extract_key_log_lines(log_text: Optional[str]) -> Dict:
@@ -217,14 +228,20 @@ def run_index_entry(result_obj, fallback_run_id: str) -> Dict:
     if not isinstance(result_obj, dict):
         return {"runId": fallback_run_id, "scenarioId": "?", "verdict": "UNREADABLE",
                 "subkind": "", "utc": "", "wallSeconds": None, "note": "unparseable result JSON"}
+    # wallSeconds admits only a FINITE non-bool number (adversarial review
+    # MINOR 2): python's json.load accepts bare Infinity/NaN, and int(inf)
+    # raises -- one poison result JSON would then permanently break every
+    # subsequent index render, the exact "never a crash" contract violation.
+    wall = result_obj.get("wallSeconds")
+    if isinstance(wall, bool) or not isinstance(wall, (int, float)) or not math.isfinite(wall):
+        wall = None
     return {
         "runId": str(result_obj.get("runId") or fallback_run_id),
         "scenarioId": str(result_obj.get("scenarioId") or "?"),
         "verdict": str(result_obj.get("verdict") or "?"),
         "subkind": str(result_obj.get("subkind") or ""),
         "utc": str(result_obj.get("endedUtc") or result_obj.get("startedUtc") or ""),
-        "wallSeconds": result_obj.get("wallSeconds")
-        if isinstance(result_obj.get("wallSeconds"), (int, float)) else None,
+        "wallSeconds": wall,
         "note": str(result_obj.get("note") or ""),
     }
 
@@ -481,7 +498,11 @@ def list_run_images(shots_dir: str) -> List[str]:
 
 
 def _write_text_atomic(path: str, text: str) -> None:
-    tmp = path + ".tmp"
+    # PID-suffixed tmp (adversarial review NIT 12): two run.py processes on
+    # DIFFERENT instance profiles share results/ (the run lock is per-instance),
+    # and both rewrite index.html -- a shared fixed tmp path could interleave
+    # into a corrupt page; distinct tmps make the os.replace last-writer-wins.
+    tmp = "%s.tmp.%d" % (path, os.getpid())
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
     os.replace(tmp, path)
@@ -519,6 +540,7 @@ def generate_run_sheet(results_dir: str, run_id: str) -> str:
         "no collected KSP.log for this run (results/%s%s/KSP.log absent)" % (run_id, SHOTS_SUFFIX)
     page = render_run_html(run_id, result_obj, images, extraction, log_note)
     sheet_path = os.path.join(results_dir, run_id + CONTACT_SUFFIX)
+    os.makedirs(results_dir, exist_ok=True)
     _write_text_atomic(sheet_path, page)
     return sheet_path
 
@@ -535,6 +557,7 @@ def generate_index(results_dir: str) -> str:
             entry["sheetHref"] = sheet_name
         entries.append(entry)
     index_path = os.path.join(results_dir, INDEX_BASENAME)
+    os.makedirs(results_dir, exist_ok=True)
     _write_text_atomic(index_path, render_index_html(entries))
     return index_path
 

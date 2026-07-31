@@ -5708,9 +5708,9 @@ class ArtifactLogCopyPlan:
 
 
 def plan_artifact_log_copy(size_bytes: int,
-                           cap_bytes: int = ARTIFACT_LOG_CAP_BYTES,
-                           head_bytes: int = ARTIFACT_LOG_HEAD_BYTES,
-                           tail_bytes: int = ARTIFACT_LOG_TAIL_BYTES) -> ArtifactLogCopyPlan:
+                           cap_bytes: Optional[int] = None,
+                           head_bytes: Optional[int] = None,
+                           tail_bytes: Optional[int] = None) -> ArtifactLogCopyPlan:
     """Decide how much of the run's KSP.log the artifact step copies.
 
     ``size_bytes <= cap_bytes`` -> copy the whole file. Larger -> keep the first
@@ -5719,7 +5719,19 @@ def plan_artifact_log_copy(size_bytes: int,
     teardown lines, the single most verdict-relevant region). A non-positive or
     unknown size reads as "copy all" (the copy loop then just streams whatever is
     there; an unreadable file degrades at the I/O layer, never here).
+
+    The cap parameters default to None and resolve to the module constants AT
+    CALL TIME (adversarial review NIT 6): def-time defaults would freeze the
+    constants, making a rebound ``hlib.ARTIFACT_LOG_CAP_BYTES`` inert -- and a
+    test could then only exercise the truncation path by writing a real 64 MiB
+    file.
     """
+    if cap_bytes is None:
+        cap_bytes = ARTIFACT_LOG_CAP_BYTES
+    if head_bytes is None:
+        head_bytes = ARTIFACT_LOG_HEAD_BYTES
+    if tail_bytes is None:
+        tail_bytes = ARTIFACT_LOG_TAIL_BYTES
     if size_bytes <= cap_bytes or size_bytes <= 0:
         return ArtifactLogCopyPlan(True, 0, 0)
     tail = max(0, min(tail_bytes, cap_bytes))
@@ -5729,9 +5741,9 @@ def plan_artifact_log_copy(size_bytes: int,
 
 def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
                            run_start_epoch: float,
-                           max_count: int = ARTIFACT_MAX_SCREENSHOTS,
-                           max_bytes: int = ARTIFACT_MAX_SCREENSHOT_BYTES,
-                           mtime_slack: float = ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS
+                           max_count: Optional[int] = None,
+                           max_bytes: Optional[int] = None,
+                           mtime_slack: Optional[float] = None
                            ) -> Tuple[List[str], int, int]:
     """Select which Screenshots/ files belong to this run's artifact snapshot.
 
@@ -5743,10 +5755,23 @@ def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
       entirely -- neither selected nor counted);
     - a file older than ``run_start_epoch - mtime_slack`` is a PRIOR run's
       capture (the dir accumulates across runs) -> counted in ``skipped_prior``;
-    - survivors are taken in ``(mtime, name)`` order until either cap trips;
-      the remainder is counted in ``skipped_over_cap`` so the artifact record
-      can say "N more existed" instead of silently under-reporting.
+    - survivors are considered in ``(mtime, name)`` order under a GREEDY-FILL
+      byte budget (adversarial review NIT 7, deliberate): a file that would
+      overflow ``max_bytes`` is skipped and LATER, smaller files may still be
+      selected -- one oversize capture must not evict every capture after it.
+      The count cap, once hit, drops everything later. Every drop is counted in
+      ``skipped_over_cap`` so the artifact record can say "N more existed"
+      instead of silently under-reporting.
+
+    Caps default to None and resolve to the module constants at call time
+    (same testability rationale as ``plan_artifact_log_copy``).
     """
+    if max_count is None:
+        max_count = ARTIFACT_MAX_SCREENSHOTS
+    if max_bytes is None:
+        max_bytes = ARTIFACT_MAX_SCREENSHOT_BYTES
+    if mtime_slack is None:
+        mtime_slack = ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS
     threshold = run_start_epoch - mtime_slack
     eligible: List[Tuple[float, str, int]] = []
     skipped_prior = 0
@@ -5770,3 +5795,53 @@ def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
         selected.append(name)
         total_bytes += max(0, size)
     return selected, skipped_prior, skipped_over_cap
+
+
+# Shots-dir retention (adversarial review MAJOR 1). The always-collect step
+# writes up to ARTIFACT_LOG_CAP_BYTES per attempt into results/<runId>_shots/,
+# results/ is gitignored (growth invisible to `git status`), and nothing else
+# ever prunes it -- so without retention a nightly cadence fills the volume the
+# harness stages fixtures into, which then reds runs for an unrelated reason.
+# Retention prunes OLDEST-FIRST, keeps the heavy *_shots dirs only (result
+# JSONs / summary / logs / contact HTML are KB-scale history and are NEVER
+# touched -- the contact page already embeds the extracted key lines as text,
+# so a pruned run keeps its scannable sheet and loses only the raw log + the
+# image files behind it).
+ARTIFACT_SHOTS_KEEP_DIRS = 40
+ARTIFACT_SHOTS_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def select_shots_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
+                               protect_name: Optional[str] = None,
+                               keep_dirs: Optional[int] = None,
+                               max_total_bytes: Optional[int] = None) -> List[str]:
+    """Which ``*_shots`` dirs the retention pass removes.
+
+    ``entries`` are ``(dir_name, mtime_epoch, total_size_bytes)`` rows for every
+    shots dir under results/. Walks NEWEST first, keeping a dir while both the
+    count budget (``keep_dirs``) and the byte budget (``max_total_bytes``) hold;
+    everything older is returned for pruning, oldest first. ``protect_name``
+    (the CURRENT run's dir) is always kept regardless of budgets -- the run that
+    just collected its artifacts must never prune itself. Caps default to None
+    and resolve to the module constants at call time.
+    """
+    if keep_dirs is None:
+        keep_dirs = ARTIFACT_SHOTS_KEEP_DIRS
+    if max_total_bytes is None:
+        max_total_bytes = ARTIFACT_SHOTS_MAX_TOTAL_BYTES
+    newest_first = sorted(entries, key=lambda e: (e[1], e[0]), reverse=True)
+    prune: List[str] = []
+    kept = 0
+    kept_bytes = 0
+    for name, _mtime, size in newest_first:
+        if name == protect_name:
+            kept += 1
+            kept_bytes += max(0, size)
+            continue
+        if kept < keep_dirs and kept_bytes + max(0, size) <= max_total_bytes:
+            kept += 1
+            kept_bytes += max(0, size)
+        else:
+            prune.append(name)
+    prune.reverse()  # oldest first, so a partial prune removes the oldest
+    return prune

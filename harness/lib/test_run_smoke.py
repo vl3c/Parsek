@@ -2446,6 +2446,139 @@ class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
                   "r", encoding="utf-8") as fh:
             self.assertIn("fresh.png", fh.read())
 
+    def test_verdict_is_durable_before_the_artifact_copy_and_summary_not_doubled(self):
+        """Review MINOR 4: the result JSON is written (with a placeholder
+        artifacts block) BEFORE the possibly-slow artifact copy, then enriched
+        and re-written with append_summary=False -- so a kill inside the copy
+        cannot cost the verdict, and the rolling summary gets exactly ONE line."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        with open(os.path.join(run.RESULTS_DIR, "summary.txt"), "r", encoding="utf-8") as fh:
+            lines = [l for l in fh.read().splitlines() if "SMOKE-fake" in l]
+        self.assertEqual(1, len(lines), "the enrichment re-write must not double the summary")
+
+    def test_truncated_log_copy_is_bounded_and_marked(self):
+        """Review MINOR 3 + 5 (CONFIRMED by the reviewer's repro): the streaming
+        head+tail copy itself, driven with call-time-rebound caps. The tail leg
+        must be BYTE-BOUNDED (the source can grow between the size snapshot and
+        the copy) and the marker must sit between the exact head and tail."""
+        body = bytes(range(256)) * 4  # 1024 distinct-ish bytes
+        with open(os.path.join(self.instance, "KSP.log"), "wb") as fh:
+            fh.write(body)
+        orig = (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+                hlib.ARTIFACT_LOG_TAIL_BYTES)
+        try:
+            hlib.ARTIFACT_LOG_CAP_BYTES = 200
+            hlib.ARTIFACT_LOG_HEAD_BYTES = 50
+            hlib.ARTIFACT_LOG_TAIL_BYTES = 150
+            art = run._collect_run_artifacts("trunc-run", self.instance,
+                                             time.time(), self.logger)
+        finally:
+            (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+             hlib.ARTIFACT_LOG_TAIL_BYTES) = orig
+        self.assertTrue(art["kspLog"])
+        self.assertTrue(art["kspLogTruncated"])
+        dst = os.path.join(run.RESULTS_DIR, "trunc-run_shots", "KSP.log")
+        with open(dst, "rb") as fh:
+            data = fh.read()
+        marker_at = data.find(b"[harness-artifact] KSP.log TRUNCATED")
+        self.assertGreater(marker_at, 0)
+        self.assertTrue(data.startswith(body[:50]), "head must be the first 50 source bytes")
+        self.assertTrue(data.endswith(body[-150:]), "tail must be the last 150 source bytes")
+        # bounded: head + tail + one marker line, nothing more.
+        self.assertLess(len(data), 200 + 200, "payload must stay ~cap + marker")
+
+    def test_tail_copy_stays_bounded_when_the_log_grows_mid_copy(self):
+        """The reviewer's growth repro: getsize snapshots 500, the file is
+        really 4000 (a not-fully-reaped KSP child kept appending). The tail leg
+        must copy plan.tail_bytes and STOP, not stream to EOF."""
+        with open(os.path.join(self.instance, "KSP.log"), "wb") as fh:
+            fh.write(b"x" * 4000)
+        orig = (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+                hlib.ARTIFACT_LOG_TAIL_BYTES)
+        orig_getsize = os.path.getsize
+        try:
+            hlib.ARTIFACT_LOG_CAP_BYTES = 200
+            hlib.ARTIFACT_LOG_HEAD_BYTES = 50
+            hlib.ARTIFACT_LOG_TAIL_BYTES = 150
+            os.path.getsize = lambda p, _o=orig_getsize: (
+                500 if os.path.basename(str(p)) == "KSP.log" else _o(p))
+            art = run._collect_run_artifacts("grow-run", self.instance,
+                                             time.time(), self.logger)
+        finally:
+            os.path.getsize = orig_getsize
+            (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+             hlib.ARTIFACT_LOG_TAIL_BYTES) = orig
+        self.assertTrue(art["kspLogTruncated"])
+        dst = os.path.join(run.RESULTS_DIR, "grow-run_shots", "KSP.log")
+        self.assertLess(os.path.getsize(dst), 200 + 200,
+                        "a mid-copy grown source must not bust the cap")
+
+    def test_artifact_failure_never_changes_the_verdict(self):
+        """The OTHER half of the verdict-neutrality contract (review MINOR 5):
+        a crash inside _collect_run_artifacts is a Warn, never a verdict
+        change."""
+        orig = hlib.plan_artifact_log_copy
+        hlib.plan_artifact_log_copy = _raise_artifact_boom
+        try:
+            result, _ = self._run("pass")
+        finally:
+            hlib.plan_artifact_log_copy = orig
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertFalse(result["artifacts"]["kspLog"])
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("artifact collection FAILED", body)
+        self.assertIn("verdict unaffected", body)
+
+    def test_retention_prunes_old_shots_dirs_but_never_the_current_run(self):
+        """Review MAJOR 1: results/ is gitignored and nothing else prunes it;
+        the retention pass must bound *_shots growth, oldest first, protecting
+        the run that just collected."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        now = time.time()
+        for i, name in enumerate(["old1_shots", "old2_shots", "old3_shots"]):
+            d = os.path.join(run.RESULTS_DIR, name)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "KSP.log"), "w") as fh:
+                fh.write("x" * 10)
+            os.utime(d, (now - 3600 + i, now - 3600 + i))
+        orig_keep = hlib.ARTIFACT_SHOTS_KEEP_DIRS
+        try:
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = 2
+            result, _ = self._run("pass")
+        finally:
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = orig_keep
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        current = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isdir(current), "the current run's dir must survive")
+        survivors = sorted(n for n in os.listdir(run.RESULTS_DIR) if n.endswith("_shots"))
+        self.assertEqual(2, len(survivors), "keep=2: current + the newest old dir")
+        self.assertNotIn("old1_shots", survivors)
+        self.assertNotIn("old2_shots", survivors)
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            self.assertIn("retention pruned", fh.read())
+
+    def test_contact_sheet_module_loads_by_path_without_syspath(self):
+        """Review NIT 11: the tool loads by file path, no sys.path mutation, and
+        an already-imported module (what the monkeypatch cells rely on) is
+        reused so the patch and run.py see the SAME object."""
+        saved_module = sys.modules.pop("contact_sheet", None)
+        saved_cache = run._contact_sheet_module
+        run._contact_sheet_module = None
+        path_before = list(sys.path)
+        try:
+            mod = run._load_contact_sheet_module()
+            self.assertTrue(callable(mod.generate_run_sheet))
+            self.assertEqual(path_before, sys.path, "loading must not touch sys.path")
+            self.assertIs(mod, run._load_contact_sheet_module(), "cached on repeat")
+        finally:
+            run._contact_sheet_module = saved_cache
+            if saved_module is not None:
+                sys.modules["contact_sheet"] = saved_module
+            else:
+                sys.modules.pop("contact_sheet", None)
+
     def test_sheet_failure_never_changes_the_verdict(self):
         """The V3 verdict-neutrality contract: a contact-sheet crash is a Warn in
         the harness log and NOTHING else - the attempt's verdict, result JSON,
@@ -2471,6 +2604,10 @@ class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
 
 def _raise_sheet_boom(results_dir, run_id):
     raise RuntimeError("boom (injected sheet failure)")
+
+
+def _raise_artifact_boom(*args, **kwargs):
+    raise RuntimeError("boom (injected artifact failure)")
 
 
 if __name__ == "__main__":

@@ -103,11 +103,18 @@ class ExtractKeyLogLinesTests(unittest.TestCase):
         self.assertEqual(cs.MAX_PARITY_LINES, len(ex["parity"]))
         self.assertEqual(3, ex["dropped"]["parity"])
 
-    def test_overlong_lines_are_clipped_with_a_marker(self):
-        line = _log_line("BATCH_COMPLETE v1 " + "x" * (cs.MAX_LINE_CHARS * 2))
+    def test_overlong_lines_are_clipped_with_a_marker_keeping_the_tail(self):
+        """Head+tail clip (review NIT 8): the trailing tokens of a long line are
+        often the tally (BATCH_COMPLETE totals, parity skip.* counters), so the
+        clip must preserve the END of the line, not just its start."""
+        line = _log_line("BATCH_COMPLETE v1 " + "x" * (cs.MAX_LINE_CHARS * 2)
+                         + " total=9 passed=9 failed=0")
         ex = cs.extract_key_log_lines(line)
-        self.assertLess(len(ex["batchComplete"][0]), cs.MAX_LINE_CHARS + 40)
-        self.assertIn("[clipped", ex["batchComplete"][0])
+        shown = ex["batchComplete"][0]
+        self.assertLess(len(shown), cs.MAX_LINE_CHARS + 60)
+        self.assertIn("[clipped", shown)
+        self.assertIn("BATCH_COMPLETE v1", shown)          # head survives
+        self.assertIn("total=9 passed=9 failed=0", shown)  # tail tally survives
 
 
 class VerifierRowsTests(unittest.TestCase):
@@ -362,6 +369,86 @@ class SelectRunScreenshotsTests(unittest.TestCase):
         selected, _, over = hlib.select_run_screenshots(candidates, self.START, max_bytes=100)
         self.assertEqual(["a.png"], selected)
         self.assertEqual(2, over)
+
+    def test_byte_cap_is_greedy_fill_not_stop_on_trip(self):
+        """Review NIT 7, now the DOCUMENTED contract: an oversize capture is
+        skipped but later, smaller captures still ride -- one huge file must
+        not evict every capture after it."""
+        candidates = [("a.png", 2000.0, 10), ("big.png", 2001.0, 999), ("c.png", 2002.0, 10)]
+        selected, _, over = hlib.select_run_screenshots(candidates, self.START, max_bytes=100)
+        self.assertEqual(["a.png", "c.png"], selected)
+        self.assertEqual(1, over)
+
+    def test_caps_resolve_module_constants_at_call_time(self):
+        """Review NIT 6: def-time defaults would freeze the constants, making a
+        rebound cap inert -- and the truncation path untestable without a real
+        64 MiB file."""
+        orig = hlib.ARTIFACT_LOG_CAP_BYTES
+        try:
+            hlib.ARTIFACT_LOG_CAP_BYTES = 100
+            self.assertFalse(hlib.plan_artifact_log_copy(1000).copy_all)
+        finally:
+            hlib.ARTIFACT_LOG_CAP_BYTES = orig
+        self.assertTrue(hlib.plan_artifact_log_copy(1000).copy_all)
+
+
+class SelectShotsDirsToPruneTests(unittest.TestCase):
+    """hlib.select_shots_dirs_to_prune (review MAJOR 1): the retention decision
+    bounding results/*_shots growth across runs."""
+
+    def test_under_both_budgets_prunes_nothing(self):
+        entries = [("a_shots", 1.0, 10), ("b_shots", 2.0, 10)]
+        self.assertEqual([], hlib.select_shots_dirs_to_prune(
+            entries, keep_dirs=5, max_total_bytes=1000))
+
+    def test_count_budget_prunes_oldest_first(self):
+        entries = [("old_shots", 1.0, 10), ("mid_shots", 2.0, 10), ("new_shots", 3.0, 10)]
+        prune = hlib.select_shots_dirs_to_prune(entries, keep_dirs=2, max_total_bytes=10**9)
+        self.assertEqual(["old_shots"], prune)
+
+    def test_byte_budget_prunes_past_the_cap(self):
+        entries = [("old_shots", 1.0, 60), ("mid_shots", 2.0, 60), ("new_shots", 3.0, 60)]
+        prune = hlib.select_shots_dirs_to_prune(entries, keep_dirs=10, max_total_bytes=130)
+        self.assertEqual(["old_shots"], prune)
+
+    def test_protected_dir_is_always_kept_even_over_budget(self):
+        """The run that just collected must never prune itself, even when its
+        own dir alone busts the byte budget."""
+        entries = [("huge_shots", 5.0, 10**9), ("old_shots", 1.0, 10)]
+        prune = hlib.select_shots_dirs_to_prune(entries, protect_name="huge_shots",
+                                                keep_dirs=1, max_total_bytes=100)
+        self.assertNotIn("huge_shots", prune)
+        self.assertEqual(["old_shots"], prune)
+
+    def test_prune_list_is_oldest_first(self):
+        entries = [("a_shots", 1.0, 10), ("b_shots", 2.0, 10),
+                   ("c_shots", 3.0, 10), ("d_shots", 4.0, 10)]
+        prune = hlib.select_shots_dirs_to_prune(entries, keep_dirs=1, max_total_bytes=10**9)
+        self.assertEqual(["a_shots", "b_shots", "c_shots"], prune)
+
+
+class NonFiniteWallSecondsTests(unittest.TestCase):
+    """Review MINOR 2 (CONFIRMED by the reviewer's repro): json.load admits bare
+    Infinity/NaN, and int(inf) raises -- one poison result JSON must not
+    permanently break every subsequent index render."""
+
+    def test_run_index_entry_drops_non_finite_and_bool_wall(self):
+        for bad in (float("inf"), float("-inf"), float("nan"), True):
+            e = cs.run_index_entry({"runId": "r", "verdict": "PASS", "wallSeconds": bad}, "r")
+            self.assertIsNone(e["wallSeconds"], "wallSeconds=%r must read as None" % bad)
+
+    def test_poison_result_json_still_renders_sheet_and_index(self):
+        tmp = tempfile.mkdtemp(prefix="parsek-contact-poison-")
+        try:
+            with open(os.path.join(tmp, "poison.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"schema": 1, "runId": "poison", "verdict": "PASS", '
+                         '"wallSeconds": Infinity}')
+            sheet = cs.generate_run_sheet(tmp, "poison")
+            self.assertTrue(os.path.isfile(sheet))
+            index = cs.generate_index(tmp)
+            self.assertTrue(os.path.isfile(index))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
