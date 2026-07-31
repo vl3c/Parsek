@@ -1600,7 +1600,10 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         # explained by a seam entry is an unexpected stock award.
         #
         # HARD ONLY WHEN THE SCENARIO ARMS IT (`captureCrossCheck = "gate"`, declared
-        # by no committed spec). Until the 2026-07-29 pattern rewrite this loop had an
+        # by exactly ONE committed spec since 2026-07-31: `CL-2-pod-impact-ledger`,
+        # armed over three flights against the real game - see known-gate 3. Every
+        # other spec is still report-only).
+        # Until the 2026-07-29 pattern rewrite this loop had an
         # always-empty input - STOCK_AWARD_PATTERNS matched shapes no KSP build emits -
         # so the hard drift it wrote was unreachable. Turning a working capture and a
         # live gate on in one step would red scenarios against an award baseline nobody

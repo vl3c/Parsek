@@ -4382,9 +4382,12 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     across runs even though the exact UT is not. A windowed entry matches ONLY awards
     carrying a real UT inside the inclusive bounds; a null-UT award never
     window-matches (nothing to judge), and an award outside the bounds stays
-    unexpected. Declaring ``utWindow`` is OPT-IN PER ENTRY: no committed spec declares
-    one (guarded by test_no_committed_spec_declares_a_ut_window), so every existing
-    manifest matches byte-identically to the pre-window behavior.
+    unexpected. Declaring ``utWindow`` is OPT-IN PER ENTRY, and exactly ONE committed
+    spec declares one - ``CL-2-pod-impact-ledger``, armed against the real game
+    2026-07-31 (guarded by test_only_the_armed_allowlist_declares_a_ut_window), which
+    is also the only committed spec that arms ``captureCrossCheck = "gate"``. Every
+    other manifest is window-free and matches byte-identically to the pre-window
+    behavior.
 
     ONE-TO-ONE PER (ENTRY, POOL): a match CONSUMES the pair ``(entry, facet)``, so one
     declared effect explains at most one award ON EACH POOL IT DECLARES. That is what
@@ -4418,10 +4421,13 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
 
     WHAT THIS RETURNS IS NOT AUTOMATICALLY A RED. The run.py caller decides whether an
     unmatched award is a HARD divergence or a REPORT-ONLY row from the scenario's
-    ``[expectations.ledger] captureCrossCheck`` mode. Report-only is the default
-    because nobody has yet flown a run with a LIVE capture: an L1 career scenario also
-    trips stock MILESTONE awards no seam manifest declares (those stay unexpected and
-    are exactly what an operator must review before arming)."""
+    ``[expectations.ledger] captureCrossCheck`` mode. Report-only remains the DEFAULT,
+    because an unarmed career scenario also trips stock awards no seam manifest
+    declares (those stay unexpected and are exactly what an operator must review
+    before arming). ONE committed spec is ARMED as of 2026-07-31 -
+    ``CL-2-pod-impact-ledger``, the only one measured producing reputation - after the
+    three-flight checklist in autotest-status.md known-gate 3 was walked against the
+    real game; for it, a return value from this function is a PARSEK-FAIL(ledger)."""
     tolerances = facet_tolerances or DEFAULT_CAPTURE_MATCH_TOLERANCES
     available = list(seam_entries or ())
     # CANDIDATE ORDER: `stockReason`-PINNED entries first. The match is greedy (first

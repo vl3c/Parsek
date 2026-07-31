@@ -272,15 +272,35 @@ a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
 `ut` + `utWindow` on one entry all reject at parse time. M-B2 independence is
 untouched - the window is a matching hint, `compute_expected` never reads it, and a
 captured amount is still never summed into EXPECTED. OPT-IN and verdict-neutral by
-construction: no committed spec declares a window
-(`test_no_committed_spec_declares_a_ut_window` pins it, next to the existing
-no-spec-arms-gate cell); the CL-2 shape - the three measured capture lines
-corroborating through windows, near-window misses, straddling awards, the measured UT
-spread as literals - is pinned in
-`test_hlib.py::FlownScenarioUtWindowCorroborationTests`. `CL-2-pod-impact-ledger`
-itself stays `captureCrossCheck = "report"` with no windows declared; arming it is an
-operator action (declare windows from a green run's `capturedRaw`, then flip to
-`gate`).
+construction at the time it shipped: no committed spec declared a window; the CL-2
+shape - the three measured capture lines corroborating through windows, near-window
+misses, straddling awards, the measured UT spread as literals - is pinned in
+`test_hlib.py::FlownScenarioUtWindowCorroborationTests`.
+
+**ARMED 2026-07-31, same day, second session.** The operator action was then TAKEN
+against the real game on `CL-2-pod-impact-ledger`, one flight per checklist step,
+all PASS attempt 1:
+
+```
+2026-07-31_1630  baseline, spec UNCHANGED   3 awards UNEXPECTED (report-only)
+                                            ut 12.5 / 19.1 / 119.9
+2026-07-31_1638  utWindows declared, report ZERO unexpected; reportOnly 3 -> 0
+2026-07-31_1645  captureCrossCheck = gate   PASS, hardDivergences=0 reportOnly=0
+```
+
+The windows are the mission's PHASE BOUNDS - `[0, 60]` for the two ascent
+`Progression` awards, `[100, 140]` for the `VesselLoss` impact - and these three
+flights are the argument for bounds over pins: the second `Progression` measured
+19.1, then 19.0, then 19.1 across them. The expected totals did NOT move
+(`funds=529600.0 science=100.0 rep=-7.999829000000001` before and after): CL-2's
+entries are all `ut`-less so `_sort_key` ordering is untouched, and all three rep
+entries are `repMode="applied"` so the nonlinear curve is not re-entered. The funds
+milestone entry stays window-free (KSP logs no funds award, so it is never
+capture-matched). The two whole-set cells became explicit ALLOWLISTS naming CL-2 with
+that evidence (`test_only_the_armed_allowlist_arms_the_capture_cross_check`,
+`test_only_the_armed_allowlist_declares_a_ut_window`), so a SECOND spec arming the
+gate still reds until its own evidence is recorded. CL-2 is the first committed spec
+in the suite to gate on the ledger capture.
 
 `hlib`'s own note says `captureCrossCheck` "was WRITTEN as a hard gate, but it has never
 once run with a working capture", that no L1 spec can capture anything, and that arming
@@ -633,6 +653,35 @@ through the fake-KSP smoke harness (`test_run_smoke.py::InjectPostconditionTests
 full `run_attempt` over a no-op injection terminates INVALID(stage-inject-noop)
 pre-boot and non-retryable, success paths for both presets stage clean, an RP-less
 rewind-b9 injection fails closed, and the predicate's shapes are pinned directly.
+
+**LIVE-PROVEN 2026-07-31 against the real game, in the exact worktree state that
+triggers it** (`Parsek-cl2-capture-arming`, `Source/Parsek.Tests` never built - the
+deterministic trigger this entry identifies). Both halves, no divergence from the
+claim, so no driver change was needed:
+
+```
+19:26:47  python run.py --id S1.5-rewind-loop
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Error][Stage] inject postcondition failed preset=rewind-b9 exit=0
+    missing=[non-empty Parsek/Recordings/, Parsek/RewindPoints/rp_b9_root.sfs];
+    aborting pre-boot (INVALID stage-inject-noop). likely cause: Parsek.Tests
+    assembly missing (never built in this worktree; the injector's deliberate
+    --no-build runs nothing) - remedy: dotnet build Source/Parsek.Tests
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=0s terminal=INVALID
+19:26:48
+```
+
+Run `2026-07-31_1626_S1.5-rewind-loop`: `verdict=INVALID subkind=stage-inject-noop`,
+ONE SECOND wall. PRE-BOOT is proven by the result JSON rather than asserted -
+`kspExit={"code": null, "killed": false}`, `collectLogs={"path": null, "ran": false}`,
+`driver.steps=[]` - and NON-RETRYABLE by `attempt=1` with zero `_a2` files in
+`results/`. Note `exit=0` in that line: the injector still reported success, which is
+precisely the fail-open the postcondition now catches. Running the NAMED REMEDY
+verbatim (`dotnet build Source/Parsek.Tests`) and re-invoking then staged, booted and
+went GREEN on attempt 1 - run `2026-07-31_1627_S1.5-rewind-loop`, 63 s, `stage
+save=gloops-airshow ... inject=rewind-b9`, `launch exe=...KSP_x64.exe pid=26188`,
+every verifier PASS/SKIPPED. So the error message's remedy is not just plausible, it
+is the whole fix: one build, one green run.
 
 ### What happens
 
@@ -1785,7 +1834,7 @@ Three consequences worth stating:
 captureCrossCheck = "gate"   # default "report"; declared by ZERO committed specs
 ```
 
-`report` records each unmatched award as a REPORT-ONLY oracle divergence (logged, counted in `reportOnly`, kept in `results/<runId>.manifest.json` `capturedRaw`); `gate` restores the hard `PARSEK-FAIL(ledger)`. OPERATOR-BLOCKED: arm per scenario after one green run shows that scenario's real award baseline. Pinned by `test_unexpected_award_is_report_only_by_default` (the same log that reds when armed must not red by default) and its armed twin.
+`report` records each unmatched award as a REPORT-ONLY oracle divergence (logged, counted in `reportOnly`, kept in `results/<runId>.manifest.json` `capturedRaw`); `gate` restores the hard `PARSEK-FAIL(ledger)`. OPERATOR-BLOCKED: arm per scenario after one green run shows that scenario's real award baseline. Pinned by `test_unexpected_award_is_report_only_by_default` (the same log that reds when armed must not red by default) and its armed twin. **The "ZERO committed specs" in that snippet held until 2026-07-31**, when `CL-2-pod-impact-ledger` was armed over three flights - it is now the one and only armed spec, and the whole-set cells are allowlists rather than empty-set assertions; see the struck corroboration-key entry above for the evidence.
 
 **AND THE CORROBORATION KEY HAD TO CHANGE WITH THEM (review follow-up, found by reproduction).** The generic captured kinds made corroboration STRUCTURALLY IMPOSSIBLE: `unmatched_captured_awards` joined captured-vs-seam on `(seqKey, kind, identity)`, but a captured award now always carries `stock-funds-award` / `stock-reputation-award` while a seam entry carries a scenario kind (`kerbal-hire`, `facility-upgrade`, ...), so the kinds can NEVER be equal and every captured award reported "unexpected" - including the scenario's own. Reproduced against `L1-hire-kerbal-career`, whose own declared -62113 hire debit read as an unexpected award. The consequence was worse than noise: `captureCrossCheck = "gate"` could never be armed on any scenario that declares anything, so the escalation path documented one paragraph above could not be walked.
 

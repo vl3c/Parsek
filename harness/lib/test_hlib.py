@@ -6618,15 +6618,30 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
                          "captured rep awards must not reach the expected rep pool")
         self.assertEqual(0.0, after.science)
 
-    def test_no_committed_spec_arms_the_capture_cross_check(self):
-        # NIT 1 / the HARD SAFETY PROPERTY for gap 1, mirroring the unityExceptions
-        # cell: the escalation path exists but nothing walks it yet.
+    def test_only_the_armed_allowlist_arms_the_capture_cross_check(self):
+        # NIT 1 / the HARD SAFETY PROPERTY for gap 1. This cell asserted the empty set
+        # ("the escalation path exists but nothing walks it yet") from the day the knob
+        # shipped until 2026-07-31, when the path was walked end to end against the
+        # real game. It is now an explicit ALLOWLIST: the escalation path has exactly
+        # one walker, and a SECOND spec arming the gate still reds here until someone
+        # records that spec's own arming evidence.
+        #
+        # CL-2-pod-impact-ledger is the only committed scenario measured producing
+        # reputation, and the capture is reputation-only (KSP logs no funds and no
+        # science award line), so it is the only place the gate has a non-empty input
+        # at all - arming an L1 spec would arm a no-op gate reading green forever.
+        # Evidence: three flights on 2026-07-31, one per checklist step - baseline
+        # `2026-07-31_1630` (3 unexpected, report-only), windows-declared
+        # `2026-07-31_1638` (0 unexpected, still report), armed `2026-07-31_1645`
+        # (PASS with the gate live). Full record in the spec's own comment block.
+        allowed = {"CL-2-pod-impact-ledger.toml"}
         armed = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
             if hlib.capture_cross_check_gates(ledger):
                 armed.append(name)
-        self.assertEqual([], armed, "a committed spec armed captureCrossCheck")
+        self.assertEqual(sorted(allowed), sorted(set(armed)),
+                         "a committed spec outside the armed allowlist armed captureCrossCheck")
 
     def test_gate_mode_resolution_and_validation(self):
         self.assertFalse(hlib.capture_cross_check_gates(None))
@@ -6983,12 +6998,26 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         self.assertEqual(parse.entries[0].stock_reasons, reparse.entries[0].stock_reasons)
         self.assertIsNone(reparse.entries[1].ut_window)
 
-    def test_no_committed_spec_declares_a_ut_window(self):
-        # THE WHOLE-SET GUARD, mirroring test_no_committed_spec_arms_the_capture_
-        # cross_check: the window is a knob NO committed spec declares, which is what
-        # makes this change verdict-neutral by construction. When a spec legitimately
-        # arms one, move its name into an explicit allowlist here alongside the
-        # arming evidence (a green run's capturedRaw).
+    def test_only_the_armed_allowlist_declares_a_ut_window(self):
+        # THE WHOLE-SET GUARD, mirroring test_only_the_armed_allowlist_arms_the_
+        # capture_cross_check. It was "NO committed spec declares one" until the
+        # mechanism was walked end to end against the real game on 2026-07-31; it is
+        # now an explicit ALLOWLIST, so a window appearing on any OTHER spec is still
+        # a drift this cell reds on. Adding a name here is the deliberate act: it
+        # requires the arming evidence below (a green run's capturedRaw, then a green
+        # run with the windows declared showing the unexpected rows at zero).
+        #
+        # CL-2-pod-impact-ledger, ARMED 2026-07-31 (this file's own three flights):
+        #   `2026-07-31_1630`  PASS 168 s a1, spec UNCHANGED - the honest baseline.
+        #                      stockLines=3 deduped=3 seamRejected=0, all three
+        #                      UNEXPECTED (report-only) at ut 12.5 / 19.1 / 119.9.
+        #   `2026-07-31_1638`  PASS a1, windows declared + still "report" - ZERO
+        #                      unexpected rows, ledgerOracle reportOnly 3 -> 0.
+        #   `2026-07-31_1645`  PASS a1, `captureCrossCheck = "gate"` live.
+        # The windows are PHASE BOUNDS, never pins: that same second Progression
+        # award measured ut 19.0 on 2026-07-30 and 19.1 on the baseline flight, and
+        # the impact has now measured 119.7 / 119.8 / 119.9 across four runs.
+        allowed = {"CL-2-pod-impact-ledger.toml"}
         declaring = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
@@ -6996,7 +7025,28 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
                 if isinstance(entry, dict) and (
                         "utWindow" in entry or "ut_window" in entry):
                     declaring.append(name)
-        self.assertEqual([], declaring, "a committed spec declares utWindow")
+        self.assertEqual(sorted(allowed), sorted(set(declaring)),
+                         "a committed spec outside the armed allowlist declares utWindow")
+
+    def test_the_armed_cl2_windows_are_the_measured_phase_bounds(self):
+        # The allowlist above says WHICH spec may declare windows; this says WHAT it
+        # declares, so a later broadening (a window quietly widened to swallow a red,
+        # which the spec's RE-PIN CONTRACT forbids) reds here rather than passing
+        # silently. Bounds are the mission's two phases and both comfortably bracket
+        # every UT the four archived runs measured.
+        ledger = ((load_spec("CL-2-pod-impact-ledger.toml").get("expectations", {}) or {})
+                  .get("ledger") or {})
+        windows = {e["seq"]: e.get("utWindow") for e in ledger["manifest"]
+                   if isinstance(e, dict)}
+        self.assertEqual([0.0, 60.0], windows[0], "Progression #1 = ascent phase")
+        self.assertEqual([0.0, 60.0], windows[1], "Progression #2 = ascent phase")
+        self.assertEqual([100.0, 140.0], windows[2], "VesselLoss = impact phase")
+        self.assertIsNone(windows.get(3),
+                          "the funds milestone entry must stay window-free: KSP logs "
+                          "no funds award, so it is never capture-matched")
+        # Non-overlapping, so neither phase's entries can reach the other's awards
+        # even before the amount / stockReason predicates run.
+        self.assertLess(windows[0][1], windows[2][0])
 
 
 class ParseCareerSaveBlockTests(unittest.TestCase):

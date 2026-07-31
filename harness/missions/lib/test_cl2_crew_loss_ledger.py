@@ -297,15 +297,80 @@ class Cl2LedgerBlockTests(unittest.TestCase):
     def test_the_seed_comes_from_the_template(self):
         self.assertEqual("template", self.block.get("seedFrom", "template"))
 
-    def test_the_capture_cross_check_is_report_not_gate(self):
-        # DELIBERATE. hlib's own note says the cross-check "was WRITTEN as a hard gate,
-        # but it has never once run with a working capture" and that arming wants a
-        # reputation-producing scenario - which this is, making it the intended FIRST
-        # arm site. Arming is a separate, deliberate step taken once a green run shows
-        # what this scenario's baseline award set actually is; this cell is what makes
-        # arming a decision rather than a drift.
-        self.assertEqual("report", self.block.get("captureCrossCheck", "report"))
-        self.assertFalse(hlib.capture_cross_check_gates(self.block))
+    def test_the_capture_cross_check_is_armed_as_a_gate(self):
+        # THE RECORDED DECISION. This cell asserted "report" from the day the spec
+        # landed, precisely so that arming would be a deliberate act rather than a
+        # drift. That act was taken 2026-07-31 and this cell is its record: the
+        # scenario now GATES, and a later silent retreat to "report" reds here.
+        #
+        # hlib's own note said the cross-check "was WRITTEN as a hard gate, but it has
+        # never once run with a working capture", and that arming wants a
+        # reputation-producing scenario - which this is, making it the intended first
+        # arm site. It is also the ONLY viable one: the capture is reputation-only
+        # (KSP logs no funds and no science award line), and no other committed spec
+        # is measured producing reputation, so arming anywhere else would arm a check
+        # whose input is provably always empty.
+        #
+        # THE EVIDENCE, one flight per checklist step, all PASS on attempt 1:
+        #   `2026-07-31_1630`  baseline, spec unchanged: stockLines=3 deduped=3
+        #                      seamRejected=0, all three awards UNEXPECTED
+        #                      (report-only) at ut 12.5 / 19.1 / 119.9.
+        #   `2026-07-31_1638`  utWindows declared, still "report": ZERO unexpected
+        #                      rows, ledgerOracle hardDivergences=0 reportOnly=0
+        #                      (3 -> 0), expected totals byte-identical.
+        #   `2026-07-31_1645`  armed: PASS with the gate live.
+        self.assertEqual("gate", self.block.get("captureCrossCheck", "report"))
+        self.assertTrue(hlib.capture_cross_check_gates(self.block))
+
+    def test_the_armed_windows_are_phase_bounds_not_pins(self):
+        # WHAT MAKES THE GATE SURVIVABLE. The exact award UTs are NOT stable - the
+        # second Progression measured 19.0 (2026-07-30 flights), 19.1 (the 1630
+        # baseline) and 19.0 again (the 1638 flight), and the impact measured
+        # 119.7 / 119.8 / 119.9 across four archived runs - so every armed entry must
+        # carry a WINDOW and never an exact `ut`. An entry that regressed to an exact
+        # ut would red the next flight for a reason that is not a defect.
+        windows = {}
+        for e in self.block["manifest"]:
+            self.assertIsNone(e.get("ut"), "an armed entry must not pin an exact ut")
+            windows[e["seq"]] = e.get("utWindow")
+        self.assertEqual([0.0, 60.0], windows[0])
+        self.assertEqual([0.0, 60.0], windows[1])
+        self.assertEqual([100.0, 140.0], windows[2])
+        # The funds milestone entry stays window-free ON PURPOSE: KSP logs no funds
+        # award at all (hlib.STOCK_AWARD_PATTERNS_DEAD), so it is never
+        # capture-matched and a window on it would be decoration implying a check
+        # that cannot run.
+        self.assertIsNone(windows[3])
+
+    def test_the_armed_windows_corroborate_the_measured_award_set(self):
+        # THE CELL THAT WOULD HAVE CAUGHT A BAD ARMING WITHOUT A FLIGHT. Replays the
+        # three awards the 1630 baseline actually captured through the SAME matcher
+        # run.py runs, at the SAME default tolerances: with the gate armed, a single
+        # unmatched award here is a PARSEK-FAIL(ledger) on the next real flight.
+        measured = [(12.5, 0.9999995, "Progression"),
+                    (19.1, 0.9999995, "Progression"),
+                    (119.9, -9.999828, "VesselLoss")]
+        awards = [hlib.CapturedAward(
+            kind="stock-reputation-award", facet="reputation", amount=amt,
+            contract_guid="", subject_id="", ut=ut, seq=i, raw_line="", reason=reason)
+            for i, (ut, amt, reason) in enumerate(measured)]
+        parse = oracle.parse_manifest_entries(self.block["manifest"])
+        self.assertEqual([], list(parse.errors))
+        tol = oracle.default_tolerances()
+        unmatched = hlib.unmatched_captured_awards(
+            parse.entries, awards,
+            {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation})
+        self.assertEqual([], [(u.ut, u.reason) for u in unmatched])
+        # And the gate still BITES: an award outside every window stays unexpected,
+        # so arming did not turn the check into a rubber stamp.
+        stray = hlib.CapturedAward(
+            kind="stock-reputation-award", facet="reputation", amount=0.9999995,
+            contract_guid="", subject_id="", ut=80.0, seq=9, raw_line="",
+            reason="Progression")
+        still = hlib.unmatched_captured_awards(
+            parse.entries, awards + [stray],
+            {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation})
+        self.assertEqual([80.0], [u.ut for u in still])
 
     def test_every_manifest_entry_parses_with_no_rejections(self):
         # run.py warn-logs a rejected seam entry and the caller reds it as a DROPPED
