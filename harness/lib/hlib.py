@@ -5713,3 +5713,184 @@ def flake_attempt_entries(result: Dict) -> List[Dict]:
     if verdict not in FLAKE_NUMERATOR_VERDICTS and recovered_subprocess_retries(result):
         entries.append({"utc": utc, "outcome": VERDICT_INVALID})
     return entries
+
+
+# ---------------------------------------------------------------------------
+# V3 always-collect artifact decisions (design-testing-unified section 6, V3).
+# Pure: run.py's unconditional per-run artifact step (copy the run's KSP.log +
+# any run-window screenshots into results/<runId>_shots/) delegates its two
+# decisions here -- how much of a possibly-huge KSP.log to copy, and which
+# Screenshots/ files belong to THIS run. The copy itself is shell I/O in run.py.
+# ---------------------------------------------------------------------------
+
+# KSP.log copy cap. A green run's log is a few MB, but a hung run at high warp
+# with a per-frame tracer armed can reach GBs; the artifact copy must be bounded
+# or a single bad run fills the results volume. On an oversize log the copy keeps
+# the HEAD (session markers, boot, the first anomalies) plus the TAIL (the
+# BATCH_COMPLETE line, teardown, the most recent anomalies -- the contact sheet's
+# primary inputs) and drops the middle with an explicit marker line, because the
+# verdict-bearing lines cluster at both ends while the middle of a runaway log is
+# almost always the same per-frame spam repeated.
+ARTIFACT_LOG_CAP_BYTES = 64 * 1024 * 1024
+ARTIFACT_LOG_HEAD_BYTES = 8 * 1024 * 1024
+ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
+
+# Screenshot selection. The instance's Screenshots/ dir accumulates across runs,
+# so only files stamped inside THIS run's wall-clock window are collected (with a
+# small slack for filesystem mtime granularity). Caps bound a capture-storm run.
+ARTIFACT_SCREENSHOT_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg")
+ARTIFACT_MAX_SCREENSHOTS = 64
+ARTIFACT_MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024
+ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class ArtifactLogCopyPlan:
+    copy_all: bool
+    head_bytes: int   # bytes to keep from the start (truncated plan only)
+    tail_bytes: int   # bytes to keep from the end (truncated plan only)
+
+
+def plan_artifact_log_copy(size_bytes: int,
+                           cap_bytes: Optional[int] = None,
+                           head_bytes: Optional[int] = None,
+                           tail_bytes: Optional[int] = None) -> ArtifactLogCopyPlan:
+    """Decide how much of the run's KSP.log the artifact step copies.
+
+    ``size_bytes <= cap_bytes`` -> copy the whole file. Larger -> keep the first
+    ``head_bytes`` + the last ``tail_bytes`` (clamped so head+tail never exceeds
+    the cap, and tail wins the clamp -- the tail carries BATCH_COMPLETE and the
+    teardown lines, the single most verdict-relevant region). A non-positive or
+    unknown size reads as "copy all" (the copy loop then just streams whatever is
+    there; an unreadable file degrades at the I/O layer, never here).
+
+    The cap parameters default to None and resolve to the module constants AT
+    CALL TIME (adversarial review NIT 6): def-time defaults would freeze the
+    constants, making a rebound ``hlib.ARTIFACT_LOG_CAP_BYTES`` inert -- and a
+    test could then only exercise the truncation path by writing a real 64 MiB
+    file.
+    """
+    if cap_bytes is None:
+        cap_bytes = ARTIFACT_LOG_CAP_BYTES
+    if head_bytes is None:
+        head_bytes = ARTIFACT_LOG_HEAD_BYTES
+    if tail_bytes is None:
+        tail_bytes = ARTIFACT_LOG_TAIL_BYTES
+    if size_bytes <= cap_bytes or size_bytes <= 0:
+        return ArtifactLogCopyPlan(True, 0, 0)
+    tail = max(0, min(tail_bytes, cap_bytes))
+    head = max(0, min(head_bytes, cap_bytes - tail))
+    return ArtifactLogCopyPlan(False, head, tail)
+
+
+def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
+                           run_start_epoch: float,
+                           max_count: Optional[int] = None,
+                           max_bytes: Optional[int] = None,
+                           mtime_slack: Optional[float] = None
+                           ) -> Tuple[List[str], int, int]:
+    """Select which Screenshots/ files belong to this run's artifact snapshot.
+
+    ``candidates`` are ``(name, mtime_epoch, size_bytes)`` rows for the files in
+    the instance's Screenshots dir. Returns ``(selected_names, skipped_prior,
+    skipped_over_cap)``:
+
+    - only image extensions count (case-insensitive; anything else is ignored
+      entirely -- neither selected nor counted);
+    - a file older than ``run_start_epoch - mtime_slack`` is a PRIOR run's
+      capture (the dir accumulates across runs) -> counted in ``skipped_prior``;
+    - survivors are considered in ``(mtime, name)`` order under a GREEDY-FILL
+      byte budget (adversarial review NIT 7, deliberate): a file that would
+      overflow ``max_bytes`` is skipped and LATER, smaller files may still be
+      selected -- one oversize capture must not evict every capture after it.
+      The count cap, once hit, drops everything later. Every drop is counted in
+      ``skipped_over_cap`` so the artifact record can say "N more existed"
+      instead of silently under-reporting.
+
+    Caps default to None and resolve to the module constants at call time
+    (same testability rationale as ``plan_artifact_log_copy``).
+    """
+    if max_count is None:
+        max_count = ARTIFACT_MAX_SCREENSHOTS
+    if max_bytes is None:
+        max_bytes = ARTIFACT_MAX_SCREENSHOT_BYTES
+    if mtime_slack is None:
+        mtime_slack = ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS
+    threshold = run_start_epoch - mtime_slack
+    eligible: List[Tuple[float, str, int]] = []
+    skipped_prior = 0
+    for name, mtime, size in candidates:
+        dot = name.rfind(".") if name else -1
+        ext = name[dot:].lower() if dot >= 0 else ""
+        if ext not in ARTIFACT_SCREENSHOT_EXTENSIONS:
+            continue
+        if mtime < threshold:
+            skipped_prior += 1
+            continue
+        eligible.append((mtime, name, size))
+    eligible.sort()
+    selected: List[str] = []
+    total_bytes = 0
+    skipped_over_cap = 0
+    for mtime, name, size in eligible:
+        if len(selected) >= max_count or total_bytes + max(0, size) > max_bytes:
+            skipped_over_cap += 1
+            continue
+        selected.append(name)
+        total_bytes += max(0, size)
+    return selected, skipped_prior, skipped_over_cap
+
+
+# Shots-dir retention (adversarial review MAJOR 1). The always-collect step
+# writes up to ARTIFACT_LOG_CAP_BYTES per attempt into results/<runId>_shots/,
+# results/ is gitignored (growth invisible to `git status`), and nothing else
+# ever prunes it -- so without retention a nightly cadence fills the volume the
+# harness stages fixtures into, which then reds runs for an unrelated reason.
+# Retention prunes OLDEST-FIRST, keeps the heavy *_shots dirs only (result
+# JSONs / summary / logs / contact HTML are KB-scale history and are NEVER
+# touched -- the contact page already embeds the extracted key lines as text,
+# so a pruned run keeps its scannable sheet and loses only the raw log + the
+# image files behind it).
+ARTIFACT_SHOTS_KEEP_DIRS = 40
+ARTIFACT_SHOTS_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def select_shots_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
+                               protect_name: Optional[str] = None,
+                               keep_dirs: Optional[int] = None,
+                               max_total_bytes: Optional[int] = None) -> List[str]:
+    """Which ``*_shots`` dirs the retention pass removes.
+
+    ``entries`` are ``(dir_name, mtime_epoch, total_size_bytes)`` rows for every
+    shots dir under results/. Walks NEWEST first, keeping dirs until EITHER
+    budget (``keep_dirs`` count / ``max_total_bytes``) trips -- and from the
+    first trip on, EVERYTHING OLDER is pruned (stop-on-trip, review NEW-4:
+    retention priority is strictly newest-wins, so a large recent run must
+    never be evicted while tiny older runs survive past it). ``protect_name``
+    (the CURRENT run's dir) is always kept regardless of budgets -- the run that
+    just collected its artifacts must never prune itself. Returned oldest
+    first. Caps default to None and resolve to the module constants at call
+    time.
+    """
+    if keep_dirs is None:
+        keep_dirs = ARTIFACT_SHOTS_KEEP_DIRS
+    if max_total_bytes is None:
+        max_total_bytes = ARTIFACT_SHOTS_MAX_TOTAL_BYTES
+    newest_first = sorted(entries, key=lambda e: (e[1], e[0]), reverse=True)
+    prune: List[str] = []
+    kept = 0
+    kept_bytes = 0
+    tripped = False
+    for name, _mtime, size in newest_first:
+        if name == protect_name:
+            kept += 1
+            kept_bytes += max(0, size)
+            continue
+        if tripped or kept >= keep_dirs or kept_bytes + max(0, size) > max_total_bytes:
+            tripped = True
+            prune.append(name)
+        else:
+            kept += 1
+            kept_bytes += max(0, size)
+    prune.reverse()  # oldest first, so a partial prune removes the oldest
+    return prune
