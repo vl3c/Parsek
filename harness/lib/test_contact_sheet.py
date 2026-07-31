@@ -478,6 +478,34 @@ class NonFiniteWallSecondsTests(unittest.TestCase):
         self.assertIn("<!doctype html>", cs.render_index_html(
             [cs.run_index_entry({"runId": "r", "verdict": "PASS", "wallSeconds": big}, "r")]))
 
+    def test_index_row_build_crash_degrades_to_unreadable_row(self):
+        """Round-2 hardening: the index walks every result JSON, so ANY
+        exception in one row's build (not just the whitelisted value classes)
+        must degrade that row to UNREADABLE, never block index.html."""
+        tmp = tempfile.mkdtemp(prefix="parsek-contact-rowcrash-")
+        orig = cs.run_index_entry
+
+        def boom_on_bad(obj, fallback):
+            if fallback == "bad-row":
+                raise ValueError("boom (injected row-build failure)")
+            return orig(obj, fallback)
+
+        try:
+            for rid in ("good-row", "bad-row"):
+                with open(os.path.join(tmp, "%s.json" % rid), "w", encoding="utf-8") as fh:
+                    fh.write('{"schema": 1, "runId": "%s", "verdict": "PASS"}' % rid)
+            cs.run_index_entry = boom_on_bad
+            index = cs.generate_index(tmp)
+            with open(index, "r", encoding="utf-8") as fh:
+                page = fh.read()
+        finally:
+            cs.run_index_entry = orig
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertIn("good-row", page)
+        self.assertIn("bad-row", page)
+        self.assertIn("UNREADABLE", page)
+        self.assertIn("index row build failed", page)
+
     def test_poison_result_json_still_renders_sheet_and_index(self):
         tmp = tempfile.mkdtemp(prefix="parsek-contact-poison-")
         try:

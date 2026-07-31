@@ -560,11 +560,20 @@ def generate_index(results_dir: str) -> str:
     A malformed result JSON becomes a gray UNREADABLE row, never a crash."""
     entries: List[Dict] = []
     for run_id in discover_run_ids(results_dir):
-        obj = _read_result_json(os.path.join(results_dir, "%s.json" % run_id))
-        entry = run_index_entry(obj, run_id)
-        sheet_name = run_id + CONTACT_SUFFIX
-        if os.path.isfile(os.path.join(results_dir, sheet_name)):
-            entry["sheetHref"] = sheet_name
+        # Per-row isolation (review round-2 hardening note): the index walks
+        # EVERY result JSON, so one poison row must degrade to UNREADABLE, not
+        # block index.html for all subsequent runs -- regardless of which
+        # exotic value class the row build trips on.
+        try:
+            obj = _read_result_json(os.path.join(results_dir, "%s.json" % run_id))
+            entry = run_index_entry(obj, run_id)
+            sheet_name = run_id + CONTACT_SUFFIX
+            if os.path.isfile(os.path.join(results_dir, sheet_name)):
+                entry["sheetHref"] = sheet_name
+        except Exception:  # noqa: BLE001 - one bad row must not sink the index
+            entry = {"runId": run_id, "scenarioId": "?", "verdict": "UNREADABLE",
+                     "subkind": "", "utc": "", "wallSeconds": None,
+                     "note": "index row build failed"}
         entries.append(entry)
     index_path = os.path.join(results_dir, INDEX_BASENAME)
     os.makedirs(results_dir, exist_ok=True)
