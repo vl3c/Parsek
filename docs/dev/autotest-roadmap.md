@@ -768,6 +768,8 @@ Flight? No.
 ### Tier 3: machinery that raises the ceiling.
 
 **R9. Structural save-content expectations.** One harness PR plus one analyzer PR.
+**SHIPPED-REPORT-ONLY 2026-07-31 (harness half, branch
+`claude/r9-save-parse-verifier-tshhzv`).**
 
 An `[expectations.recordings.structure]` block evaluated against the analyzer's
 parsed model: branch-point counts by type, TrackSection frame and anchor, terminal
@@ -775,6 +777,30 @@ state and body per recording. Plus land the three inert blocks (`route`, `rewind
 `loop`). Retires the presence-only grep proxy, makes D3/D4/D5/D7/D18 claims mean
 something, and closes both the "one of two board merges dropped still passes" class
 and S4.1's assertions that currently do nothing.
+
+DELIVERED: the M-C2 save-parse verifier - a pure-Python parser
+(`harness/lib/saveparse.py`, the oracle-precedent sibling) over the produced
+save's ParsekScenario surfaces (RECORDING_TREE topology + recordings + branch
+points, RECORDING_SUPERSEDES, LEDGER_TOMBSTONES, RECORDING_REWIND_RETIREMENTS,
+REWIND_POINTS/slots), a new `saveParse` verifier row evaluating
+`[expectations.rewind]` (supersedeRows / tombstones / rewindPoints windows) and
+`[expectations.recordings.structure]` (tree counts, recording counts, terminal
+states by name, branch-point counts by type), spec-surface validation in
+`validate_spec`, and measured facets recorded on every driver-valid run.
+REPORT-ONLY by default (verdict neutrality: S4.1 already declares a rewind
+block, so a gating default would have moved a committed nightly's verdict with
+no live run to prove the readings); a block arms with `gating = true`, declared
+by ZERO committed specs and guarded by a test-suite sweep. `rewind` LEFT
+`RESERVED_EXPECTATION_BLOCKS` (sole-owner rule, the M-B2 `world` precedent).
+
+STILL OPEN to close R9 fully: (a) read the report-only `saveParse` facets off
+one local S4.1 + one CL-2 run, then arm `gating = true` per scenario (operator
+promotion, not a code change); (b) `route` / `loop` stay RESERVED - their
+consumers do not exist (zero committed declarers), so no evaluator was built
+for them; (c) the analyzer-PR half (TrackSection frame/anchor + per-recording
+body asserts over the analyzer's parsed model) - the .sfs surface deliberately
+does not carry those, they live in `.prec` sidecars the analyzer already
+parses.
 
 **R10. Runtime-handle plumbing.** One harness PR plus one seam verb.
 
@@ -936,8 +962,9 @@ R14. The ranked detail and rationale live in `design-testing-unified.md` §8 -
 this tier is a pointer index so the roadmap stays the single forward-order
 surface, and it does NOT reorder R1-R14: the audit independently re-confirmed
 this file's sequencing rule (gate what already flies before growing the flight
-lane) and its top unbuilt items (R9 structural expectations remains the single
-highest-leverage item; R5's unlock remains almost entirely unconsumed).
+lane) and its top unbuilt items (R9 structural expectations was the single
+highest-leverage item until its harness half SHIPPED-REPORT-ONLY 2026-07-31 -
+see the R9 entry; R5's unlock remains almost entirely unconsumed).
 
 Clusters, in the design doc's phase order:
 
@@ -1021,13 +1048,23 @@ Remaining fail-open surfaces, ranked:
 1. **`logContracts` is presence-only and cannot count.** `hlib.evaluate_expectations`
    applies each pattern with a bare `re.search` over the whole log. No occurrence
    counts, no ordering, no "exactly N". A regression that drops one of two board
-   merges and keeps one passes every log contract in the suite. Fixed by R9.
-2. **The only save-content assertion is an integer**, and it is COMMIT-BLIND. This is
-   the deepest verification gap in the system and it caps how much D3/D4/D5/D7/D18 can
-   ever be trusted. Fixed by R9.
-3. **Three expectation verifier families are declared and inert** (`route`, `rewind`,
-   `loop`). A spec author can write assertions that silently do nothing, and S4.1
-   already has. Fixed by R9.
+   merges and keeps one passes every log contract in the suite. NARROWED by R9
+   2026-07-31: the branch-point-count and supersede/tombstone-row surfaces are now
+   measurable structurally (`saveParse` row, report-only until armed), so the
+   dropped-board class no longer depends on log counting; the log side itself is
+   still presence-only.
+2. **The only save-content assertion is an integer**, and it is COMMIT-BLIND.
+   CLOSED-REPORT-ONLY by R9 2026-07-31: the `saveParse` verifier reads tree
+   topology, terminal states, merge/commit markers, supersede rows, tombstones and
+   rewind points off the produced save on every driver-valid run. Becomes a GATE
+   per scenario only when that scenario arms `gating = true` after its report-only
+   readings are confirmed on a live run (zero committed specs armed today).
+3. **Three expectation verifier families are declared and inert** (`route`,
+   `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
+   (report-only until armed) - S4.1's declared asserts finally read the save.
+   `route` / `loop` stay reserved BY CHOICE: zero committed declarers, so an
+   evaluator would be unused surface; the spec-author trap is bounded to blocks
+   nobody declares.
 4. **The ledger oracle's independence check is a structural no-op** (see the open-bugs
    table). `compute_expected` consumes seam-declared entries only, with no live
    cross-check, in the one verifier the entire L-track depends on.

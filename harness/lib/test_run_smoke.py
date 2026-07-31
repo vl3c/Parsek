@@ -400,6 +400,31 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(0, persisted["verifiers"]["unityExceptions"]["total"])
         self.assertIn("hitCounts", persisted["verifiers"]["anomalySweep"])
 
+    def test_save_parse_row_reports_on_a_clean_pass(self):
+        """M-C2/R9: the saveParse verifier row must land REPORT-ONLY on a green
+        run with no M-C2 block declared, carrying the measured structural
+        facets, and must not move the verdict. The staged smoke fixture is a
+        minimal `GAME { }` save (no ParsekScenario node), so every count is a
+        genuine zero - parsed=True, scenario absent."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertFalse(sp["gating"])
+        self.assertEqual([], sp["blocks"])
+        self.assertEqual([], sp["mismatches"])
+        self.assertTrue(sp["parsed"])
+        self.assertEqual({"supersedeRows": 0, "tombstones": 0, "rewindPoints": 0},
+                         sp["observed"]["rewind"])
+        self.assertEqual(0, sp["observed"]["recordings"]["structure"]["trees"])
+        # ... and the row round-trips into the durable result (a PASS runs no
+        # collect-logs, so results/<runId>.json is the only place the measured
+        # facets survive - the promotion path reads them there).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(sp, persisted["verifiers"]["saveParse"])
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -434,6 +459,10 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"])
         self.assertFalse(ue["gating"])
         self.assertEqual("killed-triage-only", ue["reason"])
+        # M-C2: the save-parse row is SKIPPED on a torn (killed) save too - a
+        # half-written persistent.sfs must never be read for structural counts.
+        self.assertEqual({"status": "SKIPPED", "reason": "killed"},
+                         result["verifiers"]["saveParse"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 

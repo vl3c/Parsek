@@ -21,6 +21,7 @@ import tomllib
 import unittest
 
 import hlib
+import saveparse
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -3737,10 +3738,22 @@ class EvaluateExpectationsTests(unittest.TestCase):
         self.assertEqual(hlib.evaluate_expectations(exp, None, log).status, "FAIL")
 
     def test_reserved_blocks_recorded(self):
-        # route/rewind/loop stay reserved until their verifiers land (M-C2).
+        # route/loop stay reserved until their verifiers land (their consumers do
+        # not exist yet; rewind LEFT the tuple with M-C2/R9, see below).
         exp = {"route": {"x": 1}, "recordings": {"count": {"min": 0, "max": 0}}}
         r = hlib.evaluate_expectations(exp, 0, "")
         self.assertIn("route", r.reserved)
+
+    def test_rewind_no_longer_reserved_after_mc2(self):
+        # M-C2 (R9): rewind LEFT RESERVED_EXPECTATION_BLOCKS the same way world did
+        # with M-B2 -- the save-parse verifier row is its SOLE owner, so slot 7 must
+        # NOT record it as reserved (exactly ONE owner, no double-count).
+        exp = {"rewind": {"supersedeRows": {"max": 0}},
+               "recordings": {"count": {"min": 0, "max": 0}}}
+        r = hlib.evaluate_expectations(exp, 0, "")
+        self.assertNotIn("rewind", r.reserved)
+        self.assertNotIn("rewind", hlib.RESERVED_EXPECTATION_BLOCKS)
+        self.assertEqual(("route", "loop"), hlib.RESERVED_EXPECTATION_BLOCKS)
 
     def test_world_no_longer_reserved_after_mb2(self):
         # M-B2 (design ~495): world LEFT RESERVED_EXPECTATION_BLOCKS -- verifier 8
@@ -4094,6 +4107,77 @@ class UnityExceptionScanTests(unittest.TestCase):
         verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
         self.assertEqual(("PARSEK-FAIL", "unity-exception"),
                          (verdict.verdict, verdict.subkind))
+
+
+class SaveStructureVerifierWiringTests(unittest.TestCase):
+    """The M-C2/R9 save-parse verifier's hlib-side wiring: spec-surface
+    validation routes through validate_spec, the gating flag classifies its own
+    PARSEK-FAIL subkind, and - the HARD SAFETY PROPERTY, mirroring the
+    unityExceptions precedent - no committed spec arms gating, so landing the
+    verifier cannot move any nightly's verdict (S4.1 declares a rewind block
+    TODAY; a gating default would have judged it without a live run)."""
+
+    def test_gating_mismatch_classifies_save_structure_parsek_fail(self):
+        d, v = _clean_pass_facts()
+        v["save_structure_mismatch"] = True
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(("PARSEK-FAIL", "save-structure"),
+                         (verdict.verdict, verdict.subkind))
+        self.assertIn("save-structure", hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_clean_flag_stays_pass(self):
+        d, v = _clean_pass_facts()
+        v["save_structure_mismatch"] = False
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_PASS, verdict.verdict)
+
+    def test_validate_spec_rejects_malformed_rewind_block(self):
+        spec = load_spec("S4.1-rewind-merge.toml")
+        reg = load_registry()
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "the committed S4.1 spec must keep validating untouched")
+        bad = copy.deepcopy(spec)
+        bad["expectations"]["rewind"] = {"supersedeRows": {"min": 2, "max": 1}}
+        v = hlib.validate_spec(bad, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.rewind.supersedeRows" in e for e in v.errors))
+        bad["expectations"]["rewind"] = {"gating": "yes"}
+        v = hlib.validate_spec(bad, reg)
+        self.assertFalse(v.ok)
+
+    def test_validate_spec_rejects_malformed_structure_block(self):
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        spec["expectations"]["recordings"]["structure"] = {
+            "terminalStates": {"Exploded": {"min": 1}}}
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("recordings.structure" in e for e in v.errors))
+        spec["expectations"]["recordings"]["structure"] = {
+            "trees": 1, "branchPoints": {"VesselSwitchContinuation": {"max": 0}}}
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok,
+                        "a well-formed structure block must validate")
+
+    def test_no_committed_spec_arms_gating(self):
+        # THE HARD SAFETY PROPERTY: the save-parse verifier cannot move any
+        # nightly verdict, because nothing declares gating = true. Arming is an
+        # operator decision taken after reading the report-only facets off the
+        # next local S4.1 / CL-2 runs.
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if saveparse.gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual([], armed, "a committed spec armed save-structure gating")
+
+    def test_s41_declares_the_rewind_block_unarmed(self):
+        # S4.1 is the one committed declarer; its block must parse as declared
+        # (evaluated report-only) and NOT armed - the precise verdict-neutrality
+        # subtlety this verifier shipped around.
+        spec = load_spec("S4.1-rewind-merge.toml")
+        exp = spec["expectations"]
+        self.assertEqual(("rewind",), saveparse.declared_structure_blocks(exp))
+        self.assertFalse(saveparse.gating_armed(exp))
 
 
 class AnomalyGrepAnchoringTests(unittest.TestCase):

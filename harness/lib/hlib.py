@@ -45,7 +45,8 @@ line), the offline analyzer + baseline (``RED=`` gate token + the
 ``.analysis.json`` fail/stale split + ``BASELINE-*`` findings), the provisioner
 (``provlib.compare_manifest`` / ``project_admission``).
 
-ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission).
+ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission, and
+saveparse, the M-C2/R9 pure sibling, for the save-parse spec-surface validation).
 """
 
 from __future__ import annotations
@@ -2910,6 +2911,17 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
+    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind] and
+    # [expectations.recordings.structure]. Same rationale as the unityExceptions
+    # block above - a malformed window (or a non-bool gating key) must be a
+    # pre-launch rejection, never a block that silently evaluates as a no-op.
+    if "rewind" in expectations:
+        errors.extend(saveparse.validate_rewind_expectations(expectations.get("rewind")))
+    recordings_block = expectations.get("recordings")
+    if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
+        errors.extend(saveparse.validate_structure_expectations(
+            recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+
     # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
     # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
     # from a quicksave the seed + manifest contract cannot reconstruct, and
@@ -3020,6 +3032,7 @@ _PROVISION_DIR = _os.path.abspath(
 if _PROVISION_DIR not in _sys.path:
     _sys.path.insert(0, _PROVISION_DIR)
 import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
+import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surface validation lives there so validator + evaluator share one vocabulary)
 
 
 def build_expected_admission(
@@ -3304,11 +3317,16 @@ class ExpectationResult:
     observed: Dict[str, Any] = field(default_factory=dict)
 
 
-# M-B2 (design ~495): on activation ``world`` LEAVES this tuple -- the ledger-oracle
-# verifier (chain slot 8) becomes its SOLE owner (vessel resource totals), so slot 7
+# M-B2 (design ~495): on activation ``world`` LEFT this tuple -- the ledger-oracle
+# verifier (chain slot 8) became its SOLE owner (vessel resource totals), so slot 7
 # STOPS recording it as reserved and there is exactly ONE owner (no double-count).
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
-RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "rewind", "loop")
+# M-C2 (R9): ``rewind`` LEFT the tuple the same way -- the save-parse verifier
+# (saveparse.evaluate_save_structure, run as its own chain row) is its sole owner,
+# alongside the new ``[expectations.recordings.structure]`` sub-block. ``route`` and
+# ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
+# either), and building an evaluator with zero declarers would be unused surface.
+RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
 
 
 def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any]:
@@ -3328,7 +3346,9 @@ def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any
     (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
     ONLY facet the recordings block declares (hence the only one to observe);
     the logContracts facets are regex predicates with no numeric counterpart
-    worth persisting, and route/rewind/loop stay RESERVED.
+    worth persisting, and route/loop stay RESERVED. The rewind / structure
+    facets are owned and observed by the M-C2 save-parse verifier
+    (saveparse.observed_structure_facets), not here - one owner per facet.
 
     Recording is UNCONDITIONAL on the spec: a scenario that declares no count
     window still gets its measured count recorded, which is how a NEW scenario
@@ -3349,11 +3369,14 @@ def evaluate_expectations(
     v1 evaluates: ``recordings.count`` (min/max window) and
     ``logContracts.required`` / ``logContracts.forbidden`` (LITERAL KSP.log line
     regex patterns applied with ``re.search`` over the log body). A mismatch ->
-    FAIL (the caller reds PARSEK-FAIL expectation). The route/rewind/loop blocks
-    are RESERVED: parsed + recorded SKIPPED until their verifiers land (M-C2), so a
-    scenario written now needs no format break then. ``world`` is NO LONGER reserved
-    here (M-B2 gave verifier 8 sole ownership, design ~495) and ``ledger`` is a
-    tolerated-unknown block this evaluator ignores (verifier 8 owns it).
+    FAIL (the caller reds PARSEK-FAIL expectation). The route/loop blocks are
+    RESERVED: parsed + recorded SKIPPED until their verifiers land, so a scenario
+    written now needs no format break then. ``world`` is NO LONGER reserved here
+    (M-B2 gave verifier 8 sole ownership, design ~495), ``rewind`` is NO LONGER
+    reserved here either (M-C2/R9 gave the save-parse verifier sole ownership,
+    alongside ``recordings.structure`` which this evaluator ignores), and
+    ``ledger`` is a tolerated-unknown block this evaluator ignores (verifier 8
+    owns it).
 
     The result also carries ``observed`` - the MEASURED facets
     (``observed_expectation_facets``) - so a green run's numbers survive into
@@ -4472,6 +4495,13 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # purpose - it is the CAUSE a sweep reader wants, where the expectation rows
     # are the downstream symptoms.
     "mission-outcome",
+    # M-C2 (R9): a GATING-armed [expectations.rewind] / [expectations.recordings.
+    # structure] mismatch (saveparse.evaluate_save_structure). Named separately
+    # from "expectation" for the same reason mission-outcome is: the structural
+    # save assertion is its own failure class, and the flag is only reachable
+    # for a scenario that armed gating = true (zero committed specs today -
+    # the verifier ships REPORT-ONLY; guarded by a test-suite sweep).
+    "save-structure",
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -4646,8 +4676,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
-      log-contract / results / anomaly / unity-exception / expectation / ledger
-          -> PARSEK-FAIL
+      log-contract / results / anomaly / unity-exception / expectation /
+          save-structure / ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -4722,6 +4752,12 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "raw Unity exception count over the declared maxTotal")
             elif verifiers.get("expectation_mismatch", False):
                 base = V(VERDICT_PARSEK_FAIL, "expectation", "expectations manifest mismatch")
+            elif verifiers.get("save_structure_mismatch", False):
+                # Only reachable for a scenario that DECLARED an M-C2 block with
+                # gating = true; the save-parse verifier is report-only otherwise,
+                # so this branch is inert for every committed spec today.
+                base = V(VERDICT_PARSEK_FAIL, "save-structure",
+                         "gating save-structure expectations mismatch")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             else:
