@@ -1601,8 +1601,9 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         #
         # HARD ONLY WHEN THE SCENARIO ARMS IT (`captureCrossCheck = "gate"`, declared
         # by exactly ONE committed spec since 2026-07-31: `CL-2-pod-impact-ledger`,
-        # armed over three flights against the real game - see known-gate 3. Every
+        # armed over three flights against the real game - see known-gate 3; every
         # other spec is still report-only).
+        #
         # Until the 2026-07-29 pattern rewrite this loop had an
         # always-empty input - STOCK_AWARD_PATTERNS matched shapes no KSP build emits -
         # so the hard drift it wrote was unreachable. Turning a working capture and a
