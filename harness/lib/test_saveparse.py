@@ -586,6 +586,16 @@ class AdversarialMutationTests(unittest.TestCase):
         self.assertFalse(snap.parsed)
         self.assertIn("no top-level GAME node", snap.error)
 
+    def test_utf8_bom_is_stripped_not_faulted(self):
+        # Round-2 NEW-1: KSP writes UTF-8 without BOM, but fixture .sfs files
+        # are tool- and hand-authored (PowerShell 5.1 -Encoding UTF8 emits a
+        # BOM by default). A BOM'd save must parse identically, not trip the
+        # GAME-node fault with a misleading "empty or non-save text" reason.
+        snap = saveparse.parse_parsek_scenario("\ufeff" + B9_MERGED_SFS)
+        self.assertTrue(snap.parsed, snap.error)
+        self.assertTrue(snap.scenario_found)
+        self.assertEqual(4, len(snap.recordings))
+
     def test_unparseable_type_and_bools_degrade_defined(self):
         text = (B9_MERGED_SFS
                 .replace("type = 0", "type = banana")
@@ -885,6 +895,10 @@ class EvaluateSaveStructureTests(unittest.TestCase):
         r = saveparse.evaluate_save_structure(exp, None)
         self.assertEqual(saveparse.STATUS_FAIL, r.status)
         self.assertTrue(all("save unreadable" in m for m in r.armed_mismatches))
+        # Round-2 NEW-2: attributed to both blocks internally, but the flat
+        # report lists carry the string ONCE, not once per declared block.
+        self.assertEqual(1, len(r.mismatches))
+        self.assertEqual(1, len(r.armed_mismatches))
 
 
 if __name__ == "__main__":  # pragma: no cover

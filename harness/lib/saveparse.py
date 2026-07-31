@@ -136,6 +136,13 @@ def parse_sfs(text: Optional[str]) -> SfsParseResult:
     pending_name: Optional[str] = None
     errors: List[str] = []
 
+    # A leading UTF-8 BOM would rename the first node to "<BOM>GAME" and trip
+    # the GAME-node requirement downstream. KSP's own ConfigNode.Save writes
+    # UTF-8 without BOM, but fixture .sfs files are tool- and hand-authored
+    # (Windows PowerShell 5.1 -Encoding UTF8 emits one by default), so strip it
+    # here where every caller benefits (adversarial-review round-2 NEW-1).
+    text = (text or "").lstrip("\ufeff")
+
     def open_node(name: str) -> None:
         child = SfsNode(name=name)
         stack[-1].nodes.append(child)
@@ -888,8 +895,12 @@ def evaluate_save_structure(
                     _check_window("recordings.structure.%s.%s" % (group, name),
                                   window, count, out)
 
-    mismatches = tuple(m for b in blocks for m in per_block[b])
-    armed_mismatches = tuple(m for b in armed for m in per_block[b])
+    # Dedupe while preserving order: a STRUCTURAL fault is attributed to every
+    # declared block (it must gate whichever block is armed), but the flattened
+    # report list should not show the same string twice (round-2 NEW-2). Real
+    # window mismatches cannot collide across blocks (labels are block-prefixed).
+    mismatches = tuple(dict.fromkeys(m for b in blocks for m in per_block[b]))
+    armed_mismatches = tuple(dict.fromkeys(m for b in armed for m in per_block[b]))
     if armed:
         status = STATUS_PASS if not armed_mismatches else STATUS_FAIL
     else:

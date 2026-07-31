@@ -25,7 +25,7 @@ indistinguishable from "zero rows") with `scenarioFound` recorded on the row;
 and gating became PER-BLOCK (arming a proven block no longer silently promotes
 a second exploratory block to a gate - `armedBlocks`/`armed_mismatches` carry
 the split). Headless-only validation this session (no KSP in the build
-environment): all three suites green - lib 976, provision 203 (+5 skipped),
+environment): all three suites green - lib 977, provision 203 (+5 skipped),
 missions/lib 1103.)
 
 Prior: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
