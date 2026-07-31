@@ -769,7 +769,7 @@ Fixing the driver alone would have left the spec asserting things S4.1 cannot do
 
 - `expectedFail.bugId` / `subkind` DELETED. The signature they named no longer exists in the code, so they could never match - and a key that cannot match silently demotes any UNRELATED expectation-subkind failure under a resolved bug id.
 - `AppendRelations outcome=refused-unflown-provisional` ADDED to `logContracts.required` - the positive assertion of what this scenario uniquely covers.
-- `[expectations.rewind] supersedeRows` flipped `min = 1` -> `max = 0`. As written it would have RED S4.1 for CORRECT behaviour the day the M-C2 verifier landed.
+- `[expectations.rewind] supersedeRows` flipped `min = 1` -> `max = 0`. As written it would have RED S4.1 for CORRECT behaviour the day the M-C2 verifier landed. VINDICATED 2026-07-31: the block is now ARMED (`gating = true`), the reading run measured exactly 0, and the negative control that put `min = 1` back reddened the run `PARSEK-FAIL(save-structure)` - i.e. the un-flipped spec would have failed live, precisely as predicted.
 - `supersede-relation` D9 claim MOVED to R1 (proven there by `Added 1 supersede relations...`); `head-tip-split` moved to NOBODY and is now honestly uncovered, since no archived run proves any scenario reaches the splitting branch.
 
 ### Observability: better than expected, but with a real gap
@@ -1511,21 +1511,62 @@ Correction to carry: `Logistics` is 47 tests but 38 carry
 `AllowBatchExecution = false`, so only 9 are batch-reachable before R5 lands.
 
 **R9-R14. Machinery items** (each self-contained in the roadmap doc). TWO OF THE SIX
-ARE NOW CLOSED; the list below is kept intact with the closures marked, because the
-counts around it were measured against the six-item shape:
+ARE NOW CLOSED; the R9-R14 bullets below are kept intact with the closures marked,
+because the counts around them were measured against the six-item shape. One
+NON-R bullet (the CL-2 stage-B calibration reading) is appended after R9 as
+supporting measurement for R9's remaining scope - it is not a seventh machinery
+item and must not be counted as one:
 
 - **R9** structural save-content expectations plus landing the three inert `route` /
   `rewind` / `loop` expectation blocks - **HARNESS HALF SHIPPED-REPORT-ONLY
-  2026-07-31** (branch `claude/r9-save-parse-verifier-tshhzv`): the M-C2
-  save-parse verifier (`harness/lib/saveparse.py` + the `saveParse` chain row)
-  evaluates `[expectations.rewind]` and the new
-  `[expectations.recordings.structure]` block over the produced save's
-  ParsekScenario surfaces, report-only until a block arms `gating = true`
-  (zero committed specs arm it; guard cell `test_no_committed_spec_arms_gating`).
-  STILL OPEN inside R9: the gating PROMOTION (one local S4.1 + one CL-2 run to
-  read the report-only facets, then arm per scenario), and `route`/`loop`,
-  which stay reserved because they have zero declarers. See the roadmap R9
-  entry for the full delivered/remaining split.
+  2026-07-31** (branch `claude/r9-save-parse-verifier-tshhzv`), then **ARMED ON S4.1
+  THE SAME DAY** (branch `r9-arm-s41`): the M-C2 save-parse verifier
+  (`harness/lib/saveparse.py` + the `saveParse` chain row) evaluates
+  `[expectations.rewind]` and the new `[expectations.recordings.structure]` block
+  over the produced save's ParsekScenario surfaces. The gating PROMOTION is DONE for
+  S4.1 - it is the first and only committed spec carrying `gating = true`, and
+  `test_no_committed_spec_arms_gating` became an explicit allowlist pinning exactly
+  `{"S4.1-rewind-merge.toml"}` so a second spec arming still needs a deliberate edit.
+  Three live runs did it: `2026-07-31_1628` (report-only reading, PASS, all readings
+  inside the declared `max = 0` windows), `2026-07-31_1635` (armed, PASS,
+  `armedBlocks=["rewind"]`), and a NEGATIVE CONTROL that temporarily flipped
+  `supersedeRows` to `min = 1` and reddened `2026-07-31_1637`
+  `PARSEK-FAIL(save-structure)` with `mismatches=["rewind.supersedeRows 0 < min 1"]`
+  - the gate is seen to fail, not merely assumed to work. STILL OPEN inside R9: CL-2
+  stage B's windows (calibration numbers recorded below), `route`/`loop` (still
+  reserved - zero declarers), and the analyzer-PR half. See the roadmap R9 entry.
+
+  ANSWERED BY THE READING RUN: the merge REAPS `rp_b9_root`. `rewindPoints` measured
+  0 on all three runs, and the produced save carries no `REWIND_POINTS` node at all
+  (the empty-staging-list-writes-no-parent quirk). This was a genuine open question -
+  it is recorded, deliberately NOT pinned as a window: one observation is not a
+  window, and a reap count wants a second scenario before it gates.
+
+- **CL-2 stage-B calibration, measured off the STAGE-A run** (CL-2 itself IS stage A;
+  stage B is unwritten) [MEASURED 2026-07-31, run
+  `2026-07-31_1641_CL-2-pod-impact-ledger` (PASS, 168 s)]. CL-2 declares NO M-C2
+  block (`blocks: []`), so its `saveParse` row is pure measurement - which is exactly
+  what makes it usable to size stage B's windows. The observed block, verbatim:
+
+  ```
+  "rewind":   { "supersedeRows": 0, "tombstones": 0,
+                "rewindPoints": 0, "rewindRetirements": 0 }
+  "recordings": { "structure": {
+      "trees": 1, "committedTrees": 1, "recordings": 1,
+      "terminalStates": { "Destroyed": 1 },
+      "branchPoints": {}, "duplicateRecordingIds": [] } }
+  ```
+
+  READ THESE CORRECTLY. This is stage A - the fatal pod hop and its ledger rows, with
+  NO rewind anywhere in the run. So the `structure` numbers are the PRE-REWIND corpus
+  baseline stage B starts from (one committed tree, one Destroyed recording), and the
+  `rewind` numbers are all zero because nothing rewound. Stage B rewinds ACROSS
+  CL-1's crew loss, so its `[expectations.rewind]` is expected to move to
+  `supersedeRows >= 1` / `tombstones >= 1` and its `structure` counts to grow by the
+  re-fly fork. Pinning stage B's windows straight off this block would assert the
+  absence of the very thing stage B exists to exercise: author stage B report-only
+  first, read ITS facets, then arm - the same three-run promotion S4.1 just went
+  through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`.
 - **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb
   (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no response
   payload is ever captured) - OPEN. NOTE R12 solved the SPECIFIC instance that
@@ -3813,12 +3854,12 @@ The `rewind-b9` injection preset + the M-C1 InvokeRewind/AnswerMergeDialog/TimeJ
 **Fixture capability.** `Source/Parsek.Tests/Generators/RewindB9Fixture.cs` assembles a committed tree (root ascent + surviving upper stage slot 0 + CRASHED booster slot 1, `TerminalState.Destroyed`) plus a Rewind-to-Separation `RewindPoint` `rp_b9_root`, satisfying all three CanInvoke prerequisites the fixture owns: (1) a fixed known RP id whose quicksave sidecar is written on disk at `Parsek/RewindPoints/rp_b9_root.sfs`; (2) `CreatingSessionId` null so `LoadTimeSweep` keeps it (not a session-scoped provisional); (3) `ChildSlots`/`PidSlotMap`/`RootPartPidMap` keyed to the synthetic vessel + root-part pids the injected recordings carry (via `ScenarioWriter.DeriveVesselPersistentId` / `DeriveRootPartPersistentId`, so `slot=1` resolves). `ScenarioWriter` gained `AddRewindPoint` (emits the `REWIND_POINTS`/`POINT` block matching `ParsekScenario.SaveStagingList`), `WriteRewindPointSaveFiles`, and the two Derive*Id seams. **RP quicksave sidecar (B1 fix):** the sidecar is NOT a bare copy of the host save - the re-fly's pre-load selected-slot scrub (`RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly`) and post-load `PostLoadStripper` both KEEP only vessels whose `persistentId` the RP's PidSlotMap/RootPartPidMap references and STRIP the rest, so a vessel-less or unmatched-pid quicksave makes the scrub keep nothing and the Activate fail ("selected vessel not present on reload"). `WriteRewindPointSaveFiles` therefore rewrites the sidecar's FLIGHTSTATE to hold exactly one controllable VESSEL per child slot, each stamped with the slot's mapped vessel- + root-part pids and cloned from the host save's own command vessel when present (real parts, so the CanInvoke deep-parse gate resolves them), with `activeVessel` at the focus slot. The tree/RP/sidecar pid triangle is thus consistent (PidSlotMap pids == sidecar VESSEL pids == recording pids), and strip/restore/marker/merge are genuinely exercisable. **Honest limit is now OPERATOR-VERIFIABLE, not structural:** whether KSP can LOAD the cloned vessels live (duplicate part pids / crew across the per-slot clones may be regenerated on load) is confirmed only when an operator boots the B9 split in FLIGHT. Wired as a named injection preset (`injectedRecordings = "rewind-b9"` -> `hlib.INJECTED_RECORDINGS`; `run.py` stage branch -> `inject-recordings.ps1 -Preset rewind-b9` -> `dotnet test --filter InjectRewindB9`). `InjectRewindB9` defaults to a distinct `rewind-b9-fixture` save name so a bare `dotnet test` no-ops instead of clobbering the shared `test career` corpus; `inject-recordings.ps1` carries the matching per-preset default save so a manual `-Preset rewind-b9` cannot purge the corpus either. Tests: `RewindB9FixtureTests` (7 cells: RP node shape, null-session, two controllable child slots, PidSlotMap-matches-injected-pids, `REWIND_POINTS` emit + `RewindPoint.LoadFrom` round-trip, crashed-sibling `terminalState=4` + serialized pid, RP sidecar carries a VESSEL per slot with the mapped pid + activeVessel, deep-parse passes when parts resolve / declines when they do not).
 
 **Scenarios (both validate via `CommittedSpecValidationTests` + `--dry-run` clean). NOTE 2026-07-26 (`rewind-loop-lane`): both were `tier = operator` on a FALSE premise and are now `tier = nightly` - see the rewind-in-flight entry at the top of this file. The operator-tier and PENDING-OPERATOR wording in the rest of THIS entry is superseded; the corrections are called out inline below.**
-- `S4.1-rewind-merge` (inject rewind-b9): the B9 worked example - LoadGame -> SetSetting(autoRecordOnLaunch off) -> InvokeRewind{rp=rp_b9_root, slot=1} -> AnswerMergeDialog{merge} (the folded verb drives the exit) -> RecordingState -> FlushAndQuit. Headless-checkable guards: the `Re-Fly (Rewind-to-Separation) StartInvoke` + `Invocation complete` log contracts (proving the re-fly ran end-to-end), no `[ERROR]`, and a recording-count floor. D9 = rewind-to-separation/refly-gate/reconciliation-bundle/read-back-guard/head-tip-split/supersede-relation/terminal-kind-classify/merge-journal (NOT tombstones - uncrewed booster; NOT revert-during-refly-dialog - we merge), D8 = recalc-engine. A RESERVED `[expectations.rewind]` block records the save-parse asserts (>=1 supersede row, 0 tombstones) SKIPPED until the M-C2 rewind verifier lands.
+- `S4.1-rewind-merge` (inject rewind-b9): the B9 worked example - LoadGame -> SetSetting(autoRecordOnLaunch off) -> InvokeRewind{rp=rp_b9_root, slot=1} -> AnswerMergeDialog{merge} (the folded verb drives the exit) -> RecordingState -> FlushAndQuit. Headless-checkable guards: the `Re-Fly (Rewind-to-Separation) StartInvoke` + `Invocation complete` log contracts (proving the re-fly ran end-to-end), no `[ERROR]`, and a recording-count floor. D9 = rewind-to-separation/refly-gate/reconciliation-bundle/read-back-guard/head-tip-split/supersede-relation/terminal-kind-classify/merge-journal (NOT tombstones - uncrewed booster; NOT revert-during-refly-dialog - we merge), D8 = recalc-engine. An `[expectations.rewind]` block carries the save-parse asserts. SUPERSEDED 2026-07-31 on two counts: the block is no longer RESERVED/SKIPPED (the M-C2 verifier landed and S4.1 ARMS it with `gating = true`, the first committed spec to do so), and the assert is `max = 0` supersede rows, not `>= 1` - S4.1 flies no re-flight, so the correct assertion is that the merge writes ZERO rows and still completes.
 - `S1.5-rewind-loop` (inject rewind-b9): the DRIVABLE SUBSET of the catalog S1.5 - TimeJump{deltaSeconds=600} past the injected recording EndUTs to spawn the end-of-recording ghost, then rewind-strip-respawn via the seam using rp_b9_root as the quicksave-equivalent. D6 time-jump, D18 time-jump-observables/rewind-strip-respawn-cycle, D8 epoch-isolation/recalc-engine, D9 rewind-to-separation/refly-gate. ~~**DEPENDENCY: do NOT schedule before the `autotest-integration-fixes` PR merges** - the TimeJump leg relies on that branch's TimeJump completion-decider fix; until it lands TimeJump can settle incorrectly and the leg is untrustworthy.~~ CLOSED 2026-07-26: that is PR #1322, merged as `eb94607dd`. **Budget (S8):** `budgetSeconds = 2400` is sized for the WORST DEFER path (`sum of run.py per-step waits = LoadGame 660 + SetSetting 60 + TimeJump 660 + RecordingState 60 + InvokeRewind 660 + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 2340; +60 margin`) so an unattended defer surfaces a clean per-step TIMEOUT instead of a run-budget KILL. S4.1's `budgetSeconds = 1680` is sized the same way (no TimeJump step).
 
 **S1.5 capability gap (why only the subset is drivable).** The FULL catalog S1.5 ("fly B1, commit, warp past EndUT, quicksave, rewind, assert stripped/respawned, crew re-reservation + resource reset vs ledger oracle") needs four capabilities M-C1 does not provide: (a) a live B1 flight + commit -> the mission-autopilot library, not a seam verb (the `rewind-loop-lane` `r1_rewind_loop` mission is the first cut of this); (b) an in-scene quicksave / RP-create seam verb to make the RP LIVE rather than inject it (the injected `rp_b9_root` stands in) - RE-DIAGNOSED 2026-07-26: creating the RP is only half of it, NAMING it is the other half and is the harder half; see blockers (a)/(b) in the rewind-in-flight entry at the top; ~~(c) a FLIGHT-scene entry -- TimeJump/InvokeRewind are `RequiresFlight` and the seam has no launch verb, so an operator must be in FLIGHT (the gloops host save loads to SPACECENTER)~~ **(c) WAS NEVER TRUE and is WITHDRAWN 2026-07-26** - `LoadGame` is the flight-entry verb and `gloops-airshow` carries `activeVessel = 1`, so it loads to FLIGHT, not SPACECENTER; (d) a career fixture + ledger oracle for the crew-re-reservation / resource-reset asserts (rewind-b9's host is sandbox). The highest-value remaining unblocker is a seam channel exposing live RewindPoint ids, NOT a FLIGHT-scene B9 template.
 
-**PENDING-OPERATOR (coordinator runbook).** ~~Both scenarios are `tier = operator` ... otherwise every RequiresFlight verb only defers to a TIMEOUT and no PASS is reachable.~~ SUPERSEDED 2026-07-26: both are `tier = nightly` and run unattended. With the B1 sidecar fix the re-fly is genuinely exercisable end to end (the selected slot's vessel is present under its mapped pid, survives the strip, and is activatable); what the FIRST nightly run establishes is the LIVE-LOAD fidelity of the cloned vessels (whether KSP can instantiate them - duplicate part pids / crew across the per-slot clones may be regenerated on load). Still genuinely PENDING beyond that: the supersede-relation / tombstone save-parse (S4.1) is PENDING-VERIFIER, not pending-operator - the `[expectations.rewind]` block is RESERVED until the M-C2 rewind verifier lands (UPDATE 2026-07-31: LANDED report-only, branch `claude/r9-save-parse-verifier-tshhzv`; the asserts now produce recorded `saveParse` readings each run, and what remains is the gating promotion after one local S4.1 run - see the roadmap R9 entry) - and S1.5's crew-re-reservation / resource-reset asserts need a career fixture the sandbox host does not provide.
+**PENDING-OPERATOR (coordinator runbook).** ~~Both scenarios are `tier = operator` ... otherwise every RequiresFlight verb only defers to a TIMEOUT and no PASS is reachable.~~ SUPERSEDED 2026-07-26: both are `tier = nightly` and run unattended. With the B1 sidecar fix the re-fly is genuinely exercisable end to end (the selected slot's vessel is present under its mapped pid, survives the strip, and is activatable); what the FIRST nightly run establishes is the LIVE-LOAD fidelity of the cloned vessels (whether KSP can instantiate them - duplicate part pids / crew across the per-slot clones may be regenerated on load). Still genuinely PENDING beyond that: the supersede-relation / tombstone save-parse (S4.1) is PENDING-VERIFIER, not pending-operator - the `[expectations.rewind]` block is RESERVED until the M-C2 rewind verifier lands (UPDATE 2026-07-31: LANDED report-only, branch `claude/r9-save-parse-verifier-tshhzv`; the asserts now produce recorded `saveParse` readings each run, and what remained was the gating promotion after one local S4.1 run. UPDATE 2026-07-31, same day: that promotion SHIPPED on branch `r9-arm-s41` - reading run `2026-07-31_1628` confirmed the readings matched the declared windows, S4.1's block now carries `gating = true`, and the armed gate was proven live both ways (`_1635` PASS armed, `_1637` PARSEK-FAIL(save-structure) under a `min = 1` negative control). S4.1's supersede-row / tombstone assert is therefore no longer PENDING-VERIFIER at all; S1.5's career-fixture gap below is untouched - see the roadmap R9 entry) - and S1.5's crew-re-reservation / resource-reset asserts need a career fixture the sandbox host does not provide.
 
 ## M-B3 - L1 ledger action scripts: first nonzero seam-declared manifests + career fixtures [BUILT, branch `autotest-mb3-impl`]
 

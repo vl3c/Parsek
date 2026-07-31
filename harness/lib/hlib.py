@@ -4503,8 +4503,10 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # structure] mismatch (saveparse.evaluate_save_structure). Named separately
     # from "expectation" for the same reason mission-outcome is: the structural
     # save assertion is its own failure class, and the flag is only reachable
-    # for a scenario that armed gating = true (zero committed specs today -
-    # the verifier ships REPORT-ONLY; guarded by a test-suite sweep).
+    # for a scenario that armed gating = true. The verifier ships REPORT-ONLY;
+    # exactly ONE committed spec arms it (S4.1-rewind-merge, promoted
+    # 2026-07-31 after its report-only reading run), and the allowlist sweep
+    # `test_no_committed_spec_arms_gating` keeps that set deliberate.
     "save-structure",
 )
 

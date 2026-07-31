@@ -2044,8 +2044,11 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
     # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
     # move a committed nightly's verdict with no live run to prove the readings);
-    # a block opts in with gating = true - declared by ZERO committed specs
-    # (guarded by a test-suite sweep). Like the ledger oracle it runs independent
+    # a block opts in with gating = true - declared by exactly ONE committed
+    # spec, S4.1-rewind-merge, armed 2026-07-31 after its report-only reading run
+    # (guarded by an ALLOWLIST test-suite sweep, so a second declarer still reds).
+    # This branch CAN move that scenario's verdict; it moves no other spec's.
+    # Like the ledger oracle it runs independent
     # of the later-verifier short-circuit (a structural read of the save is its
     # own triage signal), but only over a driver-VALID save (a driver-INVALID
     # save is deliberately incomplete, not ground truth - the facets are still
@@ -3113,6 +3116,23 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             verify_line += (", missionOutcome(%s -> PARSEK-FAIL(mission-outcome) on an unmet "
                             "post-mission outcome step)"
                             % (", ".join(gating) if gating else "no gating verbs"))
+        # saveParse (row 7b) runs on every driver-valid run, but the plan must say
+        # whether it can MOVE THE VERDICT for this spec: gating is per-block and
+        # opt-in, so "declared" and "armed" are different facts and the enumeration
+        # was silently omitting both. S4.1 arms `rewind` (2026-07-31), and a plan
+        # that does not name the one gate an operator is about to fly is worse than
+        # no plan - it reads as report-only when it is not.
+        sp_declared = saveparse.declared_structure_blocks(exp)
+        sp_armed = saveparse.armed_structure_blocks(exp)
+        if sp_armed:
+            verify_line += (", saveParse(armed: %s -> PARSEK-FAIL(save-structure) on a "
+                            "mismatch; report-only: %s)"
+                            % (", ".join(sp_armed),
+                               ", ".join(b for b in sp_declared if b not in sp_armed) or "none"))
+        elif sp_declared:
+            verify_line += ", saveParse(report-only: %s)" % ", ".join(sp_declared)
+        else:
+            verify_line += ", saveParse(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)

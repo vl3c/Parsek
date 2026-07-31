@@ -4112,10 +4112,23 @@ class UnityExceptionScanTests(unittest.TestCase):
 class SaveStructureVerifierWiringTests(unittest.TestCase):
     """The M-C2/R9 save-parse verifier's hlib-side wiring: spec-surface
     validation routes through validate_spec, the gating flag classifies its own
-    PARSEK-FAIL subkind, and - the HARD SAFETY PROPERTY, mirroring the
-    unityExceptions precedent - no committed spec arms gating, so landing the
-    verifier cannot move any nightly's verdict (S4.1 declares a rewind block
-    TODAY; a gating default would have judged it without a live run)."""
+    PARSEK-FAIL subkind, and - the SAFETY PROPERTY, mirroring the
+    unityExceptions precedent - arming stays a deliberate, per-scenario,
+    live-proven act.
+
+    THAT PROPERTY WAS RESTATED 2026-07-31, not abandoned. It shipped as "no
+    committed spec arms gating, so landing the verifier cannot move any
+    nightly's verdict", which was the right guarantee while every arming was
+    still unproven. S4.1-rewind-merge was then promoted on evidence (reading run
+    `2026-07-31_1628`, armed `_1635`, negative control `_1637`), so the
+    guarantee became the next one along: the ARMED SET IS AN ALLOWLIST, and a
+    spec joining it needs an explicit edit citing its run ids.
+
+    The two cells below are COMPLEMENTARY AND MUST BE MAINTAINED AS A PAIR.
+    `test_no_committed_spec_arms_gating` is per-SPEC-FILE, so on its own it
+    would not notice S4.1 arming a second block or re-pinning a window;
+    `test_s41_declares_the_rewind_block_armed` supplies that per-block
+    granularity. Neither alone is the guard."""
 
     def test_gating_mismatch_classifies_save_structure_parsek_fail(self):
         d, v = _clean_pass_facts()
@@ -4157,27 +4170,56 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok,
                         "a well-formed structure block must validate")
 
+    # THE ARMED ALLOWLIST. This started life as `assertEqual([], armed)` - the
+    # hard verdict-neutrality property that shipped with the verifier, when
+    # nothing was armed and every arming was still unproven. S4.1 was promoted
+    # 2026-07-31 after its report-only reading run, so the property it guards is
+    # now the NEXT one along: arming stays a deliberate, per-scenario, live-proven
+    # act. An allowlist keeps that guard biting - a second spec quietly growing a
+    # `gating = true` still reds here and still needs an explicit edit plus the run
+    # ids to justify it - where relaxing to "any spec may arm" would have thrown
+    # the guarantee away entirely on the day it first got used.
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml"}
+
     def test_no_committed_spec_arms_gating(self):
-        # THE HARD SAFETY PROPERTY: the save-parse verifier cannot move any
-        # nightly verdict, because nothing declares gating = true. Arming is an
-        # operator decision taken after reading the report-only facets off the
-        # next local S4.1 / CL-2 runs.
         armed = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
             if saveparse.gating_armed(spec.get("expectations") or {}):
                 armed.append(name)
-        self.assertEqual([], armed, "a committed spec armed save-structure gating")
+        self.assertEqual(sorted(self.ARMED_ALLOWLIST), armed,
+                         "the set of specs arming save-structure gating changed; arming is "
+                         "a per-scenario operator decision taken only after a report-only "
+                         "reading run whose facets match the declared windows - add the "
+                         "spec here in the same commit that arms it, citing the run id")
 
-    def test_s41_declares_the_rewind_block_unarmed(self):
-        # S4.1 is the one committed declarer; its block must parse as declared
-        # (evaluated report-only) and NOT armed - the precise verdict-neutrality
-        # subtlety this verifier shipped around.
+    def test_s41_declares_the_rewind_block_armed(self):
+        # S4.1 is the one committed declarer AND (2026-07-31) the one armed spec.
+        # Reading run `2026-07-31_1628` measured supersedeRows=0 / tombstones=0
+        # against the block's `max = 0` windows; `2026-07-31_1635` then flew PASS
+        # armed, and the `min = 1` negative control reddened `2026-07-31_1637`
+        # PARSEK-FAIL(save-structure). Flipped from ..._unarmed, which was the
+        # verdict-neutrality assertion for the report-only landing.
         spec = load_spec("S4.1-rewind-merge.toml")
         exp = spec["expectations"]
         self.assertEqual(("rewind",), saveparse.declared_structure_blocks(exp))
-        self.assertFalse(saveparse.gating_armed(exp))
+        self.assertTrue(saveparse.gating_armed(exp))
+        # The windows themselves are deliberately untouched by the arming commit:
+        # arming must not smuggle in a re-pinned window.
+        self.assertEqual({"max": 0}, exp["rewind"]["supersedeRows"])
+        self.assertEqual({"max": 0}, exp["rewind"]["tombstones"])
+        # ...nor an ADDED one. Pinning only the two VALUES above left a gap:
+        # appending e.g. `rewindPoints = { max = 0 }` passed both guard cells,
+        # yet that would be a newly ARMED, GATING window with no reading run
+        # behind it - and rewindPoints is precisely the key the block's own
+        # comment says it declined to pin ("one observation is not a window").
+        # Pin the KEY SET so growing the armed block is as deliberate as arming
+        # it was.
+        self.assertEqual({"gating", "supersedeRows", "tombstones"},
+                         set(exp["rewind"]),
+                         "a window was added to (or removed from) S4.1's ARMED block; "
+                         "every armed window needs its own report-only reading run first")
 
 
 class AnomalyGrepAnchoringTests(unittest.TestCase):
