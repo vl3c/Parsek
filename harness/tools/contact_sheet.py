@@ -123,7 +123,10 @@ def _clip(line: str, max_chars: int = MAX_LINE_CHARS) -> str:
     tail_keep = min(CLIP_TAIL_CHARS, max_chars // 2)
     head_keep = max(0, max_chars - tail_keep)
     dropped = len(line) - head_keep - tail_keep
-    return "%s ...[clipped %d chars]... %s" % (line[:head_keep], dropped, line[-tail_keep:])
+    # line[-0:] is the WHOLE string (review NEW-3), so a zero tail budget must
+    # yield "" -- this is the one function whose entire job is bounding output.
+    tail = line[-tail_keep:] if tail_keep > 0 else ""
+    return "%s ...[clipped %d chars]... %s" % (line[:head_keep], dropped, tail)
 
 
 def extract_key_log_lines(log_text: Optional[str]) -> Dict:
@@ -228,12 +231,19 @@ def run_index_entry(result_obj, fallback_run_id: str) -> Dict:
     if not isinstance(result_obj, dict):
         return {"runId": fallback_run_id, "scenarioId": "?", "verdict": "UNREADABLE",
                 "subkind": "", "utc": "", "wallSeconds": None, "note": "unparseable result JSON"}
-    # wallSeconds admits only a FINITE non-bool number (adversarial review
+    # wallSeconds admits only a usable non-bool number (adversarial review
     # MINOR 2): python's json.load accepts bare Infinity/NaN, and int(inf)
     # raises -- one poison result JSON would then permanently break every
     # subsequent index render, the exact "never a crash" contract violation.
+    # Ints are checked by TYPE only (review NEW-1): math.isfinite coerces to a
+    # C double first, so a big int (10**400) would raise OverflowError inside
+    # the very guard meant to prevent the crash; a Python int is always finite.
     wall = result_obj.get("wallSeconds")
-    if isinstance(wall, bool) or not isinstance(wall, (int, float)) or not math.isfinite(wall):
+    if isinstance(wall, bool):
+        wall = None
+    elif isinstance(wall, float) and not math.isfinite(wall):
+        wall = None
+    elif not isinstance(wall, (int, float)):
         wall = None
     return {
         "runId": str(result_obj.get("runId") or fallback_run_id),

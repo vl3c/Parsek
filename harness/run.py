@@ -2495,6 +2495,16 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
                                % (size, plan.head_bytes, plan.tail_bytes)).encode("utf-8"))
                     src.seek(max(plan.head_bytes, size - plan.tail_bytes))
                     _copy_bounded(src, out, plan.tail_bytes)
+                    if src.read(1):
+                        # Review NEW-2: the tail region was computed from the
+                        # size SNAPSHOT; a source that grew mid-copy means the
+                        # kept slice is NOT the real end of the log. Say so --
+                        # a reader must not trust a mid-log slice as the
+                        # teardown/BATCH_COMPLETE tail.
+                        out.write(("\n[harness-artifact] KSP.log GREW during the "
+                                   "copy (snapshot %d bytes); the kept tail region "
+                                   "is from the snapshot, NOT the real end of the "
+                                   "log\n" % size).encode("utf-8"))
                     artifacts["kspLogTruncated"] = True
             os.replace(tmp, dst)
             artifacts["kspLog"] = True
@@ -2530,13 +2540,6 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
                 logger.verbose("Artifacts", "screenshots skipped: %d prior-run, %d over-cap, %d copy-failed"
                                % (prior, over_cap, copy_missed))
 
-        # (3) Retention (review MAJOR 1): results/ is gitignored and nothing
-        # else ever prunes it, so the heavy *_shots dirs are bounded here --
-        # newest-first keep window, this run's own dir always protected. The
-        # KB-scale history (result JSONs, summary, contact HTML -- which
-        # already embeds the extracted key lines as text) is never touched.
-        _prune_shots_dirs(os.path.basename(shots_dir), logger)
-
         logger.info("Artifacts", "artifacts collected run=%s kspLog=%s truncated=%s screenshots=%d -> %s"
                     % (run_id, artifacts["kspLog"], artifacts["kspLogTruncated"],
                        artifacts["screenshots"], shots_dir))
@@ -2544,6 +2547,18 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
         logger.warn("Artifacts", "artifact collection FAILED run=%s (%s: %s); "
                                  "snapshot degraded, verdict unaffected"
                     % (run_id, type(exc).__name__, exc))
+    # (3) Retention (review MAJOR 1): results/ is gitignored and nothing else
+    # ever prunes it, so the heavy *_shots dirs are bounded here -- newest-first
+    # keep window, this run's own dir always protected. The KB-scale history
+    # (result JSONs, summary, contact HTML -- which already embeds the extracted
+    # key lines as text) is never touched. In its OWN try (review NEW-5): a
+    # FAILED copy is exactly when pruning matters most (disk full fails the
+    # copy; skipping the prune would then keep the disk full run after run).
+    try:
+        _prune_shots_dirs("%s_shots" % run_id, logger)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
+        logger.warn("Artifacts", "shots-dir retention FAILED run=%s (%s: %s); "
+                                 "verdict unaffected" % (run_id, type(exc).__name__, exc))
     return artifacts
 
 

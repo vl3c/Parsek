@@ -5818,12 +5818,15 @@ def select_shots_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
     """Which ``*_shots`` dirs the retention pass removes.
 
     ``entries`` are ``(dir_name, mtime_epoch, total_size_bytes)`` rows for every
-    shots dir under results/. Walks NEWEST first, keeping a dir while both the
-    count budget (``keep_dirs``) and the byte budget (``max_total_bytes``) hold;
-    everything older is returned for pruning, oldest first. ``protect_name``
+    shots dir under results/. Walks NEWEST first, keeping dirs until EITHER
+    budget (``keep_dirs`` count / ``max_total_bytes``) trips -- and from the
+    first trip on, EVERYTHING OLDER is pruned (stop-on-trip, review NEW-4:
+    retention priority is strictly newest-wins, so a large recent run must
+    never be evicted while tiny older runs survive past it). ``protect_name``
     (the CURRENT run's dir) is always kept regardless of budgets -- the run that
-    just collected its artifacts must never prune itself. Caps default to None
-    and resolve to the module constants at call time.
+    just collected its artifacts must never prune itself. Returned oldest
+    first. Caps default to None and resolve to the module constants at call
+    time.
     """
     if keep_dirs is None:
         keep_dirs = ARTIFACT_SHOTS_KEEP_DIRS
@@ -5833,15 +5836,17 @@ def select_shots_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
     prune: List[str] = []
     kept = 0
     kept_bytes = 0
+    tripped = False
     for name, _mtime, size in newest_first:
         if name == protect_name:
             kept += 1
             kept_bytes += max(0, size)
             continue
-        if kept < keep_dirs and kept_bytes + max(0, size) <= max_total_bytes:
+        if tripped or kept >= keep_dirs or kept_bytes + max(0, size) > max_total_bytes:
+            tripped = True
+            prune.append(name)
+        else:
             kept += 1
             kept_bytes += max(0, size)
-        else:
-            prune.append(name)
     prune.reverse()  # oldest first, so a partial prune removes the oldest
     return prune

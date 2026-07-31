@@ -6,3 +6,4 @@ summary.txt
 # V3 always-collect artifacts + contact sheets (generated per run; never committed).
 *_shots/
 *.html
+*.html.tmp.*

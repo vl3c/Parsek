@@ -2511,8 +2511,14 @@ class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
              hlib.ARTIFACT_LOG_TAIL_BYTES) = orig
         self.assertTrue(art["kspLogTruncated"])
         dst = os.path.join(run.RESULTS_DIR, "grow-run_shots", "KSP.log")
-        self.assertLess(os.path.getsize(dst), 200 + 200,
+        self.assertLess(os.path.getsize(dst), 200 + 400,
                         "a mid-copy grown source must not bust the cap")
+        # Review NEW-2: the kept tail slice was computed from the STALE size
+        # snapshot, so it is NOT the real end of the log -- the artifact must
+        # say so instead of letting a reader trust mid-log spam as the
+        # teardown/BATCH_COMPLETE tail.
+        with open(dst, "rb") as fh:
+            self.assertIn(b"[harness-artifact] KSP.log GREW during the copy", fh.read())
 
     def test_artifact_failure_never_changes_the_verdict(self):
         """The OTHER half of the verdict-neutrality contract (review MINOR 5):
@@ -2558,6 +2564,35 @@ class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
         self.assertNotIn("old2_shots", survivors)
         with open(self.logger.log_path, "r", encoding="utf-8") as fh:
             self.assertIn("retention pruned", fh.read())
+
+    def test_retention_still_runs_when_the_artifact_copy_fails(self):
+        """Review NEW-5: a full disk FAILS the copy, and that is exactly when
+        pruning matters most -- the retention pass lives in its own try so a
+        copy exception cannot skip it."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        now = time.time()
+        for i, name in enumerate(["stale1_shots", "stale2_shots", "stale3_shots"]):
+            d = os.path.join(run.RESULTS_DIR, name)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "KSP.log"), "w") as fh:
+                fh.write("x" * 10)
+            os.utime(d, (now - 3600 + i, now - 3600 + i))
+        with open(os.path.join(self.instance, "KSP.log"), "w") as fh:
+            fh.write("boot\n")
+        orig_plan = hlib.plan_artifact_log_copy
+        orig_keep = hlib.ARTIFACT_SHOTS_KEEP_DIRS
+        hlib.plan_artifact_log_copy = _raise_artifact_boom
+        try:
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = 2
+            art = run._collect_run_artifacts("diskfull-run", self.instance,
+                                             time.time(), self.logger)
+        finally:
+            hlib.plan_artifact_log_copy = orig_plan
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = orig_keep
+        self.assertFalse(art["kspLog"], "the copy did fail")
+        survivors = sorted(n for n in os.listdir(run.RESULTS_DIR) if n.endswith("_shots"))
+        self.assertEqual(["diskfull-run_shots", "stale3_shots"], survivors,
+                         "retention must prune despite the failed copy, protecting the current run")
 
     def test_contact_sheet_module_loads_by_path_without_syspath(self):
         """Review NIT 11: the tool loads by file path, no sys.path mutation, and

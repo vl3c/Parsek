@@ -116,6 +116,15 @@ class ExtractKeyLogLinesTests(unittest.TestCase):
         self.assertIn("BATCH_COMPLETE v1", shown)          # head survives
         self.assertIn("total=9 passed=9 failed=0", shown)  # tail tally survives
 
+    def test_clip_with_zero_budget_still_clips(self):
+        """Review NEW-3: line[-0:] is the WHOLE string, so a zero/one max_chars
+        must not return the full line out of the one function whose job is
+        bounding output."""
+        for budget in (0, 1):
+            shown = cs._clip("A" * 50, budget)
+            self.assertNotIn("AAAAA", shown, "budget %d leaked the payload" % budget)
+            self.assertIn("[clipped", shown)
+
 
 class VerifierRowsTests(unittest.TestCase):
     def test_rows_from_a_well_formed_result(self):
@@ -426,6 +435,23 @@ class SelectShotsDirsToPruneTests(unittest.TestCase):
         prune = hlib.select_shots_dirs_to_prune(entries, keep_dirs=1, max_total_bytes=10**9)
         self.assertEqual(["a_shots", "b_shots", "c_shots"], prune)
 
+    def test_byte_budget_is_stop_on_trip_newest_wins(self):
+        """Review NEW-4 (CONFIRMED against the first fix): retention priority is
+        strictly newest-wins -- once the byte budget trips, everything OLDER is
+        pruned too. A large recent run must never be evicted while tiny older
+        runs survive past it."""
+        entries = [("newest_shots", 100.0, 500), ("older_shots", 50.0, 10),
+                   ("oldest_shots", 1.0, 10)]
+        prune = hlib.select_shots_dirs_to_prune(entries, keep_dirs=10, max_total_bytes=100)
+        # newest busts the budget -> it AND everything older goes; nothing
+        # older can outlive a newer dir.
+        self.assertEqual(["oldest_shots", "older_shots", "newest_shots"], prune)
+        # ... and with room for the newest, the trip point prunes only older.
+        entries = [("newest_shots", 100.0, 90), ("older_shots", 50.0, 20),
+                   ("oldest_shots", 1.0, 5)]
+        prune = hlib.select_shots_dirs_to_prune(entries, keep_dirs=10, max_total_bytes=100)
+        self.assertEqual(["oldest_shots", "older_shots"], prune)
+
 
 class NonFiniteWallSecondsTests(unittest.TestCase):
     """Review MINOR 2 (CONFIRMED by the reviewer's repro): json.load admits bare
@@ -436,6 +462,21 @@ class NonFiniteWallSecondsTests(unittest.TestCase):
         for bad in (float("inf"), float("-inf"), float("nan"), True):
             e = cs.run_index_entry({"runId": "r", "verdict": "PASS", "wallSeconds": bad}, "r")
             self.assertIsNone(e["wallSeconds"], "wallSeconds=%r must read as None" % bad)
+
+    def test_big_int_wall_does_not_raise_through_the_guard(self):
+        """Review NEW-1 (CONFIRMED regression in the first fix): math.isfinite
+        coerces to a C double, so isfinite(10**400) raises OverflowError INSIDE
+        the guard. A Python int is always finite -- type check only."""
+        big = 10 ** 400
+        e = cs.run_index_entry({"runId": "r", "verdict": "PASS", "wallSeconds": big}, "r")
+        self.assertEqual(big, e["wallSeconds"])
+        # ... and the full pages render, not raise.
+        page = cs.render_run_html("r", {"runId": "r", "verdict": "PASS",
+                                        "wallSeconds": big}, [],
+                                  cs.extract_key_log_lines(""))
+        self.assertIn("<!doctype html>", page)
+        self.assertIn("<!doctype html>", cs.render_index_html(
+            [cs.run_index_entry({"runId": "r", "verdict": "PASS", "wallSeconds": big}, "r")]))
 
     def test_poison_result_json_still_renders_sheet_and_index(self):
         tmp = tempfile.mkdtemp(prefix="parsek-contact-poison-")
