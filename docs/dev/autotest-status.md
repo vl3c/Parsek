@@ -21,8 +21,12 @@ the FIRST committed spec that gates on the ledger capture and the only one decla
 a `utWindow`; the two whole-set guards became ALLOWLISTS carrying that evidence. The
 windows are PHASE BOUNDS, and the three flights proved why: the second `Progression`
 award measured 19.1 / 19.0 / 19.1 across them. This is the ONE deliberate committed
-verdict change - the documented operator action - and nothing else moved. Suites:
-lib 932, provision 203 (5 skipped), missions/lib 1105.)
+verdict change - the documented operator action - and nothing else moved. (3) The
+review's in-pattern follow-up closed too: the pre-launch ledger gate now mirrors the
+oracle for a malformed per-entry `ut` and a non-table entry as well as `utWindow`,
+with a both-directions sweep holding the two implementations in lockstep - six shapes
+that used to pass ADMIT and hard-fail after the flight now red in seconds. Suites:
+lib 937, provision 203 (5 skipped), missions/lib 1105.)
 
 Prior: 2026-07-31 (THREE FAIL-OPEN/MECHANISM ITEMS CLOSED on branch
 `harness-hardening-2`, pure Python + docs, no committed verdict moved. (1) The
@@ -1124,7 +1128,14 @@ six publish or compare numbers the runner already measured.
    three rep entries are `repMode="applied"` so the nonlinear curve is not re-entered
    - caveat (b) below verified inert here rather than assumed. The funds milestone
    entry stays deliberately window-free (KSP logs no funds award, so it is never
-   capture-matched). Forensics + fix record: the struck corroboration-key entry in
+   capture-matched). The PRE-LAUNCH mirror was widened in the same session to cover
+   the other two entry-SHAPE keys an author hand-writes off a `capturedRaw` readout
+   (a malformed per-entry `ut`, and an entry that is not a table) - both previously
+   passed ADMIT and hard-failed AFTER the flight;
+   `test_hlib.py::WhatThePreLaunchGateMirrorsTests` now sweeps the pre-launch gate
+   and the run-time parser against each other in BOTH directions and records which
+   rules stay run-time on purpose. Forensics + fix record: the struck
+   corroboration-key entry in
    todo-and-known-bugs.md; shape pins:
    `test_hlib.py::FlownScenarioUtWindowCorroborationTests` (CL-2's measured lines as
    literals). ARMING CHECKLIST CAVEATS (from the PR #1397 adversarial review; both

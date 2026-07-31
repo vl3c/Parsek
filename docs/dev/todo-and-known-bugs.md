@@ -269,7 +269,29 @@ narrow one can greedily strand the award the tighter entry names; the residual
 pinned-wide-vs-unpinned-exact greedy limit is documented and pinned as fail-closed).
 Fail-closed edges:
 a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
-`ut` + `utWindow` on one entry all reject at parse time. M-B2 independence is
+`ut` + `utWindow` on one entry all reject at parse time.
+
+**THE PRE-LAUNCH MIRROR WAS THEN WIDENED (2026-07-31, second session), because the
+same burned-flight economics applied to two more shapes the review filed as an
+in-pattern follow-up.** `validate_ledger_expectations` mirrored the oracle's
+`utWindow` rules but still passed a malformed per-entry `ut` (`true`, `"x"`, `nan`,
+`inf`) and a manifest entry that is not a table at all - both of which
+`parse_manifest_entries` rejects at RUN time, i.e. as a hard manifest-parse-error
+`PARSEK-FAIL(ledger)` after the flight has been paid for. Measured before the fix:
+all six shapes passed ADMIT and hard-failed post-flight. The gate now mirrors the
+oracle for the three ENTRY-SHAPE keys an author hand-writes off a `capturedRaw`
+readout - entry-is-a-table, `ut`, `utWindow` - in the same ORDER, so a bad `ut`
+alongside a window blames the `ut` on both sides rather than the mutual exclusion.
+`WhatThePreLaunchGateMirrorsTests` sweeps the two implementations against each other
+over the whole malformed-shape space in BOTH directions (a run-time-only rejection
+costs a flight; a pre-launch-only rejection would refuse a spec the oracle accepts),
+pins the shared reason key, and asserts every committed spec still passes the
+widened gate. The sweep has teeth: run against the pre-fix `hlib` it reports 6
+divergences. DELIBERATELY still run-time and recorded in that class's docstring so
+the boundary stays a decision: `kind`, `provenance`, `amountKind`, the
+state-dependent-facet author-constant rule, the rep magnitude cap, `seq`,
+`stockReason`, and the funds fill-from-capture ambiguity (the last genuinely cannot
+be judged before the produced log exists). M-B2 independence is
 untouched - the window is a matching hint, `compute_expected` never reads it, and a
 captured amount is still never summed into EXPECTED. OPT-IN and verdict-neutral by
 construction at the time it shipped: no committed spec declared a window; the CL-2

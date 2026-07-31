@@ -6973,9 +6973,11 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         both = hlib.validate_ledger_expectations(
             block(dict(base, ut=119.9, utWindow=[100.0, 140.0])))
         self.assertTrue(any("mutually exclusive" in e for e in both))
-        # A non-table entry is left for the oracle's own indexed rejection.
-        self.assertEqual([], hlib.validate_ledger_expectations(
-            {"seedFrom": "template", "manifest": ["not-a-table"]}))
+        # A non-table entry now reds pre-launch too (it used to be left for the
+        # oracle's own indexed rejection, i.e. for after the flight).
+        self.assertTrue(any("must be a table" in e for e in
+                            hlib.validate_ledger_expectations(
+                                {"seedFrom": "template", "manifest": ["not-a-table"]})))
 
     def test_manifest_artifact_round_trips_window_and_stock_reason(self):
         # The <runId>.manifest.json audit artifact must carry the entry's full
@@ -7047,6 +7049,133 @@ class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
         # Non-overlapping, so neither phase's entries can reach the other's awards
         # even before the amount / stockReason predicates run.
         self.assertLess(windows[0][1], windows[2][0])
+
+
+class WhatThePreLaunchGateMirrorsTests(unittest.TestCase):
+    """THE PRE-LAUNCH GATE vs THE RUN-TIME PARSER, held in lockstep on purpose.
+
+    A manifest entry the oracle rejects becomes a HARD manifest-parse-error
+    PARSEK-FAIL(ledger) AFTER the flight (run.py: "a rejected seam entry ... would
+    false-PASS if silently dropped; each rejection reds PARSEK-FAIL(ledger)"). So
+    every rule the pre-launch validator does NOT mirror is a shape that costs a full
+    flight to discover - the same economics that moved `utWindow` into the gate
+    (review MINOR-4) and that the stage-inject postcondition closed on the staging
+    side.
+
+    THE MIRRORED SET is the entry SHAPE keys an author hand-writes while transcribing
+    a green run's `capturedRaw` into a spec, which is exactly what the known-gate 3
+    arming checklist asks an operator to do:
+      - the entry is a table
+      - `ut`      (finite number or null; bool is not a number)
+      - `utWindow` ([lo, hi], two finite numbers, lo <= hi, exclusive with `ut`)
+
+    THE DELIBERATELY-UNMIRRORED SET, recorded here so the boundary stays a decision
+    rather than an oversight: `kind`, `provenance`, `amountKind`, the
+    state-dependent-facet author-constant rule, the rep magnitude cap, `seq`,
+    `stockReason`, and the funds fill-from-capture ambiguity. Those are value /
+    semantic rules; the last genuinely cannot be judged before the produced log
+    exists. Widening the gate to any of them is a deliberate change, and this
+    class's second cell is what makes such a widening visible.
+    """
+
+    BASE = {"kind": "stock-reputation-award", "reputation": 1.0,
+            "repMode": "applied", "provenance": "gameevents-captured"}
+
+    # Shapes that vary ONLY the mirrored keys, everything else valid. Sweeping the
+    # two implementations against each other over this space is the W4-probe shape
+    # from the PR #1397 review: agreement must be exact, in BOTH directions.
+    def _mirrored_shape_space(self):
+        shapes = [("well-formed, no ut/window", dict(self.BASE)),
+                  ("ut valid", dict(self.BASE, ut=119.9)),
+                  ("ut null", dict(self.BASE, ut=None)),
+                  ("window valid", dict(self.BASE, utWindow=[100.0, 140.0])),
+                  ("window degenerate lo==hi", dict(self.BASE, utWindow=[5.0, 5.0])),
+                  ("not a table (str)", "not-a-table"),
+                  ("not a table (list)", [1, 2]),
+                  ("not a table (int)", 7),
+                  ("not a table (None)", None)]
+        for bad_ut in (True, False, "x", float("nan"), float("inf"),
+                       float("-inf"), [1.0], {"a": 1}):
+            shapes.append(("ut=%r" % (bad_ut,), dict(self.BASE, ut=bad_ut)))
+        for bad_win in ("oops", [1.0], [1.0, 2.0, 3.0], [True, 2.0], [1.0, False],
+                        [float("nan"), 2.0], [1.0, float("inf")], [1.0, "x"],
+                        {"lo": 1.0}, 5.0, [140.0, 100.0]):
+            shapes.append(("utWindow=%r" % (bad_win,), dict(self.BASE, utWindow=bad_win)))
+        shapes.append(("ut + window together",
+                       dict(self.BASE, ut=119.9, utWindow=[100.0, 140.0])))
+        # A malformed ut AND a window: both sides must blame the ut, not the
+        # mutual exclusion, because the oracle parses ut first.
+        shapes.append(("bad ut + valid window",
+                       dict(self.BASE, ut="x", utWindow=[100.0, 140.0])))
+        return shapes
+
+    def test_the_two_implementations_agree_over_the_mirrored_shape_space(self):
+        for label, entry in self._mirrored_shape_space():
+            with self.subTest(shape=label):
+                pre = hlib.validate_ledger_expectations(
+                    {"seedFrom": "template", "manifest": [entry]})
+                run = list(oracle.parse_manifest_entries([entry]).errors)
+                self.assertEqual(
+                    bool(run), bool(pre),
+                    "pre-launch and run-time disagree on %s: pre=%r run=%r - a "
+                    "run-time-only rejection costs a full flight; a pre-launch-only "
+                    "rejection refuses a spec the oracle would have accepted"
+                    % (label, pre, run))
+
+    def test_the_shared_reason_is_the_same_key_on_both_sides(self):
+        # Agreeing on "reject" is not enough: an author reading the pre-launch error
+        # must be pointed at the SAME key the oracle would have named, otherwise the
+        # cheap gate sends them to the wrong line.
+        for label, entry, key in [("bad ut", dict(self.BASE, ut="x"), ".ut"),
+                                  ("bad window", dict(self.BASE, utWindow="oops"), ".utWindow"),
+                                  ("bad ut beats window", dict(self.BASE, ut="x",
+                                                               utWindow=[1.0, 2.0]), ".ut")]:
+            with self.subTest(shape=label):
+                pre = hlib.validate_ledger_expectations(
+                    {"seedFrom": "template", "manifest": [entry]})
+                run = list(oracle.parse_manifest_entries([entry]).errors)
+                self.assertTrue(any(key in e for e in pre), "pre-launch: %r" % pre)
+                self.assertTrue(any(key in e for e in run), "run-time: %r" % run)
+
+    def test_malformed_ut_now_reds_pre_launch(self):
+        # THE FINDING, stated directly. Each of these used to pass ADMIT and hard-fail
+        # AFTER the flight as a manifest-parse-error PARSEK-FAIL(ledger).
+        for bad in (True, "x", float("nan"), float("inf")):
+            with self.subTest(ut=bad):
+                errs = hlib.validate_ledger_expectations(
+                    {"seedFrom": "template", "manifest": [dict(self.BASE, ut=bad)]})
+                self.assertTrue(any("manifest[0].ut" in e for e in errs),
+                                "ut=%r must red pre-launch" % (bad,))
+        # A valid ut and an absent ut both stay clean.
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE, ut=119.9)]}))
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE)]}))
+        # 0.0 is a real UT, not a falsy absence - the guard must not treat it as one.
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE, ut=0.0)]}))
+
+    def test_a_non_table_entry_now_reds_pre_launch_and_is_indexed(self):
+        errs = hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE), "not-a-table"]})
+        self.assertTrue(any("manifest[1]" in e and "must be a table" in e
+                            for e in errs), errs)
+        # The valid sibling is not blamed, mirroring the oracle's per-entry indexing.
+        self.assertFalse(any("manifest[0]" in e for e in errs), errs)
+
+    def test_every_committed_spec_still_passes_the_widened_gate(self):
+        # THE VERDICT-NEUTRALITY CHECK for this widening: a stricter pre-launch gate
+        # must not start refusing a spec that flies today. (The armed CL-2 included -
+        # its three utWindow entries are the only committed windows in the tree.)
+        offenders = {}
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            ledger = (load_spec(name).get("expectations", {}) or {}).get("ledger")
+            if ledger is None:
+                continue
+            errs = hlib.validate_ledger_expectations(ledger)
+            if errs:
+                offenders[name] = errs
+        self.assertEqual({}, offenders)
 
 
 class ParseCareerSaveBlockTests(unittest.TestCase):

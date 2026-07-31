@@ -3932,16 +3932,46 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     if not isinstance(manifest, list):
         errs.append("expectations.ledger.manifest: must be an array of entry tables")
     else:
-        # PRE-LAUNCH structural check of the per-entry `utWindow` key ONLY (a strict
-        # mirror of oracle.parse_manifest_entries's rules for it). Per-ENTRY
-        # validation is otherwise the oracle's job at RUN time, but a malformed
-        # window would surface AFTER the flight as a hard manifest-parse-error
-        # PARSEK-FAIL - and the window is exactly the key an author hand-writes from
-        # a capturedRaw readout, so a typo must red pre-boot as spec-invalid, not
-        # cost a full flight (same economics as the stage-inject postcondition).
+        # PRE-LAUNCH structural check of the per-entry SHAPE keys - the entry is a
+        # table, `ut`, and `utWindow` - as a strict mirror of
+        # oracle.parse_manifest_entries's rules for exactly those three, IN THE SAME
+        # ORDER, so a given malformed entry reds pre-boot for the same reason the
+        # oracle would have given after the flight.
+        #
+        # WHY THESE THREE AND NOT THE WHOLE PARSER. A rejected manifest entry is a
+        # HARD manifest-parse-error PARSEK-FAIL(ledger), so ANY shape the oracle
+        # rejects costs a full flight to discover. These three are the ones an author
+        # HAND-WRITES while transcribing a `capturedRaw` readout into a spec - the
+        # exact operation the arming checklist asks for - which is where a typo
+        # actually comes from. `utWindow` was mirrored first (review MINOR-4); `ut`
+        # and the non-table entry are the same finding one step further, and the
+        # WhatThePreLaunchGateMirrorsTests sweep holds the three in lockstep with the
+        # oracle so they cannot drift apart silently.
+        #
+        # DELIBERATELY STILL RUN-TIME, per this function's own contract above: the
+        # `kind` enum, `provenance`, `amountKind`, the state-dependent-facet
+        # author-constant rule, the rep magnitude cap, `seq`, `stockReason` and the
+        # funds fill-from-capture ambiguity. Those are value/semantic rules rather
+        # than shape rules, and the last one genuinely cannot be judged before the
+        # log exists. Moving any of them here is a deliberate widening of the gate,
+        # not a bug fix - and the sweep's own docstring records which side each rule
+        # sits on so the boundary stays a decision.
         for i, entry in enumerate(manifest):
             if not isinstance(entry, dict):
-                continue  # the oracle rejects a non-table entry with its own reason
+                errs.append("expectations.ledger.manifest[%d]: %r must be a table "
+                            "(the oracle rejects a non-table entry at run time, "
+                            "which costs a flight)" % (i, entry))
+                continue
+            # `ut` FIRST, mirroring the oracle: an entry carrying both a malformed
+            # `ut` and a window must report the `ut` reason, not the
+            # mutually-exclusive one.
+            ut = entry.get("ut")
+            if ut is not None and (isinstance(ut, bool)
+                                   or not isinstance(ut, (int, float))
+                                   or not math.isfinite(float(ut))):
+                errs.append("expectations.ledger.manifest[%d].ut: %r must be a "
+                            "finite number or null" % (i, ut))
+                continue
             raw_window = entry.get("utWindow", entry.get("ut_window"))
             if raw_window is None:
                 continue
