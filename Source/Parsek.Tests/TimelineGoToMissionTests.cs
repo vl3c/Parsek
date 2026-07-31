@@ -214,10 +214,10 @@ namespace Parsek.Tests
                 l.Contains("[WARN]") && l.Contains("belongs to no mission"));
         }
 
-        // A tree that has just committed has no Mission until the Missions tab draws and
-        // EnsureDefaultsForTrees seeds one. Warn rather than seed from a click handler.
+        // Backstop: the recording names a tree that is not committed, so there is nothing to
+        // seed a mission from and nothing to scroll to.
         [Fact]
-        public void GoToWarnsAndSchedulesNothingWhenTheTreeHasNoMissionYet()
+        public void GoToWarnsAndSchedulesNothingWhenTheTreeIsNotCommitted()
         {
             RecordingStore.AddCommittedInternal(MakeRec("rec-1", "tree-1"));
 
@@ -226,7 +226,37 @@ namespace Parsek.Tests
 
             Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") && l.Contains("has no mission yet"));
+                l.Contains("[WARN]") && l.Contains("has no mission for recording"));
+        }
+
+        // A tree committed mid-scene (post-revert merge, rapid-switch commit) carries no Mission
+        // until the Missions tab's own draw seeds one - and the freshest flight is exactly the
+        // row a player is most likely to click GoTo on. The reveal seeds the default itself so
+        // the common case lands on the mission instead of on the backstop warn.
+        [Fact]
+        public void GoToSeedsTheDefaultMissionForATreeCommittedMidScene()
+        {
+            var rec = MakeRec("rec-1", "tree-1", "Munshot");
+            var tree = new RecordingTree
+            {
+                Id = "tree-1",
+                TreeName = "Munshot",
+                RootRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+            RecordingStore.CommitTree(tree);
+            Assert.Null(MissionStore.FindOriginalMission("tree-1"));
+
+            var ui = new ParsekUI(UIMode.KSC);
+            ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
+
+            Mission seeded = MissionStore.FindOriginalMission("tree-1");
+            Assert.NotNull(seeded);
+            Assert.Equal(seeded.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+            // Specifically not the backstop path. (Scoped to cross-link warns: committing a
+            // tree emits unrelated merger logging.)
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("Cross-link:"));
         }
 
         // A second click must not leave the first target armed behind it.
@@ -268,21 +298,23 @@ namespace Parsek.Tests
         public void TimelineGatesBothGoToButtonsOnTheMissionsSurface()
         {
             string src = ReadTimelineWindowSource();
-            string flat = Regex.Replace(src, @"\s+", " ");
+            // Whitespace-insensitive: a line-wrap change to any of these calls is a reformat,
+            // not a regression, and must not red this cell.
+            string dense = Regex.Replace(src, @"\s+", string.Empty);
 
             Assert.Contains(
-                "UiSurfaceVisibility.IsVisible( UiSurface.TabMissions, ParsekUI.AppliedUiComplexityMode)",
-                flat);
+                "UiSurfaceVisibility.IsVisible(UiSurface.TabMissions,ParsekUI.AppliedUiComplexityMode)",
+                dense);
 
             // The Recordings tab must not come back as this file's gate key.
-            Assert.DoesNotContain("UiSurface.TabRecordings", src);
+            Assert.DoesNotContain("UiSurface.TabRecordings", dense);
 
             // Both row flavours (RecordingStart and separation) carry the button, and both
             // route through the missions entry point rather than the Recordings-tab one.
-            Assert.Equal(2, Regex.Matches(src, Regex.Escape("if (showMissionCrossLink)")).Count);
+            Assert.Equal(2, Regex.Matches(dense, Regex.Escape("if(showMissionCrossLink)")).Count);
             Assert.Equal(2, Regex.Matches(
-                src, Regex.Escape("tableUI.ShowMissionForRecording(entry.RecordingId)")).Count);
-            Assert.DoesNotContain("tableUI.ScrollToRecording", src);
+                dense, Regex.Escape("tableUI.ShowMissionForRecording(entry.RecordingId)")).Count);
+            Assert.DoesNotContain("tableUI.ScrollToRecording", dense);
         }
 
         private static string ReadTimelineWindowSource()

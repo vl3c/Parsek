@@ -367,14 +367,21 @@ namespace Parsek
                 return;
             }
 
+            // Seed the default mission first. A tree committed mid-scene (a post-revert merge, a
+            // rapid-switch commit) has none until the Missions tab's own draw seeds it, and the
+            // freshest flight is exactly the row a player is most likely to click GoTo on - so
+            // without this the common case lands on the warn path one frame before the tab would
+            // have created the mission anyway. Calling the same idempotent static the draw and
+            // ParsekScenario.OnLoad both call is not a second seam.
+            MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+
             Mission mission = MissionStore.FindOriginalMission(rec.TreeId);
             if (mission == null)
             {
-                // EnsureDefaultsForTrees only runs inside the draw, so a just-committed tree can
-                // legitimately have no mission yet; the next draw creates one. Warn rather than
-                // seed here - creating a Mission from a click handler would duplicate that seam.
+                // Backstop: the recording names a tree that is not in the committed set, so
+                // there is nothing to seed a mission from.
                 ParsekLog.Warn("UI",
-                    $"Cross-link: tree {rec.TreeId} has no mission yet for recording " +
+                    $"Cross-link: tree {rec.TreeId} has no mission for recording " +
                     $"\"{rec.VesselName}\" id={recordingId}; opening the Missions tab unscrolled");
                 return;
             }
@@ -461,7 +468,11 @@ namespace Parsek
             var missions = MissionStore.Missions;
             if (missions == null || missions.Count == 0)
             {
+                // Capture and apply straddle a frame boundary, so a list emptied in between
+                // (Wipe All Recordings, a load-time sweep) could otherwise leave an armed
+                // offset behind that applies, silently, whenever the list refills.
                 DropPendingReveal("the list is empty");
+                pendingRevealScrollY = float.NaN;
                 GUILayout.Label("No missions recorded yet.");
                 return;
             }
@@ -557,8 +568,11 @@ namespace Parsek
                 $"Missions tab: missions={missionCount} rows={rowCount}", 5.0);
         }
 
-        // Abandons an unconsumed cross-link target, loudly. Silent expiry would leave the
-        // player looking at an unscrolled list with nothing in the log to explain it.
+        // Abandons an unconsumed cross-link target, loudly. Silent expiry would leave the player
+        // looking at an unscrolled list with nothing in the log to explain it.
+        // <para>Deliberately does NOT clear pendingRevealScrollY: this also runs at the end of
+        // the pass that just captured one, and the apply is the NEXT pass. The offset is dropped
+        // where it can genuinely go stale instead - see the empty-list branch.</para>
         private void DropPendingReveal(string reason)
         {
             if (pendingRevealMissionId == null)
