@@ -249,7 +249,35 @@ them - and D8/D9 `tombstones` - out of its claim set.
 
 ---
 
-## The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. NOT FIXED]
+## ~~The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued~~ [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+The windowed-UT option from the list below, chosen over the other two after studying
+what a flown spec CAN declare: a manifest entry may now carry `utWindow = [lo, hi]`
+(inclusive; `oracle.parse_manifest_entries` -> `ManifestEntry.ut_window`), and
+`hlib.unmatched_captured_awards` matches a windowed entry to a captured award whose
+UT falls inside the bounds instead of requiring exact `seq_key` equality. A window is
+what a flown spec can honestly state - the mission's phase bounds ("the impact lands
+between UT 100 and 140") are stable across runs even though the exact UT is not
+(119.7 / 119.9 / 119.8 across the three runs below). Everything else about the match
+is unchanged: facet + amount-within-tolerance + structured identity + optional
+`stockReason`, one-to-one per (entry, pool) consumption, pinned-first candidate order
+(windowed entries additionally sort AFTER exact-key entries within each group, so a
+window cannot greedily strand the one award an exact entry names). Fail-closed edges:
+a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
+`ut` + `utWindow` on one entry all reject at parse time. M-B2 independence is
+untouched - the window is a matching hint, `compute_expected` never reads it, and a
+captured amount is still never summed into EXPECTED. OPT-IN and verdict-neutral by
+construction: no committed spec declares a window
+(`test_no_committed_spec_declares_a_ut_window` pins it, next to the existing
+no-spec-arms-gate cell); the CL-2 shape - the three measured capture lines
+corroborating through windows, near-window misses, straddling awards, the measured UT
+spread as literals - is pinned in
+`test_hlib.py::FlownScenarioUtWindowCorroborationTests`. `CL-2-pod-impact-ledger`
+itself stays `captureCrossCheck = "report"` with no windows declared; arming it is an
+operator action (declare windows from a green run's `capturedRaw`, then flip to
+`gate`).
 
 `hlib`'s own note says `captureCrossCheck` "was WRITTEN as a hard gate, but it has never
 once run with a working capture", that no L1 spec can capture anything, and that arming
@@ -287,14 +315,18 @@ craft, 119.9 on CL-2 flight 1 and 119.8 on flight 2. (For a KSC-only scenario th
 land at the save's static UT, so the problem is invisible there - consistent with the
 join having been designed against the L1 shape and never exercised against a flight.)
 
-### Options, none applied
+### Options (windowed-UT applied - see Fix above)
 
 Loosen the join to `(facet, amount [, stockReason])` with the seqKey as a TIE-BREAKER
 rather than a requirement; or add a UT-window tolerance; or let an entry declare
 `stockReason` alone as sufficient corroboration when the amount matches. Each changes
-what "unexpected" means, so it wants the M-B2 design owner rather than a scenario
-author. Until then `captureCrossCheck = "report"` is the correct setting for any flown
-spec, and CL-2 records the reasoning inline.
+what "unexpected" means, so it wanted a deliberate design pass rather than a
+scenario-author workaround. The windowed option won because it is the only one where
+the SPEC still constrains WHEN the award may land (an amount-only or reason-only join
+would corroborate a declared award appearing at any point in the flight, including
+one fired by an unrelated later event). `captureCrossCheck = "report"` remains the
+correct setting for a flown spec until its author declares windows from a green run's
+`capturedRaw`.
 
 NOTE, so this is not over-read: none of it weakens the oracle. The cross-check only
 CLASSIFIES; a captured amount is never summed into EXPECTED, and the
@@ -536,7 +568,27 @@ The alternative (tracer-on everywhere) is exactly the cross-run leak PR #1352 fi
 
 ---
 
-## HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today]
+## ~~HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true~~ [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+Both halves of the fix shape below, because they answer different questions:
+`_resolve_bool_default_true` now returns True/False only for an absent argument or
+the literal `true`/`false` and None for anything else, and
+`parse_ingame_test_declarations` maps that None to (a) `allow_batch = False` -
+fail-CLOSED in the `_resolve_bool_default_false` direction, so an unreadable
+expression under-counts admissions and a pinned tally reds, never inflates - and (b)
+a new `InGameTestDecl.allow_batch_marker` carrying the `<unresolved:<expr>>` marker,
+which `unresolved_ingame_declarations` now reports alongside unresolvable
+Category/Scene, so `CommittedBatchTallySourceSyncTests` reds ON THE DECLARATION
+rather than leaving a bounds mismatch to be reverse-engineered. Both malformed shapes
+(a const indirection, a computed expression - plus C#'s capitalized `False`, which is
+an identifier to this parse) are pinned in
+`test_hlib.py::test_non_literal_allow_batch_fails_closed_with_a_marker`. Verified
+mechanically with the parser itself that the whole `Source/Parsek` tree still parses
+IDENTICALLY: 542 declarations, 471 batch-allowed / 71 not, 72 restore-backed, zero
+markers, zero unresolved - every committed argument is a literal, so the fail-closed
+branch is dead code against today's tree by construction.
 
 ### What happens
 
@@ -554,7 +606,30 @@ Make an unresolvable `AllowBatchExecution` argument resolve to a loud marker (or
 
 ---
 
-## HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. REPORTED, NOT FIXED. Driver-side only - no Parsek code on the path]
+## ~~HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection~~ [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. Driver-side only - no Parsek code on the path. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+The staging POSTCONDITION from the fix shape below, driver-side only.
+`run.py::stage_fixture` step 3 now asserts what the preset MUST have written into
+the staged save after the injector returns, whatever its exit code:
+`_inject_postcondition_missing` requires a non-empty `Parsek/Recordings/` for both
+presets plus `Parsek/RewindPoints/rp_b9_root.sfs` for `rewind-b9` (the RP every
+consumer's `InvokeRewind rp=rp_b9_root` needs - which also closes the second silent
+trigger, the KSP.log lock-probe refusal, and any future no-op mechanism; the check is
+mechanism-independent). A miss fails the stage immediately as terminal
+INVALID(`stage-inject-noop`) with ZERO KSP boots, and the error names the likely
+cause with its one-line remedy (assembly-existence probe: "Parsek.Tests assembly
+missing ... dotnet build Source/Parsek.Tests" vs "assembly present; check the KSP.log
+lock probe"). The subkind is deliberately NOT in `RETRYABLE_INVALID_SUBKINDS`: the
+miss is deterministic per worktree, so a retry burns the `once` budget to learn
+nothing (the exact V1-map-dwell double-flight shape). `--no-build` stays on the
+injector, exactly as the DO-NOT below demands, and the hidden coupling to
+`run_analyzer`'s building side effect is now irrelevant to correctness. Covered
+through the fake-KSP smoke harness (`test_run_smoke.py::InjectPostconditionTests`): a
+full `run_attempt` over a no-op injection terminates INVALID(stage-inject-noop)
+pre-boot and non-retryable, success paths for both presets stage clean, an RP-less
+rewind-b9 injection fails closed, and the predicate's shapes are pinned directly.
 
 ### What happens
 

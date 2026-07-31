@@ -376,6 +376,15 @@ rec3CarveOut = false        # no route residual anywhere in this scenario.
 # the key itself has to change. Recorded in docs/dev/todo-and-known-bugs.md so the
 # next author does not re-derive it from another flight.
 #
+# 2026-07-31 UPDATE: the key CHANGED (branch `harness-hardening-2`) - a manifest
+# entry may now declare `utWindow = [lo, hi]` and the cross-check matches a captured
+# award inside the window instead of on the exact UT. This spec DELIBERATELY still
+# declares no windows and stays `report`: arming is the separate operator step
+# (declare windows from a green run's `capturedRaw` - e.g. the impact award inside
+# [100, 140], the two Progression awards inside the early ascent - confirm the
+# unexpected rows go to zero on the next green run, then flip to `gate`), and the
+# paragraphs above stay as the measured record of why the mechanism exists.
+#
 # NONE OF THIS WEAKENS THE ORACLE. The cross-check only classifies; a captured amount
 # is never summed into EXPECTED, and the seam-declared-vs-produced-save diff below
 # reds exactly as before. Flight 1's ledger verifier passed with 0 hard divergences.

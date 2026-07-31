@@ -1,6 +1,24 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
+Last updated: 2026-07-31 (THREE FAIL-OPEN/MECHANISM ITEMS CLOSED on branch
+`harness-hardening-2`, pure Python + docs, no committed verdict moved. (1) The
+ledger capture cross-check is now ARMABLE ON FLOWN SCENARIOS: a manifest entry may
+declare `utWindow = [lo, hi]` and the leg-A corroboration matches inside the window
+instead of on the unpinnable exact UT that made CL-2's three correctly-declared
+awards all read "unexpected" - opt-in per entry, zero committed specs declare one,
+M-B2 independence untouched; see the rewritten arming paragraph in known-gate 3.
+(2) HARNESS-INJECT-FAILS-OPEN is FIXED driver-side: staging now asserts the
+injection POSTCONDITION (non-empty `Parsek/Recordings/`, plus `rp_b9_root.sfs` for
+`rewind-b9`) and a miss is terminal INVALID(`stage-inject-noop`) pre-boot,
+non-retryable, naming the likely cause and remedy - no more full flights burned on
+`unknown-rp`. (3) HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN is FIXED: a non-literal
+`AllowBatchExecution` argument now resolves fail-CLOSED with an `<unresolved:...>`
+marker the sync sweep reds, instead of silently reading batch-allowed; the tree
+recount is unchanged (542 declarations, zero markers). All three suites green:
+lib 927, provision 203 (5 skipped), missions/lib 1103. Forensics: the three struck
+entries in todo-and-known-bugs.md.)
+
+Prior: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
 S4.1-IDLE-DISCARD refusal guard is LIVE-PROVEN. The unentered guard was
 S4.1-PREFIX-RACE: `InvokeRewind` completes when the re-fly MARKER lands, but the
 scene-exit prefix gates on `ParsekFlight.HasActiveTree`, which only goes true when
@@ -1032,14 +1050,29 @@ six publish or compare numbers the runner already measured.
    is unaffected by any of this. **The scenario-authoring half of that gap is CLOSED
    2026-07-30 by `CL-2-pod-impact-ledger`**, which carries the ledger block CL-1
    cannot, and its manifest closes to ~7e-7 exactly as the tolerance note below
-   predicted. **ARMING IS STILL NOT POSSIBLE, and the reason is now MEASURED rather
-   than pending.** CL-2 is the first run in the repo with a LIVE capture
-   (`stockLines=3 deduped=3 seamRejected=0`) and all three awards STILL report
-   UNEXPECTED: `unmatched_captured_awards` joins on a UT-valued `seq_key`, and a
-   spec-declared entry can only match by naming the exact game UT the award lands on -
-   a golden trajectory value that moved 119.7 / 119.9 / 119.8 across three runs of
-   this one craft. So arming `gate` on a FLOWN scenario needs the KEY to change, not
-   another calibration reading; see the entry in todo-and-known-bugs.md. TOLERANCE
+   predicted. **THE FLOWN-SCENARIO KEY BLOCKER IS FIXED (2026-07-31, branch
+   `harness-hardening-2`); arming is now purely the operator action below.** What
+   CL-2's first live capture MEASURED (`stockLines=3 deduped=3 seamRejected=0`): all
+   three awards reported UNEXPECTED, because `unmatched_captured_awards` joined on a
+   UT-valued `seq_key` and a spec-declared entry could only match by naming the exact
+   game UT the award lands on - a golden trajectory value that moved
+   119.7 / 119.9 / 119.8 across three runs of this one craft. The KEY changed, as
+   that finding demanded: a manifest entry may now declare `utWindow = [lo, hi]`
+   (inclusive; mutually exclusive with `ut`), and the cross-check matches a windowed
+   entry to a captured award whose UT falls inside the bounds - every other predicate
+   (facet, amount-within-tolerance, structured identity, optional `stockReason`,
+   one-to-one per (entry, pool), pinned-first order with exact-key entries ahead of
+   windows) unchanged, a null-UT award never window-matches, and M-B2 independence
+   untouched (the window is a matching hint; a captured amount is still never summed
+   into EXPECTED). OPT-IN: ZERO committed specs declare a window
+   (`test_no_committed_spec_declares_a_ut_window`), so no report row moved. ARMING A
+   FLOWN SCENARIO is now: fly it green, read `capturedRaw` in
+   `results/<runId>.manifest.json`, declare a `utWindow` (+ `stockReason`) entry per
+   award from the mission's phase bounds, confirm the unexpected rows go to zero on
+   the next green run, then flip `captureCrossCheck = "gate"`. Forensics + fix
+   record: the struck corroboration-key entry in todo-and-known-bugs.md; shape pins:
+   `test_hlib.py::FlownScenarioUtWindowCorroborationTests` (CL-2's measured lines as
+   literals). TOLERANCE
    NOTE, now confirmed by CL-2's two flights: stock prints the applied rep delta at 7
    significant figures, so the three captured amounts sum to -7.999829 against a save
    carrying -7.99982834. An exact compare cannot succeed; budget the ~1e-6

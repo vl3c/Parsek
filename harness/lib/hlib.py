@@ -1235,6 +1235,14 @@ class InGameTestDecl:
     admits ``allow_batch OR restore_baseline`` where the ordinary
     ``PrepareBatchExecution`` admits ``allow_batch`` alone. Declared LAST so the
     positional constructor stays source-compatible.
+
+    ``allow_batch_marker`` is empty for a resolved (absent-or-literal)
+    ``AllowBatchExecution`` argument and carries the ``<unresolved:...>`` marker for
+    a non-literal one (HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN). When set,
+    ``allow_batch`` is fail-CLOSED false (under-count admissions, red the pinned
+    tally) and ``unresolved_ingame_declarations`` reports the declaration - the same
+    loud path an unresolvable Category/Scene takes. Trailing default keeps the
+    positional constructor source-compatible.
     """
 
     category: str
@@ -1242,6 +1250,7 @@ class InGameTestDecl:
     allow_batch: bool
     origin: str = ""
     restore_baseline: bool = False
+    allow_batch_marker: str = ""
 
 
 # The selector token InGameTestRunner.RunAll stamps as currentBatchSelector, and
@@ -1525,13 +1534,22 @@ def parse_ingame_test_declarations(
         # others has more text before the member ([Obsolete("x"), InGameTest(...)]).
         member = _member_name_after(mask, section_close)
         origin = "%s:%d %s" % (source_name or "<text>", line, member or "?")
+        # A non-literal AllowBatchExecution resolves to None: keep it COUNTED but
+        # marked (fail-closed false + <unresolved:> marker), mirroring how an
+        # unresolvable Category/Scene is kept with a marker rather than dropped.
+        allow_batch = _resolve_bool_default_true(named.get("AllowBatchExecution"))
+        allow_batch_marker = ""
+        if allow_batch is None:
+            allow_batch_marker = "<unresolved:%s>" % named.get("AllowBatchExecution", "").strip()
+            allow_batch = False
         out.append(InGameTestDecl(
             category=_resolve_category(named.get("Category"), consts),
             scene=_resolve_scene(named.get("Scene")),
-            allow_batch=_resolve_bool_default_true(named.get("AllowBatchExecution")),
+            allow_batch=allow_batch,
             origin=origin,
             restore_baseline=_resolve_bool_default_false(
-                named.get("RestoreBatchFlightBaselineAfterExecution"))))
+                named.get("RestoreBatchFlightBaselineAfterExecution")),
+            allow_batch_marker=allow_batch_marker))
     return out
 
 
@@ -1564,11 +1582,28 @@ def _resolve_scene(expr: Optional[str]) -> Optional[str]:
     return "<unresolved:%s>" % expr
 
 
-def _resolve_bool_default_true(expr: Optional[str]) -> bool:
-    """AllowBatchExecution: absent -> true (the property initializer). Anything
-    that is not literally ``false`` is treated as true, matching the runner's
-    ``if (test.AllowBatchExecution)`` branch on the default."""
-    return (expr or "true").strip() != "false"
+def _resolve_bool_default_true(expr: Optional[str]) -> Optional[bool]:
+    """AllowBatchExecution: absent -> true (the property initializer); a literal
+    ``true`` / ``false`` resolves as written; ANYTHING ELSE -> None (unresolved).
+
+    HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN, closed 2026-07-31: this used to read
+    ``(expr or "true").strip() != "false"``, so a non-literal argument (a const
+    indirection, a computed expression) silently resolved batch-ALLOWED - loosening
+    the derived tally bounds in the direction that UNDER-reports skips, instead of
+    failing loud the way Category/Scene do. The caller maps None to a
+    ``<unresolved:...>`` marker (so ``unresolved_ingame_declarations`` reds the
+    sync gate on the declaration itself) AND resolves the bool fail-CLOSED to
+    false, the sibling ``_resolve_bool_default_false`` direction: an unreadable
+    expression must under-count admissions so a pinned tally reds, never
+    inflates."""
+    if expr is None:
+        return True
+    s = expr.strip()
+    if s == "true":
+        return True
+    if s == "false":
+        return False
+    return None
 
 
 def _resolve_bool_default_false(expr: Optional[str]) -> bool:
@@ -1590,9 +1625,9 @@ def _resolve_bool_default_false(expr: Optional[str]) -> bool:
 def unresolved_ingame_declarations(
     decls: Sequence[InGameTestDecl],
 ) -> List[InGameTestDecl]:
-    """Declarations whose Category or Scene this parser could not resolve. A
-    non-empty result means the source grew an attribute form the parse does not
-    model -- a gate that must FAIL, not shrug.
+    """Declarations whose Category, Scene, or AllowBatchExecution this parser
+    could not resolve. A non-empty result means the source grew an attribute form
+    the parse does not model -- a gate that must FAIL, not shrug.
 
     This catches only forms that were RECOGNISED and then failed to resolve. A
     form never recognised at all is caught by
@@ -1600,7 +1635,8 @@ def unresolved_ingame_declarations(
     "reported, never dropped" true."""
     return [d for d in decls
             if str(d.category).startswith("<unresolved:")
-            or str(d.scene or "").startswith("<unresolved:")]
+            or str(d.scene or "").startswith("<unresolved:")
+            or str(getattr(d, "allow_batch_marker", "")).startswith("<unresolved:")]
 
 
 def _line_text_at(text: str, offset: int) -> str:
@@ -4294,7 +4330,9 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     POOL and the AMOUNT.
 
     An award is EXPECTED iff some seam entry:
-      - shares its type-tagged ``seq_key``;
+      - shares its type-tagged ``seq_key``, OR - when the entry declares a
+        ``utWindow`` (the FLOWN-scenario key, see below) - the award carries a UT
+        inside the entry's inclusive ``[lo, hi]`` window;
       - declares a NON-ZERO delta on the award's facet (an entry that does not touch
         that pool cannot explain an award on it);
       - agrees on the amount within the facet tolerance (reputation needs the window:
@@ -4304,6 +4342,22 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
       - and, when the entry declares ``stockReason``, lists the award's stock reason
         key. That optional field TIGHTENS the match for an author who has read a green
         run's ``capturedRaw`` and wants the entry pinned to a named stock effect.
+
+    THE ``utWindow`` KEY IS WHAT MAKES THE CROSS-CHECK ARMABLE ON A FLOWN SCENARIO
+    (2026-07-31; found by `CL-2-pod-impact-ledger`'s first live capture). A captured
+    award's ``seq_key`` is UT-valued whenever a UT-stamped [Parsek] line precedes it,
+    and a flown spec cannot pin that UT: CL-2's impact award measured ut 119.7 (the
+    archived B1 run of the same craft), 119.9 (flight 1) and 119.8 (flight 2), so the
+    exact join can never fire and every captured award reported "unexpected" - making
+    `captureCrossCheck = "gate"` unarmable exactly where it matters (a
+    reputation-producing flight). A window is what a flown spec CAN honestly declare:
+    the mission's phase bounds ("the impact lands between UT 100 and 140") are stable
+    across runs even though the exact UT is not. A windowed entry matches ONLY awards
+    carrying a real UT inside the inclusive bounds; a null-UT award never
+    window-matches (nothing to judge), and an award outside the bounds stays
+    unexpected. Declaring ``utWindow`` is OPT-IN PER ENTRY: no committed spec declares
+    one (guarded by test_no_committed_spec_declares_a_ut_window), so every existing
+    manifest matches byte-identically to the pre-window behavior.
 
     ONE-TO-ONE PER (ENTRY, POOL): a match CONSUMES the pair ``(entry, facet)``, so one
     declared effect explains at most one award ON EACH POOL IT DECLARES. That is what
@@ -4352,8 +4406,16 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     # pinning reasons. Trying constrained entries first fixes it in both log orders,
     # because a pinned entry only accepts the award it names. Stable sort, so
     # declaration order is preserved inside each group.
+    #
+    # SECONDARY KEY, same greedy-strand reasoning one level down: EXACT-seqKey entries
+    # before `utWindow` entries. An exact entry accepts exactly one seqKey while a
+    # window accepts a span, so a window tried first could swallow the one award the
+    # exact entry names and strand it - trying the narrower key first cannot (any
+    # award the exact entry accepts is judged against it before a window sees it).
+    # No committed entry declares a window, so this refinement moves nothing today.
     order = sorted(range(len(available)),
-                   key=lambda i: 0 if getattr(available[i], "stock_reasons", ()) else 1)
+                   key=lambda i: (0 if getattr(available[i], "stock_reasons", ()) else 1,
+                                  1 if getattr(available[i], "ut_window", None) else 0))
     # Consumption is keyed (entry index, FACET) - see the per-pool rule above.
     consumed = set()
     out: List[CapturedAward] = []
@@ -4364,7 +4426,13 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
             if (i, c.facet) in consumed:
                 continue
             e = available[i]
-            if e.seq_key != c.seq_key:
+            window = getattr(e, "ut_window", None)
+            if window is not None:
+                # FLOWN-scenario key: inclusive UT window. A null-UT award has no
+                # position to judge -> never window-matches (fail-closed).
+                if c.ut is None or not (window[0] <= c.ut <= window[1]):
+                    continue
+            elif e.seq_key != c.seq_key:
                 continue
             declared_amount = _entry_facet_amount(e, c.facet)
             if declared_amount == 0.0:

@@ -1825,6 +1825,44 @@ class InGameAttributeParseTests(unittest.TestCase):
         self.assertFalse(self.one(
             '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'
         ).allow_batch)
+        # Every resolved (absent-or-literal) form carries an EMPTY marker - the
+        # 539-declaration tree recount must be byte-identical to pre-fix.
+        for src in ('[InGameTest(Category = "A")] void M(){}',
+                    '[InGameTest(Category = "A", AllowBatchExecution = true)] void M(){}',
+                    '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'):
+            with self.subTest(src=src):
+                self.assertEqual("", self.one(src).allow_batch_marker)
+
+    def test_non_literal_allow_batch_fails_closed_with_a_marker(self):
+        # HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: `(expr or "true").strip() !=
+        # "false"` read ANY non-literal as batch-allowed, loosening the derived
+        # tally bounds in the direction that under-reports skips. Both malformed
+        # shapes the todo entry names - a const indirection and a computed
+        # expression - must now (a) resolve fail-CLOSED (allow_batch False, so the
+        # derivation under-counts admissions and a pinned tally reds, the
+        # _resolve_bool_default_false direction), and (b) carry the
+        # `<unresolved:...>` marker so `unresolved_ingame_declarations` reds the
+        # sync gate ON THE DECLARATION instead of leaving a count mismatch to be
+        # reverse-engineered.
+        const_indirection = self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = SomeConsts.Allow)]'
+            ' void M(){}')
+        computed = self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = !manualOnly)]'
+            ' void M(){}')
+        for d, expr in ((const_indirection, "SomeConsts.Allow"),
+                        (computed, "!manualOnly")):
+            with self.subTest(expr=expr):
+                self.assertFalse(d.allow_batch, "non-literal must fail CLOSED")
+                self.assertEqual("<unresolved:%s>" % expr, d.allow_batch_marker)
+                self.assertEqual([d], hlib.unresolved_ingame_declarations([d]),
+                                 "the marker must red the sweep")
+        # The C# capitalized literals are NOT the attribute grammar's lowercase
+        # `true`/`false` - they are identifiers to this parse and must mark, not
+        # silently resolve either way.
+        self.assertEqual("<unresolved:False>", self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = False)] void M(){}'
+        ).allow_batch_marker)
 
     def test_bare_attribute_counts_as_the_default_category(self):
         # Legal C#, absent from the tree today. It must COUNT (as "General"), not
@@ -6598,6 +6636,270 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
         self.assertEqual([], hlib.validate_ledger_expectations({"captureCrossCheck": "gate"}))
         errs = hlib.validate_ledger_expectations({"captureCrossCheck": "GATE"})
         self.assertTrue(any("captureCrossCheck" in e for e in errs))
+
+
+class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
+    """THE FLOWN-SCENARIO CORROBORATION KEY (found by CL-2-pod-impact-ledger's first
+    live capture, 2026-07-30; fixed 2026-07-31).
+
+    A captured award's seq_key is UT-valued whenever a UT-stamped [Parsek] line
+    precedes it, and a flown spec cannot pin that UT: the same impact measured
+    ut 119.7 / 119.9 / 119.8 across three runs of one craft. So the exact seqKey join
+    could never fire on a flight and every captured award reported "unexpected",
+    which made `captureCrossCheck = "gate"` unarmable exactly where it matters (the
+    only committed scenario measured producing reputation). The fix is the OPT-IN
+    per-entry `utWindow = [lo, hi]`: a windowed entry corroborates a captured award
+    whose UT falls inside the inclusive bounds, with every OTHER predicate (facet,
+    amount-within-tolerance, structured identity, stockReason, one-to-one per
+    (entry, pool) consumption) unchanged. No committed spec declares a window
+    (guarded below), so nothing moves until an author arms one."""
+
+    # The three CL-2 flight-1 capture lines, VERBATIM from run
+    # 2026-07-30_1711_CL-2-pod-impact-ledger (identical on 2026-07-30_1721): all
+    # three captured cleanly (`stockLines=3 deduped=3 seamRejected=0`) and all three
+    # then reported UNEXPECTED against a manifest that declares every one of them.
+    CL2_MEASURED_UNEXPECTED = [
+        "manifest-capture: unexpected stock award ut=12.5  kind=stock-reputation-award reason=Progression",
+        "manifest-capture: unexpected stock award ut=19.0  kind=stock-reputation-award reason=Progression",
+        "manifest-capture: unexpected stock award ut=119.9 kind=stock-reputation-award reason=VesselLoss",
+    ]
+    # The measured impact-UT spread of the SAME craft: archived B1 run, CL-2
+    # flight 1, CL-2 flight 2. What makes the exact key unpinnable.
+    CL2_IMPACT_UT_SPREAD = (119.7, 119.9, 119.8)
+
+    def _rep_award(self, amount, reason, ut, seq=0):
+        return hlib.CapturedAward(kind="stock-reputation-award", facet="reputation",
+                                  amount=amount, contract_guid="", subject_id="",
+                                  ut=ut, seq=seq, raw_line="line", reason=reason)
+
+    def _cl2_windowed_manifest(self):
+        # CL-2's four manifest entries, reshaped onto windows an author can honestly
+        # declare from mission knowledge: the two Progression awards land during the
+        # early ascent, the VesselLoss award at the ~120 s impact. (The committed
+        # CL-2 spec deliberately does NOT declare these - arming is an operator
+        # action; this is the shape that MAKES it possible.)
+        return oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "stockReason": "Progression", "provenance": "gameevents-captured", "seq": 0},
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "stockReason": "Progression", "provenance": "gameevents-captured", "seq": 1},
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured", "seq": 2},
+            {"seq": 3, "kind": "milestone", "funds": 29600.0,
+             "provenance": "seam-declared"}])
+
+    def test_the_cl2_capture_corroborates_through_declared_windows(self):
+        # The end-to-end reproduction, from the REAL log idiom: the three stock rep
+        # lines CL-2 captured, each UT-correlated off its neighbouring [Parsek]
+        # stamp, against the windowed manifest. Before utWindow every one of these
+        # reported unexpected (the CL2_MEASURED_UNEXPECTED literals above).
+        log = ("[LOG] [Parsek][INFO][Flight] launch ut=12.5\n"
+               "[LOG] Added 0.9999995 (1) reputation: 'Progression'.\n"
+               "[LOG] [Parsek][INFO][Flight] ascent ut=19.0\n"
+               "[LOG] Added 0.9999995 (1) reputation: 'Progression'.\n"
+               "[LOG] [Parsek][INFO][Flight] impact ut=119.9\n"
+               "[LOG] Added -9.999828 (-10) reputation: 'VesselLoss'.\n")
+        cap = hlib.parse_stock_award_lines(log)
+        self.assertEqual(3, len(cap.captured), "all three CL-2 lines must capture")
+        self.assertEqual([12.5, 19.0, 119.9], [c.ut for c in cap.captured])
+        parse = self._cl2_windowed_manifest()
+        self.assertEqual([], list(parse.errors))
+        deduped = hlib.dedupe_captured_awards(cap.captured)
+        self.assertEqual(
+            [], hlib.unmatched_captured_awards(parse.entries, deduped),
+            "the CL-2 capture must fully corroborate once windows are declared - "
+            "this is what makes captureCrossCheck armable on a flown scenario")
+
+    def test_the_vessel_loss_award_corroborates_across_the_measured_ut_spread(self):
+        # One declared window explains the impact award at EVERY measured UT of the
+        # three runs - the exact property the exact-key join lacked.
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(parse.errors))
+        for ut in self.CL2_IMPACT_UT_SPREAD:
+            with self.subTest(ut=ut):
+                award = self._rep_award(-9.999828, "VesselLoss", ut=ut)
+                self.assertEqual(
+                    [], hlib.unmatched_captured_awards(parse.entries, [award]),
+                    "impact at ut=%r must corroborate the [100,140] window" % ut)
+
+    def test_an_undeclared_award_is_still_unexpected_alongside_windows(self):
+        # The signal survives: an award no window (and no exact key) explains stays
+        # unexpected - exactly what an operator reviews before arming the gate.
+        parse = self._cl2_windowed_manifest()
+        awards = [self._rep_award(0.9999995, "Progression", ut=12.5),
+                  self._rep_award(0.9999995, "Progression", ut=19.0),
+                  self._rep_award(-9.999828, "VesselLoss", ut=119.9),
+                  self._rep_award(5.0, "ContractReward", ut=119.9)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(["ContractReward"], [c.reason for c in unmatched])
+
+    def test_a_near_window_miss_stays_unexpected_and_the_bounds_are_inclusive(self):
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 119.8], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(parse.errors))
+        # 119.9 is 0.1 s past the declared hi -> unexpected (the window is a declared
+        # bound, not a tolerance that stretches).
+        miss = self._rep_award(-9.999828, "VesselLoss", ut=119.9)
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(parse.entries, [miss])))
+        # ... and exactly ON either bound matches (inclusive).
+        for ut in (100.0, 119.8):
+            with self.subTest(ut=ut):
+                on_bound = self._rep_award(-9.999828, "VesselLoss", ut=ut)
+                self.assertEqual(
+                    [], hlib.unmatched_captured_awards(parse.entries, [on_bound]))
+
+    def test_two_awards_straddling_one_window_leave_the_second_unexpected(self):
+        # ONE-TO-ONE PER (ENTRY, POOL) is preserved across the window key: CL-2's two
+        # 'Progression' +1 awards both fall inside a single early-ascent window; one
+        # declared entry explains exactly one of them.
+        one = oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(one.errors))
+        awards = [self._rep_award(0.9999995, "Progression", ut=12.5),
+                  self._rep_award(0.9999995, "Progression", ut=19.0)]
+        unmatched = hlib.unmatched_captured_awards(one.entries, awards)
+        self.assertEqual(1, len(unmatched), "the second award has nothing left to consume")
+        # Two declared entries (CL-2's actual shape) explain both, in either order.
+        two = oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "provenance": "gameevents-captured", "seq": 0},
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "provenance": "gameevents-captured", "seq": 1}])
+        self.assertEqual([], hlib.unmatched_captured_awards(two.entries, awards))
+        self.assertEqual([], hlib.unmatched_captured_awards(two.entries,
+                                                            list(reversed(awards))))
+
+    def test_a_null_ut_award_never_window_matches(self):
+        # Fail-closed: an award with no UT-stamped [Parsek] neighbor has no position
+        # to judge against the bounds, so it stays unexpected rather than being
+        # window-matched on faith.
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 1e9], "kind": "stock-reputation-award",
+             "reputation": 1.0, "repMode": "applied",
+             "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(parse.errors))
+        award = self._rep_award(1.0, "Progression", ut=None, seq=7)
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(parse.entries, [award])),
+                         "a null-UT award must not match even an everything-window")
+
+    def test_window_matching_still_honors_amount_facet_and_reason(self):
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured"}])
+        # Wrong amount (outside the 0.1 rep tolerance) inside the window -> unexpected.
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._rep_award(-5.0, "VesselLoss", ut=119.9)])))
+        # Right amount, wrong declared reason -> unexpected (the tightener composes).
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._rep_award(-9.999828, "Progression", ut=119.9)])))
+        # Nominal-vs-applied still rides the facet tolerance inside a window.
+        parse2 = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -10.0, "provenance": "seam-declared"}])
+        self.assertEqual([], hlib.unmatched_captured_awards(
+            parse2.entries, [self._rep_award(-9.999828, "VesselLoss", ut=119.9)]))
+
+    def test_an_exact_key_entry_is_not_stranded_by_a_greedy_window(self):
+        # Candidate-order refinement, same reasoning as pinned-first: the narrower
+        # exact key is tried before a window, so a window cannot swallow the one
+        # award an exact entry names. Must hold in both log orders and both
+        # declaration orders.
+        for manifest in (
+                [{"ut": 119.9, "kind": "milestone", "reputation": -10.0},
+                 {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1}],
+                [{"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1},
+                 {"ut": 119.9, "kind": "milestone", "reputation": -10.0}]):
+            parse = oracle.parse_manifest_entries(manifest)
+            self.assertEqual([], list(parse.errors))
+            awards = [self._rep_award(-9.999828, "VesselLoss", ut=119.9),
+                      self._rep_award(-9.999828, "CrewDeath", ut=130.0)]
+            for order in (awards, list(reversed(awards))):
+                with self.subTest(first=order[0].reason,
+                                  declared_first="ut" in manifest[0]):
+                    self.assertEqual(
+                        [], hlib.unmatched_captured_awards(parse.entries, order),
+                        "both awards must be explained in every order")
+
+    def test_window_validation_rejects_every_malformed_shape(self):
+        base = {"kind": "stock-reputation-award", "reputation": 1.0,
+                "repMode": "applied", "provenance": "gameevents-captured"}
+        bad_shapes = [
+            "not-a-list", [1.0], [1.0, 2.0, 3.0], [1.0, "x"], [True, 2.0],
+            [float("nan"), 2.0], [1.0, float("inf")], {"lo": 1.0, "hi": 2.0},
+        ]
+        for shape in bad_shapes:
+            with self.subTest(shape=shape):
+                parse = oracle.parse_manifest_entries([dict(base, utWindow=shape)])
+                self.assertFalse(parse.ok, "shape %r must reject" % (shape,))
+                self.assertTrue(any("utWindow" in e for e in parse.errors))
+        # lo > hi is an empty window: a declaration that can never match must reject
+        # loudly rather than silently corroborating nothing.
+        inverted = oracle.parse_manifest_entries([dict(base, utWindow=[140.0, 100.0])])
+        self.assertFalse(inverted.ok)
+        self.assertTrue(any("empty window" in e for e in inverted.errors))
+        # ut + utWindow together is ambiguous (two keys, one entry) -> reject.
+        both = oracle.parse_manifest_entries(
+            [dict(base, ut=119.9, utWindow=[100.0, 140.0])])
+        self.assertFalse(both.ok)
+        self.assertTrue(any("mutually exclusive" in e for e in both.errors))
+        # A degenerate lo == hi window is legal (an author pinning an exact UT
+        # through the window spelling) and matches exactly that UT.
+        pin = oracle.parse_manifest_entries([dict(base, utWindow=[19.0, 19.0])])
+        self.assertEqual([], list(pin.errors))
+        self.assertEqual((19.0, 19.0), pin.entries[0].ut_window)
+
+    def test_window_never_touches_the_expected_totals(self):
+        # M-B2 INDEPENDENCE across the new key: the window is a MATCHING hint only.
+        # EXPECTED is seed + the declared deltas whether or not anything corroborates,
+        # and a corroborated captured amount is never summed in.
+        seed = oracle.SeedBaseline(funds=500000.0, science=100.0, reputation=0.0)
+        parse = self._cl2_windowed_manifest()
+        expected = oracle.compute_expected(seed, parse.entries,
+                                           oracle.default_tolerances(), [])
+        self.assertEqual(529600.0, expected.funds)
+        self.assertEqual(100.0, expected.science)
+        # The rep pool accumulates the three APPLIED declared deltas (the applied
+        # mode adds them raw): 0.9999995 + 0.9999995 - 9.999828.
+        self.assertAlmostEqual(-7.999829, expected.reputation, places=6)
+        # Running the cross-check over a log with MORE awards moves nothing.
+        awards = [self._rep_award(0.9999995, "Progression", ut=12.5),
+                  self._rep_award(-9.999828, "VesselLoss", ut=119.9),
+                  self._rep_award(100.0, "ContractReward", ut=50.0)]
+        hlib.unmatched_captured_awards(parse.entries, awards)
+        after = oracle.compute_expected(seed, parse.entries,
+                                        oracle.default_tolerances(), [])
+        self.assertEqual(expected.funds, after.funds)
+        self.assertEqual(expected.reputation, after.reputation)
+
+    def test_no_committed_spec_declares_a_ut_window(self):
+        # THE WHOLE-SET GUARD, mirroring test_no_committed_spec_arms_the_capture_
+        # cross_check: the window is a knob NO committed spec declares, which is what
+        # makes this change verdict-neutral by construction. When a spec legitimately
+        # arms one, move its name into an explicit allowlist here alongside the
+        # arming evidence (a green run's capturedRaw).
+        declaring = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
+            for entry in (ledger.get("manifest", []) or []):
+                if isinstance(entry, dict) and (
+                        "utWindow" in entry or "ut_window" in entry):
+                    declaring.append(name)
+        self.assertEqual([], declaring, "a committed spec declares utWindow")
 
 
 class ParseCareerSaveBlockTests(unittest.TestCase):

@@ -703,11 +703,41 @@ def _is_strictly_inside(child_path: str, parent_path: str) -> bool:
         return False
 
 
+def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
+    """The artifacts a fixture-injection preset MUST have written into the staged
+    save, as a list of what is MISSING (empty = postcondition holds).
+
+    This is the fail-closed half of HARNESS-INJECT-FAILS-OPEN: the injector's exit
+    code proves only that a process ran, and `dotnet test --no-build` against a
+    never-built assembly exits 0 having injected nothing (measured, S1.5 attempt 1
+    + both V1-map-dwell flights). The check is mechanism-independent - whatever the
+    injection subprocess returned, either the fixture exists on disk or it does not.
+
+    - ``all-synthetic`` -> a non-empty ``Parsek/Recordings/``.
+    - ``rewind-b9``     -> the same, plus ``Parsek/RewindPoints/rp_b9_root.sfs``
+      (the RP every rewind-b9 consumer's ``InvokeRewind rp=rp_b9_root`` needs)."""
+    missing: List[str] = []
+    rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
+    try:
+        has_recordings = os.path.isdir(rec_dir) and bool(os.listdir(rec_dir))
+    except OSError:
+        has_recordings = False
+    if not has_recordings:
+        missing.append("non-empty Parsek/Recordings/")
+    if preset == "rewind-b9":
+        rp = os.path.join(save_dir, "Parsek", "RewindPoints", "rp_b9_root.sfs")
+        if not os.path.isfile(rp):
+            missing.append("Parsek/RewindPoints/rp_b9_root.sfs")
+    return missing
+
+
 def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                   logger: HarnessLogger) -> Tuple[bool, str, str]:
     """Stage the scenario's fixture. Returns (ok, run_save_name, subkind); subkind
     is "" on success, "spec-invalid" on a containment violation (a runSaveName that
-    escapes saves/), or "staging" on a missing template."""
+    escapes saves/), "staging" on a missing template, or "stage-inject-noop" when a
+    requested fixture injection left no fixture on disk (fail-closed postcondition;
+    the run never boots KSP)."""
     fixture = spec.get("fixture", {}) or {}
     save_template = fixture.get("saveTemplate", "")
     run_save_name = os.path.basename(save_template.replace("\\", "/").rstrip("/"))
@@ -752,14 +782,39 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     shutil.copytree(template_abs, target_save)
 
     # (3) inject synthetic recordings when requested (recording OFF by construction).
+    #
+    # FAIL CLOSED ON THE POSTCONDITION, not the exit code (HARNESS-INJECT-FAILS-OPEN,
+    # found by S1.5 attempt 1 and reconfirmed by two full V1-map-dwell flights). The
+    # injector's `dotnet test --filter Inject* --no-build` against a never-built test
+    # assembly exits 0 having run NOTHING (measured), and its KSP.log lock probe
+    # refuses through the same reports-success path - so `res.ok` proved the process
+    # exited, never that a fixture exists. The miss then surfaced minutes later as an
+    # unrelated seam rejection (`invokerewind refused: unknown-rp`), classified
+    # driver-INVALID against a correct spec, after a full KSP boot (or a full flight).
+    # Asserting what the preset MUST have written is mechanism-independent: it catches
+    # every way an injection can no-op, pre-boot, with the cause named. The subkind is
+    # NOT in RETRYABLE_INVALID_SUBKINDS on purpose - the miss is deterministic (same
+    # worktree, same result), so a retry burns the `once` budget to learn nothing.
     inj = fixture.get("injectedRecordings", "none")
-    injected = False
     if inj in ("all-synthetic", "rewind-b9"):
         res = runtime.run_inject(instance_dir, run_save_name, INJECT_TIMEOUT_SECONDS, preset=inj)
-        injected = res.ok
-        if not injected:
-            logger.warn("Stage", "inject-recordings failed preset=%s exit=%s (continuing; verifier will red)"
+        if not res.ok:
+            logger.warn("Stage", "inject-recordings failed preset=%s exit=%s"
                         % (inj, res.exit_code))
+        missing = _inject_postcondition_missing(target_save, inj)
+        if missing:
+            assembly = os.path.join(WORKTREE_ROOT, "Source", "Parsek.Tests",
+                                    "bin", "Debug", "net472", "Parsek.Tests.dll")
+            cause = ("Parsek.Tests assembly missing (never built in this worktree; the "
+                     "injector's deliberate --no-build runs nothing) - remedy: "
+                     "dotnet build Source/Parsek.Tests"
+                     if not os.path.isfile(assembly)
+                     else "injector exited without writing the fixture (assembly present; "
+                          "check the KSP.log lock probe and the injector output)")
+            logger.error("Stage", "inject postcondition failed preset=%s exit=%s missing=[%s]; "
+                                  "aborting pre-boot (INVALID stage-inject-noop). likely cause: %s"
+                         % (inj, res.exit_code, ", ".join(missing), cause))
+            return False, run_save_name, "stage-inject-noop"
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []
@@ -1396,7 +1451,8 @@ def _manifest_entry_to_dict(e) -> Dict:
     return {"ut": e.ut, "seq": e.seq, "kind": e.kind, "funds": e.funds,
             "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
             "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
-            "provenance": e.provenance, "rec3Row": e.rec3_row}
+            "provenance": e.provenance, "rec3Row": e.rec3_row,
+            "utWindow": (list(e.ut_window) if e.ut_window is not None else None)}
 
 
 def _write_accumulated_manifest(manifest: Dict, run_id: str, logger: HarnessLogger) -> None:
@@ -2308,8 +2364,11 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # ---- STAGE -------------------------------------------------------
         staged, run_save_name, stage_subkind = stage_fixture(spec, instance_dir, runtime, logger)
         if not staged:
-            reason = ("staged target escaped saves/ (containment guard)"
-                      if stage_subkind == "spec-invalid" else "fixture staging failed")
+            reason = {
+                "spec-invalid": "staged target escaped saves/ (containment guard)",
+                "stage-inject-noop": "fixture injection wrote no fixture "
+                                     "(fail-closed staging postcondition)",
+            }.get(stage_subkind, "fixture staging failed")
             return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
                                     hlib.Verdict(hlib.VERDICT_INVALID, stage_subkind or "staging",
                                                  False, reason),
