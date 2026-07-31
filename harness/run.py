@@ -62,6 +62,7 @@ RESULTS_DIR = os.path.join(HARNESS_ROOT, "results")
 COVERAGE_DIR = os.path.join(HARNESS_ROOT, "coverage")
 FIXTURES_DIR = os.path.join(HARNESS_ROOT, "fixtures")
 PROFILES_DIR = os.path.join(PROVISION_DIR, "profiles")
+TOOLS_DIR = os.path.join(HARNESS_ROOT, "tools")
 
 # M-B1 mission library (design "Mission Library"). The autopilot missions, the
 # pure mlib decision core, the pinned requirements, and the vendored venv all live
@@ -2418,6 +2419,116 @@ def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdi
                           admission, drive, facts, None, None, logger, run_id=run_id)
 
 
+# ---------------------------------------------------------------------------
+# V3 always-collect artifacts + contact sheet (design-testing-unified section 6,
+# V3). The heavy non-PASS collect-logs snapshot is UNCHANGED; this is the light
+# UNCONDITIONAL step -- a green run is exactly the run a human wants to scan, and
+# before this nothing durable survived a PASS but the result JSON. Both steps are
+# failure-isolated by construction: artifact or sheet trouble degrades to a Warn
+# and NEVER touches the verdict (verdict-neutrality is the V3 contract).
+# ---------------------------------------------------------------------------
+
+
+def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
+                           run_start_epoch: float, logger: HarnessLogger) -> Dict:
+    """Copy the run's KSP.log (bounded, hlib.plan_artifact_log_copy) and any
+    run-window Screenshots/ images (hlib.select_run_screenshots) into
+    ``results/<runId>_shots/``. Returns the additive ``artifacts`` result block."""
+    artifacts: Dict = {"ran": False, "shotsDir": None, "kspLog": False,
+                       "kspLogTruncated": False, "screenshots": 0,
+                       "screenshotsSkipped": 0}
+    if not instance_dir:
+        return artifacts
+    try:
+        shots_dir = os.path.join(RESULTS_DIR, "%s_shots" % run_id)
+        os.makedirs(shots_dir, exist_ok=True)
+        artifacts["ran"] = True
+        artifacts["shotsDir"] = os.path.basename(shots_dir)
+
+        # (1) KSP.log, bounded. Oversize keeps head + tail with an explicit
+        # marker line (rationale on the hlib constants).
+        log_src = os.path.join(instance_dir, "KSP.log")
+        if os.path.isfile(log_src):
+            size = os.path.getsize(log_src)
+            plan = hlib.plan_artifact_log_copy(size)
+            dst = os.path.join(shots_dir, "KSP.log")
+            with open(log_src, "rb") as src, open(dst, "wb") as out:
+                if plan.copy_all:
+                    shutil.copyfileobj(src, out, 1024 * 1024)
+                else:
+                    remaining = plan.head_bytes
+                    while remaining > 0:
+                        chunk = src.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        remaining -= len(chunk)
+                    out.write(("\n[harness-artifact] KSP.log TRUNCATED for the "
+                               "contact-sheet copy: original %d bytes, kept first "
+                               "%d + last %d (hlib.ARTIFACT_LOG_CAP_BYTES)\n"
+                               % (size, plan.head_bytes, plan.tail_bytes)).encode("utf-8"))
+                    src.seek(max(plan.head_bytes, size - plan.tail_bytes))
+                    shutil.copyfileobj(src, out, 1024 * 1024)
+                    artifacts["kspLogTruncated"] = True
+            artifacts["kspLog"] = True
+
+        # (2) Screenshots stamped inside this run's wall-clock window (the
+        # instance dir accumulates across runs; V4's capture verbs will feed
+        # this -- today it is usually empty and that is fine).
+        screenshots_dir = os.path.join(instance_dir, "Screenshots")
+        if os.path.isdir(screenshots_dir):
+            candidates = []
+            for name in sorted(os.listdir(screenshots_dir)):
+                path = os.path.join(screenshots_dir, name)
+                if os.path.isfile(path):
+                    try:
+                        st = os.stat(path)
+                        candidates.append((name, st.st_mtime, st.st_size))
+                    except OSError:
+                        continue
+            selected, prior, over_cap = hlib.select_run_screenshots(
+                candidates, run_start_epoch)
+            copy_missed = 0
+            for name in selected:
+                try:
+                    shutil.copy2(os.path.join(screenshots_dir, name), shots_dir)
+                    artifacts["screenshots"] += 1
+                except OSError:
+                    copy_missed += 1
+            # skipped = this run's captures that did NOT land in the snapshot
+            # (cap-dropped or copy-failed); prior-run files are not "skipped",
+            # they belong to older runs and are only logged.
+            artifacts["screenshotsSkipped"] = over_cap + copy_missed
+            if prior or over_cap or copy_missed:
+                logger.verbose("Artifacts", "screenshots skipped: %d prior-run, %d over-cap, %d copy-failed"
+                               % (prior, over_cap, copy_missed))
+        logger.info("Artifacts", "artifacts collected run=%s kspLog=%s truncated=%s screenshots=%d -> %s"
+                    % (run_id, artifacts["kspLog"], artifacts["kspLogTruncated"],
+                       artifacts["screenshots"], shots_dir))
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
+        logger.warn("Artifacts", "artifact collection FAILED run=%s (%s: %s); "
+                                 "snapshot degraded, verdict unaffected"
+                    % (run_id, type(exc).__name__, exc))
+    return artifacts
+
+
+def _generate_contact_sheet(run_id: str, logger: HarnessLogger) -> None:
+    """Emit ``results/<runId>_contact.html`` + refresh ``results/index.html``
+    via harness/tools/contact_sheet.py. Failure-isolated: any trouble (module
+    missing, disk full, malformed inputs) is a Warn, never a verdict change."""
+    try:
+        if TOOLS_DIR not in sys.path:
+            sys.path.insert(0, TOOLS_DIR)
+        import contact_sheet  # noqa: PLC0415 - lazy so a broken tool never breaks run.py import
+        sheet_path = contact_sheet.generate_run_sheet(RESULTS_DIR, run_id)
+        contact_sheet.generate_index(RESULTS_DIR)
+        logger.info("Sheet", "contact sheet written %s (+ index.html)" % sheet_path)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
+        logger.warn("Sheet", "contact-sheet generation FAILED run=%s (%s: %s); "
+                             "sheet degraded, verdict unaffected"
+                    % (run_id, type(exc).__name__, exc))
+
+
 def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
                    admission, drive, facts, run_save_name, instance_dir, logger,
                    run_id: Optional[str] = None) -> Dict:
@@ -2477,6 +2588,10 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         else:
             logger.error("Collect", "collect-logs failed: exit=%s; snapshot degraded" % res.exit_code)
 
+    # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
+    # run-window screenshots into results/<runId>_shots/), verdict-neutral.
+    artifacts = _collect_run_artifacts(run_id, instance_dir, start_wall, logger)
+
     result = {
         "schema": hlib.SCHEMA_VERSION,
         "runId": run_id,
@@ -2504,8 +2619,13 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                          "matched": verdict.expected_fail_matched},
         "kspExit": {"code": exit_code, "killed": killed},
         "collectLogs": collect,
+        # V3 additive key: what the always-collect step snapshotted.
+        "artifacts": artifacts,
     }
     write_result(result, logger)
+    # V3 contact sheet: AFTER the durable result lands so the sheet reads the
+    # written record. Failure-isolated; never moves the verdict.
+    _generate_contact_sheet(run_id, logger)
     return result
 
 
@@ -2970,6 +3090,9 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
         # path already wrote its summary line inside run_attempt and must not
         # write a second one.
         write_result(last_result, logger, append_summary=flaked_then_passed)
+        # Re-render the sheet + index over the enriched record (idempotent;
+        # failure-isolated exactly like the in-attempt generation).
+        _generate_contact_sheet(last_result["runId"], logger)
     logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
                 % (attempts_run, int(round(attempts_wall)), terminal.verdict))
     return last_result
@@ -2998,8 +3121,12 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
                          "matched": False},
         "kspExit": {"code": None, "killed": False},
         "collectLogs": {"ran": False, "path": None},
+        "artifacts": {"ran": False, "shotsDir": None, "kspLog": False,
+                      "kspLogTruncated": False, "screenshots": 0,
+                      "screenshotsSkipped": 0},
     }
     write_result(result, logger)
+    _generate_contact_sheet(result["runId"], logger)
 
 
 def _load_bug_ids() -> List[str]:

@@ -2343,5 +2343,135 @@ class SettingsSidecarResetSmokeTests(unittest.TestCase):
         self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
 
 
+class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
+    """V3 (design-testing-unified section 6): the light UNCONDITIONAL artifact
+    step + the contact sheet, driven through run.run_attempt over the fake KSP.
+
+    The whole point of V3 is that a GREEN run leaves something a human can look
+    at, so the load-bearing cells here run mode="pass": before this change a
+    PASS ran no collect-logs and its KSP.log died with the next boot."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-v3-smoke-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "smoke_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, mode="pass", run_tests_budget=30, run_budget=600):
+        spec = _make_spec(self.template, run_tests_budget, run_budget)
+        rt = FakeRuntime(mode)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_pass_run_collects_artifacts_and_writes_the_sheet(self):
+        """A PASS must leave: results/<runId>_shots/KSP.log, the per-run contact
+        HTML, and results/index.html - while collect-logs stays non-PASS-only."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        # collect-logs untouched: still not run on a PASS.
+        self.assertFalse(result["collectLogs"]["ran"])
+        # the always-collect step ran and copied the log.
+        art = result["artifacts"]
+        self.assertTrue(art["ran"])
+        self.assertTrue(art["kspLog"])
+        self.assertFalse(art["kspLogTruncated"])
+        shots = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isfile(os.path.join(shots, "KSP.log")))
+        # the contact sheet + index landed.
+        sheet = os.path.join(run.RESULTS_DIR, "%s_contact.html" % result["runId"])
+        self.assertTrue(os.path.isfile(sheet))
+        self.assertTrue(os.path.isfile(os.path.join(run.RESULTS_DIR, "index.html")))
+        with open(sheet, "r", encoding="utf-8") as fh:
+            page = fh.read()
+        # numbers next to pictures: the batch tally + the verifier rows are ON the page.
+        self.assertIn("BATCH_COMPLETE v1 total=5", page)
+        self.assertIn("analyzer", page)
+        # ... and the artifacts block round-trips into the durable result JSON
+        # (additive key; schema unchanged).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertTrue(persisted["artifacts"]["kspLog"])
+        self.assertEqual(hlib.SCHEMA_VERSION, persisted["schema"])
+
+    def test_killed_run_still_collects_artifacts(self):
+        """The unconditional step is unconditional: a budget-killed run's shots
+        dir must still hold the KSP.log (the heavy collect-logs also ran, as
+        before)."""
+        result, _ = self._run("hang", run_tests_budget=1, run_budget=2)
+        self.assertEqual(hlib.VERDICT_KILLED, result["verdict"])
+        self.assertTrue(result["collectLogs"]["ran"])
+        self.assertTrue(result["artifacts"]["kspLog"])
+        shots = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isfile(os.path.join(shots, "KSP.log")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(run.RESULTS_DIR, "%s_contact.html" % result["runId"])))
+
+    def test_run_window_screenshot_is_copied_and_prior_run_one_is_not(self):
+        """The Screenshots dir accumulates across runs; only files stamped inside
+        this run's wall-clock window ride into the shots dir."""
+        shots_src = os.path.join(self.instance, "Screenshots")
+        os.makedirs(shots_src, exist_ok=True)
+        now = time.time()
+        fresh = os.path.join(shots_src, "fresh.png")
+        stale = os.path.join(shots_src, "stale.png")
+        for p in (fresh, stale):
+            with open(p, "wb") as fh:
+                fh.write(b"\x89PNG fake")
+        # fresh: mtime in the future (inside the run window); stale: an hour ago.
+        os.utime(fresh, (now + 3600, now + 3600))
+        os.utime(stale, (now - 3600, now - 3600))
+
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual(1, result["artifacts"]["screenshots"])
+        shots_dst = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isfile(os.path.join(shots_dst, "fresh.png")))
+        self.assertFalse(os.path.isfile(os.path.join(shots_dst, "stale.png")))
+        # the copied capture is referenced from the sheet's image grid.
+        with open(os.path.join(run.RESULTS_DIR, "%s_contact.html" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            self.assertIn("fresh.png", fh.read())
+
+    def test_sheet_failure_never_changes_the_verdict(self):
+        """The V3 verdict-neutrality contract: a contact-sheet crash is a Warn in
+        the harness log and NOTHING else - the attempt's verdict, result JSON,
+        and collect behavior are untouched."""
+        tools_dir = os.path.join(HARNESS_ROOT, "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import contact_sheet
+        orig = contact_sheet.generate_run_sheet
+        contact_sheet.generate_run_sheet = _raise_sheet_boom
+        try:
+            result, _ = self._run("pass")
+        finally:
+            contact_sheet.generate_run_sheet = orig
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertTrue(os.path.isfile(
+            os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])))
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("contact-sheet generation FAILED", body)
+        self.assertIn("verdict unaffected", body)
+
+
+def _raise_sheet_boom(results_dir, run_id):
+    raise RuntimeError("boom (injected sheet failure)")
+
+
 if __name__ == "__main__":
     unittest.main()

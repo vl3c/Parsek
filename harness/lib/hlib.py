@@ -5669,3 +5669,104 @@ def flake_attempt_entries(result: Dict) -> List[Dict]:
     if verdict not in FLAKE_NUMERATOR_VERDICTS and recovered_subprocess_retries(result):
         entries.append({"utc": utc, "outcome": VERDICT_INVALID})
     return entries
+
+
+# ---------------------------------------------------------------------------
+# V3 always-collect artifact decisions (design-testing-unified section 6, V3).
+# Pure: run.py's unconditional per-run artifact step (copy the run's KSP.log +
+# any run-window screenshots into results/<runId>_shots/) delegates its two
+# decisions here -- how much of a possibly-huge KSP.log to copy, and which
+# Screenshots/ files belong to THIS run. The copy itself is shell I/O in run.py.
+# ---------------------------------------------------------------------------
+
+# KSP.log copy cap. A green run's log is a few MB, but a hung run at high warp
+# with a per-frame tracer armed can reach GBs; the artifact copy must be bounded
+# or a single bad run fills the results volume. On an oversize log the copy keeps
+# the HEAD (session markers, boot, the first anomalies) plus the TAIL (the
+# BATCH_COMPLETE line, teardown, the most recent anomalies -- the contact sheet's
+# primary inputs) and drops the middle with an explicit marker line, because the
+# verdict-bearing lines cluster at both ends while the middle of a runaway log is
+# almost always the same per-frame spam repeated.
+ARTIFACT_LOG_CAP_BYTES = 64 * 1024 * 1024
+ARTIFACT_LOG_HEAD_BYTES = 8 * 1024 * 1024
+ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
+
+# Screenshot selection. The instance's Screenshots/ dir accumulates across runs,
+# so only files stamped inside THIS run's wall-clock window are collected (with a
+# small slack for filesystem mtime granularity). Caps bound a capture-storm run.
+ARTIFACT_SCREENSHOT_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg")
+ARTIFACT_MAX_SCREENSHOTS = 64
+ARTIFACT_MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024
+ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class ArtifactLogCopyPlan:
+    copy_all: bool
+    head_bytes: int   # bytes to keep from the start (truncated plan only)
+    tail_bytes: int   # bytes to keep from the end (truncated plan only)
+
+
+def plan_artifact_log_copy(size_bytes: int,
+                           cap_bytes: int = ARTIFACT_LOG_CAP_BYTES,
+                           head_bytes: int = ARTIFACT_LOG_HEAD_BYTES,
+                           tail_bytes: int = ARTIFACT_LOG_TAIL_BYTES) -> ArtifactLogCopyPlan:
+    """Decide how much of the run's KSP.log the artifact step copies.
+
+    ``size_bytes <= cap_bytes`` -> copy the whole file. Larger -> keep the first
+    ``head_bytes`` + the last ``tail_bytes`` (clamped so head+tail never exceeds
+    the cap, and tail wins the clamp -- the tail carries BATCH_COMPLETE and the
+    teardown lines, the single most verdict-relevant region). A non-positive or
+    unknown size reads as "copy all" (the copy loop then just streams whatever is
+    there; an unreadable file degrades at the I/O layer, never here).
+    """
+    if size_bytes <= cap_bytes or size_bytes <= 0:
+        return ArtifactLogCopyPlan(True, 0, 0)
+    tail = max(0, min(tail_bytes, cap_bytes))
+    head = max(0, min(head_bytes, cap_bytes - tail))
+    return ArtifactLogCopyPlan(False, head, tail)
+
+
+def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
+                           run_start_epoch: float,
+                           max_count: int = ARTIFACT_MAX_SCREENSHOTS,
+                           max_bytes: int = ARTIFACT_MAX_SCREENSHOT_BYTES,
+                           mtime_slack: float = ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS
+                           ) -> Tuple[List[str], int, int]:
+    """Select which Screenshots/ files belong to this run's artifact snapshot.
+
+    ``candidates`` are ``(name, mtime_epoch, size_bytes)`` rows for the files in
+    the instance's Screenshots dir. Returns ``(selected_names, skipped_prior,
+    skipped_over_cap)``:
+
+    - only image extensions count (case-insensitive; anything else is ignored
+      entirely -- neither selected nor counted);
+    - a file older than ``run_start_epoch - mtime_slack`` is a PRIOR run's
+      capture (the dir accumulates across runs) -> counted in ``skipped_prior``;
+    - survivors are taken in ``(mtime, name)`` order until either cap trips;
+      the remainder is counted in ``skipped_over_cap`` so the artifact record
+      can say "N more existed" instead of silently under-reporting.
+    """
+    threshold = run_start_epoch - mtime_slack
+    eligible: List[Tuple[float, str, int]] = []
+    skipped_prior = 0
+    for name, mtime, size in candidates:
+        dot = name.rfind(".") if name else -1
+        ext = name[dot:].lower() if dot >= 0 else ""
+        if ext not in ARTIFACT_SCREENSHOT_EXTENSIONS:
+            continue
+        if mtime < threshold:
+            skipped_prior += 1
+            continue
+        eligible.append((mtime, name, size))
+    eligible.sort()
+    selected: List[str] = []
+    total_bytes = 0
+    skipped_over_cap = 0
+    for mtime, name, size in eligible:
+        if len(selected) >= max_count or total_bytes + max(0, size) > max_bytes:
+            skipped_over_cap += 1
+            continue
+        selected.append(name)
+        total_bytes += max(0, size)
+    return selected, skipped_prior, skipped_over_cap
