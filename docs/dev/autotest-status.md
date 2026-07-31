@@ -15,8 +15,17 @@ being recorded SKIPPED, but still move no verdict; `rewind` left
 `RESERVED_EXPECTATION_BLOCKS` (sole-owner rule), `route`/`loop` stay reserved
 with zero declarers. LIVE PROOF PENDING: one local S4.1 + one CL-2 run to read
 the report-only `saveParse` facets out of `results/<runId>.json`, then arm
-gating per scenario. Headless-only validation this session (no KSP in the build
-environment): all three suites green - lib 967, provision 203 (+5 skipped),
+gating per scenario. An adversarial review round (fresh reviewer, scratch
+clone, 4000-input byte-level fuzz + C# writer cross-check) then hardened three
+fail-opens before merge: a zero-byte/whitespace persistent.sfs now parses as a
+DEFINED FAULT (it was trivially brace-balanced, so an armed max=0 window would
+have PASSED on a torn save); a produced save with NO ParsekScenario node now
+raises a named mismatch when a block is declared (Parsek-never-loaded was
+indistinguishable from "zero rows") with `scenarioFound` recorded on the row;
+and gating became PER-BLOCK (arming a proven block no longer silently promotes
+a second exploratory block to a gate - `armedBlocks`/`armed_mismatches` carry
+the split). Headless-only validation this session (no KSP in the build
+environment): all three suites green - lib 976, provision 203 (+5 skipped),
 missions/lib 1103.)
 
 Prior: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
@@ -794,8 +803,11 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   memory - `cd harness && python -m unittest discover -s missions/lib -q`
   (and `-s lib -q`, `-s provision -q`), plus
   `cd Source/Parsek.Tests && dotnet test`.
-- Per-run: the verifier chain (9 rows as of 2026-07-31: the R9 `saveParse` row
-  joined report-only) + collect-logs on every non-PASS.
+- Per-run: the verifier chain (the R9 `saveParse` row joined report-only
+  2026-07-31, alongside driverValidity / batchComplete / analyzer /
+  logValidate / testResults / anomalySweep / unityExceptions / expectations /
+  ledgerOracle, plus missionOutcome on autopilot runs) + collect-logs on
+  every non-PASS.
 - In-game: 542 runtime tests / 98 categories (autorun-able), H5 invariants,
   log-contract tests. Counted mechanically by
   `hlib.parse_ingame_test_declarations` over `Source/Parsek`, not by hand

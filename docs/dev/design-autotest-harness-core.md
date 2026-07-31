@@ -604,7 +604,7 @@ guessing.
     "testResults":    { "status": "PASS", "failures": 0, "path": "parsek-test-results.txt" },
     "anomalySweep":   { "status": "PASS", "hits": 0 },
     "expectations":   { "status": "PASS", "mismatches": [], "reserved": [], "observed": { "recordings": { "count": 7 } } },
-    "saveParse":      { "status": "REPORT", "gating": false, "blocks": [], "mismatches": [], "observed": { "rewind": { "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0 }, "recordings": { "structure": { "trees": 1, "committedTrees": 1, "recordings": 3, "terminalStates": { "Destroyed": 1 }, "branchPoints": { "Undock": 1 } } } }, "parsed": true, "parseError": "" },
+    "saveParse":      { "status": "REPORT", "reason": "", "gating": false, "blocks": [], "armedBlocks": [], "mismatches": [], "observed": { "rewind": { "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0, "rewindRetirements": 0 }, "recordings": { "structure": { "trees": 1, "committedTrees": 1, "recordings": 3, "terminalStates": { "Destroyed": 1 }, "branchPoints": { "Undock": 1 }, "duplicateRecordingIds": [] } } }, "parsed": true, "parseError": "", "scenarioFound": true },
     "ledgerOracle":   { "status": "SKIPPED", "reason": "no-actions-or-mb2-not-landed" }
   },
   "expectedFail": { "bugId": "", "matched": false },
@@ -1223,11 +1223,19 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    verifier landed, so a gating default would have moved a committed nightly's
    verdict with no live run to prove the readings. A block opts in with
    `gating = true` (declared by ZERO committed specs; guarded by a test-suite
-   sweep); armed + mismatch -> PARSEK-FAIL (save-structure). Measured facets are
+   sweep); armed + mismatch -> PARSEK-FAIL (save-structure). GATING IS
+   PER-BLOCK: only an armed block's mismatches drive PASS/FAIL, so arming a
+   proven block never silently promotes a second, still-exploratory block
+   (`armedBlocks` / `armed_mismatches` carry the split). Measured facets are
    recorded on every driver-valid run (the promotion path reads them out of
    `results/<runId>.json`). SKIPPED on KILLED (torn save) and driver-INVALID
-   (facets still recorded for triage on the latter); a MISSING or UNPARSEABLE
-   persistent.sfs with a declared block is a named mismatch, never zero rows.
+   (facets still recorded for triage on the latter). Two structural faults are
+   named mismatches whenever a block is declared, never zero rows: a MISSING /
+   UNPARSEABLE / EMPTY persistent.sfs (a zero-byte file is what an interrupted
+   save write leaves - it must not read as a clean all-zero parse), and a
+   readable save with NO ParsekScenario node (AddToAllGames: its absence from
+   a produced save means Parsek never loaded; `scenarioFound` is recorded on
+   the row either way).
 8. **Ledger oracle** (M-B2 hook): on a run whose expectations declare a world /
    ledger block AND M-B2 has landed, run the world-diff verifier; drift ->
    PARSEK-FAIL (ledger). In v1 this is SKIPPED with a recorded reason.

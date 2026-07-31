@@ -1054,7 +1054,8 @@ Remaining fail-open surfaces, ranked:
    dropped-board class no longer depends on log counting; the log side itself is
    still presence-only.
 2. **The only save-content assertion is an integer**, and it is COMMIT-BLIND.
-   CLOSED-REPORT-ONLY by R9 2026-07-31: the `saveParse` verifier reads tree
+   ADDRESSED-REPORT-ONLY by R9 2026-07-31 (closed per scenario only when that
+   scenario arms gating): the `saveParse` verifier reads tree
    topology, terminal states, merge/commit markers, supersede rows, tombstones and
    rewind points off the produced save on every driver-valid run. Becomes a GATE
    per scenario only when that scenario arms `gating = true` after its report-only

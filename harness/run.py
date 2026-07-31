@@ -1860,8 +1860,12 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["expectations"] = {"status": "SKIPPED", "reason": "killed"}
         # The save-parse verifier is SKIPPED on any KILLED attempt: a torn save is
         # never ground truth (design edge 5), and a half-written persistent.sfs is
-        # exactly the file this row must not read counts off.
-        detail["saveParse"] = {"status": "SKIPPED", "reason": "killed"}
+        # exactly the file this row must not read counts off. Full key set on
+        # every branch so a consumer never KeyErrors on the row shape.
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "killed", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {},
+            "parsed": None, "parseError": "", "scenarioFound": None}
         # The raw-Unity-exception scan DOES run on a killed attempt, triage-only. What
         # a watchdog kill tears is the SAVE, not the log - and an exception storm is a
         # leading suspect for the hang that got the process killed, so this is the run
@@ -2046,34 +2050,42 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # save is deliberately incomplete, not ground truth - the facets are still
     # recorded for triage, the row stays SKIPPED).
     snapshot = read_save_structure(save_dir)
+    sp_parsed = None if snapshot is None else bool(snapshot.parsed)
+    sp_error = "missing persistent.sfs" if snapshot is None else snapshot.error
+    sp_found = None if (snapshot is None or not snapshot.parsed) else snapshot.scenario_found
     if not driver_valid:
         detail["saveParse"] = {
-            "status": "SKIPPED", "reason": "driver-invalid",
-            "observed": saveparse.observed_structure_facets(snapshot)}
+            "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [],
+            "observed": saveparse.observed_structure_facets(snapshot),
+            "parsed": sp_parsed, "parseError": sp_error, "scenarioFound": sp_found}
         logger.info("Verify", "verify saveParse status=SKIPPED reason=driver-invalid")
     else:
         sp = saveparse.evaluate_save_structure(expectations, snapshot)
         if sp.gating:
             verifiers["save_structure_mismatch"] = (sp.status == saveparse.STATUS_FAIL)
         detail["saveParse"] = {
-            "status": sp.status, "gating": sp.gating, "blocks": list(sp.blocks),
+            "status": sp.status, "reason": "", "gating": sp.gating,
+            "blocks": list(sp.blocks), "armedBlocks": list(sp.armed_blocks),
             "mismatches": list(sp.mismatches), "observed": dict(sp.observed),
-            "parsed": bool(snapshot is not None and snapshot.parsed),
-            "parseError": ("missing persistent.sfs" if snapshot is None
-                           else snapshot.error),
+            "parsed": sp_parsed, "parseError": sp_error,
+            "scenarioFound": sp.scenario_found,
         }
         rewind_obs = (sp.observed.get("rewind") or {})
-        logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s "
-                              "supersedeRows=%s tombstones=%s rewindPoints=%s mismatches=%d"
+        logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
+                              "scenarioFound=%s supersedeRows=%s tombstones=%s "
+                              "rewindPoints=%s mismatches=%d"
                     % (sp.status, sp.gating, list(sp.blocks) or "-",
+                       list(sp.armed_blocks) or "-", sp.scenario_found,
                        rewind_obs.get("supersedeRows", "-"),
                        rewind_obs.get("tombstones", "-"),
                        rewind_obs.get("rewindPoints", "-"), len(sp.mismatches)))
-        if sp.mismatches and not sp.gating:
-            logger.warn("Verify", "saveParse recorded %d mismatch(es) (REPORT-ONLY, "
-                                  "not gating; arm with gating = true inside the "
+        report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
+        if report_only:
+            logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
+                                  "(not gating; arm with gating = true inside the "
                                   "declared block after reading report-only runs): %s"
-                        % (len(sp.mismatches), list(sp.mismatches)))
+                        % (len(report_only), report_only))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved

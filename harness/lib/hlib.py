@@ -2921,6 +2921,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
         errors.extend(saveparse.validate_structure_expectations(
             recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+    # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
+    # WARN like the unityExceptions precedent (armed-and-empty is a hard error
+    # inside the validators above).
+    warnings.extend(saveparse.save_structure_expectation_warnings(expectations))
 
     # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
     # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
@@ -4990,8 +4994,10 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
     failed" branch, which precedes EVERY save-reading verifier in that chain, so the
     analyzer (triage-only),
     logValidate / testResults / anomalySweep / expectations (SKIPPED on
-    ``not driver_valid``) and the ledger oracle (SKIPPED, reason driver-invalid)
-    contribute nothing to the verdict on this path whether or not the tail ran.
+    ``not driver_valid``), the save-parse row (SKIPPED, reason driver-invalid,
+    facets recorded triage-only) and the ledger oracle (SKIPPED, reason
+    driver-invalid) contribute nothing to the verdict on this path whether or
+    not the tail ran.
     What skipping buys: no in-world action the scenario's own design says cannot
     happen, no deferral budget burned per failed attempt (EvaExit 120s +
     EvaChuteDeploy 420s, doubled under retry-once), and a collected save / log that

@@ -455,7 +455,8 @@ class B9SnapshotTests(unittest.TestCase):
 
     def test_observed_facets_shape(self):
         obs = saveparse.observed_structure_facets(self.snap)
-        self.assertEqual({"supersedeRows": 1, "tombstones": 1, "rewindPoints": 1},
+        self.assertEqual({"supersedeRows": 1, "tombstones": 1, "rewindPoints": 1,
+                          "rewindRetirements": 1},
                          obs["rewind"])
         structure = obs["recordings"]["structure"]
         self.assertEqual(1, structure["trees"])
@@ -464,6 +465,7 @@ class B9SnapshotTests(unittest.TestCase):
         self.assertEqual({"Orbiting": 1, "Destroyed": 2}, structure["terminalStates"])
         self.assertEqual({"Undock": 1, "VesselSwitchContinuation": 1},
                          structure["branchPoints"])
+        self.assertEqual([], structure["duplicateRecordingIds"])
 
     def test_no_duplicate_recording_ids(self):
         self.assertEqual((), saveparse.duplicate_recording_ids(self.snap))
@@ -537,6 +539,11 @@ class AdversarialMutationTests(unittest.TestCase):
         snap = saveparse.parse_parsek_scenario(text)
         self.assertTrue(snap.parsed)
         self.assertEqual(("b9-booster-a",), saveparse.duplicate_recording_ids(snap))
+        # ... and it reaches the run JSON via the observed facets, not just the
+        # helper (adversarial-review finding 5).
+        obs = saveparse.observed_structure_facets(snap)
+        self.assertEqual(["b9-booster-a"],
+                         obs["recordings"]["structure"]["duplicateRecordingIds"])
 
     def test_truncated_file_never_reads_as_zero_rows(self):
         truncated = B9_MERGED_SFS[: B9_MERGED_SFS.index("RECORDING_SUPERSEDES")]
@@ -562,6 +569,22 @@ class AdversarialMutationTests(unittest.TestCase):
         self.assertTrue(snap.parsed)
         self.assertFalse(snap.scenario_found)
         self.assertEqual(0, len(snap.trees))
+
+    def test_empty_or_whitespace_text_is_a_parse_fault(self):
+        # Adversarial-review finding 1: a zero-byte / whitespace-only file is
+        # what an interrupted save write leaves behind, and it is trivially
+        # brace-balanced - it must NOT read as a clean all-zero parse (an armed
+        # max = 0 window would PASS on a torn save).
+        for text in ("", "   \n\t\n", "// only a comment\n", None):
+            with self.subTest(text=repr(text)):
+                snap = saveparse.parse_parsek_scenario(text)
+                self.assertFalse(snap.parsed)
+                self.assertIn("no top-level GAME node", snap.error)
+
+    def test_non_save_text_is_a_parse_fault(self):
+        snap = saveparse.parse_parsek_scenario("NODE\n{\n\tk = v\n}\n")
+        self.assertFalse(snap.parsed)
+        self.assertIn("no top-level GAME node", snap.error)
 
     def test_unparseable_type_and_bools_degrade_defined(self):
         text = (B9_MERGED_SFS
@@ -642,11 +665,13 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         snap = saveparse.parse_parsek_scenario(
             _read(os.path.join(FIXTURE_SAVES_DIR, "gloops-airshow", "persistent.sfs")))
         obs = saveparse.observed_structure_facets(snap)
-        self.assertEqual({"supersedeRows": 0, "tombstones": 0, "rewindPoints": 0},
+        self.assertEqual({"supersedeRows": 0, "tombstones": 0, "rewindPoints": 0,
+                          "rewindRetirements": 0},
                          obs["rewind"])
         self.assertEqual(
             {"trees": 0, "committedTrees": 0, "recordings": 0,
-             "terminalStates": {}, "branchPoints": {}},
+             "terminalStates": {}, "branchPoints": {},
+             "duplicateRecordingIds": []},
             obs["recordings"]["structure"])
 
 
@@ -699,6 +724,26 @@ class SpecSurfaceValidationTests(unittest.TestCase):
         self.assertTrue(any("gating" in e for e in errs))
         errs = saveparse.validate_structure_expectations({"gating": 1})
         self.assertTrue(any("gating" in e for e in errs))
+
+    def test_armed_empty_block_rejected(self):
+        # Adversarial-review finding 4: gating = true with zero assertion keys
+        # is a gate the author believes is on and that can never red - the
+        # exact failure _validate_window refuses one level down.
+        errs = saveparse.validate_rewind_expectations({"gating": True})
+        self.assertTrue(any("gates nothing" in e for e in errs))
+        errs = saveparse.validate_structure_expectations({"gating": True})
+        self.assertTrue(any("gates nothing" in e for e in errs))
+        # gating = false with no assertions is NOT an error (warned instead).
+        self.assertEqual([], saveparse.validate_rewind_expectations({"gating": False}))
+
+    def test_declared_empty_block_warns(self):
+        warns = saveparse.save_structure_expectation_warnings(
+            {"rewind": {}, "recordings": {"structure": {"gating": False}}})
+        self.assertEqual(2, len(warns))
+        self.assertTrue(all("reports nothing and gates nothing" in w for w in warns))
+        self.assertEqual([], saveparse.save_structure_expectation_warnings(
+            {"rewind": {"supersedeRows": {"max": 0}}}))
+        self.assertEqual([], saveparse.save_structure_expectation_warnings(None))
 
     def test_non_table_blocks_rejected(self):
         self.assertTrue(saveparse.validate_rewind_expectations("nope"))
@@ -784,13 +829,62 @@ class EvaluateSaveStructureTests(unittest.TestCase):
         self.assertEqual(1, r.observed["rewind"]["supersedeRows"])
         self.assertEqual(saveparse.STATUS_REPORT, r.status)
 
-    def test_scenarioless_save_is_genuinely_zero(self):
-        # fresh-* templates: well-formed save, no ParsekScenario node. Zero IS
-        # the truth there, so a max=0 block passes and min=1 raises a mismatch.
+    def test_scenarioless_save_with_a_block_is_a_named_mismatch(self):
+        # Adversarial-review finding 2: ParsekScenario is AddToAllGames, so a
+        # PRODUCED save without the node means Parsek never loaded (wrong DLL,
+        # MM failure, load exception) - structurally indistinguishable from
+        # "Parsek wrote zero rows" without this check. A declared block must
+        # therefore raise a named mismatch, never a green all-zero read.
         snap = saveparse.parse_parsek_scenario("GAME\n{\n\tversion = 1\n}\n")
         r = saveparse.evaluate_save_structure(
             {"rewind": {"gating": True, "supersedeRows": {"max": 0}}}, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertIn("no ParsekScenario node", r.mismatches[0])
+        self.assertIs(False, r.scenario_found)
+        # No block declared: same save degrades to an empty REPORT row (the
+        # fresh-* templates legitimately lack the node).
+        r = saveparse.evaluate_save_structure({}, snap)
+        self.assertEqual(saveparse.STATUS_REPORT, r.status)
+        self.assertEqual((), r.mismatches)
+
+    def test_gating_is_per_block(self):
+        # Adversarial-review finding 3: the key lives INSIDE each block, so it
+        # must arm only that block. Arming the proven rewind block while the
+        # exploratory structure block still mismatches -> PASS, with the
+        # structure mismatch recorded report-only.
+        exp = {
+            "rewind": {"gating": True, "supersedeRows": 1, "tombstones": 1},
+            "recordings": {"structure": {"trees": 99}},
+        }
+        r = saveparse.evaluate_save_structure(exp, self.snap)
         self.assertEqual(saveparse.STATUS_PASS, r.status)
+        self.assertTrue(r.gating)
+        self.assertEqual(("rewind",), r.armed_blocks)
+        self.assertEqual(("recordings.structure.trees 1 != 99",), r.mismatches)
+        self.assertEqual((), r.armed_mismatches)
+        # Mirror image: structure armed, rewind mismatching report-only.
+        exp = {
+            "rewind": {"supersedeRows": 99},
+            "recordings": {"structure": {"gating": True, "trees": 1}},
+        }
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(saveparse.STATUS_PASS, r.status)
+        self.assertEqual(("recordings.structure",), r.armed_blocks)
+        self.assertEqual(("rewind.supersedeRows 1 != 99",), r.mismatches)
+        # An armed block's own mismatch still FAILs.
+        exp["recordings"]["structure"]["trees"] = 2
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.trees 1 != 2",), r.armed_mismatches)
+
+    def test_structural_faults_gate_any_armed_block(self):
+        # An unreadable save undermines EVERY declared assertion, so it must
+        # gate whichever block is armed (attribution to all declared blocks).
+        exp = {"rewind": {"supersedeRows": {"max": 0}},
+               "recordings": {"structure": {"gating": True, "trees": 1}}}
+        r = saveparse.evaluate_save_structure(exp, None)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertTrue(all("save unreadable" in m for m in r.armed_mismatches))
 
 
 if __name__ == "__main__":  # pragma: no cover

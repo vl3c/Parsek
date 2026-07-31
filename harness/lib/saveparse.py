@@ -250,9 +250,6 @@ BRANCH_TYPE_NAMES: Tuple[str, ...] = (
 # MergeState (Source/Parsek/MergeState.cs) - NAME string on disk; the default
 # Immutable is OMITTED by the writer, so an absent key means Immutable.
 MERGE_STATE_DEFAULT = "Immutable"
-MERGE_STATE_NAMES: Tuple[str, ...] = (
-    "NotCommitted", "CommittedProvisional", "Immutable",
-)
 
 
 def terminal_state_name(value: Optional[int]) -> Optional[str]:
@@ -305,7 +302,11 @@ class TreeRow:
 
     @property
     def is_committed(self) -> bool:
-        """A tree with NEITHER marker is a committed tree (writer contract)."""
+        """A tree with NEITHER marker is USUALLY a committed tree. One shipped
+        writer exception: ParsekScenario.SavePendingTreeIfAny's fallback branch
+        serializes a Limbo/LimboVesselSwitch pending tree marker-less when an
+        active-tree node is already present ("as committed-node"), so a pin on
+        the committedTrees facet can over-count by that pending tree."""
         return not self.is_active and not self.is_pending
 
 
@@ -432,11 +433,22 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
     Never raises on malformed input: a torn/unbalanced file returns
     ``parsed=False`` with the fault named in ``error``. Multiple ParsekScenario
     SCENARIO nodes in one file is a writer-contract violation and is surfaced
-    the same way (never a silent first-wins).
+    the same way (never a silent first-wins). A text with NO top-level ``GAME``
+    node is also a defined fault: every KSP save (persistent.sfs, quicksave,
+    RP sidecar - all 15 committed fixture .sfs files included) is a GAME file,
+    and the degenerate truncation - a zero-byte / whitespace-only file, exactly
+    what an interrupted save write leaves behind - is trivially brace-balanced,
+    so without this check it would read as a clean all-zero parse and an armed
+    ``max = 0`` window would PASS on a torn save (adversarial-review finding 1).
     """
     res = parse_sfs(text)
     if not res.ok:
         return ParsekSaveSnapshot(parsed=False, error=res.error, scenario_found=False)
+    if res.root.first("GAME") is None:
+        return ParsekSaveSnapshot(
+            parsed=False,
+            error="no top-level GAME node (empty, truncated-to-empty, or non-save text)",
+            scenario_found=False)
 
     scenarios = _find_parsek_scenarios(res.root)
     if not scenarios:
@@ -544,6 +556,10 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
             "supersedeRows": len(snapshot.supersedes),
             "tombstones": len(snapshot.tombstones),
             "rewindPoints": len(snapshot.rewind_points),
+            # Measured-only facet (no spec window yet): the retirement rows are
+            # parsed, so record them - a parsed-then-discarded surface is a
+            # doc claim nothing backs (adversarial-review finding 5).
+            "rewindRetirements": len(snapshot.rewind_retirements),
         },
         "recordings": {
             "structure": {
@@ -552,6 +568,10 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 "recordings": len(snapshot.recordings),
                 "terminalStates": terminal_counts,
                 "branchPoints": branch_counts,
+                # Measured-only triage facet: a duplicated recording id is a
+                # writer-contract violation; surfacing it here is what makes
+                # the duplicate_recording_ids helper reach the run JSON.
+                "duplicateRecordingIds": list(duplicate_recording_ids(snapshot)),
             },
         },
     }
@@ -611,6 +631,16 @@ def _validate_gating(prefix: str, block: Dict) -> List[str]:
     return []
 
 
+def _validate_armed_empty(prefix: str, block: Dict, assertion_keys: Tuple[str, ...]) -> List[str]:
+    """``gating = true`` with ZERO assertion keys is a gate the author believes
+    is on and that can never red - the same failure ``_validate_window`` refuses
+    one level down, applied one level up (adversarial-review finding 4)."""
+    if block.get(GATING_KEY) is True and not any(k in block for k in assertion_keys):
+        return ["%s: gating = true with no assertion key gates nothing - "
+                "declare at least one of %s" % (prefix, list(assertion_keys))]
+    return []
+
+
 def validate_rewind_expectations(block: Any) -> List[str]:
     """Validate the ``[expectations.rewind]`` spec surface (pre-launch, pure).
     None => no block declared => valid."""
@@ -624,6 +654,8 @@ def validate_rewind_expectations(block: Any) -> List[str]:
         errs.append("expectations.rewind: unknown key(s) %s (accepted: %s)"
                     % (unknown, list(REWIND_BLOCK_KEYS)))
     errs.extend(_validate_gating("expectations.rewind", block))
+    errs.extend(_validate_armed_empty(
+        "expectations.rewind", block, ("supersedeRows", "tombstones", "rewindPoints")))
     for key in ("supersedeRows", "tombstones", "rewindPoints"):
         if key in block:
             errs.extend(_validate_window("expectations.rewind.%s" % key, block[key]))
@@ -643,6 +675,9 @@ def validate_structure_expectations(block: Any) -> List[str]:
         errs.append("expectations.recordings.structure: unknown key(s) %s (accepted: %s)"
                     % (unknown, list(STRUCTURE_BLOCK_KEYS)))
     errs.extend(_validate_gating("expectations.recordings.structure", block))
+    errs.extend(_validate_armed_empty(
+        "expectations.recordings.structure", block,
+        ("trees", "committedTrees", "recordings", "terminalStates", "branchPoints")))
     for key in ("trees", "committedTrees", "recordings"):
         if key in block:
             errs.extend(_validate_window(
@@ -666,6 +701,29 @@ def validate_structure_expectations(block: Any) -> List[str]:
     return errs
 
 
+def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[str]:
+    """Inert-declaration WARNINGS (never errors): a declared-but-assertion-less
+    UNARMED block degrades silently to an empty report row - the author wrote a
+    header and asserted nothing. Mirrors ``unity_exception_expectation_warnings``.
+    (The ARMED-and-empty form is a hard error in the validators above.)"""
+    expectations = expectations or {}
+    warns: List[str] = []
+    rewind = expectations.get(REWIND_BLOCK)
+    if isinstance(rewind, dict) and not any(
+            k in rewind for k in ("supersedeRows", "tombstones", "rewindPoints")):
+        warns.append("expectations.rewind: declared with no assertion key - the "
+                     "block reports nothing and gates nothing")
+    recordings = expectations.get("recordings")
+    structure = (recordings.get(STRUCTURE_BLOCK)
+                 if isinstance(recordings, dict) else None)
+    if isinstance(structure, dict) and not any(
+            k in structure for k in ("trees", "committedTrees", "recordings",
+                                     "terminalStates", "branchPoints")):
+        warns.append("expectations.recordings.structure: declared with no assertion "
+                     "key - the block reports nothing and gates nothing")
+    return warns
+
+
 # ---------------------------------------------------------------------------
 # Evaluation (the verifier decision). Pure over the parsed snapshot.
 # ---------------------------------------------------------------------------
@@ -675,19 +733,37 @@ def validate_structure_expectations(block: Any) -> List[str]:
 class SaveStructureResult:
     """Verifier outcome. ``status``:
 
-    - ``REPORT``: default (verdict-neutral). Mismatches, if any, are RECORDED
-      but move no verdict - the promotion path reads them off the run JSON.
-    - ``PASS`` / ``FAIL``: only when a declared block armed ``gating = true``.
-      ``FAIL`` must be mapped by the caller to the ``save_structure_mismatch``
-      verifier flag (PARSEK-FAIL, subkind ``save-structure``).
-    ``observed`` carries the measured facets regardless of status.
+    - ``REPORT``: no block armed (verdict-neutral default). Mismatches, if
+      any, are RECORDED but move no verdict - the promotion path reads them
+      off the run JSON.
+    - ``PASS`` / ``FAIL``: at least one declared block armed ``gating = true``.
+      GATING IS PER-BLOCK (adversarial-review finding 3): ``status`` is
+      computed from the ARMED blocks' mismatches only, so arming a proven
+      block while a second exploratory block keeps reporting does NOT
+      silently promote the exploratory block to a gate. ``FAIL`` must be
+      mapped by the caller to the ``save_structure_mismatch`` verifier flag
+      (PARSEK-FAIL, subkind ``save-structure``).
+    ``mismatches`` carries EVERY mismatch (armed or not - the report value);
+    ``armed_mismatches`` carries the verdict-driving subset. ``observed``
+    carries the measured facets regardless of status. A structural fault
+    (unreadable save / no ParsekScenario node) is attributed to every
+    declared block, so it gates whenever anything is armed.
     """
 
     status: str
-    gating: bool
-    mismatches: Tuple[str, ...]
+    gating: bool                      # any declared block armed
+    mismatches: Tuple[str, ...]       # all mismatches, armed + report-only
     observed: Dict[str, Any]
-    blocks: Tuple[str, ...]  # declared blocks evaluated: "rewind" / "recordings.structure"
+    blocks: Tuple[str, ...]           # declared blocks: "rewind" / "recordings.structure"
+    armed_blocks: Tuple[str, ...]     # the gating = true subset of blocks
+    armed_mismatches: Tuple[str, ...]  # the verdict-driving subset
+    scenario_found: Optional[bool]    # None = save unreadable / not read
+
+
+def _structure_block(expectations: Dict) -> Optional[Dict]:
+    recordings = expectations.get("recordings")
+    structure = recordings.get(STRUCTURE_BLOCK) if isinstance(recordings, dict) else None
+    return structure if isinstance(structure, dict) else None
 
 
 def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
@@ -696,8 +772,22 @@ def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     out: List[str] = []
     if isinstance(expectations.get(REWIND_BLOCK), dict):
         out.append(REWIND_BLOCK)
-    recordings = expectations.get("recordings")
-    if isinstance(recordings, dict) and isinstance(recordings.get(STRUCTURE_BLOCK), dict):
+    if _structure_block(expectations) is not None:
+        out.append("recordings.structure")
+    return tuple(out)
+
+
+def armed_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
+    """The subset of declared blocks carrying ``gating = true``, stable order.
+    Arming is PER-BLOCK: the key lives inside each block and gates only that
+    block's assertions."""
+    expectations = expectations or {}
+    out: List[str] = []
+    rewind = expectations.get(REWIND_BLOCK)
+    if isinstance(rewind, dict) and rewind.get(GATING_KEY) is True:
+        out.append(REWIND_BLOCK)
+    structure = _structure_block(expectations)
+    if structure is not None and structure.get(GATING_KEY) is True:
         out.append("recordings.structure")
     return tuple(out)
 
@@ -706,15 +796,7 @@ def gating_armed(expectations: Optional[Dict]) -> bool:
     """True iff ANY declared M-C2 block carries ``gating = true``. Zero
     committed specs do (guarded by a test-suite sweep); arming is an operator
     decision taken after reading report-only facets off green runs."""
-    expectations = expectations or {}
-    rewind = expectations.get(REWIND_BLOCK)
-    if isinstance(rewind, dict) and rewind.get(GATING_KEY) is True:
-        return True
-    recordings = expectations.get("recordings") or {}
-    structure = recordings.get(STRUCTURE_BLOCK) if isinstance(recordings, dict) else None
-    if isinstance(structure, dict) and structure.get(GATING_KEY) is True:
-        return True
-    return False
+    return bool(armed_structure_blocks(expectations))
 
 
 def _check_window(label: str, spec_val: Any, measured: int,
@@ -743,24 +825,43 @@ def evaluate_save_structure(
         snapshot: Optional[ParsekSaveSnapshot]) -> SaveStructureResult:
     """Evaluate the declared M-C2 blocks against the parsed save snapshot.
 
-    ``snapshot`` None (persistent.sfs missing) or ``parsed=False`` (torn /
-    unbalanced text) is a DEFINED fault: with a block declared it is a mismatch
-    ("a save that cannot be parsed proves nothing" - fail loud, never read a
-    torn file as zero rows); with no block declared it degrades to an empty
-    REPORT row. A save with no ParsekScenario node parses clean with all
-    counts zero (that IS the truth of such a save).
+    Two structural faults are DEFINED mismatches whenever any block is
+    declared, attributed to every declared block (so they gate whenever
+    anything is armed):
+
+    - ``snapshot`` None (persistent.sfs missing) or ``parsed=False`` (torn /
+      unbalanced / empty text): "a save that cannot be parsed proves nothing"
+      - fail loud, never read a torn file as zero rows.
+    - a readable save with NO ParsekScenario SCENARIO node
+      (adversarial-review finding 2): ParsekScenario is AddToAllGames, so its
+      absence from a PRODUCED save means Parsek never loaded (wrong DLL, MM
+      failure, load exception) - the most common environmental failure a run
+      has, and structurally indistinguishable from "Parsek wrote zero rows"
+      without this check. (The fresh-* templates legitimately lack the node,
+      but they are never the produced save of a run declaring an M-C2 block.)
+
+    With no block declared, both degrade to an empty REPORT row with the
+    fault visible in the caller's ``parsed`` / ``scenarioFound`` fields.
     """
     expectations = expectations or {}
     blocks = declared_structure_blocks(expectations)
-    gating = gating_armed(expectations)
+    armed = armed_structure_blocks(expectations)
     observed = observed_structure_facets(snapshot)
-    mismatches: List[str] = []
+    # Per-block mismatch partition (finding 3): only armed blocks' mismatches
+    # drive PASS/FAIL; everything lands in the report list.
+    per_block: Dict[str, List[str]] = {b: [] for b in blocks}
 
     unreadable = snapshot is None or not snapshot.parsed
+    scenario_found: Optional[bool] = None if unreadable else snapshot.scenario_found
     if unreadable:
-        if blocks:
-            reason = "missing persistent.sfs" if snapshot is None else snapshot.error
-            mismatches.append("save unreadable: %s" % (reason,))
+        reason = "missing persistent.sfs" if snapshot is None else snapshot.error
+        for b in blocks:
+            per_block[b].append("save unreadable: %s" % (reason,))
+    elif not snapshot.scenario_found and blocks:
+        for b in blocks:
+            per_block[b].append(
+                "no ParsekScenario node in the produced save (Parsek never "
+                "loaded, or the save is not a Parsek save)")
     else:
         facets = observed  # parsed => facets present
         rewind_spec = expectations.get(REWIND_BLOCK)
@@ -769,32 +870,32 @@ def evaluate_save_structure(
             for key in ("supersedeRows", "tombstones", "rewindPoints"):
                 if key in rewind_spec:
                     _check_window("rewind.%s" % key, rewind_spec[key],
-                                  measured[key], mismatches)
-        recordings = expectations.get("recordings") or {}
-        structure_spec = (recordings.get(STRUCTURE_BLOCK)
-                          if isinstance(recordings, dict) else None)
-        if isinstance(structure_spec, dict):
+                                  measured[key], per_block[REWIND_BLOCK])
+        structure_spec = _structure_block(expectations)
+        if structure_spec is not None:
+            out = per_block["recordings.structure"]
             measured = facets["recordings"]["structure"]
             for key in ("trees", "committedTrees", "recordings"):
                 if key in structure_spec:
                     _check_window("recordings.structure.%s" % key,
-                                  structure_spec[key], measured[key], mismatches)
-            for group, bucket in (("terminalStates", "terminalStates"),
-                                  ("branchPoints", "branchPoints")):
+                                  structure_spec[key], measured[key], out)
+            for group in ("terminalStates", "branchPoints"):
                 sub = structure_spec.get(group)
                 if not isinstance(sub, dict):
                     continue
                 for name, window in sub.items():
-                    if name == GATING_KEY:
-                        continue
-                    count = measured[bucket].get(name, 0)
+                    count = measured[group].get(name, 0)
                     _check_window("recordings.structure.%s.%s" % (group, name),
-                                  window, count, mismatches)
+                                  window, count, out)
 
-    if gating:
-        status = STATUS_PASS if not mismatches else STATUS_FAIL
+    mismatches = tuple(m for b in blocks for m in per_block[b])
+    armed_mismatches = tuple(m for b in armed for m in per_block[b])
+    if armed:
+        status = STATUS_PASS if not armed_mismatches else STATUS_FAIL
     else:
         status = STATUS_REPORT
-    return SaveStructureResult(status=status, gating=gating,
-                               mismatches=tuple(mismatches),
-                               observed=observed, blocks=blocks)
+    return SaveStructureResult(status=status, gating=bool(armed),
+                               mismatches=mismatches, observed=observed,
+                               blocks=blocks, armed_blocks=armed,
+                               armed_mismatches=armed_mismatches,
+                               scenario_found=scenario_found)
