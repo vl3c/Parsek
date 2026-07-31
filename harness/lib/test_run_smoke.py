@@ -2443,37 +2443,82 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
     did not include the gate. A plan that under-reports is worse than no plan: an
     operator reads it as "report-only" and mis-attributes the resulting red.
 
-    These cells pin the three states (armed / declared-report-only / undeclared)
-    against real committed specs, so the next verifier added without touching the
-    enumeration reds here instead of in front of an operator."""
+    `print_dry_run_plan` renders THREE states - armed, declared-but-report-only,
+    and no-block-declared. Only two of them are reachable from the committed
+    corpus: S4.1 is the sole declarer and it is now ARMED, so the middle state
+    has no committed spec to pin it against. It is pinned here with a SYNTHETIC
+    spec instead, and that is not a formality - declared-but-unarmed is the state
+    EVERY future declarer passes through on the mandated read-report-only-then-arm
+    workflow, so shipping it broken would be found by an operator rather than by
+    the suite. Pinning it also makes `armed` and `declared` distinguishable: with
+    committed specs alone, `if sp_armed:` and `if sp_declared:` are the same
+    predicate over the corpus, and a regression advertising a merely-declared
+    block as an armed gate passes every cell."""
 
-    def _plan(self, scenario_id):
+    _SPECS = None
+
+    @classmethod
+    def _all_specs(cls):
+        # Cached: this class renders a plan per committed spec, and reloading all
+        # 61 TOMLs per call made the sweep parse ~3,800 files for no reason.
+        if cls._SPECS is None:
+            cls._SPECS = run.load_all_specs()
+        return cls._SPECS
+
+    def _render(self, spec):
         import io
         import contextlib
-        specs = run.load_all_specs()
-        spec = next(s for s in specs if s.get("id") == scenario_id)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             run.print_dry_run_plan([spec], lambda _p: "C:/instance",
                                    run.HarnessLogger(None))
         return next(l for l in buf.getvalue().splitlines() if "[VERIFY " in l)
 
+    def _plan(self, scenario_id):
+        spec = next((s for s in self._all_specs() if s.get("id") == scenario_id), None)
+        self.assertIsNotNone(spec, "no committed spec with id %r" % scenario_id)
+        return self._render(spec)
+
     def test_an_armed_spec_names_the_gate_and_its_failure_subkind(self):
         line = self._plan("S4.1-rewind-merge")
         self.assertIn("saveParse(armed: rewind", line)
         self.assertIn("PARSEK-FAIL(save-structure)", line)
 
+    def test_a_declared_but_unarmed_block_renders_report_only(self):
+        """SYNTHETIC. No committed spec can reach this branch (see class docstring),
+        so a real-spec fixture would silently stop covering it."""
+        line = self._render({"id": "SYNTH-declared-unarmed", "driver": {"steps": []},
+                             "expectations": {"rewind": {"supersedeRows": {"max": 0}}}})
+        self.assertIn("saveParse(report-only: rewind)", line)
+        # The whole point: a declared-but-unarmed block must NOT advertise a gate.
+        self.assertNotIn("armed", line)
+        self.assertNotIn("save-structure", line)
+
+    def test_an_armed_block_is_rendered_differently_from_a_declared_one(self):
+        """Pins that `armed` and `declared` are distinct predicates. Over the
+        committed corpus alone they are indistinguishable, so this comparison is
+        the only thing standing between us and `if sp_declared:` at run.py:2882."""
+        declared_only = {"id": "SYNTH-a", "driver": {"steps": []},
+                         "expectations": {"rewind": {"supersedeRows": {"max": 0}}}}
+        armed = {"id": "SYNTH-b", "driver": {"steps": []},
+                 "expectations": {"rewind": {"gating": True,
+                                             "supersedeRows": {"max": 0}}}}
+        self.assertNotEqual(self._render(declared_only), self._render(armed))
+        self.assertIn("saveParse(armed: rewind", self._render(armed))
+
     def test_a_spec_declaring_no_block_says_facets_only(self):
-        # CL-2 measures the structure surface without asserting on it - that is
-        # what makes it usable as stage B's calibration reading.
-        line = self._plan("CL-2-pod-impact-ledger")
+        # B1-pad-hop is used deliberately rather than CL-2: CL-2 is the spec this
+        # work names as the NEXT declarer (stage B), so pinning the
+        # no-block-declared rendering to it would red for a reason unrelated to
+        # what this cell guards the moment stage B is authored.
+        line = self._plan("B1-pad-hop")
         self.assertIn("saveParse(facets only, no block declared)", line)
         self.assertNotIn("save-structure", line)
 
     def test_every_scenario_plan_names_saveparse(self):
         """The row runs on every driver-valid run, so no spec's plan may omit it."""
-        specs = run.load_all_specs()
-        missing = [s["id"] for s in specs if "saveParse(" not in self._plan(s["id"])]
+        missing = [s["id"] for s in self._all_specs()
+                   if "saveParse(" not in self._plan(s["id"])]
         self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
 
 

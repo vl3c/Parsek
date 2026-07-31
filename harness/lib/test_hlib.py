@@ -4112,10 +4112,23 @@ class UnityExceptionScanTests(unittest.TestCase):
 class SaveStructureVerifierWiringTests(unittest.TestCase):
     """The M-C2/R9 save-parse verifier's hlib-side wiring: spec-surface
     validation routes through validate_spec, the gating flag classifies its own
-    PARSEK-FAIL subkind, and - the HARD SAFETY PROPERTY, mirroring the
-    unityExceptions precedent - no committed spec arms gating, so landing the
-    verifier cannot move any nightly's verdict (S4.1 declares a rewind block
-    TODAY; a gating default would have judged it without a live run)."""
+    PARSEK-FAIL subkind, and - the SAFETY PROPERTY, mirroring the
+    unityExceptions precedent - arming stays a deliberate, per-scenario,
+    live-proven act.
+
+    THAT PROPERTY WAS RESTATED 2026-07-31, not abandoned. It shipped as "no
+    committed spec arms gating, so landing the verifier cannot move any
+    nightly's verdict", which was the right guarantee while every arming was
+    still unproven. S4.1-rewind-merge was then promoted on evidence (reading run
+    `2026-07-31_1628`, armed `_1635`, negative control `_1637`), so the
+    guarantee became the next one along: the ARMED SET IS AN ALLOWLIST, and a
+    spec joining it needs an explicit edit citing its run ids.
+
+    The two cells below are COMPLEMENTARY AND MUST BE MAINTAINED AS A PAIR.
+    `test_no_committed_spec_arms_gating` is per-SPEC-FILE, so on its own it
+    would not notice S4.1 arming a second block or re-pinning a window;
+    `test_s41_declares_the_rewind_block_armed` supplies that per-block
+    granularity. Neither alone is the guard."""
 
     def test_gating_mismatch_classifies_save_structure_parsek_fail(self):
         d, v = _clean_pass_facts()
@@ -4196,6 +4209,17 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         # arming must not smuggle in a re-pinned window.
         self.assertEqual({"max": 0}, exp["rewind"]["supersedeRows"])
         self.assertEqual({"max": 0}, exp["rewind"]["tombstones"])
+        # ...nor an ADDED one. Pinning only the two VALUES above left a gap:
+        # appending e.g. `rewindPoints = { max = 0 }` passed both guard cells,
+        # yet that would be a newly ARMED, GATING window with no reading run
+        # behind it - and rewindPoints is precisely the key the block's own
+        # comment says it declined to pin ("one observation is not a window").
+        # Pin the KEY SET so growing the armed block is as deliberate as arming
+        # it was.
+        self.assertEqual({"gating", "supersedeRows", "tombstones"},
+                         set(exp["rewind"]),
+                         "a window was added to (or removed from) S4.1's ARMED block; "
+                         "every armed window needs its own report-only reading run first")
 
 
 class AnomalyGrepAnchoringTests(unittest.TestCase):

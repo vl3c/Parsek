@@ -769,7 +769,8 @@ Flight? No.
 
 **R9. Structural save-content expectations.** One harness PR plus one analyzer PR.
 **SHIPPED-REPORT-ONLY 2026-07-31 (harness half, branch
-`claude/r9-save-parse-verifier-tshhzv`).**
+`claude/r9-save-parse-verifier-tshhzv`), then ARMED AND LIVE-PROVEN ON S4.1 THE
+SAME DAY (branch `r9-arm-s41`) - see the promotion block below.**
 
 An `[expectations.recordings.structure]` block evaluated against the analyzer's
 parsed model: branch-point counts by type, TrackSection frame and anchor, terminal
@@ -795,16 +796,17 @@ sweep (S4.1 armed later the same day - see the promotion block below - and the
 guard became an allowlist rather than being deleted). `rewind` LEFT
 `RESERVED_EXPECTATION_BLOCKS` (sole-owner rule, the M-B2 `world` precedent).
 
-PROMOTION DONE 2026-07-31 (branch `r9-arm-s41`), which was item (a) below.
+PROMOTION DONE 2026-07-31 (branch `r9-arm-s41`) - this was item (a) of the
+previous revision of the STILL-OPEN list; that list has since been renumbered
+and its (a) is now CL-2 stage B.
 S4.1-rewind-merge is now the FIRST and ONLY committed spec arming
 `gating = true`, and the rewind save surface is a real gate rather than a
-recorded reading. Three live runs against `automation/stock-minimal`:
-
-| run | what | result |
-| --- | --- | --- |
-| `2026-07-31_1628` | report-only reading | PASS 59 s; `status=REPORT parsed=true scenarioFound=true blocks=["rewind"] armedBlocks=[] mismatches=[]`; `observed.rewind = {supersedeRows 0, tombstones 0, rewindPoints 0, rewindRetirements 0}` |
-| `2026-07-31_1635` | armed | PASS 59 s; `status=PASS gating=true armedBlocks=["rewind"]` |
-| `2026-07-31_1637` | NEGATIVE CONTROL (`supersedeRows = { min = 1 }`, reverted) | `PARSEK-FAIL(save-structure)`, `mismatches=["rewind.supersedeRows 0 < min 1"]` |
+recorded reading. Three live runs did it - a report-only reading
+(`2026-07-31_1628`), the armed re-fly (`_1635`), and a negative control that
+inverted the window and reddened `PARSEK-FAIL(save-structure)` (`_1637`).
+THE PER-RUN FACETS LIVE IN `docs/dev/autotest-status.md`, THE STATUS AUTHORITY -
+this doc owns forward build order, not run results, so do not re-copy the
+readings here.
 
 The negative control is the load-bearing one: a gate nobody has watched fail is
 an assumption, not a gate. Arming moved no verdict (both `max = 0` windows were

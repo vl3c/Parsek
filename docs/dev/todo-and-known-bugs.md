@@ -1511,8 +1511,11 @@ Correction to carry: `Logistics` is 47 tests but 38 carry
 `AllowBatchExecution = false`, so only 9 are batch-reachable before R5 lands.
 
 **R9-R14. Machinery items** (each self-contained in the roadmap doc). TWO OF THE SIX
-ARE NOW CLOSED; the list below is kept intact with the closures marked, because the
-counts around it were measured against the six-item shape:
+ARE NOW CLOSED; the R9-R14 bullets below are kept intact with the closures marked,
+because the counts around them were measured against the six-item shape. One
+NON-R bullet (the CL-2 stage-B calibration reading) is appended after R9 as
+supporting measurement for R9's remaining scope - it is not a seventh machinery
+item and must not be counted as one:
 
 - **R9** structural save-content expectations plus landing the three inert `route` /
   `rewind` / `loop` expectation blocks - **HARNESS HALF SHIPPED-REPORT-ONLY
@@ -1539,7 +1542,8 @@ counts around it were measured against the six-item shape:
   it is recorded, deliberately NOT pinned as a window: one observation is not a
   window, and a reap count wants a second scenario before it gates.
 
-- **CL-2 stage B calibration reading** [MEASURED 2026-07-31, run
+- **CL-2 stage-B calibration, measured off the STAGE-A run** (CL-2 itself IS stage A;
+  stage B is unwritten) [MEASURED 2026-07-31, run
   `2026-07-31_1641_CL-2-pod-impact-ledger` (PASS, 168 s)]. CL-2 declares NO M-C2
   block (`blocks: []`), so its `saveParse` row is pure measurement - which is exactly
   what makes it usable to size stage B's windows. The observed block, verbatim:
@@ -3855,7 +3859,7 @@ The `rewind-b9` injection preset + the M-C1 InvokeRewind/AnswerMergeDialog/TimeJ
 
 **S1.5 capability gap (why only the subset is drivable).** The FULL catalog S1.5 ("fly B1, commit, warp past EndUT, quicksave, rewind, assert stripped/respawned, crew re-reservation + resource reset vs ledger oracle") needs four capabilities M-C1 does not provide: (a) a live B1 flight + commit -> the mission-autopilot library, not a seam verb (the `rewind-loop-lane` `r1_rewind_loop` mission is the first cut of this); (b) an in-scene quicksave / RP-create seam verb to make the RP LIVE rather than inject it (the injected `rp_b9_root` stands in) - RE-DIAGNOSED 2026-07-26: creating the RP is only half of it, NAMING it is the other half and is the harder half; see blockers (a)/(b) in the rewind-in-flight entry at the top; ~~(c) a FLIGHT-scene entry -- TimeJump/InvokeRewind are `RequiresFlight` and the seam has no launch verb, so an operator must be in FLIGHT (the gloops host save loads to SPACECENTER)~~ **(c) WAS NEVER TRUE and is WITHDRAWN 2026-07-26** - `LoadGame` is the flight-entry verb and `gloops-airshow` carries `activeVessel = 1`, so it loads to FLIGHT, not SPACECENTER; (d) a career fixture + ledger oracle for the crew-re-reservation / resource-reset asserts (rewind-b9's host is sandbox). The highest-value remaining unblocker is a seam channel exposing live RewindPoint ids, NOT a FLIGHT-scene B9 template.
 
-**PENDING-OPERATOR (coordinator runbook).** ~~Both scenarios are `tier = operator` ... otherwise every RequiresFlight verb only defers to a TIMEOUT and no PASS is reachable.~~ SUPERSEDED 2026-07-26: both are `tier = nightly` and run unattended. With the B1 sidecar fix the re-fly is genuinely exercisable end to end (the selected slot's vessel is present under its mapped pid, survives the strip, and is activatable); what the FIRST nightly run establishes is the LIVE-LOAD fidelity of the cloned vessels (whether KSP can instantiate them - duplicate part pids / crew across the per-slot clones may be regenerated on load). Still genuinely PENDING beyond that: the supersede-relation / tombstone save-parse (S4.1) is PENDING-VERIFIER, not pending-operator - the `[expectations.rewind]` block is RESERVED until the M-C2 rewind verifier lands (UPDATE 2026-07-31: LANDED report-only, branch `claude/r9-save-parse-verifier-tshhzv`; the asserts now produce recorded `saveParse` readings each run, and what remains is the gating promotion after one local S4.1 run - see the roadmap R9 entry) - and S1.5's crew-re-reservation / resource-reset asserts need a career fixture the sandbox host does not provide.
+**PENDING-OPERATOR (coordinator runbook).** ~~Both scenarios are `tier = operator` ... otherwise every RequiresFlight verb only defers to a TIMEOUT and no PASS is reachable.~~ SUPERSEDED 2026-07-26: both are `tier = nightly` and run unattended. With the B1 sidecar fix the re-fly is genuinely exercisable end to end (the selected slot's vessel is present under its mapped pid, survives the strip, and is activatable); what the FIRST nightly run establishes is the LIVE-LOAD fidelity of the cloned vessels (whether KSP can instantiate them - duplicate part pids / crew across the per-slot clones may be regenerated on load). Still genuinely PENDING beyond that: the supersede-relation / tombstone save-parse (S4.1) is PENDING-VERIFIER, not pending-operator - the `[expectations.rewind]` block is RESERVED until the M-C2 rewind verifier lands (UPDATE 2026-07-31: LANDED report-only, branch `claude/r9-save-parse-verifier-tshhzv`; the asserts now produce recorded `saveParse` readings each run, and what remained was the gating promotion after one local S4.1 run. UPDATE 2026-07-31, same day: that promotion SHIPPED on branch `r9-arm-s41` - reading run `2026-07-31_1628` confirmed the readings matched the declared windows, S4.1's block now carries `gating = true`, and the armed gate was proven live both ways (`_1635` PASS armed, `_1637` PARSEK-FAIL(save-structure) under a `min = 1` negative control). S4.1's supersede-row / tombstone assert is therefore no longer PENDING-VERIFIER at all; S1.5's career-fixture gap below is untouched - see the roadmap R9 entry) - and S1.5's crew-re-reservation / resource-reset asserts need a career fixture the sandbox host does not provide.
 
 ## M-B3 - L1 ledger action scripts: first nonzero seam-declared manifests + career fixtures [BUILT, branch `autotest-mb3-impl`]
 

@@ -2043,8 +2043,11 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
     # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
     # move a committed nightly's verdict with no live run to prove the readings);
-    # a block opts in with gating = true - declared by ZERO committed specs
-    # (guarded by a test-suite sweep). Like the ledger oracle it runs independent
+    # a block opts in with gating = true - declared by exactly ONE committed
+    # spec, S4.1-rewind-merge, armed 2026-07-31 after its report-only reading run
+    # (guarded by an ALLOWLIST test-suite sweep, so a second declarer still reds).
+    # This branch CAN move that scenario's verdict; it moves no other spec's.
+    # Like the ledger oracle it runs independent
     # of the later-verifier short-circuit (a structural read of the save is its
     # own triage signal), but only over a driver-VALID save (a driver-INVALID
     # save is deliberately incomplete, not ground truth - the facets are still

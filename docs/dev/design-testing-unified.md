@@ -75,7 +75,7 @@ Finally, the goal metric: **human-eyeball minutes per release**. Every proposal 
 
 ## 4. System 3 — automated flight harness (`harness/`)
 
-**What it is.** A Python (stdlib-only) pipeline that provisions a dedicated KSP instance, stages a fixture save, boots the game, drives it — by seam commands and/or a kRPC-piloted mission — and classifies the outcome through an eight-row verifier chain. 55 committed scenario TOMLs; daily tier ≈ 12 min, nightly ≈ 4 h.
+**What it is.** A Python (stdlib-only) pipeline that provisions a dedicated KSP instance, stages a fixture save, boots the game, drives it — by seam commands and/or a kRPC-piloted mission — and classifies the outcome through a nine-row verifier chain (the M-C2 `saveParse` row landed 2026-07-31). 55 committed scenario TOMLs; daily tier ≈ 12 min, nightly ≈ 4 h.
 
 **The moving parts, in run order:**
 
@@ -87,7 +87,7 @@ Finally, the goal metric: **human-eyeball minutes per release**. Every proposal 
 6. **Ledger oracle** (M-B2, `harness/lib/oracle.py`): expected career state (seed baseline + author-declared manifest) vs the produced save parsed independently — never reading Parsek-derived numbers (circularity ban).
 7. **Coverage registry** (`harness/coverage/registry.toml`): the D1–D18 / 242-cell denominator. `[dimensionsCovered]` blocks are declarative — *claim is not gate*; a claim is honest only when a gating token/assertion backs it.
 
-**What it can never prove (today):** anything visual (no screenshots, no pixel or geometry gate outside S1.6/S1.7's synthetic parity), UI health, perf/memory, occurrence-counts or ordering in logs, structural save content beyond a recording count (until R9), scenes beyond FLIGHT/SPACECENTER (until R12), mod-compat behavior (until R14's instance exists).
+**What it can never prove (today):** anything visual (no screenshots, no pixel or geometry gate outside S1.6/S1.7's synthetic parity), UI health, perf/memory, occurrence-counts or ordering in logs, structural save content beyond a recording count (ADDRESSED by R9 2026-07-31: the `saveParse` row reads the produced save's ParsekScenario surfaces on every driver-valid run - report-only except on `S4.1-rewind-merge`, the one armed spec), scenes beyond FLIGHT/SPACECENTER (until R12), mod-compat behavior (until R14's instance exists).
 
 ## 5. How the systems compose
 
@@ -167,7 +167,7 @@ The cheapest absolute wins in the stack — R5's unlock is sitting unused.
 
 ### Phase 2 — Make green deep: structural assertions + data-integrity units (weeks)
 
-1. **R9 — structural save-content expectations** (the single highest-leverage unbuilt item): `[expectations.recordings.structure]` over the analyzer's parsed model (branch-point counts by type, section frames/anchors, terminal state + body), plus landing the three inert `route`/`rewind`/`loop` expectation families and `[expectations.world]`. Retires presence-only grep as the primary proof.
+1. **R9 — structural save-content expectations** (was the single highest-leverage unbuilt item; harness half SHIPPED 2026-07-31 report-only and ARMED on S4.1 the same day, analyzer half still open): `[expectations.recordings.structure]` over the analyzer's parsed model (branch-point counts by type, section frames/anchors, terminal state + body), plus landing the three inert `route`/`rewind`/`loop` expectation families and `[expectations.world]`. Retires presence-only grep as the primary proof.
 2. R10 — runtime-handle plumbing (`${step.field}`), unblocking verbs that address live trees/vessels/routes.
 3. The Tier-A data-integrity units from the audit: `SafeWriteConfigNode` (check `Save()`'s return, use `File.Replace`, test all three `SafeWrite*` — landed via PR #1375 while this document was in review), the schema-reject prune chain end-to-end and `SaveActiveTreeIfAny` both-or-neither (both landed via PR #1376), rewind-across-SOI, RP-slot ambiguity, the crew-death→tombstone→rep unit chain (with the wrong `CrewKilled`-vs-`VesselLoss` mapping as the first assertion — the mapping fix plus the reconciler's per-case unit suite landed via PR #1381; the flown end-to-end chain still waits on R12).
 4. Crash-matrix systematization: journal fault-injection as a `[Theory]` over the phase enum (a new phase reds automatically; adds the missing `Split` case free); extend `RewindInvoker`'s checkpoint hook to ~8 points with a throw-at-each theory.
