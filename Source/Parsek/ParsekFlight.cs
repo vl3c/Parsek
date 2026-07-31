@@ -26426,21 +26426,14 @@ namespace Parsek
                     continue;
                 if (notifiedSpawnRecordingIds.Add(cand.recordingId))
                 {
-                    string notifyMsg;
-                    if (cand.willDepart)
-                    {
-                        double depDelta = cand.departureUT - currentUT;
-                        notifyMsg = string.Format(CultureInfo.InvariantCulture,
-                            "Nearby craft: {0} (departs to {1} in {2}). Open Real Spawn Control.",
-                            cand.vesselName, cand.destination,
-                            SelectiveSpawnUI.FormatTimeDelta(depDelta));
-                    }
-                    else
-                    {
-                        notifyMsg = string.Format(CultureInfo.InvariantCulture,
-                            "Nearby craft: {0}. Open the Real Spawn Control window to fast forward and interact.",
-                            cand.vesselName);
-                    }
+                    // The message names the Real Spawn Control window only when that window is
+                    // actually reachable - Basic UI mode hides its launcher, and telling the
+                    // player to open a window they have no button for is a dead end. The
+                    // reachability question is asked of ParsekUI so this path stays mode-blind:
+                    // it changes the WORDING, never whether the candidate was detected or what
+                    // spawning does.
+                    string notifyMsg = SelectiveSpawnUI.FormatProximityNotification(
+                        cand, currentUT, ParsekUI.IsSpawnControlReachable);
                     ParsekLog.ScreenMessage(notifyMsg, 10f);
                     ParsekLog.Info("Flight",
                         string.Format(CultureInfo.InvariantCulture,

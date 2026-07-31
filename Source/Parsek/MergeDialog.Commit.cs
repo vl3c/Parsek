@@ -314,9 +314,9 @@ namespace Parsek
             {
                 ParsekLog.Warn("MergeDialog",
                     "Merge & Seal: resolved provisional is null after merge — " +
-                    "cannot seal; player can seal from the Recordings window");
+                    "cannot seal; player can seal from the Timeline window");
                 ParsekLog.ScreenMessage(
-                    "Merged, but could not seal — seal it from the Recordings window", 4f);
+                    "Merged, but could not seal — seal it from the Timeline window", 4f);
                 return;
             }
 
@@ -332,9 +332,9 @@ namespace Parsek
             {
                 ParsekLog.Warn("MergeDialog",
                     $"Merge & Seal: seal failed after merge rec={recId} " +
-                    $"reason={sealReason ?? "<none>"} — player can seal from the Recordings window");
+                    $"reason={sealReason ?? "<none>"} — player can seal from the Timeline window");
                 ParsekLog.ScreenMessage(
-                    "Merged, but could not seal — seal it from the Recordings window", 4f);
+                    "Merged, but could not seal — seal it from the Timeline window", 4f);
             }
         }
 

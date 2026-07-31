@@ -25,6 +25,27 @@ namespace Parsek
         // window rect, resize, drag, and input lock; this tab only keeps its own scroll.
         private Vector2 scrollPos;
 
+        // Cross-link target from the Timeline GoTo button (see RevealMissionForRecording).
+        // Mirrors the recordings tab's two-frame handshake (pendingScrollToRecordingId ->
+        // pendingScrollRowIndex): the row is FOUND during a draw pass and the scroll is
+        // APPLIED at the top of a later one, because writing scrollPos after the scroll view
+        // has opened has no effect for that frame.
+        private string pendingRevealMissionId;
+
+        // Layout y of the FIRST mission header drawn this pass, and the scroll offset derived
+        // for the target. The scroll target is the DIFFERENCE between the target header's y and
+        // the first header's y, so it is a distance between two rects measured the same way
+        // rather than a raw layout coordinate - which keeps it correct regardless of what origin
+        // GUILayoutUtility reports inside a scroll view. NaN = nothing pending.
+        private float revealFirstHeaderY;
+        private bool revealFirstHeaderSeen;
+        private float pendingRevealScrollY = float.NaN;
+
+        // The scheduled cross-link target, for tests: the draw loop that consumes it is an
+        // IMGUI callback with no headless seam, so this is the only observable outcome of
+        // RevealMissionForRecording that a unit test can assert on.
+        internal string PendingRevealMissionIdForTesting => pendingRevealMissionId;
+
         // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
         // the same tree collapse independently. Transient UI state (not persisted). The
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
@@ -310,6 +331,102 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Cross-link entry point for the Timeline GoTo button: schedules a scroll to the
+        /// mission that owns <paramref name="recordingId"/>, clearing the Archive filter first
+        /// when that filter is what would hide it. Called through
+        /// <see cref="RecordingsTableUI.ShowMissionForRecording"/>, which owns opening the
+        /// window and selecting the Missions tab.
+        /// <para>Visible in BOTH complexity modes: the Missions tab is the one Basic keeps
+        /// (design `docs/dev/design-ui-basic-advanced.md` section 4.1a), which is exactly why
+        /// the cross-link targets it instead of the raw Recordings tab.</para>
+        /// <para>Resolution is recording -> <see cref="Recording.TreeId"/> -> that tree's
+        /// ORIGINAL mission (<see cref="MissionStore.FindOriginalMission"/>). A tree may carry
+        /// several missions (clones); the original is the deterministic, name-linked one, the
+        /// same pick <see cref="MissionGroupLink"/> makes. Every failure warns and lands the
+        /// player on the tab unscrolled rather than dangling a pending id.</para>
+        /// </summary>
+        internal void RevealMissionForRecording(string recordingId)
+        {
+            pendingRevealMissionId = null;
+            pendingRevealScrollY = float.NaN;
+
+            Recording rec;
+            if (!TryResolveCommittedRecording(recordingId, out _, out rec))
+            {
+                ParsekLog.Warn("UI",
+                    $"Cross-link: recording {recordingId ?? "<null>"} not found in the committed set; " +
+                    "opening the Missions tab unscrolled");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(rec.TreeId))
+            {
+                ParsekLog.Warn("UI",
+                    $"Cross-link: recording \"{rec.VesselName}\" id={recordingId} has no tree, " +
+                    "so it belongs to no mission; opening the Missions tab unscrolled");
+                return;
+            }
+
+            Mission mission = MissionStore.FindOriginalMission(rec.TreeId);
+            if (mission == null)
+            {
+                // EnsureDefaultsForTrees only runs inside the draw, so a just-committed tree can
+                // legitimately have no mission yet; the next draw creates one. Warn rather than
+                // seed here - creating a Mission from a click handler would duplicate that seam.
+                ParsekLog.Warn("UI",
+                    $"Cross-link: tree {rec.TreeId} has no mission yet for recording " +
+                    $"\"{rec.VesselName}\" id={recordingId}; opening the Missions tab unscrolled");
+                return;
+            }
+
+            // The Archive filter is the one thing that would drop the destination's whole block
+            // out of the list. Clear the GLOBAL filter (reversible with one click on the tab's
+            // own Archive checkbox), never the mission's own Archived flag - that is a player
+            // decision this navigation has no business overwriting.
+            if (MissionStore.HideArchived && mission.Archived)
+            {
+                MissionStore.HideArchived = false;
+                ParsekLog.Info("UI",
+                    $"Cross-link: cleared the Archive filter to show archived mission '{mission.Name}'");
+            }
+
+            pendingRevealMissionId = mission.Id;
+            ParsekLog.Verbose("UI",
+                $"Cross-link: reveal requested for mission '{mission.Name}' id={mission.Id} " +
+                $"tree={rec.TreeId} from recording \"{rec.VesselName}\" id={recordingId}");
+        }
+
+        /// <summary>
+        /// Records the target mission header's position during a draw pass. Only the Repaint
+        /// pass carries real rects (Layout reports zeros), so the capture is Repaint-only and
+        /// the scroll it produces lands on a LATER pass.
+        /// </summary>
+        private void CaptureRevealAnchor(Mission mission)
+        {
+            if (Event.current.type != EventType.Repaint)
+                return;
+
+            // The rect of the header row's outermost horizontal, which DrawMissionHeader has
+            // just closed.
+            Rect headerRect = GUILayoutUtility.GetLastRect();
+
+            if (!revealFirstHeaderSeen)
+            {
+                revealFirstHeaderY = headerRect.y;
+                revealFirstHeaderSeen = true;
+            }
+
+            if (pendingRevealMissionId == null || mission.Id != pendingRevealMissionId)
+                return;
+
+            pendingRevealScrollY = Mathf.Max(0f, headerRect.y - revealFirstHeaderY);
+            pendingRevealMissionId = null;
+            ParsekLog.Verbose("UI",
+                $"Cross-link: mission '{mission.Name}' id={mission.Id} found at list offset " +
+                $"{pendingRevealScrollY.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)}px");
+        }
+
+        /// <summary>
         /// Draws the Missions tab's body inside the host Recordings window. The host
         /// (<see cref="RecordingsTableUI"/>) supplies the window chrome (title, tab bar,
         /// breathing-room space, bottom Close button, resize handle, drag, and input lock);
@@ -344,6 +461,7 @@ namespace Parsek
             var missions = MissionStore.Missions;
             if (missions == null || missions.Count == 0)
             {
+                DropPendingReveal("the list is empty");
                 GUILayout.Label("No missions recorded yet.");
                 return;
             }
@@ -351,6 +469,18 @@ namespace Parsek
             // Fixed column-header row (outside the scroll view), styled with the
             // recordings window's shared column-header style.
             DrawColumnHeader();
+
+            // Apply a cross-link scroll captured on an earlier pass. It MUST land before the
+            // scroll view opens: writing scrollPos afterwards is read back only next frame.
+            if (!float.IsNaN(pendingRevealScrollY))
+            {
+                scrollPos.y = pendingRevealScrollY;
+                ParsekLog.Verbose("UI",
+                    "Cross-link: applied deferred missions scroll y=" +
+                    pendingRevealScrollY.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
+                pendingRevealScrollY = float.NaN;
+            }
+            revealFirstHeaderSeen = false;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, false, true, GUILayout.ExpandHeight(true));
 
@@ -391,6 +521,7 @@ namespace Parsek
                     : default;
 
                 DrawMissionHeader(mission, ordered[i].index, view, periodicity);
+                CaptureRevealAnchor(mission);
 
                 // Composition-over-time tree (the vessel rows). Each node is a structural
                 // interval / branch with its own independent include checkbox (interval-level
@@ -416,8 +547,25 @@ namespace Parsek
             GUILayout.EndVertical();
             GUILayout.EndScrollView();
 
+            // A target that survived a full Repaint pass is not in the list (its tree is gone,
+            // or a filter this method does not clear is dropping it). Drop it rather than let it
+            // sit and fire on some unrelated future frame.
+            if (Event.current.type == EventType.Repaint)
+                DropPendingReveal("it was not drawn in the mission list");
+
             ParsekLog.VerboseRateLimited("UI", "missions-tab-draw",
                 $"Missions tab: missions={missionCount} rows={rowCount}", 5.0);
+        }
+
+        // Abandons an unconsumed cross-link target, loudly. Silent expiry would leave the
+        // player looking at an unscrolled list with nothing in the log to explain it.
+        private void DropPendingReveal(string reason)
+        {
+            if (pendingRevealMissionId == null)
+                return;
+            ParsekLog.Warn("UI",
+                $"Cross-link: dropping reveal of mission {pendingRevealMissionId} - {reason}");
+            pendingRevealMissionId = null;
         }
 
         private static RecordingTree FindTree(List<RecordingTree> trees, string treeId)

@@ -125,13 +125,6 @@ namespace Parsek
         internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
         internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
 
-        /// <summary>
-        /// Shared cross-link between Timeline and Recordings Manager.
-        /// Setting this from either window causes the other to scroll to and highlight
-        /// the matching recording. Null means no selection.
-        /// </summary>
-        internal string SelectedRecordingId { get; set; }
-
         // Runtime-only empty groups — delegated to RecordingsTableUI
         internal List<string> KnownEmptyGroups => recordingsTableUI.KnownEmptyGroups;
 
@@ -225,6 +218,22 @@ namespace Parsek
         /// That is a style swap on the same two controls, not a count change.</para>
         /// </summary>
         internal static UiComplexityMode AppliedUiComplexityMode => appliedUiComplexityMode;
+
+        /// <summary>
+        /// True when the player can actually reach the Real Spawn Control window right now.
+        /// <para>Exists so NON-UI code can ask "is this window reachable?" without naming the
+        /// complexity-mode vocabulary: the gate read stays here, in the UI coordinator that
+        /// already owns every other one. Its consumer is
+        /// <c>ParsekFlight.NotifyNewProximityCandidates</c>, whose screen message tells the
+        /// player to open that window - guidance that is worse than useless when Basic has
+        /// removed the only launcher.</para>
+        /// <para>This is presentation only, and stays that way: it may decide what a message
+        /// SAYS, never whether proximity is detected, whether a candidate is listed, or what
+        /// spawning does. Anything past the wording is a behavior change the mode is not
+        /// allowed to make (design section 5).</para>
+        /// </summary>
+        internal static bool IsSpawnControlReachable =>
+            UiSurfaceVisibility.IsVisible(UiSurface.MainButtonSpawnControl, appliedUiComplexityMode);
 
         /// <summary>
         /// Seeds the latch from the persisted setting. Called from both constructors, so
