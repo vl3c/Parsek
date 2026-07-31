@@ -46,6 +46,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
 import hlib  # noqa: E402
 import oracle  # noqa: E402
 import provlib  # noqa: E402
+import saveparse  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Path layout (mirrors provision.py so the harness and the provisioner agree on
@@ -1283,6 +1284,21 @@ def count_recordings(save_dir: str) -> int:
     return sum(1 for f in os.listdir(rec_dir) if f.endswith(".prec"))
 
 
+def read_save_structure(save_dir: str) -> Optional["saveparse.ParsekSaveSnapshot"]:
+    """Read + parse the produced save's persistent.sfs for the M-C2 save-parse
+    verifier. Thin I/O only - every parse decision is saveparse.py. Returns None
+    when the file is missing/unreadable (a DEFINED fault the evaluator names;
+    never read a missing save as zero rows)."""
+    sfs_path = os.path.join(save_dir, "persistent.sfs")
+    if not os.path.isfile(sfs_path):
+        return None
+    try:
+        with open(sfs_path, "r", encoding="utf-8", errors="replace") as fh:
+            return saveparse.parse_parsek_scenario(fh.read())
+    except OSError:
+        return None
+
+
 def grep_anomaly_tokens(log_text: str) -> List[str]:
     # Thin delegate: the matching is a DECISION and lives in hlib (anchored on the
     # tracers' `phase=Anomaly ... reason=<token>` raise shape, not a bare substring
@@ -1843,6 +1859,14 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["analyzer"] = {"status": "SKIPPED", "reason": "killed-torn-save"}
         detail["anomalySweep"] = {"status": "SKIPPED", "reason": "killed"}
         detail["expectations"] = {"status": "SKIPPED", "reason": "killed"}
+        # The save-parse verifier is SKIPPED on any KILLED attempt: a torn save is
+        # never ground truth (design edge 5), and a half-written persistent.sfs is
+        # exactly the file this row must not read counts off. Full key set on
+        # every branch so a consumer never KeyErrors on the row shape.
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "killed", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {},
+            "parsed": None, "parseError": "", "scenarioFound": None}
         # The raw-Unity-exception scan DOES run on a killed attempt, triage-only. What
         # a watchdog kill tears is the SAVE, not the log - and an exception storm is a
         # leading suspect for the hang that got the process killed, so this is the run
@@ -2013,6 +2037,56 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                           {"status": "SKIPPED", "reason": "short-circuit",
                            "observed": hlib.observed_expectation_facets(
                                recording_count)})
+
+    # 7b. Save-parse structural verifier (M-C2 / R9). Parses the produced save's
+    # ParsekScenario SCENARIO surfaces (RECORDING_TREE topology, supersede rows,
+    # tombstones, rewind points) and evaluates [expectations.rewind] +
+    # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
+    # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
+    # move a committed nightly's verdict with no live run to prove the readings);
+    # a block opts in with gating = true - declared by ZERO committed specs
+    # (guarded by a test-suite sweep). Like the ledger oracle it runs independent
+    # of the later-verifier short-circuit (a structural read of the save is its
+    # own triage signal), but only over a driver-VALID save (a driver-INVALID
+    # save is deliberately incomplete, not ground truth - the facets are still
+    # recorded for triage, the row stays SKIPPED).
+    snapshot = read_save_structure(save_dir)
+    sp_parsed = None if snapshot is None else bool(snapshot.parsed)
+    sp_error = "missing persistent.sfs" if snapshot is None else snapshot.error
+    sp_found = None if (snapshot is None or not snapshot.parsed) else snapshot.scenario_found
+    if not driver_valid:
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [],
+            "observed": saveparse.observed_structure_facets(snapshot),
+            "parsed": sp_parsed, "parseError": sp_error, "scenarioFound": sp_found}
+        logger.info("Verify", "verify saveParse status=SKIPPED reason=driver-invalid")
+    else:
+        sp = saveparse.evaluate_save_structure(expectations, snapshot)
+        if sp.gating:
+            verifiers["save_structure_mismatch"] = (sp.status == saveparse.STATUS_FAIL)
+        detail["saveParse"] = {
+            "status": sp.status, "reason": "", "gating": sp.gating,
+            "blocks": list(sp.blocks), "armedBlocks": list(sp.armed_blocks),
+            "mismatches": list(sp.mismatches), "observed": dict(sp.observed),
+            "parsed": sp_parsed, "parseError": sp_error,
+            "scenarioFound": sp.scenario_found,
+        }
+        rewind_obs = (sp.observed.get("rewind") or {})
+        logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
+                              "scenarioFound=%s supersedeRows=%s tombstones=%s "
+                              "rewindPoints=%s mismatches=%d"
+                    % (sp.status, sp.gating, list(sp.blocks) or "-",
+                       list(sp.armed_blocks) or "-", sp.scenario_found,
+                       rewind_obs.get("supersedeRows", "-"),
+                       rewind_obs.get("tombstones", "-"),
+                       rewind_obs.get("rewindPoints", "-"), len(sp.mismatches)))
+        report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
+        if report_only:
+            logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
+                                  "(not gating; arm with gating = true inside the "
+                                  "declared block after reading report-only runs): %s"
+                        % (len(report_only), report_only))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved

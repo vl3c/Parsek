@@ -1,6 +1,34 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
+Last updated: 2026-07-31 (R9's HARNESS HALF SHIPPED-REPORT-ONLY: the M-C2
+save-parse verifier landed on branch `claude/r9-save-parse-verifier-tshhzv`. A
+new pure-Python parser (`harness/lib/saveparse.py`, oracle-precedent sibling)
+reads the produced save's ParsekScenario surfaces - RECORDING_TREE topology,
+supersede rows, tombstones, rewind retirements, REWIND_POINTS/slots - and a new
+`saveParse` verifier row evaluates `[expectations.rewind]` and the new
+`[expectations.recordings.structure]` block, recording measured facets on every
+driver-valid run. VERDICT-NEUTRAL BY CONSTRUCTION: S4.1 already declares a
+rewind block, so evaluation is REPORT-ONLY unless a block arms `gating = true` -
+declared by ZERO committed specs, guarded by `test_no_committed_spec_arms_gating`.
+S4.1's supersede-row/tombstone asserts therefore now PRODUCE READINGS instead of
+being recorded SKIPPED, but still move no verdict; `rewind` left
+`RESERVED_EXPECTATION_BLOCKS` (sole-owner rule), `route`/`loop` stay reserved
+with zero declarers. LIVE PROOF PENDING: one local S4.1 + one CL-2 run to read
+the report-only `saveParse` facets out of `results/<runId>.json`, then arm
+gating per scenario. An adversarial review round (fresh reviewer, scratch
+clone, 4000-input byte-level fuzz + C# writer cross-check) then hardened three
+fail-opens before merge: a zero-byte/whitespace persistent.sfs now parses as a
+DEFINED FAULT (it was trivially brace-balanced, so an armed max=0 window would
+have PASSED on a torn save); a produced save with NO ParsekScenario node now
+raises a named mismatch when a block is declared (Parsek-never-loaded was
+indistinguishable from "zero rows") with `scenarioFound` recorded on the row;
+and gating became PER-BLOCK (arming a proven block no longer silently promotes
+a second exploratory block to a gate - `armedBlocks`/`armed_mismatches` carry
+the split). Headless-only validation this session (no KSP in the build
+environment): all three suites green - lib 977, provision 203 (+5 skipped),
+missions/lib 1103.)
+
+Prior: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
 S4.1-IDLE-DISCARD refusal guard is LIVE-PROVEN. The unentered guard was
 S4.1-PREFIX-RACE: `InvokeRewind` completes when the re-fly MARKER lands, but the
 scene-exit prefix gates on `ParsekFlight.HasActiveTree`, which only goes true when
@@ -377,9 +405,10 @@ file in the same PR (same discipline as CHANGELOG).
 
 The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
-result through a seven-verifier chain (driver validity, in-game test batch,
+result through the verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Forty-two test cases are live-proven green end-to-end (the 38
+expectations, the report-only save-parse row added 2026-07-31, and the ledger
+oracle). Forty-two test cases are live-proven green end-to-end (the 38
 rows in the Live-proven table below plus the four EVA cases in their own
 section), including Mun/Minmus/Duna flybys with a certified no-1x-coast warp
 profile, the Mun/Minmus ORBIT pair, the Mun/Minmus LANDING pair, and both Eve
@@ -448,6 +477,7 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); LIVE-PROVEN 2026-07-23 (career fixtures file-constructed headlessly; 7/7 ledger scenarios green, now daily tier). Caveat recorded 2026-07-26: the ORACLE half of those 7 was genuine, but L1-passive-sandbox's and B10's in-game BATCH half executed zero tests under the old category - both re-flown green in `GameActionsHealth` on 2026-07-26 |
 | M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
+| M-C2 save-parse verifier (R9 harness half) | Structural save-content expectations: `saveParse` chain row parses the produced save's ParsekScenario surfaces (tree topology, terminal/merge states, branch points by type, supersede rows, tombstones, rewind retirements, RPs/slots) and evaluates `[expectations.rewind]` + `[expectations.recordings.structure]` | SHIPPED-REPORT-ONLY 2026-07-31 (branch `claude/r9-save-parse-verifier-tshhzv`): pure core `harness/lib/saveparse.py` (oracle-precedent sibling; ConfigNode text parser fail-loud on torn files, node shapes pinned against the C# writers, committed-fixture sweep pins all 12 fixtures + 3 quicksaves exactly), run.py `saveParse` row (SKIPPED on killed/driver-invalid, measured facets recorded on every driver-valid run), spec-surface validation in `validate_spec`, `save_structure_mismatch` -> PARSEK-FAIL(save-structure) reachable ONLY via the opt-in `gating = true` key that ZERO committed specs declare (`test_no_committed_spec_arms_gating`). `rewind` left `RESERVED_EXPECTATION_BLOCKS` (sole-owner rule, the M-B2 `world` precedent); `route`/`loop` stay reserved with zero declarers. LIVE PROOF PENDING: one local S4.1 + one CL-2 run to read the report-only facets, then arm gating per scenario |
 | V3 contact sheets | Unconditional per-run artifacts + human-scannable HTML: every attempt (PASS included) copies a BOUNDED KSP.log (whole file to 64 MiB, else head 8 MiB + tail 56 MiB with an explicit truncation marker; `hlib.plan_artifact_log_copy`) plus any run-window `Screenshots/` files (`hlib.select_run_screenshots`; fed by V4's capture verbs when they land) into `results/<runId>_shots/`, then `harness/tools/contact_sheet.py` renders `results/<runId>_contact.html` (captured images beside the run's key log lines - `BATCH_COMPLETE`, every `faithful-parity summary`, every `phase=Anomaly` raise with its +/-3 nearest `probe frame summary` lines - plus the verifier verdict rows) and a newest-first verdict-colored `results/index.html`. A green run finally leaves something a human can scan (design-testing-unified section 6 V3: numbers next to pictures) | SHIPPED 2026-07-31 (branch v3-contact-sheet). VERDICT-NEUTRAL BY CONTRACT: failure-isolated at both call sites (artifact or sheet trouble is a Warn, never a verdict change; BOTH halves pinned by injected-crash smoke cells), the only result-JSON change is the additive `artifacts` key, the verdict is written durably BEFORE the artifact copy (a kill mid-copy cannot cost a result), and the heavy non-PASS collect-logs snapshot is UNCHANGED. Cross-run growth bounded by a retention pass (`hlib.select_shots_dirs_to_prune`: newest 40 `*_shots` dirs / 2 GiB kept, current run always protected; contact pages embed the extracted lines as text so a pruned run stays scannable). Hardened by a 12-finding adversarial review (bounded tail copy under a mid-copy growing log, tmp+rename artifact writes, Infinity/NaN-poisoned result JSON tolerated, call-time-resolvable caps, no sys.path mutation, PID-suffixed index tmp). Pure extraction/formatting unit-tested over synthetic logs + a fake results dir (`lib/test_contact_sheet.py`) and driven end-to-end through the fake-KSP smoke (`AlwaysCollectAndContactSheetSmokeTests`). LIVE-PROVEN 2026-07-31 on the real stock-minimal instance, all three legs: (a) PASS `2026-07-31_1625_H23-tracking-station` - `results/<runId>_shots/KSP.log` byte-identical (sha256) to the instance log, untruncated at 1.59 MB, sheet carrying the REAL `BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=TrackingStation scene=TRACKSTATION` line verbatim plus all 10 verifier rows, green badge, `artifacts` block in the result JSON, `Artifacts`/`Sheet` Info lines and zero `FAILED` warns; (b) KILLED `2026-07-31_1633_ZZ-v3-kill-probe` (throwaway spec, unreachable 25 s wall budget) - the heavy non-PASS `collect-logs` snapshot ran exactly as before AND the shots dir + dark-red KILLED sheet (`subkind budget`, every skip reason spelled out) landed alongside it; (c) retention - 45 backdated dummy `*_shots` dirs + non-`_shots` decoys seeded, one rerun pruned exactly 8 (48 - 40) OLDEST-first with the naming log line, left exactly 40, and touched ZERO non-`*_shots` entries (a 90-day-old decoy `.json`, `_contact.html`, `.txt` and a decoy `_logs` DIRECTORY all survived byte-unchanged, as did both real runs' shots dirs). Windows-specific concerns the cloud session could not prove are closed: all three suites green on Windows (lib 964 / provision 203 / missions 1103), and the tmp+rename `os.replace` artifact writes work on NTFS. ONE defect found and fixed by the live proof: an attempt that ends BEFORE the verifier chain (a refused run-lock - a sibling worktree held the shared instance - writes a readable result JSON whose `verifiers` is `{}`) rendered "no verifier rows (result JSON missing or unreadable)" over a file that was present and readable, sending a reader after a nonexistent file problem; the empty state now distinguishes the two cases and names the real reason (`test_empty_verifiers_is_not_reported_as_a_missing_result_json`). Operational note for future live proofs: the automation instance is SHARED across worktrees and its run-lock is the arbiter - `run.py` refuses cleanly and classifies `INVALID subkind=instance-locked`, so a concurrent sibling session costs a retry, never a false product verdict |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings. DE-LISTED from live-proven 2026-07-25 (the first full sweep red'd it: the kerbal's canopy cut itself mid-descent and the kerbal died) and FIXED HEADLESSLY 2026-07-26 from the archived log + decompiled KerbalEVA, no new flight: (b) a >3.5 m/s collision fires `On_stumble` from `st_semi_deployed_parachute` into `st_ragdoll`, and leaving that state calls `evaChute.CutParachute()` - closed by a bounded OBSERVED pre-chute standoff on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30, debounced 2 polls, TWO non-fatal bounds - 8 s wall clock AND `standoffFloorAltMeters` 500, the latter load-bearing because the kerbal is unchuted and free-falling for the stage); (a) the MISSION cannot see the kerbal at all (its terminal is the handoff and its process exits before the EVA), so the closure is the harness-side `missionOutcome` gate plus an mlib handoff declaration. RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers) with the closure verified STRUCTURALLY rather than by the green outcome - a live kerbal proves nothing about a dead one; see the runbook + residual in `todo-and-known-bugs.md` |
 
@@ -774,7 +804,11 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   memory - `cd harness && python -m unittest discover -s missions/lib -q`
   (and `-s lib -q`, `-s provision -q`), plus
   `cd Source/Parsek.Tests && dotnet test`.
-- Per-run: the 7-verifier chain + collect-logs on every non-PASS.
+- Per-run: the verifier chain (the R9 `saveParse` row joined report-only
+  2026-07-31, alongside driverValidity / batchComplete / analyzer /
+  logValidate / testResults / anomalySweep / unityExceptions / expectations /
+  ledgerOracle, plus missionOutcome on autopilot runs) + collect-logs on
+  every non-PASS.
 - In-game: 542 runtime tests / 98 categories (autorun-able), H5 invariants,
   log-contract tests. Counted mechanically by
   `hlib.parse_ingame_test_declarations` over `Source/Parsek`, not by hand
@@ -1355,7 +1389,15 @@ six publish or compare numbers the runner already measured.
    so the LIVE-LOAD fidelity of the B9 fixture's cloned per-slot vessels is
    established. ONE thing stays open and it is not an operator session: S4.1's
    supersede-row / tombstone asserts under `[expectations.rewind]` remain
-   PENDING-VERIFIER until the M-C2 rewind save-parse verifier lands. The other -
+   PENDING-VERIFIER until the M-C2 rewind save-parse verifier lands. UPDATE
+   2026-07-31: that verifier LANDED (report-only; see the header note). The
+   asserts now produce recorded readings in `results/<runId>.json` on every
+   driver-valid run, but they still move no verdict: what remains is the
+   PROMOTION step - one local S4.1 run to confirm the report-only readings
+   match the spec's declared windows (supersedeRows max 0 / tombstones max 0
+   for the unflown-provisional route), then `gating = true` inside
+   `[expectations.rewind]` in the spec. Until that run, the state is
+   VERIFIER-LANDED / LIVE-PROOF-PENDING, not closed. The other -
    S4.1's FLAKE QUARANTINE - is CLOSED 2026-07-30. S4.1-IDLE-DISCARD was ruled a
    real defect and fixed on branch `fix-s41-idle-discard`, and the deliberate
    multi-run sweep this doc demanded then flew five consecutive runs, all PASS on

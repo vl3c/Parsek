@@ -400,6 +400,88 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(0, persisted["verifiers"]["unityExceptions"]["total"])
         self.assertIn("hitCounts", persisted["verifiers"]["anomalySweep"])
 
+    def test_save_parse_row_reports_on_a_clean_pass(self):
+        """M-C2/R9: the saveParse verifier row must land REPORT-ONLY on a green
+        run with no M-C2 block declared, carrying the measured structural
+        facets, and must not move the verdict. The staged smoke fixture is a
+        minimal `GAME { }` save (no ParsekScenario node), so every count is a
+        genuine zero - parsed=True, scenario absent."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertFalse(sp["gating"])
+        self.assertEqual([], sp["blocks"])
+        self.assertEqual([], sp["armedBlocks"])
+        self.assertEqual([], sp["mismatches"])
+        self.assertTrue(sp["parsed"])
+        # The smoke template is `GAME { }` - Parsek absent. With no block
+        # declared that is a REPORT row, and the state is READABLE on the row.
+        self.assertIs(False, sp["scenarioFound"])
+        self.assertEqual({"supersedeRows": 0, "tombstones": 0, "rewindPoints": 0,
+                          "rewindRetirements": 0},
+                         sp["observed"]["rewind"])
+        self.assertEqual(0, sp["observed"]["recordings"]["structure"]["trees"])
+        # ... and the row round-trips into the durable result (a PASS runs no
+        # collect-logs, so results/<runId>.json is the only place the measured
+        # facets survive - the promotion path reads them there).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(sp, persisted["verifiers"]["saveParse"])
+
+    def _run_with_b9_template(self, extra_expectations):
+        """Drive a full fake-KSP run over a Parsek-BEARING staged save (the
+        production-shaped merged-B9 text from test_saveparse), with the given
+        M-C2 expectation blocks merged into the spec."""
+        import test_saveparse as ts
+        template = os.path.join(self.tmp, "b9-template")
+        os.makedirs(template, exist_ok=True)
+        with open(os.path.join(template, "persistent.sfs"), "w", encoding="utf-8") as fh:
+            fh.write(ts.B9_MERGED_SFS)
+        spec = _make_spec(template, 30, 600)
+        spec["expectations"].update(copy.deepcopy(extra_expectations))
+        rt = FakeRuntime("pass")
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def test_declared_rewind_block_reports_mismatches_without_gating(self):
+        """The S4.1 shape end-to-end (adversarial-review finding 6): a DECLARED
+        [expectations.rewind] whose windows mismatch the produced save must
+        land status=REPORT with the mismatches recorded and the verdict
+        untouched - the exact verdict-neutrality contract this verifier
+        shipped around."""
+        result = self._run_with_b9_template(
+            {"rewind": {"supersedeRows": {"max": 0}, "tombstones": {"max": 0}}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "a report-only mismatch must not move the verdict")
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertEqual(["rewind"], sp["blocks"])
+        self.assertEqual([], sp["armedBlocks"])
+        self.assertEqual(2, len(sp["mismatches"]))
+        self.assertIs(True, sp["scenarioFound"])
+        self.assertEqual(1, sp["observed"]["rewind"]["supersedeRows"])
+
+    def test_armed_block_mismatch_reds_save_structure(self):
+        """gating = true + a mismatching window -> PARSEK-FAIL(save-structure),
+        across the real run.py -> hlib boundary (the flag name is exercised
+        end-to-end, not injected)."""
+        result = self._run_with_b9_template(
+            {"rewind": {"gating": True, "supersedeRows": {"max": 0}}})
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("save-structure", result["subkind"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("FAIL", sp["status"])
+        self.assertEqual(["rewind"], sp["armedBlocks"])
+
+    def test_armed_block_match_stays_pass(self):
+        result = self._run_with_b9_template(
+            {"rewind": {"gating": True, "supersedeRows": 1,
+                        "tombstones": {"min": 1, "max": 1}}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual("PASS", result["verifiers"]["saveParse"]["status"])
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -434,6 +516,15 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"])
         self.assertFalse(ue["gating"])
         self.assertEqual("killed-triage-only", ue["reason"])
+        # M-C2: the save-parse row is SKIPPED on a torn (killed) save too - a
+        # half-written persistent.sfs must never be read for structural counts.
+        # Full key set on every branch so consumers never KeyError on shape.
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("SKIPPED", sp["status"])
+        self.assertEqual("killed", sp["reason"])
+        self.assertFalse(sp["gating"])
+        self.assertIsNone(sp["parsed"])
+        self.assertEqual({}, sp["observed"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
