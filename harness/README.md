@@ -112,6 +112,36 @@ the full phase history with durations, and a heuristic WHAT IS IT DOING line
 like a silent 1x hang in game -- and predicts the fall-through time).
 Stdlib only; parsers are pure functions tested in `lib/test_status.py`.
 
+## Contact sheets (V3): what a run leaves for the human eye
+
+Every attempt - PASS included - runs a light UNCONDITIONAL artifact step in
+`run.py`: the run's `KSP.log` (bounded - whole file up to 64 MiB, else first
+8 MiB + last 56 MiB with an explicit truncation marker; decision in
+`hlib.plan_artifact_log_copy`) plus any `Screenshots/` files stamped inside
+the run's wall-clock window (`hlib.select_run_screenshots`; the V4 capture
+verbs will feed this) land in `results/<runId>_shots/`. The heavy non-PASS
+collect-logs snapshot is unchanged, and the verdict is written durably BEFORE
+the artifact copy starts (a kill mid-copy can never cost a result). A
+retention pass then bounds cross-run growth (`hlib.select_shots_dirs_to_prune`:
+newest 40 `*_shots` dirs / 2 GiB total kept, the current run's dir always
+protected) -- only the heavy shots dirs are pruned; result JSONs, summary, and
+the contact pages (which embed the extracted key lines as text) are permanent.
+
+`tools/contact_sheet.py` then renders `results/<runId>_contact.html` - any
+captured images next to the run's key log lines (`BATCH_COMPLETE`, every
+`faithful-parity summary`, every `phase=Anomaly` raise with its +/-3 nearest
+`probe frame summary` lines) plus the verifier verdict rows - and
+`results/index.html` (all runs newest-first, verdict-colored). Self-contained
+static HTML, no external assets; generated failure-isolated at the end of
+every attempt (a sheet failure is a Warn, never a verdict change), and safe on
+every partial input (no KSP.log, no images, malformed result JSON). By hand:
+
+```
+python tools/contact_sheet.py                # all sheets + index
+python tools/contact_sheet.py --run-id <id>  # one run's sheet + index
+python tools/contact_sheet.py --index-only   # just the index
+```
+
 ## Running the tests
 
 ```
