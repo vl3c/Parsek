@@ -63,10 +63,12 @@ namespace Parsek.Tests
         {
             string src = ReadTimelineWindowSource();
 
-            // A bare `if (timelineDirty || cachedTimeline == null)` would leave the
-            // Recordings tab's write of the shared filter invisible to a warm cache.
-            Assert.Contains("ShouldRebuildTimeline(", src);
-            Assert.DoesNotContain("if (timelineDirty || cachedTimeline == null)", src);
+            // Pin the CALL SITE, not the bare method name: `ShouldRebuildTimeline(`
+            // alone is satisfied by the method's own definition, so it would stay green
+            // with the call deleted. A rebuild condition that drops the archive arm
+            // leaves the Recordings tab's write of the shared filter invisible to a warm
+            // cache, which is silent - the rows simply stay as they were.
+            Assert.Contains("if (ShouldRebuildTimeline(", src);
         }
 
         [Fact]

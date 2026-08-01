@@ -111,11 +111,17 @@ namespace Parsek.Tests
 
             var filtered = Build(recordings, includeArchived: false);
             var revealed = Build(recordings, includeArchived: true);
+            // The archived flight's own contribution, measured rather than assumed: a
+            // literal factor (the two fixtures happen to emit the same row count) would
+            // encode fixture symmetry instead of the additive property under test.
+            var archivedAlone = Build(new List<Recording> { archived }, includeArchived: true);
 
             // Filtered keeps exactly the unarchived flight; revealing ADDS, never
-            // replaces or reorders.
+            // replaces. Order is not asserted: the builder sorts every entry by UT, so
+            // interleaving by time is the correct result, not a defect.
             Assert.All(filtered, e => Assert.Equal("Flea I", e.VesselName));
-            Assert.Equal(filtered.Count * 2, revealed.Count);
+            Assert.NotEmpty(archivedAlone);
+            Assert.Equal(filtered.Count + archivedAlone.Count, revealed.Count);
             foreach (var e in filtered)
                 Assert.Contains(revealed, r => r.Type == e.Type && r.UT == e.UT);
         }

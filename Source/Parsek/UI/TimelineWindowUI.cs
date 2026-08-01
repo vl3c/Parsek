@@ -799,10 +799,16 @@ namespace Parsek
             bool showArchived = ShowArchivedRecordings;
             bool newShowArchived = GUILayout.Toggle(
                 showArchived,
+                // Tooltip names no window. The obvious wording ("archived in the
+                // Recordings tab") would point a Basic player at a tab their mode does
+                // not have - the same defect the proximity-alert and seal-guidance fixes
+                // just removed elsewhere. Mode-dependent text is permitted (design 9.1)
+                // but unnecessary here: wording that describes the ITEMS rather than the
+                // surface is correct in both modes and needs no mode read.
                 new GUIContent("Archived",
-                    "Show rows for recordings archived in the Missions window's Recordings tab.\n"
-                    + "Shares the Archive filter with that tab, so this is also how an archived\n"
-                    + "flight comes back."),
+                    "Show rows for flights you archived.\n"
+                    + "This is the same Archive filter the recordings list uses, so turning it\n"
+                    + "on is how an archived flight comes back."),
                 toggleButtonStyle,
                 GUILayout.Width(btnW));
             if (newShowArchived != showArchived)
