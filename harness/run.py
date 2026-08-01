@@ -46,6 +46,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
 import hlib  # noqa: E402
 import oracle  # noqa: E402
 import provlib  # noqa: E402
+import saveparse  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Path layout (mirrors provision.py so the harness and the provisioner agree on
@@ -704,11 +705,41 @@ def _is_strictly_inside(child_path: str, parent_path: str) -> bool:
         return False
 
 
+def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
+    """The artifacts a fixture-injection preset MUST have written into the staged
+    save, as a list of what is MISSING (empty = postcondition holds).
+
+    This is the fail-closed half of HARNESS-INJECT-FAILS-OPEN: the injector's exit
+    code proves only that a process ran, and `dotnet test --no-build` against a
+    never-built assembly exits 0 having injected nothing (measured, S1.5 attempt 1
+    + both V1-map-dwell flights). The check is mechanism-independent - whatever the
+    injection subprocess returned, either the fixture exists on disk or it does not.
+
+    - ``all-synthetic`` -> a non-empty ``Parsek/Recordings/``.
+    - ``rewind-b9``     -> the same, plus ``Parsek/RewindPoints/rp_b9_root.sfs``
+      (the RP every rewind-b9 consumer's ``InvokeRewind rp=rp_b9_root`` needs)."""
+    missing: List[str] = []
+    rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
+    try:
+        has_recordings = os.path.isdir(rec_dir) and bool(os.listdir(rec_dir))
+    except OSError:
+        has_recordings = False
+    if not has_recordings:
+        missing.append("non-empty Parsek/Recordings/")
+    if preset == "rewind-b9":
+        rp = os.path.join(save_dir, "Parsek", "RewindPoints", "rp_b9_root.sfs")
+        if not os.path.isfile(rp):
+            missing.append("Parsek/RewindPoints/rp_b9_root.sfs")
+    return missing
+
+
 def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                   logger: HarnessLogger) -> Tuple[bool, str, str]:
     """Stage the scenario's fixture. Returns (ok, run_save_name, subkind); subkind
     is "" on success, "spec-invalid" on a containment violation (a runSaveName that
-    escapes saves/), or "staging" on a missing template."""
+    escapes saves/), "staging" on a missing template, or "stage-inject-noop" when a
+    requested fixture injection left no fixture on disk (fail-closed postcondition;
+    the run never boots KSP)."""
     fixture = spec.get("fixture", {}) or {}
     save_template = fixture.get("saveTemplate", "")
     run_save_name = os.path.basename(save_template.replace("\\", "/").rstrip("/"))
@@ -753,14 +784,39 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     shutil.copytree(template_abs, target_save)
 
     # (3) inject synthetic recordings when requested (recording OFF by construction).
+    #
+    # FAIL CLOSED ON THE POSTCONDITION, not the exit code (HARNESS-INJECT-FAILS-OPEN,
+    # found by S1.5 attempt 1 and reconfirmed by two full V1-map-dwell flights). The
+    # injector's `dotnet test --filter Inject* --no-build` against a never-built test
+    # assembly exits 0 having run NOTHING (measured), and its KSP.log lock probe
+    # refuses through the same reports-success path - so `res.ok` proved the process
+    # exited, never that a fixture exists. The miss then surfaced minutes later as an
+    # unrelated seam rejection (`invokerewind refused: unknown-rp`), classified
+    # driver-INVALID against a correct spec, after a full KSP boot (or a full flight).
+    # Asserting what the preset MUST have written is mechanism-independent: it catches
+    # every way an injection can no-op, pre-boot, with the cause named. The subkind is
+    # NOT in RETRYABLE_INVALID_SUBKINDS on purpose - the miss is deterministic (same
+    # worktree, same result), so a retry burns the `once` budget to learn nothing.
     inj = fixture.get("injectedRecordings", "none")
-    injected = False
     if inj in ("all-synthetic", "rewind-b9"):
         res = runtime.run_inject(instance_dir, run_save_name, INJECT_TIMEOUT_SECONDS, preset=inj)
-        injected = res.ok
-        if not injected:
-            logger.warn("Stage", "inject-recordings failed preset=%s exit=%s (continuing; verifier will red)"
+        if not res.ok:
+            logger.warn("Stage", "inject-recordings failed preset=%s exit=%s"
                         % (inj, res.exit_code))
+        missing = _inject_postcondition_missing(target_save, inj)
+        if missing:
+            assembly = os.path.join(WORKTREE_ROOT, "Source", "Parsek.Tests",
+                                    "bin", "Debug", "net472", "Parsek.Tests.dll")
+            cause = ("Parsek.Tests assembly missing (never built in this worktree; the "
+                     "injector's deliberate --no-build runs nothing) - remedy: "
+                     "dotnet build Source/Parsek.Tests"
+                     if not os.path.isfile(assembly)
+                     else "injector exited without writing the fixture (assembly present; "
+                          "check the KSP.log lock probe and the injector output)")
+            logger.error("Stage", "inject postcondition failed preset=%s exit=%s missing=[%s]; "
+                                  "aborting pre-boot (INVALID stage-inject-noop). likely cause: %s"
+                         % (inj, res.exit_code, ", ".join(missing), cause))
+            return False, run_save_name, "stage-inject-noop"
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []
@@ -1283,6 +1339,21 @@ def count_recordings(save_dir: str) -> int:
     return sum(1 for f in os.listdir(rec_dir) if f.endswith(".prec"))
 
 
+def read_save_structure(save_dir: str) -> Optional["saveparse.ParsekSaveSnapshot"]:
+    """Read + parse the produced save's persistent.sfs for the M-C2 save-parse
+    verifier. Thin I/O only - every parse decision is saveparse.py. Returns None
+    when the file is missing/unreadable (a DEFINED fault the evaluator names;
+    never read a missing save as zero rows)."""
+    sfs_path = os.path.join(save_dir, "persistent.sfs")
+    if not os.path.isfile(sfs_path):
+        return None
+    try:
+        with open(sfs_path, "r", encoding="utf-8", errors="replace") as fh:
+            return saveparse.parse_parsek_scenario(fh.read())
+    except OSError:
+        return None
+
+
 def grep_anomaly_tokens(log_text: str) -> List[str]:
     # Thin delegate: the matching is a DECISION and lives in hlib (anchored on the
     # tracers' `phase=Anomaly ... reason=<token>` raise shape, not a bare substring
@@ -1397,7 +1468,9 @@ def _manifest_entry_to_dict(e) -> Dict:
     return {"ut": e.ut, "seq": e.seq, "kind": e.kind, "funds": e.funds,
             "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
             "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
-            "provenance": e.provenance, "rec3Row": e.rec3_row}
+            "provenance": e.provenance, "rec3Row": e.rec3_row,
+            "utWindow": (list(e.ut_window) if e.ut_window is not None else None),
+            "stockReason": list(e.stock_reasons)}
 
 
 def _write_accumulated_manifest(manifest: Dict, run_id: str, logger: HarnessLogger) -> None:
@@ -1544,7 +1617,11 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         # explained by a seam entry is an unexpected stock award.
         #
         # HARD ONLY WHEN THE SCENARIO ARMS IT (`captureCrossCheck = "gate"`, declared
-        # by no committed spec). Until the 2026-07-29 pattern rewrite this loop had an
+        # by exactly ONE committed spec since 2026-07-31: `CL-2-pod-impact-ledger`,
+        # armed over three flights against the real game - see known-gate 3; every
+        # other spec is still report-only).
+        #
+        # Until the 2026-07-29 pattern rewrite this loop had an
         # always-empty input - STOCK_AWARD_PATTERNS matched shapes no KSP build emits -
         # so the hard drift it wrote was unreachable. Turning a working capture and a
         # live gate on in one step would red scenarios against an award baseline nobody
@@ -1615,8 +1692,17 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
 
     result = oracle.build_oracle_result(divergences)
     ledger_drift = oracle.has_hard_drift(divergences)
-    logger.info("Verify", "verify ledgerOracle status=%s hardDivergences=%d reportOnly=%d"
-                % (result["status"], result["hardDivergences"], result["reportOnly"]))
+    # `crossCheck=` is UNCONDITIONAL on purpose. It used to be emitted only inside
+    # the per-unmatched-award loop, so a run with zero unmatched awards left NO
+    # archived trace of whether the check was armed - the armed CL-2 flight
+    # `2026-07-31_1645` produced a verifier block byte-identical to the report-mode
+    # run before it, and "armed and flown green" rested on the spec's state at the
+    # time rather than on evidence. A positive, grep-stable token beats an absence
+    # proof; the next arming session can cite the log instead of the narrative.
+    cross_mode = ((ledger_block or {}).get(hlib.LEDGER_CAPTURE_CROSS_CHECK_KEY, "report")
+                  if ledger_block is not None else "n/a")
+    logger.info("Verify", "verify ledgerOracle status=%s hardDivergences=%d reportOnly=%d crossCheck=%s"
+                % (result["status"], result["hardDivergences"], result["reportOnly"], cross_mode))
     return result, ledger_drift, False
 
 
@@ -1843,6 +1929,14 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["analyzer"] = {"status": "SKIPPED", "reason": "killed-torn-save"}
         detail["anomalySweep"] = {"status": "SKIPPED", "reason": "killed"}
         detail["expectations"] = {"status": "SKIPPED", "reason": "killed"}
+        # The save-parse verifier is SKIPPED on any KILLED attempt: a torn save is
+        # never ground truth (design edge 5), and a half-written persistent.sfs is
+        # exactly the file this row must not read counts off. Full key set on
+        # every branch so a consumer never KeyErrors on the row shape.
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "killed", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {},
+            "parsed": None, "parseError": "", "scenarioFound": None}
         # The raw-Unity-exception scan DOES run on a killed attempt, triage-only. What
         # a watchdog kill tears is the SAVE, not the log - and an exception storm is a
         # leading suspect for the hang that got the process killed, so this is the run
@@ -2013,6 +2107,59 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                           {"status": "SKIPPED", "reason": "short-circuit",
                            "observed": hlib.observed_expectation_facets(
                                recording_count)})
+
+    # 7b. Save-parse structural verifier (M-C2 / R9). Parses the produced save's
+    # ParsekScenario SCENARIO surfaces (RECORDING_TREE topology, supersede rows,
+    # tombstones, rewind points) and evaluates [expectations.rewind] +
+    # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
+    # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
+    # move a committed nightly's verdict with no live run to prove the readings);
+    # a block opts in with gating = true - declared by exactly ONE committed
+    # spec, S4.1-rewind-merge, armed 2026-07-31 after its report-only reading run
+    # (guarded by an ALLOWLIST test-suite sweep, so a second declarer still reds).
+    # This branch CAN move that scenario's verdict; it moves no other spec's.
+    # Like the ledger oracle it runs independent
+    # of the later-verifier short-circuit (a structural read of the save is its
+    # own triage signal), but only over a driver-VALID save (a driver-INVALID
+    # save is deliberately incomplete, not ground truth - the facets are still
+    # recorded for triage, the row stays SKIPPED).
+    snapshot = read_save_structure(save_dir)
+    sp_parsed = None if snapshot is None else bool(snapshot.parsed)
+    sp_error = "missing persistent.sfs" if snapshot is None else snapshot.error
+    sp_found = None if (snapshot is None or not snapshot.parsed) else snapshot.scenario_found
+    if not driver_valid:
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [],
+            "observed": saveparse.observed_structure_facets(snapshot),
+            "parsed": sp_parsed, "parseError": sp_error, "scenarioFound": sp_found}
+        logger.info("Verify", "verify saveParse status=SKIPPED reason=driver-invalid")
+    else:
+        sp = saveparse.evaluate_save_structure(expectations, snapshot)
+        if sp.gating:
+            verifiers["save_structure_mismatch"] = (sp.status == saveparse.STATUS_FAIL)
+        detail["saveParse"] = {
+            "status": sp.status, "reason": "", "gating": sp.gating,
+            "blocks": list(sp.blocks), "armedBlocks": list(sp.armed_blocks),
+            "mismatches": list(sp.mismatches), "observed": dict(sp.observed),
+            "parsed": sp_parsed, "parseError": sp_error,
+            "scenarioFound": sp.scenario_found,
+        }
+        rewind_obs = (sp.observed.get("rewind") or {})
+        logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
+                              "scenarioFound=%s supersedeRows=%s tombstones=%s "
+                              "rewindPoints=%s mismatches=%d"
+                    % (sp.status, sp.gating, list(sp.blocks) or "-",
+                       list(sp.armed_blocks) or "-", sp.scenario_found,
+                       rewind_obs.get("supersedeRows", "-"),
+                       rewind_obs.get("tombstones", "-"),
+                       rewind_obs.get("rewindPoints", "-"), len(sp.mismatches)))
+        report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
+        if report_only:
+            logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
+                                  "(not gating; arm with gating = true inside the "
+                                  "declared block after reading report-only runs): %s"
+                        % (len(report_only), report_only))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
@@ -2309,8 +2456,11 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # ---- STAGE -------------------------------------------------------
         staged, run_save_name, stage_subkind = stage_fixture(spec, instance_dir, runtime, logger)
         if not staged:
-            reason = ("staged target escaped saves/ (containment guard)"
-                      if stage_subkind == "spec-invalid" else "fixture staging failed")
+            reason = {
+                "spec-invalid": "staged target escaped saves/ (containment guard)",
+                "stage-inject-noop": "fixture injection wrote no fixture "
+                                     "(fail-closed staging postcondition)",
+            }.get(stage_subkind, "fixture staging failed")
             return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
                                     hlib.Verdict(hlib.VERDICT_INVALID, stage_subkind or "staging",
                                                  False, reason),
@@ -3039,6 +3189,23 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             verify_line += (", missionOutcome(%s -> PARSEK-FAIL(mission-outcome) on an unmet "
                             "post-mission outcome step)"
                             % (", ".join(gating) if gating else "no gating verbs"))
+        # saveParse (row 7b) runs on every driver-valid run, but the plan must say
+        # whether it can MOVE THE VERDICT for this spec: gating is per-block and
+        # opt-in, so "declared" and "armed" are different facts and the enumeration
+        # was silently omitting both. S4.1 arms `rewind` (2026-07-31), and a plan
+        # that does not name the one gate an operator is about to fly is worse than
+        # no plan - it reads as report-only when it is not.
+        sp_declared = saveparse.declared_structure_blocks(exp)
+        sp_armed = saveparse.armed_structure_blocks(exp)
+        if sp_armed:
+            verify_line += (", saveParse(armed: %s -> PARSEK-FAIL(save-structure) on a "
+                            "mismatch; report-only: %s)"
+                            % (", ".join(sp_armed),
+                               ", ".join(b for b in sp_declared if b not in sp_armed) or "none"))
+        elif sp_declared:
+            verify_line += ", saveParse(report-only: %s)" % ", ".join(sp_declared)
+        else:
+            verify_line += ", saveParse(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)

@@ -65,8 +65,13 @@ class FakeRuntime(run.Runtime):
 
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
-                 analyzer_fail_calls=0, produced_parsed=True):
+                 analyzer_fail_calls=0, produced_parsed=True, inject_noop=False):
         self.mode = mode
+        # HARNESS-INJECT-FAILS-OPEN seam: when True, run_inject exits 0 having
+        # written NOTHING - the measured `--no-build`-against-a-never-built-assembly
+        # shape (and the KSP.log lock-probe refusal, which exits the same way).
+        self.inject_noop = inject_noop
+        self.inject_call_count = 0
         # Item 10: when False the PRODUCED-save careerSave block is {parsed:false}, so an
         # active ledger-oracle slot 8 must classify tooling INVALID (the analyzer could
         # not parse the produced save), never PARSEK-FAIL missing-facet.
@@ -151,10 +156,17 @@ class FakeRuntime(run.Runtime):
     # ---- stubbed verifier subprocesses -----------------------------------
 
     def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
+        self.inject_call_count += 1
+        if self.inject_noop:
+            return run.ToolResult(0, False)  # exit 0, fixture never written
         rec = os.path.join(instance_dir, "saves", save_name, "Parsek", "Recordings")
         os.makedirs(rec, exist_ok=True)
         for i in range(8):
             open(os.path.join(rec, "rec%02d.prec" % i), "w").close()
+        if preset == "rewind-b9":
+            rp_dir = os.path.join(instance_dir, "saves", save_name, "Parsek", "RewindPoints")
+            os.makedirs(rp_dir, exist_ok=True)
+            open(os.path.join(rp_dir, "rp_b9_root.sfs"), "w").close()
         return run.ToolResult(0, False)
 
     def run_analyzer(self, save_dir, fresh_gate, timeout):
@@ -400,6 +412,88 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(0, persisted["verifiers"]["unityExceptions"]["total"])
         self.assertIn("hitCounts", persisted["verifiers"]["anomalySweep"])
 
+    def test_save_parse_row_reports_on_a_clean_pass(self):
+        """M-C2/R9: the saveParse verifier row must land REPORT-ONLY on a green
+        run with no M-C2 block declared, carrying the measured structural
+        facets, and must not move the verdict. The staged smoke fixture is a
+        minimal `GAME { }` save (no ParsekScenario node), so every count is a
+        genuine zero - parsed=True, scenario absent."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertFalse(sp["gating"])
+        self.assertEqual([], sp["blocks"])
+        self.assertEqual([], sp["armedBlocks"])
+        self.assertEqual([], sp["mismatches"])
+        self.assertTrue(sp["parsed"])
+        # The smoke template is `GAME { }` - Parsek absent. With no block
+        # declared that is a REPORT row, and the state is READABLE on the row.
+        self.assertIs(False, sp["scenarioFound"])
+        self.assertEqual({"supersedeRows": 0, "tombstones": 0, "rewindPoints": 0,
+                          "rewindRetirements": 0},
+                         sp["observed"]["rewind"])
+        self.assertEqual(0, sp["observed"]["recordings"]["structure"]["trees"])
+        # ... and the row round-trips into the durable result (a PASS runs no
+        # collect-logs, so results/<runId>.json is the only place the measured
+        # facets survive - the promotion path reads them there).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(sp, persisted["verifiers"]["saveParse"])
+
+    def _run_with_b9_template(self, extra_expectations):
+        """Drive a full fake-KSP run over a Parsek-BEARING staged save (the
+        production-shaped merged-B9 text from test_saveparse), with the given
+        M-C2 expectation blocks merged into the spec."""
+        import test_saveparse as ts
+        template = os.path.join(self.tmp, "b9-template")
+        os.makedirs(template, exist_ok=True)
+        with open(os.path.join(template, "persistent.sfs"), "w", encoding="utf-8") as fh:
+            fh.write(ts.B9_MERGED_SFS)
+        spec = _make_spec(template, 30, 600)
+        spec["expectations"].update(copy.deepcopy(extra_expectations))
+        rt = FakeRuntime("pass")
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def test_declared_rewind_block_reports_mismatches_without_gating(self):
+        """The S4.1 shape end-to-end (adversarial-review finding 6): a DECLARED
+        [expectations.rewind] whose windows mismatch the produced save must
+        land status=REPORT with the mismatches recorded and the verdict
+        untouched - the exact verdict-neutrality contract this verifier
+        shipped around."""
+        result = self._run_with_b9_template(
+            {"rewind": {"supersedeRows": {"max": 0}, "tombstones": {"max": 0}}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "a report-only mismatch must not move the verdict")
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertEqual(["rewind"], sp["blocks"])
+        self.assertEqual([], sp["armedBlocks"])
+        self.assertEqual(2, len(sp["mismatches"]))
+        self.assertIs(True, sp["scenarioFound"])
+        self.assertEqual(1, sp["observed"]["rewind"]["supersedeRows"])
+
+    def test_armed_block_mismatch_reds_save_structure(self):
+        """gating = true + a mismatching window -> PARSEK-FAIL(save-structure),
+        across the real run.py -> hlib boundary (the flag name is exercised
+        end-to-end, not injected)."""
+        result = self._run_with_b9_template(
+            {"rewind": {"gating": True, "supersedeRows": {"max": 0}}})
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("save-structure", result["subkind"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("FAIL", sp["status"])
+        self.assertEqual(["rewind"], sp["armedBlocks"])
+
+    def test_armed_block_match_stays_pass(self):
+        result = self._run_with_b9_template(
+            {"rewind": {"gating": True, "supersedeRows": 1,
+                        "tombstones": {"min": 1, "max": 1}}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual("PASS", result["verifiers"]["saveParse"]["status"])
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -434,6 +528,15 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"])
         self.assertFalse(ue["gating"])
         self.assertEqual("killed-triage-only", ue["reason"])
+        # M-C2: the save-parse row is SKIPPED on a torn (killed) save too - a
+        # half-written persistent.sfs must never be read for structural counts.
+        # Full key set on every branch so consumers never KeyError on shape.
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("SKIPPED", sp["status"])
+        self.assertEqual("killed", sp["reason"])
+        self.assertFalse(sp["gating"])
+        self.assertIsNone(sp["parsed"])
+        self.assertEqual({}, sp["observed"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
@@ -637,6 +740,122 @@ class StageFixtureContainmentTests(unittest.TestCase):
         self.assertTrue(run._is_strictly_inside(os.path.join(self.saves, "fresh-career"), self.saves))
         self.assertFalse(run._is_strictly_inside(self.saves, self.saves))
         self.assertFalse(run._is_strictly_inside(self.instance, self.saves))
+
+
+class InjectPostconditionTests(unittest.TestCase):
+    """HARNESS-INJECT-FAILS-OPEN, fail-closed half (found by S1.5 attempt 1; cost
+    two more full V1-map-dwell flights before this fix). A fixture injection that
+    exits 0 having written NOTHING must fail the STAGE, pre-boot, with the
+    terminal INVALID(stage-inject-noop) classification - never report staging
+    success and let the miss surface minutes later as an unrelated seam rejection
+    (`invokerewind refused: unknown-rp`) classified against a correct spec."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-inject-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "gloops-airshow")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "inject_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _injected_spec(self, preset):
+        spec = _make_spec(self.template, 30, 600)
+        spec["fixture"]["injectedRecordings"] = preset
+        return spec
+
+    def test_noop_injection_is_terminal_invalid_pre_boot(self):
+        # The full-run shape of the S1.5 / V1-map-dwell burn, driven through the
+        # fake-KSP harness: the injector runs, exits 0, writes nothing. The run must
+        # terminate INVALID(stage-inject-noop) WITHOUT booting KSP - the whole point
+        # is that the miss costs seconds at stage time, not a 21-minute flight plus a
+        # misdirecting `driver-arg` classification.
+        spec = self._injected_spec("all-synthetic")
+        rt = FakeRuntime("pass", inject_noop=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("stage-inject-noop", result["subkind"])
+        self.assertEqual(1, rt.inject_call_count, "the injector WAS invoked")
+        self.assertEqual(0, rt.launch_count,
+                         "a failed postcondition must never boot KSP")
+        # Deterministic miss (same worktree -> same result): NOT retryable, so the
+        # `once` budget is preserved for genuine flakes instead of burning a second
+        # identical attempt (the V1-map-dwell double-flight shape).
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertFalse(hlib.should_retry(v, attempt=1, retry_policy="once"))
+        # The harness log names the fail-closed classification at stage time.
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            log_body = fh.read()
+        self.assertIn("stage-inject-noop", log_body)
+        self.assertIn("inject postcondition failed", log_body)
+
+    def test_successful_all_synthetic_injection_stages(self):
+        spec = self._injected_spec("all-synthetic")
+        ok, name, subkind = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                              self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+
+    def test_successful_rewind_b9_injection_stages(self):
+        spec = self._injected_spec("rewind-b9")
+        ok, name, subkind = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                              self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.instance, "saves", name, "Parsek", "RewindPoints", "rp_b9_root.sfs")))
+
+    def test_rewind_b9_without_its_rp_fails_closed(self):
+        # The second silent trigger from the V1-map-dwell attempt 2 (KSP.log lock
+        # probe refusing mid-way): recordings landed but the preset's RP did not. The
+        # rewind-b9 postcondition requires BOTH, because the consumer's
+        # `InvokeRewind rp=rp_b9_root` needs the RP specifically.
+        class RpLessRuntime(FakeRuntime):
+            def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
+                rec = os.path.join(instance_dir, "saves", save_name,
+                                   "Parsek", "Recordings")
+                os.makedirs(rec, exist_ok=True)
+                open(os.path.join(rec, "b9-root.prec"), "w").close()
+                return run.ToolResult(0, False)
+
+        spec = self._injected_spec("rewind-b9")
+        ok, _name, subkind = run.stage_fixture(spec, self.instance,
+                                               RpLessRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("stage-inject-noop", subkind)
+
+    def test_postcondition_predicate_shapes(self):
+        # The predicate itself, so a refactor cannot silently invert a branch.
+        save = os.path.join(self.tmp, "postcond-save")
+        os.makedirs(save, exist_ok=True)
+        self.assertEqual(["non-empty Parsek/Recordings/"],
+                         run._inject_postcondition_missing(save, "all-synthetic"))
+        self.assertEqual(["non-empty Parsek/Recordings/",
+                          "Parsek/RewindPoints/rp_b9_root.sfs"],
+                         run._inject_postcondition_missing(save, "rewind-b9"))
+        # An EMPTY Recordings dir is still a miss (the dir alone proves nothing).
+        rec = os.path.join(save, "Parsek", "Recordings")
+        os.makedirs(rec, exist_ok=True)
+        self.assertEqual(["non-empty Parsek/Recordings/"],
+                         run._inject_postcondition_missing(save, "all-synthetic"))
+        open(os.path.join(rec, "a.prec"), "w").close()
+        self.assertEqual([], run._inject_postcondition_missing(save, "all-synthetic"))
+        self.assertEqual(["Parsek/RewindPoints/rp_b9_root.sfs"],
+                         run._inject_postcondition_missing(save, "rewind-b9"))
+        rp_dir = os.path.join(save, "Parsek", "RewindPoints")
+        os.makedirs(rp_dir, exist_ok=True)
+        open(os.path.join(rp_dir, "rp_b9_root.sfs"), "w").close()
+        self.assertEqual([], run._inject_postcondition_missing(save, "rewind-b9"))
 
 
 class AutopilotHandoffSmokeTests(unittest.TestCase):
@@ -2643,6 +2862,93 @@ def _raise_sheet_boom(results_dir, run_id):
 
 def _raise_artifact_boom(*args, **kwargs):
     raise RuntimeError("boom (injected artifact failure)")
+
+class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
+    """--dry-run's [VERIFY] line must name the verifiers that can move the verdict.
+
+    It was a hand-maintained string literal and it went stale: the M-C2 `saveParse`
+    row shipped without being added, so on 2026-07-31 - the day S4.1 ARMED
+    `gating = true` - the plan for the one gating scenario advertised a chain that
+    did not include the gate. A plan that under-reports is worse than no plan: an
+    operator reads it as "report-only" and mis-attributes the resulting red.
+
+    `print_dry_run_plan` renders THREE states - armed, declared-but-report-only,
+    and no-block-declared. Only two of them are reachable from the committed
+    corpus: S4.1 is the sole declarer and it is now ARMED, so the middle state
+    has no committed spec to pin it against. It is pinned here with a SYNTHETIC
+    spec instead, and that is not a formality - declared-but-unarmed is the state
+    EVERY future declarer passes through on the mandated read-report-only-then-arm
+    workflow, so shipping it broken would be found by an operator rather than by
+    the suite. Pinning it also makes `armed` and `declared` distinguishable: with
+    committed specs alone, `if sp_armed:` and `if sp_declared:` are the same
+    predicate over the corpus, and a regression advertising a merely-declared
+    block as an armed gate passes every cell."""
+
+    _SPECS = None
+
+    @classmethod
+    def _all_specs(cls):
+        # Cached: this class renders a plan per committed spec, and reloading all
+        # 61 TOMLs per call made the sweep parse ~3,800 files for no reason.
+        if cls._SPECS is None:
+            cls._SPECS = run.load_all_specs()
+        return cls._SPECS
+
+    def _render(self, spec):
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run.print_dry_run_plan([spec], lambda _p: "C:/instance",
+                                   run.HarnessLogger(None))
+        return next(l for l in buf.getvalue().splitlines() if "[VERIFY " in l)
+
+    def _plan(self, scenario_id):
+        spec = next((s for s in self._all_specs() if s.get("id") == scenario_id), None)
+        self.assertIsNotNone(spec, "no committed spec with id %r" % scenario_id)
+        return self._render(spec)
+
+    def test_an_armed_spec_names_the_gate_and_its_failure_subkind(self):
+        line = self._plan("S4.1-rewind-merge")
+        self.assertIn("saveParse(armed: rewind", line)
+        self.assertIn("PARSEK-FAIL(save-structure)", line)
+
+    def test_a_declared_but_unarmed_block_renders_report_only(self):
+        """SYNTHETIC. No committed spec can reach this branch (see class docstring),
+        so a real-spec fixture would silently stop covering it."""
+        line = self._render({"id": "SYNTH-declared-unarmed", "driver": {"steps": []},
+                             "expectations": {"rewind": {"supersedeRows": {"max": 0}}}})
+        self.assertIn("saveParse(report-only: rewind)", line)
+        # The whole point: a declared-but-unarmed block must NOT advertise a gate.
+        self.assertNotIn("armed", line)
+        self.assertNotIn("save-structure", line)
+
+    def test_an_armed_block_is_rendered_differently_from_a_declared_one(self):
+        """Pins that `armed` and `declared` are distinct predicates. Over the
+        committed corpus alone they are indistinguishable, so this comparison is
+        the only thing standing between us and `if sp_declared:` at run.py:2882."""
+        declared_only = {"id": "SYNTH-a", "driver": {"steps": []},
+                         "expectations": {"rewind": {"supersedeRows": {"max": 0}}}}
+        armed = {"id": "SYNTH-b", "driver": {"steps": []},
+                 "expectations": {"rewind": {"gating": True,
+                                             "supersedeRows": {"max": 0}}}}
+        self.assertNotEqual(self._render(declared_only), self._render(armed))
+        self.assertIn("saveParse(armed: rewind", self._render(armed))
+
+    def test_a_spec_declaring_no_block_says_facets_only(self):
+        # B1-pad-hop is used deliberately rather than CL-2: CL-2 is the spec this
+        # work names as the NEXT declarer (stage B), so pinning the
+        # no-block-declared rendering to it would red for a reason unrelated to
+        # what this cell guards the moment stage B is authored.
+        line = self._plan("B1-pad-hop")
+        self.assertIn("saveParse(facets only, no block declared)", line)
+        self.assertNotIn("save-structure", line)
+
+    def test_every_scenario_plan_names_saveparse(self):
+        """The row runs on every driver-valid run, so no spec's plan may omit it."""
+        missing = [s["id"] for s in self._all_specs()
+                   if "saveParse(" not in self._plan(s["id"])]
+        self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
 
 
 if __name__ == "__main__":

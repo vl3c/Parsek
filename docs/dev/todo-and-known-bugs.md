@@ -249,7 +249,101 @@ them - and D8/D9 `tombstones` - out of its claim set.
 
 ---
 
-## The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. NOT FIXED]
+## ~~The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued~~ [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+The windowed-UT option from the list below, chosen over the other two after studying
+what a flown spec CAN declare: a manifest entry may now carry `utWindow = [lo, hi]`
+(inclusive; `oracle.parse_manifest_entries` -> `ManifestEntry.ut_window`), and
+`hlib.unmatched_captured_awards` matches a windowed entry to a captured award whose
+UT falls inside the bounds instead of requiring exact `seq_key` equality. A window is
+what a flown spec can honestly state - the mission's phase bounds ("the impact lands
+between UT 100 and 140") are stable across runs even though the exact UT is not
+(119.7 / 119.9 / 119.8 across the three runs below). Everything else about the match
+is unchanged: facet + amount-within-tolerance + structured identity + optional
+`stockReason`, one-to-one per (entry, pool) consumption, pinned-first candidate order
+(within each group, entries additionally sort by acceptance WIDTH - exact key = 0,
+window = hi-lo - so neither a window over an exact entry nor a wide window over a
+narrow one can greedily strand the award the tighter entry names; the residual
+pinned-wide-vs-unpinned-exact greedy limit is documented and pinned as fail-closed).
+Fail-closed edges:
+a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
+`ut` + `utWindow` on one entry all reject at parse time.
+
+**THE PRE-LAUNCH GATE NOW DELEGATES TO THE ORACLE (2026-07-31, second session).**
+It started as a widening: the review filed `ut` and non-table entries as the same
+burned-flight economics `utWindow` had already closed, and both were confirmed - six
+shapes passing ADMIT and hard-failing post-flight as a manifest-parse-error
+`PARSEK-FAIL(ledger)`. The first fix mirrored three ENTRY-SHAPE keys by hand and
+justified leaving the rest as "value/semantic rules". **That boundary did not survive
+its own review and was replaced.** Running the oracle with `captured=None` - exactly
+pre-launch knowledge - rejects EVERY one of its rules deterministically, and two of
+the supposedly-semantic ones (`seq` must be an int; `stockReason` a non-empty string
+or array of them) are pure type/shape rules CL-2's manifest hand-writes on every
+entry. The stated justification was also self-contradicting: it rested on the funds
+fill-from-capture rule "genuinely" needing the log, while `oracle.py`'s own comment
+says that path is unreachable against a real log.
+
+`validate_ledger_expectations` therefore calls `oracle.parse_manifest_entries`
+outright and re-prefixes `entry[N]` to `manifest[N]`, so there is no second
+implementation to drift. **The single carve-out** is the funds fill-from-capture
+ambiguity, skipped because it reads the captured pool (empty pre-launch), and
+raising it would refuse a spec the oracle could accept at run time - the unsafe
+direction. Twelve entry shapes now red pre-boot that previously cost a flight, and
+an unbounded-integer `ut` (tomllib does not clamp to int64) no longer raises
+`OverflowError` out of `validate_spec` - which is called with no `try/except` and
+would have aborted the WHOLE batch rather than one spec; `oracle._is_finite_number`
+fixes that on both sides at once. `WhatThePreLaunchGateMirrorsTests` sweeps both
+implementations against each other in BOTH directions over the full entry-shape
+space including the formerly-unmirrored rules, asserts neither side RAISES, pins the
+shared reason key with a trailing colon (`.ut` is a substring of `.utWindow`, so a
+bare match left the ordering claim unpinned), pins the carve-out explicitly, and
+asserts every committed spec still passes. M-B2 independence is
+untouched - the window is a matching hint, `compute_expected` never reads it, and a
+captured amount is still never summed into EXPECTED. OPT-IN and verdict-neutral by
+construction at the time it shipped: no committed spec declared a window; the CL-2
+shape - the three measured capture lines corroborating through windows, near-window
+misses, straddling awards, the measured UT spread as literals - is pinned in
+`test_hlib.py::FlownScenarioUtWindowCorroborationTests`.
+
+**ARMED 2026-07-31, same day, second session.** The operator action was then TAKEN
+against the real game on `CL-2-pod-impact-ledger`, one flight per checklist step,
+all PASS attempt 1:
+
+```
+2026-07-31_1630  baseline, spec UNCHANGED   3 awards UNEXPECTED (report-only)
+                                            ut 12.5 / 19.1 / 119.9
+2026-07-31_1638  utWindows declared, report ZERO unexpected; reportOnly 3 -> 0
+2026-07-31_1645  captureCrossCheck = gate   PASS, hardDivergences=0 reportOnly=0
+2026-07-31_1759  bounds corrected + re-flown PASS, crossCheck=gate archived,
+                                            awards at ut 12.8 / 19.3 / 120.2
+```
+
+The windows are the mission's PHASE BOUNDS - `[0, 100]` for the two ascent
+`Progression` awards, `[100, 400]` for the `VesselLoss` impact - and these three
+flights are the argument for bounds over pins: the second `Progression` measured
+19.1, then 19.0, then 19.1 across them. THE BOUNDS ARE ABSOLUTE PLANETARIUM UT, not
+time-from-ignition: the matched value is `fixtureUT(9.06) + padDwell + T+`, and pad
+dwell is wall-clock (game time runs 1:1, no warp), so a ceiling has to clear the
+harness's own kRPC connect budget. The first draft's `[100, 140]` left ~20 s against
+a documented 30 s budget - a latent false `PARSEK-FAIL(ledger)` that `should_retry`
+would not have absorbed. Corrected before merge, and the widening was verified to
+cost no discrimination: an extra `VesselLoss` at ut 150 and an out-of-phase
+`Progression` both still red. TWO LIMITS ARMING DOES NOT CLOSE, recorded in the spec:
+the check is one-directional (a capture yielding ZERO awards is unmatched-empty and
+GREEN - now closed at the log level by two required stock award lines), and the two
+`Progression` awards can collapse in `dedupe_captured_awards` if no UT-stamped
+[Parsek] line separates them, after which one entry corroborates nothing. The expected totals did NOT move
+(`funds=529600.0 science=100.0 rep=-7.999829000000001` before and after): CL-2's
+entries are all `ut`-less so `_sort_key` ordering is untouched, and all three rep
+entries are `repMode="applied"` so the nonlinear curve is not re-entered. The funds
+milestone entry stays window-free (KSP logs no funds award, so it is never
+capture-matched). The two whole-set cells became explicit ALLOWLISTS naming CL-2 with
+that evidence (`test_only_the_armed_allowlist_arms_the_capture_cross_check`,
+`test_only_the_armed_allowlist_declares_a_ut_window`), so a SECOND spec arming the
+gate still reds until its own evidence is recorded. CL-2 is the first committed spec
+in the suite to gate on the ledger capture.
 
 `hlib`'s own note says `captureCrossCheck` "was WRITTEN as a hard gate, but it has never
 once run with a working capture", that no L1 spec can capture anything, and that arming
@@ -287,14 +381,18 @@ craft, 119.9 on CL-2 flight 1 and 119.8 on flight 2. (For a KSC-only scenario th
 land at the save's static UT, so the problem is invisible there - consistent with the
 join having been designed against the L1 shape and never exercised against a flight.)
 
-### Options, none applied
+### Options (windowed-UT applied - see Fix above)
 
 Loosen the join to `(facet, amount [, stockReason])` with the seqKey as a TIE-BREAKER
 rather than a requirement; or add a UT-window tolerance; or let an entry declare
 `stockReason` alone as sufficient corroboration when the amount matches. Each changes
-what "unexpected" means, so it wants the M-B2 design owner rather than a scenario
-author. Until then `captureCrossCheck = "report"` is the correct setting for any flown
-spec, and CL-2 records the reasoning inline.
+what "unexpected" means, so it wanted a deliberate design pass rather than a
+scenario-author workaround. The windowed option won because it is the only one where
+the SPEC still constrains WHEN the award may land (an amount-only or reason-only join
+would corroborate a declared award appearing at any point in the flight, including
+one fired by an unrelated later event). `captureCrossCheck = "report"` remains the
+correct setting for a flown spec until its author declares windows from a green run's
+`capturedRaw`.
 
 NOTE, so this is not over-read: none of it weakens the oracle. The cross-check only
 CLASSIFIES; a captured amount is never summed into EXPECTED, and the
@@ -483,7 +581,7 @@ Phase 3 landed the setting and its plumbing: `ParsekSettings.uiComplexityMode` (
 
 Phase 4 landed the first gates and the frame-latched apply of doc 7.2. `ParsekUI` now owns the latch (`AppliedUiComplexityMode`, seeded from settings in both constructors so scene entry needs no pending apply); `SetUiComplexityMode` still writes + persists immediately but only QUEUES the new value, and `ApplyPendingUiComplexityModeIfAny` - called first thing in `ParsekFlight.Update` and `ParsekKSC.Update`, ahead of their early-outs, so it runs before OnGUI - latches it, moves the Info `Mode changed:` line to the moment the mode takes effect, and calls the deliberately empty `OnUiComplexityModeApplied(prev, next)` extension point that phases 5 and 7 fill with the tab clamp and the window-close handler. Gated in `ParsekUI.DrawWindow`: Real Spawn Control (composed with its existing `InFlight && flight != null` condition, trailing separator already inside), Kerbals and Career (their shared LEADING `GUILayout.Space` moved into the gate so Basic shows one gap between Logistics and Settings, not two), and Gloops Flight Recorder (composed with `InFlight`, trailing separator inside). Timeline / Missions / Logistics / Settings are constant-true in both modes and stay unwrapped. Nothing else is gated: no `DrawIfOpen` call site, no tab bar, no settings section. Tests added to `UiComplexityModePersistenceTests` cover queue-without-latch, latch-once idempotence, nothing-pending silence, and the toggle-back-before-latch collapse; `ModeChangeLogsTransition` now asserts the Info line after the apply. Phase 5 (tab-bar gate + tab clamp + Timeline GoTo gate) is next.
 
-Phase 5 landed the tab-bar gate, the clamp, and the Timeline GoTo gate. `RecordingsTableUI` gained two pure seams - `VisibleTabCount(mode)` (Advanced 2, Basic 0: Basic draws NO toolbar rather than a one-button one, and it derives from `IsVisible(UiSurface.TabRecordings, mode)` so there is still one decision point and no second list) and `ClampTabIndexForMode(index, mode)` (Basic pins to `TabMissions`, Advanced returns the index unchanged) - plus the instance `ClampTabForBasic()` the deferred apply calls and a shared clamp body that emits the doc 12.2 Verbose line (old index, new index, `activeTabs`, origin). `DrawRecordingsWindow` now reads the frame-latched mode ONCE per pass, runs the defensive on-draw clamp, skips `GUILayout.Toolbar` and its trailing separator entirely in Basic, and pins the content dispatch to Missions rather than trusting the clamp alone. `ParsekUI.OnUiComplexityModeApplied` is no longer empty: on Advanced -> Basic it clamps the live window's tab, reached through a new `activeInstance` static (each scene constructs one `ParsekUI`; `Cleanup` clears it only when it still points at itself, so a scene handover cannot null the live reference) - the same reference phase 7's close handler will use. Both Timeline `GoTo` buttons are wrapped in `IsVisible(UiSurface.TabRecordings, ...)` per doc 4.1a, read once per `DrawEntryRow` pass. `ScrollToRecording` needed no gate of its own: its only caller is the now-Advanced-only GoTo button, and the on-draw clamp plus the pinned dispatch cover any future caller. ~~Superseded by the 4.1a revision below: GoTo now targets the Missions tab and is visible in both modes.~~ Tests: `VisibleTabCountIsZeroInBasicAndTwoInAdvanced`, `TabIndexClampsIntoRange`, `ClampTabForBasicMovesTheSelectionOffTheHiddenTab` in `RecordingsTableUITests`, the `VisibleTabCount` assertions folded into `MissionsIsTheDefaultAndFirstTab` per doc 13.1, and `ApplyingBasicClampsTheMissionsWindowTab` in `UiComplexityModePersistenceTests` driving the clamp end-to-end through the setter seam + deferred latch on a real `ParsekUI`. Phase 6 (Diagnostics + Sample Density settings-section gates) is next.
+Phase 5 landed the tab-bar gate, the clamp, and the Timeline GoTo gate. `RecordingsTableUI` gained two pure seams - `VisibleTabCount(mode)` (Advanced 2, Basic 0: Basic draws NO toolbar rather than a one-button one, and it derives from `IsVisible(UiSurface.TabRecordings, mode)` so there is still one decision point and no second list) and `ClampTabIndexForMode(index, mode)` (Basic pins to `TabMissions`, Advanced returns the index unchanged) - plus the instance `ClampTabForBasic()` the deferred apply calls and a shared clamp body that emits the doc 12.2 Verbose line (old index, new index, `activeTabs`, origin). `DrawRecordingsWindow` now reads the frame-latched mode ONCE per pass, runs the defensive on-draw clamp, skips `GUILayout.Toolbar` and its trailing separator entirely in Basic, and pins the content dispatch to Missions rather than trusting the clamp alone. `ParsekUI.OnUiComplexityModeApplied` is no longer empty: on Advanced -> Basic it clamps the live window's tab, reached through a new `activeInstance` static (each scene constructs one `ParsekUI`; `Cleanup` clears it only when it still points at itself, so a scene handover cannot null the live reference) - the same reference phase 7's close handler will use. ~~Both Timeline `GoTo` buttons are wrapped in `IsVisible(UiSurface.TabRecordings, ...)` per doc 4.1a, read once per `DrawEntryRow` pass. `ScrollToRecording` needed no gate of its own: its only caller is the now-Advanced-only GoTo button, and the on-draw clamp plus the pinned dispatch cover any future caller.~~ Superseded by the 4.1a revision below: GoTo now targets the Missions tab through `ShowMissionForRecording`, is gated on `UiSurface.TabMissions`, and is visible in both modes; `ScrollToRecording` has no production caller. Tests: `VisibleTabCountIsZeroInBasicAndTwoInAdvanced`, `TabIndexClampsIntoRange`, `ClampTabForBasicMovesTheSelectionOffTheHiddenTab` in `RecordingsTableUITests`, the `VisibleTabCount` assertions folded into `MissionsIsTheDefaultAndFirstTab` per doc 13.1, and `ApplyingBasicClampsTheMissionsWindowTab` in `UiComplexityModePersistenceTests` driving the clamp end-to-end through the setter seam + deferred latch on a real `ParsekUI`. Phase 6 (Diagnostics + Sample Density settings-section gates) is next.
 
 Phase 6 landed the two settings-section gates. `DrawSettingsWindow` reads the frame-latched mode once (the Interface section that hosts the toggle draws BEFORE the gated sections in the same callback, so a raw settings-field read would diverge between Layout and Repaint) and wraps `DrawDiagnosticsSettings` and `DrawSamplingSettings` in `IsVisible(SettingsSectionDiagnostics / SettingsSectionSampleDensity, ...)`, each with its trailing `GUILayout.Space(SpacingSmall)` separator INSIDE the gate so Basic shows no double gap. Interface, Recording, Looping, Ghosts, Stock UI and Data Management stay unconditional. Hiding Diagnostics takes the Settings-launched Test Runner launcher with it; the separate global Ctrl+Shift+T `ParsekTestRunnerGlobal` window and its shortcut are never gated in either mode (doc 6.3) - the automated-testing harness needs them and never opens this window. Tests: the `IsVisible` decisions for both section keys were already covered by `UiComplexityModeTests`, and `DrawSettingsWindow` has no headless seam, so rather than extract a `ShouldDrawSection` indirection the code does not need, a source-text wiring gate (`Source/Parsek.Tests/SettingsSectionGateWiringTests.cs`, the established `*WiringTests` pattern) pins the gate, the separator-inside-the-gate rule, the frame-latched read, and that exactly two sections are gated.
 
@@ -493,7 +591,9 @@ Phase 8 landed the grep gate and the doc closeout. `scripts/grep-audit-ui-comple
 
 All 8 phases have now landed and the unit suite is green. The in-game half of the remaining validation is now AUTOMATED and LIVE-PROVEN as harness scenario `H22-ui-complexity-mode` (daily tier, `harness/scenarios/H22-ui-complexity-mode.toml`; first live run 2026-07-28 = FULL PASS attempt 1, 53 s wall, all six verifiers green, measured `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT` with zero `[Parsek][ERROR]` lines): it runs the three `UiComplexityMode` in-game tests (`BasicModeReleasesInputLocks`, `ModeRoundTripPreservesWindowState`, `AdvancedRenderParityAfterRoundTrip`) unattended from the gloops-airshow FLIGHT host, so the LIVE `InputLockManager` release, the round-trip state preservation and the Advanced `UiSurface` restore no longer need a Ctrl+Shift+T operator session. Its log contract also pins the two production `Mode changed: uiComplexityMode=` lines in both directions, so the deferred-latch apply wiring in `ParsekFlight.Update` is proven by the run rather than assumed. Still operator-run: the manual Basic/Advanced playtest of the toggle and the gated surfaces (visual/feel, not assertable).
 
-Basic-mode cross-link follow-up (2026-07-31): the phase-5 disposition hid the Timeline `GoTo` buttons in Basic because they targeted the Recordings tab, which left a Basic player with NO way to get from a timeline row to the flight it belongs to - a core-loop action, not an advanced one. Fix (doc 4.1a revised, v0.3): GoTo now targets the Missions tab. `TimelineWindowUI` calls the new `RecordingsTableUI.ShowMissionForRecording`, which force-opens the window, sets `selectedTab = TabMissions`, and delegates to the new `MissionsWindowUI.RevealMissionForRecording`; resolution is recording -> `Recording.TreeId` -> `MissionStore.FindOriginalMission` (the deterministic, name-linked original, never a clone), the scroll uses the same two-frame Repaint-detect / apply-before-`BeginScrollView` handshake as the recordings tab with the offset measured as a DIFFERENCE between two header rects, only the global `MissionStore.HideArchived` filter is cleared (never `Mission.Archived`), and every failure warns and lands the player on the tab unscrolled rather than arming a pending target that could fire on an unrelated frame. The gate is kept but re-keyed to `UiSurface.TabMissions`, so it hides nothing today yet still makes "GoTo can never point at a hidden destination" mechanical. `ParsekUI.SelectedRecordingId` (write-only dead state, zero readers) is removed with its last two writers. `ScrollToRecording` is retained as the Recordings tab's own navigation API but now has NO production caller (see the follow-up item below). A tree committed mid-scene (post-revert merge, rapid-switch commit) carries no Mission until the Missions tab's own draw seeds one, and the freshest flight is exactly the row a player is most likely to click GoTo on, so the reveal calls the idempotent `MissionStore.EnsureDefaultsForTrees` itself rather than landing the common case on a warn one frame early. Tests: `Source/Parsek.Tests/TimelineGoToMissionTests.cs` (13 cells: happy path, tab move off Recordings, mid-scene default-mission seeding, original-not-clone pick, the three Archive-filter rules, the three headless-reachable failure paths, the stale-target clear, the gate key in both modes, and a source-text gate pinning both button sites).
+Basic-mode cross-link follow-up (2026-07-31): the phase-5 disposition hid the Timeline `GoTo` buttons in Basic because they targeted the Recordings tab, which left a Basic player with NO way to get from a timeline row to the flight it belongs to - a core-loop action, not an advanced one. Fix (doc 4.1a revised, v0.3): GoTo now targets the Missions tab. `TimelineWindowUI` calls the new `RecordingsTableUI.ShowMissionForRecording`, which force-opens the window, sets `selectedTab = TabMissions`, and delegates to the new `MissionsWindowUI.RevealMissionForRecording`; resolution is recording -> `Recording.TreeId` -> `MissionStore.FindOriginalMission` (the deterministic, name-linked original, never a clone), the scroll uses the same two-frame Repaint-detect / apply-before-`BeginScrollView` handshake as the recordings tab with the offset measured as a DIFFERENCE between two header rects, only the global `MissionStore.HideArchived` filter is cleared (never `Mission.Archived`), and every failure warns and lands the player on the tab unscrolled rather than arming a pending target that could fire on an unrelated frame. The gate is kept but re-keyed to `UiSurface.TabMissions`, so it hides nothing today yet still makes "GoTo can never point at a hidden destination" mechanical. `ParsekUI.SelectedRecordingId` (write-only dead state, zero readers) is removed with its last two writers. `ScrollToRecording` is retained as the Recordings tab's own navigation API but now has NO production caller (see the follow-up item below). A tree committed mid-scene (post-revert merge, rapid-switch commit) carries no Mission until the Missions tab's own draw seeds one, and the freshest flight is exactly the row a player is most likely to click GoTo on, so the reveal calls the idempotent `MissionStore.EnsureDefaultsForTrees` itself rather than landing the common case on a warn one frame early. Tests: `Source/Parsek.Tests/TimelineGoToMissionTests.cs` (17 cells: happy path, tab move off Recordings, mid-scene default-mission seeding, original-not-clone pick, the three Archive-filter rules, the three headless-reachable failure paths, the stale-target clear, the no-mission button predicate plus a source gate that it is read, the mode-to-wording bridge plus a source gate on its call site, the gate key in both modes, and a source-text gate pinning both GoTo button sites).
+
+Three-reviewer panel follow-ups (2026-08-01). (1) The capture now requires that the same frame ran the list's own LAYOUT pass, plus a zero-height reject. A Repaint alone is not proof that rects are solved, and the most common GoTo path - window closed, the click opens it mid-frame - could paint a Repaint against an unsolved cache, measure zeros, consume the target, land at offset 0 and log it as a success. (2) The Archive-filter clear is QUEUED by the click and applied by the draw on a LAYOUT pass only; writing it from the click flipped how many mission blocks draw between one frame's Layout and Repaint, which throws the control-count `ArgumentException`. (3) A captured offset is age-checked at the apply site, so a tab switch or window close between capture and apply cannot yank the list minutes later. (4) The reveal resolves through ERS again, restoring the invariant the old cross-link encoded. (5) `TimelineWindowUI.CanGoToMission` disables the button on rows with no `TreeId` - manual Gloops ghost-only recordings are committed without a tree and DO produce timeline rows, so the button was live and inert on them. (6) `ParsekUI.IsSpawnControlReachable` is now a scanned pattern in `grep-audit-ui-complexity-mode.ps1`: without it, a mode read wearing a plain-bool name could be consumed by any file with the gate still green.
 
 Two other Basic-mode dangling cross-links found by the same audit and fixed in the same commit. (a) `ParsekFlight.NotifyNewProximityCandidates` posted a 10-second screen message telling the player to open Real Spawn Control - a window whose only launcher Basic hides. The message text now varies: `SelectiveSpawnUI.FormatProximityNotification` (pure, takes a bool) keeps the observation and drops the call to action when the window is unreachable, and the reachability question is asked of the new `ParsekUI.IsSpawnControlReachable` so `ParsekFlight` never names the mode vocabulary (grep gate + doc section 5 invariant intact; the narrow extension is written up as new doc section 9.1). (b) `MergeDialog.Commit`'s post-merge seal guidance said "seal it from the Recordings window", which is both the wrong window name (it is `Parsek - Missions`) and the wrong destination - Seal lives on the Timeline's separation rows and in the Missions tab's Re-Fly cell. Retargeted to the Timeline, a surface visible in every mode. Plain wording fix, no mode read.
 
@@ -544,7 +644,27 @@ The alternative (tracer-on everywhere) is exactly the cross-run leak PR #1352 fi
 
 ---
 
-## HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today]
+## ~~HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true~~ [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+Both halves of the fix shape below, because they answer different questions:
+`_resolve_bool_default_true` now returns True/False only for an absent argument or
+the literal `true`/`false` and None for anything else, and
+`parse_ingame_test_declarations` maps that None to (a) `allow_batch = False` -
+fail-CLOSED in the `_resolve_bool_default_false` direction, so an unreadable
+expression under-counts admissions and a pinned tally reds, never inflates - and (b)
+a new `InGameTestDecl.allow_batch_marker` carrying the `<unresolved:<expr>>` marker,
+which `unresolved_ingame_declarations` now reports alongside unresolvable
+Category/Scene, so `CommittedBatchTallySourceSyncTests` reds ON THE DECLARATION
+rather than leaving a bounds mismatch to be reverse-engineered. Both malformed shapes
+(a const indirection, a computed expression - plus C#'s capitalized `False`, which is
+an identifier to this parse) are pinned in
+`test_hlib.py::test_non_literal_allow_batch_fails_closed_with_a_marker`. Verified
+mechanically with the parser itself that the whole `Source/Parsek` tree still parses
+IDENTICALLY: 542 declarations, 471 batch-allowed / 71 not, 72 restore-backed, zero
+markers, zero unresolved - every committed argument is a literal, so the fail-closed
+branch is dead code against today's tree by construction.
 
 ### What happens
 
@@ -562,7 +682,60 @@ Make an unresolvable `AllowBatchExecution` argument resolve to a loud marker (or
 
 ---
 
-## HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. REPORTED, NOT FIXED. Driver-side only - no Parsek code on the path]
+## ~~HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection~~ [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. Driver-side only - no Parsek code on the path. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+The staging POSTCONDITION from the fix shape below, driver-side only.
+`run.py::stage_fixture` step 3 now asserts what the preset MUST have written into
+the staged save after the injector returns, whatever its exit code:
+`_inject_postcondition_missing` requires a non-empty `Parsek/Recordings/` for both
+presets plus `Parsek/RewindPoints/rp_b9_root.sfs` for `rewind-b9` (the RP every
+consumer's `InvokeRewind rp=rp_b9_root` needs - which also closes the second silent
+trigger, the KSP.log lock-probe refusal, and any future no-op mechanism; the check is
+mechanism-independent). A miss fails the stage immediately as terminal
+INVALID(`stage-inject-noop`) with ZERO KSP boots, and the error names the likely
+cause with its one-line remedy (assembly-existence probe: "Parsek.Tests assembly
+missing ... dotnet build Source/Parsek.Tests" vs "assembly present; check the KSP.log
+lock probe"). The subkind is deliberately NOT in `RETRYABLE_INVALID_SUBKINDS`: the
+miss is deterministic per worktree, so a retry burns the `once` budget to learn
+nothing (the exact V1-map-dwell double-flight shape). `--no-build` stays on the
+injector, exactly as the DO-NOT below demands, and the hidden coupling to
+`run_analyzer`'s building side effect is now irrelevant to correctness. Covered
+through the fake-KSP smoke harness (`test_run_smoke.py::InjectPostconditionTests`): a
+full `run_attempt` over a no-op injection terminates INVALID(stage-inject-noop)
+pre-boot and non-retryable, success paths for both presets stage clean, an RP-less
+rewind-b9 injection fails closed, and the predicate's shapes are pinned directly.
+
+**LIVE-PROVEN 2026-07-31 against the real game, in the exact worktree state that
+triggers it** (`Parsek-cl2-capture-arming`, `Source/Parsek.Tests` never built - the
+deterministic trigger this entry identifies). Both halves, no divergence from the
+claim, so no driver change was needed:
+
+```
+19:26:47  python run.py --id S1.5-rewind-loop
+[Harness][Info][Select]  ... (Select / Admit / Lock lines elided)
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Error][Stage] inject postcondition failed preset=rewind-b9 exit=0
+    missing=[non-empty Parsek/Recordings/, Parsek/RewindPoints/rp_b9_root.sfs];
+    aborting pre-boot (INVALID stage-inject-noop). likely cause: Parsek.Tests
+    assembly missing (never built in this worktree; the injector's deliberate
+    --no-build runs nothing) - remedy: dotnet build Source/Parsek.Tests
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=0s terminal=INVALID
+19:26:48
+```
+
+Run `2026-07-31_1626_S1.5-rewind-loop`: `verdict=INVALID subkind=stage-inject-noop`,
+`wallSeconds=0` (wall-clock 19:26:47 -> 19:26:48). PRE-BOOT is proven by the result JSON rather than asserted -
+`kspExit={"code": null, "killed": false}`, `collectLogs={"path": null, "ran": false}`,
+`driver.steps=[]` - and NON-RETRYABLE by `attempt=1` with zero `_a2` files in
+`results/`. Note `exit=0` in that line: the injector still reported success, which is
+precisely the fail-open the postcondition now catches. Running the NAMED REMEDY
+verbatim (`dotnet build Source/Parsek.Tests`) and re-invoking then staged, booted and
+went GREEN on attempt 1 - run `2026-07-31_1627_S1.5-rewind-loop`, 63 s, `stage
+save=gloops-airshow ... inject=rewind-b9`, `launch exe=...KSP_x64.exe pid=26188`,
+every verifier PASS/SKIPPED. So the error message's remedy is not just plausible, it
+is the whole fix: one build, one green run.
 
 ### What happens
 
@@ -777,7 +950,7 @@ Fixing the driver alone would have left the spec asserting things S4.1 cannot do
 
 - `expectedFail.bugId` / `subkind` DELETED. The signature they named no longer exists in the code, so they could never match - and a key that cannot match silently demotes any UNRELATED expectation-subkind failure under a resolved bug id.
 - `AppendRelations outcome=refused-unflown-provisional` ADDED to `logContracts.required` - the positive assertion of what this scenario uniquely covers.
-- `[expectations.rewind] supersedeRows` flipped `min = 1` -> `max = 0`. As written it would have RED S4.1 for CORRECT behaviour the day the M-C2 verifier landed.
+- `[expectations.rewind] supersedeRows` flipped `min = 1` -> `max = 0`. As written it would have RED S4.1 for CORRECT behaviour the day the M-C2 verifier landed. VINDICATED 2026-07-31: the block is now ARMED (`gating = true`), the reading run measured exactly 0, and the negative control that put `min = 1` back reddened the run `PARSEK-FAIL(save-structure)` - i.e. the un-flipped spec would have failed live, precisely as predicted.
 - `supersede-relation` D9 claim MOVED to R1 (proven there by `Added 1 supersede relations...`); `head-tip-split` moved to NOBODY and is now honestly uncovered, since no archived run proves any scenario reaches the splitting branch.
 
 ### Observability: better than expected, but with a real gap
@@ -1519,11 +1692,62 @@ Correction to carry: `Logistics` is 47 tests but 38 carry
 `AllowBatchExecution = false`, so only 9 are batch-reachable before R5 lands.
 
 **R9-R14. Machinery items** (each self-contained in the roadmap doc). TWO OF THE SIX
-ARE NOW CLOSED; the list below is kept intact with the closures marked, because the
-counts around it were measured against the six-item shape:
+ARE NOW CLOSED; the R9-R14 bullets below are kept intact with the closures marked,
+because the counts around them were measured against the six-item shape. One
+NON-R bullet (the CL-2 stage-B calibration reading) is appended after R9 as
+supporting measurement for R9's remaining scope - it is not a seventh machinery
+item and must not be counted as one:
 
 - **R9** structural save-content expectations plus landing the three inert `route` /
-  `rewind` / `loop` expectation blocks - OPEN.
+  `rewind` / `loop` expectation blocks - **HARNESS HALF SHIPPED-REPORT-ONLY
+  2026-07-31** (branch `claude/r9-save-parse-verifier-tshhzv`), then **ARMED ON S4.1
+  THE SAME DAY** (branch `r9-arm-s41`): the M-C2 save-parse verifier
+  (`harness/lib/saveparse.py` + the `saveParse` chain row) evaluates
+  `[expectations.rewind]` and the new `[expectations.recordings.structure]` block
+  over the produced save's ParsekScenario surfaces. The gating PROMOTION is DONE for
+  S4.1 - it is the first and only committed spec carrying `gating = true`, and
+  `test_no_committed_spec_arms_gating` became an explicit allowlist pinning exactly
+  `{"S4.1-rewind-merge.toml"}` so a second spec arming still needs a deliberate edit.
+  Three live runs did it: `2026-07-31_1628` (report-only reading, PASS, all readings
+  inside the declared `max = 0` windows), `2026-07-31_1635` (armed, PASS,
+  `armedBlocks=["rewind"]`), and a NEGATIVE CONTROL that temporarily flipped
+  `supersedeRows` to `min = 1` and reddened `2026-07-31_1637`
+  `PARSEK-FAIL(save-structure)` with `mismatches=["rewind.supersedeRows 0 < min 1"]`
+  - the gate is seen to fail, not merely assumed to work. STILL OPEN inside R9: CL-2
+  stage B's windows (calibration numbers recorded below), `route`/`loop` (still
+  reserved - zero declarers), and the analyzer-PR half. See the roadmap R9 entry.
+
+  ANSWERED BY THE READING RUN: the merge REAPS `rp_b9_root`. `rewindPoints` measured
+  0 on all three runs, and the produced save carries no `REWIND_POINTS` node at all
+  (the empty-staging-list-writes-no-parent quirk). This was a genuine open question -
+  it is recorded, deliberately NOT pinned as a window: one observation is not a
+  window, and a reap count wants a second scenario before it gates.
+
+- **CL-2 stage-B calibration, measured off the STAGE-A run** (CL-2 itself IS stage A;
+  stage B is unwritten) [MEASURED 2026-07-31, run
+  `2026-07-31_1641_CL-2-pod-impact-ledger` (PASS, 168 s)]. CL-2 declares NO M-C2
+  block (`blocks: []`), so its `saveParse` row is pure measurement - which is exactly
+  what makes it usable to size stage B's windows. The observed block, verbatim:
+
+  ```
+  "rewind":   { "supersedeRows": 0, "tombstones": 0,
+                "rewindPoints": 0, "rewindRetirements": 0 }
+  "recordings": { "structure": {
+      "trees": 1, "committedTrees": 1, "recordings": 1,
+      "terminalStates": { "Destroyed": 1 },
+      "branchPoints": {}, "duplicateRecordingIds": [] } }
+  ```
+
+  READ THESE CORRECTLY. This is stage A - the fatal pod hop and its ledger rows, with
+  NO rewind anywhere in the run. So the `structure` numbers are the PRE-REWIND corpus
+  baseline stage B starts from (one committed tree, one Destroyed recording), and the
+  `rewind` numbers are all zero because nothing rewound. Stage B rewinds ACROSS
+  CL-1's crew loss, so its `[expectations.rewind]` is expected to move to
+  `supersedeRows >= 1` / `tombstones >= 1` and its `structure` counts to grow by the
+  re-fly fork. Pinning stage B's windows straight off this block would assert the
+  absence of the very thing stage B exists to exercise: author stage B report-only
+  first, read ITS facets, then arm - the same three-run promotion S4.1 just went
+  through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`.
 - **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb
   (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no response
   payload is ever captured) - OPEN. NOTE R12 solved the SPECIFIC instance that
@@ -1715,7 +1939,7 @@ Three consequences worth stating:
 captureCrossCheck = "gate"   # default "report"; declared by ZERO committed specs
 ```
 
-`report` records each unmatched award as a REPORT-ONLY oracle divergence (logged, counted in `reportOnly`, kept in `results/<runId>.manifest.json` `capturedRaw`); `gate` restores the hard `PARSEK-FAIL(ledger)`. OPERATOR-BLOCKED: arm per scenario after one green run shows that scenario's real award baseline. Pinned by `test_unexpected_award_is_report_only_by_default` (the same log that reds when armed must not red by default) and its armed twin.
+`report` records each unmatched award as a REPORT-ONLY oracle divergence (logged, counted in `reportOnly`, kept in `results/<runId>.manifest.json` `capturedRaw`); `gate` restores the hard `PARSEK-FAIL(ledger)`. OPERATOR-BLOCKED: arm per scenario after one green run shows that scenario's real award baseline. Pinned by `test_unexpected_award_is_report_only_by_default` (the same log that reds when armed must not red by default) and its armed twin. **The "ZERO committed specs" in that snippet held until 2026-07-31**, when `CL-2-pod-impact-ledger` was armed over three flights - it is now the one and only armed spec, and the whole-set cells are allowlists rather than empty-set assertions; see the struck corroboration-key entry above for the evidence.
 
 **AND THE CORROBORATION KEY HAD TO CHANGE WITH THEM (review follow-up, found by reproduction).** The generic captured kinds made corroboration STRUCTURALLY IMPOSSIBLE: `unmatched_captured_awards` joined captured-vs-seam on `(seqKey, kind, identity)`, but a captured award now always carries `stock-funds-award` / `stock-reputation-award` while a seam entry carries a scenario kind (`kerbal-hire`, `facility-upgrade`, ...), so the kinds can NEVER be equal and every captured award reported "unexpected" - including the scenario's own. Reproduced against `L1-hire-kerbal-career`, whose own declared -62113 hire debit read as an unexpected award. The consequence was worse than noise: `captureCrossCheck = "gate"` could never be armed on any scenario that declares anything, so the escalation path documented one paragraph above could not be walked.
 
@@ -3811,12 +4035,12 @@ The `rewind-b9` injection preset + the M-C1 InvokeRewind/AnswerMergeDialog/TimeJ
 **Fixture capability.** `Source/Parsek.Tests/Generators/RewindB9Fixture.cs` assembles a committed tree (root ascent + surviving upper stage slot 0 + CRASHED booster slot 1, `TerminalState.Destroyed`) plus a Rewind-to-Separation `RewindPoint` `rp_b9_root`, satisfying all three CanInvoke prerequisites the fixture owns: (1) a fixed known RP id whose quicksave sidecar is written on disk at `Parsek/RewindPoints/rp_b9_root.sfs`; (2) `CreatingSessionId` null so `LoadTimeSweep` keeps it (not a session-scoped provisional); (3) `ChildSlots`/`PidSlotMap`/`RootPartPidMap` keyed to the synthetic vessel + root-part pids the injected recordings carry (via `ScenarioWriter.DeriveVesselPersistentId` / `DeriveRootPartPersistentId`, so `slot=1` resolves). `ScenarioWriter` gained `AddRewindPoint` (emits the `REWIND_POINTS`/`POINT` block matching `ParsekScenario.SaveStagingList`), `WriteRewindPointSaveFiles`, and the two Derive*Id seams. **RP quicksave sidecar (B1 fix):** the sidecar is NOT a bare copy of the host save - the re-fly's pre-load selected-slot scrub (`RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly`) and post-load `PostLoadStripper` both KEEP only vessels whose `persistentId` the RP's PidSlotMap/RootPartPidMap references and STRIP the rest, so a vessel-less or unmatched-pid quicksave makes the scrub keep nothing and the Activate fail ("selected vessel not present on reload"). `WriteRewindPointSaveFiles` therefore rewrites the sidecar's FLIGHTSTATE to hold exactly one controllable VESSEL per child slot, each stamped with the slot's mapped vessel- + root-part pids and cloned from the host save's own command vessel when present (real parts, so the CanInvoke deep-parse gate resolves them), with `activeVessel` at the focus slot. The tree/RP/sidecar pid triangle is thus consistent (PidSlotMap pids == sidecar VESSEL pids == recording pids), and strip/restore/marker/merge are genuinely exercisable. **Honest limit is now OPERATOR-VERIFIABLE, not structural:** whether KSP can LOAD the cloned vessels live (duplicate part pids / crew across the per-slot clones may be regenerated on load) is confirmed only when an operator boots the B9 split in FLIGHT. Wired as a named injection preset (`injectedRecordings = "rewind-b9"` -> `hlib.INJECTED_RECORDINGS`; `run.py` stage branch -> `inject-recordings.ps1 -Preset rewind-b9` -> `dotnet test --filter InjectRewindB9`). `InjectRewindB9` defaults to a distinct `rewind-b9-fixture` save name so a bare `dotnet test` no-ops instead of clobbering the shared `test career` corpus; `inject-recordings.ps1` carries the matching per-preset default save so a manual `-Preset rewind-b9` cannot purge the corpus either. Tests: `RewindB9FixtureTests` (7 cells: RP node shape, null-session, two controllable child slots, PidSlotMap-matches-injected-pids, `REWIND_POINTS` emit + `RewindPoint.LoadFrom` round-trip, crashed-sibling `terminalState=4` + serialized pid, RP sidecar carries a VESSEL per slot with the mapped pid + activeVessel, deep-parse passes when parts resolve / declines when they do not).
 
 **Scenarios (both validate via `CommittedSpecValidationTests` + `--dry-run` clean). NOTE 2026-07-26 (`rewind-loop-lane`): both were `tier = operator` on a FALSE premise and are now `tier = nightly` - see the rewind-in-flight entry at the top of this file. The operator-tier and PENDING-OPERATOR wording in the rest of THIS entry is superseded; the corrections are called out inline below.**
-- `S4.1-rewind-merge` (inject rewind-b9): the B9 worked example - LoadGame -> SetSetting(autoRecordOnLaunch off) -> InvokeRewind{rp=rp_b9_root, slot=1} -> AnswerMergeDialog{merge} (the folded verb drives the exit) -> RecordingState -> FlushAndQuit. Headless-checkable guards: the `Re-Fly (Rewind-to-Separation) StartInvoke` + `Invocation complete` log contracts (proving the re-fly ran end-to-end), no `[ERROR]`, and a recording-count floor. D9 = rewind-to-separation/refly-gate/reconciliation-bundle/read-back-guard/head-tip-split/supersede-relation/terminal-kind-classify/merge-journal (NOT tombstones - uncrewed booster; NOT revert-during-refly-dialog - we merge), D8 = recalc-engine. A RESERVED `[expectations.rewind]` block records the save-parse asserts (>=1 supersede row, 0 tombstones) SKIPPED until the M-C2 rewind verifier lands.
+- `S4.1-rewind-merge` (inject rewind-b9): the B9 worked example - LoadGame -> SetSetting(autoRecordOnLaunch off) -> InvokeRewind{rp=rp_b9_root, slot=1} -> AnswerMergeDialog{merge} (the folded verb drives the exit) -> RecordingState -> FlushAndQuit. Headless-checkable guards: the `Re-Fly (Rewind-to-Separation) StartInvoke` + `Invocation complete` log contracts (proving the re-fly ran end-to-end), no `[ERROR]`, and a recording-count floor. D9 = rewind-to-separation/refly-gate/reconciliation-bundle/read-back-guard/head-tip-split/supersede-relation/terminal-kind-classify/merge-journal (NOT tombstones - uncrewed booster; NOT revert-during-refly-dialog - we merge), D8 = recalc-engine. An `[expectations.rewind]` block carries the save-parse asserts. SUPERSEDED 2026-07-31 on two counts: the block is no longer RESERVED/SKIPPED (the M-C2 verifier landed and S4.1 ARMS it with `gating = true`, the first committed spec to do so), and the assert is `max = 0` supersede rows, not `>= 1` - S4.1 flies no re-flight, so the correct assertion is that the merge writes ZERO rows and still completes.
 - `S1.5-rewind-loop` (inject rewind-b9): the DRIVABLE SUBSET of the catalog S1.5 - TimeJump{deltaSeconds=600} past the injected recording EndUTs to spawn the end-of-recording ghost, then rewind-strip-respawn via the seam using rp_b9_root as the quicksave-equivalent. D6 time-jump, D18 time-jump-observables/rewind-strip-respawn-cycle, D8 epoch-isolation/recalc-engine, D9 rewind-to-separation/refly-gate. ~~**DEPENDENCY: do NOT schedule before the `autotest-integration-fixes` PR merges** - the TimeJump leg relies on that branch's TimeJump completion-decider fix; until it lands TimeJump can settle incorrectly and the leg is untrustworthy.~~ CLOSED 2026-07-26: that is PR #1322, merged as `eb94607dd`. **Budget (S8):** `budgetSeconds = 2400` is sized for the WORST DEFER path (`sum of run.py per-step waits = LoadGame 660 + SetSetting 60 + TimeJump 660 + RecordingState 60 + InvokeRewind 660 + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 2340; +60 margin`) so an unattended defer surfaces a clean per-step TIMEOUT instead of a run-budget KILL. S4.1's `budgetSeconds = 1680` is sized the same way (no TimeJump step).
 
 **S1.5 capability gap (why only the subset is drivable).** The FULL catalog S1.5 ("fly B1, commit, warp past EndUT, quicksave, rewind, assert stripped/respawned, crew re-reservation + resource reset vs ledger oracle") needs four capabilities M-C1 does not provide: (a) a live B1 flight + commit -> the mission-autopilot library, not a seam verb (the `rewind-loop-lane` `r1_rewind_loop` mission is the first cut of this); (b) an in-scene quicksave / RP-create seam verb to make the RP LIVE rather than inject it (the injected `rp_b9_root` stands in) - RE-DIAGNOSED 2026-07-26: creating the RP is only half of it, NAMING it is the other half and is the harder half; see blockers (a)/(b) in the rewind-in-flight entry at the top; ~~(c) a FLIGHT-scene entry -- TimeJump/InvokeRewind are `RequiresFlight` and the seam has no launch verb, so an operator must be in FLIGHT (the gloops host save loads to SPACECENTER)~~ **(c) WAS NEVER TRUE and is WITHDRAWN 2026-07-26** - `LoadGame` is the flight-entry verb and `gloops-airshow` carries `activeVessel = 1`, so it loads to FLIGHT, not SPACECENTER; (d) a career fixture + ledger oracle for the crew-re-reservation / resource-reset asserts (rewind-b9's host is sandbox). The highest-value remaining unblocker is a seam channel exposing live RewindPoint ids, NOT a FLIGHT-scene B9 template.
 
-**PENDING-OPERATOR (coordinator runbook).** ~~Both scenarios are `tier = operator` ... otherwise every RequiresFlight verb only defers to a TIMEOUT and no PASS is reachable.~~ SUPERSEDED 2026-07-26: both are `tier = nightly` and run unattended. With the B1 sidecar fix the re-fly is genuinely exercisable end to end (the selected slot's vessel is present under its mapped pid, survives the strip, and is activatable); what the FIRST nightly run establishes is the LIVE-LOAD fidelity of the cloned vessels (whether KSP can instantiate them - duplicate part pids / crew across the per-slot clones may be regenerated on load). Still genuinely PENDING beyond that: the supersede-relation / tombstone save-parse (S4.1) is PENDING-VERIFIER, not pending-operator - the `[expectations.rewind]` block is RESERVED until the M-C2 rewind verifier lands - and S1.5's crew-re-reservation / resource-reset asserts need a career fixture the sandbox host does not provide.
+**PENDING-OPERATOR (coordinator runbook).** ~~Both scenarios are `tier = operator` ... otherwise every RequiresFlight verb only defers to a TIMEOUT and no PASS is reachable.~~ SUPERSEDED 2026-07-26: both are `tier = nightly` and run unattended. With the B1 sidecar fix the re-fly is genuinely exercisable end to end (the selected slot's vessel is present under its mapped pid, survives the strip, and is activatable); what the FIRST nightly run establishes is the LIVE-LOAD fidelity of the cloned vessels (whether KSP can instantiate them - duplicate part pids / crew across the per-slot clones may be regenerated on load). Still genuinely PENDING beyond that: the supersede-relation / tombstone save-parse (S4.1) is PENDING-VERIFIER, not pending-operator - the `[expectations.rewind]` block is RESERVED until the M-C2 rewind verifier lands (UPDATE 2026-07-31: LANDED report-only, branch `claude/r9-save-parse-verifier-tshhzv`; the asserts now produce recorded `saveParse` readings each run, and what remained was the gating promotion after one local S4.1 run. UPDATE 2026-07-31, same day: that promotion SHIPPED on branch `r9-arm-s41` - reading run `2026-07-31_1628` confirmed the readings matched the declared windows, S4.1's block now carries `gating = true`, and the armed gate was proven live both ways (`_1635` PASS armed, `_1637` PARSEK-FAIL(save-structure) under a `min = 1` negative control). S4.1's supersede-row / tombstone assert is therefore no longer PENDING-VERIFIER at all; S1.5's career-fixture gap below is untouched - see the roadmap R9 entry) - and S1.5's crew-re-reservation / resource-reset asserts need a career fixture the sandbox host does not provide.
 
 ## M-B3 - L1 ledger action scripts: first nonzero seam-declared manifests + career fixtures [BUILT, branch `autotest-mb3-impl`]
 

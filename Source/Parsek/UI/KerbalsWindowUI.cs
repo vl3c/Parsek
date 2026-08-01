@@ -583,8 +583,10 @@ namespace Parsek
                         // member format — see FormatMissionOutcomeSubitemText.
                         if (GUILayout.Button(FormatMissionOutcomeSubitemText(e), StyleForEndState(e.EndState)))
                         {
-                            // Mirrors the Timeline.GoTo → RecordingsTableUI.ScrollToRecording
-                            // cross-link pattern (TimelineWindowUI.cs:665). GetTimelineUI()
+                            // Mirrors the Timeline row cross-link pattern
+                            // (TimelineWindowUI.DrawEntryRow). Note Timeline.GoTo itself now
+                            // routes to RecordingsTableUI.ShowMissionForRecording, not to
+                            // ScrollToRecording (design 4.1a). GetTimelineUI()
                             // can return null during cold-start scene transitions — the
                             // helper tolerates a null callback and still emits the
                             // diagnostic log (E14).

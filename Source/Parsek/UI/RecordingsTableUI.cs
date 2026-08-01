@@ -436,8 +436,10 @@ namespace Parsek
 
         /// <summary>
         /// Ensures the target recording is visible in the RECORDINGS tab (unhides if hidden,
-        /// disables the hide filter if needed, expands parent groups), opens the window, and
-        /// scrolls to the recording.
+        /// expands parent groups, un-hides hidden groups), opens the window, and scrolls to the
+        /// recording. Note the HideActive branch below is unreachable - it tests
+        /// <c>target.Hidden</c> after the line above has already cleared it - so the filter is
+        /// in practice never disabled here.
         /// <para>NOTE: no production caller. The Timeline GoTo button used to be the only one;
         /// it now routes through <see cref="ShowMissionForRecording"/> so it works in Basic too.
         /// This is retained as the Recordings tab's navigation API (and is exercised by the tab
@@ -1343,9 +1345,10 @@ namespace Parsek
 
             // Defensive on-draw clamp (design 7.4). The deferred mode-apply already clamps, so
             // this is a backstop for any caller that moves `selectedTab` without going through
-            // it. The only production mover is `ShowMissionForRecording`, which writes
-            // `TabMissions` and is therefore Basic-valid already; `ScrollToRecording` (no
-            // production caller) is the one that can still write the Basic-invalid index. It
+            // it. The tab bar itself only moves `selectedTab` while it is drawn (Advanced),
+            // and `ShowMissionForRecording` writes `TabMissions`, which is Basic-valid already;
+            // `ScrollToRecording` (no production caller) is the one write that can still produce
+            // the Basic-invalid index. It
             // reads the latched mode, so it is deterministic within a frame - identical in
             // Layout and Repaint - and therefore layout-safe.
             ApplyTabClamp(complexity, "draw");

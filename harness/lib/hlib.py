@@ -45,7 +45,8 @@ line), the offline analyzer + baseline (``RED=`` gate token + the
 ``.analysis.json`` fail/stale split + ``BASELINE-*`` findings), the provisioner
 (``provlib.compare_manifest`` / ``project_admission``).
 
-ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission).
+ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission, and
+saveparse, the M-C2/R9 pure sibling, for the save-parse spec-surface validation).
 """
 
 from __future__ import annotations
@@ -1235,6 +1236,14 @@ class InGameTestDecl:
     admits ``allow_batch OR restore_baseline`` where the ordinary
     ``PrepareBatchExecution`` admits ``allow_batch`` alone. Declared LAST so the
     positional constructor stays source-compatible.
+
+    ``allow_batch_marker`` is empty for a resolved (absent-or-literal)
+    ``AllowBatchExecution`` argument and carries the ``<unresolved:...>`` marker for
+    a non-literal one (HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN). When set,
+    ``allow_batch`` is fail-CLOSED false (under-count admissions, red the pinned
+    tally) and ``unresolved_ingame_declarations`` reports the declaration - the same
+    loud path an unresolvable Category/Scene takes. Trailing default keeps the
+    positional constructor source-compatible.
     """
 
     category: str
@@ -1242,6 +1251,7 @@ class InGameTestDecl:
     allow_batch: bool
     origin: str = ""
     restore_baseline: bool = False
+    allow_batch_marker: str = ""
 
 
 # The selector token InGameTestRunner.RunAll stamps as currentBatchSelector, and
@@ -1525,13 +1535,22 @@ def parse_ingame_test_declarations(
         # others has more text before the member ([Obsolete("x"), InGameTest(...)]).
         member = _member_name_after(mask, section_close)
         origin = "%s:%d %s" % (source_name or "<text>", line, member or "?")
+        # A non-literal AllowBatchExecution resolves to None: keep it COUNTED but
+        # marked (fail-closed false + <unresolved:> marker), mirroring how an
+        # unresolvable Category/Scene is kept with a marker rather than dropped.
+        allow_batch = _resolve_bool_default_true(named.get("AllowBatchExecution"))
+        allow_batch_marker = ""
+        if allow_batch is None:
+            allow_batch_marker = "<unresolved:%s>" % named.get("AllowBatchExecution", "").strip()
+            allow_batch = False
         out.append(InGameTestDecl(
             category=_resolve_category(named.get("Category"), consts),
             scene=_resolve_scene(named.get("Scene")),
-            allow_batch=_resolve_bool_default_true(named.get("AllowBatchExecution")),
+            allow_batch=allow_batch,
             origin=origin,
             restore_baseline=_resolve_bool_default_false(
-                named.get("RestoreBatchFlightBaselineAfterExecution"))))
+                named.get("RestoreBatchFlightBaselineAfterExecution")),
+            allow_batch_marker=allow_batch_marker))
     return out
 
 
@@ -1564,11 +1583,28 @@ def _resolve_scene(expr: Optional[str]) -> Optional[str]:
     return "<unresolved:%s>" % expr
 
 
-def _resolve_bool_default_true(expr: Optional[str]) -> bool:
-    """AllowBatchExecution: absent -> true (the property initializer). Anything
-    that is not literally ``false`` is treated as true, matching the runner's
-    ``if (test.AllowBatchExecution)`` branch on the default."""
-    return (expr or "true").strip() != "false"
+def _resolve_bool_default_true(expr: Optional[str]) -> Optional[bool]:
+    """AllowBatchExecution: absent -> true (the property initializer); a literal
+    ``true`` / ``false`` resolves as written; ANYTHING ELSE -> None (unresolved).
+
+    HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN, closed 2026-07-31: this used to read
+    ``(expr or "true").strip() != "false"``, so a non-literal argument (a const
+    indirection, a computed expression) silently resolved batch-ALLOWED - loosening
+    the derived tally bounds in the direction that UNDER-reports skips, instead of
+    failing loud the way Category/Scene do. The caller maps None to a
+    ``<unresolved:...>`` marker (so ``unresolved_ingame_declarations`` reds the
+    sync gate on the declaration itself) AND resolves the bool fail-CLOSED to
+    false, the sibling ``_resolve_bool_default_false`` direction: an unreadable
+    expression must under-count admissions so a pinned tally reds, never
+    inflates."""
+    if expr is None:
+        return True
+    s = expr.strip()
+    if s == "true":
+        return True
+    if s == "false":
+        return False
+    return None
 
 
 def _resolve_bool_default_false(expr: Optional[str]) -> bool:
@@ -1590,9 +1626,9 @@ def _resolve_bool_default_false(expr: Optional[str]) -> bool:
 def unresolved_ingame_declarations(
     decls: Sequence[InGameTestDecl],
 ) -> List[InGameTestDecl]:
-    """Declarations whose Category or Scene this parser could not resolve. A
-    non-empty result means the source grew an attribute form the parse does not
-    model -- a gate that must FAIL, not shrug.
+    """Declarations whose Category, Scene, or AllowBatchExecution this parser
+    could not resolve. A non-empty result means the source grew an attribute form
+    the parse does not model -- a gate that must FAIL, not shrug.
 
     This catches only forms that were RECOGNISED and then failed to resolve. A
     form never recognised at all is caught by
@@ -1600,7 +1636,8 @@ def unresolved_ingame_declarations(
     "reported, never dropped" true."""
     return [d for d in decls
             if str(d.category).startswith("<unresolved:")
-            or str(d.scene or "").startswith("<unresolved:")]
+            or str(d.scene or "").startswith("<unresolved:")
+            or str(getattr(d, "allow_batch_marker", "")).startswith("<unresolved:")]
 
 
 def _line_text_at(text: str, offset: int) -> str:
@@ -2905,10 +2942,28 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             expectations.get(UNITY_EXCEPTIONS_BLOCK)))
 
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
-    # [expectations.ledger] block must never launch KSP. Structural only; the
-    # per-entry manifest validation runs at run time (oracle.parse_manifest_entries).
+    # [expectations.ledger] block must never launch KSP. The block surface is
+    # checked directly; the per-entry surface DELEGATES to
+    # oracle.parse_manifest_entries (2026-07-31), so a manifest that would red
+    # post-flight as a hard PARSEK-FAIL(ledger) reds here instead - all but the
+    # one funds fill-from-capture rule, which needs the produced log.
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
+
+    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind] and
+    # [expectations.recordings.structure]. Same rationale as the unityExceptions
+    # block above - a malformed window (or a non-bool gating key) must be a
+    # pre-launch rejection, never a block that silently evaluates as a no-op.
+    if "rewind" in expectations:
+        errors.extend(saveparse.validate_rewind_expectations(expectations.get("rewind")))
+    recordings_block = expectations.get("recordings")
+    if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
+        errors.extend(saveparse.validate_structure_expectations(
+            recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+    # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
+    # WARN like the unityExceptions precedent (armed-and-empty is a hard error
+    # inside the validators above).
+    warnings.extend(saveparse.save_structure_expectation_warnings(expectations))
 
     # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
     # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
@@ -3020,6 +3075,7 @@ _PROVISION_DIR = _os.path.abspath(
 if _PROVISION_DIR not in _sys.path:
     _sys.path.insert(0, _PROVISION_DIR)
 import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
+import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surface validation lives there so validator + evaluator share one vocabulary)
 
 
 def build_expected_admission(
@@ -3304,11 +3360,16 @@ class ExpectationResult:
     observed: Dict[str, Any] = field(default_factory=dict)
 
 
-# M-B2 (design ~495): on activation ``world`` LEAVES this tuple -- the ledger-oracle
-# verifier (chain slot 8) becomes its SOLE owner (vessel resource totals), so slot 7
+# M-B2 (design ~495): on activation ``world`` LEFT this tuple -- the ledger-oracle
+# verifier (chain slot 8) became its SOLE owner (vessel resource totals), so slot 7
 # STOPS recording it as reserved and there is exactly ONE owner (no double-count).
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
-RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "rewind", "loop")
+# M-C2 (R9): ``rewind`` LEFT the tuple the same way -- the save-parse verifier
+# (saveparse.evaluate_save_structure, run as its own chain row) is its sole owner,
+# alongside the new ``[expectations.recordings.structure]`` sub-block. ``route`` and
+# ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
+# either), and building an evaluator with zero declarers would be unused surface.
+RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
 
 
 def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any]:
@@ -3328,7 +3389,9 @@ def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any
     (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
     ONLY facet the recordings block declares (hence the only one to observe);
     the logContracts facets are regex predicates with no numeric counterpart
-    worth persisting, and route/rewind/loop stay RESERVED.
+    worth persisting, and route/loop stay RESERVED. The rewind / structure
+    facets are owned and observed by the M-C2 save-parse verifier
+    (saveparse.observed_structure_facets), not here - one owner per facet.
 
     Recording is UNCONDITIONAL on the spec: a scenario that declares no count
     window still gets its measured count recorded, which is how a NEW scenario
@@ -3349,11 +3412,14 @@ def evaluate_expectations(
     v1 evaluates: ``recordings.count`` (min/max window) and
     ``logContracts.required`` / ``logContracts.forbidden`` (LITERAL KSP.log line
     regex patterns applied with ``re.search`` over the log body). A mismatch ->
-    FAIL (the caller reds PARSEK-FAIL expectation). The route/rewind/loop blocks
-    are RESERVED: parsed + recorded SKIPPED until their verifiers land (M-C2), so a
-    scenario written now needs no format break then. ``world`` is NO LONGER reserved
-    here (M-B2 gave verifier 8 sole ownership, design ~495) and ``ledger`` is a
-    tolerated-unknown block this evaluator ignores (verifier 8 owns it).
+    FAIL (the caller reds PARSEK-FAIL expectation). The route/loop blocks are
+    RESERVED: parsed + recorded SKIPPED until their verifiers land, so a scenario
+    written now needs no format break then. ``world`` is NO LONGER reserved here
+    (M-B2 gave verifier 8 sole ownership, design ~495), ``rewind`` is NO LONGER
+    reserved here either (M-C2/R9 gave the save-parse verifier sole ownership,
+    alongside ``recordings.structure`` which this evaluator ignores), and
+    ``ledger`` is a tolerated-unknown block this evaluator ignores (verifier 8
+    owns it).
 
     The result also carries ``observed`` - the MEASURED facets
     (``observed_expectation_facets``) - so a green run's numbers survive into
@@ -3811,9 +3877,12 @@ def unity_exception_expectation_warnings(block: Optional[Dict]) -> List[str]:
 # The PURE half of the leg-A manifest capture + the produced-save careerSave read.
 # The oracle MATH itself lives in the sibling ``oracle.py`` (parse / compute /
 # diff / build-result); run.py glues these two libraries together. Everything
-# here is side-effect-free over strings / dicts and imports NOTHING from oracle
-# (it emits the raw entry-dict shape oracle.parse_manifest_entries consumes, and
-# reads oracle-entry objects structurally via duck typing in the cross-check).
+# here is side-effect-free over strings / dicts. It stayed import-free of oracle
+# until 2026-07-31: `validate_ledger_expectations` now takes a DEFERRED
+# `import oracle` to delegate per-entry validation (oracle imports only stdlib,
+# so there is no cycle). Everything ELSE here is still oracle-free - it emits the
+# raw entry-dict shape oracle.parse_manifest_entries consumes, and reads
+# oracle-entry objects structurally via duck typing in the cross-check.
 # ---------------------------------------------------------------------------
 
 # The [expectations.ledger] spec-surface vocabulary (design Data Model ~226). v1
@@ -3823,12 +3892,14 @@ LEDGER_SEED_FROM_VALUES: Tuple[str, ...] = ("template",)
 LEDGER_TOLERANCE_VALUES: Tuple[str, ...] = ("default",)
 
 # The stock-award CROSS-CHECK mode (2026-07-29, shipped with the pattern rewrite).
-# `report` (the DEFAULT, and what all 55 committed specs take by declaring nothing)
-# records every unmatched captured award as a REPORT-ONLY oracle divergence;
-# `gate` restores the hard PARSEK-FAIL(ledger) the code always intended.
+# `report` (the DEFAULT, and what every committed spec but ONE takes by declaring
+# nothing) records every unmatched captured award as a REPORT-ONLY oracle
+# divergence; `gate` restores the hard PARSEK-FAIL(ledger) the code always
+# intended. `CL-2-pod-impact-ledger` has declared `gate` since 2026-07-31.
 #
-# WHY THE DEFAULT IS `report` AND NOT `gate`. The cross-check was WRITTEN as a hard
-# gate, but it has never once run with a working capture: STOCK_AWARD_PATTERNS
+# WHY THE DEFAULT IS `report` AND NOT `gate` (historical, and still the default).
+# The cross-check was WRITTEN as a hard gate, but for a long time it had never once
+# run with a working capture - it first did on 2026-07-30. STOCK_AWARD_PATTERNS
 # matched invented shapes, so the captured set was empty on every flight and the
 # gate could not fire. Making the patterns real turns that dormant gate live in one
 # step, against scenarios NOBODY has measured it on. So the mechanism lands
@@ -3868,16 +3939,25 @@ def capture_cross_check_gates(ledger_block: Optional[Dict]) -> bool:
     return ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY) == LEDGER_CAPTURE_CROSS_CHECK_GATE
 
 
+# The one oracle rejection reason a PRE-LAUNCH gate must NOT raise: it reads the
+# captured pool, which is empty by construction before the flight. See the carve-out
+# note in validate_ledger_expectations.
+_LEDGER_FUNDS_FILL_MARKER = ".funds: null fill-from-capture is ambiguous"
+
+
 def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     """Validate the ``[expectations.ledger]`` spec-surface block (design ~226).
 
-    Structural spec-surface only (a malformed ledger block must never launch KSP):
-    ``seedFrom`` in the accepted set, ``tolerances`` in the accepted set,
-    ``rec3CarveOut`` a bool, ``manifest`` an array. The per-ENTRY validation (the
-    ``kind`` enum, the every-amount-is-a-DELTA rule, the state-dependent-facet
-    author-constant rule) is oracle.parse_manifest_entries's job at RUN time (a
-    captured line can only be judged against the produced log), so this stays a
-    cheap pre-launch gate. Returns every failing rule (mirrors validate_spec)."""
+    A malformed ledger block must never launch KSP. The block-level surface is
+    checked here directly (``seedFrom`` / ``tolerances`` in their accepted sets,
+    ``rec3CarveOut`` a bool, ``manifest`` an array, ``captureCrossCheck`` in its
+    accepted set), and the per-ENTRY surface is DELEGATED to
+    ``oracle.parse_manifest_entries`` - the very parser whose rejections become a
+    hard PARSEK-FAIL(ledger) after the flight - so a spec that would red post-flight
+    reds pre-boot instead, for the same reason. The single exception is the funds
+    fill-from-capture ambiguity, which reads the captured pool and is therefore
+    skipped here; see the carve-out note at the call site. Returns every failing
+    rule (mirrors validate_spec)."""
     if not isinstance(ledger_block, dict):
         return ["expectations.ledger: must be a table"]
     errs: List[str] = []
@@ -3895,6 +3975,44 @@ def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
     manifest = ledger_block.get("manifest", [])
     if not isinstance(manifest, list):
         errs.append("expectations.ledger.manifest: must be an array of entry tables")
+    else:
+        # PRE-LAUNCH ENTRY VALIDATION IS THE ORACLE'S OWN PARSER, CALLED HERE - not a
+        # hand-rolled mirror of a chosen subset of its rules.
+        #
+        # WHY DELEGATION RATHER THAN A MIRROR (PR #1397 review, second pass). A
+        # rejected manifest entry is a HARD manifest-parse-error PARSEK-FAIL(ledger)
+        # AFTER the flight, so EVERY shape the oracle rejects costs a full flight to
+        # discover. An earlier version of this function mirrored only `utWindow`,
+        # then only `utWindow` + `ut` + entry-is-a-table, and justified the remainder
+        # as "value/semantic rules rather than shape rules". That boundary did not
+        # survive scrutiny: running the oracle with `captured=None` (exactly
+        # pre-launch knowledge) rejects EVERY one of its rules deterministically, and
+        # two of the supposedly-semantic ones - `seq` (must be an int) and
+        # `stockReason` (non-empty string or array of them) - are pure type/shape
+        # rules that CL-2's own manifest hand-writes on every entry. The honest
+        # boundary is not "shape vs value", it is "does the rule need the produced
+        # log?", and the answer is no for all but one. Delegating also removes the
+        # drift surface entirely: there is no second implementation to keep in step.
+        #
+        # THE ONE CARVE-OUT: the funds fill-from-capture ambiguity. That rule reads
+        # the CAPTURED pool, which is empty by construction pre-launch, so a null
+        # funds amount always looks ambiguous here. Rejecting it would refuse a spec
+        # the oracle could accept at run time - the UNSAFE direction (a pre-launch
+        # gate must never be stricter than the parser it front-runs). It is skipped,
+        # which leaves exactly one entry shape that still costs a flight; today that
+        # shape is unreachable anyway (`STOCK_AWARD_PATTERNS_DEAD` - KSP logs no
+        # funds award, so the fill can never resolve), and it is the only rule whose
+        # pre-launch answer could ever differ from its run-time one.
+        #
+        # Error text is re-prefixed `entry[N]` -> `manifest[N]` so a reader is
+        # pointed at the spec's own key path rather than the oracle's internal one.
+        import oracle  # deferred sibling import: lib/ is on sys.path for every
+                       # caller that already imported hlib from it, and oracle
+                       # imports nothing from hlib (no cycle).
+        for err in oracle.parse_manifest_entries(manifest).errors:
+            if _LEDGER_FUNDS_FILL_MARKER in err:
+                continue
+            errs.append("expectations.ledger.manifest" + err.replace("entry[", "[", 1))
     if LEDGER_CAPTURE_CROSS_CHECK_KEY in ledger_block:
         mode = ledger_block.get(LEDGER_CAPTURE_CROSS_CHECK_KEY)
         if mode not in LEDGER_CAPTURE_CROSS_CHECK_VALUES:
@@ -4249,7 +4367,8 @@ DEFAULT_CAPTURE_MATCH_TOLERANCES: Dict[str, float] = {
 
 def _entry_facet_amount(entry, facet: str) -> float:
     """The seam entry's declared delta on ``facet`` (structural read, duck-typed so
-    this module still imports nothing from oracle). Unknown facet -> 0.0."""
+    this cross-check path needs no oracle import of its own; only
+    ``validate_ledger_expectations`` imports oracle). Unknown facet -> 0.0."""
     try:
         return float(getattr(entry, facet, 0.0) or 0.0)
     except (TypeError, ValueError):
@@ -4294,7 +4413,9 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     POOL and the AMOUNT.
 
     An award is EXPECTED iff some seam entry:
-      - shares its type-tagged ``seq_key``;
+      - shares its type-tagged ``seq_key``, OR - when the entry declares a
+        ``utWindow`` (the FLOWN-scenario key, see below) - the award carries a UT
+        inside the entry's inclusive ``[lo, hi]`` window;
       - declares a NON-ZERO delta on the award's facet (an entry that does not touch
         that pool cannot explain an award on it);
       - agrees on the amount within the facet tolerance (reputation needs the window:
@@ -4304,6 +4425,25 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
       - and, when the entry declares ``stockReason``, lists the award's stock reason
         key. That optional field TIGHTENS the match for an author who has read a green
         run's ``capturedRaw`` and wants the entry pinned to a named stock effect.
+
+    THE ``utWindow`` KEY IS WHAT MAKES THE CROSS-CHECK ARMABLE ON A FLOWN SCENARIO
+    (2026-07-31; found by `CL-2-pod-impact-ledger`'s first live capture). A captured
+    award's ``seq_key`` is UT-valued whenever a UT-stamped [Parsek] line precedes it,
+    and a flown spec cannot pin that UT: CL-2's impact award measured ut 119.7 (the
+    archived B1 run of the same craft), 119.9 (flight 1) and 119.8 (flight 2), so the
+    exact join can never fire and every captured award reported "unexpected" - making
+    `captureCrossCheck = "gate"` unarmable exactly where it matters (a
+    reputation-producing flight). A window is what a flown spec CAN honestly declare:
+    the mission's phase bounds ("the impact lands between UT 100 and 140") are stable
+    across runs even though the exact UT is not. A windowed entry matches ONLY awards
+    carrying a real UT inside the inclusive bounds; a null-UT award never
+    window-matches (nothing to judge), and an award outside the bounds stays
+    unexpected. Declaring ``utWindow`` is OPT-IN PER ENTRY, and exactly ONE committed
+    spec declares one - ``CL-2-pod-impact-ledger``, armed against the real game
+    2026-07-31 (guarded by test_only_the_armed_allowlist_declares_a_ut_window), which
+    is also the only committed spec that arms ``captureCrossCheck = "gate"``. Every
+    other manifest is window-free and matches byte-identically to the pre-window
+    behavior.
 
     ONE-TO-ONE PER (ENTRY, POOL): a match CONSUMES the pair ``(entry, facet)``, so one
     declared effect explains at most one award ON EACH POOL IT DECLARES. That is what
@@ -4332,15 +4472,20 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     Corroboration can only SUPPRESS the extra unexpected-award row, never weaken the
     save diff.
 
-    ``seam_entries`` are oracle.ManifestEntry objects, read structurally so this
-    imports nothing from oracle.
+    ``seam_entries`` are oracle.ManifestEntry objects, read STRUCTURALLY, so this
+    function needs no oracle import of its own.
 
     WHAT THIS RETURNS IS NOT AUTOMATICALLY A RED. The run.py caller decides whether an
     unmatched award is a HARD divergence or a REPORT-ONLY row from the scenario's
-    ``[expectations.ledger] captureCrossCheck`` mode. Report-only is the default
-    because nobody has yet flown a run with a LIVE capture: an L1 career scenario also
-    trips stock MILESTONE awards no seam manifest declares (those stay unexpected and
-    are exactly what an operator must review before arming)."""
+    ``[expectations.ledger] captureCrossCheck`` mode. Report-only remains the DEFAULT,
+    because an unarmed career scenario also trips stock awards no seam manifest
+    declares (those stay unexpected and are exactly what an operator must review
+    before arming). ONE committed spec is ARMED as of 2026-07-31 -
+    ``CL-2-pod-impact-ledger`` - the capture is reputation-only, and of the two specs
+    that fly a reputation-producing crash it is the one that CAN carry a ledger block
+    (CL-1 is forbidden one) - after the
+    three-flight checklist in autotest-status.md known-gate 3 was walked against the
+    real game; for it, a return value from this function is a PARSEK-FAIL(ledger)."""
     tolerances = facet_tolerances or DEFAULT_CAPTURE_MATCH_TOLERANCES
     available = list(seam_entries or ())
     # CANDIDATE ORDER: `stockReason`-PINNED entries first. The match is greedy (first
@@ -4352,8 +4497,38 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     # pinning reasons. Trying constrained entries first fixes it in both log orders,
     # because a pinned entry only accepts the award it names. Stable sort, so
     # declaration order is preserved inside each group.
+    #
+    # SECONDARY KEY, same greedy-strand reasoning one level down: NARROWER acceptance
+    # first. An exact-seqKey entry accepts exactly one key (width 0); a `utWindow`
+    # entry accepts a span (width hi-lo). A wider candidate tried first can swallow
+    # an award a narrower entry names and strand the narrow one even when a perfect
+    # assignment exists (adversarial review of PR #1397, probe S1: wide [0,200]
+    # declared before narrow [100,140] against awards at 120 then 50 stranded the
+    # narrow entry); trying the narrowest first cannot, because any award a narrower
+    # entry accepts is judged against it before a wider one sees it. Exact entries
+    # are width 0, so exact-before-window falls out of the same rule. Stable sort:
+    # equal widths keep declaration order. This ordering IS live as of 2026-07-31:
+    # `CL-2-pod-impact-ledger` declares three windowed entries, so the width key
+    # orders them (impact width 300 after the two ascent widths of 100). It cannot
+    # strand any of them - they are pinned to distinct `stockReason`s with amounts
+    # ~11 apart against a 0.1 tolerance - but this is no longer a no-op branch, so
+    # a change here must be re-checked against that spec rather than assumed inert.
+    #
+    # KNOWN GREEDY LIMIT, deliberate: the PINNED-FIRST primary key dominates, so a
+    # stockReason-PINNED wide window is still tried before an UNPINNED exact entry
+    # and can take the one award that entry names when both awards carry the pinned
+    # reason (review probe S4). The alternative - a bipartite search - is not worth
+    # its complexity for a corroboration classifier that only ever fails CLOSED
+    # (a stranded entry yields a false "unexpected" row, never a false green).
+    # AUTHORING RULE: keep pinned windows as narrow as the mission's phase bounds
+    # allow; do not pair a broad pinned window with unpinned exact entries that
+    # expect awards of the same reason.
+    def _entry_acceptance_width(e) -> float:
+        w = getattr(e, "ut_window", None)
+        return (w[1] - w[0]) if w is not None else 0.0
     order = sorted(range(len(available)),
-                   key=lambda i: 0 if getattr(available[i], "stock_reasons", ()) else 1)
+                   key=lambda i: (0 if getattr(available[i], "stock_reasons", ()) else 1,
+                                  _entry_acceptance_width(available[i])))
     # Consumption is keyed (entry index, FACET) - see the per-pool rule above.
     consumed = set()
     out: List[CapturedAward] = []
@@ -4364,7 +4539,13 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
             if (i, c.facet) in consumed:
                 continue
             e = available[i]
-            if e.seq_key != c.seq_key:
+            window = getattr(e, "ut_window", None)
+            if window is not None:
+                # FLOWN-scenario key: inclusive UT window. A null-UT award has no
+                # position to judge -> never window-matches (fail-closed).
+                if c.ut is None or not (window[0] <= c.ut <= window[1]):
+                    continue
+            elif e.seq_key != c.seq_key:
                 continue
             declared_amount = _entry_facet_amount(e, c.facet)
             if declared_amount == 0.0:
@@ -4472,6 +4653,15 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # purpose - it is the CAUSE a sweep reader wants, where the expectation rows
     # are the downstream symptoms.
     "mission-outcome",
+    # M-C2 (R9): a GATING-armed [expectations.rewind] / [expectations.recordings.
+    # structure] mismatch (saveparse.evaluate_save_structure). Named separately
+    # from "expectation" for the same reason mission-outcome is: the structural
+    # save assertion is its own failure class, and the flag is only reachable
+    # for a scenario that armed gating = true. The verifier ships REPORT-ONLY;
+    # exactly ONE committed spec arms it (S4.1-rewind-merge, promoted
+    # 2026-07-31 after its report-only reading run), and the allowlist sweep
+    # `test_no_committed_spec_arms_gating` keeps that set deliberate.
+    "save-structure",
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -4646,8 +4836,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
-      log-contract / results / anomaly / unity-exception / expectation / ledger
-          -> PARSEK-FAIL
+      log-contract / results / anomaly / unity-exception / expectation /
+          save-structure / ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -4722,6 +4912,12 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "raw Unity exception count over the declared maxTotal")
             elif verifiers.get("expectation_mismatch", False):
                 base = V(VERDICT_PARSEK_FAIL, "expectation", "expectations manifest mismatch")
+            elif verifiers.get("save_structure_mismatch", False):
+                # Only reachable for a scenario that DECLARED an M-C2 block with
+                # gating = true; the save-parse verifier is report-only otherwise,
+                # so this branch is inert for every committed spec today.
+                base = V(VERDICT_PARSEK_FAIL, "save-structure",
+                         "gating save-structure expectations mismatch")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             else:
@@ -4954,8 +5150,10 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
     failed" branch, which precedes EVERY save-reading verifier in that chain, so the
     analyzer (triage-only),
     logValidate / testResults / anomalySweep / expectations (SKIPPED on
-    ``not driver_valid``) and the ledger oracle (SKIPPED, reason driver-invalid)
-    contribute nothing to the verdict on this path whether or not the tail ran.
+    ``not driver_valid``), the save-parse row (SKIPPED, reason driver-invalid,
+    facets recorded triage-only) and the ledger oracle (SKIPPED, reason
+    driver-invalid) contribute nothing to the verdict on this path whether or
+    not the tail ran.
     What skipping buys: no in-world action the scenario's own design says cannot
     happen, no deferral budget burned per failed attempt (EvaExit 120s +
     EvaChuteDeploy 420s, doubled under retry-once), and a collected save / log that

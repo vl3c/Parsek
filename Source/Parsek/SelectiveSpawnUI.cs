@@ -176,8 +176,9 @@ namespace Parsek
         /// ends with the "open Real Spawn Control" instruction. Basic UI mode hides that
         /// window's launcher, and a 10-second on-screen instruction to open a window with no
         /// button is worse than saying nothing - so Basic gets the observation without the
-        /// dead-end call to action. The caller supplies the flag as a plain bool (from
-        /// <c>ParsekUI.IsSpawnControlReachable</c>) so this stays pure and mode-blind.</para>
+        /// dead-end call to action. The caller supplies the flag as a plain bool (the UI
+        /// coordinator owns the reachability question) so this stays pure and mode-blind - which
+        /// the complexity-mode grep gate enforces: this file may not name that vocabulary.</para>
         /// </summary>
         internal static string FormatProximityNotification(
             NearbySpawnCandidate candidate, double currentUT, bool spawnControlReachable)
