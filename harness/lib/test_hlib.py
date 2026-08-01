@@ -2613,7 +2613,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4, "FLIGHT"),
         "H19-recording-finalization": ("RecordingFinalization", 3, "FLIGHT"),
         "H20-eva-spawn-position":    ("EvaSpawnPosition", 2, "FLIGHT"),
-        "H22-ui-complexity-mode":    ("UiComplexityMode", 3, "FLIGHT"),
+        "H22-ui-complexity-mode":    ("UiComplexityMode", 4, "FLIGHT"),
         "H23-tracking-station":      ("TrackingStation", 10, "TRACKSTATION"),
     }
 

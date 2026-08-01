@@ -67,20 +67,29 @@ count = { min = 0, max = 0 }
 #
 # ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The tally is pinned WHOLE: a
 # zero-executed batch (`total=0 ...`) or an all-skipped one satisfies a bare
-# `failed=0`. DERIVATION: UiComplexityModeInGameTests declares exactly 3
-# [InGameTest(Category = "UiComplexityMode", Scene = GameScenes.FLIGHT)] methods,
-# all AllowBatchExecution default-true, all scene-eligible at FLIGHT, so
-# total = executable = 3 with zero attribute-forced skips. passed=3 skipped=0 is
-# DERIVED, not yet measured: both runtime InGameAssert.Skip guards (no live
-# ParsekUI, Gloops recording in progress) are unreachable on this fixture. If a
-# test is added to the category, BOTH numbers move here in the same commit.
+# `failed=0`. DERIVATION: the UiComplexityMode category declares exactly 4
+# [InGameTest(Category = "UiComplexityMode", Scene = GameScenes.FLIGHT)] methods -
+# 3 in UiComplexityModeInGameTests plus MissionRevealScrollsToTheTargetMission in
+# MissionRevealInGameTests - all AllowBatchExecution default-true, all
+# scene-eligible at FLIGHT, so total = executable = 4 with zero attribute-forced
+# skips. passed=4 skipped=0 is MEASURED (run 2026-08-01_1435, FULL PASS): every
+# runtime InGameAssert.Skip guard in the category (no live ParsekUI / ParsekFlight,
+# Gloops recording in progress, windows not constructed, probe missions not seeded)
+# is unreachable on this fixture ONCE the mission-reveal test raises
+# ParsekFlight.ShowUIForTesting - the first archived attempt skipped precisely
+# because it did not, so that raise is load-bearing, not incidental. The mission-reveal test SEEDS ITS OWN two synthetic trees rather
+# than relying on the fixture, precisely because this fixture injects no
+# recordings and the test would otherwise skip on the very run meant to verify
+# it; it removes them in a finally and writes nothing to disk. If a test is added
+# to the category, BOTH numbers move here in the same commit.
 # RE-PIN passed=/skipped= from the measured line on the first archived run.
 required  = [
   "Mode changed: uiComplexityMode=Advanced->Basic",
   "Mode changed: uiComplexityMode=Basic->Advanced",
   "UiComplexityMode: opened \\d+ gated surfaces, locksHeldBeforeSwitch=",
   "UiComplexityMode: \\d+ surfaces visible in Advanced after the round trip",
-  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT",
+  "MissionReveal: captured distinct offsets A=\\d+\\.\\d+px B=\\d+\\.\\d+px fromClosed=\\d+\\.\\d+px",
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
