@@ -470,5 +470,54 @@ namespace Parsek.Tests
             string result = SelectiveSpawnUI.FormatNextSpawnTooltip(null, 100);
             Assert.Equal("No nearby craft to spawn", result);
         }
+
+        // --- Proximity screen message ---
+        // The message must not tell the player to open Real Spawn Control when Basic UI mode
+        // has removed its launcher: a 10-second on-screen instruction to open a window with
+        // no button is a dead end. The observation itself is still worth showing, so only the
+        // call to action drops.
+
+        [Fact]
+        public void FormatProximityNotification_Reachable_NamesTheWindow()
+        {
+            var cand = new NearbySpawnCandidate { vesselName = "Kerbal X" };
+
+            string result = SelectiveSpawnUI.FormatProximityNotification(cand, 100, true);
+
+            Assert.Equal(
+                "Nearby craft: Kerbal X. Open the Real Spawn Control window to fast forward and interact.",
+                result);
+        }
+
+        [Fact]
+        public void FormatProximityNotification_Unreachable_DropsTheInstruction()
+        {
+            var cand = new NearbySpawnCandidate { vesselName = "Kerbal X" };
+
+            string result = SelectiveSpawnUI.FormatProximityNotification(cand, 100, false);
+
+            Assert.Equal("Nearby craft: Kerbal X.", result);
+            Assert.DoesNotContain("Spawn Control", result);
+        }
+
+        [Fact]
+        public void FormatProximityNotification_Departing_KeepsTheDepartureFactsInBothModes()
+        {
+            var cand = new NearbySpawnCandidate
+            {
+                vesselName = "Kerbal X",
+                willDepart = true,
+                departureUT = 220,
+                destination = "Mun"
+            };
+
+            string reachable = SelectiveSpawnUI.FormatProximityNotification(cand, 100, true);
+            string basicMode = SelectiveSpawnUI.FormatProximityNotification(cand, 100, false);
+
+            Assert.Equal("Nearby craft: Kerbal X (departs to Mun in 2m 0s). Open Real Spawn Control.",
+                reachable);
+            Assert.Equal("Nearby craft: Kerbal X (departs to Mun in 2m 0s).", basicMode);
+            Assert.DoesNotContain("Spawn Control", basicMode);
+        }
     }
 }

@@ -75,7 +75,12 @@ $patterns = @(
     'UiComplexityMode',
     'UiSurfaceVisibility',
     'UiSurface',
-    'uiComplexityMode'
+    'uiComplexityMode',
+    # Design 9.1: a mode read wearing a plain-bool name. It is deliberately consumable
+    # from outside the UI (ParsekFlight's proximity message), so without it in this list
+    # ANY file could read the mode through it and the gate would still report OK - which
+    # is exactly the rot this gate exists to prevent.
+    'IsSpawnControlReachable'
 )
 
 $violations = New-Object System.Collections.Generic.List[string]

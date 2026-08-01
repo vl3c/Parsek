@@ -33,9 +33,12 @@ namespace Parsek
     /// Recordings-era name because it identifies the window whose code still lives in
     /// `UI/RecordingsTableUI.cs`.</description></item>
     /// <item><description>The Timeline `GoTo` cross-link button reuses
-    /// <see cref="TabRecordings"/> as its gate key (design 4.1a): a control whose sole
-    /// purpose is navigating to a hidden surface is gated by the TARGET surface's key,
-    /// not by its host window's. No dedicated surface value exists for it.</description></item>
+    /// <see cref="TabMissions"/> as its gate key (design 4.1a): a control whose sole
+    /// purpose is navigating to another surface is gated by the TARGET surface's key, not
+    /// by its host window's. Missions is visible in both modes, so the gate hides nothing
+    /// today - it exists so that pointing GoTo at a hidden surface would automatically hide
+    /// the button instead of stranding the player. No dedicated surface value exists for
+    /// it.</description></item>
     /// </list>
     /// </remarks>
     internal enum UiSurface
@@ -64,10 +67,10 @@ namespace Parsek
         /// <summary>Settings launcher.</summary>
         MainButtonSettings,
 
-        /// <summary>The raw per-recording table tab. Also the gate key for the Timeline GoTo button.</summary>
+        /// <summary>The raw per-recording table tab.</summary>
         TabRecordings,
 
-        /// <summary>The mission abstraction tab.</summary>
+        /// <summary>The mission abstraction tab. Also the gate key for the Timeline GoTo button.</summary>
         TabMissions,
 
         /// <summary>Settings section: verbose logging, tracing toggles, Test Runner.</summary>
@@ -110,7 +113,7 @@ namespace Parsek
                 case UiSurface.MainButtonRecordings:     // the Missions launcher
                 case UiSurface.MainButtonLogistics:      // only supply-route surface; kept for discoverability
                 case UiSurface.MainButtonSettings:       // hosts the mode toggle itself
-                case UiSurface.TabMissions:              // the player-facing mission abstraction
+                case UiSurface.TabMissions:              // mission abstraction; also gates Timeline GoTo
                     visibleInBasic = true;
                     break;
 
@@ -119,7 +122,7 @@ namespace Parsek
                 case UiSurface.MainButtonKerbals:            // read-only roster reference
                 case UiSurface.MainButtonCareer:             // read-only career reference
                 case UiSurface.MainButtonGloops:             // manual ghost-only recorder
-                case UiSurface.TabRecordings:                // raw per-recording table (also gates Timeline GoTo)
+                case UiSurface.TabRecordings:                // raw per-recording table
                 case UiSurface.SettingsSectionDiagnostics:   // developer instrumentation
                 case UiSurface.SettingsSectionSampleDensity: // recorder fidelity tuning
                     visibleInBasic = false;

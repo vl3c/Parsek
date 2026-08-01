@@ -390,15 +390,43 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called by the Timeline GoTo button. Ensures the target recording is visible
-        /// (unhides if hidden, disables hide filter if needed, expands parent groups),
-        /// opens the window, and scrolls to the recording.
-        /// <para>Advanced-only in practice: the GoTo button that calls this is gated on
-        /// <see cref="UiSurface.TabRecordings"/> (design 4.1a), so the
-        /// <see cref="TabRecordings"/> write below can never produce a Basic-invalid index
-        /// through this path. It needs no gate of its own: the defensive on-draw clamp in
-        /// <c>DrawRecordingsWindow</c> (design 7.4) covers this and any future caller, and
-        /// the Basic dispatch is pinned to Missions regardless.</para>
+        /// Cross-link entry point used by the Timeline GoTo button: opens this window on the
+        /// MISSIONS tab and asks <see cref="MissionsWindowUI.RevealMissionForRecording"/> to
+        /// scroll to the mission that owns <paramref name="recordingId"/>.
+        /// <para>Works in BOTH complexity modes, which is the point: the Missions tab is the
+        /// one Basic keeps, so unlike the old Recordings-tab cross-link this needs no gate and
+        /// strands nobody (design `docs/dev/design-ui-basic-advanced.md` section 4.1a). The
+        /// <see cref="TabMissions"/> write is Basic-valid by construction - it is what
+        /// <see cref="ClampTabIndexForMode"/> clamps TO and what the Basic content dispatch is
+        /// pinned to.</para>
+        /// </summary>
+        internal void ShowMissionForRecording(string recordingId)
+        {
+            if (!showRecordingsWindow) showRecordingsWindow = true;
+
+            if (selectedTab != TabMissions)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: selecting Missions tab (was {selectedTab})");
+                selectedTab = TabMissions;
+            }
+
+            parentUI.GetMissionsUI().RevealMissionForRecording(recordingId);
+        }
+
+        /// <summary>
+        /// Ensures the target recording is visible in the RECORDINGS tab (unhides if hidden,
+        /// expands parent groups, un-hides hidden groups), opens the window, and scrolls to the
+        /// recording. Note the HideActive branch below is unreachable - it tests
+        /// <c>target.Hidden</c> after the line above has already cleared it - so the filter is
+        /// in practice never disabled here.
+        /// <para>NOTE: no production caller. The Timeline GoTo button used to be the only one;
+        /// it now routes through <see cref="ShowMissionForRecording"/> so it works in Basic too.
+        /// This is retained as the Recordings tab's navigation API (and is exercised by the tab
+        /// tests, which need a lever that selects <see cref="TabRecordings"/>). It needs no
+        /// complexity gate of its own: the defensive on-draw clamp in
+        /// <c>DrawRecordingsWindow</c> (design 7.4) covers any caller, and the Basic dispatch is
+        /// pinned to Missions regardless.</para>
         /// </summary>
         internal void ScrollToRecording(string recordingId)
         {
@@ -1295,12 +1323,14 @@ namespace Parsek
             // frame must agree on the control count, and the toolbar IS a control.
             UiComplexityMode complexity = ParsekUI.AppliedUiComplexityMode;
 
-            // Defensive on-draw clamp (design 7.4). The deferred mode-apply already clamps,
-            // so this is a backstop for any future caller that moves `selectedTab` without
-            // going through it (`ScrollToRecording` is the only one today, and it is
-            // reachable only from the Advanced-only Timeline GoTo button). It reads the
-            // latched mode, so it is deterministic within a frame - identical in Layout and
-            // Repaint - and therefore layout-safe.
+            // Defensive on-draw clamp (design 7.4). The deferred mode-apply already clamps, so
+            // this is a backstop for any caller that moves `selectedTab` without going through
+            // it. The tab bar itself only moves `selectedTab` while it is drawn (Advanced),
+            // and `ShowMissionForRecording` writes `TabMissions`, which is Basic-valid already;
+            // `ScrollToRecording` (no production caller) is the one write that can still produce
+            // the Basic-invalid index. It
+            // reads the latched mode, so it is deterministic within a frame - identical in
+            // Layout and Repaint - and therefore layout-safe.
             ApplyTabClamp(complexity, "draw");
 
             // Two-tab bar (Missions | Recordings), each half the window width. The Missions

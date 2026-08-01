@@ -1072,16 +1072,17 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
 
-            // Basic / Advanced gating (design 4.1a). The GoTo cross-link's sole purpose is
-            // navigating to the raw Recordings TAB, so it is gated by that TARGET surface's
-            // key, not by its host window's (Timeline itself is visible in both modes). No
-            // dedicated UiSurface value exists for it. Hiding the button also prevents its
-            // side effects (unhiding the target recording, disabling the HideActive filter)
-            // from firing with no visible destination.
+            // Basic / Advanced gating (design 4.1a). The GoTo cross-link navigates to the
+            // MISSIONS tab, so it is gated by that TARGET surface's key, not by its host
+            // window's (Timeline itself is visible in both modes). Missions is a surface Basic
+            // KEEPS, so this reads true in both modes - the gate stays for the invariant it
+            // states, not to hide anything: it is what makes "GoTo can never point at a hidden
+            // destination" mechanical rather than a comment. Retargeting the button at a hidden
+            // surface would flip it back to hiding, which is the correct failure.
             // Read the FRAME-LATCHED mode, never the settings field: GoTo is a control, and
             // the Layout and Repaint passes of one frame must agree on the control count.
-            bool showRecordingsCrossLink = UiSurfaceVisibility.IsVisible(
-                UiSurface.TabRecordings, ParsekUI.AppliedUiComplexityMode);
+            bool showMissionCrossLink = UiSurfaceVisibility.IsVisible(
+                UiSurface.TabMissions, ParsekUI.AppliedUiComplexityMode);
 
             // Pick style based on entry state
             GUIStyle style;
@@ -1199,19 +1200,21 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
-                    // GoTo button — always last, right-aligned. Hidden in Basic (design 4.1a).
-                    if (showRecordingsCrossLink)
+                    // GoTo button — always last, right-aligned. Shown in both modes (design 4.1a).
+                    if (showMissionCrossLink)
                     {
+                        // Shown DISABLED rather than dropped when the row has no mission to go
+                        // to (mirrors the Watch button above, and keeps the row layout stable).
+                        GUI.enabled = CanGoToMission(rec);
                         if (GUILayout.Button(
-                                new GUIContent("GoTo", "Show in Recordings tab"),
+                                new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
                                 GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                         {
-                            parentUI.SelectedRecordingId = entry.RecordingId;
-                            if (tableUI != null)
-                                tableUI.ScrollToRecording(entry.RecordingId);
+                            tableUI.ShowMissionForRecording(entry.RecordingId);
                             ParsekLog.Verbose("Timeline",
                                 $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId}");
                         }
+                        GUI.enabled = true;
                     }
                 }
             }
@@ -1233,20 +1236,22 @@ namespace Parsek
                         DrawTimelineFlySealButtons(rec);
                     }
 
-                    // Hidden in Basic (design 4.1a), same gate as the RecordingStart row above.
-                    if (showRecordingsCrossLink)
+                    // Same gate as the RecordingStart row above (design 4.1a).
+                    if (showMissionCrossLink)
                     {
+                        // Shown DISABLED rather than dropped when the row has no mission to go
+                        // to (mirrors the Watch button above, and keeps the row layout stable).
+                        GUI.enabled = CanGoToMission(rec);
                         if (GUILayout.Button(
-                                new GUIContent("GoTo", "Show in Recordings tab"),
+                                new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
                                 GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                         {
-                            parentUI.SelectedRecordingId = entry.RecordingId;
-                            if (tableUI != null)
-                                tableUI.ScrollToRecording(entry.RecordingId);
+                            tableUI.ShowMissionForRecording(entry.RecordingId);
                             ParsekLog.Verbose("Timeline",
                                 $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId} " +
                                 $"(separation entry, type={entry.Type})");
                         }
+                        GUI.enabled = true;
                     }
                 }
             }
@@ -1370,6 +1375,31 @@ namespace Parsek
                 && slotListIndex >= 0
                 && rp.ChildSlots != null
                 && slotListIndex < rp.ChildSlots.Count;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> belongs to a mission the GoTo cross-link can reach.
+        /// <para>Missions are keyed on recording TREES, so a recording with no
+        /// <see cref="Recording.TreeId"/> belongs to no mission and there is nothing to navigate
+        /// to. That population is not hypothetical: manual Gloops (ghost-only) recordings are
+        /// committed without a tree and DO produce timeline rows, so without this the button
+        /// would be live on those rows and do nothing when clicked. Same argument the design
+        /// makes for the Basic-mode message wording (section 9.1) - an affordance that cannot
+        /// act is worse than no affordance.</para>
+        /// </summary>
+        internal static bool CanGoToMission(Recording rec)
+        {
+            return rec != null && !string.IsNullOrEmpty(rec.TreeId);
+        }
+
+        /// <summary>
+        /// GoTo tooltip: the destination when there is one, otherwise the reason there is not.
+        /// </summary>
+        internal static string GetGoToMissionTooltip(Recording rec)
+        {
+            return CanGoToMission(rec)
+                ? "Show this recording's mission"
+                : "This recording is not part of a mission";
         }
 
         internal static float GetRowActionButtonWidth(TimelineRowActionButtonKind actionKind)
