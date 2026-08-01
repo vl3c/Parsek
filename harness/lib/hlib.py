@@ -45,7 +45,8 @@ line), the offline analyzer + baseline (``RED=`` gate token + the
 ``.analysis.json`` fail/stale split + ``BASELINE-*`` findings), the provisioner
 (``provlib.compare_manifest`` / ``project_admission``).
 
-ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission).
+ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission, and
+saveparse, the M-C2/R9 pure sibling, for the save-parse spec-surface validation).
 """
 
 from __future__ import annotations
@@ -2949,6 +2950,21 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
+    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind] and
+    # [expectations.recordings.structure]. Same rationale as the unityExceptions
+    # block above - a malformed window (or a non-bool gating key) must be a
+    # pre-launch rejection, never a block that silently evaluates as a no-op.
+    if "rewind" in expectations:
+        errors.extend(saveparse.validate_rewind_expectations(expectations.get("rewind")))
+    recordings_block = expectations.get("recordings")
+    if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
+        errors.extend(saveparse.validate_structure_expectations(
+            recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+    # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
+    # WARN like the unityExceptions precedent (armed-and-empty is a hard error
+    # inside the validators above).
+    warnings.extend(saveparse.save_structure_expectation_warnings(expectations))
+
     # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
     # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
     # from a quicksave the seed + manifest contract cannot reconstruct, and
@@ -3059,6 +3075,7 @@ _PROVISION_DIR = _os.path.abspath(
 if _PROVISION_DIR not in _sys.path:
     _sys.path.insert(0, _PROVISION_DIR)
 import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
+import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surface validation lives there so validator + evaluator share one vocabulary)
 
 
 def build_expected_admission(
@@ -3343,11 +3360,16 @@ class ExpectationResult:
     observed: Dict[str, Any] = field(default_factory=dict)
 
 
-# M-B2 (design ~495): on activation ``world`` LEAVES this tuple -- the ledger-oracle
-# verifier (chain slot 8) becomes its SOLE owner (vessel resource totals), so slot 7
+# M-B2 (design ~495): on activation ``world`` LEFT this tuple -- the ledger-oracle
+# verifier (chain slot 8) became its SOLE owner (vessel resource totals), so slot 7
 # STOPS recording it as reserved and there is exactly ONE owner (no double-count).
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
-RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "rewind", "loop")
+# M-C2 (R9): ``rewind`` LEFT the tuple the same way -- the save-parse verifier
+# (saveparse.evaluate_save_structure, run as its own chain row) is its sole owner,
+# alongside the new ``[expectations.recordings.structure]`` sub-block. ``route`` and
+# ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
+# either), and building an evaluator with zero declarers would be unused surface.
+RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
 
 
 def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any]:
@@ -3367,7 +3389,9 @@ def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any
     (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
     ONLY facet the recordings block declares (hence the only one to observe);
     the logContracts facets are regex predicates with no numeric counterpart
-    worth persisting, and route/rewind/loop stay RESERVED.
+    worth persisting, and route/loop stay RESERVED. The rewind / structure
+    facets are owned and observed by the M-C2 save-parse verifier
+    (saveparse.observed_structure_facets), not here - one owner per facet.
 
     Recording is UNCONDITIONAL on the spec: a scenario that declares no count
     window still gets its measured count recorded, which is how a NEW scenario
@@ -3388,11 +3412,14 @@ def evaluate_expectations(
     v1 evaluates: ``recordings.count`` (min/max window) and
     ``logContracts.required`` / ``logContracts.forbidden`` (LITERAL KSP.log line
     regex patterns applied with ``re.search`` over the log body). A mismatch ->
-    FAIL (the caller reds PARSEK-FAIL expectation). The route/rewind/loop blocks
-    are RESERVED: parsed + recorded SKIPPED until their verifiers land (M-C2), so a
-    scenario written now needs no format break then. ``world`` is NO LONGER reserved
-    here (M-B2 gave verifier 8 sole ownership, design ~495) and ``ledger`` is a
-    tolerated-unknown block this evaluator ignores (verifier 8 owns it).
+    FAIL (the caller reds PARSEK-FAIL expectation). The route/loop blocks are
+    RESERVED: parsed + recorded SKIPPED until their verifiers land, so a scenario
+    written now needs no format break then. ``world`` is NO LONGER reserved here
+    (M-B2 gave verifier 8 sole ownership, design ~495), ``rewind`` is NO LONGER
+    reserved here either (M-C2/R9 gave the save-parse verifier sole ownership,
+    alongside ``recordings.structure`` which this evaluator ignores), and
+    ``ledger`` is a tolerated-unknown block this evaluator ignores (verifier 8
+    owns it).
 
     The result also carries ``observed`` - the MEASURED facets
     (``observed_expectation_facets``) - so a green run's numbers survive into
@@ -4626,6 +4653,15 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # purpose - it is the CAUSE a sweep reader wants, where the expectation rows
     # are the downstream symptoms.
     "mission-outcome",
+    # M-C2 (R9): a GATING-armed [expectations.rewind] / [expectations.recordings.
+    # structure] mismatch (saveparse.evaluate_save_structure). Named separately
+    # from "expectation" for the same reason mission-outcome is: the structural
+    # save assertion is its own failure class, and the flag is only reachable
+    # for a scenario that armed gating = true. The verifier ships REPORT-ONLY;
+    # exactly ONE committed spec arms it (S4.1-rewind-merge, promoted
+    # 2026-07-31 after its report-only reading run), and the allowlist sweep
+    # `test_no_committed_spec_arms_gating` keeps that set deliberate.
+    "save-structure",
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -4800,8 +4836,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
-      log-contract / results / anomaly / unity-exception / expectation / ledger
-          -> PARSEK-FAIL
+      log-contract / results / anomaly / unity-exception / expectation /
+          save-structure / ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -4876,6 +4912,12 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "raw Unity exception count over the declared maxTotal")
             elif verifiers.get("expectation_mismatch", False):
                 base = V(VERDICT_PARSEK_FAIL, "expectation", "expectations manifest mismatch")
+            elif verifiers.get("save_structure_mismatch", False):
+                # Only reachable for a scenario that DECLARED an M-C2 block with
+                # gating = true; the save-parse verifier is report-only otherwise,
+                # so this branch is inert for every committed spec today.
+                base = V(VERDICT_PARSEK_FAIL, "save-structure",
+                         "gating save-structure expectations mismatch")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             else:
@@ -5108,8 +5150,10 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
     failed" branch, which precedes EVERY save-reading verifier in that chain, so the
     analyzer (triage-only),
     logValidate / testResults / anomalySweep / expectations (SKIPPED on
-    ``not driver_valid``) and the ledger oracle (SKIPPED, reason driver-invalid)
-    contribute nothing to the verdict on this path whether or not the tail ran.
+    ``not driver_valid``), the save-parse row (SKIPPED, reason driver-invalid,
+    facets recorded triage-only) and the ledger oracle (SKIPPED, reason
+    driver-invalid) contribute nothing to the verdict on this path whether or
+    not the tail ran.
     What skipping buys: no in-world action the scenario's own design says cannot
     happen, no deferral budget burned per failed attempt (EvaExit 120s +
     EvaChuteDeploy 420s, doubled under retry-once), and a collected save / log that
@@ -5823,3 +5867,184 @@ def flake_attempt_entries(result: Dict) -> List[Dict]:
     if verdict not in FLAKE_NUMERATOR_VERDICTS and recovered_subprocess_retries(result):
         entries.append({"utc": utc, "outcome": VERDICT_INVALID})
     return entries
+
+
+# ---------------------------------------------------------------------------
+# V3 always-collect artifact decisions (design-testing-unified section 6, V3).
+# Pure: run.py's unconditional per-run artifact step (copy the run's KSP.log +
+# any run-window screenshots into results/<runId>_shots/) delegates its two
+# decisions here -- how much of a possibly-huge KSP.log to copy, and which
+# Screenshots/ files belong to THIS run. The copy itself is shell I/O in run.py.
+# ---------------------------------------------------------------------------
+
+# KSP.log copy cap. A green run's log is a few MB, but a hung run at high warp
+# with a per-frame tracer armed can reach GBs; the artifact copy must be bounded
+# or a single bad run fills the results volume. On an oversize log the copy keeps
+# the HEAD (session markers, boot, the first anomalies) plus the TAIL (the
+# BATCH_COMPLETE line, teardown, the most recent anomalies -- the contact sheet's
+# primary inputs) and drops the middle with an explicit marker line, because the
+# verdict-bearing lines cluster at both ends while the middle of a runaway log is
+# almost always the same per-frame spam repeated.
+ARTIFACT_LOG_CAP_BYTES = 64 * 1024 * 1024
+ARTIFACT_LOG_HEAD_BYTES = 8 * 1024 * 1024
+ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
+
+# Screenshot selection. The instance's Screenshots/ dir accumulates across runs,
+# so only files stamped inside THIS run's wall-clock window are collected (with a
+# small slack for filesystem mtime granularity). Caps bound a capture-storm run.
+ARTIFACT_SCREENSHOT_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg")
+ARTIFACT_MAX_SCREENSHOTS = 64
+ARTIFACT_MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024
+ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class ArtifactLogCopyPlan:
+    copy_all: bool
+    head_bytes: int   # bytes to keep from the start (truncated plan only)
+    tail_bytes: int   # bytes to keep from the end (truncated plan only)
+
+
+def plan_artifact_log_copy(size_bytes: int,
+                           cap_bytes: Optional[int] = None,
+                           head_bytes: Optional[int] = None,
+                           tail_bytes: Optional[int] = None) -> ArtifactLogCopyPlan:
+    """Decide how much of the run's KSP.log the artifact step copies.
+
+    ``size_bytes <= cap_bytes`` -> copy the whole file. Larger -> keep the first
+    ``head_bytes`` + the last ``tail_bytes`` (clamped so head+tail never exceeds
+    the cap, and tail wins the clamp -- the tail carries BATCH_COMPLETE and the
+    teardown lines, the single most verdict-relevant region). A non-positive or
+    unknown size reads as "copy all" (the copy loop then just streams whatever is
+    there; an unreadable file degrades at the I/O layer, never here).
+
+    The cap parameters default to None and resolve to the module constants AT
+    CALL TIME (adversarial review NIT 6): def-time defaults would freeze the
+    constants, making a rebound ``hlib.ARTIFACT_LOG_CAP_BYTES`` inert -- and a
+    test could then only exercise the truncation path by writing a real 64 MiB
+    file.
+    """
+    if cap_bytes is None:
+        cap_bytes = ARTIFACT_LOG_CAP_BYTES
+    if head_bytes is None:
+        head_bytes = ARTIFACT_LOG_HEAD_BYTES
+    if tail_bytes is None:
+        tail_bytes = ARTIFACT_LOG_TAIL_BYTES
+    if size_bytes <= cap_bytes or size_bytes <= 0:
+        return ArtifactLogCopyPlan(True, 0, 0)
+    tail = max(0, min(tail_bytes, cap_bytes))
+    head = max(0, min(head_bytes, cap_bytes - tail))
+    return ArtifactLogCopyPlan(False, head, tail)
+
+
+def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
+                           run_start_epoch: float,
+                           max_count: Optional[int] = None,
+                           max_bytes: Optional[int] = None,
+                           mtime_slack: Optional[float] = None
+                           ) -> Tuple[List[str], int, int]:
+    """Select which Screenshots/ files belong to this run's artifact snapshot.
+
+    ``candidates`` are ``(name, mtime_epoch, size_bytes)`` rows for the files in
+    the instance's Screenshots dir. Returns ``(selected_names, skipped_prior,
+    skipped_over_cap)``:
+
+    - only image extensions count (case-insensitive; anything else is ignored
+      entirely -- neither selected nor counted);
+    - a file older than ``run_start_epoch - mtime_slack`` is a PRIOR run's
+      capture (the dir accumulates across runs) -> counted in ``skipped_prior``;
+    - survivors are considered in ``(mtime, name)`` order under a GREEDY-FILL
+      byte budget (adversarial review NIT 7, deliberate): a file that would
+      overflow ``max_bytes`` is skipped and LATER, smaller files may still be
+      selected -- one oversize capture must not evict every capture after it.
+      The count cap, once hit, drops everything later. Every drop is counted in
+      ``skipped_over_cap`` so the artifact record can say "N more existed"
+      instead of silently under-reporting.
+
+    Caps default to None and resolve to the module constants at call time
+    (same testability rationale as ``plan_artifact_log_copy``).
+    """
+    if max_count is None:
+        max_count = ARTIFACT_MAX_SCREENSHOTS
+    if max_bytes is None:
+        max_bytes = ARTIFACT_MAX_SCREENSHOT_BYTES
+    if mtime_slack is None:
+        mtime_slack = ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS
+    threshold = run_start_epoch - mtime_slack
+    eligible: List[Tuple[float, str, int]] = []
+    skipped_prior = 0
+    for name, mtime, size in candidates:
+        dot = name.rfind(".") if name else -1
+        ext = name[dot:].lower() if dot >= 0 else ""
+        if ext not in ARTIFACT_SCREENSHOT_EXTENSIONS:
+            continue
+        if mtime < threshold:
+            skipped_prior += 1
+            continue
+        eligible.append((mtime, name, size))
+    eligible.sort()
+    selected: List[str] = []
+    total_bytes = 0
+    skipped_over_cap = 0
+    for mtime, name, size in eligible:
+        if len(selected) >= max_count or total_bytes + max(0, size) > max_bytes:
+            skipped_over_cap += 1
+            continue
+        selected.append(name)
+        total_bytes += max(0, size)
+    return selected, skipped_prior, skipped_over_cap
+
+
+# Shots-dir retention (adversarial review MAJOR 1). The always-collect step
+# writes up to ARTIFACT_LOG_CAP_BYTES per attempt into results/<runId>_shots/,
+# results/ is gitignored (growth invisible to `git status`), and nothing else
+# ever prunes it -- so without retention a nightly cadence fills the volume the
+# harness stages fixtures into, which then reds runs for an unrelated reason.
+# Retention prunes OLDEST-FIRST, keeps the heavy *_shots dirs only (result
+# JSONs / summary / logs / contact HTML are KB-scale history and are NEVER
+# touched -- the contact page already embeds the extracted key lines as text,
+# so a pruned run keeps its scannable sheet and loses only the raw log + the
+# image files behind it).
+ARTIFACT_SHOTS_KEEP_DIRS = 40
+ARTIFACT_SHOTS_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def select_shots_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
+                               protect_name: Optional[str] = None,
+                               keep_dirs: Optional[int] = None,
+                               max_total_bytes: Optional[int] = None) -> List[str]:
+    """Which ``*_shots`` dirs the retention pass removes.
+
+    ``entries`` are ``(dir_name, mtime_epoch, total_size_bytes)`` rows for every
+    shots dir under results/. Walks NEWEST first, keeping dirs until EITHER
+    budget (``keep_dirs`` count / ``max_total_bytes``) trips -- and from the
+    first trip on, EVERYTHING OLDER is pruned (stop-on-trip, review NEW-4:
+    retention priority is strictly newest-wins, so a large recent run must
+    never be evicted while tiny older runs survive past it). ``protect_name``
+    (the CURRENT run's dir) is always kept regardless of budgets -- the run that
+    just collected its artifacts must never prune itself. Returned oldest
+    first. Caps default to None and resolve to the module constants at call
+    time.
+    """
+    if keep_dirs is None:
+        keep_dirs = ARTIFACT_SHOTS_KEEP_DIRS
+    if max_total_bytes is None:
+        max_total_bytes = ARTIFACT_SHOTS_MAX_TOTAL_BYTES
+    newest_first = sorted(entries, key=lambda e: (e[1], e[0]), reverse=True)
+    prune: List[str] = []
+    kept = 0
+    kept_bytes = 0
+    tripped = False
+    for name, _mtime, size in newest_first:
+        if name == protect_name:
+            kept += 1
+            kept_bytes += max(0, size)
+            continue
+        if tripped or kept >= keep_dirs or kept_bytes + max(0, size) > max_total_bytes:
+            tripped = True
+            prune.append(name)
+        else:
+            kept += 1
+            kept_bytes += max(0, size)
+    prune.reverse()  # oldest first, so a partial prune removes the oldest
+    return prune

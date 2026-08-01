@@ -21,6 +21,7 @@ import tomllib
 import unittest
 
 import hlib
+import saveparse
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -3777,10 +3778,22 @@ class EvaluateExpectationsTests(unittest.TestCase):
         self.assertEqual(hlib.evaluate_expectations(exp, None, log).status, "FAIL")
 
     def test_reserved_blocks_recorded(self):
-        # route/rewind/loop stay reserved until their verifiers land (M-C2).
+        # route/loop stay reserved until their verifiers land (their consumers do
+        # not exist yet; rewind LEFT the tuple with M-C2/R9, see below).
         exp = {"route": {"x": 1}, "recordings": {"count": {"min": 0, "max": 0}}}
         r = hlib.evaluate_expectations(exp, 0, "")
         self.assertIn("route", r.reserved)
+
+    def test_rewind_no_longer_reserved_after_mc2(self):
+        # M-C2 (R9): rewind LEFT RESERVED_EXPECTATION_BLOCKS the same way world did
+        # with M-B2 -- the save-parse verifier row is its SOLE owner, so slot 7 must
+        # NOT record it as reserved (exactly ONE owner, no double-count).
+        exp = {"rewind": {"supersedeRows": {"max": 0}},
+               "recordings": {"count": {"min": 0, "max": 0}}}
+        r = hlib.evaluate_expectations(exp, 0, "")
+        self.assertNotIn("rewind", r.reserved)
+        self.assertNotIn("rewind", hlib.RESERVED_EXPECTATION_BLOCKS)
+        self.assertEqual(("route", "loop"), hlib.RESERVED_EXPECTATION_BLOCKS)
 
     def test_world_no_longer_reserved_after_mb2(self):
         # M-B2 (design ~495): world LEFT RESERVED_EXPECTATION_BLOCKS -- verifier 8
@@ -4134,6 +4147,119 @@ class UnityExceptionScanTests(unittest.TestCase):
         verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
         self.assertEqual(("PARSEK-FAIL", "unity-exception"),
                          (verdict.verdict, verdict.subkind))
+
+
+class SaveStructureVerifierWiringTests(unittest.TestCase):
+    """The M-C2/R9 save-parse verifier's hlib-side wiring: spec-surface
+    validation routes through validate_spec, the gating flag classifies its own
+    PARSEK-FAIL subkind, and - the SAFETY PROPERTY, mirroring the
+    unityExceptions precedent - arming stays a deliberate, per-scenario,
+    live-proven act.
+
+    THAT PROPERTY WAS RESTATED 2026-07-31, not abandoned. It shipped as "no
+    committed spec arms gating, so landing the verifier cannot move any
+    nightly's verdict", which was the right guarantee while every arming was
+    still unproven. S4.1-rewind-merge was then promoted on evidence (reading run
+    `2026-07-31_1628`, armed `_1635`, negative control `_1637`), so the
+    guarantee became the next one along: the ARMED SET IS AN ALLOWLIST, and a
+    spec joining it needs an explicit edit citing its run ids.
+
+    The two cells below are COMPLEMENTARY AND MUST BE MAINTAINED AS A PAIR.
+    `test_no_committed_spec_arms_gating` is per-SPEC-FILE, so on its own it
+    would not notice S4.1 arming a second block or re-pinning a window;
+    `test_s41_declares_the_rewind_block_armed` supplies that per-block
+    granularity. Neither alone is the guard."""
+
+    def test_gating_mismatch_classifies_save_structure_parsek_fail(self):
+        d, v = _clean_pass_facts()
+        v["save_structure_mismatch"] = True
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(("PARSEK-FAIL", "save-structure"),
+                         (verdict.verdict, verdict.subkind))
+        self.assertIn("save-structure", hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_clean_flag_stays_pass(self):
+        d, v = _clean_pass_facts()
+        v["save_structure_mismatch"] = False
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_PASS, verdict.verdict)
+
+    def test_validate_spec_rejects_malformed_rewind_block(self):
+        spec = load_spec("S4.1-rewind-merge.toml")
+        reg = load_registry()
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "the committed S4.1 spec must keep validating untouched")
+        bad = copy.deepcopy(spec)
+        bad["expectations"]["rewind"] = {"supersedeRows": {"min": 2, "max": 1}}
+        v = hlib.validate_spec(bad, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.rewind.supersedeRows" in e for e in v.errors))
+        bad["expectations"]["rewind"] = {"gating": "yes"}
+        v = hlib.validate_spec(bad, reg)
+        self.assertFalse(v.ok)
+
+    def test_validate_spec_rejects_malformed_structure_block(self):
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        spec["expectations"]["recordings"]["structure"] = {
+            "terminalStates": {"Exploded": {"min": 1}}}
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("recordings.structure" in e for e in v.errors))
+        spec["expectations"]["recordings"]["structure"] = {
+            "trees": 1, "branchPoints": {"VesselSwitchContinuation": {"max": 0}}}
+        self.assertTrue(hlib.validate_spec(spec, load_registry()).ok,
+                        "a well-formed structure block must validate")
+
+    # THE ARMED ALLOWLIST. This started life as `assertEqual([], armed)` - the
+    # hard verdict-neutrality property that shipped with the verifier, when
+    # nothing was armed and every arming was still unproven. S4.1 was promoted
+    # 2026-07-31 after its report-only reading run, so the property it guards is
+    # now the NEXT one along: arming stays a deliberate, per-scenario, live-proven
+    # act. An allowlist keeps that guard biting - a second spec quietly growing a
+    # `gating = true` still reds here and still needs an explicit edit plus the run
+    # ids to justify it - where relaxing to "any spec may arm" would have thrown
+    # the guarantee away entirely on the day it first got used.
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml"}
+
+    def test_no_committed_spec_arms_gating(self):
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if saveparse.gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual(sorted(self.ARMED_ALLOWLIST), armed,
+                         "the set of specs arming save-structure gating changed; arming is "
+                         "a per-scenario operator decision taken only after a report-only "
+                         "reading run whose facets match the declared windows - add the "
+                         "spec here in the same commit that arms it, citing the run id")
+
+    def test_s41_declares_the_rewind_block_armed(self):
+        # S4.1 is the one committed declarer AND (2026-07-31) the one armed spec.
+        # Reading run `2026-07-31_1628` measured supersedeRows=0 / tombstones=0
+        # against the block's `max = 0` windows; `2026-07-31_1635` then flew PASS
+        # armed, and the `min = 1` negative control reddened `2026-07-31_1637`
+        # PARSEK-FAIL(save-structure). Flipped from ..._unarmed, which was the
+        # verdict-neutrality assertion for the report-only landing.
+        spec = load_spec("S4.1-rewind-merge.toml")
+        exp = spec["expectations"]
+        self.assertEqual(("rewind",), saveparse.declared_structure_blocks(exp))
+        self.assertTrue(saveparse.gating_armed(exp))
+        # The windows themselves are deliberately untouched by the arming commit:
+        # arming must not smuggle in a re-pinned window.
+        self.assertEqual({"max": 0}, exp["rewind"]["supersedeRows"])
+        self.assertEqual({"max": 0}, exp["rewind"]["tombstones"])
+        # ...nor an ADDED one. Pinning only the two VALUES above left a gap:
+        # appending e.g. `rewindPoints = { max = 0 }` passed both guard cells,
+        # yet that would be a newly ARMED, GATING window with no reading run
+        # behind it - and rewindPoints is precisely the key the block's own
+        # comment says it declined to pin ("one observation is not a window").
+        # Pin the KEY SET so growing the armed block is as deliberate as arming
+        # it was.
+        self.assertEqual({"gating", "supersedeRows", "tombstones"},
+                         set(exp["rewind"]),
+                         "a window was added to (or removed from) S4.1's ARMED block; "
+                         "every armed window needs its own report-only reading run first")
 
 
 class AnomalyGrepAnchoringTests(unittest.TestCase):

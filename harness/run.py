@@ -46,6 +46,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
 import hlib  # noqa: E402
 import oracle  # noqa: E402
 import provlib  # noqa: E402
+import saveparse  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Path layout (mirrors provision.py so the harness and the provisioner agree on
@@ -62,6 +63,7 @@ RESULTS_DIR = os.path.join(HARNESS_ROOT, "results")
 COVERAGE_DIR = os.path.join(HARNESS_ROOT, "coverage")
 FIXTURES_DIR = os.path.join(HARNESS_ROOT, "fixtures")
 PROFILES_DIR = os.path.join(PROVISION_DIR, "profiles")
+TOOLS_DIR = os.path.join(HARNESS_ROOT, "tools")
 
 # M-B1 mission library (design "Mission Library"). The autopilot missions, the
 # pure mlib decision core, the pinned requirements, and the vendored venv all live
@@ -1337,6 +1339,21 @@ def count_recordings(save_dir: str) -> int:
     return sum(1 for f in os.listdir(rec_dir) if f.endswith(".prec"))
 
 
+def read_save_structure(save_dir: str) -> Optional["saveparse.ParsekSaveSnapshot"]:
+    """Read + parse the produced save's persistent.sfs for the M-C2 save-parse
+    verifier. Thin I/O only - every parse decision is saveparse.py. Returns None
+    when the file is missing/unreadable (a DEFINED fault the evaluator names;
+    never read a missing save as zero rows)."""
+    sfs_path = os.path.join(save_dir, "persistent.sfs")
+    if not os.path.isfile(sfs_path):
+        return None
+    try:
+        with open(sfs_path, "r", encoding="utf-8", errors="replace") as fh:
+            return saveparse.parse_parsek_scenario(fh.read())
+    except OSError:
+        return None
+
+
 def grep_anomaly_tokens(log_text: str) -> List[str]:
     # Thin delegate: the matching is a DECISION and lives in hlib (anchored on the
     # tracers' `phase=Anomaly ... reason=<token>` raise shape, not a bare substring
@@ -1912,6 +1929,14 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["analyzer"] = {"status": "SKIPPED", "reason": "killed-torn-save"}
         detail["anomalySweep"] = {"status": "SKIPPED", "reason": "killed"}
         detail["expectations"] = {"status": "SKIPPED", "reason": "killed"}
+        # The save-parse verifier is SKIPPED on any KILLED attempt: a torn save is
+        # never ground truth (design edge 5), and a half-written persistent.sfs is
+        # exactly the file this row must not read counts off. Full key set on
+        # every branch so a consumer never KeyErrors on the row shape.
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "killed", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [], "observed": {},
+            "parsed": None, "parseError": "", "scenarioFound": None}
         # The raw-Unity-exception scan DOES run on a killed attempt, triage-only. What
         # a watchdog kill tears is the SAVE, not the log - and an exception storm is a
         # leading suspect for the hang that got the process killed, so this is the run
@@ -2082,6 +2107,59 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                           {"status": "SKIPPED", "reason": "short-circuit",
                            "observed": hlib.observed_expectation_facets(
                                recording_count)})
+
+    # 7b. Save-parse structural verifier (M-C2 / R9). Parses the produced save's
+    # ParsekScenario SCENARIO surfaces (RECORDING_TREE topology, supersede rows,
+    # tombstones, rewind points) and evaluates [expectations.rewind] +
+    # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
+    # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
+    # move a committed nightly's verdict with no live run to prove the readings);
+    # a block opts in with gating = true - declared by exactly ONE committed
+    # spec, S4.1-rewind-merge, armed 2026-07-31 after its report-only reading run
+    # (guarded by an ALLOWLIST test-suite sweep, so a second declarer still reds).
+    # This branch CAN move that scenario's verdict; it moves no other spec's.
+    # Like the ledger oracle it runs independent
+    # of the later-verifier short-circuit (a structural read of the save is its
+    # own triage signal), but only over a driver-VALID save (a driver-INVALID
+    # save is deliberately incomplete, not ground truth - the facets are still
+    # recorded for triage, the row stays SKIPPED).
+    snapshot = read_save_structure(save_dir)
+    sp_parsed = None if snapshot is None else bool(snapshot.parsed)
+    sp_error = "missing persistent.sfs" if snapshot is None else snapshot.error
+    sp_found = None if (snapshot is None or not snapshot.parsed) else snapshot.scenario_found
+    if not driver_valid:
+        detail["saveParse"] = {
+            "status": "SKIPPED", "reason": "driver-invalid", "gating": False,
+            "blocks": [], "armedBlocks": [], "mismatches": [],
+            "observed": saveparse.observed_structure_facets(snapshot),
+            "parsed": sp_parsed, "parseError": sp_error, "scenarioFound": sp_found}
+        logger.info("Verify", "verify saveParse status=SKIPPED reason=driver-invalid")
+    else:
+        sp = saveparse.evaluate_save_structure(expectations, snapshot)
+        if sp.gating:
+            verifiers["save_structure_mismatch"] = (sp.status == saveparse.STATUS_FAIL)
+        detail["saveParse"] = {
+            "status": sp.status, "reason": "", "gating": sp.gating,
+            "blocks": list(sp.blocks), "armedBlocks": list(sp.armed_blocks),
+            "mismatches": list(sp.mismatches), "observed": dict(sp.observed),
+            "parsed": sp_parsed, "parseError": sp_error,
+            "scenarioFound": sp.scenario_found,
+        }
+        rewind_obs = (sp.observed.get("rewind") or {})
+        logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
+                              "scenarioFound=%s supersedeRows=%s tombstones=%s "
+                              "rewindPoints=%s mismatches=%d"
+                    % (sp.status, sp.gating, list(sp.blocks) or "-",
+                       list(sp.armed_blocks) or "-", sp.scenario_found,
+                       rewind_obs.get("supersedeRows", "-"),
+                       rewind_obs.get("tombstones", "-"),
+                       rewind_obs.get("rewindPoints", "-"), len(sp.mismatches)))
+        report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
+        if report_only:
+            logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
+                                  "(not gating; arm with gating = true inside the "
+                                  "declared block after reading report-only runs): %s"
+                        % (len(report_only), report_only))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
@@ -2491,6 +2569,234 @@ def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdi
                           admission, drive, facts, None, None, logger, run_id=run_id)
 
 
+# ---------------------------------------------------------------------------
+# V3 always-collect artifacts + contact sheet (design-testing-unified section 6,
+# V3). The heavy non-PASS collect-logs snapshot is UNCHANGED; this is the light
+# UNCONDITIONAL step -- a green run is exactly the run a human wants to scan, and
+# before this nothing durable survived a PASS but the result JSON. Both steps are
+# failure-isolated by construction: artifact or sheet trouble degrades to a Warn
+# and NEVER touches the verdict (verdict-neutrality is the V3 contract).
+# ---------------------------------------------------------------------------
+
+
+_EMPTY_ARTIFACTS: Dict = {"ran": False, "shotsDir": None, "kspLog": False,
+                          "kspLogTruncated": False, "screenshots": 0,
+                          "screenshotsSkipped": 0}
+
+
+def _copy_bounded(src, out, limit: int) -> int:
+    """Stream at most ``limit`` bytes from ``src`` to ``out``; returns bytes
+    copied. The BOUND is the point (review MINOR 3): the source KSP.log can
+    GROW between the size snapshot and the copy (a not-fully-reaped KSP child
+    still appending at high warp), and an unbounded copyfileobj would then
+    bust the cap and falsify the truncation marker."""
+    copied = 0
+    while copied < limit:
+        chunk = src.read(min(1024 * 1024, limit - copied))
+        if not chunk:
+            break
+        out.write(chunk)
+        copied += len(chunk)
+    return copied
+
+
+def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
+                           run_start_epoch: float, logger: HarnessLogger) -> Dict:
+    """Copy the run's KSP.log (bounded, hlib.plan_artifact_log_copy) and any
+    run-window Screenshots/ images (hlib.select_run_screenshots) into
+    ``results/<runId>_shots/``, then run the shots-dir retention pass
+    (hlib.select_shots_dirs_to_prune). Returns the additive ``artifacts``
+    result block."""
+    artifacts: Dict = dict(_EMPTY_ARTIFACTS)
+    if not instance_dir:
+        return artifacts
+    try:
+        shots_dir = os.path.join(RESULTS_DIR, "%s_shots" % run_id)
+        os.makedirs(shots_dir, exist_ok=True)
+        artifacts["ran"] = True
+        artifacts["shotsDir"] = os.path.basename(shots_dir)
+
+        # (1) KSP.log, bounded. Oversize keeps head + tail with an explicit
+        # marker line (rationale on the hlib constants). Written tmp+rename
+        # (review NIT 9) so a mid-copy death never leaves a TORN KSP.log that
+        # the sheet would then render as the run's authoritative key lines.
+        # EVERY copy leg is byte-bounded (review MINOR 3): the source can grow
+        # under us, and the bound is what keeps the artifact <= cap + marker.
+        log_src = os.path.join(instance_dir, "KSP.log")
+        if os.path.isfile(log_src):
+            size = os.path.getsize(log_src)
+            plan = hlib.plan_artifact_log_copy(size)
+            dst = os.path.join(shots_dir, "KSP.log")
+            tmp = dst + ".harness-tmp"
+            with open(log_src, "rb") as src, open(tmp, "wb") as out:
+                if plan.copy_all:
+                    copied = _copy_bounded(src, out, hlib.ARTIFACT_LOG_CAP_BYTES)
+                    if src.read(1):
+                        # The file outgrew its copy-all snapshot past the cap
+                        # mid-copy; say so instead of silently cutting.
+                        out.write(("\n[harness-artifact] KSP.log grew past the "
+                                   "%d-byte cap during the copy; remainder dropped\n"
+                                   % hlib.ARTIFACT_LOG_CAP_BYTES).encode("utf-8"))
+                else:
+                    _copy_bounded(src, out, plan.head_bytes)
+                    out.write(("\n[harness-artifact] KSP.log TRUNCATED for the "
+                               "contact-sheet copy: original %d bytes, kept first "
+                               "%d + last %d (hlib.ARTIFACT_LOG_CAP_BYTES)\n"
+                               % (size, plan.head_bytes, plan.tail_bytes)).encode("utf-8"))
+                    src.seek(max(plan.head_bytes, size - plan.tail_bytes))
+                    _copy_bounded(src, out, plan.tail_bytes)
+                    if src.read(1):
+                        # Review NEW-2: the tail region was computed from the
+                        # size SNAPSHOT; a source that grew mid-copy means the
+                        # kept slice is NOT the real end of the log. Say so --
+                        # a reader must not trust a mid-log slice as the
+                        # teardown/BATCH_COMPLETE tail.
+                        out.write(("\n[harness-artifact] KSP.log GREW during the "
+                                   "copy (snapshot %d bytes); the kept tail region "
+                                   "is from the snapshot, NOT the real end of the "
+                                   "log\n" % size).encode("utf-8"))
+                    artifacts["kspLogTruncated"] = True
+            os.replace(tmp, dst)
+            artifacts["kspLog"] = True
+
+        # (2) Screenshots stamped inside this run's wall-clock window (the
+        # instance dir accumulates across runs; V4's capture verbs will feed
+        # this -- today it is usually empty and that is fine).
+        screenshots_dir = os.path.join(instance_dir, "Screenshots")
+        if os.path.isdir(screenshots_dir):
+            candidates = []
+            for name in sorted(os.listdir(screenshots_dir)):
+                path = os.path.join(screenshots_dir, name)
+                if os.path.isfile(path):
+                    try:
+                        st = os.stat(path)
+                        candidates.append((name, st.st_mtime, st.st_size))
+                    except OSError:
+                        continue
+            selected, prior, over_cap = hlib.select_run_screenshots(
+                candidates, run_start_epoch)
+            copy_missed = 0
+            for name in selected:
+                try:
+                    shutil.copy2(os.path.join(screenshots_dir, name), shots_dir)
+                    artifacts["screenshots"] += 1
+                except OSError:
+                    copy_missed += 1
+            # skipped = this run's captures that did NOT land in the snapshot
+            # (cap-dropped or copy-failed); prior-run files are not "skipped",
+            # they belong to older runs and are only logged.
+            artifacts["screenshotsSkipped"] = over_cap + copy_missed
+            if prior or over_cap or copy_missed:
+                logger.verbose("Artifacts", "screenshots skipped: %d prior-run, %d over-cap, %d copy-failed"
+                               % (prior, over_cap, copy_missed))
+
+        logger.info("Artifacts", "artifacts collected run=%s kspLog=%s truncated=%s screenshots=%d -> %s"
+                    % (run_id, artifacts["kspLog"], artifacts["kspLogTruncated"],
+                       artifacts["screenshots"], shots_dir))
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
+        logger.warn("Artifacts", "artifact collection FAILED run=%s (%s: %s); "
+                                 "snapshot degraded, verdict unaffected"
+                    % (run_id, type(exc).__name__, exc))
+    # (3) Retention (review MAJOR 1): results/ is gitignored and nothing else
+    # ever prunes it, so the heavy *_shots dirs are bounded here -- newest-first
+    # keep window, this run's own dir always protected. The KB-scale history
+    # (result JSONs, summary, contact HTML -- which already embeds the extracted
+    # key lines as text) is never touched. In its OWN try (review NEW-5): a
+    # FAILED copy is exactly when pruning matters most (disk full fails the
+    # copy; skipping the prune would then keep the disk full run after run).
+    try:
+        _prune_shots_dirs("%s_shots" % run_id, logger)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
+        logger.warn("Artifacts", "shots-dir retention FAILED run=%s (%s: %s); "
+                                 "verdict unaffected" % (run_id, type(exc).__name__, exc))
+    return artifacts
+
+
+def _dir_size_bytes(path: str) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                continue
+    return total
+
+
+def _prune_shots_dirs(protect_name: str, logger: HarnessLogger) -> None:
+    """Remove the oldest ``results/*_shots`` dirs past the retention budget
+    (hlib.select_shots_dirs_to_prune; the current run's dir is always kept)."""
+    entries = []
+    for name in os.listdir(RESULTS_DIR):
+        if not name.endswith("_shots"):
+            continue
+        path = os.path.join(RESULTS_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        entries.append((name, mtime, _dir_size_bytes(path)))
+    prune = hlib.select_shots_dirs_to_prune(entries, protect_name=protect_name)
+    for name in prune:
+        shutil.rmtree(os.path.join(RESULTS_DIR, name), ignore_errors=True)
+    if prune:
+        logger.info("Artifacts", "retention pruned %d old shots dir(s) "
+                                 "(keep newest %d dirs / %d MiB total): %s"
+                    % (len(prune), hlib.ARTIFACT_SHOTS_KEEP_DIRS,
+                       hlib.ARTIFACT_SHOTS_MAX_TOTAL_BYTES // (1024 * 1024),
+                       ", ".join(prune[:5]) + (" ..." if len(prune) > 5 else "")))
+
+
+_contact_sheet_module = None
+
+
+def _load_contact_sheet_module():
+    """Load harness/tools/contact_sheet.py by FILE PATH -- no sys.path mutation
+    (review NIT 11: an insert(0) of tools/ would let a future
+    ``harness/tools/<stdlib-name>.py`` silently shadow the stdlib for the rest
+    of the process). An already-imported ``contact_sheet`` (the smoke tests
+    import it from tools/ to monkeypatch) is reused, so a test's patch and
+    run.py always see the SAME module object."""
+    global _contact_sheet_module
+    if _contact_sheet_module is not None:
+        return _contact_sheet_module
+    existing = sys.modules.get("contact_sheet")
+    if existing is not None:
+        _contact_sheet_module = existing
+        return existing
+    import importlib.util
+    path = os.path.join(TOOLS_DIR, "contact_sheet.py")
+    spec = importlib.util.spec_from_file_location("contact_sheet", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load contact_sheet from %s" % path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["contact_sheet"] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop("contact_sheet", None)
+        raise
+    _contact_sheet_module = module
+    return module
+
+
+def _generate_contact_sheet(run_id: str, logger: HarnessLogger) -> None:
+    """Emit ``results/<runId>_contact.html`` + refresh ``results/index.html``
+    via harness/tools/contact_sheet.py. Failure-isolated: any trouble (module
+    missing, disk full, malformed inputs) is a Warn, never a verdict change."""
+    try:
+        contact_sheet = _load_contact_sheet_module()
+        sheet_path = contact_sheet.generate_run_sheet(RESULTS_DIR, run_id)
+        contact_sheet.generate_index(RESULTS_DIR)
+        logger.info("Sheet", "contact sheet written %s (+ index.html)" % sheet_path)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design (V3)
+        logger.warn("Sheet", "contact-sheet generation FAILED run=%s (%s: %s); "
+                             "sheet degraded, verdict unaffected"
+                    % (run_id, type(exc).__name__, exc))
+
+
 def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
                    admission, drive, facts, run_save_name, instance_dir, logger,
                    run_id: Optional[str] = None) -> Dict:
@@ -2577,8 +2883,21 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                          "matched": verdict.expected_fail_matched},
         "kspExit": {"code": exit_code, "killed": killed},
         "collectLogs": collect,
+        # V3 additive key: what the always-collect step snapshotted. Written
+        # FIRST as the empty placeholder so the VERDICT is durable before the
+        # (possibly slow) artifact copy runs (review MINOR 4: a Ctrl-C or a
+        # process-tree kill landing inside a multi-MB copy must not cost the
+        # attempt's result), then enriched and re-written below.
+        "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
+    # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
+    # run-window screenshots into results/<runId>_shots/), verdict-neutral.
+    result["artifacts"] = _collect_run_artifacts(run_id, instance_dir, start_wall, logger)
+    write_result(result, logger, append_summary=False)
+    # V3 contact sheet: AFTER the durable result lands so the sheet reads the
+    # written record. Failure-isolated; never moves the verdict.
+    _generate_contact_sheet(run_id, logger)
     return result
 
 
@@ -2870,6 +3189,23 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             verify_line += (", missionOutcome(%s -> PARSEK-FAIL(mission-outcome) on an unmet "
                             "post-mission outcome step)"
                             % (", ".join(gating) if gating else "no gating verbs"))
+        # saveParse (row 7b) runs on every driver-valid run, but the plan must say
+        # whether it can MOVE THE VERDICT for this spec: gating is per-block and
+        # opt-in, so "declared" and "armed" are different facts and the enumeration
+        # was silently omitting both. S4.1 arms `rewind` (2026-07-31), and a plan
+        # that does not name the one gate an operator is about to fly is worse than
+        # no plan - it reads as report-only when it is not.
+        sp_declared = saveparse.declared_structure_blocks(exp)
+        sp_armed = saveparse.armed_structure_blocks(exp)
+        if sp_armed:
+            verify_line += (", saveParse(armed: %s -> PARSEK-FAIL(save-structure) on a "
+                            "mismatch; report-only: %s)"
+                            % (", ".join(sp_armed),
+                               ", ".join(b for b in sp_declared if b not in sp_armed) or "none"))
+        elif sp_declared:
+            verify_line += ", saveParse(report-only: %s)" % ", ".join(sp_declared)
+        else:
+            verify_line += ", saveParse(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)
@@ -3043,6 +3379,9 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
         # path already wrote its summary line inside run_attempt and must not
         # write a second one.
         write_result(last_result, logger, append_summary=flaked_then_passed)
+        # Re-render the sheet + index over the enriched record (idempotent;
+        # failure-isolated exactly like the in-attempt generation).
+        _generate_contact_sheet(last_result["runId"], logger)
     logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
                 % (attempts_run, int(round(attempts_wall)), terminal.verdict))
     return last_result
@@ -3050,10 +3389,15 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
 
 def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
     scenario_id = spec.get("id") or os.path.basename(spec.get("_path", "unknown")).replace(".toml", "")
+    # This id belongs to a spec that FAILED validation -- possibly on the
+    # filename-safety rule itself -- and the runId becomes a results/ path
+    # component (the .json and now the contact sheet's .html). Sanitize the
+    # runId only; scenarioId in the record keeps the raw value (review NIT 10).
+    safe_id = "".join(c if (c.isalnum() or c in "._-") else "_" for c in scenario_id)
     started = utcnow_iso()
     result = {
         "schema": hlib.SCHEMA_VERSION,
-        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), scenario_id),
+        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), safe_id),
         "scenarioId": scenario_id,
         "tier": spec.get("tier"),
         "instanceProfile": spec.get("instanceProfile"),
@@ -3071,8 +3415,10 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
                          "matched": False},
         "kspExit": {"code": None, "killed": False},
         "collectLogs": {"ran": False, "path": None},
+        "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
+    _generate_contact_sheet(result["runId"], logger)
 
 
 def _load_bug_ids() -> List[str]:

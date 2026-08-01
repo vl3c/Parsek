@@ -412,6 +412,88 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(0, persisted["verifiers"]["unityExceptions"]["total"])
         self.assertIn("hitCounts", persisted["verifiers"]["anomalySweep"])
 
+    def test_save_parse_row_reports_on_a_clean_pass(self):
+        """M-C2/R9: the saveParse verifier row must land REPORT-ONLY on a green
+        run with no M-C2 block declared, carrying the measured structural
+        facets, and must not move the verdict. The staged smoke fixture is a
+        minimal `GAME { }` save (no ParsekScenario node), so every count is a
+        genuine zero - parsed=True, scenario absent."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertFalse(sp["gating"])
+        self.assertEqual([], sp["blocks"])
+        self.assertEqual([], sp["armedBlocks"])
+        self.assertEqual([], sp["mismatches"])
+        self.assertTrue(sp["parsed"])
+        # The smoke template is `GAME { }` - Parsek absent. With no block
+        # declared that is a REPORT row, and the state is READABLE on the row.
+        self.assertIs(False, sp["scenarioFound"])
+        self.assertEqual({"supersedeRows": 0, "tombstones": 0, "rewindPoints": 0,
+                          "rewindRetirements": 0},
+                         sp["observed"]["rewind"])
+        self.assertEqual(0, sp["observed"]["recordings"]["structure"]["trees"])
+        # ... and the row round-trips into the durable result (a PASS runs no
+        # collect-logs, so results/<runId>.json is the only place the measured
+        # facets survive - the promotion path reads them there).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(sp, persisted["verifiers"]["saveParse"])
+
+    def _run_with_b9_template(self, extra_expectations):
+        """Drive a full fake-KSP run over a Parsek-BEARING staged save (the
+        production-shaped merged-B9 text from test_saveparse), with the given
+        M-C2 expectation blocks merged into the spec."""
+        import test_saveparse as ts
+        template = os.path.join(self.tmp, "b9-template")
+        os.makedirs(template, exist_ok=True)
+        with open(os.path.join(template, "persistent.sfs"), "w", encoding="utf-8") as fh:
+            fh.write(ts.B9_MERGED_SFS)
+        spec = _make_spec(template, 30, 600)
+        spec["expectations"].update(copy.deepcopy(extra_expectations))
+        rt = FakeRuntime("pass")
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def test_declared_rewind_block_reports_mismatches_without_gating(self):
+        """The S4.1 shape end-to-end (adversarial-review finding 6): a DECLARED
+        [expectations.rewind] whose windows mismatch the produced save must
+        land status=REPORT with the mismatches recorded and the verdict
+        untouched - the exact verdict-neutrality contract this verifier
+        shipped around."""
+        result = self._run_with_b9_template(
+            {"rewind": {"supersedeRows": {"max": 0}, "tombstones": {"max": 0}}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "a report-only mismatch must not move the verdict")
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("REPORT", sp["status"])
+        self.assertEqual(["rewind"], sp["blocks"])
+        self.assertEqual([], sp["armedBlocks"])
+        self.assertEqual(2, len(sp["mismatches"]))
+        self.assertIs(True, sp["scenarioFound"])
+        self.assertEqual(1, sp["observed"]["rewind"]["supersedeRows"])
+
+    def test_armed_block_mismatch_reds_save_structure(self):
+        """gating = true + a mismatching window -> PARSEK-FAIL(save-structure),
+        across the real run.py -> hlib boundary (the flag name is exercised
+        end-to-end, not injected)."""
+        result = self._run_with_b9_template(
+            {"rewind": {"gating": True, "supersedeRows": {"max": 0}}})
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("save-structure", result["subkind"])
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("FAIL", sp["status"])
+        self.assertEqual(["rewind"], sp["armedBlocks"])
+
+    def test_armed_block_match_stays_pass(self):
+        result = self._run_with_b9_template(
+            {"rewind": {"gating": True, "supersedeRows": 1,
+                        "tombstones": {"min": 1, "max": 1}}})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual("PASS", result["verifiers"]["saveParse"]["status"])
+
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill
         the process tree within budget and classify KILLED with the killed-run
@@ -446,6 +528,15 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual(hlib.UNITY_EXCEPTIONS_STATUS_REPORT, ue["status"])
         self.assertFalse(ue["gating"])
         self.assertEqual("killed-triage-only", ue["reason"])
+        # M-C2: the save-parse row is SKIPPED on a torn (killed) save too - a
+        # half-written persistent.sfs must never be read for structural counts.
+        # Full key set on every branch so consumers never KeyError on shape.
+        sp = result["verifiers"]["saveParse"]
+        self.assertEqual("SKIPPED", sp["status"])
+        self.assertEqual("killed", sp["reason"])
+        self.assertFalse(sp["gating"])
+        self.assertIsNone(sp["parsed"])
+        self.assertEqual({}, sp["observed"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
@@ -2469,6 +2560,395 @@ class SettingsSidecarResetSmokeTests(unittest.TestCase):
         self._run("pass")
         values = hlib.parse_settings_sidecar(self._read())
         self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+
+
+class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
+    """V3 (design-testing-unified section 6): the light UNCONDITIONAL artifact
+    step + the contact sheet, driven through run.run_attempt over the fake KSP.
+
+    The whole point of V3 is that a GREEN run leaves something a human can look
+    at, so the load-bearing cells here run mode="pass": before this change a
+    PASS ran no collect-logs and its KSP.log died with the next boot."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-v3-smoke-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "smoke_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, mode="pass", run_tests_budget=30, run_budget=600):
+        spec = _make_spec(self.template, run_tests_budget, run_budget)
+        rt = FakeRuntime(mode)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_pass_run_collects_artifacts_and_writes_the_sheet(self):
+        """A PASS must leave: results/<runId>_shots/KSP.log, the per-run contact
+        HTML, and results/index.html - while collect-logs stays non-PASS-only."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        # collect-logs untouched: still not run on a PASS.
+        self.assertFalse(result["collectLogs"]["ran"])
+        # the always-collect step ran and copied the log.
+        art = result["artifacts"]
+        self.assertTrue(art["ran"])
+        self.assertTrue(art["kspLog"])
+        self.assertFalse(art["kspLogTruncated"])
+        shots = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isfile(os.path.join(shots, "KSP.log")))
+        # the contact sheet + index landed.
+        sheet = os.path.join(run.RESULTS_DIR, "%s_contact.html" % result["runId"])
+        self.assertTrue(os.path.isfile(sheet))
+        self.assertTrue(os.path.isfile(os.path.join(run.RESULTS_DIR, "index.html")))
+        with open(sheet, "r", encoding="utf-8") as fh:
+            page = fh.read()
+        # numbers next to pictures: the batch tally + the verifier rows are ON the page.
+        self.assertIn("BATCH_COMPLETE v1 total=5", page)
+        self.assertIn("analyzer", page)
+        # ... and the artifacts block round-trips into the durable result JSON
+        # (additive key; schema unchanged).
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertTrue(persisted["artifacts"]["kspLog"])
+        self.assertEqual(hlib.SCHEMA_VERSION, persisted["schema"])
+
+    def test_killed_run_still_collects_artifacts(self):
+        """The unconditional step is unconditional: a budget-killed run's shots
+        dir must still hold the KSP.log (the heavy collect-logs also ran, as
+        before)."""
+        result, _ = self._run("hang", run_tests_budget=1, run_budget=2)
+        self.assertEqual(hlib.VERDICT_KILLED, result["verdict"])
+        self.assertTrue(result["collectLogs"]["ran"])
+        self.assertTrue(result["artifacts"]["kspLog"])
+        shots = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isfile(os.path.join(shots, "KSP.log")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(run.RESULTS_DIR, "%s_contact.html" % result["runId"])))
+
+    def test_run_window_screenshot_is_copied_and_prior_run_one_is_not(self):
+        """The Screenshots dir accumulates across runs; only files stamped inside
+        this run's wall-clock window ride into the shots dir."""
+        shots_src = os.path.join(self.instance, "Screenshots")
+        os.makedirs(shots_src, exist_ok=True)
+        now = time.time()
+        fresh = os.path.join(shots_src, "fresh.png")
+        stale = os.path.join(shots_src, "stale.png")
+        for p in (fresh, stale):
+            with open(p, "wb") as fh:
+                fh.write(b"\x89PNG fake")
+        # fresh: mtime in the future (inside the run window); stale: an hour ago.
+        os.utime(fresh, (now + 3600, now + 3600))
+        os.utime(stale, (now - 3600, now - 3600))
+
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual(1, result["artifacts"]["screenshots"])
+        shots_dst = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isfile(os.path.join(shots_dst, "fresh.png")))
+        self.assertFalse(os.path.isfile(os.path.join(shots_dst, "stale.png")))
+        # the copied capture is referenced from the sheet's image grid.
+        with open(os.path.join(run.RESULTS_DIR, "%s_contact.html" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            self.assertIn("fresh.png", fh.read())
+
+    def test_verdict_is_durable_before_the_artifact_copy_and_summary_not_doubled(self):
+        """Review MINOR 4: the result JSON is written (with a placeholder
+        artifacts block) BEFORE the possibly-slow artifact copy, then enriched
+        and re-written with append_summary=False -- so a kill inside the copy
+        cannot cost the verdict, and the rolling summary gets exactly ONE line."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        with open(os.path.join(run.RESULTS_DIR, "summary.txt"), "r", encoding="utf-8") as fh:
+            lines = [l for l in fh.read().splitlines() if "SMOKE-fake" in l]
+        self.assertEqual(1, len(lines), "the enrichment re-write must not double the summary")
+
+    def test_truncated_log_copy_is_bounded_and_marked(self):
+        """Review MINOR 3 + 5 (CONFIRMED by the reviewer's repro): the streaming
+        head+tail copy itself, driven with call-time-rebound caps. The tail leg
+        must be BYTE-BOUNDED (the source can grow between the size snapshot and
+        the copy) and the marker must sit between the exact head and tail."""
+        body = bytes(range(256)) * 4  # 1024 distinct-ish bytes
+        with open(os.path.join(self.instance, "KSP.log"), "wb") as fh:
+            fh.write(body)
+        orig = (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+                hlib.ARTIFACT_LOG_TAIL_BYTES)
+        try:
+            hlib.ARTIFACT_LOG_CAP_BYTES = 200
+            hlib.ARTIFACT_LOG_HEAD_BYTES = 50
+            hlib.ARTIFACT_LOG_TAIL_BYTES = 150
+            art = run._collect_run_artifacts("trunc-run", self.instance,
+                                             time.time(), self.logger)
+        finally:
+            (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+             hlib.ARTIFACT_LOG_TAIL_BYTES) = orig
+        self.assertTrue(art["kspLog"])
+        self.assertTrue(art["kspLogTruncated"])
+        dst = os.path.join(run.RESULTS_DIR, "trunc-run_shots", "KSP.log")
+        with open(dst, "rb") as fh:
+            data = fh.read()
+        marker_at = data.find(b"[harness-artifact] KSP.log TRUNCATED")
+        self.assertGreater(marker_at, 0)
+        self.assertTrue(data.startswith(body[:50]), "head must be the first 50 source bytes")
+        self.assertTrue(data.endswith(body[-150:]), "tail must be the last 150 source bytes")
+        # bounded: head + tail + one marker line, nothing more.
+        self.assertLess(len(data), 200 + 200, "payload must stay ~cap + marker")
+
+    def test_tail_copy_stays_bounded_when_the_log_grows_mid_copy(self):
+        """The reviewer's growth repro: getsize snapshots 500, the file is
+        really 4000 (a not-fully-reaped KSP child kept appending). The tail leg
+        must copy plan.tail_bytes and STOP, not stream to EOF."""
+        with open(os.path.join(self.instance, "KSP.log"), "wb") as fh:
+            fh.write(b"x" * 4000)
+        orig = (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+                hlib.ARTIFACT_LOG_TAIL_BYTES)
+        orig_getsize = os.path.getsize
+        try:
+            hlib.ARTIFACT_LOG_CAP_BYTES = 200
+            hlib.ARTIFACT_LOG_HEAD_BYTES = 50
+            hlib.ARTIFACT_LOG_TAIL_BYTES = 150
+            os.path.getsize = lambda p, _o=orig_getsize: (
+                500 if os.path.basename(str(p)) == "KSP.log" else _o(p))
+            art = run._collect_run_artifacts("grow-run", self.instance,
+                                             time.time(), self.logger)
+        finally:
+            os.path.getsize = orig_getsize
+            (hlib.ARTIFACT_LOG_CAP_BYTES, hlib.ARTIFACT_LOG_HEAD_BYTES,
+             hlib.ARTIFACT_LOG_TAIL_BYTES) = orig
+        self.assertTrue(art["kspLogTruncated"])
+        dst = os.path.join(run.RESULTS_DIR, "grow-run_shots", "KSP.log")
+        self.assertLess(os.path.getsize(dst), 200 + 400,
+                        "a mid-copy grown source must not bust the cap")
+        # Review NEW-2: the kept tail slice was computed from the STALE size
+        # snapshot, so it is NOT the real end of the log -- the artifact must
+        # say so instead of letting a reader trust mid-log spam as the
+        # teardown/BATCH_COMPLETE tail.
+        with open(dst, "rb") as fh:
+            self.assertIn(b"[harness-artifact] KSP.log GREW during the copy", fh.read())
+
+    def test_artifact_failure_never_changes_the_verdict(self):
+        """The OTHER half of the verdict-neutrality contract (review MINOR 5):
+        a crash inside _collect_run_artifacts is a Warn, never a verdict
+        change."""
+        orig = hlib.plan_artifact_log_copy
+        hlib.plan_artifact_log_copy = _raise_artifact_boom
+        try:
+            result, _ = self._run("pass")
+        finally:
+            hlib.plan_artifact_log_copy = orig
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertFalse(result["artifacts"]["kspLog"])
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("artifact collection FAILED", body)
+        self.assertIn("verdict unaffected", body)
+
+    def test_retention_prunes_old_shots_dirs_but_never_the_current_run(self):
+        """Review MAJOR 1: results/ is gitignored and nothing else prunes it;
+        the retention pass must bound *_shots growth, oldest first, protecting
+        the run that just collected."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        now = time.time()
+        for i, name in enumerate(["old1_shots", "old2_shots", "old3_shots"]):
+            d = os.path.join(run.RESULTS_DIR, name)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "KSP.log"), "w") as fh:
+                fh.write("x" * 10)
+            os.utime(d, (now - 3600 + i, now - 3600 + i))
+        orig_keep = hlib.ARTIFACT_SHOTS_KEEP_DIRS
+        try:
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = 2
+            result, _ = self._run("pass")
+        finally:
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = orig_keep
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        current = os.path.join(run.RESULTS_DIR, "%s_shots" % result["runId"])
+        self.assertTrue(os.path.isdir(current), "the current run's dir must survive")
+        survivors = sorted(n for n in os.listdir(run.RESULTS_DIR) if n.endswith("_shots"))
+        self.assertEqual(2, len(survivors), "keep=2: current + the newest old dir")
+        self.assertNotIn("old1_shots", survivors)
+        self.assertNotIn("old2_shots", survivors)
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            self.assertIn("retention pruned", fh.read())
+
+    def test_retention_still_runs_when_the_artifact_copy_fails(self):
+        """Review NEW-5: a full disk FAILS the copy, and that is exactly when
+        pruning matters most -- the retention pass lives in its own try so a
+        copy exception cannot skip it."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        now = time.time()
+        for i, name in enumerate(["stale1_shots", "stale2_shots", "stale3_shots"]):
+            d = os.path.join(run.RESULTS_DIR, name)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "KSP.log"), "w") as fh:
+                fh.write("x" * 10)
+            os.utime(d, (now - 3600 + i, now - 3600 + i))
+        with open(os.path.join(self.instance, "KSP.log"), "w") as fh:
+            fh.write("boot\n")
+        orig_plan = hlib.plan_artifact_log_copy
+        orig_keep = hlib.ARTIFACT_SHOTS_KEEP_DIRS
+        hlib.plan_artifact_log_copy = _raise_artifact_boom
+        try:
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = 2
+            art = run._collect_run_artifacts("diskfull-run", self.instance,
+                                             time.time(), self.logger)
+        finally:
+            hlib.plan_artifact_log_copy = orig_plan
+            hlib.ARTIFACT_SHOTS_KEEP_DIRS = orig_keep
+        self.assertFalse(art["kspLog"], "the copy did fail")
+        survivors = sorted(n for n in os.listdir(run.RESULTS_DIR) if n.endswith("_shots"))
+        self.assertEqual(["diskfull-run_shots", "stale3_shots"], survivors,
+                         "retention must prune despite the failed copy, protecting the current run")
+
+    def test_contact_sheet_module_loads_by_path_without_syspath(self):
+        """Review NIT 11: the tool loads by file path, no sys.path mutation, and
+        an already-imported module (what the monkeypatch cells rely on) is
+        reused so the patch and run.py see the SAME object."""
+        saved_module = sys.modules.pop("contact_sheet", None)
+        saved_cache = run._contact_sheet_module
+        run._contact_sheet_module = None
+        path_before = list(sys.path)
+        try:
+            mod = run._load_contact_sheet_module()
+            self.assertTrue(callable(mod.generate_run_sheet))
+            self.assertEqual(path_before, sys.path, "loading must not touch sys.path")
+            self.assertIs(mod, run._load_contact_sheet_module(), "cached on repeat")
+        finally:
+            run._contact_sheet_module = saved_cache
+            if saved_module is not None:
+                sys.modules["contact_sheet"] = saved_module
+            else:
+                sys.modules.pop("contact_sheet", None)
+
+    def test_sheet_failure_never_changes_the_verdict(self):
+        """The V3 verdict-neutrality contract: a contact-sheet crash is a Warn in
+        the harness log and NOTHING else - the attempt's verdict, result JSON,
+        and collect behavior are untouched."""
+        tools_dir = os.path.join(HARNESS_ROOT, "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import contact_sheet
+        orig = contact_sheet.generate_run_sheet
+        contact_sheet.generate_run_sheet = _raise_sheet_boom
+        try:
+            result, _ = self._run("pass")
+        finally:
+            contact_sheet.generate_run_sheet = orig
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertTrue(os.path.isfile(
+            os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])))
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("contact-sheet generation FAILED", body)
+        self.assertIn("verdict unaffected", body)
+
+
+def _raise_sheet_boom(results_dir, run_id):
+    raise RuntimeError("boom (injected sheet failure)")
+
+
+def _raise_artifact_boom(*args, **kwargs):
+    raise RuntimeError("boom (injected artifact failure)")
+
+class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
+    """--dry-run's [VERIFY] line must name the verifiers that can move the verdict.
+
+    It was a hand-maintained string literal and it went stale: the M-C2 `saveParse`
+    row shipped without being added, so on 2026-07-31 - the day S4.1 ARMED
+    `gating = true` - the plan for the one gating scenario advertised a chain that
+    did not include the gate. A plan that under-reports is worse than no plan: an
+    operator reads it as "report-only" and mis-attributes the resulting red.
+
+    `print_dry_run_plan` renders THREE states - armed, declared-but-report-only,
+    and no-block-declared. Only two of them are reachable from the committed
+    corpus: S4.1 is the sole declarer and it is now ARMED, so the middle state
+    has no committed spec to pin it against. It is pinned here with a SYNTHETIC
+    spec instead, and that is not a formality - declared-but-unarmed is the state
+    EVERY future declarer passes through on the mandated read-report-only-then-arm
+    workflow, so shipping it broken would be found by an operator rather than by
+    the suite. Pinning it also makes `armed` and `declared` distinguishable: with
+    committed specs alone, `if sp_armed:` and `if sp_declared:` are the same
+    predicate over the corpus, and a regression advertising a merely-declared
+    block as an armed gate passes every cell."""
+
+    _SPECS = None
+
+    @classmethod
+    def _all_specs(cls):
+        # Cached: this class renders a plan per committed spec, and reloading all
+        # 61 TOMLs per call made the sweep parse ~3,800 files for no reason.
+        if cls._SPECS is None:
+            cls._SPECS = run.load_all_specs()
+        return cls._SPECS
+
+    def _render(self, spec):
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run.print_dry_run_plan([spec], lambda _p: "C:/instance",
+                                   run.HarnessLogger(None))
+        return next(l for l in buf.getvalue().splitlines() if "[VERIFY " in l)
+
+    def _plan(self, scenario_id):
+        spec = next((s for s in self._all_specs() if s.get("id") == scenario_id), None)
+        self.assertIsNotNone(spec, "no committed spec with id %r" % scenario_id)
+        return self._render(spec)
+
+    def test_an_armed_spec_names_the_gate_and_its_failure_subkind(self):
+        line = self._plan("S4.1-rewind-merge")
+        self.assertIn("saveParse(armed: rewind", line)
+        self.assertIn("PARSEK-FAIL(save-structure)", line)
+
+    def test_a_declared_but_unarmed_block_renders_report_only(self):
+        """SYNTHETIC. No committed spec can reach this branch (see class docstring),
+        so a real-spec fixture would silently stop covering it."""
+        line = self._render({"id": "SYNTH-declared-unarmed", "driver": {"steps": []},
+                             "expectations": {"rewind": {"supersedeRows": {"max": 0}}}})
+        self.assertIn("saveParse(report-only: rewind)", line)
+        # The whole point: a declared-but-unarmed block must NOT advertise a gate.
+        self.assertNotIn("armed", line)
+        self.assertNotIn("save-structure", line)
+
+    def test_an_armed_block_is_rendered_differently_from_a_declared_one(self):
+        """Pins that `armed` and `declared` are distinct predicates. Over the
+        committed corpus alone they are indistinguishable, so this comparison is
+        the only thing standing between us and `if sp_declared:` at run.py:2882."""
+        declared_only = {"id": "SYNTH-a", "driver": {"steps": []},
+                         "expectations": {"rewind": {"supersedeRows": {"max": 0}}}}
+        armed = {"id": "SYNTH-b", "driver": {"steps": []},
+                 "expectations": {"rewind": {"gating": True,
+                                             "supersedeRows": {"max": 0}}}}
+        self.assertNotEqual(self._render(declared_only), self._render(armed))
+        self.assertIn("saveParse(armed: rewind", self._render(armed))
+
+    def test_a_spec_declaring_no_block_says_facets_only(self):
+        # B1-pad-hop is used deliberately rather than CL-2: CL-2 is the spec this
+        # work names as the NEXT declarer (stage B), so pinning the
+        # no-block-declared rendering to it would red for a reason unrelated to
+        # what this cell guards the moment stage B is authored.
+        line = self._plan("B1-pad-hop")
+        self.assertIn("saveParse(facets only, no block declared)", line)
+        self.assertNotIn("save-structure", line)
+
+    def test_every_scenario_plan_names_saveparse(self):
+        """The row runs on every driver-valid run, so no spec's plan may omit it."""
+        missing = [s["id"] for s in self._all_specs()
+                   if "saveParse(" not in self._plan(s["id"])]
+        self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
 
 
 if __name__ == "__main__":

@@ -285,10 +285,13 @@ D14 = ["career", "cold-load-ut0", "scene-ksc"]
 
 # Expectations manifest. The block vocabulary is the plan section 4 item 2 schema.
 # v1 EVALUATES: recordings, perRecording, logContracts, plus the analyzer red gate
-# and the anomaly sweep (below). The world / route / rewind / loop blocks are
-# RESERVED here (parsed + spec-validated) but their heavier verifiers land with
-# M-B2 (world-diff / ledger oracle) and M-C2 (rewind/loop) -- the spec carries
-# them now so scenarios do not need a format break when those verifiers arrive.
+# and the anomaly sweep (below). The route / loop blocks are RESERVED here
+# (parsed + spec-validated) but their heavier verifiers have not landed (zero
+# committed declarers) -- the spec carries them now so scenarios do not need a
+# format break when those verifiers arrive. world ACTIVATED with M-B2 (ledger
+# oracle, verifier 8); rewind ACTIVATED with M-C2/R9 (save-parse verifier 7b,
+# report-only until a block arms gating = true), which also added the
+# [expectations.recordings.structure] sub-block.
 [expectations]
 # allowedAnomalies: the scenario's bounded, documented exceptions to the Tier-C
 # anomaly sweep. This is a DEDICATED field (NOT logContracts.forbidden): the sweep's
@@ -325,10 +328,12 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # allowedAnomalies belongs in the [expectations] table ABOVE, not here. See the note
 # there; a bare key at this point in the file binds to logContracts and is never read.
 # [expectations.perRecording] terminalState / endUT / predictedTail / mergeState -> reserved
-# [expectations.world]  vesselPid -> resource totals / roster (M-B2)          -> reserved
-# [expectations.rewind] supersedeCount / tombstoneCount / rpState (M-C2)      -> reserved
-# [expectations.loop]   LoopStartUT / LoopEndUT / first-play floor (M-C2)     -> reserved
-# [expectations.route]  hold-reason strings (M-D1)                            -> reserved
+# [expectations.world]  vesselPid -> resource totals / roster (M-B2)          -> ACTIVE (verifier 8)
+# [expectations.rewind] supersedeRows / tombstones / rewindPoints (M-C2/R9)   -> ACTIVE (verifier 7b, report-only until gating = true)
+# [expectations.recordings.structure] trees / committedTrees / recordings /
+#   terminalStates / branchPoints (M-C2/R9)                                   -> ACTIVE (verifier 7b, report-only until gating = true)
+# [expectations.loop]   LoopStartUT / LoopEndUT / first-play floor (M-C2)     -> reserved (zero declarers)
+# [expectations.route]  hold-reason strings (M-D1)                            -> reserved (zero declarers)
 
 [runtime]
 budgetSeconds = 600                  # wall-clock; watchdog kills on exceed -> KILLED
@@ -599,6 +604,7 @@ guessing.
     "testResults":    { "status": "PASS", "failures": 0, "path": "parsek-test-results.txt" },
     "anomalySweep":   { "status": "PASS", "hits": 0 },
     "expectations":   { "status": "PASS", "mismatches": [], "reserved": [], "observed": { "recordings": { "count": 7 } } },
+    "saveParse":      { "status": "REPORT", "reason": "", "gating": false, "blocks": [], "armedBlocks": [], "mismatches": [], "observed": { "rewind": { "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0, "rewindRetirements": 0 }, "recordings": { "structure": { "trees": 1, "committedTrees": 1, "recordings": 3, "terminalStates": { "Destroyed": 1 }, "branchPoints": { "Undock": 1 }, "duplicateRecordingIds": [] } } }, "parsed": true, "parseError": "", "scenarioFound": true },
     "ledgerOracle":   { "status": "SKIPPED", "reason": "no-actions-or-mb2-not-landed" }
   },
   "expectedFail": { "bugId": "", "matched": false },
@@ -1200,8 +1206,40 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
 7. **Expectations manifest** (`hlib.evaluate_expectations`): the v1-evaluated
    blocks (recordings count, logContracts required/forbidden patterns) are matched
    against the produced save + KSP.log with tolerances, never golden trajectories.
-   A mismatch -> PARSEK-FAIL (expectation). Reserved blocks (world/route/rewind/
-   loop) are recorded as SKIPPED until their verifiers land (M-B2/M-C2).
+   A mismatch -> PARSEK-FAIL (expectation). Reserved blocks (route/loop) are
+   recorded as SKIPPED until their verifiers land; `world` left the reserved set
+   with M-B2 (row 8 owns it) and `rewind` left it with M-C2/R9 (row 7b owns it,
+   alongside the new `recordings.structure` sub-block).
+7b. **Save-parse structural verifier** (M-C2 / R9, 2026-07-31;
+   `saveparse.evaluate_save_structure` over `saveparse.parse_parsek_scenario`):
+   parses the produced save's ParsekScenario SCENARIO surfaces (RECORDING_TREE
+   topology + per-recording terminal/merge state, BRANCH_POINT counts by type,
+   RECORDING_SUPERSEDES rows, LEDGER_TOMBSTONES rows, RECORDING_REWIND_RETIREMENTS
+   rows, REWIND_POINTS/CHILD_SLOTs) and evaluates `[expectations.rewind]`
+   (supersedeRows / tombstones / rewindPoints count windows) plus
+   `[expectations.recordings.structure]` (trees / committedTrees / recordings
+   windows, terminalStates and branchPoints buckets by enum NAME). REPORT-ONLY by
+   default - VERDICT NEUTRALITY: S4.1 already declared a rewind block when this
+   verifier landed, so a gating default would have moved a committed nightly's
+   verdict with no live run to prove the readings. A block opts in with
+   `gating = true` (declared by exactly ONE committed spec - `S4.1-rewind-merge`,
+   armed 2026-07-31 after its report-only reading run `2026-07-31_1628`, proven
+   armed by `_1635` and proven to FAIL by a `min = 1` negative control on `_1637`;
+   the guard cell is an ALLOWLIST, so a second spec arming still reds until
+   someone edits it deliberately); armed + mismatch -> PARSEK-FAIL
+   (save-structure). GATING IS
+   PER-BLOCK: only an armed block's mismatches drive PASS/FAIL, so arming a
+   proven block never silently promotes a second, still-exploratory block
+   (`armedBlocks` / `armed_mismatches` carry the split). Measured facets are
+   recorded on every driver-valid run (the promotion path reads them out of
+   `results/<runId>.json`). SKIPPED on KILLED (torn save) and driver-INVALID
+   (facets still recorded for triage on the latter). Two structural faults are
+   named mismatches whenever a block is declared, never zero rows: a MISSING /
+   UNPARSEABLE / EMPTY persistent.sfs (a zero-byte file is what an interrupted
+   save write leaves - it must not read as a clean all-zero parse), and a
+   readable save with NO ParsekScenario node (AddToAllGames: its absence from
+   a produced save means Parsek never loaded; `scenarioFound` is recorded on
+   the row either way).
 8. **Ledger oracle** (M-B2 hook): on a run whose expectations declare a world /
    ledger block AND M-B2 has landed, run the world-diff verifier; drift ->
    PARSEK-FAIL (ledger). In v1 this is SKIPPED with a recorded reason.
@@ -1601,9 +1639,10 @@ scenario spec, registry, result record, and coverage/flake files all carry
 message) rather than silently mis-parse, consistent with the project's
 no-migration stance for versioned data. New seam verbs, new dimension values, new
 expectation blocks, and new tags are additive: a spec that uses only known fields
-runs on a newer harness unchanged, and the reserved expectation blocks (world /
-route / rewind / loop) already parse today so an M-B2/M-C2 scenario written now
-needs no format change when those verifiers land. Result records from an older
+runs on a newer harness unchanged, and the reserved expectation blocks (route /
+loop; world and rewind have since ACTIVATED with M-B2 and M-C2/R9) already parse
+today so a scenario written now needs no format change when those verifiers land
+- proven twice: S4.1's rewind block activated 2026-07-31 with zero spec edits. Result records from an older
 harness version are readable by `coverage.py` as long as the top-level `schema`
 matches; an unknown newer result schema is skipped with a warning (a stale
 coverage run is better than a crash). The two dev-script switches default OFF, so
@@ -1875,7 +1914,11 @@ Recorded so they are not lost; none blocks the v1 seam-driven daily loop.
   `[expectations.loop]` are reserved; the seam verbs that drive them
   (`InvokeRewind`, `StartLoopPlayback`, `TimeJump`) are M-A2 RESERVED verbs, so v1
   spec validation rejects a step using them. They activate when M-A2 implements the
-  verbs and M-C2 adds the verifiers.
+  verbs and M-C2 adds the verifiers. UPDATE 2026-07-31: `InvokeRewind` / `TimeJump`
+  implemented with M-C1, and the `rewind` half ACTIVATED with the M-C2 save-parse
+  verifier (chain row 7b, report-only until a block arms `gating = true`). `loop`
+  stays reserved - `StartLoopPlayback` is still a reserved verb and no committed
+  spec declares the block.
 - **Multi-session orchestration (M-C1).** v1 runs one KSP process per scenario
   attempt. Fly-commit-restart-observe cycles (re-fly merges, routes, synodic
   cadence, loop self-overlap) need the multi-session primitive; the result record
