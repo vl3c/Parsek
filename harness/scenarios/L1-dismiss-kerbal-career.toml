@@ -11,8 +11,13 @@ instanceProfile = "stock-minimal"
 # a fixture constant and RECORD it; both halves are done: `fixtures/saves/README.md` records the chosen
 # kerbal (`Bill Kerman`) and this spec's step arg IS `Bill Kerman`, with the constants row
 # reading pool-neutral rather than pending. LIVE-PROVEN `2026-07-23_1914`.
-# The oracle hard-gates scalar pools (`oracle.py`: a drift reds `PARSEK-FAIL(ledger)`),
-# so the green run IS that confirmation - the same argument used to drop S4.1's tag.
+# NOTE the discharging evidence here is NOT the one its four L1 siblings use. Their
+# constants are nonzero, so the oracle's hard pool gate proves them. THIS manifest is
+# all-zero, and "no pool moved" is equally true of an action that never ran - so the
+# hard gate alone would be a weak claim. What actually discharges it is the logContract
+# pair below (`kscaction action=dismiss-kerbal .* applied=true` + `Game state:
+# CrewRemoved`), which proves the dismissal HAPPENED, plus the README row naming the
+# kerbal. The pool gate then proves it cost nothing.
 tags = ["ledger", "L1", "R7"]
 
 [fixture]

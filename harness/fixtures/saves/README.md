@@ -31,7 +31,10 @@ Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade)
 Author constants declared in the specs (assert `expected == save` on the touched pool).
 THIS TABLE IS THE LEDGER for the specs' `VERIFY-PENDING-OPERATOR` markers - a spec
 claiming outstanding operator work and a row here reading **VERIFIED** cannot both be
-right, and on 2026-07-31 four specs were in exactly that state. Keep the two in step:
+right. On 2026-07-31 TWO specs were in exactly that state (`L1-research-node-career`,
+and `-science` riding its constant). The other two stale tags failed the other way:
+this table AGREED with them and both were wrong together (hire, upgrade-facility), which
+is worse - a ledger that agrees with a stale spec proves nothing. Keep the two in step:
 
 | Spec | Constant | Status |
 | --- | --- | --- |

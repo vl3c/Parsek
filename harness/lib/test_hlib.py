@@ -4190,8 +4190,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
       REVIEWED_UNTAGGED - every untagged spec that MENTIONS the token, and why
                           it does not carry it.
 
-    Together they are total over the corpus: a spec that gains the tag, loses it,
-    or starts mentioning it reds here until someone records which it is. That is
+    Together they are total over the two populations that can owe operator work -
+    specs that MENTION the token, and specs that are `tier = "operator"` - so a
+    spec that gains the tag, loses it, starts mentioning it, or becomes
+    operator-tier reds here until someone records which it is. (Covering only the
+    first population was a real gap: `B16-eve-orbit` is operator-tier with a
+    documented outstanding human call and never writes the string.) That is
     a weaker guarantee than "the tag is always truthful" and a much more honest
     one - the check enforces that the inventory was REVIEWED, and the reviewer
     supplies the truth. For a fixture constant, `harness/fixtures/saves/README.md`
@@ -4203,6 +4207,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
         "V1-map-dwell-mun-orbit.toml": "tier=operator",
+        "B16-eve-orbit.toml":          "tier=operator AND a documented outstanding human call - "
+                                       "the PROMOTE note ('the PROVISIONAL pins need a human "
+                                       "reading the result'); status doc: 'TIER NOT CHANGED ... "
+                                       "left as an explicit human call'.",
         "S1.5-rewind-loop.toml":       "three live asserts: crew re-reservation and resource "
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
@@ -4231,6 +4239,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "B15-eve-flyby.toml":               "discharged - inward transfer ANSWERED by flight 7",
         # NOT this spec's own debt: it describes B1/B2's pad-craft fixtures.
         "S0.5-live-record-discard.toml":    "other-spec - B1/B2 fixtures, not S0.5's own",
+        # tier=operator by MECHANISM, not debt: fixture-FORGE runs are manual by
+        # nature ("NEVER runs on a cadence, only under an explicit invocation")
+        # and their harvested fixtures are committed. Operator-tier alone is not
+        # an operator debt - which is why the tier is recorded here rather than
+        # assumed to imply the tag.
+        "FORGE-bdock-station.toml":         "forge-mechanism - manual by design; fixture committed",
+        "FORGE-eva2-lko.toml":              "forge-mechanism - manual by design; fixture committed",
+        "FORGE-eva3-pad.toml":              "forge-mechanism - manual by design; fixture committed",
     }
 
     def _specs(self):
@@ -4259,17 +4275,23 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     def test_carriers_claiming_operator_tier_really_are_operator_tier(self):
         """The one half of a carrier's justification that IS machine-checkable."""
         specs = self._specs()
+        # startswith, not ==: a reason may CITE operator-tier and then add more
+        # (B16 does), and that citation must still be checked.
         wrong = sorted(n for n, why in self.CARRIERS.items()
-                       if why == "tier=operator" and specs[n][0] != "operator")
+                       if why.startswith("tier=operator") and specs[n][0] != "operator")
         self.assertEqual([], wrong, "CARRIERS claims tier=operator for a spec that is not")
 
-    def test_every_untagged_mention_is_classified(self):
-        """The completeness half. A spec can mention the token without carrying
-        the tag for exactly two honest reasons - the debt is discharged, or it
-        belongs to another spec - and both must be a recorded human call, never a
-        silent omission. This is what `B15-eve-flyby` needed and did not have."""
-        mentions = sorted(n for n, (_, tagged, m) in self._specs().items()
-                          if m and not tagged)
+    def test_every_untagged_candidate_is_classified(self):
+        """The completeness half, over BOTH populations that can owe operator
+        work: specs that MENTION the token, and specs that are `tier =
+        "operator"`. Covering only the first was a real gap - `B16-eve-orbit` is
+        operator-tier with a documented outstanding human call and never writes
+        the string, so it sat in neither list and reds nothing. An untagged
+        candidate is honest for three reasons - the debt is discharged, it
+        belongs to another spec, or the tier is a mechanism rather than a debt
+        (the FORGE runs) - and each must be a recorded human call."""
+        mentions = sorted(n for n, (tier, tagged, m) in self._specs().items()
+                          if (m or tier == "operator") and not tagged)
         self.assertEqual(sorted(self.REVIEWED_UNTAGGED), mentions,
                          "an untagged spec mentions PENDING-OPERATOR without a recorded "
                          "classification; read its row in docs/dev/autotest-status.md, then "

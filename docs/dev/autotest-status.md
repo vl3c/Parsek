@@ -4,9 +4,10 @@ Last updated: 2026-08-01 (THE `pending-operator` TAG IS NOW HONEST, and what
 enforces it is a REVIEWED INVENTORY rather than a cleverer string match. Branch
 `s41-pending-operator-tag`. An adversarial review panel SPLIT on whether
 S4.1-rewind-merge's tag was stale - the tell that nothing was pinning the
-meaning. NINE specs carried it; SIX are dropped and THREE keep it
+meaning. NINE specs carried it; SIX are dropped, ONE was added, and FOUR carry it now
 (R1-rewind-loop-flown and V1-map-dwell-mun-orbit are `tier = "operator"`;
-S1.5-rewind-loop names asserts no unattended run can discharge). The six:
+S1.5-rewind-loop names asserts no unattended run can discharge; B16-eve-orbit is
+operator-tier AND carries a documented outstanding human call - see round 4). The six:
 S4.1 on its own written rule ("the pending-operator TAG stays until that first
 green run"; that run was 2026-07-28), L1-hire-kerbal-career as pending-FIXTURE
 residue, and the four L1 career specs, each of which named a
@@ -42,10 +43,22 @@ checked. That is a weaker guarantee than "the tag is always truthful" and a much
 more honest one: string matching over English cannot tell a live claim from a
 dead one, a true claim from a false one, or a spec's own debt from one it
 mentions on another's behalf (`S0.5` describes B1/B2's fixtures). The truth lives
-in the STATUS ROW and the FIXTURE LEDGER, and the docstring says so. Mutation-
-proved four ways: re-adding the tag to a dropped spec, adding it to an unrelated
-spec, removing it from a carrier, and a new untagged spec mentioning the token
-all red.
+in the STATUS ROW and the FIXTURE LEDGER, and the docstring says so.
+
+ROUND 4 then found the audit had only ever looked at specs that MENTION the
+string, so a spec could owe operator work invisibly: `B16-eve-orbit` is
+`tier = "operator"` with a documented outstanding human call (its PROMOTE note;
+this file already said "TIER NOT CHANGED ... left as an explicit human call", and
+described R1's identical state as "the same standard applied to B16 in this same
+pass" - and R1 is tagged) and never writes the token. B16 is tagged, the three
+FORGE specs are classified as operator-tier BY MECHANISM rather than debt
+(fixture-forge runs are manual by design, fixtures committed), and the
+completeness check now covers BOTH populations - token-mentioning specs AND
+operator-tier specs - so "total over the corpus" is finally true as written.
+Mutation-proved: re-adding the tag to a dropped spec, adding it to an unrelated
+spec, removing it from a carrier, a new untagged spec mentioning the token, a
+spec BECOMING operator-tier unclassified, and a carrier falsely citing
+operator-tier all red.
 
 STALE LEDGERS RECONCILED, since they are what let the tags rot in the first
 place: `harness/fixtures/saves/README.md` and `todo-and-known-bugs.md` both still
@@ -58,9 +71,9 @@ L1-passive-sandbox blocker. Four L1 specs also still carried "pending-fixture:
 lines above `tier = "daily"`.
 
 NO BEHAVIOUR CHANGE: the tag gates nothing, no tier moved, nothing selects on it
-but a generic `--tag` - the gain is that `--tag pending-operator` returns 3
+but a generic `--tag` - the gain is that `--tag pending-operator` returns 4
 scenarios that genuinely owe operator work instead of 9 padded with six finished
-ones. No CHANGELOG entry, matching the 2026-07-26 precedent. Suites: lib 1071
+ones and missing a live one. No CHANGELOG entry, matching the 2026-07-26 precedent. Suites: lib 1071
 (6 new), provision 203, missions/lib 1107, dotnet test 19,526 passed / 1
 skipped.)
 
@@ -717,7 +730,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | L1-research-node-career | daily | Research debits science exactly | D8 science, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 career. LIVE-PROVEN 2026-07-23: run `2026-07-23_1917_L1-research-node-career`, wall 52 s. Re-confirmed 2026-07-23 (`_1953`) and 2026-07-25 (`2026-07-25_0744`). `pending-operator` TAG DROPPED 2026-07-31: its `VERIFY-PENDING-OPERATOR` marker asked an operator to confirm a fixture constant and record it, and `fixtures/saves/README.md` already marked the `basicRocketry` cost **VERIFIED**. The oracle hard-gates scalar pools, so the green run IS that confirmation; the marker is now recorded as OPERATOR-VERIFIED in the spec. |
 | L1-research-node-science | daily | Same in science mode (no funds/rep pools) | D8 science, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 science-mode. LIVE-PROVEN 2026-07-23: run `2026-07-23_1917_L1-research-node-science`, wall 52 s. Re-confirmed 2026-07-23 (`_1954`) and 2026-07-25 (`2026-07-25_0744`). `pending-operator` TAG DROPPED 2026-07-31: its `VERIFY-PENDING-OPERATOR` marker asked an operator to confirm a fixture constant and record it, and it rides the same **VERIFIED** `basicRocketry` node cost. The oracle hard-gates scalar pools, so the green run IS that confirmation; the marker is now recorded as OPERATOR-VERIFIED in the spec. |
 | L1-upgrade-facility-career | daily | Facility upgrade debits funds per-level exactly | D8 facilities, funds, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1955_L1-upgrade-facility-career`, wall 52 s - reached after the first live run's ledger math passed (-150,000, hardDivergences=0) but its logContract red'd on `FacilityUpgraded` never being recorded, the blocker this row described, and that fix landed. Re-confirmed 2026-07-25 (`2026-07-25_0745`). `pending-operator` TAG DROPPED 2026-07-31: its `VERIFY-PENDING-OPERATOR` marker asked an operator to confirm a fixture constant and record it, and the constant was proven live at exactly -150,000 with hardDivergences=0. The oracle hard-gates scalar pools, so the green run IS that confirmation; the marker is now recorded as OPERATOR-VERIFIED in the spec. |
-| B16-eve-orbit | operator (PROMOTE to nightly after its first green flight) | The FIRST mission to fly B7's five interplanetary params AND B11/B12's capture tail together: capture burn, held park and mid-mission seam CommitTree after a HELIOCENTRIC traverse. HONEST SCOPE - B11/B12 already own the D1 `commit-in-foreign-soi` cell on two bodies, so doing it a third time at Eve adds no commit path and no terminal classification. The ONE thing it adds is that the capture tail has only ever run after a LUNAR transfer: here the committed tree's terminal orbit body is reached through TWO SOI transitions with an arrival v_inf ~4x the Mun's. Eve's atmosphere is NOT claimed (the park is at ~5,000 km) - see B15 | D1 auto-record-launch, commit-in-foreign-soi; D3 orbital-checkpoint; D4 atmospheric, exo-propulsive, exo-ballistic, cohesive-cross-body-coast; D14 kerbin, eve, soi-count, warp-rails, warp-high. LIVE-PROVEN 2026-07-29 on its FIRST FLIGHT, attempt 1: run `2026-07-29_1718_B16-eve-orbit`, wall 1,825 s (mission 1,766 s), every verifier PASS/SKIPPED. All 19 phases reached through ORBIT-COMMITTED, and all six assertions met: `reachedTargetSoi` Eve, `flybyPeriapsisFloor` 4,850,416 m, `capturedInTargetOrbit` ecc 4.67e-05, `parkedStable`, `treeCommitted` OK. The committed save carries exactly 8 recordings - the number the PROVISIONAL window predicted from B11/B12/B13/B14 and the three green B7 runs, now MEASURED on the Eve lane too. Four report-only Unity NREs, all stock/third-party teardown at scene exit (KnowledgeBase map-focus, CrewHatchController, MechJebCore), none Parsek. COST, and it matters for the promotion decision: the spec's budget prose sized this lane at ~4,700 s and warned a nightly rotation with retry-once could spend ~2.6 HOURS a night. MEASURED 1,825 s makes the retry-once worst case ~61 min, and puts B16 CHEAPER than B13 (2,825 s), BDOCK-1 (2,164 s) and B14 (2,141 s), all of which are nightly. TIER NOT CHANGED. The spec's promotion rule has TWO conditions - fly green AND replace the PROVISIONAL pins with MEASURED ones - and it states the pins need a human reading the result. Only the first condition is met here, so `tier = "operator"` stands and the promotion is left as an explicit human call with the measurements above in hand. |
+| B16-eve-orbit | operator (PROMOTE to nightly after its first green flight) | The FIRST mission to fly B7's five interplanetary params AND B11/B12's capture tail together: capture burn, held park and mid-mission seam CommitTree after a HELIOCENTRIC traverse. HONEST SCOPE - B11/B12 already own the D1 `commit-in-foreign-soi` cell on two bodies, so doing it a third time at Eve adds no commit path and no terminal classification. The ONE thing it adds is that the capture tail has only ever run after a LUNAR transfer: here the committed tree's terminal orbit body is reached through TWO SOI transitions with an arrival v_inf ~4x the Mun's. Eve's atmosphere is NOT claimed (the park is at ~5,000 km) - see B15 | D1 auto-record-launch, commit-in-foreign-soi; D3 orbital-checkpoint; D4 atmospheric, exo-propulsive, exo-ballistic, cohesive-cross-body-coast; D14 kerbin, eve, soi-count, warp-rails, warp-high. LIVE-PROVEN 2026-07-29 on its FIRST FLIGHT, attempt 1: run `2026-07-29_1718_B16-eve-orbit`, wall 1,825 s (mission 1,766 s), every verifier PASS/SKIPPED. All 19 phases reached through ORBIT-COMMITTED, and all six assertions met: `reachedTargetSoi` Eve, `flybyPeriapsisFloor` 4,850,416 m, `capturedInTargetOrbit` ecc 4.67e-05, `parkedStable`, `treeCommitted` OK. The committed save carries exactly 8 recordings - the number the PROVISIONAL window predicted from B11/B12/B13/B14 and the three green B7 runs, now MEASURED on the Eve lane too. Four report-only Unity NREs, all stock/third-party teardown at scene exit (KnowledgeBase map-focus, CrewHatchController, MechJebCore), none Parsek. COST, and it matters for the promotion decision: the spec's budget prose sized this lane at ~4,700 s and warned a nightly rotation with retry-once could spend ~2.6 HOURS a night. MEASURED 1,825 s makes the retry-once worst case ~61 min, and puts B16 CHEAPER than B13 (2,825 s), BDOCK-1 (2,164 s) and B14 (2,141 s), all of which are nightly. TIER NOT CHANGED. (`pending-operator` TAG ADDED 2026-08-01: this row already called the promotion "an explicit human call" and described R1's identical state as "the same standard applied to B16 in this same pass" - and R1 carried the tag while B16 did not. A tag audit that inspected only specs MENTIONING `PENDING-OPERATOR` could not see B16, which never writes it; the completeness check now covers operator-tier specs too.) The spec's promotion rule has TWO conditions - fly green AND replace the PROVISIONAL pins with MEASURED ones - and it states the pins need a human reading the result. Only the first condition is met here, so `tier = "operator"` stands and the promotion is left as an explicit human call with the measurements above in hand. |
 
 ### Committed, not yet live-run (0)
 
