@@ -250,9 +250,15 @@ namespace Parsek
                 // The specific throw is fixed at its source and at the solver boundary;
                 // this guard is the structural half, so the NEXT unforeseen extrapolator
                 // failure degrades to "no fresh cache this refresh" instead of to "no
-                // recording". Failing the cache re-uses the existing decline path:
-                // TryPreservePreviousCacheAfterFailedRefresh keeps the last good cache,
-                // and the Failed status makes the next refresh retry.
+                // recording". Failing the cache re-uses the existing decline path with no
+                // new contract: TryPreservePreviousCacheAfterFailedRefresh keeps the last
+                // good cache. Note what that means for the RETRY cadence, because the two
+                // outcomes differ - with no preservable previous cache the stored status
+                // stays Failed, which holds `requiresPeriodicRefresh` true and retries on
+                // the periodic cadence; when a previous cache IS preserved the stored
+                // status becomes Stale, so a coasting vessel next retries on a digest
+                // change rather than on the cadence. Either way the recorder keeps a
+                // usable answer and keeps sampling, which is the point.
                 result = default(IncompleteBallisticFinalizationResult);
                 finalized = false;
                 ParsekLog.WarnRateLimited("FinalizerCache",

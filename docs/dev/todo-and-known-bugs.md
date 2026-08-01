@@ -470,10 +470,14 @@ ones. Three layers, source outwards:
    `[Parsek][WARN][FinalizerCache] Refresh threw:` naming vessel pid, refresh reason,
    UT, body, situation and exception, `WarnRateLimited` 30 s) and declines through the
    existing `Fail(cache, "default-finalizer-threw")` path, so
-   `TryPreservePreviousCacheAfterFailedRefresh` keeps the last good cache and the next
-   tick retries. This covers `BackgroundRecorder` as well as `FlightRecorder`, and is
-   worth having regardless of layer 1/2 - it is the half that makes the NEXT
-   unforeseen extrapolator failure cost a cache, not a recording.
+   `TryPreservePreviousCacheAfterFailedRefresh` keeps the last good cache. Retry cadence
+   follows that existing contract rather than a new one, and the two outcomes differ: no
+   preservable previous cache leaves the stored status Failed (which holds
+   `requiresPeriodicRefresh` true, so the periodic cadence retries), while a preserved
+   one is stored Stale (so a coasting vessel retries on a digest change instead). This
+   covers `BackgroundRecorder` as well as `FlightRecorder`, and is worth having
+   regardless of layer 1/2 - it is the half that makes the NEXT unforeseen extrapolator
+   failure cost a cache, not a recording.
 
 Guarded by new xUnit cells in `BallisticExtrapolatorKeplerTests` (the NaN-eccentricity
 segment declines instead of throwing; a valid hyperbola at a non-finite UT yields NaN
@@ -488,6 +492,16 @@ STILL OPEN, unchanged by this fix: the harness-side companion below - an
 `expectations.recordings` assertion on POINTS rather than on `.prec` file count. It is
 what would have caught this on EVA-2's first flight, and it is still what would catch
 the next recording that finalizes empty.
+
+SCOPE FENCE, so layer 1 is not over-read: it screens patched-conic PATCHES, which is
+where the measured NaN came from. It does NOT screen the LIVE vessel orbit.
+`RecordingFinalizationCacheProducer.BuildOrbitSegmentFromVessel` copies `vessel.orbit`
+verbatim, and a NaN eccentricity there passes `ShouldExtrapolate`'s
+`eccentricity >= 1.0` test (false for NaN) into `PopulateStableOrbitCache`, which can
+stamp a `TerminalOrbit` carrying the NaN. Layer 2 means that can no longer throw or
+mis-propagate, but a non-finite element could still be PERSISTED by that path. Not
+fixed here: the measurement had NaN only in the patches, so guarding the live orbit
+would be speculative. Recorded so nobody assumes it is covered.
 
 NOTED WHILE FIXING, not fixed (different subsystem, no evidence it is reachable):
 `Math.Sign` throws on NaN, and `Source/Parsek/` has exactly three call sites. Two are
