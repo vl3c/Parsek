@@ -170,7 +170,10 @@ schema = 1
 id = "B16-eve-orbit"
 # operator UNTIL THE FIRST FLIGHT, then PROMOTE TO nightly. Same committed
 # Kerbal X fixture as B2/B4/B5/B6/B7/B11-B15.
-# NOT YET FLOWN. Every number is DERIVED or carried from a MEASURED B7 / B11 /
+# ~~NOT YET FLOWN.~~ FLEW 2026-07-29 (`2026-07-29_1718`, 1,825 s, PASS on its FIRST
+# flight). The PROVISIONAL pins below are STILL provisional - replacing them with
+# MEASURED ones is the second half of the PROMOTE condition, and the reason this spec
+# carries `pending-operator`. Every number is DERIVED or carried from a MEASURED B7 / B11 /
 # B12 flight, and each one says which. The first flight pins the PROVISIONAL
 # items called out inline (recordings count, the two wall budgets, the
 # ejection-window wait, the achieved capture geometry).

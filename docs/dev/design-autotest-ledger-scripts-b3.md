@@ -4,7 +4,9 @@
 > author constants `VERIFY-PENDING-OPERATOR` (the `basicRocketry` node cost, the
 > Tracking-Station upgrade cost, the hire cost) because at writing time nobody had read
 > them off a live run. All three are now verified, and one was WRONG: the hire cost is
-> **-62113**, not the -24000 this design and the fixture README both carried. The oracle
+> **-62113**. This design never carried a hire figure; the surfaces that held the stale
+> -24000 were `harness/fixtures/saves/README.md` and `docs/dev/todo-and-known-bugs.md`,
+> and both are corrected. The oracle
 > hard-gates scalar pools, so the 2026-07-23 green runs are the reads those markers
 > asked for. THE LEDGER OF RECORD is `harness/fixtures/saves/README.md`; the
 > `VERIFY-PENDING-OPERATOR` mentions below are historical intent, not open work. (The

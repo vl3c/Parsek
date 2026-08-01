@@ -28,9 +28,10 @@ id = "S1.5-rewind-loop"
 # exactly what the correction above removes. With the verbs EXECUTING, a bad run ends on
 # a fast terminal verdict (`REJECTED unknown-rp` / `refly-gate <reason>` / an unmet step)
 # within seconds of the boot, so the real repeated cost is ~2 short KSP boots a night,
-# not 2 x 2400 s. nightly rather than daily because it is still UNFLOWN: its first
-# scheduled run IS its live-prove, and a failure there classifies driver-INVALID
-# (retryable), never a false PARSEK-FAIL.
+# not 2 x 2400 s. nightly rather than daily because it was still UNFLOWN when this was
+# written: its first scheduled run WAS its live-prove, and a failure there would have
+# classified driver-INVALID (retryable), never a false PARSEK-FAIL. It has since flown
+# (see the superseded note below).
 #
 # TAG RULE CORRECTED 2026-07-31. This used to read "The pending-operator TAG stays until
 # that first green run; the tag alone is non-gating" - copied from the same template as
@@ -45,9 +46,13 @@ id = "S1.5-rewind-loop"
 # out-of-scope-for-the-driver is a debt an OPERATOR still owes.
 # The tag alone remains non-gating.
 #
-# NOT VERIFIED BY A RUN: this re-tier is derived from the code + EVA-1's live precedent,
+# ~~NOT VERIFIED BY A RUN: this re-tier is derived from the code + EVA-1's live precedent,
 # not from an S1.5 flight (the rewind-loop lane was headless by constraint). If the first
-# nightly reds on something structural rather than a real Parsek finding, put it back.
+# nightly reds on something structural rather than a real Parsek finding, put it back.~~
+# SUPERSEDED 2026-07-29: S1.5 FLEW, on its first execution ever
+# (`2026-07-29_1528_S1.5-rewind-loop_a2`, 69 s, every verifier PASS/SKIPPED). The re-tier
+# is settled by observation now, not derivation, and the "put it back" instruction is
+# spent.
 tier = "nightly"
 # S1.5 rewind loop (core loop, D18), DRIVABLE SUBSET. The full catalog S1.5 is
 # "fly B1, commit, warp past EndUT (vessel spawns), quicksave, rewind via seam,

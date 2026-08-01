@@ -17,7 +17,7 @@ confirmation those markers asked an operator for (L1-dismiss is the one whose
 all-zero manifest makes the logContract pair plus the README row the discharging
 evidence instead).
 
-FOUR REVIEW ROUNDS, and the mistakes are the useful part - each was the SAME
+FIVE REVIEW ROUNDS, and the mistakes are the useful part - each was the SAME
 error in a different costume, and each is why the final design is what it is.
 ROUND 1: the audit read the specs for a string and stopped, never opening
 `harness/fixtures/saves/README.md`, the project's own per-constant ledger, which
@@ -53,8 +53,9 @@ described R1's identical state as "the same standard applied to B16 in this same
 pass" - and R1 is tagged) and never writes the token. B16 is tagged, the three
 FORGE specs are classified as operator-tier BY MECHANISM rather than debt
 (fixture-forge runs are manual by design, fixtures committed), and the
-completeness check now covers BOTH populations - token-mentioning specs AND
-operator-tier specs - so "total over the corpus" is finally true as written.
+completeness check now covers BOTH populations it can DETECT - token-mentioning
+specs AND operator-tier specs. (Round 5 then sharpened what that totality IS; see
+below.)
 Mutation-proved: re-adding the tag to a dropped spec, adding it to an unrelated
 spec, removing it from a carrier, a new untagged spec mentioning the token, a
 spec BECOMING operator-tier unclassified, and a carrier falsely citing
