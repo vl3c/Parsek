@@ -6,7 +6,13 @@ id = "L1-research-node-science"
 tier = "daily"
 description = "Science mode: research one tech node; the science pool drops by exactly the node cost. No funds/rep pool exists to assert."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "science-mode", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31. The marker below asked the operator to CONFIRM
+# a fixture constant and RECORD it; it rides the same `basicRocketry` node cost the career
+# script pins, which `fixtures/saves/README.md` marks **VERIFIED**.
+# LIVE-PROVEN `2026-07-23_1917`.
+# The oracle hard-gates scalar pools (`oracle.py`: a drift reds `PARSEK-FAIL(ledger)`),
+# so the green run IS that confirmation - the same argument used to drop S4.1's tag.
+tags = ["ledger", "L1", "science-mode"]
 
 [fixture]
 # fresh-science (GAME node Mode = SCIENCE_SANDBOX): science pool only; CareerSaveParser
@@ -72,7 +78,9 @@ rec3CarveOut = false
   ut         = 0.0
   kind       = "tech-unlock"
   # AUTHOR CONSTANT: basicRocketry = -5.0 on the pinned KSP 1.12.5 stock tech tree.
-  # VERIFY-PENDING-OPERATOR (same node-cost discipline as the career research script).
+  # OPERATOR-VERIFIED (was VERIFY-PENDING-OPERATOR, same node-cost discipline as the career
+  # research script): that constant is **VERIFIED** in `fixtures/saves/README.md` and this
+  # spec flew green at `2026-07-23_1917` with the science pool hard-gated.
   science    = -5.0
   provenance = "seam-declared"
 

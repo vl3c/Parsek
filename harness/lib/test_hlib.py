@@ -4116,19 +4116,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     alone is non-gating; the tier is"), and nothing selects on it but a generic
     `--tag`. That is exactly why it rots quietly: no run ever fails because a
     finished scenario still claims to be waiting on a human, so the only thing
-    keeping `--tag pending-operator` useful is that someone notices. Twice now
-    nobody did - `L1-passive-sandbox` carried a stale one until 2026-07-26, and
-    `S4.1-rewind-merge` plus `L1-hire-kerbal-career` carried theirs until
-    2026-07-31, by which point a two-reviewer panel SPLIT on whether S4.1's was
-    stale. A list padded with finished scenarios is worse than no list: the
-    operator stops trusting it and stops reading it.
+    keeping `--tag pending-operator` useful is that someone notices. Nobody did:
+    `L1-passive-sandbox` carried a stale one until 2026-07-26, and SIX more were
+    still carrying theirs on 2026-07-31 - by which point a two-reviewer panel had
+    SPLIT on whether S4.1's was stale. A list padded with finished scenarios is
+    worse than no list: the operator stops trusting it and stops reading it.
 
     THE RULE, derived from how every committed carrier actually justifies itself
     rather than invented here: a spec may carry `pending-operator` only if it is
     (a) `tier = "operator"` - the tier already says a human must drive it - or
     (b) naming outstanding operator work inline, i.e. a `PENDING-OPERATOR`
-    comment somewhere in the spec. A spec that is neither is claiming a debt it
-    does not have."""
+    comment carrying real content. A spec that is neither is claiming a debt it
+    does not have.
+
+    WHAT THIS CANNOT ENFORCE, stated plainly so nobody mistakes green here for
+    proof. This is string matching: it checks that a CLAIM of outstanding work
+    EXISTS, never that the claim is TRUE. A comment reading "PENDING-OPERATOR:
+    this was finished last week" satisfies it. The first draft of this audit
+    failed in exactly that direction - it read the specs for the token and
+    stopped, and four L1 specs kept tags whose named constants their own green
+    runs had already discharged, because the audit never opened
+    `harness/fixtures/saves/README.md`. THAT FILE IS THE SEMANTIC LEDGER: it
+    carries a per-constant status column (**VERIFIED** vs
+    VERIFY-PENDING-OPERATOR) and it, not this cell, is where truth about a
+    fixture constant lives. When you touch a marker here, reconcile that table
+    in the same commit."""
 
     def _carriers(self):
         out = {}
@@ -4140,12 +4152,34 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                 continue
             with open(path, "r", encoding="utf-8") as fh:
                 text = fh.read()
-            # Count PENDING-OPERATOR only in COMMENTS: the tag itself lives in a
-            # `tags = [...]` value and must not be allowed to justify itself.
-            notes = sum(1 for line in text.splitlines()
-                        if line.lstrip().startswith("#") and "PENDING-OPERATOR" in line)
-            out[name] = (spec.get("tier"), notes)
+            out[name] = (spec.get("tier"), self._count_notes(text))
         return out
+
+    # A marker counts only if it is (a) in a COMMENT - the tag lives in a
+    # `tags = [...]` value and must never be allowed to justify itself - and
+    # (b) carries SUBSTANCE after the token. A bare `#PENDING-OPERATOR` is the
+    # cheapest possible way to keep a tag alive, so requiring content is what
+    # stops the rule degrading into "type the magic word".
+    _MIN_NOTE_CHARS = 20
+
+    @classmethod
+    def _count_notes(cls, text):
+        n = 0
+        for line in text.splitlines():
+            # Comments anywhere on the line, not just line-leading ones: a
+            # trailing `key = value  # PENDING-OPERATOR ...` is a legitimate
+            # note, and the first version of this cell false-RED'd on it.
+            idx = line.find("#")
+            if idx < 0:
+                continue
+            comment = line[idx:]
+            pos = comment.find("PENDING-OPERATOR")
+            if pos < 0:
+                continue
+            rest = comment[pos + len("PENDING-OPERATOR"):].strip(" :.-")
+            if len(rest) >= cls._MIN_NOTE_CHARS:
+                n += 1
+        return n
 
     def test_every_carrier_is_operator_tier_or_names_outstanding_work(self):
         unjustified = sorted(n for n, (tier, notes) in self._carriers().items()
@@ -4157,14 +4191,33 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "drop the tag (citing the green run, as S4.1 / L1-hire / L1-passive-sandbox "
             "do) or write down what the operator still owes")
 
-    def test_the_two_specs_promoted_out_stay_out(self):
-        """Regression pin for the 2026-07-31 drop. Both conditions that justified
-        removal are permanent (a green run cannot un-happen), so the tag coming
-        back means someone re-added it by hand or a merge resurrected it."""
-        for name in ("S4.1-rewind-merge.toml", "L1-hire-kerbal-career.toml"):
+    # The 2026-07-31 sweep. Every one was discharged by a GREEN RUN, and a green
+    # run cannot un-happen, so the tag reappearing on any of these means a hand
+    # edit or a merge resurrection - not new information.
+    DROPPED_2026_07_31 = (
+        "S4.1-rewind-merge.toml",             # own rule: "stays until that first green run"
+        "L1-hire-kerbal-career.toml",         # pending-FIXTURE residue; fixture landed
+        "L1-dismiss-kerbal-career.toml",      # README records the kerbal; pool-neutral
+        "L1-research-node-career.toml",       # README marks the node cost **VERIFIED**
+        "L1-research-node-science.toml",      # rides the same VERIFIED node cost
+        "L1-upgrade-facility-career.toml",    # proven live at -150,000, hardDivergences=0
+    )
+
+    def test_the_specs_promoted_out_stay_out(self):
+        for name in self.DROPPED_2026_07_31:
             tags = load_spec(name).get("tags") or []
             self.assertNotIn("pending-operator", tags,
                              "%s was live-proven and owes no operator work" % name)
+
+    def test_the_survivors_are_exactly_the_three_with_live_debts(self):
+        """Pins the whole post-sweep set, so a tag appearing on a spec nobody
+        listed reds even if that spec happens to satisfy the rule. Nine carriers
+        went in; three come out."""
+        carriers = sorted(self._carriers())
+        self.assertEqual(["R1-rewind-loop-flown.toml",      # tier = operator
+                          "S1.5-rewind-loop.toml",          # 3 asserts need a career fixture
+                          "V1-map-dwell-mun-orbit.toml"],   # tier = operator
+                         carriers)
 
     def test_the_tag_is_still_non_gating(self):
         """The whole rule above rests on the tag moving no verdict and gating no

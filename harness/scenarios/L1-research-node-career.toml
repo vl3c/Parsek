@@ -7,7 +7,13 @@ id = "L1-research-node-career"
 tier = "daily"
 description = "Career: research one tech node; the science pool drops by exactly the node cost, no other drift."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "R7", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31. The marker below asked the operator to CONFIRM
+# a fixture constant and RECORD it; `fixtures/saves/README.md` already marks this constant
+# **VERIFIED** (the source save's `basicRocketry` Tech node carried `cost = 5`).
+# LIVE-PROVEN `2026-07-23_1917`.
+# The oracle hard-gates scalar pools (`oracle.py`: a drift reds `PARSEK-FAIL(ledger)`),
+# so the green run IS that confirmation - the same argument used to drop S4.1's tag.
+tags = ["ledger", "L1", "R7"]
 
 [fixture]
 # saveTemplate leaf ("fresh-career") IS runSaveName: staged into saves/fresh-career/,
@@ -81,8 +87,10 @@ rec3CarveOut = false
   # AUTHOR CONSTANT (state-INDEPENDENT: a tech node's science cost is fixed stock DATA,
   # the RDNode cost, not a diminishing-returns credit; a null fill-from-capture on the
   # science facet is REJECTED by parse_manifest_entries). basicRocketry = -5.0 on the
-  # pinned KSP 1.12.5 stock tech tree. VERIFY-PENDING-OPERATOR: the operator confirms the
-  # node cost during fixture creation and records it in the fixture README.
+  # pinned KSP 1.12.5 stock tech tree. OPERATOR-VERIFIED (was VERIFY-PENDING-OPERATOR: confirm
+  # the node cost at fixture creation and record it in the fixture README). `fixtures/saves/
+  # README.md` marks it **VERIFIED** - the source save's `basicRocketry` Tech node carried
+  # `cost = 5` - and `2026-07-23_1917` flew it green with the pool hard-gated.
   science    = -5.0
   provenance = "seam-declared"
 

@@ -30,8 +30,18 @@ id = "S1.5-rewind-loop"
 # within seconds of the boot, so the real repeated cost is ~2 short KSP boots a night,
 # not 2 x 2400 s. nightly rather than daily because it is still UNFLOWN: its first
 # scheduled run IS its live-prove, and a failure there classifies driver-INVALID
-# (retryable), never a false PARSEK-FAIL. The pending-operator TAG stays until that
-# first green run; the tag alone is non-gating.
+# (retryable), never a false PARSEK-FAIL.
+#
+# TAG RULE CORRECTED 2026-07-31. This used to read "The pending-operator TAG stays until
+# that first green run; the tag alone is non-gating" - copied from the same template as
+# S4.1's. That sentence is the WRONG rule for THIS spec, and left standing it was a
+# straight contradiction: the first green run happened (`2026-07-29_1528_..._a2`, its
+# first execution ever), which by the sentence's own terms said DROP, while the tag is
+# deliberately KEPT. S1.5 keeps it for a different and still-live reason - the three
+# PENDING-OPERATOR asserts below (crew re-reservation, resource reset, self-authored
+# RewindPoint) need a career fixture the sandbox host does not provide, so no unattended
+# run can discharge them. Out-of-scope-for-the-driver is a debt an OPERATOR still owes.
+# The tag alone remains non-gating.
 #
 # NOT VERIFIED BY A RUN: this re-tier is derived from the code + EVA-1's live precedent,
 # not from an S1.5 flight (the rewind-loop lane was headless by constraint). If the first

@@ -5,7 +5,13 @@ id = "L1-dismiss-kerbal-career"
 tier = "daily"
 description = "Career: dismiss one roster kerbal; NO career pool moves (pool-neutral non-economic action)."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "R7", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31. The marker below asked the operator to CONFIRM
+# a fixture constant and RECORD it; both halves are done: `fixtures/saves/README.md` records the chosen
+# kerbal (`Bill Kerman`) and this spec's step arg IS `Bill Kerman`, with the constants row
+# reading pool-neutral rather than pending. LIVE-PROVEN `2026-07-23_1914`.
+# The oracle hard-gates scalar pools (`oracle.py`: a drift reds `PARSEK-FAIL(ledger)`),
+# so the green run IS that confirmation - the same argument used to drop S4.1's tag.
+tags = ["ledger", "L1", "R7"]
 
 [fixture]
 saveTemplate = "fixtures/saves/fresh-career"
@@ -15,10 +21,11 @@ craft = []
 [driver]
 kind = "seam"
 # dismiss-kerbal drives KerbalRoster.Remove (a Parsek-managed kerbal pre-declines
-# kerbal-parsek-managed). VERIFY-PENDING-OPERATOR: name a dismissable stock kerbal the
-# fixture roster carries (the fresh-career roster is EXACTLY Jeb/Bill/Bob/Val; dismissing
-# one is pool-neutral because stock does not refund a hire). Record the chosen name in the
-# fixture README.
+# kerbal-parsek-managed). OPERATOR-VERIFIED 2026-07-31 (was VERIFY-PENDING-OPERATOR: name a
+# dismissable stock kerbal the fixture roster carries, and record it in the fixture README).
+# BOTH halves are done: `fixtures/saves/README.md` records `Bill Kerman` and this spec's
+# step arg is `Bill Kerman`. Dismissing one is pool-neutral because stock does not refund a
+# hire, which is what the README constants row says. LIVE-PROVEN `2026-07-23_1914`.
 steps = [
   { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },

@@ -5,7 +5,13 @@ id = "L1-upgrade-facility-career"
 tier = "daily"
 description = "Career: upgrade one non-R&D facility; the funds pool drops by exactly the per-level cost, no other drift."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31. The marker below asked the operator to CONFIRM
+# a fixture constant and RECORD it; the constant was PROVEN LIVE: the first run's ledger math
+# passed at exactly -150,000 with hardDivergences=0 (that run red'd only on a
+# `FacilityUpgraded` logContract, since fixed). LIVE-PROVEN `2026-07-23_1955`.
+# The oracle hard-gates scalar pools (`oracle.py`: a drift reds `PARSEK-FAIL(ledger)`),
+# so the green run IS that confirmation - the same argument used to drop S4.1's tag.
+tags = ["ledger", "L1"]
 
 [fixture]
 saveTemplate = "fixtures/saves/fresh-career"
@@ -67,9 +73,10 @@ rec3CarveOut = false
   # practice: fill-from-capture would need a stock funds award line, and KSP emits none, so
   # a null funds amount always fails ambiguous (known-gate 3). Not "deferred" - impossible.
   # Tracking Station level 0 -> 1, stock KSP 1.12.5.
-  # VERIFY-PENDING-OPERATOR: the operator reads GetUpgradeCost off the observedAfter= field
-  # of the "kscaction action=upgrade-facility applied=true" line during fixture creation and
-  # records it in the fixture README. If the chosen facility's cost turns out
+  # OPERATOR-VERIFIED (was VERIFY-PENDING-OPERATOR: read GetUpgradeCost off the observedAfter=
+  # field of the "kscaction action=upgrade-facility applied=true" line and record it in the
+  # fixture README). PROVEN LIVE instead: the first run's ledger math passed at exactly
+  # -150,000 with hardDivergences=0, and `2026-07-23_1955` is the green run. If the chosen facility's cost turns out
   # GameVariables-scaled rather than fixed, treat it as fixture-pinned like hire (Edge 3).
   funds      = -150000.0
   provenance = "seam-declared"

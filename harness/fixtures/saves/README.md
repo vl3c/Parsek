@@ -28,16 +28,20 @@ Shared by B10 + the four career L1 scripts (hire / dismiss / research / upgrade)
 | Applicant (hire target) | `Verhat Kerman` (Engineer) | `L1-hire-kerbal-career` step arg |
 | Dismissable kerbal | `Bill Kerman` | `L1-dismiss-kerbal-career` step arg |
 
-Author constants declared in the specs (assert `expected == save` on the touched pool):
+Author constants declared in the specs (assert `expected == save` on the touched pool).
+THIS TABLE IS THE LEDGER for the specs' `VERIFY-PENDING-OPERATOR` markers - a spec
+claiming outstanding operator work and a row here reading **VERIFIED** cannot both be
+right, and on 2026-07-31 four specs were in exactly that state. Keep the two in step:
 
 | Spec | Constant | Status |
 | --- | --- | --- |
 | `L1-research-node-career` | `basicRocketry` science = `-5.0` | **VERIFIED**: the source save's `basicRocketry` Tech node carried `cost = 5` (stock 1.12.5 tech data). |
-| `L1-hire-kerbal-career` | hire funds = `-24000.0` at hired-count 4 | VERIFY-PENDING-OPERATOR (GameVariables recruit-cost curve; read `observedAfter=` on the first live run). |
-| `L1-upgrade-facility-career` | Tracking Station level 0->1 funds = `-150000.0` | VERIFY-PENDING-OPERATOR (`SpaceCenterBuilding.GetUpgradeCost`; read `observedAfter=` on the first live run). |
+| `L1-hire-kerbal-career` | hire funds = `-62113.0` at hired-count 4 | **VERIFIED** 2026-07-31 off run `2026-07-23_1952`: the GameVariables recruit-cost curve measured -62113, NOT the -24000 guessed here. The spec was corrected on the live run (`L1-hire-kerbal-career.toml`, "LIVE-CONFIRMED (2026-07-23)"); this row was not, and stayed wrong for eight days. |
+| `L1-upgrade-facility-career` | Tracking Station level 0->1 funds = `-150000.0` | **VERIFIED** 2026-07-31: the first live run's ledger math passed at exactly -150,000 with hardDivergences=0 (that run red'd only on a since-fixed `FacilityUpgraded` logContract); green at `2026-07-23_1955`. |
 | `L1-dismiss-kerbal-career` | all pools = `0.0` | pool-neutral (stock does not refund a hire). |
 
-Budget check: `500000 - 150000 (upgrade) - 24000 (hire) = 326000 >= 0`.
+Budget check: `500000 - 150000 (upgrade) - 62113 (hire) = 287887 >= 0`. (Was written
+against the guessed 24000 hire cost; still comfortably positive at the measured one.)
 
 ## career-pad-craft (GAME Mode = CAREER, 1 VESSEL)
 
