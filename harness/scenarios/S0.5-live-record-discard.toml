@@ -4,9 +4,11 @@ tier = "daily"
 # Live seam-driven recording lifecycle over the stationary pod fixture, then a
 # scoped discard. This is the L3-lite discard cell AND the first RUNNABLE
 # live-recording REC-rule cell: B1/B2 are the flown live-recording cells but
-# their pad-craft fixtures WERE PENDING-OPERATOR (stale as of 2026-08-01:
-# `b1-pad-craft` and `b2-lko-craft` are both committed), so at the time nothing on main
-# exercises REC-001/REC-003 UNSUPPRESSED end to end. A StartRecording step makes
+# their pad-craft fixtures were PENDING-OPERATOR when this was written, so at the time
+# nothing on main exercised REC-001/REC-003 UNSUPPRESSED end to end. STALE as of
+# 2026-08-01: `b1-pad-craft` and `b2-lko-craft` are both committed and B1/B2 are
+# `tier = "nightly"`, so that gap is closed and this spec's value is now the
+# discard-path coverage below, not the REC-rule stand-in it was created as. A StartRecording step makes
 # spec_expects_live_recording True (hlib.spec_expects_live_recording), so the
 # recording-rules log profile stays MANDATORY (NOT suppressed the way an
 # injection-seeded run is): a dropped start/stop marker reds. The DISCARD leg is

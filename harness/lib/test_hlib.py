@@ -4190,12 +4190,20 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
       REVIEWED_UNTAGGED - every untagged spec that MENTIONS the token, and why
                           it does not carry it.
 
-    Together they are total over the two populations that can owe operator work -
+    Together they are total over the two populations this check can DETECT -
     specs that MENTION the token, and specs that are `tier = "operator"` - so a
     spec that gains the tag, loses it, starts mentioning it, or becomes
     operator-tier reds here until someone records which it is. (Covering only the
-    first population was a real gap: `B16-eve-orbit` is operator-tier with a
-    documented outstanding human call and never writes the string.) That is
+    first was a real gap: `B16-eve-orbit` is operator-tier with a documented
+    outstanding human call and never writes the string.)
+
+    DETECTABLE IS NOT THE SAME AS OWED, and the difference is not closable here.
+    A spec can owe a human something while giving neither signal:
+    `EVA-1-pad-flag` says "the tier stays nightly until the operator promotes
+    it" - a pending human call, on a nightly spec, with no token. Nothing makes
+    it red, and nothing can, short of reading every spec. Whether EVA-1 should
+    carry the tag is a judgement for whoever owns it; what this cell can honestly
+    promise is that the two DETECTABLE populations stay classified. That is
     a weaker guarantee than "the tag is always truthful" and a much more honest
     one - the check enforces that the inventory was REVIEWED, and the reviewer
     supplies the truth. For a fixture constant, `harness/fixtures/saves/README.md`
@@ -4217,8 +4225,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "split plus a seam channel. No unattended run discharges them.",
     }
 
-    # Untagged specs that MENTION the token, each classified by hand. A NEW one
-    # reds `test_every_untagged_mention_is_classified` until someone decides.
+    # Untagged specs that are CANDIDATES - they MENTION the token, or they are
+    # `tier = "operator"` (the FORGE trio is in by tier and never mentions it) -
+    # each classified by hand. A NEW one reds
+    # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",

@@ -197,7 +197,7 @@ tier = "operator"
 description = "Eve ORBIT / commit-in-target-orbit across a heliocentric traverse: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, heliocentric coast with time-to-SOI corrections, CAPTURE burn (circularize at a ~5,000 km periapsis) inside the Eve SOI, a held stable park below Gilly's orbit, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN EVE'S SOI."
 instanceProfile = "stock-minimal"
 # `pending-operator` ADDED 2026-08-01. B16 is `tier = "operator"` AND carries a
-# documented outstanding human call - the PROMOTE note below ("the PROVISIONAL pins
+# documented outstanding human call - the PROMOTE note ABOVE ("the PROVISIONAL pins
 # above need a human reading the result"; "the moment B16 flies GREEN ... set
 # tier = nightly"). `docs/dev/autotest-status.md` records it as "TIER NOT CHANGED ...
 # left as an explicit human call", and describes R1's identical state as "the same
