@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Parsek.InGameTests
@@ -14,15 +15,24 @@ namespace Parsek.InGameTests
     /// writes `scrollPos` before a real `BeginScrollView`. No headless test can produce a
     /// solved layout tree, so that half shipped on manual playtest alone.</para>
     ///
-    /// <para>The specific defect this exists for. A Repaint event is NOT on its own proof
-    /// that rects are solved - Unity solves them at the end of a Layout pass and later passes
-    /// reuse that window's cache. The most common GoTo path (Missions window CLOSED, the click
-    /// opens it mid-frame) could therefore paint a Repaint against a cache that was never
-    /// solved, read zeros, consume the target, land the list at offset 0, and log it as a
-    /// success. It is silent by construction: no exception, no warning, and a log line that
-    /// reads like it worked. The guard is that the capture requires the same frame to have run
-    /// the list's own Layout pass; this test is what proves that guard is real in a live game
-    /// rather than reasoned about on paper.</para>
+    /// <para>WHAT THIS DOES AND DOES NOT PROVE - read before trusting it. It proves the
+    /// capture pipeline measures REAL, DISTINCT content-space rects end to end in a live game:
+    /// two different missions come back with two different offsets, which is what the whole
+    /// feature rests on and what no headless test can show. It also proves the
+    /// `missionsLayoutFrame` guard does not OVER-suppress: an over-strict guard would starve
+    /// both captures and time out to NaN, which reds here.</para>
+    ///
+    /// <para>It does NOT regression-guard the defect that motivated that guard. That defect
+    /// needs a window opened MID-OnGUI (the Timeline button handler's shape): a Repaint painted
+    /// against a layout cache that was never solved reads zeros, consumes the target, lands the
+    /// list at offset 0, and logs it as a success. A coroutine resumes BETWEEN frames, so it
+    /// structurally cannot open a window mid-OnGUI - delete the guard at
+    /// `MissionsWindowUI.CaptureRevealAnchor` and the steady-state cases below stay green. The
+    /// third case ("window CLOSED") is the closest reachable approximation: the reveal itself
+    /// force-opens the window, so the capture has to survive a window that did not exist on the
+    /// previous frame, and it pins that the capture DEFERS to a solved pass instead of
+    /// measuring the unsolved one. Stating this plainly because a test whose name implies more
+    /// coverage than it has is worse than no test.</para>
     ///
     /// <para>SELF-SEEDING, by necessity. The H22 host runs with `injectedRecordings = "none"`,
     /// so there are no trees and no missions to reveal - a test that merely skipped in that
@@ -82,6 +92,7 @@ namespace Parsek.InGameTests
             }
 
             bool originalOpen = table.IsOpen;
+            UnityEngine.Vector2 originalScroll = missions.ScrollPosForTesting;
             bool originalShowUI = flight.ShowUIForTesting;
             int originalTab = table.SelectedTabForTesting;
             bool originalHideArchived = MissionStore.HideArchived;
@@ -121,6 +132,18 @@ namespace Parsek.InGameTests
                 yield return CaptureRevealOffset(table, missions, RootRecordingIdFor(treeB),
                     result => offsetB = result);
 
+                // Third case: start from a CLOSED window, so the reveal's own force-open is
+                // what brings it back. The capture must defer to a pass whose Layout ran rather
+                // than measure the one that had none - and must still land on the right row, so
+                // the offset has to match what the open-window reveal measured for the same
+                // mission.
+                table.IsOpen = false;
+                yield return null;
+
+                float offsetBFromClosed = float.NaN;
+                yield return CaptureRevealOffset(table, missions, RootRecordingIdFor(treeB),
+                    result => offsetBFromClosed = result);
+
                 InGameAssert.IsFalse(float.IsNaN(offsetA),
                     "revealing the first probe mission captured no offset at all - the draw "
                     + "never consumed the armed target");
@@ -135,14 +158,24 @@ namespace Parsek.InGameTests
                     + $"(A={Px(offsetA)} B={Px(offsetB)}) - the capture measured an unsolved "
                     + "layout pass rather than real rects");
 
+                InGameAssert.IsFalse(float.IsNaN(offsetBFromClosed),
+                    "revealing from a CLOSED window captured no offset at all - the capture "
+                    + "never found a pass whose own Layout had run");
+                InGameAssert.IsTrue(Math.Abs(offsetBFromClosed - offsetB) < 0.5f,
+                    $"revealing the same mission from a closed window measured "
+                    + $"{Px(offsetBFromClosed)} but {Px(offsetB)} from an open one - the capture "
+                    + "read a pass that was not laid out");
+
                 ParsekLog.Info("TestRunner",
-                    $"MissionReveal: captured distinct offsets A={Px(offsetA)} B={Px(offsetB)}");
+                    $"MissionReveal: captured distinct offsets A={Px(offsetA)} B={Px(offsetB)} "
+                    + $"fromClosed={Px(offsetBFromClosed)}");
             }
             finally
             {
                 RecordingStore.RemoveCommittedTreeById(treeA, "MissionRevealInGameTests");
                 RecordingStore.RemoveCommittedTreeById(treeB, "MissionRevealInGameTests");
                 PruneSeededMissions(treeA, treeB);
+                missions.ScrollPosForTesting = originalScroll;
                 MissionStore.HideArchived = originalHideArchived;
                 table.SelectedTabForTesting = originalTab;
                 table.IsOpen = originalOpen;
@@ -215,11 +248,26 @@ namespace Parsek.InGameTests
             RecordingStore.AddCommittedInternal(rec);
         }
 
-        // The trees are gone by now, so PruneOrphans drops exactly the missions that were
-        // seeded for them and leaves every real mission alone.
+        // The trees are gone by now, so the probe missions are orphans. PruneOrphans is the
+        // only removal that can take an ORIGINAL mission (Delete refuses those by design), but
+        // it is global - so every OTHER tree id currently carrying a mission is passed as
+        // additionalLiveTreeIds, the same protection the production call site uses. Without it
+        // this teardown would also reap a real orphan that some other subsystem was mid-way
+        // through handling, and the "pruned N probe mission(s)" line below would be a lie.
         private static void PruneSeededMissions(string treeA, string treeB)
         {
-            int removed = MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
+            var protectedTreeIds = new List<string>();
+            IReadOnlyList<Mission> live = MissionStore.Missions;
+            for (int i = 0; i < live.Count; i++)
+            {
+                string id = live[i]?.TreeId;
+                if (string.IsNullOrEmpty(id)) continue;
+                if (id == treeA || id == treeB) continue;
+                protectedTreeIds.Add(id);
+            }
+
+            int removed = MissionStore.PruneOrphans(
+                RecordingStore.CommittedTrees, protectedTreeIds);
             ParsekLog.Info("TestRunner",
                 $"MissionReveal: teardown pruned {removed} probe mission(s) "
                 + $"(trees {treeA}, {treeB})");

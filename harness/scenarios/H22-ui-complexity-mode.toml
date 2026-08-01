@@ -88,7 +88,7 @@ required  = [
   "Mode changed: uiComplexityMode=Basic->Advanced",
   "UiComplexityMode: opened \\d+ gated surfaces, locksHeldBeforeSwitch=",
   "UiComplexityMode: \\d+ surfaces visible in Advanced after the round trip",
-  "MissionReveal: captured distinct offsets A=\\d+\\.\\d+px B=\\d+\\.\\d+px",
+  "MissionReveal: captured distinct offsets A=\\d+\\.\\d+px B=\\d+\\.\\d+px fromClosed=\\d+\\.\\d+px",
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

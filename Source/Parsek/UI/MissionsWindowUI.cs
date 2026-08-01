@@ -78,6 +78,15 @@ namespace Parsek
         // zero rather than an exception. NaN = nothing captured yet this session.
         internal float LastRevealScrollOffsetForTesting = float.NaN;
 
+        // So an in-game test can leave the list where it found it: the reveal it drives
+        // legitimately scrolls, and an operator running the batch by hand should not come back
+        // to a list parked on a probe row that no longer exists.
+        internal Vector2 ScrollPosForTesting
+        {
+            get { return scrollPos; }
+            set { scrollPos = value; }
+        }
+
         // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
         // the same tree collapse independently. Transient UI state (not persisted). The
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
