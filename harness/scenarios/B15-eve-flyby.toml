@@ -211,15 +211,16 @@ id = "B15-eve-flyby"
 tier = "nightly"
 description = "Eve interplanetary flyby (INWARD transfer): MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, autowarped hyperbolic ejection burn, heliocentric coast with time-to-SOI-triggered corrections, Eve flyby well clear of the 90 km atmosphere, exit into Sun SOI; assert orbit + target SOI reached + vacuum-clearance floor + returned-to-exit (Sun)."
 instanceProfile = "stock-minimal"
-# `pending-operator` ADDED 2026-08-01. The tag audit that dropped six stale ones found
-# this spec in the opposite state: it carries a STANDING operator debt and no tag. The
-# note above is explicit - MechJeb's interplanetary planner is server-side and live-only,
-# "we have NOT verified it against an inner target, and no headless test can". That is
-# the same shape as S1.5's justification (work no unattended run can discharge), so the
-# tag belongs here. Non-gating and `tier` is unchanged at nightly; the only effect is
-# that `--tag pending-operator` now surfaces it to the operator who can settle it.
-tags = ["B15", "mechjeb", "eve", "interplanetary", "cross-soi", "inward-transfer",
-        "pending-operator"]
+# NO `pending-operator` TAG, and that is a considered call - it was ADDED here on
+# 2026-08-01 and REVERTED the same day. The temptation is the pre-flight note above
+# ("we have NOT verified it against an inner target, and no headless test can"), which
+# reads exactly like a standing operator debt. It is not: it is a PRE-FLIGHT risk note,
+# and flight 7 ANSWERED it. See the LIVE-PROVEN line 10 lines up, the ejection
+# measurement further down, and this spec's row in `docs/dev/autotest-status.md`
+# ("THE INWARD TRANSFER - ANSWERED ... MechJeb plans an inner window fine"). Tagging it
+# on the strength of the string alone was the same letter-only mistake, mirrored, that
+# put stale tags on six other specs: read the status row before trusting the prose.
+tags = ["B15", "mechjeb", "eve", "interplanetary", "cross-soi", "inward-transfer"]
 
 [fixture]
 # The SAME committed Kerbal X fixture B2/B4/B5/B6/B7/B11-B14 fly (no new fixture,

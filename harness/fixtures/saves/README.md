@@ -126,7 +126,7 @@ scenario whose template parses with all pools absent (`invalid-fixture`). So
 gate is taught to accept a no-pools template when the manifest is empty (expected == seed
 == all-absent, the facet-skip path the spec assumes), or (b) the `[expectations.ledger]`
 block is removed from `L1-passive-sandbox` (it then runs as a pure recording-invariants
-passivity proof). Left at `pending-fixture` until that is resolved.
+passivity proof). ~~Left at `pending-fixture` until that is resolved.~~ RESOLVED - it is `tier = "daily"` and live-proven (see the status paragraph below).
 
 ## Re-tier
 

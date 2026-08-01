@@ -4156,48 +4156,61 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     alone is non-gating; the tier is"), and nothing selects on it but a generic
     `--tag`. That is exactly why it rots quietly: no run ever fails because a
     finished scenario still claims to be waiting on a human, so the only thing
-    keeping `--tag pending-operator` useful is that someone notices. Nobody did:
-    `L1-passive-sandbox` carried a stale one until 2026-07-26, six more were
-    still carrying theirs on 2026-07-31, and `B15-eve-flyby` had the opposite
-    problem - a standing debt and no tag. By then a two-reviewer panel had SPLIT
-    on whether S4.1's was stale.
+    keeping `--tag pending-operator` useful is that someone notices. Nobody did -
+    `L1-passive-sandbox` carried a stale one until 2026-07-26 and six more were
+    still carrying theirs on 2026-07-31, by which point a two-reviewer panel had
+    SPLIT on whether S4.1's was stale.
 
-    THE RULE, derived from how the carriers actually justify themselves rather
-    than invented here: a spec may carry `pending-operator` only if it is
-    (a) `tier = "operator"` - the tier already says a human must drive it - or
-    (b) naming a STANDING `PENDING-OPERATOR` debt in a comment.
+    WHY THIS IS TWO HAND-MAINTAINED LISTS AND NOT A CLEVERER CHECK. Three
+    successive attempts to DECIDE the question from the spec text all failed, and
+    the way they failed is the argument:
 
-    "STANDING" is the load-bearing word, and the first version of this cell
-    missed it. The corpus records DISCHARGED markers in prose too - "the former
-    PENDING-OPERATOR is CLOSED", "OPERATOR-VERIFIED (was
-    VERIFY-PENDING-OPERATOR...)" - so a bare token search counts a spec's own
-    obituary for a debt as proof the debt lives. That is not hypothetical: the
-    commit that DROPPED six tags wrote exactly such prose into those six specs,
-    and under the token-only check three of them immediately satisfied the rule
-    again. `_marker_blocks` therefore reads whole comment BLOCKS (markers wrap
-    across lines) and discounts any block carrying a discharge phrase.
+      1. "Does the spec mention PENDING-OPERATOR?" - counts a spec's own obituary
+         for a debt ("the former PENDING-OPERATOR is CLOSED") as proof the debt
+         lives. Six specs kept stale tags under it.
+      2. "...in a comment block with no discharge phrase?" - still counted the
+         drop-rationale prose written BY the commit that dropped the tags, so
+         re-adding any of those six passed. And the phrase list is blunt in the
+         other direction: "no longer" discounts S1.5's canonical GAP note, a
+         genuinely STANDING marker, because the same block also says flight-scene
+         entry is "NO LONGER a gap".
+      3. Reading the marker prose at face value - tagged `B15-eve-flyby` on a
+         PRE-FLIGHT risk note ("no headless test can verify it") whose question
+         flight 7 had already ANSWERED, as that spec's own status row says.
 
-    WHAT THIS CANNOT ENFORCE, stated plainly so nobody mistakes green for proof.
-    It is string matching over English. It can tell a live claim from a
-    self-declared dead one; it cannot tell a TRUE claim from a false one, and it
-    cannot tell a spec's own debt from a debt it mentions belonging to another
-    spec (`S0.5-live-record-discard` describes B1/B2's fixtures, not its own).
-    So the completeness direction - "every spec with outstanding work is
-    tagged" - is NOT machine-decided. It is pinned instead by
-    REVIEWED_UNTAGGED: every untagged spec that mentions the token has been
-    classified by hand, and a NEW one reds until a human classifies it too.
-    For the truth of a fixture constant, `harness/fixtures/saves/README.md` is
-    the semantic ledger - reconcile it in the same commit as any marker edit."""
+    Every one of those is the same error: the truth lives in the STATUS ROW and
+    the FIXTURE LEDGER, not in whether a token appears near some words. String
+    matching over English cannot tell a live claim from a dead one, a true claim
+    from a false one, or a spec's own debt from one it mentions on another's
+    behalf (`S0.5` describes B1/B2's fixtures). So this cell does not try. It
+    pins two INVENTORIES that a human maintains, and makes any change to either
+    an explicit, reviewable edit:
 
-    # Phrases that mark a PENDING-OPERATOR mention as SETTLED. Matched
-    # case-insensitively over the whole comment block the marker sits in.
-    _DISCHARGED = ("former", "operator-verified", "was verify-pending-operator",
-                   "is closed", "now closed", "closed by", "resolving",
-                   "no longer", "before that")
+      CARRIERS         - who owns the tag, and the reason.
+      REVIEWED_UNTAGGED - every untagged spec that MENTIONS the token, and why
+                          it does not carry it.
 
-    # Untagged specs that MENTION the token, each classified by hand. A new
-    # entry appearing here reds `test_every_untagged_mention_is_classified`,
-    # which is the only completeness signal available - see the docstring.
+    Together they are total over the corpus: a spec that gains the tag, loses it,
+    or starts mentioning it reds here until someone records which it is. That is
+    a weaker guarantee than "the tag is always truthful" and a much more honest
+    one - the check enforces that the inventory was REVIEWED, and the reviewer
+    supplies the truth. For a fixture constant, `harness/fixtures/saves/README.md`
+    is the semantic ledger; for whether a question is still open, the spec's row
+    in `docs/dev/autotest-status.md` is."""
+
+    # Who carries the tag, and why. `tier = "operator"` reasons are additionally
+    # machine-checked below; the rest are human judgements recorded here.
+    CARRIERS = {
+        "R1-rewind-loop-flown.toml":   "tier=operator",
+        "V1-map-dwell-mun-orbit.toml": "tier=operator",
+        "S1.5-rewind-loop.toml":       "three live asserts: crew re-reservation and resource "
+                                       "reset need a career fixture the sandbox host lacks; the "
+                                       "self-authored RewindPoint needs a multi-controllable "
+                                       "split plus a seam channel. No unattended run discharges them.",
+    }
+
+    # Untagged specs that MENTION the token, each classified by hand. A NEW one
+    # reds `test_every_untagged_mention_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
@@ -4210,47 +4223,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "L1-research-node-career.toml":     "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         "L1-research-node-science.toml":    "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
         "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
-        # Found by this very cell on its first run - it was absent from the
-        # hand-written list, which is the whole argument for having the check.
+        # Found by this cell on its first run, absent from the hand-written list.
         "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # ANSWERED by flight 7 (2026-07-26), per its own status row - the prose
+        # that reads like a live debt is a PRE-FLIGHT risk note. Tagged here on
+        # 2026-08-01 and reverted the same day; see the spec's comment.
+        "B15-eve-flyby.toml":               "discharged - inward transfer ANSWERED by flight 7",
         # NOT this spec's own debt: it describes B1/B2's pad-craft fixtures.
         "S0.5-live-record-discard.toml":    "other-spec - B1/B2 fixtures, not S0.5's own",
     }
-
-    @classmethod
-    def _comment_blocks(cls, text):
-        """Contiguous runs of comment text, joined. A marker's qualifying words
-        routinely sit on the PREVIOUS line ("(the standing" / "# PENDING-OPERATOR
-        note)"), so per-line analysis misreads them."""
-        blocks, cur = [], []
-        for line in text.splitlines():
-            idx = line.find("#")
-            # A '#' inside a value is not a comment start; only treat the line as
-            # a comment when '#' leads it, or when it trails a real assignment.
-            if idx >= 0 and (line.lstrip().startswith("#") or "=" in line[:idx]):
-                cur.append(line[idx + 1:].strip())
-            elif cur:
-                blocks.append(" ".join(cur))
-                cur = []
-        if cur:
-            blocks.append(" ".join(cur))
-        return blocks
-
-    @classmethod
-    def _marker_blocks(cls, text):
-        """Comment blocks asserting a STANDING operator debt, with content."""
-        out = []
-        for b in cls._comment_blocks(text):
-            if "PENDING-OPERATOR" not in b.upper():
-                continue
-            low = b.lower()
-            if any(d in low for d in cls._DISCHARGED):
-                continue
-            # Content measured over the WHOLE block, not the tail after the
-            # token: real markers put substance on either side of it.
-            if len(low.replace("pending-operator", "").strip(" :.-()")) >= 20:
-                out.append(b)
-        return out
 
     def _specs(self):
         out = {}
@@ -4262,34 +4243,42 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                 text = fh.read()
             out[name] = (spec.get("tier"),
                          "pending-operator" in (spec.get("tags") or []),
-                         len(self._marker_blocks(text)),
                          "PENDING-OPERATOR" in text.upper())
         return out
 
-    def test_every_carrier_is_operator_tier_or_names_standing_work(self):
-        bad = sorted(n for n, (tier, tagged, standing, _) in self._specs().items()
-                     if tagged and tier != "operator" and standing == 0)
-        self.assertEqual(
-            [], bad,
-            "these specs tag themselves `pending-operator` but are neither "
-            "tier=operator nor name a STANDING PENDING-OPERATOR debt in a comment "
-            "(a marker whose block says it is former/closed/verified does NOT count) "
-            "- either drop the tag citing the green run, or write down what the "
-            "operator still owes")
+    def test_the_carrier_set_is_exactly_the_reviewed_inventory(self):
+        """Deliberately strict in BOTH directions: a spec gaining the tag reds,
+        and a spec losing it reds. Adding a legitimate new carrier is meant to
+        cost an edit here, with the reason written down, in the same commit."""
+        carriers = sorted(n for n, (_, tagged, _) in self._specs().items() if tagged)
+        self.assertEqual(sorted(self.CARRIERS), carriers,
+                         "the set of specs carrying `pending-operator` changed; record the "
+                         "spec in CARRIERS with the debt it owes, or drop the tag citing the "
+                         "run that discharged it")
+
+    def test_carriers_claiming_operator_tier_really_are_operator_tier(self):
+        """The one half of a carrier's justification that IS machine-checkable."""
+        specs = self._specs()
+        wrong = sorted(n for n, why in self.CARRIERS.items()
+                       if why == "tier=operator" and specs[n][0] != "operator")
+        self.assertEqual([], wrong, "CARRIERS claims tier=operator for a spec that is not")
 
     def test_every_untagged_mention_is_classified(self):
         """The completeness half. A spec can mention the token without carrying
         the tag for exactly two honest reasons - the debt is discharged, or it
         belongs to another spec - and both must be a recorded human call, never a
-        silent omission. `B15-eve-flyby` sat untagged with a live debt precisely
-        because nothing forced this check."""
-        mentions = sorted(n for n, (_, tagged, _, m) in self._specs().items()
+        silent omission. This is what `B15-eve-flyby` needed and did not have."""
+        mentions = sorted(n for n, (_, tagged, m) in self._specs().items()
                           if m and not tagged)
         self.assertEqual(sorted(self.REVIEWED_UNTAGGED), mentions,
-                         "an untagged spec mentions PENDING-OPERATOR without a "
-                         "recorded classification; decide whether the debt is live "
-                         "(tag it) or settled (add it to REVIEWED_UNTAGGED with the "
-                         "reason)")
+                         "an untagged spec mentions PENDING-OPERATOR without a recorded "
+                         "classification; read its row in docs/dev/autotest-status.md, then "
+                         "either tag it (live debt) or add it to REVIEWED_UNTAGGED with why")
+
+    def test_the_two_inventories_do_not_overlap(self):
+        """A spec is in exactly one list. Overlap would mean the tag question was
+        answered twice, differently."""
+        self.assertEqual(set(), set(self.CARRIERS) & set(self.REVIEWED_UNTAGGED))
 
     # The 2026-07-31 sweep. Every one was discharged by a GREEN RUN, and a green
     # run cannot un-happen, so the tag reappearing means a hand edit or a merge
@@ -4308,18 +4297,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             tags = load_spec(name).get("tags") or []
             self.assertNotIn("pending-operator", tags,
                              "%s was live-proven and owes no operator work" % name)
-
-    def test_the_carrier_set_is_exactly_the_four_with_live_debts(self):
-        """Pins the whole post-sweep set. Deliberately strict: adding a
-        LEGITIMATE new carrier reds here too, and that is the point - this list
-        is a human-maintained inventory of who owes what. Add the spec here in
-        the same commit that tags it."""
-        carriers = sorted(n for n, (_, tagged, _, _) in self._specs().items() if tagged)
-        self.assertEqual(["B15-eve-flyby.toml",           # live-only MechJeb planner check
-                          "R1-rewind-loop-flown.toml",    # tier = operator
-                          "S1.5-rewind-loop.toml",        # asserts need a career fixture
-                          "V1-map-dwell-mun-orbit.toml"], # tier = operator
-                         carriers)
 
     def test_the_tag_is_still_non_gating(self):
         """The whole rule above rests on the tag moving no verdict and gating no
