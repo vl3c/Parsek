@@ -515,6 +515,49 @@ Sibling of the frame-mismatch entry above - same file family (`BallisticExtrapol
 / `IncompleteBallisticSceneExitFinalizer`), different failure: this one does not
 mis-orient the answer, it destroys the recording.
 
+### Live proof, and exactly how far it reaches
+
+Flown 2026-08-01 on `stock-minimal`, automation DLL sha256-verified against the branch
+build immediately before each launch (a sibling worktree clobbered it once mid-session,
+so this was checked rather than assumed - and the collected log independently carries
+`has non-finite elements` / `NonFinitePatchElements`, strings that exist only in this
+build).
+
+| run | build | stock `dT is NaN` | patch refused | `ArithmeticException` | EVA kerbal |
+| --- | --- | --- | --- | --- | --- |
+| `2026-07-30_1532_S0.7-exit-auto-commit` | pre-fix | 2196 | n/a | **501** | `points=1 maxDist=0m` |
+| `2026-08-01_1626_EVA-2-orbital-board` | FIXED | 6 | 1 (`endUT=NaN`) | 0 | `points=5 maxDist=1888m` |
+| `2026-08-01_1634_EVA-2-orbital-board` | pre-fix (A/B control) | 0 | n/a | 0 | `points=4` |
+
+PROVEN by the fixed-build run: the guard fires in flight on a REAL stock degenerate
+patch - stock produced one at `snapshotUT=422.15`, the same UT as the 2026-07-30 first
+exception, and layer 1 refused it with
+`has non-finite elements (endUT=NaN); aborting predicted snapshot capture`, after which
+the tail declined `NonFinitePatchElements` and the next snapshot 80 ms later was clean.
+The EVA then recorded 5 points with 1888 m of spatial extent across its 10.068 s dwell,
+with zero `ArithmeticException`, zero `SolveHyperbolicKepler` frames, zero
+`[FinalizerCache] Refresh threw` (layer 3 never fired) and zero `[Parsek][ERROR]`.
+`S0.7-exit-auto-commit` re-flew green the same day (`2026-08-01_1630`, PASS, 48 s), so
+there is no regression on the transition path.
+
+NOT PROVEN, and worth stating plainly because a green EVA-2 invites over-reading. The
+A/B control - same spec, same fixture, flown on a pre-fix DLL built from the merge base
+and byte-verified to carry NONE of the fix's strings - also flew clean, because stock's
+degenerate-conic window never opened that run at all. So the trigger is INTERMITTENT
+across runs of one fixture (2196 / 6 / 0 occurrences of stock's own `dT is NaN`), and
+the fixed-build run is NOT a controlled reproduction of the 501-exception crash: the
+absence of the exception there is CONSISTENT WITH the fix rather than solely
+attributable to it.
+
+One structural note the live capture settled. The NaN arrived in `endUT`, with the seven
+orbital elements finite - a DIFFERENT member of the degenerate class than the 2026-07-30
+forensics, where a NaN eccentricity misclassified the conic as hyperbolic. Layer 1
+checks the UT bounds WITH the elements precisely because `ToOrbitSegment`'s
+`patch.EndUT < startUT` clamp is blind to NaN, and that half is what caught this flight.
+It also means this particular patch could not have reproduced the original throw on the
+old build: `Math.Sign` exists only in `SolveHyperbolicKepler`, which a finite (near-zero)
+eccentricity never reaches.
+
 ### The measurement
 
 Run `2026-07-30_1532_S0.7-exit-auto-commit`, collected at
