@@ -4109,6 +4109,70 @@ class UnityExceptionScanTests(unittest.TestCase):
                          (verdict.verdict, verdict.subkind))
 
 
+class PendingOperatorTagHonestyTests(unittest.TestCase):
+    """`pending-operator` must mean operator work is actually outstanding.
+
+    The tag is NON-GATING (hlib's comment above TIERS: "A `pending-operator` tag
+    alone is non-gating; the tier is"), and nothing selects on it but a generic
+    `--tag`. That is exactly why it rots quietly: no run ever fails because a
+    finished scenario still claims to be waiting on a human, so the only thing
+    keeping `--tag pending-operator` useful is that someone notices. Twice now
+    nobody did - `L1-passive-sandbox` carried a stale one until 2026-07-26, and
+    `S4.1-rewind-merge` plus `L1-hire-kerbal-career` carried theirs until
+    2026-07-31, by which point a two-reviewer panel SPLIT on whether S4.1's was
+    stale. A list padded with finished scenarios is worse than no list: the
+    operator stops trusting it and stops reading it.
+
+    THE RULE, derived from how every committed carrier actually justifies itself
+    rather than invented here: a spec may carry `pending-operator` only if it is
+    (a) `tier = "operator"` - the tier already says a human must drive it - or
+    (b) naming outstanding operator work inline, i.e. a `PENDING-OPERATOR`
+    comment somewhere in the spec. A spec that is neither is claiming a debt it
+    does not have."""
+
+    def _carriers(self):
+        out = {}
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            path = os.path.join(SCENARIOS_DIR, name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            if "pending-operator" not in (spec.get("tags") or []):
+                continue
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+            # Count PENDING-OPERATOR only in COMMENTS: the tag itself lives in a
+            # `tags = [...]` value and must not be allowed to justify itself.
+            notes = sum(1 for line in text.splitlines()
+                        if line.lstrip().startswith("#") and "PENDING-OPERATOR" in line)
+            out[name] = (spec.get("tier"), notes)
+        return out
+
+    def test_every_carrier_is_operator_tier_or_names_outstanding_work(self):
+        unjustified = sorted(n for n, (tier, notes) in self._carriers().items()
+                             if tier != "operator" and notes == 0)
+        self.assertEqual(
+            [], unjustified,
+            "these specs tag themselves `pending-operator` but are neither "
+            "tier=operator nor name any PENDING-OPERATOR work in a comment - either "
+            "drop the tag (citing the green run, as S4.1 / L1-hire / L1-passive-sandbox "
+            "do) or write down what the operator still owes")
+
+    def test_the_two_specs_promoted_out_stay_out(self):
+        """Regression pin for the 2026-07-31 drop. Both conditions that justified
+        removal are permanent (a green run cannot un-happen), so the tag coming
+        back means someone re-added it by hand or a merge resurrected it."""
+        for name in ("S4.1-rewind-merge.toml", "L1-hire-kerbal-career.toml"):
+            tags = load_spec(name).get("tags") or []
+            self.assertNotIn("pending-operator", tags,
+                             "%s was live-proven and owes no operator work" % name)
+
+    def test_the_tag_is_still_non_gating(self):
+        """The whole rule above rests on the tag moving no verdict and gating no
+        cadence. If `pending-operator` ever becomes a real tier, this class is
+        reasoning about the wrong thing and must be revisited."""
+        self.assertNotIn("pending-operator", hlib.TIERS)
+
+
 class SaveStructureVerifierWiringTests(unittest.TestCase):
     """The M-C2/R9 save-parse verifier's hlib-side wiring: spec-surface
     validation routes through validate_spec, the gating flag classifies its own
