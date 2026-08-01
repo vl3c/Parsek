@@ -180,7 +180,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | - | B |
-| `UiComplexityMode` | 3 | 3 | 0 | 0 | 0 | 3 | H22 | A |
+| `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
 | `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | - | B |
 | `Watch` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
@@ -188,11 +188,11 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **98 categories / 542 declarations**. Buckets **A 17 categories
-(91 declarations)**, **B 81 categories (451 declarations)**, **C 0 categories (0
+Totals, re-derived: **98 categories / 543 declarations**. Buckets **A 17 categories
+(92 declarations)**, **B 81 categories (451 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **25 of 98 categories**, up from 8.
-Measured against declarations rather than categories, that is 216 of 542 inside a
-driven category (was 125) of which 193 actually execute (was 103).
+Measured against declarations rather than categories, that is 217 of 543 inside a
+driven category (was 125) of which 194 actually execute (was 103).
 
 **BUCKET C IS EMPTY as of 2026-07-30.** Its last and only remaining member was
 `TrackingStation`, held there by sub-reason C2 ("the scene is unreachable from the
@@ -304,7 +304,7 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 | `H16-corpus-spawn-health` | SpawnHealth | 3 | Stuck `SpawnAbandoned` and out-of-bounds `SpawnDeathCount` across the corpus (one of its three cells is inert here, stated in the spec) |
 | `H19-recording-finalization` | RecordingFinalization | 3 | BackgroundRecorder finalization-cache apply: destroyed-tail trim, stable-cache Orbiting, crash-tail append |
 | `H20-eva-spawn-position` | EvaSpawnPosition | 2 | The category the 2026-07-25 EVA decision deferred to a dedicated batch-only spec; runs from the crewed landed pod host |
-| `H22-ui-complexity-mode` | UiComplexityMode | 3 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
+| `H22-ui-complexity-mode` | UiComplexityMode | 4 | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held, or the player's mouse soft-locks for the rest of the scene session |
 | `H23-tracking-station` | TrackingStation | 10 | The TRACKSTATION scene itself, unreachable by any driven run until R12. The TS scene host, the span-clock TS seam, the synthetic-ghost ProtoVessel lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth. Note it breaks A1's shape: its `LoadGame` carries `scene = "trackstation"`, so it is the only spec here whose batch runs outside FLIGHT |
 
 **A2 - the ISOLATED batch path (1 category, 2 declarations).** `SceneExitMerge`,

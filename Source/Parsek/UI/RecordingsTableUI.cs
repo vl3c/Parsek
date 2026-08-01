@@ -130,7 +130,13 @@ namespace Parsek
         internal static readonly string[] TabLabels = new[] { "Missions", "Recordings" };
 
         // Read-only test seam for the transient tab selection (section 4.1/4.1a guards).
-        internal int SelectedTabForTesting => selectedTab;
+        // Settable so an in-game test can restore the tab it moved (mirrors
+        // CareerStateWindowUI's accessor); `selectedTab` is transient either way.
+        internal int SelectedTabForTesting
+        {
+            get { return selectedTab; }
+            set { selectedTab = value; }
+        }
 
         // The scroll ScrollToRecording schedules, and the expansion set it grows. Both are
         // consumed only inside the row draw (an IMGUI callback with no headless seam), so they

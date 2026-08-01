@@ -70,6 +70,14 @@ namespace Parsek
         // RevealMissionForRecording that a unit test can assert on.
         internal string PendingRevealMissionIdForTesting => pendingRevealMissionId;
 
+        // The offset the last CAPTURE measured, latched and never cleared - unlike
+        // pendingRevealScrollY, which the apply consumes one pass later. This is what the
+        // in-game MissionRevealScrollsToTheTargetMission test reads: the capture is the step
+        // that reads real layout rects, and the failure it guards against (measuring an
+        // unsolved layout cache) is silent precisely because it produces a plausible-looking
+        // zero rather than an exception. NaN = nothing captured yet this session.
+        internal float LastRevealScrollOffsetForTesting = float.NaN;
+
         // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
         // the same tree collapse independently. Transient UI state (not persisted). The
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
@@ -485,6 +493,7 @@ namespace Parsek
 
             pendingRevealScrollY = Mathf.Max(0f, headerRect.y - revealFirstHeaderY);
             pendingRevealScrollFrame = Time.frameCount;
+            LastRevealScrollOffsetForTesting = pendingRevealScrollY;
             pendingRevealMissionId = null;
             ParsekLog.Verbose("UI",
                 $"Cross-link: mission '{mission.Name}' id={mission.Id} found at list offset " +
