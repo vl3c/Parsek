@@ -1,5 +1,17 @@
 # Design: L1-L2 Ledger Action Scripts (Module M-B3)
 
+> **AUTHOR CONSTANTS NOW OPERATOR-VERIFIED (2026-08-01).** This document marks the L1
+> author constants `VERIFY-PENDING-OPERATOR` (the `basicRocketry` node cost, the
+> Tracking-Station upgrade cost, the hire cost) because at writing time nobody had read
+> them off a live run. All three are now verified, and one was WRONG: the hire cost is
+> **-62113**. This design never carried a hire figure; the surfaces that held the stale
+> -24000 were `harness/fixtures/saves/README.md` and `docs/dev/todo-and-known-bugs.md`,
+> and both are corrected. The oracle
+> hard-gates scalar pools, so the 2026-07-23 green runs are the reads those markers
+> asked for. THE LEDGER OF RECORD is `harness/fixtures/saves/README.md`; the
+> `VERIFY-PENDING-OPERATOR` mentions below are historical intent, not open work. (The
+> capture-pattern ones - future step / L2 milestone - remain genuinely open.)
+
 > **SUPERSEDED PREMISE (2026-07-29), read before the capture-leg sections.** This
 > document repeatedly says "the shipped `STOCK_AWARD_PATTERNS` are DEAD against a real
 > EN log, so the nonzero capture leg is an empty no-op today", and frames the fix as a

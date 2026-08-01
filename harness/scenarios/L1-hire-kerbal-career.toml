@@ -1,12 +1,24 @@
 schema = 1
 id = "L1-hire-kerbal-career"
-# pending-fixture: fixtures/saves/fresh-career is not committed yet (M-B3 operator
-# runbook creates it, pinning the roster + the resulting hire cost). Re-tier to "daily"
-# once the fixture lands.
+# The header here used to read "pending-fixture: fixtures/saves/fresh-career is not
+# committed yet ... Re-tier to daily once the fixture lands." BOTH halves are done and
+# were left standing: `harness/fixtures/saves/fresh-career` IS committed (built by
+# construction, not by a forge flight), and the re-tier already happened - `tier` below
+# has read "daily" for some time.
 tier = "daily"
 description = "Career: hire one applicant; the funds pool drops by exactly the fixture-pinned hire cost, no other drift."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31 as the last piece of that same leftover. The tag
+# was pending-FIXTURE residue, not a record of outstanding operator work: this spec names
+# no `VERIFY-PENDING-OPERATOR` assert anywhere, it is not `tier = "operator"`, and it was
+# LIVE-PROVEN 2026-07-23 (`2026-07-23_1952_L1-hire-kerbal-career`, 52 s) and re-confirmed
+# 2026-07-25. Directly precedented by `L1-passive-sandbox`, whose identical stale tag was
+# dropped 2026-07-26 for exactly this reason. All four L1 siblings (dismiss,
+# research-node-career, research-node-science, upgrade-facility) lost theirs in the same
+# pass: each named a VERIFY-PENDING-OPERATOR constant that its own green run had already
+# discharged, which a first draft of this work missed by reading the specs for a string
+# without checking `fixtures/saves/README.md`, the ledger that records those markers.
+tags = ["ledger", "L1"]
 
 [fixture]
 saveTemplate = "fixtures/saves/fresh-career"
@@ -75,8 +87,10 @@ rec3CarveOut = false
   provenance = "seam-declared"
 
 [runtime]
-# Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. Pending-fixture ->
-# never scheduled unattended.
+# Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. (This used to end
+# "Pending-fixture -> never scheduled unattended" - the third piece of the same stale
+# pending-fixture story the header carried. The fixture landed, the tier is `daily`, and
+# this spec HAS been scheduled unattended since 2026-07-23.)
 # Budget check (seed funds 500000 affords the pinned hire cost): 500000 + (-62113) >= 0.
 budgetSeconds = 600
 

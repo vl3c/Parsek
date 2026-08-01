@@ -1,13 +1,19 @@
 schema = 1
 id = "L1-research-node-career"
-# pending-fixture (NOT daily): fixtures/saves/fresh-career is not committed yet (the
-# operator runbook in docs/dev/todo-and-known-bugs.md M-B3 creates it), so a --cadence
-# daily run would INVALID(staging) this terminally. Re-tier to "daily" once the fixture
-# lands (M-B3 is the FIRST nonzero-manifest L1 ledger cross-check).
+# The header here used to say "pending-fixture: fixtures/saves/fresh-career is not committed yet ...
+# Re-tier to 'daily' once the fixture lands". BOTH are long done - the fixture is
+# committed and `tier` below has read "daily" since 2026-07-23 - and the line was left
+# standing anyway. Cleared 2026-08-01 alongside the same residue in L1-hire.
 tier = "daily"
 description = "Career: research one tech node; the science pool drops by exactly the node cost, no other drift."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "R7", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31. The marker below asked the operator to CONFIRM
+# a fixture constant and RECORD it; `fixtures/saves/README.md` already marks this constant
+# **VERIFIED** (the source save's `basicRocketry` Tech node carried `cost = 5`).
+# LIVE-PROVEN `2026-07-23_1917`.
+# The oracle hard-gates scalar pools (`oracle.py`: a drift reds `PARSEK-FAIL(ledger)`),
+# so the green run IS that confirmation - the same argument used to drop S4.1's tag.
+tags = ["ledger", "L1", "R7"]
 
 [fixture]
 # saveTemplate leaf ("fresh-career") IS runSaveName: staged into saves/fresh-career/,
@@ -81,15 +87,18 @@ rec3CarveOut = false
   # AUTHOR CONSTANT (state-INDEPENDENT: a tech node's science cost is fixed stock DATA,
   # the RDNode cost, not a diminishing-returns credit; a null fill-from-capture on the
   # science facet is REJECTED by parse_manifest_entries). basicRocketry = -5.0 on the
-  # pinned KSP 1.12.5 stock tech tree. VERIFY-PENDING-OPERATOR: the operator confirms the
-  # node cost during fixture creation and records it in the fixture README.
+  # pinned KSP 1.12.5 stock tech tree. OPERATOR-VERIFIED (was VERIFY-PENDING-OPERATOR: confirm
+  # the node cost at fixture creation and record it in the fixture README). `fixtures/saves/
+  # README.md` marks it **VERIFIED** - the source save's `basicRocketry` Tech node carried
+  # `cost = 5` - and `2026-07-23_1917` flew it green with the pool hard-gated.
   science    = -5.0
   provenance = "seam-declared"
 
 [runtime]
 # Happy path (verbs execute in the loaded scene): LoadGame ~300 + KscAction ~60 + light
-# verbs, well under 600. On the pending-fixture path this spec is never scheduled
-# unattended, so the run-budget ceiling only governs the operator run.
+# verbs, well under 600. (This used to add that on the pending-fixture path the spec was
+# never scheduled unattended, so the ceiling only governed the operator run. False since
+# 2026-07-23: it is `tier = "daily"` and the ceiling governs every daily run.)
 budgetSeconds = 600
 
 [retry]

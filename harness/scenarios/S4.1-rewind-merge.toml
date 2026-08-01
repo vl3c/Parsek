@@ -56,7 +56,21 @@ tier = "nightly"
 # runbook.
 description = "B9 re-fly cycle: InvokeRewind a crashed-booster slot, AnswerMergeDialog merge folds the scene-exit conclusion, corpus survives, re-fly log contracts fire."
 instanceProfile = "stock-minimal"
-tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-31, on this spec's OWN stated rule. The tier note
+# above says verbatim: "The pending-operator TAG stays until that first green run; the
+# tag alone is non-gating." That run happened on 2026-07-28 (`2026-07-28_1639_..._a2`,
+# 61 s), and S4.1 has flown green many times since - TWO five-run sweeps on 2026-07-30
+# plus two more in the 2026-07-31 arming pass, a lifetime 14 PASS. The condition was met
+# three days before the tag was removed, so it had stopped describing the record and
+# started contradicting
+# it. Same standard, same wording, as the `L1-passive-sandbox` drop of 2026-07-26.
+#
+# NOTHING ELSE CHANGES. The tag is non-gating (hlib's comment above TIERS: "A
+# `pending-operator` tag alone is non-gating; the tier is"), nothing selects on it but a
+# generic `--tag`, and this spec stays `tier = "nightly"`. What it does buy is that
+# `--tag pending-operator` now returns the specs that ACTUALLY have operator work
+# outstanding instead of a list padded with finished ones.
+tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9"]
 
 [fixture]
 # rewind-b9 injects the B9 rewindable-tree fixture (RewindB9Fixture via

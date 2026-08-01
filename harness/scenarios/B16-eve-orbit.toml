@@ -170,7 +170,10 @@ schema = 1
 id = "B16-eve-orbit"
 # operator UNTIL THE FIRST FLIGHT, then PROMOTE TO nightly. Same committed
 # Kerbal X fixture as B2/B4/B5/B6/B7/B11-B15.
-# NOT YET FLOWN. Every number is DERIVED or carried from a MEASURED B7 / B11 /
+# ~~NOT YET FLOWN.~~ FLEW 2026-07-29 (`2026-07-29_1718`, 1,825 s, PASS on its FIRST
+# flight). The PROVISIONAL pins below are STILL provisional - replacing them with
+# MEASURED ones is the second half of the PROMOTE condition, and the reason this spec
+# carries `pending-operator`. Every number is DERIVED or carried from a MEASURED B7 / B11 /
 # B12 flight, and each one says which. The first flight pins the PROVISIONAL
 # items called out inline (recordings count, the two wall budgets, the
 # ejection-window wait, the achieved capture geometry).
@@ -196,7 +199,17 @@ id = "B16-eve-orbit"
 tier = "operator"
 description = "Eve ORBIT / commit-in-target-orbit across a heliocentric traverse: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, heliocentric coast with time-to-SOI corrections, CAPTURE burn (circularize at a ~5,000 km periapsis) inside the Eve SOI, a held stable park below Gilly's orbit, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN EVE'S SOI."
 instanceProfile = "stock-minimal"
-tags = ["B16", "orbit", "mechjeb", "eve", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi"]
+# `pending-operator` ADDED 2026-08-01. B16 is `tier = "operator"` AND carries a
+# documented outstanding human call - the PROMOTE note ABOVE ("the PROVISIONAL pins
+# above need a human reading the result"; "the moment B16 flies GREEN ... set
+# tier = nightly"). `docs/dev/autotest-status.md` records it as "TIER NOT CHANGED ...
+# left as an explicit human call", and describes R1's identical state as "the same
+# standard applied to B16 in this same pass" - and R1 carries the tag. The tag audit
+# that dropped six stale ones missed this because it only inspected specs that
+# MENTION the string `PENDING-OPERATOR`, and B16 never writes it. Non-gating; `tier`
+# unchanged.
+tags = ["B16", "orbit", "mechjeb", "eve", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi",
+        "pending-operator"]
 
 [fixture]
 # The SAME committed Kerbal X fixture B2/B4/B5/B6/B7/B11-B15 fly. No new

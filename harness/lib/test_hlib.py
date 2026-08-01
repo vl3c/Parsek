@@ -4149,6 +4149,194 @@ class UnityExceptionScanTests(unittest.TestCase):
                          (verdict.verdict, verdict.subkind))
 
 
+class PendingOperatorTagHonestyTests(unittest.TestCase):
+    """`pending-operator` must mean operator work is actually outstanding.
+
+    The tag is NON-GATING (hlib's comment above TIERS: "A `pending-operator` tag
+    alone is non-gating; the tier is"), and nothing selects on it but a generic
+    `--tag`. That is exactly why it rots quietly: no run ever fails because a
+    finished scenario still claims to be waiting on a human, so the only thing
+    keeping `--tag pending-operator` useful is that someone notices. Nobody did -
+    `L1-passive-sandbox` carried a stale one until 2026-07-26 and six more were
+    still carrying theirs on 2026-07-31, by which point a two-reviewer panel had
+    SPLIT on whether S4.1's was stale.
+
+    WHY THIS IS TWO HAND-MAINTAINED LISTS AND NOT A CLEVERER CHECK. Three
+    successive attempts to DECIDE the question from the spec text all failed, and
+    the way they failed is the argument:
+
+      1. "Does the spec mention PENDING-OPERATOR?" - counts a spec's own obituary
+         for a debt ("the former PENDING-OPERATOR is CLOSED") as proof the debt
+         lives. Six specs kept stale tags under it.
+      2. "...in a comment block with no discharge phrase?" - still counted the
+         drop-rationale prose written BY the commit that dropped the tags, so
+         re-adding any of those six passed. And the phrase list is blunt in the
+         other direction: "no longer" discounts S1.5's canonical GAP note, a
+         genuinely STANDING marker, because the same block also says flight-scene
+         entry is "NO LONGER a gap".
+      3. Reading the marker prose at face value - tagged `B15-eve-flyby` on a
+         PRE-FLIGHT risk note ("no headless test can verify it") whose question
+         flight 7 had already ANSWERED, as that spec's own status row says.
+
+    Every one of those is the same error: the truth lives in the STATUS ROW and
+    the FIXTURE LEDGER, not in whether a token appears near some words. String
+    matching over English cannot tell a live claim from a dead one, a true claim
+    from a false one, or a spec's own debt from one it mentions on another's
+    behalf (`S0.5` describes B1/B2's fixtures). So this cell does not try. It
+    pins two INVENTORIES that a human maintains, and makes any change to either
+    an explicit, reviewable edit:
+
+      CARRIERS         - who owns the tag, and the reason.
+      REVIEWED_UNTAGGED - every untagged spec that MENTIONS the token, and why
+                          it does not carry it.
+
+    Together they are total over the two populations this check can DETECT -
+    specs that MENTION the token, and specs that are `tier = "operator"` - so a
+    spec that gains the tag, loses it, starts mentioning it, or becomes
+    operator-tier reds here until someone records which it is. (Covering only the
+    first was a real gap: `B16-eve-orbit` is operator-tier with a documented
+    outstanding human call and never writes the string.)
+
+    DETECTABLE IS NOT THE SAME AS OWED, and the difference is not closable here.
+    A spec can owe a human something while giving neither signal:
+    `EVA-1-pad-flag` says "the tier stays nightly until the operator promotes
+    it" - a pending human call, on a nightly spec, with no token. Nothing makes
+    it red, and nothing can, short of reading every spec. Whether EVA-1 should
+    carry the tag is a judgement for whoever owns it; what this cell can honestly
+    promise is that the two DETECTABLE populations stay classified. That is
+    a weaker guarantee than "the tag is always truthful" and a much more honest
+    one - the check enforces that the inventory was REVIEWED, and the reviewer
+    supplies the truth. For a fixture constant, `harness/fixtures/saves/README.md`
+    is the semantic ledger; for whether a question is still open, the spec's row
+    in `docs/dev/autotest-status.md` is."""
+
+    # Who carries the tag, and why. `tier = "operator"` reasons are additionally
+    # machine-checked below; the rest are human judgements recorded here.
+    CARRIERS = {
+        "R1-rewind-loop-flown.toml":   "tier=operator",
+        "V1-map-dwell-mun-orbit.toml": "tier=operator",
+        "B16-eve-orbit.toml":          "tier=operator AND a documented outstanding human call - "
+                                       "the PROMOTE note ('the PROVISIONAL pins need a human "
+                                       "reading the result'); status doc: 'TIER NOT CHANGED ... "
+                                       "left as an explicit human call'.",
+        "S1.5-rewind-loop.toml":       "three live asserts: crew re-reservation and resource "
+                                       "reset need a career fixture the sandbox host lacks; the "
+                                       "self-authored RewindPoint needs a multi-controllable "
+                                       "split plus a seam channel. No unattended run discharges them.",
+    }
+
+    # Untagged specs that are CANDIDATES - they MENTION the token, or they are
+    # `tier = "operator"` (the FORGE trio is in by tier and never mentions it) -
+    # each classified by hand. A NEW one reds
+    # `test_every_untagged_candidate_is_classified` until someone decides.
+    REVIEWED_UNTAGGED = {
+        "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
+        "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
+        "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
+        "M2-periodicity-solver.toml":       "discharged - 'CLOSED by the 2026-07-26 flight'",
+        "S1.4-injected-playback.toml":      "discharged - 'THAT PENDING-OPERATOR IS NOW CLOSED'",
+        "S4.1-rewind-merge.toml":           "discharged - historical mention; tag dropped 2026-07-31",
+        "L1-hire-kerbal-career.toml":       "discharged - drop-rationale prose; tag dropped 2026-07-31",
+        "L1-dismiss-kerbal-career.toml":    "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        "L1-research-node-career.toml":     "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        "L1-research-node-science.toml":    "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        # Found by this cell on its first run, absent from the hand-written list.
+        "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # ANSWERED by flight 7 (2026-07-26), per its own status row - the prose
+        # that reads like a live debt is a PRE-FLIGHT risk note. Tagged here on
+        # 2026-08-01 and reverted the same day; see the spec's comment.
+        "B15-eve-flyby.toml":               "discharged - inward transfer ANSWERED by flight 7",
+        # NOT this spec's own debt: it describes B1/B2's pad-craft fixtures.
+        "S0.5-live-record-discard.toml":    "other-spec - B1/B2 fixtures, not S0.5's own",
+        # tier=operator by MECHANISM, not debt: fixture-FORGE runs are manual by
+        # nature ("NEVER runs on a cadence, only under an explicit invocation")
+        # and their harvested fixtures are committed. Operator-tier alone is not
+        # an operator debt - which is why the tier is recorded here rather than
+        # assumed to imply the tag.
+        "FORGE-bdock-station.toml":         "forge-mechanism - manual by design; fixture committed",
+        "FORGE-eva2-lko.toml":              "forge-mechanism - manual by design; fixture committed",
+        "FORGE-eva3-pad.toml":              "forge-mechanism - manual by design; fixture committed",
+    }
+
+    def _specs(self):
+        out = {}
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            path = os.path.join(SCENARIOS_DIR, name)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+            out[name] = (spec.get("tier"),
+                         "pending-operator" in (spec.get("tags") or []),
+                         "PENDING-OPERATOR" in text.upper())
+        return out
+
+    def test_the_carrier_set_is_exactly_the_reviewed_inventory(self):
+        """Deliberately strict in BOTH directions: a spec gaining the tag reds,
+        and a spec losing it reds. Adding a legitimate new carrier is meant to
+        cost an edit here, with the reason written down, in the same commit."""
+        carriers = sorted(n for n, (_, tagged, _) in self._specs().items() if tagged)
+        self.assertEqual(sorted(self.CARRIERS), carriers,
+                         "the set of specs carrying `pending-operator` changed; record the "
+                         "spec in CARRIERS with the debt it owes, or drop the tag citing the "
+                         "run that discharged it")
+
+    def test_carriers_claiming_operator_tier_really_are_operator_tier(self):
+        """The one half of a carrier's justification that IS machine-checkable."""
+        specs = self._specs()
+        # startswith, not ==: a reason may CITE operator-tier and then add more
+        # (B16 does), and that citation must still be checked.
+        wrong = sorted(n for n, why in self.CARRIERS.items()
+                       if why.startswith("tier=operator") and specs[n][0] != "operator")
+        self.assertEqual([], wrong, "CARRIERS claims tier=operator for a spec that is not")
+
+    def test_every_untagged_candidate_is_classified(self):
+        """The completeness half, over BOTH populations that can owe operator
+        work: specs that MENTION the token, and specs that are `tier =
+        "operator"`. Covering only the first was a real gap - `B16-eve-orbit` is
+        operator-tier with a documented outstanding human call and never writes
+        the string, so it sat in neither list and reds nothing. An untagged
+        candidate is honest for three reasons - the debt is discharged, it
+        belongs to another spec, or the tier is a mechanism rather than a debt
+        (the FORGE runs) - and each must be a recorded human call."""
+        mentions = sorted(n for n, (tier, tagged, m) in self._specs().items()
+                          if (m or tier == "operator") and not tagged)
+        self.assertEqual(sorted(self.REVIEWED_UNTAGGED), mentions,
+                         "an untagged spec mentions PENDING-OPERATOR without a recorded "
+                         "classification; read its row in docs/dev/autotest-status.md, then "
+                         "either tag it (live debt) or add it to REVIEWED_UNTAGGED with why")
+
+    def test_the_two_inventories_do_not_overlap(self):
+        """A spec is in exactly one list. Overlap would mean the tag question was
+        answered twice, differently."""
+        self.assertEqual(set(), set(self.CARRIERS) & set(self.REVIEWED_UNTAGGED))
+
+    # The 2026-07-31 sweep. Every one was discharged by a GREEN RUN, and a green
+    # run cannot un-happen, so the tag reappearing means a hand edit or a merge
+    # resurrection - not new information.
+    DROPPED_2026_07_31 = (
+        "S4.1-rewind-merge.toml",             # own rule: "stays until that first green run"
+        "L1-hire-kerbal-career.toml",         # pending-FIXTURE residue; fixture landed
+        "L1-dismiss-kerbal-career.toml",      # README records the kerbal; pool-neutral
+        "L1-research-node-career.toml",       # README marks the node cost **VERIFIED**
+        "L1-research-node-science.toml",      # rides the same VERIFIED node cost
+        "L1-upgrade-facility-career.toml",    # proven live at -150,000, hardDivergences=0
+    )
+
+    def test_the_specs_promoted_out_stay_out(self):
+        for name in self.DROPPED_2026_07_31:
+            tags = load_spec(name).get("tags") or []
+            self.assertNotIn("pending-operator", tags,
+                             "%s was live-proven and owes no operator work" % name)
+
+    def test_the_tag_is_still_non_gating(self):
+        """The whole rule above rests on the tag moving no verdict and gating no
+        cadence. If `pending-operator` ever becomes a real tier, this class is
+        reasoning about the wrong thing and must be revisited."""
+        self.assertNotIn("pending-operator", hlib.TIERS)
+
+
 class SaveStructureVerifierWiringTests(unittest.TestCase):
     """The M-C2/R9 save-parse verifier's hlib-side wiring: spec-surface
     validation routes through validate_spec, the gating flag classifies its own
