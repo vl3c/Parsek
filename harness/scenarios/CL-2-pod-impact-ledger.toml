@@ -523,7 +523,8 @@ captureCrossCheck = "gate"
   # `utWindow` = THE IMPACT PHASE, a bound rather than a pin. The exact impact UT is
   # NOT stable and must never be written here: MEASURED 119.7 (archived B1 run of
   # this craft), 119.9 and 119.8 (the two 2026-07-30 flights), and 119.9 on all
-  # three 2026-07-31 arming flights - six runs, four distinct values.
+  # three 2026-07-31 arming flights - six runs, three distinct values (and a
+  # fourth, 120.2, on the corrected re-fly `2026-07-31_1759` below).
   #
   # THE UPPER BOUND IS 400, NOT 140, AND THE REASON IS A CLOCK. (PR #1397 review,
   # second pass - this bound was originally 140 and that was a latent false-red.)

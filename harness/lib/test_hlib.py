@@ -1826,7 +1826,9 @@ class InGameAttributeParseTests(unittest.TestCase):
             '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'
         ).allow_batch)
         # Every resolved (absent-or-literal) form carries an EMPTY marker - the
-        # 539-declaration tree recount must be byte-identical to pre-fix.
+        # Whole-tree declaration recount must be byte-identical to pre-fix (542 at
+        # HEAD; the count is recomputed mechanically here, never asserted as a
+        # literal, so this comment is orientation only).
         for src in ('[InGameTest(Category = "A")] void M(){}',
                     '[InGameTest(Category = "A", AllowBatchExecution = true)] void M(){}',
                     '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'):

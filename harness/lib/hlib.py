@@ -2941,8 +2941,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             expectations.get(UNITY_EXCEPTIONS_BLOCK)))
 
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
-    # [expectations.ledger] block must never launch KSP. Structural only; the
-    # per-entry manifest validation runs at run time (oracle.parse_manifest_entries).
+    # [expectations.ledger] block must never launch KSP. The block surface is
+    # checked directly; the per-entry surface DELEGATES to
+    # oracle.parse_manifest_entries (2026-07-31), so a manifest that would red
+    # post-flight as a hard PARSEK-FAIL(ledger) reds here instead - all but the
+    # one funds fill-from-capture rule, which needs the produced log.
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
@@ -3847,9 +3850,12 @@ def unity_exception_expectation_warnings(block: Optional[Dict]) -> List[str]:
 # The PURE half of the leg-A manifest capture + the produced-save careerSave read.
 # The oracle MATH itself lives in the sibling ``oracle.py`` (parse / compute /
 # diff / build-result); run.py glues these two libraries together. Everything
-# here is side-effect-free over strings / dicts and imports NOTHING from oracle
-# (it emits the raw entry-dict shape oracle.parse_manifest_entries consumes, and
-# reads oracle-entry objects structurally via duck typing in the cross-check).
+# here is side-effect-free over strings / dicts. It stayed import-free of oracle
+# until 2026-07-31: `validate_ledger_expectations` now takes a DEFERRED
+# `import oracle` to delegate per-entry validation (oracle imports only stdlib,
+# so there is no cycle). Everything ELSE here is still oracle-free - it emits the
+# raw entry-dict shape oracle.parse_manifest_entries consumes, and reads
+# oracle-entry objects structurally via duck typing in the cross-check.
 # ---------------------------------------------------------------------------
 
 # The [expectations.ledger] spec-surface vocabulary (design Data Model ~226). v1
@@ -4334,7 +4340,8 @@ DEFAULT_CAPTURE_MATCH_TOLERANCES: Dict[str, float] = {
 
 def _entry_facet_amount(entry, facet: str) -> float:
     """The seam entry's declared delta on ``facet`` (structural read, duck-typed so
-    this module still imports nothing from oracle). Unknown facet -> 0.0."""
+    this cross-check path needs no oracle import of its own; only
+    ``validate_ledger_expectations`` imports oracle). Unknown facet -> 0.0."""
     try:
         return float(getattr(entry, facet, 0.0) or 0.0)
     except (TypeError, ValueError):
@@ -4438,8 +4445,8 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward],
     Corroboration can only SUPPRESS the extra unexpected-award row, never weaken the
     save diff.
 
-    ``seam_entries`` are oracle.ManifestEntry objects, read structurally so this
-    imports nothing from oracle.
+    ``seam_entries`` are oracle.ManifestEntry objects, read STRUCTURALLY, so this
+    function needs no oracle import of its own.
 
     WHAT THIS RETURNS IS NOT AUTOMATICALLY A RED. The run.py caller decides whether an
     unmatched award is a HARD divergence or a REPORT-ONLY row from the scenario's
