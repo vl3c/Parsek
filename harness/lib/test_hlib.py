@@ -4198,12 +4198,27 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     outstanding human call and never writes the string.)
 
     DETECTABLE IS NOT THE SAME AS OWED, and the difference is not closable here.
-    A spec can owe a human something while giving neither signal:
-    `EVA-1-pad-flag` says "the tier stays nightly until the operator promotes
-    it" - a pending human call, on a nightly spec, with no token. Nothing makes
-    it red, and nothing can, short of reading every spec. Whether EVA-1 should
-    carry the tag is a judgement for whoever owns it; what this cell can honestly
-    promise is that the two DETECTABLE populations stay classified. That is
+    A spec can owe a human something while giving neither signal, which is how
+    `EVA-1-pad-flag` went unnoticed: it says "the tier stays nightly until the
+    operator promotes it" - a pending human call, on a nightly spec, with no
+    token, so nothing made it red and nothing could, short of reading every
+    spec. It was found by hand and is now a CARRIER.
+
+    THAT CASE ALSO SETTLED WHAT COUNTS AS A DEBT, so the next reader does not
+    re-derive it. The first instinct was to refuse the tag on the grounds that
+    pending promotions are everywhere and tagging them would pad the list back
+    out. The corpus says otherwise: a dozen specs carry re-tier or promotion
+    prose, but B10, BDOCK-1, EVA-3 and the whole L1 family record promotions
+    already DONE, so among untagged specs EVA-1 was the only OPEN one - tagging
+    it added exactly one. And `S1.5-rewind-loop` is the precedent that settles
+    the principle: it is `tier = "nightly"`, green, fully automated, and tagged
+    purely because something needs a human. A cadence decision needs a human
+    too. So the tag means WORK ONLY A HUMAN CAN DISCHARGE, not "a human must
+    drive the run" - operator-tier is one sufficient reason, never the
+    definition.
+
+    What this cell can honestly promise is that the two DETECTABLE populations
+    stay classified. That is
     a weaker guarantee than "the tag is always truthful" and a much more honest
     one - the check enforces that the inventory was REVIEWED, and the reviewer
     supplies the truth. For a fixture constant, `harness/fixtures/saves/README.md`
@@ -4215,6 +4230,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
         "V1-map-dwell-mun-orbit.toml": "tier=operator",
+        "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
+                                       "operator promotes it'. P1/P3/P6 are all done and it has "
+                                       "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "
+                                       "except the cadence decision itself, which only a human "
+                                       "makes. NOT tier=operator: a nightly spec can owe operator "
+                                       "work, exactly as S1.5 does.",
         "B16-eve-orbit.toml":          "tier=operator AND a documented outstanding human call - "
                                        "the PROMOTE note ('the PROVISIONAL pins need a human "
                                        "reading the result'); status doc: 'TIER NOT CHANGED ... "
