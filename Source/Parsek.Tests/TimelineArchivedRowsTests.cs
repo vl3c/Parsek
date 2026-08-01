@@ -190,7 +190,7 @@ namespace Parsek.Tests
         public void ShowArchivedRecordingsIsTheRecordingsTabFilterInverted()
         {
             // The Recordings tab header checkbox means "hide archived"; every Timeline
-            // filter toggle means "show this". One stored bool, two labels — if the
+            // filter toggle means "show this". One stored bool, two labels - if the
             // inversion is ever dropped, the Timeline toggle reads backwards.
             GroupHierarchyStore.HideActive = true;
             Assert.False(TimelineWindowUI.ShowArchivedRecordings);
@@ -203,7 +203,7 @@ namespace Parsek.Tests
         public void SettingShowArchivedRecordingsWritesTheSharedFilter()
         {
             // Writing through the Timeline must land on the SAME state the Recordings
-            // tab owns — that sharing is what makes the Basic-reachable toggle a real
+            // tab owns - that sharing is what makes the Basic-reachable toggle a real
             // un-archive path rather than a Timeline-private view flag.
             GroupHierarchyStore.HideActive = true;
 

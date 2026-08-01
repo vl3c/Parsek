@@ -248,7 +248,7 @@ That is already how the flag behaves everywhere except the Timeline. The Recordi
 
 **Rejected: have the Timeline ignore `Hidden` in Basic** (audit candidate a). Four reasons, any one sufficient:
 
-- It inverts the mental model. Every other mode difference is Basic ⊂ Advanced; this would make Basic show rows Advanced does not, so switching Basic -> Advanced would silently delete Timeline rows - the exact "a default changed what the player sees" failure section 7.3 exists to prevent.
+- It inverts the mental model. Every other mode difference is Basic is a subset of Advanced; this would make Basic show rows Advanced does not, so switching Basic -> Advanced would silently delete Timeline rows - the exact "a default changed what the player sees" failure section 7.3 exists to prevent.
 - It crosses the section 5 / 9.1 line. The mode may decide what a message SAYS, never "whether it fires, what is detected". A per-row inclusion decision inside `TimelineBuilder` is detection.
 - It would force `Source/Parsek/Timeline/` onto the 13.4 grep-gate allowlist, weakening the mechanism that keeps section 9 honest, in order to make a data filter mode-dependent - precisely the rot that gate exists to catch.
 - It gives the player nothing. The recording stays archived; the mode merely masks the flag, and the player still has no control over it.

@@ -52,7 +52,7 @@ namespace Parsek.Tests
             string src = ReadTimelineWindowSource();
 
             // The reveal is worthless if the flag is read, stored, and then not handed
-            // to the builder — the toggle would look live and change nothing.
+            // to the builder - the toggle would look live and change nothing.
             Assert.Contains("bool showArchivedRows = ShowArchivedRecordings;", src);
             Assert.Contains("showArchivedRows);", src);
             Assert.Contains("cachedTimelineShowedArchived = showArchivedRows;", src);
