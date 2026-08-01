@@ -249,7 +249,101 @@ them - and D8/D9 `tombstones` - out of its claim set.
 
 ---
 
-## The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. NOT FIXED]
+## ~~The ledger oracle's capture cross-check cannot be armed on a FLOWN scenario: the corroboration key is UT-valued~~ [FOUND 2026-07-30 by the first live capture, `CL-2-pod-impact-ledger`. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+The windowed-UT option from the list below, chosen over the other two after studying
+what a flown spec CAN declare: a manifest entry may now carry `utWindow = [lo, hi]`
+(inclusive; `oracle.parse_manifest_entries` -> `ManifestEntry.ut_window`), and
+`hlib.unmatched_captured_awards` matches a windowed entry to a captured award whose
+UT falls inside the bounds instead of requiring exact `seq_key` equality. A window is
+what a flown spec can honestly state - the mission's phase bounds ("the impact lands
+between UT 100 and 140") are stable across runs even though the exact UT is not
+(119.7 / 119.9 / 119.8 across the three runs below). Everything else about the match
+is unchanged: facet + amount-within-tolerance + structured identity + optional
+`stockReason`, one-to-one per (entry, pool) consumption, pinned-first candidate order
+(within each group, entries additionally sort by acceptance WIDTH - exact key = 0,
+window = hi-lo - so neither a window over an exact entry nor a wide window over a
+narrow one can greedily strand the award the tighter entry names; the residual
+pinned-wide-vs-unpinned-exact greedy limit is documented and pinned as fail-closed).
+Fail-closed edges:
+a null-UT captured award never window-matches; `lo > hi`, a malformed shape, and
+`ut` + `utWindow` on one entry all reject at parse time.
+
+**THE PRE-LAUNCH GATE NOW DELEGATES TO THE ORACLE (2026-07-31, second session).**
+It started as a widening: the review filed `ut` and non-table entries as the same
+burned-flight economics `utWindow` had already closed, and both were confirmed - six
+shapes passing ADMIT and hard-failing post-flight as a manifest-parse-error
+`PARSEK-FAIL(ledger)`. The first fix mirrored three ENTRY-SHAPE keys by hand and
+justified leaving the rest as "value/semantic rules". **That boundary did not survive
+its own review and was replaced.** Running the oracle with `captured=None` - exactly
+pre-launch knowledge - rejects EVERY one of its rules deterministically, and two of
+the supposedly-semantic ones (`seq` must be an int; `stockReason` a non-empty string
+or array of them) are pure type/shape rules CL-2's manifest hand-writes on every
+entry. The stated justification was also self-contradicting: it rested on the funds
+fill-from-capture rule "genuinely" needing the log, while `oracle.py`'s own comment
+says that path is unreachable against a real log.
+
+`validate_ledger_expectations` therefore calls `oracle.parse_manifest_entries`
+outright and re-prefixes `entry[N]` to `manifest[N]`, so there is no second
+implementation to drift. **The single carve-out** is the funds fill-from-capture
+ambiguity, skipped because it reads the captured pool (empty pre-launch), and
+raising it would refuse a spec the oracle could accept at run time - the unsafe
+direction. Twelve entry shapes now red pre-boot that previously cost a flight, and
+an unbounded-integer `ut` (tomllib does not clamp to int64) no longer raises
+`OverflowError` out of `validate_spec` - which is called with no `try/except` and
+would have aborted the WHOLE batch rather than one spec; `oracle._is_finite_number`
+fixes that on both sides at once. `WhatThePreLaunchGateMirrorsTests` sweeps both
+implementations against each other in BOTH directions over the full entry-shape
+space including the formerly-unmirrored rules, asserts neither side RAISES, pins the
+shared reason key with a trailing colon (`.ut` is a substring of `.utWindow`, so a
+bare match left the ordering claim unpinned), pins the carve-out explicitly, and
+asserts every committed spec still passes. M-B2 independence is
+untouched - the window is a matching hint, `compute_expected` never reads it, and a
+captured amount is still never summed into EXPECTED. OPT-IN and verdict-neutral by
+construction at the time it shipped: no committed spec declared a window; the CL-2
+shape - the three measured capture lines corroborating through windows, near-window
+misses, straddling awards, the measured UT spread as literals - is pinned in
+`test_hlib.py::FlownScenarioUtWindowCorroborationTests`.
+
+**ARMED 2026-07-31, same day, second session.** The operator action was then TAKEN
+against the real game on `CL-2-pod-impact-ledger`, one flight per checklist step,
+all PASS attempt 1:
+
+```
+2026-07-31_1630  baseline, spec UNCHANGED   3 awards UNEXPECTED (report-only)
+                                            ut 12.5 / 19.1 / 119.9
+2026-07-31_1638  utWindows declared, report ZERO unexpected; reportOnly 3 -> 0
+2026-07-31_1645  captureCrossCheck = gate   PASS, hardDivergences=0 reportOnly=0
+2026-07-31_1759  bounds corrected + re-flown PASS, crossCheck=gate archived,
+                                            awards at ut 12.8 / 19.3 / 120.2
+```
+
+The windows are the mission's PHASE BOUNDS - `[0, 100]` for the two ascent
+`Progression` awards, `[100, 400]` for the `VesselLoss` impact - and these three
+flights are the argument for bounds over pins: the second `Progression` measured
+19.1, then 19.0, then 19.1 across them. THE BOUNDS ARE ABSOLUTE PLANETARIUM UT, not
+time-from-ignition: the matched value is `fixtureUT(9.06) + padDwell + T+`, and pad
+dwell is wall-clock (game time runs 1:1, no warp), so a ceiling has to clear the
+harness's own kRPC connect budget. The first draft's `[100, 140]` left ~20 s against
+a documented 30 s budget - a latent false `PARSEK-FAIL(ledger)` that `should_retry`
+would not have absorbed. Corrected before merge, and the widening was verified to
+cost no discrimination: an extra `VesselLoss` at ut 150 and an out-of-phase
+`Progression` both still red. TWO LIMITS ARMING DOES NOT CLOSE, recorded in the spec:
+the check is one-directional (a capture yielding ZERO awards is unmatched-empty and
+GREEN - now closed at the log level by two required stock award lines), and the two
+`Progression` awards can collapse in `dedupe_captured_awards` if no UT-stamped
+[Parsek] line separates them, after which one entry corroborates nothing. The expected totals did NOT move
+(`funds=529600.0 science=100.0 rep=-7.999829000000001` before and after): CL-2's
+entries are all `ut`-less so `_sort_key` ordering is untouched, and all three rep
+entries are `repMode="applied"` so the nonlinear curve is not re-entered. The funds
+milestone entry stays window-free (KSP logs no funds award, so it is never
+capture-matched). The two whole-set cells became explicit ALLOWLISTS naming CL-2 with
+that evidence (`test_only_the_armed_allowlist_arms_the_capture_cross_check`,
+`test_only_the_armed_allowlist_declares_a_ut_window`), so a SECOND spec arming the
+gate still reds until its own evidence is recorded. CL-2 is the first committed spec
+in the suite to gate on the ledger capture.
 
 `hlib`'s own note says `captureCrossCheck` "was WRITTEN as a hard gate, but it has never
 once run with a working capture", that no L1 spec can capture anything, and that arming
@@ -287,14 +381,18 @@ craft, 119.9 on CL-2 flight 1 and 119.8 on flight 2. (For a KSC-only scenario th
 land at the save's static UT, so the problem is invisible there - consistent with the
 join having been designed against the L1 shape and never exercised against a flight.)
 
-### Options, none applied
+### Options (windowed-UT applied - see Fix above)
 
 Loosen the join to `(facet, amount [, stockReason])` with the seqKey as a TIE-BREAKER
 rather than a requirement; or add a UT-window tolerance; or let an entry declare
 `stockReason` alone as sufficient corroboration when the amount matches. Each changes
-what "unexpected" means, so it wants the M-B2 design owner rather than a scenario
-author. Until then `captureCrossCheck = "report"` is the correct setting for any flown
-spec, and CL-2 records the reasoning inline.
+what "unexpected" means, so it wanted a deliberate design pass rather than a
+scenario-author workaround. The windowed option won because it is the only one where
+the SPEC still constrains WHEN the award may land (an amount-only or reason-only join
+would corroborate a declared award appearing at any point in the flight, including
+one fired by an unrelated later event). `captureCrossCheck = "report"` remains the
+correct setting for a flown spec until its author declares windows from a green run's
+`capturedRaw`.
 
 NOTE, so this is not over-read: none of it weakens the oracle. The cross-check only
 CLASSIFIES; a captured amount is never summed into EXPECTED, and the
@@ -536,7 +634,27 @@ The alternative (tracer-on everywhere) is exactly the cross-run leak PR #1352 fi
 
 ---
 
-## HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today]
+## ~~HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: a non-literal AllowBatchExecution argument silently resolves to true~~ [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT - every committed declaration is literal today. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+Both halves of the fix shape below, because they answer different questions:
+`_resolve_bool_default_true` now returns True/False only for an absent argument or
+the literal `true`/`false` and None for anything else, and
+`parse_ingame_test_declarations` maps that None to (a) `allow_batch = False` -
+fail-CLOSED in the `_resolve_bool_default_false` direction, so an unreadable
+expression under-counts admissions and a pinned tally reds, never inflates - and (b)
+a new `InGameTestDecl.allow_batch_marker` carrying the `<unresolved:<expr>>` marker,
+which `unresolved_ingame_declarations` now reports alongside unresolvable
+Category/Scene, so `CommittedBatchTallySourceSyncTests` reds ON THE DECLARATION
+rather than leaving a bounds mismatch to be reverse-engineered. Both malformed shapes
+(a const indirection, a computed expression - plus C#'s capitalized `False`, which is
+an identifier to this parse) are pinned in
+`test_hlib.py::test_non_literal_allow_batch_fails_closed_with_a_marker`. Verified
+mechanically with the parser itself that the whole `Source/Parsek` tree still parses
+IDENTICALLY: 542 declarations, 471 batch-allowed / 71 not, 72 restore-backed, zero
+markers, zero unresolved - every committed argument is a literal, so the fail-closed
+branch is dead code against today's tree by construction.
 
 ### What happens
 
@@ -554,7 +672,60 @@ Make an unresolvable `AllowBatchExecution` argument resolve to a loud marker (or
 
 ---
 
-## HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. REPORTED, NOT FIXED. Driver-side only - no Parsek code on the path]
+## ~~HARNESS-INJECT-FAILS-OPEN: a no-op fixture injection reports success, and the miss surfaces three minutes later as an unrelated seam rejection~~ [FOUND 2026-07-29 by run `2026-07-29_1525_S1.5-rewind-loop` attempt 1. Driver-side only - no Parsek code on the path. FIXED 2026-07-31, branch `harness-hardening-2`]
+
+### Fix
+
+The staging POSTCONDITION from the fix shape below, driver-side only.
+`run.py::stage_fixture` step 3 now asserts what the preset MUST have written into
+the staged save after the injector returns, whatever its exit code:
+`_inject_postcondition_missing` requires a non-empty `Parsek/Recordings/` for both
+presets plus `Parsek/RewindPoints/rp_b9_root.sfs` for `rewind-b9` (the RP every
+consumer's `InvokeRewind rp=rp_b9_root` needs - which also closes the second silent
+trigger, the KSP.log lock-probe refusal, and any future no-op mechanism; the check is
+mechanism-independent). A miss fails the stage immediately as terminal
+INVALID(`stage-inject-noop`) with ZERO KSP boots, and the error names the likely
+cause with its one-line remedy (assembly-existence probe: "Parsek.Tests assembly
+missing ... dotnet build Source/Parsek.Tests" vs "assembly present; check the KSP.log
+lock probe"). The subkind is deliberately NOT in `RETRYABLE_INVALID_SUBKINDS`: the
+miss is deterministic per worktree, so a retry burns the `once` budget to learn
+nothing (the exact V1-map-dwell double-flight shape). `--no-build` stays on the
+injector, exactly as the DO-NOT below demands, and the hidden coupling to
+`run_analyzer`'s building side effect is now irrelevant to correctness. Covered
+through the fake-KSP smoke harness (`test_run_smoke.py::InjectPostconditionTests`): a
+full `run_attempt` over a no-op injection terminates INVALID(stage-inject-noop)
+pre-boot and non-retryable, success paths for both presets stage clean, an RP-less
+rewind-b9 injection fails closed, and the predicate's shapes are pinned directly.
+
+**LIVE-PROVEN 2026-07-31 against the real game, in the exact worktree state that
+triggers it** (`Parsek-cl2-capture-arming`, `Source/Parsek.Tests` never built - the
+deterministic trigger this entry identifies). Both halves, no divergence from the
+claim, so no driver change was needed:
+
+```
+19:26:47  python run.py --id S1.5-rewind-loop
+[Harness][Info][Select]  ... (Select / Admit / Lock lines elided)
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Error][Stage] inject postcondition failed preset=rewind-b9 exit=0
+    missing=[non-empty Parsek/Recordings/, Parsek/RewindPoints/rp_b9_root.sfs];
+    aborting pre-boot (INVALID stage-inject-noop). likely cause: Parsek.Tests
+    assembly missing (never built in this worktree; the injector's deliberate
+    --no-build runs nothing) - remedy: dotnet build Source/Parsek.Tests
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=0s terminal=INVALID
+19:26:48
+```
+
+Run `2026-07-31_1626_S1.5-rewind-loop`: `verdict=INVALID subkind=stage-inject-noop`,
+`wallSeconds=0` (wall-clock 19:26:47 -> 19:26:48). PRE-BOOT is proven by the result JSON rather than asserted -
+`kspExit={"code": null, "killed": false}`, `collectLogs={"path": null, "ran": false}`,
+`driver.steps=[]` - and NON-RETRYABLE by `attempt=1` with zero `_a2` files in
+`results/`. Note `exit=0` in that line: the injector still reported success, which is
+precisely the fail-open the postcondition now catches. Running the NAMED REMEDY
+verbatim (`dotnet build Source/Parsek.Tests`) and re-invoking then staged, booted and
+went GREEN on attempt 1 - run `2026-07-31_1627_S1.5-rewind-loop`, 63 s, `stage
+save=gloops-airshow ... inject=rewind-b9`, `launch exe=...KSP_x64.exe pid=26188`,
+every verifier PASS/SKIPPED. So the error message's remedy is not just plausible, it
+is the whole fix: one build, one green run.
 
 ### What happens
 
@@ -1758,7 +1929,7 @@ Three consequences worth stating:
 captureCrossCheck = "gate"   # default "report"; declared by ZERO committed specs
 ```
 
-`report` records each unmatched award as a REPORT-ONLY oracle divergence (logged, counted in `reportOnly`, kept in `results/<runId>.manifest.json` `capturedRaw`); `gate` restores the hard `PARSEK-FAIL(ledger)`. OPERATOR-BLOCKED: arm per scenario after one green run shows that scenario's real award baseline. Pinned by `test_unexpected_award_is_report_only_by_default` (the same log that reds when armed must not red by default) and its armed twin.
+`report` records each unmatched award as a REPORT-ONLY oracle divergence (logged, counted in `reportOnly`, kept in `results/<runId>.manifest.json` `capturedRaw`); `gate` restores the hard `PARSEK-FAIL(ledger)`. OPERATOR-BLOCKED: arm per scenario after one green run shows that scenario's real award baseline. Pinned by `test_unexpected_award_is_report_only_by_default` (the same log that reds when armed must not red by default) and its armed twin. **The "ZERO committed specs" in that snippet held until 2026-07-31**, when `CL-2-pod-impact-ledger` was armed over three flights - it is now the one and only armed spec, and the whole-set cells are allowlists rather than empty-set assertions; see the struck corroboration-key entry above for the evidence.
 
 **AND THE CORROBORATION KEY HAD TO CHANGE WITH THEM (review follow-up, found by reproduction).** The generic captured kinds made corroboration STRUCTURALLY IMPOSSIBLE: `unmatched_captured_awards` joined captured-vs-seam on `(seqKey, kind, identity)`, but a captured award now always carries `stock-funds-award` / `stock-reputation-award` while a seam entry carries a scenario kind (`kerbal-hire`, `facility-upgrade`, ...), so the kinds can NEVER be equal and every captured award reported "unexpected" - including the scenario's own. Reproduced against `L1-hire-kerbal-career`, whose own declared -62113 hire debit read as an unexpected award. The consequence was worse than noise: `captureCrossCheck = "gate"` could never be armed on any scenario that declares anything, so the escalation path documented one paragraph above could not be walked.
 

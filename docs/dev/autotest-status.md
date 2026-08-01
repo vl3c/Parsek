@@ -1,6 +1,52 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-31, second session (R9's SAVE-PARSE VERIFIER IS ARMED AND
+Last updated: 2026-07-31, second session (THE TWO LIVE-TESTABLE CLAIMS OF THE
+SESSION BELOW ARE NOW LIVE-PROVEN AGAINST THE REAL GAME, AND THE LEDGER CAPTURE
+CROSS-CHECK IS ARMED FOR THE FIRST TIME. (1) HARNESS-INJECT-FAILS-OPEN proven
+closed end to end in a worktree where `Source/Parsek.Tests` had never been built -
+the deterministic trigger: `S1.5-rewind-loop` terminated in UNDER A SECOND
+(`wallSeconds=0`; wall-clock 19:26:47 -> 19:26:48), PRE-BOOT
+(`kspExit.code=null`, `collectLogs.ran=false`, zero driver steps), INVALID
+`stage-inject-noop`, attempt 1 only with NO `_a2` retry, and the error named both
+cause and remedy - while the injector itself still exited 0, which is the fail-open
+being closed. Running that named remedy verbatim (`dotnet build Source/Parsek.Tests`)
+then staged, booted and went GREEN on attempt 1, 63 s (`2026-07-31_1627`). No
+divergence from the PR #1397 claim, so no driver fix was needed. (2) The
+FLOWN-SCENARIO ARMING PATH was walked end to end on `CL-2-pod-impact-ledger`, one
+flight per known-gate-3 checklist step, all PASS attempt 1: `2026-07-31_1630`
+baseline reproduced the finding (3 awards UNEXPECTED, report-only, ut
+12.5 / 19.1 / 119.9), `2026-07-31_1638` with `utWindow`s declared drove the
+unexpected rows to ZERO (`reportOnly` 3 -> 0) with expected totals byte-identical,
+and `2026-07-31_1645` flew GREEN with `captureCrossCheck = "gate"` LIVE. CL-2 is now
+the FIRST committed spec that gates on the ledger capture and the only one declaring
+a `utWindow`; the two whole-set guards became ALLOWLISTS carrying that evidence. The
+windows are PHASE BOUNDS, and the three flights proved why: the second `Progression`
+award measured 19.1 / 19.0 / 19.1 across them. This is the ONE deliberate committed
+verdict change - the documented operator action - and nothing else moved. (3) The
+review's in-pattern follow-up closed, then went further: the pre-launch ledger gate
+no longer MIRRORS a chosen subset of the oracle's entry rules, it DELEGATES to
+`oracle.parse_manifest_entries` outright, carving out only the funds
+fill-from-capture rule (the one rule that reads the captured pool, so raising it
+pre-launch would refuse a spec the oracle could accept). The mirror boundary this
+session first shipped did not survive review: running the oracle with
+`captured=None` rejects every rule deterministically, and two of the supposedly
+"semantic" ones (`seq`, `stockReason`) are hand-written on every CL-2 entry.
+Twelve entry shapes that used to pass ADMIT and hard-fail after the flight now red
+in seconds, plus an unbounded-integer `ut` that used to raise OverflowError out of
+`validate_spec` and abort the WHOLE batch. Suites after merging origin/main (which
+landed R9's save-parse verifier and its S4.1 arming in parallel): lib 1065, provision
+203, missions/lib 1107, all green.)
+
+
+NOTE ON THE TWO ARMINGS THAT LANDED THE SAME DAY, so the two "first and only
+armed" claims below do not read as contradicting each other: they are DIFFERENT
+KNOBS. `S4.1-rewind-merge` is the first and only spec arming the M-C2 save-parse
+verifier (`[expectations.rewind] gating = true`); `CL-2-pod-impact-ledger` is the
+first and only spec arming the M-B2 ledger capture cross-check
+(`[expectations.ledger] captureCrossCheck = "gate"`). Each has its own whole-set
+allowlist cell, and neither affects the other.
+
+Prior: 2026-07-31, second session (R9's SAVE-PARSE VERIFIER IS ARMED AND
 LIVE-PROVEN ON S4.1, closing the promotion the report-only landing left pending
 that same day. Branch `r9-arm-s41`. `S4.1-rewind-merge` is the FIRST and ONLY
 committed spec carrying `gating = true`, so the rewind save surface stopped being
@@ -87,6 +133,24 @@ a second exploratory block to a gate - `armedBlocks`/`armed_mismatches` carry
 the split). Headless-only validation this session (no KSP in the build
 environment): all three suites green - lib 977, provision 203 (+5 skipped),
 missions/lib 1103.)
+
+Prior: 2026-07-31 (THREE FAIL-OPEN/MECHANISM ITEMS CLOSED on branch
+`harness-hardening-2`, pure Python + docs, no committed verdict moved. (1) The
+ledger capture cross-check is now ARMABLE ON FLOWN SCENARIOS: a manifest entry may
+declare `utWindow = [lo, hi]` and the leg-A corroboration matches inside the window
+instead of on the unpinnable exact UT that made CL-2's three correctly-declared
+awards all read "unexpected" - opt-in per entry, zero committed specs declare one,
+M-B2 independence untouched; see the rewritten arming paragraph in known-gate 3.
+(2) HARNESS-INJECT-FAILS-OPEN is FIXED driver-side: staging now asserts the
+injection POSTCONDITION (non-empty `Parsek/Recordings/`, plus `rp_b9_root.sfs` for
+`rewind-b9`) and a miss is terminal INVALID(`stage-inject-noop`) pre-boot,
+non-retryable, naming the likely cause and remedy - no more full flights burned on
+`unknown-rp`. (3) HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN is FIXED: a non-literal
+`AllowBatchExecution` argument now resolves fail-CLOSED with an `<unresolved:...>`
+marker the sync sweep reds, instead of silently reading batch-allowed; the tree
+recount is unchanged (542 declarations, zero markers). All three suites green:
+lib 927, provision 203 (5 skipped), missions/lib 1103. Forensics: the three struck
+entries in todo-and-known-bugs.md.)
 
 Prior: 2026-07-30, second session (S4.1's HONESTY CAVEAT IS RESOLVED and the
 S4.1-IDLE-DISCARD refusal guard is LIVE-PROVEN. The unentered guard was
@@ -575,7 +639,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | S1.6-render-parity | daily | The FIRST cell that gates PLAYBACK rather than recording: drives the in-game `GhostMap` batch so the production recorded-vs-rendered parity oracle (`RenderParityOracle` + `MapRenderProbe.ComputeFaithfulOrbitParity` / `ComputeSynthesizedConicParity`) actually runs unattended, tracer pinned on, `allowedAnomalies = []`. Anti-vacuity is MANDATORY here: a pinned whole tally plus two `[TestRunner]` measurement lines emitted only after a real diff ran on live ghost geometry | D6 recorded-vs-rendered-parity (new registry value); D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-26: first flight = PASS, every verifier green. `total=25 passed=14 failed=0 skipped=11 category=GhostMap scene=FLIGHT`; the 11 skips are 9 TRACKSTATION scene-eligibility + 2 documented loop-icon self-skips. Negative control measured 1049421 m against a 1927 m tolerance (~545x), so the zero-drift assertion provably can still fail. FLOWN TWICE: flight 1 (run `2026-07-26_0950`) MEASURED the tally while the spec still carried the loose `passed=[1-9][0-9]*` conjunct, so the exact line was a transcription; flight 2 (run `2026-07-26_1207`, PASS, expectations mismatches=0, anomalySweep hits=[] unlistedReasons=[], log archived at `logs/2026-07-26_1207_S1.6-render-parity/KSP.log`) ran the spec AS COMMITTED and is what actually EVALUATED the exact pin, both measurement lines and both forbidden patterns. Caveat on flight 2: the instance's deployed DLL was a sibling worktree's build whose GhostMap surface is identical to main's (25 attributes, 16 FLIGHT + 9 TRACKSTATION in both), so the pin is not yet evaluated against a main-built DLL. Does NOT cover Recording.Points / TrackSection frames, the flight-scene ghost mesh, anything across time (one frame per assertion), or re-aim solve correctness |
 | S1.7-maprender-parity | daily | S1.6's follow-up over the STRONGER category: drives the in-game `MapRender` batch (22 tests, all Scene = FLIGHT) - the parity baselines with the typed PhaseChain spine driving, multi-body concurrent ghosts, the re-aimed-loop lens distinction, and the descent / re-stitch / dock-undock / overlap / parent-anchored / BG-on-rails spine cells. Anti-vacuity accounts for the SINK TRAP: four MapRender test files install `ParsekLog.TestSinkForTesting`, which diverts rather than tees, so the obvious candidate (the three-oracle flag-on baselines) can never reach KSP.log. Pins the two arms that do: both `MultiBodyConcurrent` lines (`sampled=True skip=(none) hasMeas=True over=False`, the Mun arm doubling as the cross-body-leak proof) and the re-aimed-loop line | D6 recorded-vs-rendered-parity; D14 sandbox/scene-flight - deliberately NO new registry value (depth on an axis S1.6 opened, not breadth). LIVE-PROVEN 2026-07-26: `total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT`, the single skip being the `AllowBatchExecution = false` high-warp canary; zero scene-eligibility attrition. Negative control 1319093 m against 2701 m (~488x). Its first flight also EXPOSED the anomaly-sweep false positive (below) |
 | CL-1-pod-impact | nightly (PROMOTED from operator 2026-07-28) | THE CREW-LOSS ATOM, and the first scenario in the suite whose subject DIES. A crewed pod launches, deploys no chute and hits the ground; the success terminal is the kerbal's death, read from the kerbal's OWN roster status (`SpaceCenter.GetKerbal(name).RosterStatus`, verified at the PINNED kRPC v0.5.4), never a commanded latch. Gates the RECORDER side end to end: `Recording started`, `Destroy-reason override ... reason=destroy_event`, `Active vessel destroyed during recording`, `Active vessel destroyed in tree mode`, `CrewStatusChanged '<name>' Assigned ... Dead`, `ShowPostDestructionTreeMergeDialog: finalized tree`, `pending tree stashed`, `Recording stopped`, plus `recordings.count` pinned at 1 and OBSERVED 1 | D1 auto-record-launch; D12 crew-death-in-flight (NEW value); D14 kerbin/career/scene-flight. LIVE-PROVEN 2026-07-28, flight 2 = FULL PASS attempt 1, 166 s, all seven verifiers PASS/SKIPPED. FLIGHT 1 RED and earned its keep on the first run: the flight was perfect (262 points, full destruction path, Jeb `state = Dead` on disk) but `expectations` failed 2 mismatches from ONE FIXTURE root cause - `career-pad-craft` inherited `fresh-career`'s deliberate absence of a `SCENARIO{name=ParsekScenario}` node, and the seam's FLIGHT focus route does not run `UpdateScenarioModules` the way the SPACECENTER route does (known-gate 6), so the ScenarioModule was never added, ZERO `[Scenario]` lines appear in the collected log, `OnSave` never ran, and the whole flight was recorded in memory and thrown away. The builder now splices the donor's inert node and `verify()` refuses a fixture without one. SECOND FINDING, why there is no ledger half: a destroyed active recorded vessel stashes its tree as PENDING and nulls `activeTree`, so the seam's `CommitTree` fails its `HasActiveTree` guard (`logs/2026-07-20_1829_B1-pad-hop/KSP.log:11310` `committree no-active-tree`, `:11325` `saving 0 committed tree(s)`); the pending tree auto-commits only OUTSIDE Flight and no seam verb produced that transition. **LEDGER HALF NOW BUILT AND LIVE-PROVEN 2026-07-30 by `CL-2-pod-impact-ledger` (its own row below), NOT by editing this spec.** R12/A2 shipped `ExitToSpaceCenter`, which drives exactly that transition; CL-2 is CL-1's step list plus `SetSetting autoMerge=true`, that exit, and an `[expectations.ledger]` block, and it flew green on both its runs. CL-1 stays the ATOM and stays UNCHANGED - `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block` is what forbids the naive edit, and it still passes. Note what S0.7 could NOT do and CL-1 can: S0.7's tree is idle-on-pad (a seam-only recording is one point, so `maxDist = 0`) and is correctly discarded before the autoMerge commit branch, whereas CL-1 FLIES 262 points across 12 km - so CL-1 is not merely a nicer consumer of the verb, it is the first consumer that can reach the auto-commit at all. Both runs MEASURED the terms that extension needs, identically: `Added -9.999828 (-10) reputation: 'VesselLoss'` on the death, milestones RecordsSpeed 4800 / FirstLaunch 800 / RecordsAltitude 4800 all rep=0.0, produced pools funds 529600 sci 100 rep -7.99982834. The key is `VesselLoss`, NOT the `CrewKilled` that `PostWalkActionReconciler` used to map - settled by measurement, and the product map is now corrected to `VesselLoss` and pinned by `Source/Parsek.Tests/PostWalkActionReconcilerTests.cs` |
-| CL-2-pod-impact-ledger | nightly (PROMOTED from operator 2026-07-30 after two green flights; 172 s / 167 s wall, as cheap as the atom it extends) | THE CREW-LOSS ATOM'S LEDGER HALF, and the first run in the suite that reaches the pending-tree AUTO-COMMIT out of a destroyed crewed flight. CL-1's mission, fixture and missionParams verbatim, plus exactly three things: `SetSetting autoMerge=true` before the flight (MANDATORY - without it `DecideExitGate` refuses `variant=RegularMerge`), `ExitToSpaceCenter` after the crash, and an `[expectations.ledger]` block. CL-1 itself is UNTOUCHED: a new spec id keeps `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block` valid. Gates CL-1's eight recorder tokens verbatim (a superset, pinned by a unit cell) + the exit triple with the MIRROR IMAGE of S0.7's guard input set (`hasActiveTree=false hasPendingTree=true` - S0.7 exits with a LIVE tree, this with a STASHED one) + the four commit tokens no run on this profile had ever produced: `Silent full-fidelity auto-commit (scene-exit): tree='...' recordings=1 spawnable=0`, `Committed tree '...' (1 recordings). Total committed: 1 recordings, 1 trees`, `CreateKerbalAssignmentActions: 1 crew members from '...'`, and `OnSave: saving 1 committed tree(s)` - the B1 negative control INVERTED (the archived pre-commit run of this exact craft logs `saving 0`; flight 1 logged `saving 0` three times before the exit and `saving 1` after). S0.7 could not reach any of this: its seam-only tree is one point, so `maxDist = 0` and it is correctly idle-discarded; CL-2's flies 11,885 m | D1 auto-record-launch + **commit-scene-exit + auto-merge (the two values S0.7 had to DROP)**; D8 kerbals/orchestrator/reputation/funds (CL-1 claims NO D8 at all); D12 crew-death-in-flight; D14 kerbin/career/scene-flight/scene-ksc. LIVE-PROVEN 2026-07-30, **PASS on BOTH flights, attempt 1 each**: flight 1 (unpinned, measurement) run `2026-07-30_1711_CL-2-pod-impact-ledger` 172 s; flight 2 (pinned to the measured tokens) run `2026-07-30_1721_CL-2-pod-impact-ledger` 167 s, `expectations mismatches=0`. LEDGER ORACLE PASS with **0 hard divergences on both**: seed funds 500000 / sci 100 / rep 0 + a 4-entry manifest -> expected funds 529600, sci 100, rep -7.999829 against the produced save's 529600 / 100 / -7.99982834; the arithmetic closes to ~7e-7 against a 0.1 rep tolerance. The rep manifest models the death as the STOCK `stock-reputation-award` `VesselLoss` at the APPLIED (post-curve) -9.999828 plus the two `Progression` +1s, because nothing in `Source/Parsek/` ever CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action. FLIGHT 1 EARNED ITS KEEP, twice over. (a) PRODUCT FINDING: `PopulateCrewEndStates` NEVER RUNS on this path - zero occurrences in the whole log - because `NeedsCrewEndStatePopulation` requires `rec.VesselSnapshot != null` and a DESTROYED vessel has none, so the KerbalAssignment row for a kerbal who DIED commits as `KerbalEndState.Unknown` and the reservation comes out `permanent=0 temporary=1` with a stand-in generated for the corpse, where the product's own comment says `Dead -> permanent`. NOT FIXED (own change, own review); the token is deliberately NOT pinned and no crew-end-state coverage is claimed. It also BLOCKS stage B, whose in-game test skips on exactly the `KerbalEndState.Dead` this prevents. (b) HARNESS FINDING: this is the FIRST run with a live capture (`stockLines=3 deduped=3 seamRejected=0`) and all three awards still report UNEXPECTED, because `unmatched_captured_awards` joins on a UT-valued `seq_key` a flown spec cannot declare without pinning a golden trajectory value (119.7 / 119.9 / 119.8 across three runs of this craft) - so `captureCrossCheck = "gate"` is not armable on a flown scenario as the mechanism stands. Both filed in todo-and-known-bugs.md. SCOPE FENCE: D9 `tombstones`, D12 `dead-crew-strip` and `tombstone-rep-penalty` are NOT claimed and are not reachable here - `SupersedeCommit` is the only tombstone producer and runs strictly in the re-fly merge tail. That is stage B |
+| CL-2-pod-impact-ledger | nightly (PROMOTED from operator 2026-07-30 after two green flights; 172 s / 167 s wall, as cheap as the atom it extends) | **CAPTURE CROSS-CHECK ARMED 2026-07-31 - the FIRST committed spec in the suite to gate on the ledger capture, and the only one that declares a `utWindow`.** Its three awards are now HARD: an unexpected stock award here is a `PARSEK-FAIL(ledger)`, not a report row. Walked as known-gate 3's checklist, one flight per step, all PASS attempt 1: `2026-07-31_1630` baseline (spec unchanged, 3 awards UNEXPECTED report-only at ut 12.5 / 19.1 / 119.9), `2026-07-31_1638` windows declared + still `report` (unexpected rows 3 -> 0, `hardDivergences=0 reportOnly=0`), `2026-07-31_1645` armed (`captureCrossCheck = "gate"`, PASS, `hardDivergences=0 reportOnly=0`). Windows are the mission's PHASE BOUNDS, never pins - `[0, 100]` ascent for the two `Progression` awards, `[100, 400]` for the `VesselLoss` impact - and the three flights are their own justification: the second `Progression` measured 19.1 / 19.0 / 19.1 across them and the impact 119.7 / 119.8 / 119.9 over six archived runs. THE BOUNDS ARE ABSOLUTE PLANETARIUM UT, NOT T+ (review finding, corrected before merge): the matched value is `fixtureUT(9.06) + padDwell + T+` and pad dwell is wall-clock, so an initial `[100, 140]` ceiling left less headroom than the harness's own 30 s kRPC connect budget - a latent false `PARSEK-FAIL(ledger)` with no retry absorption. Widening the ceiling was verified to leave the gate's bite intact (an extra `VesselLoss` and an out-of-phase `Progression` both still red). Expected totals did NOT move (`funds=529600.0 science=100.0 rep=-7.999829000000001` before and after): every entry is `ut`-less so ordering is untouched, and all three rep entries are `repMode="applied"` so the nonlinear curve is not re-entered. The funds milestone entry stays window-free on purpose (KSP logs no funds award, so it is never capture-matched). RE-PIN CONTRACT binds: a flight whose awards land outside these windows gets the windows re-pinned to measured bounds with the run id, never widened blindly and never retreated to `report`. Guards: the two whole-set cells are now ALLOWLISTS naming this spec, and `test_cl2_crew_loss_ledger.py` pins GATE + the phase bounds + a corroboration replay of the measured award set (including a stray-award probe proving the gate still bites). ORIGINALLY: THE CREW-LOSS ATOM'S LEDGER HALF, and the first run in the suite that reaches the pending-tree AUTO-COMMIT out of a destroyed crewed flight. CL-1's mission, fixture and missionParams verbatim, plus exactly three things: `SetSetting autoMerge=true` before the flight (MANDATORY - without it `DecideExitGate` refuses `variant=RegularMerge`), `ExitToSpaceCenter` after the crash, and an `[expectations.ledger]` block. CL-1 itself is UNTOUCHED: a new spec id keeps `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block` valid. Gates CL-1's eight recorder tokens verbatim (a superset, pinned by a unit cell) + the exit triple with the MIRROR IMAGE of S0.7's guard input set (`hasActiveTree=false hasPendingTree=true` - S0.7 exits with a LIVE tree, this with a STASHED one) + the four commit tokens no run on this profile had ever produced: `Silent full-fidelity auto-commit (scene-exit): tree='...' recordings=1 spawnable=0`, `Committed tree '...' (1 recordings). Total committed: 1 recordings, 1 trees`, `CreateKerbalAssignmentActions: 1 crew members from '...'`, and `OnSave: saving 1 committed tree(s)` - the B1 negative control INVERTED (the archived pre-commit run of this exact craft logs `saving 0`; flight 1 logged `saving 0` three times before the exit and `saving 1` after). S0.7 could not reach any of this: its seam-only tree is one point, so `maxDist = 0` and it is correctly idle-discarded; CL-2's flies 11,885 m | D1 auto-record-launch + **commit-scene-exit + auto-merge (the two values S0.7 had to DROP)**; D8 kerbals/orchestrator/reputation/funds (CL-1 claims NO D8 at all); D12 crew-death-in-flight; D14 kerbin/career/scene-flight/scene-ksc. LIVE-PROVEN 2026-07-30, **PASS on BOTH flights, attempt 1 each**: flight 1 (unpinned, measurement) run `2026-07-30_1711_CL-2-pod-impact-ledger` 172 s; flight 2 (pinned to the measured tokens) run `2026-07-30_1721_CL-2-pod-impact-ledger` 167 s, `expectations mismatches=0`. LEDGER ORACLE PASS with **0 hard divergences on both**: seed funds 500000 / sci 100 / rep 0 + a 4-entry manifest -> expected funds 529600, sci 100, rep -7.999829 against the produced save's 529600 / 100 / -7.99982834; the arithmetic closes to ~7e-7 against a 0.1 rep tolerance. The rep manifest models the death as the STOCK `stock-reputation-award` `VesselLoss` at the APPLIED (post-curve) -9.999828 plus the two `Progression` +1s, because nothing in `Source/Parsek/` ever CONSTRUCTS a `ReputationPenaltySource.KerbalDeath` action. FLIGHT 1 EARNED ITS KEEP, twice over. (a) PRODUCT FINDING: `PopulateCrewEndStates` NEVER RUNS on this path - zero occurrences in the whole log - because `NeedsCrewEndStatePopulation` requires `rec.VesselSnapshot != null` and a DESTROYED vessel has none, so the KerbalAssignment row for a kerbal who DIED commits as `KerbalEndState.Unknown` and the reservation comes out `permanent=0 temporary=1` with a stand-in generated for the corpse, where the product's own comment says `Dead -> permanent`. NOT FIXED (own change, own review); the token is deliberately NOT pinned and no crew-end-state coverage is claimed. It also BLOCKS stage B, whose in-game test skips on exactly the `KerbalEndState.Dead` this prevents. (b) HARNESS FINDING: this is the FIRST run with a live capture (`stockLines=3 deduped=3 seamRejected=0`) and all three awards still report UNEXPECTED, because `unmatched_captured_awards` joins on a UT-valued `seq_key` a flown spec cannot declare without pinning a golden trajectory value (119.7 / 119.9 / 119.8 across three runs of this craft) - so `captureCrossCheck = "gate"` was not armable on a flown scenario as the mechanism then stood. Both filed in todo-and-known-bugs.md; (b) is what the `utWindow` key and the 2026-07-31 arming above CLOSED, (a) is still open. SCOPE FENCE: D9 `tombstones`, D12 `dead-crew-strip` and `tombstone-rep-penalty` are NOT claimed and are not reachable here - `SupersedeCommit` is the only tombstone producer and runs strictly in the re-fly merge tail. That is stage B |
 | B1-pad-hop | nightly | Auto-record-on-launch, atmospheric TrackSections, and a genuinely CHUTE-BORNE ground-arrival recording: the two-phase ParachuteSemiDeployed -> ParachuteDeployed part events on the craft's own parachuteSingle (D7 chute-two-phase, claimed 2026-07-25) | D1 auto-record-launch; D4 atmospheric; D7 chute-two-phase; D14 kerbin. LIVE-PROVEN (RE-PROVE) 2026-07-29: run `2026-07-29_1532_B1-pad-hop`, attempt 1, wall 408 s (mission 351 s). This is the re-prove the 2026-07-25 de-listing demanded, and it lands the leg that de-listing said had never flown: `craftCanopyObserved` MET at 11,963 m off the OBSERVED kRPC ParachuteState, `apoapsisWindow` 19,879 m, and the terminal phase is LANDED - not the commanded-latch DOWN that had awarded a ~300 m/s impact the "chute-deployed impact" end. The difference is legible in the mission JSONs: the de-listed 2026-07-25 PASS (`2026-07-25_0749_B1-pad-hop`) carries two assertions and no canopy one at all; this run carries three. One report-only Unity NRE (`MuMech.MechJebCore.OnDestroy`, autopilot teardown, not Parsek). BUDGETS, now validated by a real chute-borne descent rather than derived from EVA-4: the re-prove's mission leg ran 351 s against the DERIVED budgets descent 240 -> 360 s, mission 600 -> 900 s, wall 900 -> 1320 s, and chuteFullDeployAltMeters was raised 1000 -> 2500 because the full canopy needs 894 m just to brake. The first draft's 600 s descent assumed a ~30 m/s semi-deployed crawl and was wrong by ~8x - the semi-deployed craft sinks at up to -236 m/s. (These five numbers are pinned against the spec by `harness/lib/test_doc_spec_sync.py`; edit them here only together with the .toml.) |
 | BDOCK-1-station-interceptor | nightly | FIRST two-vessel flight (18-phase machine): cross-tree Dock branch, authoritative onVesselsUndocking split, RouteConnectionWindow recorded-delta contract (the new `Route window delta:` line), same-craft-twice launch identity. Flight-1/2 wall budgets re-timed; flight-3 lesson (STATION-SEPARATE / INT-SEPARATE) + flight-4 lesson (two-step SEPARATE: drop the spent lifter AND ignite the orbital engine, thrust-verified, cap 2) both live-confirmed through RENDEZVOUS on flight 5; flight-5 lesson (MATCH-VELOCITY kill-rel-vel retargeted XFromNow ~15 s lead + bounded 600 s give-up + per-frame diagnostics + one-shot dropped-target re-acquire); flight-8 lesson (prox-ops rule: abort the pending kill-rel-vel node executor at DOCK entry before the docking AP owns the ship, else it rails-warps + packs the port target null + NREs); flight-9 lesson (core.target one-Update sync trap: stagger the docking-AP enable one poll after the port target); flight-10/11 lesson (prox-ops observability [angular_velocity/sas/rcs/docking_ap_status + per-frame DOCK diag line] + attitude hold [SAS+RCS after each separation and at DOCK entry] + LIVENESS watchdogs [budgets bound SLOW, watchdogs bound BROKEN: DOCK enable-never-took / died-mid-approach / no-progress fast flakes, TRANSFER stall fast flake, bounded dropped-target re-arm x3]). flight-13 ROOT CAUSE (behind every dock failure since flight 7): pre-`launch_vessel`-reload PART handles are stale - the reload destroys every Part, so the captured docking-port handle resolves to a destroyed part and assigning it silently CLEARS the target; VESSEL handles survive (P9 answered). Fix: resolve port + docking-state + transfer tanks LIVE at call time. Flight 13's liveness layer fast-flaked in 10 s with the named E1a reason (wall 2133 s) and pinned this. Flight 16 (2026-07-24): MISSION-OK END TO END (launch, separate, mid-mission commit seam, launch_vessel, rendezvous, hard dock, LF 40 + mono 15 transfers, undock, TERMINAL) - and the verifier chain caught the FIRST mission-machinery-found Parsek recording defect: analyzer RED, INV4-PARTEVENT-PID x13 on the Station recording d5355cc6. Root cause: the launch_vessel FLIGHT->FLIGHT reload is classified as a quickload (stale vesselSwitchPending), and RestoreActiveTreeFromPending's NAME fallback adopted the fresh-rollout Interceptor (same .craft, same "Kerbal X" name, different Vessel.id) and PID-remapped the Station recording onto it, so the whole Interceptor flight recorded into the Station recording with foreign craft-baked part pids. FIXED Parsek-side: QuickloadResumeMatchGuard (fresh-rollout pid + launch-guid gates in the restore match loop); forensics in todo-and-known-bugs.md flight-16 entry | D1 auto-record-launch; D3 orbital-checkpoint; D4 atmospheric, exo-propulsive; D5 cross-tree-foreign-dock, undock-split, bg-recording; D7 dock-undock, rcs; D8 route; D10 candidate-detection, ksc-origin, dock-producer, delivery, pickup, mixed-direction, resource-cargo; D14 kerbin, warp-rails, scene-flight, sandbox. LIVE-PROVEN 2026-07-24: run `2026-07-24_1204_BDOCK-1-station-interceptor`, wall 2,156 s, reached after 14 driver-INVALID autopilot-flake attempts and 3 PARSEK-FAILs that were fixed on the branch. Re-confirmed 2026-07-25 (`2026-07-25_0929`, wall 2,164 s). Row moved here 2026-07-29: it had sat under "not yet live-run" for five days after its first green flight. |
 | FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | D14 kerbin, scene-flight, sandbox (tooling - claims no Parsek-surface cells). LIVE-PROVEN 2026-07-23: run `2026-07-23_2031_FORGE-bdock-station`, wall 60 s. Its output fixture `bdock-station-pad` was harvested and committed the same day (`cbd465929`), and is what BDOCK-1 then flew against. |
@@ -1099,14 +1163,22 @@ six publish or compare numbers the runner already measured.
    post-curve one (-9.999828). M-B2 independence is untouched - a corroborated
    amount is still never summed into EXPECTED, and the seam-declared-vs-save diff
    reds exactly as before.
-   OPERATOR-BLOCKED, and the reason the mechanism lands report-only: the
-   unexpected-award cross-check was WRITTEN as a hard PARSEK-FAIL(ledger) but has
-   never once run with a working capture. So an unmatched captured award is a
-   REPORT-ONLY oracle divergence until a scenario declares
-   `[expectations.ledger] captureCrossCheck = "gate"` - declared by ZERO committed
-   specs. Arm per scenario after one green run shows that scenario's real award
-   baseline (read `capturedRaw` in `results/<runId>.manifest.json`), declaring an
-   entry - optionally with `stockReason` - for each award that should be expected.
+   **THE GATE IS ARMED (2026-07-31) ON EXACTLY ONE SPEC, `CL-2-pod-impact-ledger`,
+   and this item is now CLOSED for that scenario and OPEN for every other.** The
+   history the rest of this item records still stands and is worth reading before
+   arming a second one. Originally: the unexpected-award cross-check was WRITTEN as a
+   hard PARSEK-FAIL(ledger) but had never once run with a working capture, so an
+   unmatched captured award stayed a REPORT-ONLY oracle divergence until a scenario
+   declared `[expectations.ledger] captureCrossCheck = "gate"` - declared by ZERO
+   committed specs for as long as the knob existed. Arm per scenario after one green
+   run shows that scenario's real award baseline (read `capturedRaw` in
+   `results/<runId>.manifest.json`), declaring an entry - optionally with
+   `stockReason`, and for a FLOWN scenario a `utWindow` - for each award that should
+   be expected. The whole-set cells that used to assert the empty set are now
+   ALLOWLISTS naming CL-2 with its arming evidence
+   (`test_only_the_armed_allowlist_arms_the_capture_cross_check` and
+   `test_only_the_armed_allowlist_declares_a_ut_window`), so a second spec arming the
+   gate still reds until its own evidence is recorded.
 
    **THE ARMING PICTURE CHANGED with the reputation-only retirement above, in both
    directions - re-read this before sizing an arming session.** Smaller barrier: the
@@ -1129,14 +1201,81 @@ six publish or compare numbers the runner already measured.
    is unaffected by any of this. **The scenario-authoring half of that gap is CLOSED
    2026-07-30 by `CL-2-pod-impact-ledger`**, which carries the ledger block CL-1
    cannot, and its manifest closes to ~7e-7 exactly as the tolerance note below
-   predicted. **ARMING IS STILL NOT POSSIBLE, and the reason is now MEASURED rather
-   than pending.** CL-2 is the first run in the repo with a LIVE capture
-   (`stockLines=3 deduped=3 seamRejected=0`) and all three awards STILL report
-   UNEXPECTED: `unmatched_captured_awards` joins on a UT-valued `seq_key`, and a
-   spec-declared entry can only match by naming the exact game UT the award lands on -
-   a golden trajectory value that moved 119.7 / 119.9 / 119.8 across three runs of
-   this one craft. So arming `gate` on a FLOWN scenario needs the KEY to change, not
-   another calibration reading; see the entry in todo-and-known-bugs.md. TOLERANCE
+   predicted. **THE FLOWN-SCENARIO KEY BLOCKER IS FIXED (2026-07-31, branch
+   `harness-hardening-2`) AND THE OPERATOR ACTION HAS BEEN TAKEN - CL-2 IS ARMED;
+   see the three-flight record below.** What
+   CL-2's first live capture MEASURED (`stockLines=3 deduped=3 seamRejected=0`): all
+   three awards reported UNEXPECTED, because `unmatched_captured_awards` joined on a
+   UT-valued `seq_key` and a spec-declared entry could only match by naming the exact
+   game UT the award lands on - a golden trajectory value that moved
+   119.7 / 119.9 / 119.8 across three runs of this one craft. The KEY changed, as
+   that finding demanded: a manifest entry may now declare `utWindow = [lo, hi]`
+   (inclusive; mutually exclusive with `ut`), and the cross-check matches a windowed
+   entry to a captured award whose UT falls inside the bounds - every other predicate
+   (facet, amount-within-tolerance, structured identity, optional `stockReason`,
+   one-to-one per (entry, pool), pinned-first order with exact-key entries ahead of
+   windows) unchanged, a null-UT award never window-matches, and M-B2 independence
+   untouched (the window is a matching hint; a captured amount is still never summed
+   into EXPECTED). ARMING A FLOWN SCENARIO is: fly it green, read `capturedRaw` in
+   `results/<runId>.manifest.json`, declare a `utWindow` (+ `stockReason`) entry per
+   award from the mission's phase bounds, confirm the unexpected rows go to zero on
+   the next green run, then flip `captureCrossCheck = "gate"`.
+
+   **THAT CHECKLIST WAS WALKED END TO END AGAINST THE REAL GAME on 2026-07-31, ONE
+   FLIGHT PER STEP, and `CL-2-pod-impact-ledger` is now ARMED** - the first and only
+   committed spec to gate on the capture, and the first to declare a `utWindow`:
+   - `2026-07-31_1630` BASELINE, PASS 168 s attempt 1, spec UNCHANGED. Reproduced the
+     finding exactly: `stockLines=3 deduped=3 seamRejected=0`, all three awards
+     UNEXPECTED (report-only) at ut **12.5 / 19.1 / 119.9**.
+   - `2026-07-31_1638` WINDOWS DECLARED, still `report`, PASS 168 s attempt 1. ZERO
+     `unexpected stock award` lines; `ledgerOracle hardDivergences=0 reportOnly=0`
+     (it was `reportOnly=3`). Everything else token-identical.
+   - `2026-07-31_1645` ARMED, `captureCrossCheck = "gate"`, PASS 168 s attempt 1,
+     `hardDivergences=0 reportOnly=0`.
+   - `2026-07-31_1759` CORRECTED + RE-FLOWN, PASS 180 s attempt 1, after review moved
+     the bounds off the wrong clock and added the capture-non-emptiness tokens:
+     `expectations mismatches=0` and `ledgerOracle ... crossCheck=gate` - the mode is
+     now archived, so the armed claim is greppable rather than narrative. Its awards
+     landed at ut 12.8 / 19.3 / 120.2: ALL THREE moved again and the impact set a new
+     high above every prior run, which is the bounds-not-pins argument made a fourth
+     time by the game itself.
+   The windows are the mission's two PHASE BOUNDS - `[0, 100]` for the two ascent
+   `Progression` awards, `[100, 400]` for the `VesselLoss` impact - and those three
+   flights are themselves the argument for bounds over pins: the second `Progression`
+   measured ut 19.1, then 19.0, then 19.1 across them, and the impact has now
+   measured 119.7 / 119.8 / 119.9 over six archived runs. An exact-UT pin would have
+   red the very next flight. THE BOUNDS ARE IN ABSOLUTE UT: the captured `ut=` is
+   `fixtureUT + padDwell + T+`, so a ceiling must clear the harness's pad-dwell
+   budget and not merely the flight profile - the first draft's `[100, 140]` did not,
+   and was corrected before merge. **The expected totals did NOT move** (`oracle-expected
+   funds=529600.0 science=100.0 rep=-7.999829000000001`, identical before and after):
+   every CL-2 entry is already `ut`-less so `_sort_key` ordering is untouched, and all
+   three rep entries are `repMode="applied"` so the nonlinear curve is not re-entered
+   - caveat (b) below verified inert here rather than assumed. The funds milestone
+   entry stays deliberately window-free (KSP logs no funds award, so it is never
+   capture-matched). The PRE-LAUNCH mirror was widened in the same session to cover
+   the other two entry-SHAPE keys an author hand-writes off a `capturedRaw` readout
+   (a malformed per-entry `ut`, and an entry that is not a table) - both previously
+   passed ADMIT and hard-failed AFTER the flight;
+   `test_hlib.py::WhatThePreLaunchGateMirrorsTests` now sweeps the pre-launch gate
+   and the run-time parser against each other in BOTH directions and records which
+   rules stay run-time on purpose. Forensics + fix record: the struck
+   corroboration-key entry in
+   todo-and-known-bugs.md; shape pins:
+   `test_hlib.py::FlownScenarioUtWindowCorroborationTests` (CL-2's measured lines as
+   literals). ARMING CHECKLIST CAVEATS (from the PR #1397 adversarial review; both
+   fail-CLOSED - a false "unexpected" row, never a false green): (a) the greedy
+   matcher tries narrower acceptance first (exact keys, then windows by width), so
+   declare windows as narrow as the phase bounds allow and do not pair a broad
+   PINNED window with unpinned exact entries expecting the same reason - the
+   pinned-first primary key dominates and can strand the exact entry; (b) converting
+   a UT-stamped `repMode="nominal"` entry to a window forces `ut=null`, which moves
+   it to the tail of `compute_expected`'s accumulation order, and the rep curve is
+   nonlinear - re-check the expected total after conversion (`applied`-mode entries,
+   i.e. every stock rep capture, commute and are unaffected). A malformed `utWindow`
+   now reds PRE-LAUNCH as spec-invalid (`validate_ledger_expectations` mirrors the
+   oracle's structural rules), so a window typo costs seconds, not a flight.
+   TOLERANCE
    NOTE, now confirmed by CL-2's two flights: stock prints the applied rep delta at 7
    significant figures, so the three captured amounts sum to -7.999829 against a save
    carrying -7.99982834. An exact compare cannot succeed; budget the ~1e-6

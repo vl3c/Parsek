@@ -1826,6 +1826,46 @@ class InGameAttributeParseTests(unittest.TestCase):
         self.assertFalse(self.one(
             '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'
         ).allow_batch)
+        # Every resolved (absent-or-literal) form carries an EMPTY marker - the
+        # Whole-tree declaration recount must be byte-identical to pre-fix (542 at
+        # HEAD; the count is recomputed mechanically here, never asserted as a
+        # literal, so this comment is orientation only).
+        for src in ('[InGameTest(Category = "A")] void M(){}',
+                    '[InGameTest(Category = "A", AllowBatchExecution = true)] void M(){}',
+                    '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'):
+            with self.subTest(src=src):
+                self.assertEqual("", self.one(src).allow_batch_marker)
+
+    def test_non_literal_allow_batch_fails_closed_with_a_marker(self):
+        # HLIB-ALLOWBATCH-NONLITERAL-FAILS-OPEN: `(expr or "true").strip() !=
+        # "false"` read ANY non-literal as batch-allowed, loosening the derived
+        # tally bounds in the direction that under-reports skips. Both malformed
+        # shapes the todo entry names - a const indirection and a computed
+        # expression - must now (a) resolve fail-CLOSED (allow_batch False, so the
+        # derivation under-counts admissions and a pinned tally reds, the
+        # _resolve_bool_default_false direction), and (b) carry the
+        # `<unresolved:...>` marker so `unresolved_ingame_declarations` reds the
+        # sync gate ON THE DECLARATION instead of leaving a count mismatch to be
+        # reverse-engineered.
+        const_indirection = self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = SomeConsts.Allow)]'
+            ' void M(){}')
+        computed = self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = !manualOnly)]'
+            ' void M(){}')
+        for d, expr in ((const_indirection, "SomeConsts.Allow"),
+                        (computed, "!manualOnly")):
+            with self.subTest(expr=expr):
+                self.assertFalse(d.allow_batch, "non-literal must fail CLOSED")
+                self.assertEqual("<unresolved:%s>" % expr, d.allow_batch_marker)
+                self.assertEqual([d], hlib.unresolved_ingame_declarations([d]),
+                                 "the marker must red the sweep")
+        # The C# capitalized literals are NOT the attribute grammar's lowercase
+        # `true`/`false` - they are identifiers to this parse and must mark, not
+        # silently resolve either way.
+        self.assertEqual("<unresolved:False>", self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = False)] void M(){}'
+        ).allow_batch_marker)
 
     def test_bare_attribute_counts_as_the_default_category(self):
         # Legal C#, absent from the tree today. It must COUNT (as "General"), not
@@ -6706,15 +6746,30 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
                          "captured rep awards must not reach the expected rep pool")
         self.assertEqual(0.0, after.science)
 
-    def test_no_committed_spec_arms_the_capture_cross_check(self):
-        # NIT 1 / the HARD SAFETY PROPERTY for gap 1, mirroring the unityExceptions
-        # cell: the escalation path exists but nothing walks it yet.
+    def test_only_the_armed_allowlist_arms_the_capture_cross_check(self):
+        # NIT 1 / the HARD SAFETY PROPERTY for gap 1. This cell asserted the empty set
+        # ("the escalation path exists but nothing walks it yet") from the day the knob
+        # shipped until 2026-07-31, when the path was walked end to end against the
+        # real game. It is now an explicit ALLOWLIST: the escalation path has exactly
+        # one walker, and a SECOND spec arming the gate still reds here until someone
+        # records that spec's own arming evidence.
+        #
+        # CL-2-pod-impact-ledger is the only committed scenario measured producing
+        # reputation, and the capture is reputation-only (KSP logs no funds and no
+        # science award line), so it is the only place the gate has a non-empty input
+        # at all - arming an L1 spec would arm a no-op gate reading green forever.
+        # Evidence: three flights on 2026-07-31, one per checklist step - baseline
+        # `2026-07-31_1630` (3 unexpected, report-only), windows-declared
+        # `2026-07-31_1638` (0 unexpected, still report), armed `2026-07-31_1645`
+        # (PASS with the gate live). Full record in the spec's own comment block.
+        allowed = {"CL-2-pod-impact-ledger.toml"}
         armed = []
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
             if hlib.capture_cross_check_gates(ledger):
                 armed.append(name)
-        self.assertEqual([], armed, "a committed spec armed captureCrossCheck")
+        self.assertEqual(sorted(allowed), sorted(set(armed)),
+                         "a committed spec outside the armed allowlist armed captureCrossCheck")
 
     def test_gate_mode_resolution_and_validation(self):
         self.assertFalse(hlib.capture_cross_check_gates(None))
@@ -6724,6 +6779,613 @@ class CapturedAwardCorroborationKeyTests(unittest.TestCase):
         self.assertEqual([], hlib.validate_ledger_expectations({"captureCrossCheck": "gate"}))
         errs = hlib.validate_ledger_expectations({"captureCrossCheck": "GATE"})
         self.assertTrue(any("captureCrossCheck" in e for e in errs))
+
+
+class FlownScenarioUtWindowCorroborationTests(unittest.TestCase):
+    """THE FLOWN-SCENARIO CORROBORATION KEY (found by CL-2-pod-impact-ledger's first
+    live capture, 2026-07-30; fixed 2026-07-31).
+
+    A captured award's seq_key is UT-valued whenever a UT-stamped [Parsek] line
+    precedes it, and a flown spec cannot pin that UT: the same impact measured
+    ut 119.7 / 119.9 / 119.8 across three runs of one craft. So the exact seqKey join
+    could never fire on a flight and every captured award reported "unexpected",
+    which made `captureCrossCheck = "gate"` unarmable exactly where it matters (the
+    only committed scenario that can ARM the check - CL-1 earns the same three
+    awards but carries no ledger block and is forbidden one). The fix is the OPT-IN
+    per-entry `utWindow = [lo, hi]`: a windowed entry corroborates a captured award
+    whose UT falls inside the inclusive bounds, with every OTHER predicate (facet,
+    amount-within-tolerance, structured identity, stockReason, one-to-one per
+    (entry, pool) consumption) unchanged. Exactly ONE committed spec declares a
+    window - CL-2 itself, ARMED 2026-07-31 over three flights (allowlisted below);
+    every other manifest is window-free and matches byte-identically to the
+    pre-window behavior."""
+
+    # The three CL-2 flight-1 capture lines, VERBATIM from run
+    # 2026-07-30_1711_CL-2-pod-impact-ledger (2026-07-30_1721 measured the same
+    # award set at 12.4 / 19.0 / 119.8 - the UTs move, the shape does not): all
+    # three captured cleanly (`stockLines=3 deduped=3 seamRejected=0`) and all three
+    # then reported UNEXPECTED against a manifest that declares every one of them.
+    CL2_MEASURED_UNEXPECTED = [
+        "manifest-capture: unexpected stock award ut=12.5  kind=stock-reputation-award reason=Progression",
+        "manifest-capture: unexpected stock award ut=19.0  kind=stock-reputation-award reason=Progression",
+        "manifest-capture: unexpected stock award ut=119.9 kind=stock-reputation-award reason=VesselLoss",
+    ]
+    # The measured impact-UT spread of the SAME craft: archived B1 run, CL-2
+    # flight 1, CL-2 flight 2. What makes the exact key unpinnable.
+    CL2_IMPACT_UT_SPREAD = (119.7, 119.9, 119.8)
+
+    def _rep_award(self, amount, reason, ut, seq=0):
+        return hlib.CapturedAward(kind="stock-reputation-award", facet="reputation",
+                                  amount=amount, contract_guid="", subject_id="",
+                                  ut=ut, seq=seq, raw_line="line", reason=reason)
+
+    def _cl2_windowed_manifest(self):
+        # CL-2's four manifest entries, reshaped onto windows an author can honestly
+        # declare from mission knowledge: the two Progression awards land during the
+        # early ascent, the VesselLoss award at the ~120 s impact. (The committed
+        # CL-2 spec deliberately does NOT declare these - arming is an operator
+        # action; this is the shape that MAKES it possible.)
+        return oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "stockReason": "Progression", "provenance": "gameevents-captured", "seq": 0},
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "stockReason": "Progression", "provenance": "gameevents-captured", "seq": 1},
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured", "seq": 2},
+            {"seq": 3, "kind": "milestone", "funds": 29600.0,
+             "provenance": "seam-declared"}])
+
+    def test_the_cl2_capture_corroborates_through_declared_windows(self):
+        # The end-to-end reproduction, from the REAL log idiom: the three stock rep
+        # lines CL-2 captured, each UT-correlated off its neighbouring [Parsek]
+        # stamp, against the windowed manifest. Before utWindow every one of these
+        # reported unexpected (the CL2_MEASURED_UNEXPECTED literals above).
+        log = ("[LOG] [Parsek][INFO][Flight] launch ut=12.5\n"
+               "[LOG] Added 0.9999995 (1) reputation: 'Progression'.\n"
+               "[LOG] [Parsek][INFO][Flight] ascent ut=19.0\n"
+               "[LOG] Added 0.9999995 (1) reputation: 'Progression'.\n"
+               "[LOG] [Parsek][INFO][Flight] impact ut=119.9\n"
+               "[LOG] Added -9.999828 (-10) reputation: 'VesselLoss'.\n")
+        cap = hlib.parse_stock_award_lines(log)
+        self.assertEqual(3, len(cap.captured), "all three CL-2 lines must capture")
+        self.assertEqual([12.5, 19.0, 119.9], [c.ut for c in cap.captured])
+        parse = self._cl2_windowed_manifest()
+        self.assertEqual([], list(parse.errors))
+        deduped = hlib.dedupe_captured_awards(cap.captured)
+        self.assertEqual(
+            [], hlib.unmatched_captured_awards(parse.entries, deduped),
+            "the CL-2 capture must fully corroborate once windows are declared - "
+            "this is what makes captureCrossCheck armable on a flown scenario")
+
+    def test_the_vessel_loss_award_corroborates_across_the_measured_ut_spread(self):
+        # One declared window explains the impact award at EVERY measured UT of the
+        # three runs - the exact property the exact-key join lacked.
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(parse.errors))
+        for ut in self.CL2_IMPACT_UT_SPREAD:
+            with self.subTest(ut=ut):
+                award = self._rep_award(-9.999828, "VesselLoss", ut=ut)
+                self.assertEqual(
+                    [], hlib.unmatched_captured_awards(parse.entries, [award]),
+                    "impact at ut=%r must corroborate the [100,140] window" % ut)
+
+    def test_an_undeclared_award_is_still_unexpected_alongside_windows(self):
+        # The signal survives: an award no window (and no exact key) explains stays
+        # unexpected - exactly what an operator reviews before arming the gate.
+        parse = self._cl2_windowed_manifest()
+        awards = [self._rep_award(0.9999995, "Progression", ut=12.5),
+                  self._rep_award(0.9999995, "Progression", ut=19.0),
+                  self._rep_award(-9.999828, "VesselLoss", ut=119.9),
+                  self._rep_award(5.0, "ContractReward", ut=119.9)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(["ContractReward"], [c.reason for c in unmatched])
+
+    def test_a_near_window_miss_stays_unexpected_and_the_bounds_are_inclusive(self):
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 119.8], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(parse.errors))
+        # 119.9 is 0.1 s past the declared hi -> unexpected (the window is a declared
+        # bound, not a tolerance that stretches).
+        miss = self._rep_award(-9.999828, "VesselLoss", ut=119.9)
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(parse.entries, [miss])))
+        # ... and exactly ON either bound matches (inclusive).
+        for ut in (100.0, 119.8):
+            with self.subTest(ut=ut):
+                on_bound = self._rep_award(-9.999828, "VesselLoss", ut=ut)
+                self.assertEqual(
+                    [], hlib.unmatched_captured_awards(parse.entries, [on_bound]))
+
+    def test_two_awards_straddling_one_window_leave_the_second_unexpected(self):
+        # ONE-TO-ONE PER (ENTRY, POOL) is preserved across the window key: CL-2's two
+        # 'Progression' +1 awards both fall inside a single early-ascent window; one
+        # declared entry explains exactly one of them.
+        one = oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(one.errors))
+        awards = [self._rep_award(0.9999995, "Progression", ut=12.5),
+                  self._rep_award(0.9999995, "Progression", ut=19.0)]
+        unmatched = hlib.unmatched_captured_awards(one.entries, awards)
+        self.assertEqual(1, len(unmatched), "the second award has nothing left to consume")
+        # Two declared entries (CL-2's actual shape) explain both, in either order.
+        two = oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "provenance": "gameevents-captured", "seq": 0},
+            {"utWindow": [0.0, 60.0], "kind": "stock-reputation-award",
+             "reputation": 0.9999995, "repMode": "applied",
+             "provenance": "gameevents-captured", "seq": 1}])
+        self.assertEqual([], hlib.unmatched_captured_awards(two.entries, awards))
+        self.assertEqual([], hlib.unmatched_captured_awards(two.entries,
+                                                            list(reversed(awards))))
+
+    def test_a_null_ut_award_never_window_matches(self):
+        # Fail-closed: an award with no UT-stamped [Parsek] neighbor has no position
+        # to judge against the bounds, so it stays unexpected rather than being
+        # window-matched on faith.
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [0.0, 1e9], "kind": "stock-reputation-award",
+             "reputation": 1.0, "repMode": "applied",
+             "provenance": "gameevents-captured"}])
+        self.assertEqual([], list(parse.errors))
+        award = self._rep_award(1.0, "Progression", ut=None, seq=7)
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(parse.entries, [award])),
+                         "a null-UT award must not match even an everything-window")
+
+    def test_window_matching_still_honors_amount_facet_and_reason(self):
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured"}])
+        # Wrong amount (outside the 0.1 rep tolerance) inside the window -> unexpected.
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._rep_award(-5.0, "VesselLoss", ut=119.9)])))
+        # Right amount, wrong declared reason -> unexpected (the tightener composes).
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(
+            parse.entries, [self._rep_award(-9.999828, "Progression", ut=119.9)])))
+        # Nominal-vs-applied still rides the facet tolerance inside a window.
+        parse2 = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -10.0, "provenance": "seam-declared"}])
+        self.assertEqual([], hlib.unmatched_captured_awards(
+            parse2.entries, [self._rep_award(-9.999828, "VesselLoss", ut=119.9)]))
+
+    def test_an_exact_key_entry_is_not_stranded_by_a_greedy_window(self):
+        # Candidate-order refinement, same reasoning as pinned-first: the narrower
+        # exact key is tried before a window, so a window cannot swallow the one
+        # award an exact entry names. Must hold in both log orders and both
+        # declaration orders.
+        for manifest in (
+                [{"ut": 119.9, "kind": "milestone", "reputation": -10.0},
+                 {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1}],
+                [{"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1},
+                 {"ut": 119.9, "kind": "milestone", "reputation": -10.0}]):
+            parse = oracle.parse_manifest_entries(manifest)
+            self.assertEqual([], list(parse.errors))
+            awards = [self._rep_award(-9.999828, "VesselLoss", ut=119.9),
+                      self._rep_award(-9.999828, "CrewDeath", ut=130.0)]
+            for order in (awards, list(reversed(awards))):
+                with self.subTest(first=order[0].reason,
+                                  declared_first="ut" in manifest[0]):
+                    self.assertEqual(
+                        [], hlib.unmatched_captured_awards(parse.entries, order),
+                        "both awards must be explained in every order")
+
+    def test_window_validation_rejects_every_malformed_shape(self):
+        base = {"kind": "stock-reputation-award", "reputation": 1.0,
+                "repMode": "applied", "provenance": "gameevents-captured"}
+        bad_shapes = [
+            "not-a-list", [1.0], [1.0, 2.0, 3.0], [1.0, "x"], [True, 2.0],
+            [float("nan"), 2.0], [1.0, float("inf")], {"lo": 1.0, "hi": 2.0},
+        ]
+        for shape in bad_shapes:
+            with self.subTest(shape=shape):
+                parse = oracle.parse_manifest_entries([dict(base, utWindow=shape)])
+                self.assertFalse(parse.ok, "shape %r must reject" % (shape,))
+                self.assertTrue(any("utWindow" in e for e in parse.errors))
+        # lo > hi is an empty window: a declaration that can never match must reject
+        # loudly rather than silently corroborating nothing.
+        inverted = oracle.parse_manifest_entries([dict(base, utWindow=[140.0, 100.0])])
+        self.assertFalse(inverted.ok)
+        self.assertTrue(any("empty window" in e for e in inverted.errors))
+        # ut + utWindow together is ambiguous (two keys, one entry) -> reject.
+        both = oracle.parse_manifest_entries(
+            [dict(base, ut=119.9, utWindow=[100.0, 140.0])])
+        self.assertFalse(both.ok)
+        self.assertTrue(any("mutually exclusive" in e for e in both.errors))
+        # A degenerate lo == hi window is legal (an author pinning an exact UT
+        # through the window spelling) and matches exactly that UT.
+        pin = oracle.parse_manifest_entries([dict(base, utWindow=[19.0, 19.0])])
+        self.assertEqual([], list(pin.errors))
+        self.assertEqual((19.0, 19.0), pin.entries[0].ut_window)
+
+    def test_window_never_touches_the_expected_totals(self):
+        # M-B2 INDEPENDENCE across the new key: the window is a MATCHING hint only.
+        # EXPECTED is seed + the declared deltas whether or not anything corroborates,
+        # and a corroborated captured amount is never summed in.
+        seed = oracle.SeedBaseline(funds=500000.0, science=100.0, reputation=0.0)
+        parse = self._cl2_windowed_manifest()
+        expected = oracle.compute_expected(seed, parse.entries,
+                                           oracle.default_tolerances(), [])
+        self.assertEqual(529600.0, expected.funds)
+        self.assertEqual(100.0, expected.science)
+        # The rep pool accumulates the three APPLIED declared deltas (the applied
+        # mode adds them raw): 0.9999995 + 0.9999995 - 9.999828.
+        self.assertAlmostEqual(-7.999829, expected.reputation, places=6)
+        # Running the cross-check over a log with MORE awards moves nothing.
+        awards = [self._rep_award(0.9999995, "Progression", ut=12.5),
+                  self._rep_award(-9.999828, "VesselLoss", ut=119.9),
+                  self._rep_award(100.0, "ContractReward", ut=50.0)]
+        hlib.unmatched_captured_awards(parse.entries, awards)
+        after = oracle.compute_expected(seed, parse.entries,
+                                        oracle.default_tolerances(), [])
+        self.assertEqual(expected.funds, after.funds)
+        self.assertEqual(expected.reputation, after.reputation)
+
+    def test_a_narrow_window_is_not_stranded_by_a_wide_one(self):
+        # PR #1397 adversarial-review finding (probe S1): with the exact-vs-window
+        # secondary key alone, a WIDE window declared first swallowed the award a
+        # NARROW window named and stranded it - a false "unexpected" row on a
+        # correct run, which under `gate` is a false PARSEK-FAIL(ledger). The
+        # secondary key is now acceptance WIDTH (exact = 0), so the narrow window is
+        # tried first in every declaration order and every log order.
+        for manifest in (
+                [{"utWindow": [0.0, 200.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 0},
+                 {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1}],
+                [{"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 0},
+                 {"utWindow": [0.0, 200.0], "kind": "stock-reputation-award",
+                  "reputation": -10.0, "provenance": "seam-declared", "seq": 1}]):
+            parse = oracle.parse_manifest_entries(manifest)
+            self.assertEqual([], list(parse.errors))
+            awards = [self._rep_award(-9.999828, "VesselLoss", ut=120.0),
+                      self._rep_award(-9.999828, "CrewDeath", ut=50.0)]
+            for order in (awards, list(reversed(awards))):
+                with self.subTest(wide_first="200" in str(manifest[0]),
+                                  first_award=order[0].ut):
+                    self.assertEqual(
+                        [], hlib.unmatched_captured_awards(parse.entries, order),
+                        "the narrow window must be tried before the wide one")
+
+    def test_the_documented_greedy_limit_a_pinned_wide_window_beats_an_unpinned_exact(self):
+        # KNOWN GREEDY LIMIT, pinned deliberately (review probe S4; documented in the
+        # unmatched_captured_awards ordering comment and the arming checklist): the
+        # pinned-first PRIMARY key dominates the width key, so a stockReason-PINNED
+        # wide window is tried before an UNPINNED exact entry and takes the one award
+        # that entry names when both awards carry the pinned reason. The stranding is
+        # fail-CLOSED (one false "unexpected" row, never a false green). If this
+        # assert ever flips to [], the matcher gained a bipartite search - update the
+        # ordering comment and the arming checklist in the same change.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 50.0, "kind": "milestone", "reputation": -10.0, "seq": 0},
+            {"utWindow": [0.0, 200.0], "kind": "stock-reputation-award",
+             "reputation": -10.0, "stockReason": "VesselLoss",
+             "provenance": "seam-declared", "seq": 1}])
+        self.assertEqual([], list(parse.errors))
+        awards = [self._rep_award(-9.999828, "VesselLoss", ut=50.0),
+                  self._rep_award(-9.999828, "VesselLoss", ut=120.0)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, awards)
+        self.assertEqual(1, len(unmatched), "the documented greedy limit")
+
+    def test_a_malformed_window_reds_pre_launch_in_the_ledger_block_validator(self):
+        # Review MINOR-4: a window typo used to survive ADMIT and surface AFTER the
+        # flight as a hard manifest-parse-error PARSEK-FAIL. validate_ledger_
+        # expectations (the same call run.py makes before launching KSP) now mirrors
+        # the oracle's structural utWindow rules, so the typo costs seconds.
+        def block(entry):
+            return {"seedFrom": "template", "manifest": [entry]}
+        base = {"kind": "stock-reputation-award", "reputation": 1.0,
+                "repMode": "applied", "provenance": "gameevents-captured"}
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            block(dict(base, utWindow=[100.0, 140.0]))))
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            block(base)), "a window-free entry stays untouched pre-launch")
+        for shape in ("oops", [1.0], [1.0, 2.0, 3.0], [True, 2.0],
+                      [float("nan"), 2.0], [1.0, "x"]):
+            with self.subTest(shape=shape):
+                errs = hlib.validate_ledger_expectations(block(dict(base, utWindow=shape)))
+                self.assertTrue(any("manifest[0].utWindow" in e for e in errs),
+                                "shape %r must red pre-launch" % (shape,))
+        inverted = hlib.validate_ledger_expectations(
+            block(dict(base, utWindow=[140.0, 100.0])))
+        self.assertTrue(any("empty window" in e for e in inverted))
+        both = hlib.validate_ledger_expectations(
+            block(dict(base, ut=119.9, utWindow=[100.0, 140.0])))
+        self.assertTrue(any("mutually exclusive" in e for e in both))
+        # A non-table entry now reds pre-launch too (it used to be left for the
+        # oracle's own indexed rejection, i.e. for after the flight), and it reds
+        # with the ORACLE's own wording because the gate delegates to it.
+        self.assertTrue(any("not a table/object" in e for e in
+                            hlib.validate_ledger_expectations(
+                                {"seedFrom": "template", "manifest": ["not-a-table"]})))
+
+    def test_manifest_artifact_round_trips_window_and_stock_reason(self):
+        # The <runId>.manifest.json audit artifact must carry the entry's full
+        # matching constraints (review NIT-1: stockReason was omitted) and parse
+        # back identically through the same entry parser.
+        parse = oracle.parse_manifest_entries([
+            {"utWindow": [100.0, 140.0], "kind": "stock-reputation-award",
+             "reputation": -9.999828, "repMode": "applied",
+             "stockReason": "VesselLoss", "provenance": "gameevents-captured"},
+            {"seq": 3, "kind": "milestone", "funds": 29600.0}])
+        self.assertEqual([], list(parse.errors))
+        serialized = [run._manifest_entry_to_dict(e) for e in parse.entries]
+        self.assertEqual([100.0, 140.0], serialized[0]["utWindow"])
+        self.assertEqual(["VesselLoss"], serialized[0]["stockReason"])
+        self.assertIsNone(serialized[1]["utWindow"])
+        self.assertEqual([], serialized[1]["stockReason"])
+        reparse = oracle.parse_manifest_entries(serialized)
+        self.assertEqual([], list(reparse.errors))
+        self.assertEqual(parse.entries[0].ut_window, reparse.entries[0].ut_window)
+        self.assertEqual(parse.entries[0].stock_reasons, reparse.entries[0].stock_reasons)
+        self.assertIsNone(reparse.entries[1].ut_window)
+
+    def test_only_the_armed_allowlist_declares_a_ut_window(self):
+        # THE WHOLE-SET GUARD, mirroring test_only_the_armed_allowlist_arms_the_
+        # capture_cross_check. It was "NO committed spec declares one" until the
+        # mechanism was walked end to end against the real game on 2026-07-31; it is
+        # now an explicit ALLOWLIST, so a window appearing on any OTHER spec is still
+        # a drift this cell reds on. Adding a name here is the deliberate act: it
+        # requires the arming evidence below (a green run's capturedRaw, then a green
+        # run with the windows declared showing the unexpected rows at zero).
+        #
+        # CL-2-pod-impact-ledger, ARMED 2026-07-31 (this file's own three flights):
+        #   `2026-07-31_1630`  PASS 168 s a1, spec UNCHANGED - the honest baseline.
+        #                      stockLines=3 deduped=3 seamRejected=0, all three
+        #                      UNEXPECTED (report-only) at ut 12.5 / 19.1 / 119.9.
+        #   `2026-07-31_1638`  PASS a1, windows declared + still "report" - ZERO
+        #                      unexpected rows, ledgerOracle reportOnly 3 -> 0.
+        #   `2026-07-31_1645`  PASS a1, `captureCrossCheck = "gate"` live.
+        # The windows are PHASE BOUNDS, never pins: that same second Progression
+        # award measured ut 19.0 on 2026-07-30 and 19.1 on the baseline flight, and
+        # the impact has now measured 119.7 / 119.8 / 119.9 across six runs.
+        allowed = {"CL-2-pod-impact-ledger.toml"}
+        declaring = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            ledger = ((load_spec(name).get("expectations", {}) or {}).get("ledger") or {})
+            for entry in (ledger.get("manifest", []) or []):
+                if isinstance(entry, dict) and (
+                        "utWindow" in entry or "ut_window" in entry):
+                    declaring.append(name)
+        self.assertEqual(sorted(allowed), sorted(set(declaring)),
+                         "a committed spec outside the armed allowlist declares utWindow")
+
+    def test_the_armed_cl2_windows_are_the_measured_phase_bounds(self):
+        # The allowlist above says WHICH spec may declare windows; this says WHAT it
+        # declares, so a later broadening (a window quietly widened to swallow a red,
+        # which the spec's RE-PIN CONTRACT forbids) reds here rather than passing
+        # silently. Bounds are the mission's two phases and both comfortably bracket
+        # every UT the six archived runs measured, with pad-dwell headroom on top
+        # (the bounds are absolute Planetarium UT, not T+ - see the spec's comment).
+        ledger = ((load_spec("CL-2-pod-impact-ledger.toml").get("expectations", {}) or {})
+                  .get("ledger") or {})
+        self.assertEqual(4, len(ledger["manifest"]),
+                         "a 5th entry appeared; re-derive the bounds deliberately")
+        windows = {e["seq"]: e.get("utWindow") for e in ledger["manifest"]
+                   if isinstance(e, dict)}
+        self.assertEqual([0.0, 100.0], windows[0], "Progression #1 = ascent phase")
+        self.assertEqual([0.0, 100.0], windows[1], "Progression #2 = ascent phase")
+        self.assertEqual([100.0, 400.0], windows[2], "VesselLoss = impact phase")
+        self.assertIsNone(windows.get(3),
+                          "the funds milestone entry must stay window-free: KSP logs "
+                          "no funds award, so it is never capture-matched")
+        # The two groups do not OVERLAP (they abut at 100). A gap between them would
+        # be a place an award could land and be unmatched for no intended reason;
+        # a true overlap would let a phase's window reach the other's awards before
+        # the amount / stockReason predicates run.
+        self.assertLessEqual(windows[0][1], windows[2][0])
+
+
+class WhatThePreLaunchGateMirrorsTests(unittest.TestCase):
+    """THE PRE-LAUNCH GATE **IS** THE RUN-TIME PARSER, minus one carve-out.
+
+    A manifest entry the oracle rejects becomes a HARD manifest-parse-error
+    PARSEK-FAIL(ledger) AFTER the flight (run.py: "a rejected seam entry ... would
+    false-PASS if silently dropped; each rejection reds PARSEK-FAIL(ledger)"). So
+    every rule the pre-launch validator does NOT enforce is a shape that costs a full
+    flight to discover - the same economics that moved `utWindow` into the gate
+    (review MINOR-4) and that the stage-inject postcondition closed on the staging
+    side.
+
+    HISTORY, because the boundary moved twice and the second move is the lesson. The
+    gate first mirrored `utWindow` alone, then `utWindow` + `ut` + entry-is-a-table,
+    justifying the remainder as "value/semantic rules rather than shape rules". The
+    PR #1397 review refuted that: running the oracle with `captured=None` - exactly
+    pre-launch knowledge - rejects EVERY one of its rules deterministically, and two
+    of the supposedly-semantic ones (`seq` must be an int; `stockReason` must be a
+    non-empty string or array of them) are pure type/shape rules that CL-2's own
+    manifest hand-writes on every entry. The honest question is not "shape or
+    value?" but "does the rule need the produced log?" - and only one does. The gate
+    now DELEGATES to `oracle.parse_manifest_entries`, so there is no second
+    implementation to drift.
+
+    THE ONE CARVE-OUT: the funds fill-from-capture ambiguity reads the CAPTURED pool,
+    empty by construction pre-launch, so it would reject a spec the oracle could
+    accept at run time - the unsafe direction. It is skipped, and these cells pin
+    that it stays skipped.
+
+    These cells therefore no longer police a hand-rolled mirror; they pin the
+    DELEGATION (every oracle rule reaches the gate, the carve-out does not, key paths
+    are re-prefixed to the spec's own namespace, and no committed spec is refused).
+    """
+
+    BASE = {"kind": "stock-reputation-award", "reputation": 1.0,
+            "repMode": "applied", "provenance": "gameevents-captured"}
+
+    # THE FULL ENTRY-SHAPE SPACE, not just the once-mirrored keys: since the gate
+    # delegates, agreement must hold over EVERY rule the oracle has, in BOTH
+    # directions (W4-probe shape from the PR #1397 review). The `_unmirrored_*`
+    # group below is the set the old hand-rolled mirror let through - it is here
+    # precisely because those shapes used to diverge.
+    def _mirrored_shape_space(self):
+        shapes = [("well-formed, no ut/window", dict(self.BASE)),
+                  ("ut valid", dict(self.BASE, ut=119.9)),
+                  ("ut null", dict(self.BASE, ut=None)),
+                  ("window valid", dict(self.BASE, utWindow=[100.0, 140.0])),
+                  ("window degenerate lo==hi", dict(self.BASE, utWindow=[5.0, 5.0])),
+                  ("not a table (str)", "not-a-table"),
+                  ("not a table (list)", [1, 2]),
+                  ("not a table (int)", 7),
+                  ("not a table (None)", None)]
+        for bad_ut in (True, False, "x", float("nan"), float("inf"),
+                       float("-inf"), [1.0], {"a": 1}):
+            shapes.append(("ut=%r" % (bad_ut,), dict(self.BASE, ut=bad_ut)))
+        for bad_win in ("oops", [1.0], [1.0, 2.0, 3.0], [True, 2.0], [1.0, False],
+                        [float("nan"), 2.0], [1.0, float("inf")], [1.0, "x"],
+                        {"lo": 1.0}, 5.0, [140.0, 100.0]):
+            shapes.append(("utWindow=%r" % (bad_win,), dict(self.BASE, utWindow=bad_win)))
+        shapes.append(("ut + window together",
+                       dict(self.BASE, ut=119.9, utWindow=[100.0, 140.0])))
+        # A malformed ut AND a window: both sides must blame the ut, not the
+        # mutual exclusion, because the oracle parses ut first.
+        shapes.append(("bad ut + valid window",
+                       dict(self.BASE, ut="x", utWindow=[100.0, 140.0])))
+        # THE FORMERLY-UNMIRRORED RULES. Every one of these passed the hand-rolled
+        # gate and hard-failed after the flight; `seq` and `stockReason` in
+        # particular are hand-written on every CL-2 entry.
+        for label, over in (("seq float", {"seq": 1.5}),
+                            ("seq str", {"seq": "0"}),
+                            ("seq bool", {"seq": True}),
+                            ("stockReason int", {"stockReason": 5}),
+                            ("stockReason empty member", {"stockReason": ["Progression", ""]}),
+                            ("stockReason nested", {"stockReason": [["x"]]}),
+                            ("kind unknown", {"kind": "bogus"}),
+                            ("provenance unknown", {"provenance": "nope"}),
+                            ("amountKind balance", {"amountKind": "balance"}),
+                            ("repMode unknown", {"repMode": "weird"}),
+                            ("rep magnitude cap", {"reputation": 1e9}),
+                            ("rep null fill", {"reputation": None}),
+                            ("science null fill", {"kind": "science-award", "science": None}),
+                            ("facet wrong type", {"reputation": "lots"})):
+            shapes.append(("unmirrored: " + label, dict(self.BASE, **over)))
+        # UNBOUNDED INTEGER: tomllib does not clamp to int64, and float() on a
+        # 400-digit int raises OverflowError. Both sides must REJECT, never raise -
+        # an exception here escapes validate_spec, which has no try/except, and
+        # takes down the whole batch instead of one spec.
+        shapes.append(("huge int ut", dict(self.BASE, ut=10 ** 400)))
+        shapes.append(("huge negative int ut", dict(self.BASE, ut=-(10 ** 400))))
+        shapes.append(("huge int in window", dict(self.BASE, utWindow=[0.0, 10 ** 400])))
+        return shapes
+
+    def test_the_two_implementations_agree_over_the_mirrored_shape_space(self):
+        for label, entry in self._mirrored_shape_space():
+            with self.subTest(shape=label):
+                # NEITHER side may raise: an exception escapes validate_spec (called
+                # with no try/except) and aborts the whole batch rather than one spec.
+                try:
+                    pre = hlib.validate_ledger_expectations(
+                        {"seedFrom": "template", "manifest": [entry]})
+                except Exception as ex:                      # noqa: BLE001
+                    self.fail("pre-launch gate RAISED %r on %s (aborts the batch)"
+                              % (ex, label))
+                try:
+                    run = list(oracle.parse_manifest_entries([entry]).errors)
+                except Exception as ex:                      # noqa: BLE001
+                    self.fail("oracle RAISED %r on %s" % (ex, label))
+                self.assertEqual(
+                    bool(run), bool(pre),
+                    "pre-launch and run-time disagree on %s: pre=%r run=%r - a "
+                    "run-time-only rejection costs a full flight; a pre-launch-only "
+                    "rejection refuses a spec the oracle would have accepted"
+                    % (label, pre, run))
+
+    def test_the_shared_reason_is_the_same_key_on_both_sides(self):
+        # Agreeing on "reject" is not enough: an author reading the pre-launch error
+        # must be pointed at the SAME key the oracle would have named, otherwise the
+        # cheap gate sends them to the wrong line. Keys carry the trailing COLON:
+        # ".ut" is a substring of ".utWindow", so a window-first implementation would
+        # satisfy a bare ".ut" assertion and the ordering claim would go unpinned.
+        for label, entry, key, forbidden in [
+                ("bad ut", dict(self.BASE, ut="x"), ".ut:", ".utWindow"),
+                ("bad window", dict(self.BASE, utWindow="oops"), ".utWindow:", None),
+                ("bad ut beats window", dict(self.BASE, ut="x",
+                                             utWindow=[1.0, 2.0]), ".ut:", ".utWindow"),
+                ("seq", dict(self.BASE, seq="0"), ".seq:", None),
+                ("stockReason", dict(self.BASE, stockReason=5), ".stockReason:", None)]:
+            with self.subTest(shape=label):
+                pre = hlib.validate_ledger_expectations(
+                    {"seedFrom": "template", "manifest": [entry]})
+                run = list(oracle.parse_manifest_entries([entry]).errors)
+                self.assertTrue(any(key in e for e in pre), "pre-launch: %r" % pre)
+                self.assertTrue(any(key in e for e in run), "run-time: %r" % run)
+                if forbidden:
+                    self.assertFalse(any(forbidden in e for e in pre),
+                                     "wrong key blamed pre-launch: %r" % pre)
+
+    def test_the_funds_fill_carve_out_is_the_only_accepted_oracle_rejection(self):
+        # The carve-out exists because that rule reads the CAPTURED pool, which is
+        # empty pre-launch, so raising it here would refuse a spec the oracle could
+        # accept at run time (the unsafe direction). Pin both halves: the gate stays
+        # silent, and the oracle really does reject it - so this is a deliberate
+        # carve-out and not a rule that quietly stopped existing.
+        entry = {"kind": "milestone", "funds": None, "provenance": "seam-declared"}
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [entry]}))
+        run = list(oracle.parse_manifest_entries([entry]).errors)
+        self.assertTrue(any("fill-from-capture is ambiguous" in e for e in run), run)
+
+    def test_malformed_ut_now_reds_pre_launch(self):
+        # THE FINDING, stated directly. Each of these used to pass ADMIT and hard-fail
+        # AFTER the flight as a manifest-parse-error PARSEK-FAIL(ledger).
+        for bad in (True, "x", float("nan"), float("inf")):
+            with self.subTest(ut=bad):
+                errs = hlib.validate_ledger_expectations(
+                    {"seedFrom": "template", "manifest": [dict(self.BASE, ut=bad)]})
+                self.assertTrue(any("manifest[0].ut" in e for e in errs),
+                                "ut=%r must red pre-launch" % (bad,))
+        # A valid ut and an absent ut both stay clean.
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE, ut=119.9)]}))
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE)]}))
+        # 0.0 is a real UT, not a falsy absence - the guard must not treat it as one.
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE, ut=0.0)]}))
+
+    def test_a_non_table_entry_now_reds_pre_launch_and_is_indexed(self):
+        errs = hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE), "not-a-table"]})
+        self.assertTrue(any("manifest[1]" in e and "not a table/object" in e
+                            for e in errs), errs)
+        # The valid sibling is not blamed, mirroring the oracle's per-entry indexing.
+        self.assertFalse(any("manifest[0]" in e for e in errs), errs)
+
+    def test_the_key_path_is_re_prefixed_into_the_spec_namespace(self):
+        # The oracle says `entry[N]`; a spec author is reading a TOML file whose path
+        # is `expectations.ledger.manifest[N]`. Delegation must not leak the oracle's
+        # internal namespace into a spec-authoring error.
+        errs = hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "manifest": [dict(self.BASE, ut="x")]})
+        self.assertEqual(1, len(errs), errs)
+        self.assertTrue(errs[0].startswith("expectations.ledger.manifest[0].ut:"), errs)
+        self.assertNotIn("entry[", errs[0])
+
+    def test_every_committed_spec_still_passes_the_widened_gate(self):
+        # THE VERDICT-NEUTRALITY CHECK for this widening: a stricter pre-launch gate
+        # must not start refusing a spec that flies today. (The armed CL-2 included -
+        # its three utWindow entries are the only committed windows in the tree.)
+        offenders = {}
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            ledger = (load_spec(name).get("expectations", {}) or {}).get("ledger")
+            if ledger is None:
+                continue
+            errs = hlib.validate_ledger_expectations(ledger)
+            if errs:
+                offenders[name] = errs
+        self.assertEqual({}, offenders)
 
 
 class ParseCareerSaveBlockTests(unittest.TestCase):
