@@ -37,10 +37,12 @@ id = "S1.5-rewind-loop"
 # S4.1's. That sentence is the WRONG rule for THIS spec, and left standing it was a
 # straight contradiction: the first green run happened (`2026-07-29_1528_..._a2`, its
 # first execution ever), which by the sentence's own terms said DROP, while the tag is
-# deliberately KEPT. S1.5 keeps it for a different and still-live reason - the three
-# PENDING-OPERATOR asserts below (crew re-reservation, resource reset, self-authored
-# RewindPoint) need a career fixture the sandbox host does not provide, so no unattended
-# run can discharge them. Out-of-scope-for-the-driver is a debt an OPERATOR still owes.
+# deliberately KEPT. S1.5 keeps it for a different and still-live reason: the
+# PENDING-OPERATOR asserts below. Two of them (crew re-reservation, resource reset) need
+# a career fixture the sandbox host does not provide; the third (self-authored
+# RewindPoint) is blocked on a multi-controllable split plus a missing seam channel - see
+# the GAP note. Either way no unattended run can discharge them, and
+# out-of-scope-for-the-driver is a debt an OPERATOR still owes.
 # The tag alone remains non-gating.
 #
 # NOT VERIFIED BY A RUN: this re-tier is derived from the code + EVA-1's live precedent,

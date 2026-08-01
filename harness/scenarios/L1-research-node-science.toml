@@ -1,8 +1,11 @@
 schema = 1
 id = "L1-research-node-science"
-# pending-fixture: fixtures/saves/fresh-science is not committed yet (M-B3 operator
-# runbook creates it). Re-tier to "daily" once BOTH the fixture lands AND the M-C1
-# research-node readiness-widening dependency below merges.
+# The header here used to say "pending-fixture: fixtures/saves/fresh-science is not committed yet ...
+# Re-tier to 'daily' once the fixture lands". BOTH are long done - the fixture is
+# committed and `tier` below has read "daily" since 2026-07-23 - and the line was left
+# standing anyway. Cleared 2026-08-01 alongside the same residue in L1-hire.
+# (The second condition - the M-C1 research-node readiness widening - also merged; the
+# spec runs in Science mode today.)
 tier = "daily"
 description = "Science mode: research one tech node; the science pool drops by exactly the node cost. No funds/rep pool exists to assert."
 instanceProfile = "stock-minimal"

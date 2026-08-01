@@ -1,56 +1,65 @@
 # Automated Testing System - Status
 
-Last updated: 2026-08-01 (THE `pending-operator` TAG IS NOW
-HONEST, and the rule it follows is enforced instead of remembered. Branch
+Last updated: 2026-08-01 (THE `pending-operator` TAG IS NOW HONEST IN BOTH
+DIRECTIONS, and the rule it follows is enforced instead of remembered. Branch
 `s41-pending-operator-tag`. An adversarial review panel SPLIT on whether
-S4.1-rewind-merge's tag was stale, which is the tell that nothing was pinning
-the meaning. NINE specs carried the tag. The rule that falls out of how they
-actually justify themselves: a spec may carry it only if it is
-`tier = "operator"` (a human must drive it) OR names outstanding
-`PENDING-OPERATOR` work in a comment. SIX were neither, and all six are dropped:
-S4.1 on its own written rule ("the pending-operator TAG stays until that first
-green run" - that run was 2026-07-28); L1-hire-kerbal-career as pending-FIXTURE
-residue (its header still said to re-tier once `fresh-career` landed, and both
-the fixture and the re-tier were long done); and the four L1 career specs
-(dismiss, research-node-career, research-node-science, upgrade-facility), each
-of which named a `VERIFY-PENDING-OPERATOR` fixture constant that its OWN green
-run had already discharged - the oracle hard-gates scalar pools, so a green run
-IS the confirmation those markers asked an operator for. THE FIRST DRAFT OF THIS
-WORK KEPT THOSE FOUR, and a review caught it: the audit had read the specs for a
+S4.1-rewind-merge's tag was stale, which is the tell that nothing was pinning the
+meaning. NINE specs carried it. THE RULE: a spec may carry `pending-operator`
+only if it is `tier = "operator"` (a human must drive it) OR names a STANDING
+`PENDING-OPERATOR` debt in a comment. SIX were neither and are dropped - S4.1 on
+its own written rule ("the pending-operator TAG stays until that first green
+run"; that run was 2026-07-28), L1-hire-kerbal-career as pending-FIXTURE residue,
+and the four L1 career specs, each of which named a `VERIFY-PENDING-OPERATOR`
+fixture constant that its own green run had already discharged (the oracle
+hard-gates scalar pools, so a green run IS the confirmation those markers asked
+an operator for; L1-dismiss is the one whose all-zero manifest makes the
+logContract pair plus the README row the discharging evidence instead). ONE was
+tagged the other way: `B15-eve-flyby` carried a STANDING debt and no tag -
+MechJeb's interplanetary planner is server-side and live-only, "we have NOT
+verified it against an inner target, and no headless test can" - so it is tagged
+now. FOUR CARRY IT: B15, R1-rewind-loop-flown and V1-map-dwell-mun-orbit
+(`tier = "operator"`), and S1.5-rewind-loop.
+
+TWO REVIEW ROUNDS CHANGED THE ANSWER, and both are worth recording because the
+first draft was confidently wrong. ROUND 1: the audit had read the specs for a
 string and stopped, never opening `harness/fixtures/saves/README.md` - the
-project's own per-constant ledger, which already marked the research-node cost
-**VERIFIED** and recorded the dismiss kerbal. L1-hire (dropped) and
-L1-upgrade-facility (kept) were in identical states; the only thing separating
-them was which file the string happened to sit in. That draft would have shipped
-the exact defect it existed to remove. The README's stale rows are reconciled in
-the same pass, including a hire cost that had read `-24000` since 2026-07-23
-while the spec and the live run both said `-62113`.
+project's own per-constant ledger - which already marked the research-node cost
+**VERIFIED** and recorded the dismiss kerbal. It kept those four. L1-hire
+(dropped) and L1-upgrade-facility (kept) were in identical states; the only thing
+separating them was which file the string sat in. ROUND 2: the check counted any
+`PENDING-OPERATOR` mention, but the corpus records DISCHARGED markers in prose
+too ("the former PENDING-OPERATOR is CLOSED"), so a spec's own obituary for a
+debt proved the debt lived - and the round-1 commit had written exactly that
+prose into all six dropped specs, three of which immediately satisfied the rule
+again. The cell now reads whole comment BLOCKS and discounts discharge phrases.
 
-THREE KEEP and are justified: R1-rewind-loop-flown and V1-map-dwell-mun-orbit are
-`tier = "operator"`; S1.5-rewind-loop names three asserts (crew re-reservation,
-resource reset, self-authored RewindPoint) that need a career fixture the sandbox
-host does not provide, so no unattended run can discharge them. S1.5 also
-resolves TWO contradictions the audit surfaced: this file previously said its tag
-"can now drop" (out-of-scope-for-the-driver is a debt an OPERATOR still owes, so
-it stays), and S1.5's own spec carried the same "stays until that first green
-run" sentence as S4.1 - whose green run happened - pointing at DROP while the tag
-is KEPT. That sentence was the wrong rule for that spec and is corrected there.
+STALE LEDGERS RECONCILED, since they are what let the tags rot: the fixture
+README and `todo-and-known-bugs.md` both still carried a hire cost of `-24000`
+that the 2026-07-23 live run had measured at `-62113` (the specs were corrected
+that day; the ledgers were not, for over a week), plus two rows still reading
+VERIFY-PENDING-OPERATOR for constants long since proven. Four L1 specs also still
+carried "pending-fixture: ... not committed yet ... re-tier to daily once the
+fixture lands" headers two lines above `tier = "daily"`.
 
-NEW SWEEP CELL `PendingOperatorTagHonestyTests` pins the rule over every
-committed spec, pins the six drops as permanent, pins the surviving set at
-exactly those three, and pins that the tag is still absent from `hlib.TIERS` -
-because the whole rule rests on it being non-gating. A marker counts only from a
-COMMENT (the tag cannot justify itself) and only with real content after the
-token; mutation-proved on five shapes, including two the first version let
-through (a bare `#PENDING-OPERATOR`, and a token with nothing after it) and one
-it false-RED'd (a legitimate trailing inline comment). What it CANNOT enforce is
-stated in the cell: this is string matching, so it checks a claim EXISTS, never
-that it is TRUE - the fixture README is named there as the semantic ledger.
+NEW SWEEP CELL `PendingOperatorTagHonestyTests` pins the rule, pins the six drops
+as permanent, pins the carrier set at exactly those four, and pins that the tag
+is still absent from `hlib.TIERS` (the rule rests on it being non-gating). A
+marker counts only from a COMMENT (the tag cannot justify itself), only with real
+content, and only if its block does not declare it settled - mutation-proved on
+five shapes including the two the earlier versions got wrong. The completeness
+direction is NOT machine-decided, because string matching cannot tell a true
+claim from a false one nor a spec's own debt from one it mentions on another's
+behalf (`S0.5` describes B1/B2's fixtures); instead `REVIEWED_UNTAGGED` records a
+hand classification for every untagged spec that mentions the token, and a new
+one reds until a human classifies it. That check found `L1-passive-sandbox`
+missing from the hand-written list on its first run.
+
 NO BEHAVIOUR CHANGE: the tag gates nothing, no tier moved, nothing selects on it
-but a generic `--tag` - the gain is that `--tag pending-operator` returns 3
-scenarios that genuinely owe operator work instead of 9. No CHANGELOG entry,
-matching the 2026-07-26 precedent. Suites: lib 1040 (4 new), provision 203,
-missions/lib 1103, dotnet test 19,490 passed / 1 skipped.)
+but a generic `--tag` - the gain is that `--tag pending-operator` returns 4
+scenarios that genuinely owe operator work instead of 9 padded with six finished
+ones and missing a live one. No CHANGELOG entry, matching the 2026-07-26
+precedent. Suites: lib 1070 (5 new), provision 203, missions/lib 1107, dotnet
+test 19,526 passed / 1 skipped.)
 
 Prior: 2026-07-31, second session (THE TWO LIVE-TESTABLE CLAIMS OF THE
 SESSION BELOW ARE NOW LIVE-PROVEN AGAINST THE REAL GAME, AND THE LEDGER CAPTURE
@@ -700,7 +709,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | S1.5-rewind-loop | nightly (RE-TIERED from operator 2026-07-26) | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | D6 time-jump; D18 time-jump-observables, rewind-strip-respawn-cycle; D8 epoch-isolation, recalc-engine; D9 rewind-to-separation, refly-gate. LIVE-PROVEN 2026-07-29, on its first execution ever: run `2026-07-29_1528_S1.5-rewind-loop_a2`, wall 69 s, every verifier PASS/SKIPPED. The 2026-07-26 re-tier note's central prediction held exactly - `LoadGame` took the FOCUS route into FLIGHT from the `gloops-airshow` host and all eight verbs EXECUTED rather than deferring, so the happy path came in at 69 s against a 2,400 s ceiling that only ever bounded the defer path. Attempt 1 (`2026-07-29_1525`) was driver-INVALID(`driver-arg`) on a STAGING fail-open, not on anything this spec asserts - see HARNESS-INJECT-FAILS-OPEN in todo-and-known-bugs.md. TAG REVISITED 2026-07-31 and KEPT, reversing the "can now drop" line that stood here: the three PENDING-OPERATOR live asserts named in its GAP note (crew re-reservation, resource reset, self-authored RewindPoint) stay out of scope for the DRIVABLE subset, and out-of-scope-for-the-driver is precisely a debt an OPERATOR still owes - not a discharged one. S1.5 therefore satisfies the tag rule (`PendingOperatorTagHonestyTests`): a carrier must be `tier = "operator"` or name outstanding `PENDING-OPERATOR` work inline, and S1.5 names three. |
 | S4.1-rewind-merge | nightly (RE-TIERED from operator 2026-07-26) - **seam fix PROVEN 2026-07-28; S4.1-IDLE-DISCARD FIXED 2026-07-30 (branch `fix-s41-idle-discard`); FLAKE QUARANTINE CLEARED 2026-07-30 by a deliberate 5-run sweep; SAVE-PARSE GATING ARMED + LIVE-PROVEN 2026-07-31 (branch `r9-arm-s41`) - the ONLY committed spec with `gating = true`; lifetime rate in the cells column** | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | D9 rewind-to-separation, refly-gate, reconciliation-bundle, read-back-guard, terminal-kind-classify, merge-journal; D8 recalc-engine. LIVE-PROVEN 2026-07-28: run `2026-07-28_1639_S4.1-rewind-merge_a2`, wall 61 s (flakedThenPassed). CONFIRMED clean on attempt 1 2026-07-29: run `2026-07-29_1530_S4.1-rewind-merge`, wall 71 s, all verifiers green, and it did NOT reproduce S4.1-IDLE-DISCARD. FLAKE QUARANTINE CLEARED 2026-07-30 by the deliberate multi-run sweep the previous note demanded, flown off the `fix-s41-idle-discard` build (provision result=OK, deployed automation DLL sha256 4bd6f246 identical to the worktree's `bin/Debug`, fix string verified present): FIVE consecutive runs, every one PASS on attempt 1, no retries - `2026-07-30_0940` 72 s, `_0942` 58 s, `_0944` 57 s, `_0945` 57 s, `_0947` 58 s. Every run: all 6 driver steps verdict=OK, kspExit.code=0, recordings.count=4, expectations mismatches=[], analyzer red=0, logValidate PASS, anomalySweep hits=[], zero `[Parsek][ERROR]`, and the required `AppendRelations outcome=refused-unflown-provisional` token present once. The generated flake ledger now reads total=5 numerator=0 rate=0.0 quarantined=false. Lifetime 7 PASS / 3 INVALID at that sweep; 12 PASS / 3 INVALID after the second 2026-07-30 sweep below. HONESTY CAVEAT RESOLVED 2026-07-30 (branch `s41-prefix-live-coverage`): the 0940-0947 sweep's guard branch was never entered because of S4.1-PREFIX-RACE, and the caveat's candidate cause (`f97717744`) is REFUTED - run `2026-07-28_1939` carried that commit (`persisted=True` in its log) and still entered the prefix. The real cause: `InvokeRewind` completes when the re-fly MARKER lands, but `ParsekFlight.HasActiveTree` - what the scene-exit prefix gates on - only goes true when the `RestoreActiveTreeFromPending` coroutine later resumes the pending-LIMBO tree as active (~300 ms after marker completion; in `2026-07-28_1939` the resume won the race by 121 ms and the prefix fired; in the 0940-0947 sweep the seam won every time and the exit slipped through un-intercepted, `DialogVariant.None`, concluding via the deferred post-transition dialog). FIX in the seam: `AnswerMergeDialog` now defers its driven exit through the pure `TestCommandMergeAnswer.DecideConclusionDrive` until the restored tree is active in FLIGHT (bounded 30 s; on expiry it drives anyway and the deferred-dialog fallback concludes as before). The spec now REQUIRES the pre-transition route: `refusing - refly-active` + `Pre-transition tree merge dialog: .* labels=ReFlyAttempt` + the synchronous `answermergedialog choice=merge result=committed`. GUARD LIVE-PROVEN 2026-07-30 by a 5-run sweep off the `s41-prefix-live-coverage` build (deployed automation DLL hash-verified identical to the worktree's `bin/Debug`, both new UTF-16 strings present): runs `2026-07-30_1746` (76 s), `_1748`, `_1749`, `_1750`, `_1751` (57 s each), every one PASS on attempt 1 under the EIGHT-token contract - each log shows the settle-wait line (`waiting for re-fly resume to settle`, proving the race was live that run), then `TryAutoDiscardIdleActiveTree: refusing - refly-active`, the ReFlyAttempt pre-transition dialog, and the synchronous merge answer, with zero `idle detected` and zero `Deferred merge dialog fired` lines. The same race also explains R1's route nondeterminism (run `2026-07-26_2237` answered via the deferred dialog, `2026-07-26_2303` via the pre-transition dialog); R1's contract does not pin the route, so it stays green either way and now settles deterministically on the pre-transition path. SAVE-PARSE GATING ARMED 2026-07-31 (branch `r9-arm-s41`): S4.1's `[expectations.rewind]` block, RESERVED and recorded SKIPPED since the spec was written, now carries `gating = true` - the first and only committed spec to arm the M-C2 save-parse verifier, so what this scenario gates grew from log contracts + a recording-count floor to include the produced save's structural truth. Promoted through the three-run workflow: `2026-07-31_1628` report-only reading (PASS, 59 s) measured `parsed=true scenarioFound=true blocks=["rewind"] armedBlocks=[] mismatches=[]` and `observed.rewind = {supersedeRows 0, tombstones 0, rewindPoints 0, rewindRetirements 0}` - already inside the declared `max = 0` windows, so arming moved no verdict; `2026-07-31_1635` armed (PASS, 59 s, `status=PASS gating=true armedBlocks=["rewind"]`); `2026-07-31_1637` NEGATIVE CONTROL (`supersedeRows = { min = 1 }`, reverted) reddened `PARSEK-FAIL(save-structure)` with `mismatches=["rewind.supersedeRows 0 < min 1"]`, proving the gate fails when it should. TWO READINGS RECORDED, NOT PINNED: the merge REAPS `rp_b9_root` (`rewindPoints` 0; the save carries no `REWIND_POINTS` node at all), and the B9 corpus writes zero `BRANCH_POINT` rows (`branchPoints={}` verified against the raw .sfs - a true reading, not a parser miss; topology is carried by `parentRecordingId`). Structure facets measured on all three runs: `trees 1, committedTrees 1, recordings 4, terminalStates {Destroyed 1, Landed 1, Orbiting 1, SubOrbital 1}`. `pending-operator` TAG DROPPED 2026-07-31 on this spec's own stated rule ("the pending-operator TAG stays until that first green run") - that run was `2026-07-28_1639_..._a2`, three days earlier, with seven green runs since; the tag had stopped describing the record and started contradicting it. Non-gating, tier unchanged at nightly. Lifetime 14 PASS / 3 INVALID (12 before this branch + the two PASS runs above; the negative control's deliberate PARSEK-FAIL is counted in neither, and `coverage/duration.json` - PASS results only - moves n=12 to n=14 in step). |
 | R1-rewind-loop-flown | operator (promotion EARNED 2026-07-28, DELIBERATELY NOT APPLIED - see the FLIGHT 4 note) | FIRST rewind cycle driven from a REAL FLOWN flight: the delegated live-proven B2 ascent machine, a mid-flight CommitTree + StopRecording + RecordingState issued through the NEW verb-agnostic seam bridge (`ACTION_PARSEK_SEAM_COMMAND`), the dispatcher's `recording-active` gate carried as an OBSERVED precondition (`recorderIdleBeforeRewind` reads `recording=false` off a RecordingState reply before the rewind is commanded), then a real Rewind-to-Separation from FLIGHT judged by an OBSERVATION - the game clock RUNNING BACKWARD (`clockRewound`, corroborated by `vesselStateChanged`), never by InvokeRewind's own OK (which rides as one strictly-additional `rewindSeamAccepted` row). Also the first mission to prove a mission can drive ANY seam verb mid-flight, not only CommitTree | D1 auto-record-launch; D4 atmospheric, exo-propulsive; D14 kerbin; D9 rewind-to-separation, refly-gate, reconciliation-bundle, read-back-guard, supersede-relation, merge-journal; D8 recalc-engine. LIVE-PROVEN 2026-07-28: run `2026-07-28_1509_R1-rewind-loop-flown`, wall 304 s, attempt 1 - the flight the row's own "PROMOTION NOW EARNED, not yet applied" note was waiting on, and the discriminating experiment that resolved R1-EMPTY-PROVISIONAL as a fixture artifact. PROMOTION EARNED BUT NOT APPLIED: `R1-rewind-loop-flown.toml` still reads `tier = "operator"`, and operator is in NO `hlib.CADENCE_TIERS` set, so R1 runs ONLY under an explicit `--id` / `--tier operator` - it does NOT fly nightly. An earlier draft of this cell claimed the promotion was applied on 2026-07-29; that was wrong and no spec was ever edited. Flipping the tier is a real scheduling change (it adds ~304 s to every nightly and R1's spec carries a long "what its next run is for" list, item 6 of which only just closed), so it is left as a deliberate human call - the same standard applied to B16 in this same pass. |
-| L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | D8 kerbals, funds, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D12 hire-dismiss-patches; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1952_L1-hire-kerbal-career`, wall 52 s - reached after the first live run that day red'd on the seam double-debit this row's blocker described, and that fix landed. Re-confirmed 2026-07-25 (`2026-07-25_0742`). `pending-operator` TAG DROPPED 2026-07-31: it was pending-FIXTURE residue (the header still told a reader to re-tier once `fresh-career` landed - it landed, and the tier had already been `daily` for some time), not a record of outstanding operator work. This spec names no `VERIFY-PENDING-OPERATOR` assert; its four L1 siblings each named one and lost their tags in the SAME pass, once the audit was corrected to check whether those markers were still outstanding (they were not). Precedented by `L1-passive-sandbox`, dropped 2026-07-26 for the same reason. |
+| L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | D8 kerbals, funds, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D12 hire-dismiss-patches; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1952_L1-hire-kerbal-career`, wall 52 s - reached after the first live run that day red'd on the seam double-debit this row's blocker described, and that fix landed. Re-confirmed 2026-07-25 (`2026-07-25_0742`). `pending-operator` TAG DROPPED 2026-07-31: it was pending-FIXTURE residue (the header still told a reader to re-tier once `fresh-career` landed - it landed, and the tier had already been `daily` for some time), not a record of outstanding operator work. This spec names no `VERIFY-PENDING-OPERATOR` assert; its four L1 siblings each named one and lost their tags in the SAME pass, once a review corrected the audit to check whether those markers were still outstanding (they were not). Precedented by `L1-passive-sandbox`, dropped 2026-07-26 for the same reason. |
 | L1-dismiss-kerbal-career | daily | Dismiss is pool-neutral | D8 kerbals, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D12 hire-dismiss-patches; D14 career, scene-ksc. LIVE-PROVEN 2026-07-23: run `2026-07-23_1914_L1-dismiss-kerbal-career`, wall 52 s. Re-confirmed 2026-07-23 (`_1951`) and 2026-07-25 (`2026-07-25_0741`). `pending-operator` TAG DROPPED 2026-07-31: its `VERIFY-PENDING-OPERATOR` marker asked an operator to confirm a fixture constant and record it, and `fixtures/saves/README.md` records the chosen kerbal (`Bill Kerman`), this spec's step arg IS `Bill Kerman`, and the constants row reads pool-neutral rather than pending. The oracle hard-gates scalar pools, so the green run IS that confirmation; the marker is now recorded as OPERATOR-VERIFIED in the spec. |
 | L1-research-node-career | daily | Research debits science exactly | D8 science, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 career. LIVE-PROVEN 2026-07-23: run `2026-07-23_1917_L1-research-node-career`, wall 52 s. Re-confirmed 2026-07-23 (`_1953`) and 2026-07-25 (`2026-07-25_0744`). `pending-operator` TAG DROPPED 2026-07-31: its `VERIFY-PENDING-OPERATOR` marker asked an operator to confirm a fixture constant and record it, and `fixtures/saves/README.md` already marked the `basicRocketry` cost **VERIFIED**. The oracle hard-gates scalar pools, so the green run IS that confirmation; the marker is now recorded as OPERATOR-VERIFIED in the spec. |
 | L1-research-node-science | daily | Same in science mode (no funds/rep pools) | D8 science, recalc-engine, orchestrator, ksp-state-patcher, action-blocking; D14 science-mode. LIVE-PROVEN 2026-07-23: run `2026-07-23_1917_L1-research-node-science`, wall 52 s. Re-confirmed 2026-07-23 (`_1954`) and 2026-07-25 (`2026-07-25_0744`). `pending-operator` TAG DROPPED 2026-07-31: its `VERIFY-PENDING-OPERATOR` marker asked an operator to confirm a fixture constant and record it, and it rides the same **VERIFIED** `basicRocketry` node cost. The oracle hard-gates scalar pools, so the green run IS that confirmation; the marker is now recorded as OPERATOR-VERIFIED in the spec. |

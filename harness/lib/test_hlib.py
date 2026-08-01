@@ -4157,83 +4157,143 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     `--tag`. That is exactly why it rots quietly: no run ever fails because a
     finished scenario still claims to be waiting on a human, so the only thing
     keeping `--tag pending-operator` useful is that someone notices. Nobody did:
-    `L1-passive-sandbox` carried a stale one until 2026-07-26, and SIX more were
-    still carrying theirs on 2026-07-31 - by which point a two-reviewer panel had
-    SPLIT on whether S4.1's was stale. A list padded with finished scenarios is
-    worse than no list: the operator stops trusting it and stops reading it.
+    `L1-passive-sandbox` carried a stale one until 2026-07-26, six more were
+    still carrying theirs on 2026-07-31, and `B15-eve-flyby` had the opposite
+    problem - a standing debt and no tag. By then a two-reviewer panel had SPLIT
+    on whether S4.1's was stale.
 
-    THE RULE, derived from how every committed carrier actually justifies itself
-    rather than invented here: a spec may carry `pending-operator` only if it is
+    THE RULE, derived from how the carriers actually justify themselves rather
+    than invented here: a spec may carry `pending-operator` only if it is
     (a) `tier = "operator"` - the tier already says a human must drive it - or
-    (b) naming outstanding operator work inline, i.e. a `PENDING-OPERATOR`
-    comment carrying real content. A spec that is neither is claiming a debt it
-    does not have.
+    (b) naming a STANDING `PENDING-OPERATOR` debt in a comment.
 
-    WHAT THIS CANNOT ENFORCE, stated plainly so nobody mistakes green here for
-    proof. This is string matching: it checks that a CLAIM of outstanding work
-    EXISTS, never that the claim is TRUE. A comment reading "PENDING-OPERATOR:
-    this was finished last week" satisfies it. The first draft of this audit
-    failed in exactly that direction - it read the specs for the token and
-    stopped, and four L1 specs kept tags whose named constants their own green
-    runs had already discharged, because the audit never opened
-    `harness/fixtures/saves/README.md`. THAT FILE IS THE SEMANTIC LEDGER: it
-    carries a per-constant status column (**VERIFIED** vs
-    VERIFY-PENDING-OPERATOR) and it, not this cell, is where truth about a
-    fixture constant lives. When you touch a marker here, reconcile that table
-    in the same commit."""
+    "STANDING" is the load-bearing word, and the first version of this cell
+    missed it. The corpus records DISCHARGED markers in prose too - "the former
+    PENDING-OPERATOR is CLOSED", "OPERATOR-VERIFIED (was
+    VERIFY-PENDING-OPERATOR...)" - so a bare token search counts a spec's own
+    obituary for a debt as proof the debt lives. That is not hypothetical: the
+    commit that DROPPED six tags wrote exactly such prose into those six specs,
+    and under the token-only check three of them immediately satisfied the rule
+    again. `_marker_blocks` therefore reads whole comment BLOCKS (markers wrap
+    across lines) and discounts any block carrying a discharge phrase.
 
-    def _carriers(self):
+    WHAT THIS CANNOT ENFORCE, stated plainly so nobody mistakes green for proof.
+    It is string matching over English. It can tell a live claim from a
+    self-declared dead one; it cannot tell a TRUE claim from a false one, and it
+    cannot tell a spec's own debt from a debt it mentions belonging to another
+    spec (`S0.5-live-record-discard` describes B1/B2's fixtures, not its own).
+    So the completeness direction - "every spec with outstanding work is
+    tagged" - is NOT machine-decided. It is pinned instead by
+    REVIEWED_UNTAGGED: every untagged spec that mentions the token has been
+    classified by hand, and a NEW one reds until a human classifies it too.
+    For the truth of a fixture constant, `harness/fixtures/saves/README.md` is
+    the semantic ledger - reconcile it in the same commit as any marker edit."""
+
+    # Phrases that mark a PENDING-OPERATOR mention as SETTLED. Matched
+    # case-insensitively over the whole comment block the marker sits in.
+    _DISCHARGED = ("former", "operator-verified", "was verify-pending-operator",
+                   "is closed", "now closed", "closed by", "resolving",
+                   "no longer", "before that")
+
+    # Untagged specs that MENTION the token, each classified by hand. A new
+    # entry appearing here reds `test_every_untagged_mention_is_classified`,
+    # which is the only completeness signal available - see the docstring.
+    REVIEWED_UNTAGGED = {
+        "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
+        "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
+        "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
+        "M2-periodicity-solver.toml":       "discharged - 'CLOSED by the 2026-07-26 flight'",
+        "S1.4-injected-playback.toml":      "discharged - 'THAT PENDING-OPERATOR IS NOW CLOSED'",
+        "S4.1-rewind-merge.toml":           "discharged - historical mention; tag dropped 2026-07-31",
+        "L1-hire-kerbal-career.toml":       "discharged - drop-rationale prose; tag dropped 2026-07-31",
+        "L1-dismiss-kerbal-career.toml":    "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        "L1-research-node-career.toml":     "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        "L1-research-node-science.toml":    "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        "L1-upgrade-facility-career.toml":  "discharged - OPERATOR-VERIFIED; tag dropped 2026-07-31",
+        # Found by this very cell on its first run - it was absent from the
+        # hand-written list, which is the whole argument for having the check.
+        "L1-passive-sandbox.toml":          "discharged - records its own 2026-07-26 drop",
+        # NOT this spec's own debt: it describes B1/B2's pad-craft fixtures.
+        "S0.5-live-record-discard.toml":    "other-spec - B1/B2 fixtures, not S0.5's own",
+    }
+
+    @classmethod
+    def _comment_blocks(cls, text):
+        """Contiguous runs of comment text, joined. A marker's qualifying words
+        routinely sit on the PREVIOUS line ("(the standing" / "# PENDING-OPERATOR
+        note)"), so per-line analysis misreads them."""
+        blocks, cur = [], []
+        for line in text.splitlines():
+            idx = line.find("#")
+            # A '#' inside a value is not a comment start; only treat the line as
+            # a comment when '#' leads it, or when it trails a real assignment.
+            if idx >= 0 and (line.lstrip().startswith("#") or "=" in line[:idx]):
+                cur.append(line[idx + 1:].strip())
+            elif cur:
+                blocks.append(" ".join(cur))
+                cur = []
+        if cur:
+            blocks.append(" ".join(cur))
+        return blocks
+
+    @classmethod
+    def _marker_blocks(cls, text):
+        """Comment blocks asserting a STANDING operator debt, with content."""
+        out = []
+        for b in cls._comment_blocks(text):
+            if "PENDING-OPERATOR" not in b.upper():
+                continue
+            low = b.lower()
+            if any(d in low for d in cls._DISCHARGED):
+                continue
+            # Content measured over the WHOLE block, not the tail after the
+            # token: real markers put substance on either side of it.
+            if len(low.replace("pending-operator", "").strip(" :.-()")) >= 20:
+                out.append(b)
+        return out
+
+    def _specs(self):
         out = {}
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             path = os.path.join(SCENARIOS_DIR, name)
             with open(path, "rb") as fh:
                 spec = tomllib.load(fh)
-            if "pending-operator" not in (spec.get("tags") or []):
-                continue
             with open(path, "r", encoding="utf-8") as fh:
                 text = fh.read()
-            out[name] = (spec.get("tier"), self._count_notes(text))
+            out[name] = (spec.get("tier"),
+                         "pending-operator" in (spec.get("tags") or []),
+                         len(self._marker_blocks(text)),
+                         "PENDING-OPERATOR" in text.upper())
         return out
 
-    # A marker counts only if it is (a) in a COMMENT - the tag lives in a
-    # `tags = [...]` value and must never be allowed to justify itself - and
-    # (b) carries SUBSTANCE after the token. A bare `#PENDING-OPERATOR` is the
-    # cheapest possible way to keep a tag alive, so requiring content is what
-    # stops the rule degrading into "type the magic word".
-    _MIN_NOTE_CHARS = 20
-
-    @classmethod
-    def _count_notes(cls, text):
-        n = 0
-        for line in text.splitlines():
-            # Comments anywhere on the line, not just line-leading ones: a
-            # trailing `key = value  # PENDING-OPERATOR ...` is a legitimate
-            # note, and the first version of this cell false-RED'd on it.
-            idx = line.find("#")
-            if idx < 0:
-                continue
-            comment = line[idx:]
-            pos = comment.find("PENDING-OPERATOR")
-            if pos < 0:
-                continue
-            rest = comment[pos + len("PENDING-OPERATOR"):].strip(" :.-")
-            if len(rest) >= cls._MIN_NOTE_CHARS:
-                n += 1
-        return n
-
-    def test_every_carrier_is_operator_tier_or_names_outstanding_work(self):
-        unjustified = sorted(n for n, (tier, notes) in self._carriers().items()
-                             if tier != "operator" and notes == 0)
+    def test_every_carrier_is_operator_tier_or_names_standing_work(self):
+        bad = sorted(n for n, (tier, tagged, standing, _) in self._specs().items()
+                     if tagged and tier != "operator" and standing == 0)
         self.assertEqual(
-            [], unjustified,
+            [], bad,
             "these specs tag themselves `pending-operator` but are neither "
-            "tier=operator nor name any PENDING-OPERATOR work in a comment - either "
-            "drop the tag (citing the green run, as S4.1 / L1-hire / L1-passive-sandbox "
-            "do) or write down what the operator still owes")
+            "tier=operator nor name a STANDING PENDING-OPERATOR debt in a comment "
+            "(a marker whose block says it is former/closed/verified does NOT count) "
+            "- either drop the tag citing the green run, or write down what the "
+            "operator still owes")
+
+    def test_every_untagged_mention_is_classified(self):
+        """The completeness half. A spec can mention the token without carrying
+        the tag for exactly two honest reasons - the debt is discharged, or it
+        belongs to another spec - and both must be a recorded human call, never a
+        silent omission. `B15-eve-flyby` sat untagged with a live debt precisely
+        because nothing forced this check."""
+        mentions = sorted(n for n, (_, tagged, _, m) in self._specs().items()
+                          if m and not tagged)
+        self.assertEqual(sorted(self.REVIEWED_UNTAGGED), mentions,
+                         "an untagged spec mentions PENDING-OPERATOR without a "
+                         "recorded classification; decide whether the debt is live "
+                         "(tag it) or settled (add it to REVIEWED_UNTAGGED with the "
+                         "reason)")
 
     # The 2026-07-31 sweep. Every one was discharged by a GREEN RUN, and a green
-    # run cannot un-happen, so the tag reappearing on any of these means a hand
-    # edit or a merge resurrection - not new information.
+    # run cannot un-happen, so the tag reappearing means a hand edit or a merge
+    # resurrection - not new information.
     DROPPED_2026_07_31 = (
         "S4.1-rewind-merge.toml",             # own rule: "stays until that first green run"
         "L1-hire-kerbal-career.toml",         # pending-FIXTURE residue; fixture landed
@@ -4249,14 +4309,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             self.assertNotIn("pending-operator", tags,
                              "%s was live-proven and owes no operator work" % name)
 
-    def test_the_survivors_are_exactly_the_three_with_live_debts(self):
-        """Pins the whole post-sweep set, so a tag appearing on a spec nobody
-        listed reds even if that spec happens to satisfy the rule. Nine carriers
-        went in; three come out."""
-        carriers = sorted(self._carriers())
-        self.assertEqual(["R1-rewind-loop-flown.toml",      # tier = operator
-                          "S1.5-rewind-loop.toml",          # 3 asserts need a career fixture
-                          "V1-map-dwell-mun-orbit.toml"],   # tier = operator
+    def test_the_carrier_set_is_exactly_the_four_with_live_debts(self):
+        """Pins the whole post-sweep set. Deliberately strict: adding a
+        LEGITIMATE new carrier reds here too, and that is the point - this list
+        is a human-maintained inventory of who owes what. Add the spec here in
+        the same commit that tags it."""
+        carriers = sorted(n for n, (_, tagged, _, _) in self._specs().items() if tagged)
+        self.assertEqual(["B15-eve-flyby.toml",           # live-only MechJeb planner check
+                          "R1-rewind-loop-flown.toml",    # tier = operator
+                          "S1.5-rewind-loop.toml",        # asserts need a career fixture
+                          "V1-map-dwell-mun-orbit.toml"], # tier = operator
                          carriers)
 
     def test_the_tag_is_still_non_gating(self):
