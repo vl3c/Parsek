@@ -49,7 +49,20 @@ id = "EVA-1-pad-flag"
 tier = "nightly"
 description = "Ground EVA on the pad: exit + ladder release + flag plant + re-board (single kerbal); the foreground EVA branch, structural snapshot, FlagEvent capture, and board merge all record."
 instanceProfile = "stock-minimal"
-tags = ["eva", "flag-plant", "eva-branch", "D2", "D5", "D7", "B3", "S0.2"]
+# `pending-operator` ADDED 2026-08-01. The header above says "the tier stays nightly
+# until the operator promotes it" - P1/P3/P6 are all done and this has been LIVE-PROVEN
+# since 2026-07-24, so nothing is blocked here EXCEPT that cadence decision, and only a
+# human makes it. The tag audit that swept this corpus missed it twice over: it only
+# inspected specs that MENTION `PENDING-OPERATOR` (this one never does) or are
+# `tier = "operator"` (this one is nightly). Found by hand afterwards.
+#
+# WHY A NIGHTLY, FULLY-GREEN SPEC CARRIES IT: the tag means work only a HUMAN can
+# discharge, not "a human must drive the run". `S1.5-rewind-loop` is the precedent -
+# also nightly, also green, tagged because something needs a person. Operator-tier is
+# one sufficient reason for the tag, never the definition. DROP THIS TAG when the
+# promotion call is made either way (promote to daily, or record that nightly is the
+# settled answer) - not merely because the spec is green, which it already was.
+tags = ["eva", "flag-plant", "eva-branch", "D2", "D5", "D7", "B3", "S0.2", "pending-operator"]
 
 [fixture]
 # gloops-airshow SANDBOX pod (committed; the same fixture S0.5/S0.6 use). The active vessel
