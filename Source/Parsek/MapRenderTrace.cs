@@ -972,13 +972,41 @@ namespace Parsek
         /// can compress below the frame window and read as a blink. Mirrors the
         /// <see cref="IsIconJump"/> bodyChanged guard. Defaults false so every
         /// existing call site is byte-identical.</para>
+        ///
+        /// <para><paramref name="offWindowCovered"/> suppresses the blink when EVERY frame of the
+        /// dark window that just ended was covered by an ACTUAL trajectory-polyline draw for the
+        /// same recording (the caller accumulates this through
+        /// <see cref="NextOffWindowUncovered"/> from
+        /// <c>GhostMapPresence.IsPolylineOwningGhostPhase</c>). This is the OWNERSHIP-HANDOFF
+        /// case, and it is by DESIGN: while the polyline owns a recording's non-orbital leg the
+        /// proto orbit line MUST hide, or the two surfaces double-draw (the invariant the
+        /// <c>polyline-orbit-overlap</c> oracle enforces from the other side). The user sees ONE
+        /// continuous trajectory across such a window - polyline in the middle, proto conic on
+        /// both sides - so the toggle pair is two correct transitions, exactly like the
+        /// <paramref name="bodyChanged"/> seam. Under a 100x-1000x rails ramp a whole recorded
+        /// ascent / burn leg replays in a handful of frames, compressing those two transitions
+        /// below <see cref="LineBlinkFrameWindow"/> where the pid-only truth read cannot tell them
+        /// from a flicker (V1-REPLAY-LINE-BLINK).</para>
+        ///
+        /// <para>This guard SHARPENS the detector rather than weakening it. An UNCOVERED dark
+        /// frame - the proto line hidden while nothing drew - still raises, and that is the case
+        /// worth gating: it is the only shape in which the map actually goes dark. It is
+        /// structurally reachable, because <c>GhostOrbitLinePatch</c>'s first branch hides the
+        /// proto line on the Director's TracedPath CLASSIFICATION
+        /// (<c>ShadowRenderDriver.IsTracedPathOwnedThisFrame</c>, itself carrying a
+        /// +/-<c>SeedFreshnessFrames</c> tolerance) while ownership is published only on an actual
+        /// draw - the decoupling <c>drewNonOrbitalLegRecordings</c> documents as covering the
+        /// "degenerate-leg / head-in-gap" case. Before this guard the token could not distinguish
+        /// the two; after it, a raise means "nothing drew", which is the render defect. Defaults
+        /// false so every existing call site is byte-identical.</para>
         /// </summary>
         internal static bool IsLineBlink(
             bool toggled,
             bool hasLastToggleFrame,
             int lastToggleFrame,
             int currentFrame,
-            bool bodyChanged = false)
+            bool bodyChanged = false,
+            bool offWindowCovered = false)
         {
             if (!toggled)
                 return false;
@@ -988,8 +1016,41 @@ namespace Parsek
             // legitimate transitions at a real geometry seam, not a flicker.
             if (bodyChanged)
                 return false;
+            // The dark window between the two toggles was covered end to end by an actual polyline
+            // draw: a by-design ownership handoff, not a flicker. Nothing went dark.
+            if (offWindowCovered)
+                return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
+        }
+
+        /// <summary>
+        /// PURE per-frame accounting step for the proto-orbit-line DARK WINDOW that feeds
+        /// <see cref="IsLineBlink"/>'s <c>offWindowCovered</c> guard. Given this frame's line
+        /// state (<paramref name="lineIsOff"/>), the previous sample's
+        /// (<paramref name="lineWasOff"/>), whether the trajectory polyline actually drew this
+        /// recording's leg this frame (<paramref name="polylineOwns"/>), and the window's verdict
+        /// so far (<paramref name="wasUncovered"/>), returns the verdict after this frame: true
+        /// once ANY frame of the current dark window had no owner drawing.
+        ///
+        /// <para>Three rules. (1) While the line is LIT there is no window to account, so the
+        /// prior verdict is passed through untouched - the off-&gt;on edge reads it, then the
+        /// caller clears it. (2) A dark frame whose predecessor was LIT STARTS a fresh window, so
+        /// the previous window's verdict never leaks forward. (3) A dark frame with no polyline
+        /// draw poisons the window permanently: one uncovered frame is one dark frame, and no
+        /// amount of later coverage un-darkens it. Unity-free, so the whole handoff-vs-gap
+        /// decision is unit-testable without a live KSP.</para>
+        /// </summary>
+        internal static bool NextOffWindowUncovered(
+            bool lineIsOff, bool lineWasOff, bool polylineOwns, bool wasUncovered)
+        {
+            // Line lit: no window is accumulating. Hold the just-ended window's verdict for the
+            // off->on edge to consume.
+            if (!lineIsOff)
+                return wasUncovered;
+            // A dark frame following a lit one opens a NEW window; anything older is irrelevant.
+            bool carried = lineWasOff && wasUncovered;
+            return carried || !polylineOwns;
         }
 
         /// <summary>

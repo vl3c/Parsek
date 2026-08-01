@@ -117,6 +117,15 @@ namespace Parsek
         // orbit) from a true same-geometry flicker. Without this, a Kerbin-escape -> Sun-heliocentric
         // handoff under high warp compresses two correct toggles below the frame window and reads as a blink.
         private readonly Dictionary<uint, string> lastLineToggleBody = new Dictionary<uint, string>();
+        // Pids whose CURRENT proto-orbit-line DARK WINDOW has had at least one frame that NO surface
+        // covered - the line read inactive and the trajectory polyline was not drawing that recording's
+        // leg either. Membership is the blink predicate's handoff-vs-gap discriminator: a window that
+        // never appears here was covered end to end by the polyline (the by-design ownership handoff -
+        // the proto line MUST hide while the polyline owns), while a window that does appear is a real
+        // gap where the map went dark. Accumulated per frame through the pure
+        // MapRenderTrace.NextOffWindowUncovered, read on the off->on edge, cleared there and on scene
+        // change. See V1-REPLAY-LINE-BLINK.
+        private readonly HashSet<uint> lineOffWindowUncovered = new HashSet<uint>();
         // Universal time at the previous sample per pid. The icon-jump expected-motion model uses the ACTUAL
         // per-frame UT advance (currentUT - prevSampleUT) instead of Time.unscaledDeltaTime *
         // TimeWarp.CurrentRate, which under-counts the real on-rails warp step by ~20x at high warp and
@@ -229,6 +238,7 @@ namespace Parsek
             lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
             lastLineToggleBody.Clear();
+            lineOffWindowUncovered.Clear();
             prevSampleUT.Clear();
             suppressedLastSample.Clear();
             lastJumpEmitRealtime.Clear();
@@ -623,6 +633,24 @@ namespace Parsek
             // MapRenderTrace.IsEnabled-gated (tracing OFF by default), so removing the call is
             // OBSERVABILITY-ONLY: flag-OFF / tracing-OFF normal play is byte-identical (the probe never ran).
 
+            // --- Proto-line DARK-WINDOW coverage accounting (feeds the line-blink guard below) ---
+            // While the proto orbit line reads inactive, record whether the trajectory polyline was
+            // ACTUALLY drawing this recording's leg on that frame. polylineOwns above is the
+            // actual-draw ownership signal (drewNonOrbitalLegRecordings), published by the Driver at
+            // exec-order -50 EARLIER THIS FRAME, so it is same-frame coherent with the line.active read
+            // - the ordering the ownership contract is built on. A window covered on every frame is the
+            // by-design handoff (polyline draws, proto hides, one continuous trajectory on screen); a
+            // window with even one uncovered frame is a real gap where nothing drew. Only "False" opens
+            // a window: a degenerate read ("(line-null)" / "(no-renderer)") is deliberately NOT treated
+            // as covered darkness, so it keeps raising.
+            bool lineIsOff = lineActive == "False";
+            bool lineWasOff = hadPrevLine && prevLineActive == "False";
+            if (MapRenderTrace.NextOffWindowUncovered(
+                    lineIsOff, lineWasOff, polylineOwns, lineOffWindowUncovered.Contains(pid)))
+                lineOffWindowUncovered.Add(pid);
+            else
+                lineOffWindowUncovered.Remove(pid);
+
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
             // predicate fires only when the PREVIOUS toggle was within the window,
@@ -637,22 +665,36 @@ namespace Parsek
                 // prior toggle's body; differs from the current body => cross-seam => not a blink.
                 bool toggleCrossedBody = lastLineToggleBody.TryGetValue(pid, out string priorToggleBody)
                     && priorToggleBody != bodyName;
+                // This is the off->on edge iff the previous sample was dark and this one is lit; only
+                // then is there a finished dark window behind us to judge. The accounting step above
+                // passed the verdict through untouched on this lit frame, so the set still holds it.
+                bool offWindowCovered =
+                    lineWasOff && !lineIsOff && !lineOffWindowUncovered.Contains(pid);
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
                         lastToggleFrame: lastToggle,
                         currentFrame: frame,
-                        bodyChanged: toggleCrossedBody))
+                        bodyChanged: toggleCrossedBody,
+                        offWindowCovered: offWindowCovered))
                 {
+                    // offWindowCovered rides the line so a collected log states WHICH shape raised:
+                    // False here is the load-bearing fact - the line went dark and no polyline covered it.
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "line-blink",
                         string.Format(ic,
-                            "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4}",
-                            lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName));
+                            "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
+                            + "offWindowCovered={5} polylineOwns={6}",
+                            lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
+                            offWindowCovered, polylineOwns));
                 }
                 lastLineToggleFrame[pid] = frame;
                 lastLineToggleBody[pid] = bodyName;
+                // The finished window's verdict has now been consumed by this edge; the next dark
+                // window re-derives its own from scratch.
+                if (!lineIsOff)
+                    lineOffWindowUncovered.Remove(pid);
             }
 
             // --- Tier-A FirstPosition (probe-derived MVP variant) ---

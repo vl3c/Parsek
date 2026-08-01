@@ -32,7 +32,7 @@ is the coast INTO the lead window plus the plan-phase warp, not the hold.
 
 ---
 
-## V1-REPLAY-LINE-BLINK: the replaying flown ghost's proto orbit line blinks off/on under 100x rails warp [FOUND 2026-07-30 by V1-map-dwell-mun-orbit's FIRST dwell (run `2026-07-30_2251` collected log; that mission red on an unrelated over-strict assertion, so the sweep never classified it). REPRODUCED the same day by the SECOND dwell (run `2026-07-30_1955`, collected log `2026-07-30_2322`): mission PASS, every other verifier green, anomaly sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]` -> the scenario's first honest `PARSEK-FAIL(anomaly)`. Two independent replays, two raises each. REPORTED, NOT DIAGNOSED. The first real-geometry finding of the visual-validation program]
+## V1-REPLAY-LINE-BLINK: the replaying flown ghost's proto orbit line blinks off/on under 100x rails warp [FOUND 2026-07-30 by V1-map-dwell-mun-orbit's FIRST dwell (run `2026-07-30_2251` collected log; that mission red on an unrelated over-strict assertion, so the sweep never classified it). REPRODUCED the same day by the SECOND dwell (run `2026-07-30_1955`, collected log `2026-07-30_2322`): mission PASS, every other verifier green, anomaly sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]` -> the scenario's first honest `PARSEK-FAIL(anomaly)`. Two independent replays, two raises each. DIAGNOSED 2026-08-01, branch `fix-v1-line-blink`: verdict (B) BENIGN OWNERSHIP HANDOFF, suppressed with an evidence-based guard rather than a budget - see "Diagnosis" below. AWAITING the confirming re-fly (the diagnosis is code-first; no flight has been run against the guard yet). The first real-geometry finding of the visual-validation program]
 
 ### What happens
 
@@ -63,7 +63,7 @@ frames at high warp (phase-boundary handoff lag), not the map-orbit reseed
 cadence itself. DETERMINISTIC: exactly 2 raises per dwell across all three
 dwells flown 2026-07-30, and nothing else raised (zero unlisted reasons).
 
-### Why this entry exists before a diagnosis
+### Why this entry existed before a diagnosis
 
 `line-blink` is in the GATED `hlib.ANOMALY_TOKENS` set, so the moment a V1
 flight is otherwise green the sweep classifies `PARSEK-FAIL(anomaly)` against
@@ -76,6 +76,102 @@ reseed cadence), fix it if it is a real render defect, or - if it proves benign
 at bounded frequency - arm a measured `{ token = "line-blink", maxCount = N }`
 budget on the V1 spec from green-run `hitCounts` evidence. Do NOT whitelist the
 bare token; do NOT set a budget from this single run.
+
+### Diagnosis (2026-08-01): verdict (B), a by-design ownership handoff
+
+**The blink is the proto orbit line correctly standing down while the
+trajectory polyline draws the recording's non-orbital leg.** Both surfaces
+belong to the same ghost, and hiding the proto line while the polyline owns is
+not an accident - it is the anti-double-draw invariant that
+`polyline-orbit-overlap` enforces from the other side. Across such a window the
+user sees ONE continuous trajectory: proto conic, then polyline, then proto
+conic again. `MapRenderProbe.IsLineBlink` watches only the ProtoOrbitLine
+surface, so it sees a bare off/on pair and cannot tell the handoff from a
+flicker.
+
+Warp is what made it visible to the detector rather than what caused it. The
+two windows are 4 and 8 frames; the probe samples EVERY frame (no cadence -
+`MapRenderProbe.LateUpdate` calls `Sample` per ghost per frame), so those are
+real Unity frames. At the ramp step in force between the two raises (frames
+87767 -> 87807 advance UT 1329.4 -> 1996.4, i.e. ~16.7 s of replay per frame),
+4 and 8 frames are ~67 and ~134 game-seconds of replayed ascent / early
+transfer - the length of real recorded non-orbital stretches on a Kerbal X
+flight, not a 1-2 frame artifact. At 1x the same two transitions are seconds
+apart and never come near `LineBlinkFrameWindow = 8`; the ramp compresses a
+whole leg into the window. That is exactly the shape the existing `bodyChanged`
+guard already handles for the SOI seam ("two correct transitions ... under high
+warp those two toggles can compress below the frame window").
+
+Three code facts support the reading, and one bounds it:
+
+1. The suppression is deliberate and ours. `GhostOrbitLinePatch.Postfix` sets
+   `line.active = false` in exactly the branches the reported reason cycle
+   names (`director-traced-path-suppress`, `polyline-owns-phase`) and back true
+   at `director-stockconic-visible`, which the collected Tier-B truth shows
+   owning the re-activation frames.
+2. `polyline-owns-phase` cannot log unless `IsPolylineOwningGhostPhase` is
+   true, and that resolves through `drewNonOrbitalLegRecordings`, which is
+   published ONLY on an ACTUAL draw. Its appearance in the reason cycle around
+   the raises is direct evidence a polyline leg was drawing there.
+3. `decision-vs-truth` stayed silent on every one of those frames. That
+   reconciles the patch's recorded intent against the end-of-frame truth, so
+   the line being dark was INTENDED by our own cascade - not KSP or another
+   patch mutating `line.active` behind us.
+
+**The bound: "the polyline owns" and "the polyline drew" are not the same
+boolean, and the first branch keys on the wrong one.** The
+`director-traced-path-suppress` branch hides the proto line on
+`ShadowRenderDriver.IsTracedPathOwnedThisFrame` - the Director's TracedPath
+CLASSIFICATION, itself carrying a +/-`SeedFreshnessFrames` (2 frame) tolerance
+- while ownership is published only on a draw. `drewNonOrbitalLegRecordings`'s
+own contract says the draw, not the classification, is what decides whether the
+proto must hide, precisely so it "can never report ownership for a frame where
+nothing drew (the degenerate-leg / head-in-gap ... gap)". So a frame in which
+the classification suppresses the proto and no leg actually draws is
+structurally reachable, and THAT frame is a real dark gap.
+
+### The fix: make the token discriminate instead of budgeting it
+
+Rather than arm a `maxCount = 2` budget - which would tolerate the benign case
+and the real dark gap identically, at the same count - the raise site now
+distinguishes them. `MapRenderProbe` accumulates, for the dark window it is
+currently inside, whether EVERY frame of that window had an actual polyline
+draw (`IsPolylineOwningGhostPhase`, same-frame coherent because the Driver
+publishes at `[DefaultExecutionOrder(-50)]` before the orbit patch reads).
+`MapRenderTrace.IsLineBlink` gains an `offWindowCovered` guard, mirroring
+`bodyChanged`, that suppresses a fully covered window. The accounting is a pure
+predicate, `MapRenderTrace.NextOffWindowUncovered`, with one sticky rule: a
+single uncovered frame poisons the window for its whole length, and later
+coverage cannot un-darken it.
+
+This SHARPENS the instrument rather than softening it. After the guard, a
+`line-blink` raise on the RE-ACTIVATION edge - the direction both V1 raises
+fired in - means "the proto line went dark and nothing drew in its place", the
+only shape in which the map actually goes dark and the shape worth gating.
+Before it, the token could not tell that from a correct handoff. The opposite
+direction (a brief LIT interval between two dark windows) is deliberately
+unchanged: a conic line flashing on for a couple of frames between two polyline
+legs is its own visible artefact, and there is no future window to judge it
+against anyway.
+Every raise now carries `offWindowCovered=` and `polylineOwns=` so a collected
+log states which shape fired. Observability-only: `MapRenderProbe` /
+`MapRenderTrace` are `mapRenderTracing`-gated and off by default, so normal
+play is byte-identical and no render behaviour changed.
+
+Consequently NO budget is armed on the V1 spec and no `allowedAnomalies` entry
+is added - per the arming guidance, a benign-and-suppressed finding needs
+neither.
+
+**What the confirming run proves.** A re-fly of `V1-map-dwell-mun-orbit` should
+read `hitCounts={}`. If instead it still reads `line-blink`, the raise now
+carries `offWindowCovered=False`, which is the OTHER verdict arriving with its
+own evidence: a genuine frame where neither surface drew, whose fix is at the
+handoff (make the `director-traced-path-suppress` branch draw-backed rather
+than classification-backed) and not at the raise site. Either way the next run
+is decisive, which the pre-guard token was not. NOT YET FLOWN: this diagnosis
+is code-first, and the container it was made in has neither a KSP install nor
+the collected logs, so the two dwells' evidence quoted above is as recorded in
+this entry and in `autotest-status.md`, not re-read from `KSP.log`.
 
 ### Evidence
 
@@ -1880,15 +1976,15 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 
 | Raised reason | In ANOMALY_TOKENS? | Producer (decision site) |
 |---|---|---|
-| `parity-drift` | yes | `MapRenderProbe.cs:1193`, `:1449`, `:1627` (via `MapRenderTrace.AnomalyParityDrift`) |
-| `line-blink` | yes | `MapRenderProbe.cs:647` |
-| `decision-vs-truth` | yes | `MapRenderProbe.cs:579` |
-| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:599` |
+| `parity-drift` | yes | `MapRenderProbe.cs:1235`, `:1491`, `:1669` (via `MapRenderTrace.AnomalyParityDrift`) |
+| `line-blink` | yes | `MapRenderProbe.cs:683` |
+| `decision-vs-truth` | yes | `MapRenderProbe.cs:589` |
+| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:609` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | **NO** | `MapRenderProbe.cs:753` |
-| `icon-off-orbit` | **NO** | `MapRenderProbe.cs:834` |
-| `unaccounted-drawn-recording` | **NO** | `MapRenderProbe.cs:437` |
+| `icon-teleport` | **NO** | `MapRenderProbe.cs:795` |
+| `icon-off-orbit` | **NO** | `MapRenderProbe.cs:876` |
+| `unaccounted-drawn-recording` | **NO** | `MapRenderProbe.cs:447` |
 | `gap-vs-retire` | **NO** | `MapRender/GhostRenderReconciler.cs:240` |
 | `decision-vs-old-truth` | **NO** | `MapRender/GhostRenderReconciler.cs:260` |
 | `clock-not-ready` | **NO** | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1342`) |

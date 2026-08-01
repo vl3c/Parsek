@@ -30,7 +30,7 @@ tier = "daily"
 #      rigid-seam-tangent-discontinuity and ledger-vs-truth all red. Those are the
 #      SIX live gated tokens. The seventh entry in hlib.ANOMALY_TOKENS,
 #      `icon-jump`, is DEAD - no producer anywhere passes it as a reason (the
-#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:753) - so it cannot
+#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:795) - so it cannot
 #      red anything and is deliberately not listed here. Nine further raised
 #      reasons are ungated and REPORT-ONLY via anomalySweep.unlistedReasons; see
 #      the drift entry in docs/dev/todo-and-known-bugs.md;
