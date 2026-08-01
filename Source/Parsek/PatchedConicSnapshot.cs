@@ -11,7 +11,17 @@ namespace Parsek
         NullSolver = 1,
         UpdateFailed = 2,
         PatchLimitUnavailable = 3,
-        MissingPatchBody = 4
+        MissingPatchBody = 4,
+
+        /// <summary>
+        /// A patch whose orbital elements (or UT bounds) are not finite. Stock's own
+        /// solver can produce these - it logs "dT is NaN! tA: NaN, E: NaN, M: NaN,
+        /// T: NaN" while doing it - and they are unusable as a predicted tail, so they
+        /// are refused here rather than copied into a recording. Treated exactly like
+        /// <see cref="MissingPatchBody"/> downstream: a transient degenerate solver
+        /// state, not a destroyed vessel.
+        /// </summary>
+        NonFinitePatchElements = 5
     }
 
     internal enum PatchedConicTransitionType
@@ -217,6 +227,43 @@ namespace Parsek
                         return result;
                     }
 
+                    if (!HasFinitePatchElements(patch))
+                    {
+                        // Same partial-keep semantics as the null-body case above, for
+                        // the same reason: earlier patches in the chain are real orbits
+                        // worth recording, and only a degenerate patch 0 means "no usable
+                        // data". Refusing here is what keeps a NaN out of the recording's
+                        // predicted segments (and out of every downstream `new Orbit(...)`
+                        // consumer) instead of relying on each of them to notice.
+                        int failedPatchIndex = result.CapturedPatchCount;
+                        string elements = DescribePatchElements(patch);
+                        if (failedPatchIndex > 0)
+                        {
+                            result.FailureReason = PatchedConicSnapshotFailureReason.NonFinitePatchElements;
+                            result.HasTruncatedTail = true;
+                            ParsekLog.VerboseOnChange("PatchedSnapshot",
+                                "snapshot-nonfinite|" + safeVesselName,
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "patchIndex={0}|valid={1}|elements={2}",
+                                    failedPatchIndex,
+                                    failedPatchIndex,
+                                    elements),
+                                $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                                $"body={bodyName} has non-finite elements ({elements}); truncated chain after " +
+                                $"{failedPatchIndex} valid patch(es), keeping partial result");
+                            break;
+                        }
+
+                        ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.NonFinitePatchElements);
+                        ParsekLog.WarnRateLimited("PatchedSnapshot",
+                            "nonfinite-patch-" + safeVesselName,
+                            $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                            $"body={bodyName} has non-finite elements ({elements}); aborting predicted snapshot capture",
+                            minIntervalSeconds: 30.0);
+                        return result;
+                    }
+
                     bool endsAtManeuverNode = patch.EndTransition == PatchedConicTransitionType.Maneuver;
                     result.Segments.Add(ToOrbitSegment(
                         patch,
@@ -289,6 +336,71 @@ namespace Parsek
             result.EncounteredManeuverNode = false;
             result.LastCapturedBodyName = null;
             result.FailureReason = failureReason;
+        }
+
+        /// <summary>
+        /// Whether a stock patch carries elements Parsek can actually record. Stock's
+        /// patched-conic solver does hand out Not-a-Number patches (measured on an
+        /// orbital EVA kerbal, alongside stock's own "dT is NaN! tA: NaN, E: NaN,
+        /// M: NaN, T: NaN" and "CheckEncounter: failed to find any intercepts at all"),
+        /// and <see cref="ToOrbitSegment"/> copies every field verbatim.
+        /// <para>
+        /// The UT BOUNDS are checked with the elements, not separately: a segment's
+        /// <c>endUT</c> is the UT the finalizer propagates the terminal predicted
+        /// segment AT, so a NaN there poisons the propagation just as thoroughly as a
+        /// NaN element would - and <c>ToOrbitSegment</c>'s <c>patch.EndUT &lt; startUT</c>
+        /// clamp cannot catch it, because every comparison against NaN is false.
+        /// </para>
+        /// </summary>
+        internal static bool HasFinitePatchElements(IPatchedConicOrbitPatch patch)
+        {
+            if (patch == null)
+                return false;
+
+            return IsFinite(patch.StartUT)
+                && IsFinite(patch.EndUT)
+                && IsFinite(patch.Inclination)
+                && IsFinite(patch.Eccentricity)
+                && IsFinite(patch.SemiMajorAxis)
+                && IsFinite(patch.LongitudeOfAscendingNode)
+                && IsFinite(patch.ArgumentOfPeriapsis)
+                && IsFinite(patch.MeanAnomalyAtEpoch)
+                && IsFinite(patch.Epoch);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        /// <summary>
+        /// Names the offending input on the refusal log line: which of the nine values
+        /// were non-finite, and what they were. Without this the WARN says a patch was
+        /// bad without saying which number was bad.
+        /// </summary>
+        private static string DescribePatchElements(IPatchedConicOrbitPatch patch)
+        {
+            if (patch == null)
+                return "(null-patch)";
+
+            var offending = new List<string>();
+            AppendIfNonFinite(offending, "startUT", patch.StartUT);
+            AppendIfNonFinite(offending, "endUT", patch.EndUT);
+            AppendIfNonFinite(offending, "inc", patch.Inclination);
+            AppendIfNonFinite(offending, "ecc", patch.Eccentricity);
+            AppendIfNonFinite(offending, "sma", patch.SemiMajorAxis);
+            AppendIfNonFinite(offending, "lan", patch.LongitudeOfAscendingNode);
+            AppendIfNonFinite(offending, "argPe", patch.ArgumentOfPeriapsis);
+            AppendIfNonFinite(offending, "mEp", patch.MeanAnomalyAtEpoch);
+            AppendIfNonFinite(offending, "epoch", patch.Epoch);
+
+            return offending.Count > 0 ? string.Join(" ", offending.ToArray()) : "(all-finite)";
+        }
+
+        private static void AppendIfNonFinite(List<string> offending, string name, double value)
+        {
+            if (!IsFinite(value))
+                offending.Add(name + "=" + value.ToString("R", CultureInfo.InvariantCulture));
         }
 
         private static OrbitSegment ToOrbitSegment(

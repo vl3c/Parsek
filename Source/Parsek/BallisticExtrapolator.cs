@@ -1587,11 +1587,23 @@ namespace Parsek
                 return true;
             }
 
+            /// <summary>
+            /// Builds the radians-internal orbit from a segment's KSP-native elements,
+            /// or declines when the element set is one this propagator cannot express.
+            /// See <see cref="AreSegmentElementsPropagatable"/> for what "cannot express"
+            /// means and why declining (rather than propagating a degenerate conic) is
+            /// the contract.
+            /// </summary>
             public static bool TryCreateFromSegment(
                 OrbitSegment segment,
                 double gravParameter,
                 out TwoBodyOrbit orbit)
             {
+                orbit = default(TwoBodyOrbit);
+                if (!AreSegmentElementsPropagatable(segment, gravParameter))
+                    return false;
+
+                bool isElliptic = segment.eccentricity < 1.0;
                 orbit = new TwoBodyOrbit
                 {
                     BodyRadius = 0.0,
@@ -1604,18 +1616,76 @@ namespace Parsek
                     MeanAnomalyAtEpoch = segment.meanAnomalyAtEpoch,
                     Epoch = segment.epoch,
                     PeriapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity),
-                    ApoapsisRadius = segment.eccentricity < 1.0
+                    ApoapsisRadius = isElliptic
                         ? segment.semiMajorAxis * (1.0 + segment.eccentricity)
                         : double.PositiveInfinity,
-                    Period = segment.eccentricity < 1.0
+                    Period = isElliptic
                         ? (Math.PI * 2.0) * Math.Sqrt(
                             (segment.semiMajorAxis * segment.semiMajorAxis * segment.semiMajorAxis) / gravParameter)
                         : double.PositiveInfinity,
-                    IsElliptic = segment.eccentricity < 1.0
+                    IsElliptic = isElliptic
                 };
-                return !double.IsNaN(orbit.SemiMajorAxis)
-                    && !double.IsInfinity(orbit.SemiMajorAxis)
-                    && gravParameter > 0.0;
+                return true;
+            }
+
+            /// <summary>
+            /// The element preconditions <see cref="GetStateAtUT"/> depends on but cannot
+            /// check for itself. Every one of them is a set the Kepler propagation has no
+            /// finite answer for, so the honest response is to decline the segment rather
+            /// than hand a caller a NaN state (or, worse, throw out of the propagator):
+            /// <list type="number">
+            /// <item>NON-FINITE ELEMENTS. Stock KSP can hand Parsek a patched-conic patch
+            /// whose elements are Not-a-Number - measured on an ORBITAL EVA KERBAL, where
+            /// <c>PatchedConicSolver.Update</c> itself logs
+            /// "dT is NaN! tA: NaN, E: NaN, M: NaN, T: NaN" before
+            /// <c>PatchedConicSnapshot</c> copies the patch. A NaN eccentricity is the
+            /// nastiest of these because every comparison against it is false, so the
+            /// <c>&lt; 1.0</c> elliptic test classifies it HYPERBOLIC and routes it into
+            /// <see cref="SolveHyperbolicKepler"/>. Only <c>semiMajorAxis</c> used to be
+            /// checked here, which let the other six through.</item>
+            /// <item>NEGATIVE ECCENTRICITY: not a conic.</item>
+            /// <item>PARABOLIC (e == 1): the semi-major axis is undefined and the
+            /// semi-latus rectum a(1 - e^2) collapses to zero, so the velocity scale
+            /// sqrt(mu / p) is infinite. <see cref="TryCreate"/> rejects the same case
+            /// from the state-vector side (zero specific energy), so both constructors
+            /// now agree.</item>
+            /// <item>A SEMI-MAJOR AXIS WHOSE SIGN DISAGREES WITH THE CONIC CLASS. Closed
+            /// orbits have a &gt; 0 and open ones a &lt; 0; mixing them makes the
+            /// hyperbolic mean motion sqrt(mu / (-a)^3) take the root of a negative and
+            /// hands NaN to the solver even though every element was finite.</item>
+            /// </list>
+            /// Note this is deliberately NOT a clamp: the degenerate patch carries no
+            /// recoverable trajectory, so the tail is declined and the caller falls back
+            /// (or simply keeps its previous answer), exactly as it already does for an
+            /// unresolvable tail.
+            /// </summary>
+            internal static bool AreSegmentElementsPropagatable(OrbitSegment segment, double gravParameter)
+            {
+                if (!IsFiniteElement(gravParameter) || gravParameter <= 0.0)
+                    return false;
+
+                if (!IsFiniteElement(segment.semiMajorAxis)
+                    || !IsFiniteElement(segment.eccentricity)
+                    || !IsFiniteElement(segment.meanAnomalyAtEpoch)
+                    || !IsFiniteElement(segment.epoch)
+                    || !IsFiniteElement(segment.inclination)
+                    || !IsFiniteElement(segment.longitudeOfAscendingNode)
+                    || !IsFiniteElement(segment.argumentOfPeriapsis))
+                {
+                    return false;
+                }
+
+                if (segment.eccentricity < 0.0 || Math.Abs(segment.eccentricity - 1.0) <= OrbitEpsilon)
+                    return false;
+
+                return segment.eccentricity < 1.0
+                    ? segment.semiMajorAxis > 0.0
+                    : segment.semiMajorAxis < 0.0;
+            }
+
+            private static bool IsFiniteElement(double value)
+            {
+                return !double.IsNaN(value) && !double.IsInfinity(value);
             }
 
             public Vector3d GetPositionAtUT(double ut)
@@ -1714,8 +1784,35 @@ namespace Parsek
                 return eccentricAnomaly;
             }
 
+            /// <summary>
+            /// Newton solve of the hyperbolic Kepler equation M = e sinh H - H.
+            /// <para>
+            /// TOTAL BY CONTRACT: returns NaN for a mean anomaly the equation has no
+            /// finite solution for, and never throws. That guard is load-bearing, not
+            /// decorative. <c>Math.Sign</c> is the one <c>System.Math</c> entry point
+            /// that THROWS <c>ArithmeticException</c> on NaN instead of propagating it,
+            /// and the initial-guess line below is the only place this propagator calls
+            /// it - so a NaN mean anomaly used to escape as an exception all the way out
+            /// through <c>GetStateAtUT</c>, <c>TryPropagate</c> and the finalization-cache
+            /// refresh into <c>FlightRecorder.OnPhysicsFrame</c>, which calls that refresh
+            /// BEFORE it samples. One degenerate stock patched conic therefore cost the
+            /// recorder every sample of every frame: a ten-second orbital EVA finalized
+            /// with a single point and 501 ArithmeticExceptions in the log.
+            /// </para>
+            /// <para>
+            /// A NaN return is safe for every caller: each one validates the resulting
+            /// state through an IsFinite check and treats a non-finite result as a
+            /// declined propagation. A non-finite ECCENTRICITY needs no guard here - it
+            /// poisons the iteration arithmetically and falls out as NaN without ever
+            /// reaching <c>Math.Sign</c> - and is refused up front by
+            /// <see cref="AreSegmentElementsPropagatable"/> anyway.
+            /// </para>
+            /// </summary>
             private static double SolveHyperbolicKepler(double meanAnomaly, double eccentricity)
             {
+                if (!IsFiniteElement(meanAnomaly))
+                    return double.NaN;
+
                 double hyperbolicAnomaly = Math.Sign(meanAnomaly) == 0
                     ? 0.0
                     : Math.Log((2.0 * Math.Abs(meanAnomaly) / eccentricity) + 1.8) * Math.Sign(meanAnomaly);

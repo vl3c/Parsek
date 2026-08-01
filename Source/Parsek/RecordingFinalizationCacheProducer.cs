@@ -225,12 +225,65 @@ namespace Parsek
 
             Recording context = recording ?? BuildContextRecording(recordingId, vesselPid, refreshUT);
             IncompleteBallisticFinalizationResult result;
-            if (!TryBuildDefaultFinalizationResult(
+            bool finalized;
+            try
+            {
+                finalized = TryBuildDefaultFinalizationResult(
                     context,
                     vessel.RawVessel,
                     refreshUT,
                     recordingTree,
-                    out result))
+                    out result);
+            }
+            catch (Exception ex)
+            {
+                // The finalization cache is an OPTIMISATION - it pre-computes the tail a
+                // recording would be finalized with - and it must never be able to cost a
+                // sample. It could: FlightRecorder.OnPhysicsFrame calls the refresh BEFORE
+                // it samples the trajectory, so an exception escaping here takes that
+                // frame's trajectory point, part events and background pass with it.
+                // Measured on an orbital EVA (2026-07-30): one degenerate stock patched
+                // conic threw ArithmeticException out of the extrapolator on all 501
+                // physics frames of a ten-second EVA, and the recording finalized with a
+                // single point - not degraded, empty.
+                //
+                // The specific throw is fixed at its source and at the solver boundary;
+                // this guard is the structural half, so the NEXT unforeseen extrapolator
+                // failure degrades to "no fresh cache this refresh" instead of to "no
+                // recording". Failing the cache re-uses the existing decline path:
+                // TryPreservePreviousCacheAfterFailedRefresh keeps the last good cache,
+                // and the Failed status makes the next refresh retry.
+                result = default(IncompleteBallisticFinalizationResult);
+                finalized = false;
+                ParsekLog.WarnRateLimited("FinalizerCache",
+                    $"refresh-threw.{cache.VesselPersistentId}",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Refresh threw: owner={0} rec={1} pid={2} reason={3} refreshUT={4:F3} body={5} "
+                        + "situation={6} loaded={7} packed={8} exception={9}: {10}; "
+                        + "declining the finalization cache for this refresh, recording sampling continues",
+                        cache.Owner,
+                        recordingId ?? "(pending)",
+                        cache.VesselPersistentId,
+                        reason ?? "(none)",
+                        refreshUT,
+                        cache.LastObservedBodyName ?? "(unknown)",
+                        vessel.Situation,
+                        vessel.IsLoaded,
+                        vessel.IsPacked,
+                        ex.GetType().Name,
+                        ex.Message),
+                    minIntervalSeconds: 30.0);
+
+                return CompleteRefresh(
+                    cache,
+                    Fail(cache, "default-finalizer-threw"),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            if (!finalized)
             {
                 if (IsSuppressedSubSurfaceDestroyedDecline(result))
                 {

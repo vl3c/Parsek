@@ -701,6 +701,149 @@ namespace Parsek.Tests
                 line.Contains("segments=1"));
         }
 
+        /// <summary>
+        /// AN ORBITAL EVA RECORDS NOTHING (2026-07-30): the degrade path, pinned
+        /// independently of the specific throw that exposed it.
+        /// <para>
+        /// The finalization cache is an OPTIMISATION, but
+        /// <c>FlightRecorder.OnPhysicsFrame</c> refreshes it BEFORE it samples, so an
+        /// exception escaping the refresh takes that frame's trajectory point, part
+        /// events and background pass with it. In flight that meant 501
+        /// ArithmeticExceptions - one per physics frame - and a ten-second orbital EVA
+        /// that finalized with a single point. Not degraded: empty.
+        /// </para>
+        /// <para>
+        /// So the contract is: whatever the extrapolator does, the refresh RETURNS. It
+        /// fails loud (a WARN naming the vessel, the refresh reason and the exception),
+        /// and it declines through the ordinary Failed-cache path so the caller keeps
+        /// its previous cache and retries next tick.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TryBuildFromLiveVessel_DefaultFinalizerThrows_DeclinesLoudlyInsteadOfEscaping()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    throw new ArithmeticException("Function does not accept floating point Not-a-Number values.");
+                };
+
+            var vesselView = MakeFlyingView(707u, packed: false, loaded: true, inAtmosphere: false);
+            var recording = new Recording
+            {
+                RecordingId = "rec-eva-nan-conic",
+                VesselPersistentId = 707u,
+                ExplicitEndUT = 422.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vesselView,
+                432.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.Equal(FinalizationCacheStatus.Failed, cache.Status);
+            Assert.Equal("default-finalizer-threw", cache.DeclineReason);
+
+            // Fail-loud, and grep-stable: the line has to name the input that broke it.
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][FinalizerCache]") &&
+                line.Contains("Refresh threw") &&
+                line.Contains("rec=rec-eva-nan-conic") &&
+                line.Contains("pid=707") &&
+                line.Contains("reason=periodic") &&
+                line.Contains("exception=ArithmeticException") &&
+                line.Contains("recording sampling continues"));
+        }
+
+        /// <summary>
+        /// The throw must not be able to destroy a cache the recorder already has: a
+        /// throwing refresh reports Failed, which is exactly what
+        /// <c>TryPreservePreviousCacheAfterFailedRefresh</c> keys off to keep the last
+        /// good answer, and the Failed status is what makes the next tick retry.
+        /// </summary>
+        [Fact]
+        public void TryBuildFromLiveVessel_DefaultFinalizerThrows_LeavesThePreviousCachePreservable()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    throw new ArithmeticException("Function does not accept floating point Not-a-Number values.");
+                };
+
+            var previous = new RecordingFinalizationCache
+            {
+                RecordingId = "rec-eva-nan-conic",
+                VesselPersistentId = 707u,
+                Status = FinalizationCacheStatus.Fresh,
+                TerminalState = TerminalState.Orbiting,
+                TerminalUT = 420.0
+            };
+
+            var vesselView = MakeFlyingView(707u, packed: false, loaded: true, inAtmosphere: false);
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                new Recording { RecordingId = "rec-eva-nan-conic", VesselPersistentId = 707u },
+                vesselView,
+                432.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache refreshed);
+
+            Assert.False(built);
+            Assert.True(RecordingFinalizationCacheProducer.TryPreservePreviousCacheAfterFailedRefresh(
+                previous,
+                refreshed,
+                432.0,
+                "periodic",
+                "Kerbin|sit=ORBITING|atmo=False|thrust=False"));
+
+            // Preserved, not discarded: still the same terminal answer, now marked
+            // Stale and carrying the throw's decline reason for the next reader.
+            Assert.Equal(FinalizationCacheStatus.Stale, previous.Status);
+            Assert.Equal(TerminalState.Orbiting, previous.TerminalState);
+            Assert.Equal(420.0, previous.TerminalUT);
+            Assert.Equal("default-finalizer-threw", previous.DeclineReason);
+        }
+
+        /// <summary>
+        /// And the guard must not swallow ORDINARY declines: a finalizer that simply
+        /// returns false still takes the existing decline branch, not the throw one, so
+        /// the two failure modes stay distinguishable in the log.
+        /// </summary>
+        [Fact]
+        public void TryBuildFromLiveVessel_DefaultFinalizerDeclines_KeepsTheOrdinaryDeclineReason()
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var vesselView = MakeFlyingView(708u, packed: false, loaded: true, inAtmosphere: false);
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                new Recording { RecordingId = "rec-ordinary-decline", VesselPersistentId = 708u },
+                vesselView,
+                432.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.Equal("default-finalizer-declined", cache.DeclineReason);
+            Assert.DoesNotContain(logLines, line => line.Contains("Refresh threw"));
+        }
+
         [Fact]
         public void TryBuildFromLiveVessel_AlreadyDestroyed_SkipsAcrossPeriodicTicksWithoutMutatingTerminal()
         {

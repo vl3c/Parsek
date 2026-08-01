@@ -317,6 +317,148 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// AN ORBITAL EVA RECORDS NOTHING (2026-07-30). Stock's own patched-conic
+        /// solver can produce a Not-a-Number patch - on the orbital EVA kerbal it
+        /// logged "dT is NaN! tA: NaN, E: NaN, M: NaN, T: NaN" and "CheckEncounter:
+        /// failed to find any intercepts at all" while doing it - and this snapshot
+        /// copied every field verbatim into the recording's predicted segments.
+        /// Downstream, a NaN eccentricity fails the <c>&lt; 1.0</c> elliptic test, so
+        /// the extrapolator classified it hyperbolic and threw ArithmeticException out
+        /// of <c>Math.Sign(NaN)</c> on every physics frame. Refuse the patch here so
+        /// the NaN never enters a recording at all.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchElements_FailsWithoutCapturingTheNaN()
+        {
+            var nanPatch = MakePatch(100, 200);
+            nanPatch.Eccentricity = double.NaN;
+            nanPatch.MeanAnomalyAtEpoch = double.NaN;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = nanPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 8, "Orbital EVA Kerbal");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Equal(0, result.CapturedPatchCount);
+            Assert.Equal(4, source.PatchLimit);
+
+            // The refusal has to NAME the offending input, or the log says a patch was
+            // bad without saying which number was bad.
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("Orbital EVA Kerbal") &&
+                line.Contains("has non-finite elements") &&
+                line.Contains("ecc=NaN") &&
+                line.Contains("mEp=NaN") &&
+                line.Contains("aborting predicted snapshot capture"));
+        }
+
+        /// <summary>
+        /// A NaN <c>EndUT</c> is its own route to the same throw and is invisible to
+        /// <c>ToOrbitSegment</c>'s <c>patch.EndUT &lt; startUT</c> clamp, because every
+        /// comparison against NaN is false. It matters because the finalizer propagates
+        /// the terminal predicted segment AT <c>segment.endUT</c>: a well-formed
+        /// hyperbolic tail evaluated at a NaN UT reaches <c>Math.Sign(NaN)</c> just as
+        /// surely as a NaN element does.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchEndUT_IsRefusedRatherThanClamped()
+        {
+            var nanEndPatch = MakePatch(100, double.NaN);
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = nanEndPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 8, "Nan End Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("endUT=NaN"));
+        }
+
+        /// <summary>
+        /// Same partial-keep policy as the null-body case below: earlier patches in the
+        /// chain are real orbits worth recording, so a degenerate patch at index &gt; 0
+        /// truncates rather than discarding everything.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchAfterValidPrefix_KeepsPartialResult()
+        {
+            var nanPatch = MakePatch(200, 320, body: "Mun");
+            nanPatch.SemiMajorAxis = double.PositiveInfinity;
+            var firstPatch = MakePatch(100, 200, body: "Kerbin",
+                transition: PatchedConicTransitionType.Encounter);
+            firstPatch.NextPatch = nanPatch;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = firstPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Partial Nan Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Single(result.Segments);
+            Assert.Equal("Kerbin", result.Segments[0].bodyName);
+            Assert.Equal(1, result.CapturedPatchCount);
+            Assert.True(result.HasTruncatedTail);
+            Assert.All(result.Segments, seg =>
+            {
+                Assert.False(double.IsNaN(seg.semiMajorAxis) || double.IsInfinity(seg.semiMajorAxis));
+                Assert.False(double.IsNaN(seg.endUT) || double.IsInfinity(seg.endUT));
+            });
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("has non-finite elements") &&
+                line.Contains("truncated chain after 1 valid patch(es), keeping partial result"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("aborting predicted snapshot capture"));
+        }
+
+        [Fact]
+        public void HasFinitePatchElements_AcceptsAWellFormedPatchAndRejectsEachNonFiniteField()
+        {
+            Assert.True(PatchedConicSnapshot.HasFinitePatchElements(MakePatch(100, 200)));
+            Assert.False(PatchedConicSnapshot.HasFinitePatchElements(null));
+
+            foreach (double poison in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            {
+                AssertFieldRejected(p => p.StartUT = poison, "StartUT", poison);
+                AssertFieldRejected(p => p.EndUT = poison, "EndUT", poison);
+                AssertFieldRejected(p => p.Inclination = poison, "Inclination", poison);
+                AssertFieldRejected(p => p.Eccentricity = poison, "Eccentricity", poison);
+                AssertFieldRejected(p => p.SemiMajorAxis = poison, "SemiMajorAxis", poison);
+                AssertFieldRejected(p => p.LongitudeOfAscendingNode = poison, "LongitudeOfAscendingNode", poison);
+                AssertFieldRejected(p => p.ArgumentOfPeriapsis = poison, "ArgumentOfPeriapsis", poison);
+                AssertFieldRejected(p => p.MeanAnomalyAtEpoch = poison, "MeanAnomalyAtEpoch", poison);
+                AssertFieldRejected(p => p.Epoch = poison, "Epoch", poison);
+            }
+        }
+
+        private static void AssertFieldRejected(
+            Action<FakePatchedConicOrbitPatch> poisonField,
+            string fieldName,
+            double poison)
+        {
+            FakePatchedConicOrbitPatch patch = MakePatch(100, 200);
+            poisonField(patch);
+            Assert.False(
+                PatchedConicSnapshot.HasFinitePatchElements(patch),
+                $"{fieldName}={poison.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} must be refused");
+        }
+
+        /// <summary>
         /// Regression for #575: when patch 0 is valid but a later patch has a
         /// null body, the captured prefix must be preserved instead of the
         /// whole result being reset. The 2026-04-25_1314 marker-validator-fix

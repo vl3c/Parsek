@@ -426,7 +426,76 @@ Each is a behavioral change on live extrapolation paths; fix together with an in
 
 ---
 
-## AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame [FOUND 2026-07-30 by the R12 live-validation runs. NOT FIXED]
+## ~~AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame~~ [FOUND 2026-07-30 by the R12 live-validation runs. FIXED 2026-08-01, branch `fix-orbital-eva-kepler`]
+
+### Fix
+
+NOT a residual of ORBITSEGMENT-ANGLE-UNITS, and NOT a clamp. The unit question is
+settled structurally: the only values that reach `SolveHyperbolicKepler` are
+`MeanAnomalyAtEpoch`, `Epoch`, `SemiMajorAxis`, `Eccentricity`, the gravitational
+parameter and the propagation UT. The unit-ambiguous angular elements
+(inc / LAN / argPe) are consumed AFTER the solve, in `RotateFromPerifocal`, so a
+degrees-vs-radians mismatch can only mis-ORIENT the answer - it cannot make
+`Math.Sign` throw, and a mis-scaled `mEp` would be a finite wrong angle, not NaN.
+`Math.Sign` throws for exactly one input: NaN. So the input class is NON-FINITE (or
+sign-inconsistent) elements, matching stock's own upstream `M: NaN`, not mis-scaled
+ones. Three layers, source outwards:
+
+1. **Source - `PatchedConicSnapshot.HasFinitePatchElements`.** A stock patch whose
+   nine elements/UT bounds are not all finite is refused instead of being copied into
+   an `OrbitSegment`, under a new `NonFinitePatchElements` failure reason with the
+   same partial-keep semantics as `MissingPatchBody` (patch 0 aborts, patch N>0
+   truncates and keeps the valid prefix). This is what keeps a NaN out of the
+   recording's persisted predicted segments and out of every downstream degrees
+   consumer. The UT bounds are checked WITH the elements: `ToOrbitSegment`'s
+   `patch.EndUT < startUT` clamp cannot catch a NaN `EndUT` (the comparison is false),
+   and `endUT` is the UT the finalizer propagates the terminal segment AT.
+2. **Solver boundary - `TwoBodyOrbit.AreSegmentElementsPropagatable`.**
+   `TryCreateFromSegment` checked only `semiMajorAxis` for finiteness, so the other
+   six elements went through unvalidated; a NaN eccentricity then failed the
+   `< 1.0` elliptic test (every comparison against NaN is false) and was classified
+   HYPERBOLIC. It now declines four classes the propagation has no finite answer for:
+   any non-finite element, negative eccentricity, parabolic `e == 1` (`a` undefined,
+   `p = a(1-e^2) = 0`, so `sqrt(mu/p)` is infinite - `TryCreate` already refused the
+   same case from the state-vector side, so the two constructors now agree), and an
+   `a` whose SIGN disagrees with the conic class (elliptic needs `a > 0`, hyperbolic
+   `a < 0`, or `sqrt(mu / (-a)^3)` roots a negative and manufactures the NaN itself
+   with every element finite). `SolveHyperbolicKepler` is additionally made TOTAL:
+   a non-finite mean anomaly returns NaN, which every caller already handles through
+   its `IsFinite` state check. Not a narrowing - a genuine hyperbola in element form
+   still builds and still matches closed form.
+3. **Caller - `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`.** The
+   finalization cache is an optimisation and must never cost a sample, so the default
+   finalizer call is wrapped: a throw fails loud once (grep-stable
+   `[Parsek][WARN][FinalizerCache] Refresh threw:` naming vessel pid, refresh reason,
+   UT, body, situation and exception, `WarnRateLimited` 30 s) and declines through the
+   existing `Fail(cache, "default-finalizer-threw")` path, so
+   `TryPreservePreviousCacheAfterFailedRefresh` keeps the last good cache and the next
+   tick retries. This covers `BackgroundRecorder` as well as `FlightRecorder`, and is
+   worth having regardless of layer 1/2 - it is the half that makes the NEXT
+   unforeseen extrapolator failure cost a cache, not a recording.
+
+Guarded by new xUnit cells in `BallisticExtrapolatorKeplerTests` (the NaN-eccentricity
+segment declines instead of throwing; a valid hyperbola at a non-finite UT yields NaN
+instead of throwing; the sign-inconsistent conic; a per-element rejection table; and
+closed-form periapsis radius / vis-viva speed / `r.v = 0` proving the accepted set did
+not shrink), `PatchedConicSnapshotTests` (abort at patch 0, truncate at patch N>0, the
+NaN-`EndUT` case, and a per-field predicate table) and
+`RecordingFinalizationCacheProducerTests` (a throwing finalizer declines loudly, the
+previous cache stays preservable, and an ordinary decline keeps its own reason).
+
+STILL OPEN, unchanged by this fix: the harness-side companion below - an
+`expectations.recordings` assertion on POINTS rather than on `.prec` file count. It is
+what would have caught this on EVA-2's first flight, and it is still what would catch
+the next recording that finalizes empty.
+
+NOTED WHILE FIXING, not fixed (different subsystem, no evidence it is reachable):
+`Math.Sign` throws on NaN, and `Source/Parsek/` has exactly three call sites. Two are
+the ones fixed here; the third is `ReputationModule.ApplyReputationCurve`'s
+`Math.Sign(nominal)` (`GameActions/ReputationModule.cs`), whose `nominal == 0f`
+early-out does not catch NaN. Reaching it needs a NaN reputation delta out of a
+recorded ledger action, i.e. a corrupt save rather than a stock-solver quirk, so it is
+recorded here rather than guarded speculatively.
 
 Sibling of the frame-mismatch entry above - same file family (`BallisticExtrapolator`
 / `IncompleteBallisticSceneExitFinalizer`), different failure: this one does not
@@ -496,22 +565,35 @@ the batch-tally one. Nothing in the verifier chain asserts a recording has point
   only non-EVA orbital recording measured here ran 133 ms and never got far enough to
   say.
 
-### Fix directions (not chosen)
+### Fix directions (all three taken - see Fix above)
 
 1. Guard the boundary: `TwoBodyOrbit.TryCreateFromSegment` / `GetStateAtUT` reject
    non-finite elements and return false instead of throwing, so a degenerate conic
    declines to extrapolate rather than killing the frame. Cheapest, and it matches
-   how the rest of the finalizer treats an unresolvable tail.
+   how the rest of the finalizer treats an unresolvable tail. TAKEN, and widened: the
+   audit that wrote this list assumed non-finiteness was the whole input class, but a
+   sign-inconsistent conic (`e > 1` with `a > 0`) reaches the same throw with every
+   element finite, so the guard is on the ELEMENT SET's propagability, not just on
+   finiteness.
 2. Guard the source: `PatchedConicSnapshot` drops a patch whose elements are not
-   finite, so the NaN never enters a recording's predicted segments either.
+   finite, so the NaN never enters a recording's predicted segments either. TAKEN,
+   and widened to the patch's UT BOUNDS: `endUT` is the UT the finalizer propagates
+   the terminal predicted segment at, and `ToOrbitSegment`'s `patch.EndUT < startUT`
+   clamp is blind to a NaN.
 3. Defensive: wrap `RefreshFinalizationCache`'s call in `OnPhysicsFrame` so a
    finalization-cache failure can never cost a sample. This one is worth doing
    REGARDLESS of the other two - the finalization cache is an optimisation, and it
-   should not be able to stop the recorder.
+   should not be able to stop the recorder. TAKEN, but placed one level DOWN from
+   what this line proposed: the guard sits inside
+   `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`, around the default
+   finalizer call, so it covers `BackgroundRecorder`'s refresh path as well as
+   `FlightRecorder.OnPhysicsFrame` from a single site, and it degrades through the
+   producer's existing `Fail(...)` decline contract rather than inventing a second one.
 
 A harness-side companion is worth considering separately: an
 `expectations.recordings` assertion on POINTS, not only on file count, would have
-caught this on EVA-2's first flight.
+caught this on EVA-2's first flight. NOT DONE - still open, and still the thing that
+would catch the next recording that finalizes empty.
 
 ---
 
