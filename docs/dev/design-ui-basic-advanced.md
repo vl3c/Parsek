@@ -174,7 +174,7 @@ Today a button named `Recordings` opens a window titled `Parsek - Recordings` wh
 - The tab order becomes **`{ "Missions", "Recordings" }`**, so Missions is both first and the default selection (`RecordingsTableUI.cs:127`).
 - The tab constants swap to `TabMissions = 0`, `TabRecordings = 1`, and the default becomes `selectedTab = TabMissions` (`RecordingsTableUI.cs:124-126`).
 - `RecordingsTableUI.ScrollToRecording` gains an explicit `selectedTab = TabRecordings` (see section 4.1a; it worked before the reorder only because Recordings happened to be the default tab). Superseded by the section 4.1a revision: the method still does this, but has no production caller.
-- The two Timeline GoTo tooltips `"Show in Recordings Manager"` (`TimelineWindowUI.cs:1193`, `:1223`) become `"Show in Recordings tab"`. Superseded by the section 4.1a revision: the target is now the Missions tab and the tooltip reads `"Show this recording's mission"`.
+- The two Timeline GoTo tooltips `"Show in Recordings Manager"` (both in `TimelineWindowUI.DrawEntryRow`) become `"Show in Recordings tab"`. Superseded by the section 4.1a revision: the target is now the Missions tab and the tooltip reads `"Show this recording's mission"`.
 
 Because the label no longer varies by mode, the planned `GetRecordingsMainButtonLabel(mode)` helper is unnecessary; a constant label is correct, and the `GetKerbalsMainButtonLabel` indirection pattern is not needed here.
 
@@ -244,11 +244,13 @@ Consequence: "I committed this flight and later want its ghost gone" is Advanced
                      Career,                        handler)
                      Kerbals)
 
-   Invariant: the gate feeds LAUNCHER/CONTENT draw sites, the mode-change close
-              handler, and player-facing TEXT that names a gated surface (9.1)
-              ONLY. No recorder, playback, dispatch, or ledger path ever reads it,
-              and the text case may decide only what a message SAYS, never whether
-              it fires or what any action does. The per-window DrawIfOpen call sites are NEVER gated
+   Invariant: the gate feeds THREE consumers and no others -
+              (1) LAUNCHER / CONTENT draw sites,
+              (2) the mode-change close handler,
+              (3) player-facing TEXT that names a gated surface (section 9.1).
+              No recorder, playback, dispatch, or ledger path ever reads it, and
+              consumer (3) may decide only what a message SAYS, never whether it
+              fires or what any action does. The per-window DrawIfOpen call sites are NEVER gated
               (section 7.1) - their !IsOpen -> ReleaseInputLock() prologue is the
               per-frame lock self-heal and must keep running in both modes.
 ```
@@ -448,10 +450,11 @@ One narrow extension of the gate's consumer set, added with the section 4.1a rev
 The rule is deliberately tight:
 
 - The mode may change what a message SAYS, never whether it fires, what is detected, or what any action does. Everything past the wording is behavior the mode is not allowed to touch.
-- Non-UI code must not name the mode vocabulary. It asks a plain reachability question of the UI coordinator (`ParsekUI.IsSpawnControlReachable`), which keeps the `IsVisible` read where every other one lives and keeps the grep gate's allowlist rationale honest.
+- Non-UI code must not name the mode enums. It asks a reachability question of the UI coordinator (`ParsekUI.IsSpawnControlReachable`), which keeps the `IsVisible` read where every other one lives.
+- That accessor is ITSELF one of the grep gate's scanned patterns (section 13.4). Without that, it would be a mode read wearing a plain-bool name: any file in the repo could consume it for any purpose and the gate would still report OK, which is precisely the rot the gate exists to prevent. With it, every consumer is a real hit that has to be allowlisted with a rationale, so the "wording only" rule is enforced by review at a place review actually happens rather than by prose alone.
 - The message formatter itself stays pure and mode-blind: it takes a bool.
 
-Current instance: the proximity notification in `ParsekFlight.NotifyNewProximityCandidates`, formatted by `SelectiveSpawnUI.FormatProximityNotification`. Basic keeps the observation ("Nearby craft: X (departs to Mun in 2m 0s).") and drops the "Open Real Spawn Control" call to action.
+Current instance: the proximity notification in `ParsekFlight.NotifyNewProximityCandidates`, formatted by `SelectiveSpawnUI.FormatProximityNotification`. Basic keeps the observation ("Nearby craft: X (departs to Mun in 2m 0s).") and drops the "Open Real Spawn Control" call to action. Two properties worth knowing: the notification latches once per recording per session, so the mode at first proximity fixes that craft's message for the session; and the Basic message is deliberately still fired, because the craft IS there and visible in-world even though Basic offers no tool to act on it. If that judgment is ever revisited, the honest alternative is a mode-blind reword for both modes, NOT suppressing the message in Basic - suppression would be the mode deciding whether something fires, which this section forbids.
 
 The related case that is NOT this: a message naming a window that is visible in both modes but is the wrong place to send the player. `MergeDialog`'s post-merge seal guidance pointed at the "Recordings window" when Seal is actually reachable from the Timeline and from the Missions tab's Re-Fly cell. That is a plain wording fix with no mode read.
 
@@ -580,7 +583,7 @@ The Timeline has 10 toggles, several being tier filters. Whether those should co
 | Main-window gates | `ParsekUI.cs:193-385` |
 | Tab gates + reorder + clamp | `UI/RecordingsTableUI.cs:124-127`, `:1182-1190` |
 | GoTo cross-link fix + gate | `UI/RecordingsTableUI.ShowMissionForRecording`, `UI/MissionsWindowUI.RevealMissionForRecording`, `UI/TimelineWindowUI.DrawEntryRow` (section 4.1a) |
-| Rename (button, title, tooltips) | `ParsekUI.cs:239`, `UI/RecordingsTableUI.cs:435`, `UI/TimelineWindowUI.cs:1193/:1223` |
+| Rename (button, title, tooltips) | `ParsekUI.cs:239`, `UI/RecordingsTableUI.cs:435`, the two GoTo tooltips in `UI/TimelineWindowUI.DrawEntryRow` |
 | Rename exclusions | `UI/RecordingsTableUI.cs:432` (window ID), log strings (section 4.2 blanket rule), `RecordingPaths.cs` (storage), `UI/TimelineWindowUI.cs:695` (unrelated filter), `SettingsWindowUI.cs:581` + `ParsekUI.cs:927` (wipe strings) |
 | Mode-change close handler | `ParsekUI.OnUiComplexityModeChanged` (explicit per-window list, section 7.2) |
 | Invariant enforcement | `scripts/grep-audit-ui-complexity-mode.ps1` |

@@ -34,11 +34,18 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            // Three cells below assert on Verbose lines, and every cell constructs a ParsekUI -
+            // which writes the static activeInstance and re-seeds the static applied-mode latch.
+            // Reset both ends so a leaked ParsekSettings from an earlier class cannot drop those
+            // lines, and so this class cannot leave a live instance for the next one.
+            ParsekUI.ResetUiComplexityModeForTesting();
         }
 
         public void Dispose()
         {
+            ParsekUI.ResetUiComplexityModeForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
@@ -138,10 +145,14 @@ namespace Parsek.Tests
         // --- The Archive filter ---
 
         // The Archive filter drops an archived mission's whole block from the list, so a
-        // reveal aimed at one would scroll to a row that is never drawn. Clearing the GLOBAL
-        // filter is reversible with one click on the tab's own checkbox.
+        // reveal aimed at one would scroll to a row that is never drawn. The clear is QUEUED,
+        // never written here: the click lands mid-frame inside the Timeline's handler, and this
+        // filter decides how many mission blocks the Missions tab draws - writing it now would
+        // desync that frame's Layout and Repaint control counts and throw. The draw applies it
+        // on its own Layout pass. Clearing the GLOBAL filter is reversible with one click on
+        // the tab's own checkbox.
         [Fact]
-        public void GoToClearsTheArchiveFilterWhenItWouldHideTheTarget()
+        public void GoToQueuesTheArchiveFilterClearWhenItWouldHideTheTarget()
         {
             Mission mission = CommitTreeWithMission("tree-1", "Munshot", "rec-1");
             mission.Archived = true;
@@ -150,10 +161,11 @@ namespace Parsek.Tests
             var ui = new ParsekUI(UIMode.KSC);
             ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
-            Assert.False(MissionStore.HideArchived);
+            Assert.True(ui.GetMissionsUI().PendingClearArchiveFilterForTesting);
+            Assert.True(MissionStore.HideArchived);   // the draw clears it, not the click
             Assert.Equal(mission.Id, ui.GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[UI]") && l.Contains("Cross-link: cleared the Archive filter"));
+                l.Contains("[UI]") && l.Contains("Cross-link: queued an Archive-filter clear"));
         }
 
         // ...but the mission's own Archived flag is a player decision. Navigating to a mission
@@ -171,7 +183,8 @@ namespace Parsek.Tests
             Assert.True(mission.Archived);
         }
 
-        // A filter that is not hiding the target is left exactly as the player set it.
+        // A filter that is not hiding the target is left exactly as the player set it - not
+        // even queued for clearing.
         [Fact]
         public void GoToLeavesTheArchiveFilterAloneForANonArchivedTarget()
         {
@@ -182,12 +195,13 @@ namespace Parsek.Tests
             ui.GetRecordingsTableUI().ShowMissionForRecording("rec-1");
 
             Assert.True(MissionStore.HideArchived);
+            Assert.False(ui.GetMissionsUI().PendingClearArchiveFilterForTesting);
         }
 
         // --- Failure paths: land on the tab, warn, schedule nothing ---
 
         [Fact]
-        public void GoToWarnsAndSchedulesNothingWhenTheRecordingIsNotCommitted()
+        public void GoToWarnsAndSchedulesNothingWhenTheRecordingIsNotEffective()
         {
             var ui = new ParsekUI(UIMode.KSC);
             var table = ui.GetRecordingsTableUI();
@@ -198,7 +212,7 @@ namespace Parsek.Tests
             Assert.Equal(RecordingsTableUI.TabMissions, table.SelectedTabForTesting);
             Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
             Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") && l.Contains("not found in the committed set"));
+                l.Contains("[WARN]") && l.Contains("not found in the effective recording set"));
         }
 
         [Fact]
@@ -273,6 +287,88 @@ namespace Parsek.Tests
             table.ShowMissionForRecording("no-such-recording");
 
             Assert.Null(ui.GetMissionsUI().PendingRevealMissionIdForTesting);
+        }
+
+        // --- Rows that have no mission to go to ---
+
+        // Missions are keyed on recording TREES, and manual Gloops (ghost-only) recordings are
+        // committed WITHOUT one - yet they do produce timeline rows. Before this predicate the
+        // button was live on those rows and did nothing when clicked, which is the same
+        // dead-affordance failure the whole change exists to remove.
+        [Fact]
+        public void GoToIsDisabledForARecordingThatBelongsToNoMission()
+        {
+            var gloops = MakeRec("gloops-1", null, "Gloops Recording");
+
+            Assert.False(TimelineWindowUI.CanGoToMission(gloops));
+            Assert.Equal("This recording is not part of a mission",
+                TimelineWindowUI.GetGoToMissionTooltip(gloops));
+
+            var tree = MakeRec("rec-1", "tree-1");
+            Assert.True(TimelineWindowUI.CanGoToMission(tree));
+            Assert.Equal("Show this recording's mission",
+                TimelineWindowUI.GetGoToMissionTooltip(tree));
+
+            Assert.False(TimelineWindowUI.CanGoToMission(null));
+        }
+
+        // Source-text gate for the same thing: the predicate only protects anyone if the button
+        // actually reads it. Whitespace-insensitive so a reformat cannot red it.
+        [Fact]
+        public void TimelineDisablesBothGoToButtonsOnTheCanGoToPredicate()
+        {
+            string dense = Regex.Replace(ReadTimelineWindowSource(), @"\s+", string.Empty);
+
+            Assert.Equal(2, Regex.Matches(dense, Regex.Escape("GUI.enabled=CanGoToMission(rec);")).Count);
+            Assert.Equal(2, Regex.Matches(
+                dense, Regex.Escape("newGUIContent(\"GoTo\",GetGoToMissionTooltip(rec))")).Count);
+        }
+
+        // --- The mode -> wording bridge (design 9.1) ---
+
+        // The one link between the UI mode and the proximity message. Re-key it to ANY
+        // Basic-visible surface and Basic silently goes back to telling the player to open a
+        // window it has hidden the launcher for - with every other cell still green, because
+        // the formatter cells pass the bool in directly and cannot see this.
+        [Fact]
+        public void SpawnControlReachabilityFollowsTheModeGate()
+        {
+            ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
+            try
+            {
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+                Assert.True(ParsekUI.IsSpawnControlReachable);
+
+                ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
+                ParsekUI.ApplyPendingUiComplexityModeIfAny();
+                Assert.False(ParsekUI.IsSpawnControlReachable);
+            }
+            finally
+            {
+                ParsekSettings.CurrentOverrideForTesting = null;
+                ParsekUI.ResetUiComplexityModeForTesting();
+            }
+        }
+
+        // ...and that the proximity call site actually consults it, rather than passing a
+        // literal. Source-text, for the same reason as the GoTo gate: the call sits in a
+        // per-frame flight path with no headless seam.
+        [Fact]
+        public void ProximityNotificationAsksTheUiWhetherSpawnControlIsReachable()
+        {
+            string projectRoot = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs");
+            if (!File.Exists(path))
+                path = Path.Combine(projectRoot, "Parsek", "ParsekFlight.cs");
+            Assert.True(File.Exists(path), $"ParsekFlight.cs not found at {path}");
+
+            string dense = Regex.Replace(File.ReadAllText(path), @"\s+", string.Empty);
+
+            Assert.Contains(
+                "SelectiveSpawnUI.FormatProximityNotification(cand,currentUT,ParsekUI.IsSpawnControlReachable)",
+                dense);
         }
 
         // --- The gate key (design 4.1a) ---

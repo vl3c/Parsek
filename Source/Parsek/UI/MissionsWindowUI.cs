@@ -41,6 +41,30 @@ namespace Parsek
         private bool revealFirstHeaderSeen;
         private float pendingRevealScrollY = float.NaN;
 
+        // Frame the list last completed a LAYOUT pass in. A Repaint event is NOT on its own
+        // proof that rects are real: GUILayoutUtility solves them at the end of an
+        // EventType.Layout pass and later passes reuse that window's cache, so a window opened
+        // mid-frame (exactly what the GoTo click does when the window was closed) can paint a
+        // Repaint against a cache that was never solved and hand back zero rects. Measuring then
+        // would consume the target, land the list at offset 0, and log it as a success. The
+        // capture waits for a pass whose own Layout ran.
+        private int missionsLayoutFrame = -1;
+
+        // Frame pendingRevealScrollY was captured in. The apply is the very next drawn pass, so
+        // anything older is a target the player has since navigated away from (tab switch,
+        // window close) - applying it minutes later would scroll a list they are looking at for
+        // an unrelated reason.
+        private int pendingRevealScrollFrame = -1;
+        private const int RevealScrollMaxAgeFrames = 4;
+
+        // Queued by the cross-link when the Archive filter would hide its target; applied by the
+        // draw on a LAYOUT pass only (see RevealMissionForRecording for why it cannot be written
+        // from the click handler).
+        private bool pendingClearArchiveFilter;
+
+        // For tests: the queued filter clear, whose application is draw-loop-only.
+        internal bool PendingClearArchiveFilterForTesting => pendingClearArchiveFilter;
+
         // The scheduled cross-link target, for tests: the draw loop that consumes it is an
         // IMGUI callback with no headless seam, so this is the only observable outcome of
         // RevealMissionForRecording that a unit test can assert on.
@@ -350,12 +374,27 @@ namespace Parsek
             pendingRevealMissionId = null;
             pendingRevealScrollY = float.NaN;
 
-            Recording rec;
-            if (!TryResolveCommittedRecording(recordingId, out _, out rec))
+            // ERS-routed, matching the cross-link contract the old Recordings-tab path carried:
+            // navigation resolves to the EFFECTIVE set only, so a superseded recording cannot be
+            // navigated to. No behavior change for today's only caller (the Timeline builds its
+            // rows from ERS too), but it keeps the invariant in code rather than in the caller's
+            // habits - the Kerbals window already has a cross-link of the same shape.
+            Recording rec = null;
+            var effective = EffectiveState.ComputeERS();
+            for (int i = 0; i < effective.Count; i++)
+            {
+                if (effective[i] != null && effective[i].RecordingId == recordingId)
+                {
+                    rec = effective[i];
+                    break;
+                }
+            }
+
+            if (rec == null)
             {
                 ParsekLog.Warn("UI",
-                    $"Cross-link: recording {recordingId ?? "<null>"} not found in the committed set; " +
-                    "opening the Missions tab unscrolled");
+                    $"Cross-link: recording {recordingId ?? "<null>"} not found in the effective " +
+                    "recording set; opening the Missions tab unscrolled");
                 return;
             }
 
@@ -390,11 +429,17 @@ namespace Parsek
             // out of the list. Clear the GLOBAL filter (reversible with one click on the tab's
             // own Archive checkbox), never the mission's own Archived flag - that is a player
             // decision this navigation has no business overwriting.
+            // DEFERRED, not written here: this runs inside the Timeline's button handler, i.e.
+            // mid-frame, and the filter decides whether a whole mission block (a header row plus
+            // every composition row under it) draws at all. Flipping it between a frame's Layout
+            // and Repaint passes changes the control count and throws
+            // "Getting control N's position in a group with only M controls". The draw consumes
+            // the request on its own Layout pass, where both passes of that frame agree.
             if (MissionStore.HideArchived && mission.Archived)
             {
-                MissionStore.HideArchived = false;
-                ParsekLog.Info("UI",
-                    $"Cross-link: cleared the Archive filter to show archived mission '{mission.Name}'");
+                pendingClearArchiveFilter = true;
+                ParsekLog.Verbose("UI",
+                    $"Cross-link: queued an Archive-filter clear to show archived mission '{mission.Name}'");
             }
 
             pendingRevealMissionId = mission.Id;
@@ -413,9 +458,21 @@ namespace Parsek
             if (Event.current.type != EventType.Repaint)
                 return;
 
+            // Only measure against a layout tree this frame actually solved. Without this the
+            // most common GoTo path - window closed, click opens it mid-frame - can measure an
+            // unsolved cache, get zeros, and silently consume the target at offset 0.
+            if (missionsLayoutFrame != Time.frameCount)
+                return;
+
             // The rect of the header row's outermost horizontal, which DrawMissionHeader has
             // just closed.
             Rect headerRect = GUILayoutUtility.GetLastRect();
+
+            // A real header row is never zero-height; an unsolved layout entry always is. Cheap
+            // second line of defence on the same failure, since a wrong measurement here is
+            // silent by nature - it looks exactly like a successful capture.
+            if (headerRect.height <= 0f)
+                return;
 
             if (!revealFirstHeaderSeen)
             {
@@ -427,6 +484,7 @@ namespace Parsek
                 return;
 
             pendingRevealScrollY = Mathf.Max(0f, headerRect.y - revealFirstHeaderY);
+            pendingRevealScrollFrame = Time.frameCount;
             pendingRevealMissionId = null;
             ParsekLog.Verbose("UI",
                 $"Cross-link: mission '{mission.Name}' id={mission.Id} found at list offset " +
@@ -463,6 +521,20 @@ namespace Parsek
                 CommitMissionLoopPeriodEdit(FindMissionById(loopPeriodFocusedMissionId));
             }
 
+            // Consume a queued cross-link Archive-filter clear. LAYOUT-pass only: this changes
+            // how many mission blocks the loop below draws, so applying it on any other pass
+            // would desync that pass from this frame's solved layout.
+            if (pendingClearArchiveFilter && Event.current.type == EventType.Layout)
+            {
+                pendingClearArchiveFilter = false;
+                if (MissionStore.HideArchived)
+                {
+                    MissionStore.HideArchived = false;
+                    ParsekLog.Info("UI",
+                        "Cross-link: cleared the Archive filter so the revealed mission is listed");
+                }
+            }
+
             var trees = RecordingStore.CommittedTrees;
             MissionStore.EnsureDefaultsForTrees(trees);
             var missions = MissionStore.Missions;
@@ -485,13 +557,31 @@ namespace Parsek
             // scroll view opens: writing scrollPos afterwards is read back only next frame.
             if (!float.IsNaN(pendingRevealScrollY))
             {
-                scrollPos.y = pendingRevealScrollY;
-                ParsekLog.Verbose("UI",
-                    "Cross-link: applied deferred missions scroll y=" +
-                    pendingRevealScrollY.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
+                // The apply is the very next drawn pass. An older offset means the tab stopped
+                // drawing in between (the player switched tabs or closed the window), so the
+                // scroll no longer corresponds to anything they did - discard rather than yank
+                // the list when they come back.
+                int age = Time.frameCount - pendingRevealScrollFrame;
+                if (age > RevealScrollMaxAgeFrames)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Cross-link: discarded a stale missions scroll ({age} frames old)");
+                }
+                else
+                {
+                    scrollPos.y = pendingRevealScrollY;
+                    ParsekLog.Verbose("UI",
+                        "Cross-link: applied deferred missions scroll y=" +
+                        pendingRevealScrollY.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
+                }
                 pendingRevealScrollY = float.NaN;
             }
             revealFirstHeaderSeen = false;
+
+            // This pass laid the list out, so rects measured during it are real (see
+            // missionsLayoutFrame).
+            if (Event.current.type == EventType.Layout)
+                missionsLayoutFrame = Time.frameCount;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, false, true, GUILayout.ExpandHeight(true));
 
@@ -569,10 +659,9 @@ namespace Parsek
         }
 
         // Abandons an unconsumed cross-link target, loudly. Silent expiry would leave the player
-        // looking at an unscrolled list with nothing in the log to explain it.
-        // <para>Deliberately does NOT clear pendingRevealScrollY: this also runs at the end of
-        // the pass that just captured one, and the apply is the NEXT pass. The offset is dropped
-        // where it can genuinely go stale instead - see the empty-list branch.</para>
+        // looking at an unscrolled list with nothing in the log to explain it. Only the id is
+        // dropped; a captured offset is separately age-checked at the apply site, and the
+        // empty-list branch clears it outright.
         private void DropPendingReveal(string reason)
         {
             if (pendingRevealMissionId == null)
