@@ -415,6 +415,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Drops the Timeline's cached entry list after a write to
+        /// <see cref="Recording.Hidden"/>, so a Timeline open alongside this window picks
+        /// the change up on its next draw.
+        /// <para>Needed because timeline invalidation otherwise fires only from
+        /// <c>LedgerOrchestrator.OnTimelineDataChanged</c> and an archive is not a ledger
+        /// event: without this, archiving a row while both windows are open leaves the
+        /// flight on the Timeline, unmarked, until some unrelated recalc. Called only
+        /// from the three change branches that actually write the flag (the per-row
+        /// Archive checkbox and the two group aggregates), never per frame; the archive
+        /// FILTER's own flips are covered separately by
+        /// <c>TimelineWindowUI.ShouldRebuildTimeline</c>, which compares the value the
+        /// cache was built with. See `docs/dev/design-ui-basic-advanced.md` section
+        /// 4.4.</para>
+        /// </summary>
+        private void NotifyTimelineOfArchiveChange()
+        {
+            parentUI?.GetTimelineUI()?.InvalidateCache();
+        }
+
+        /// <summary>
         /// Ensures the target recording is visible in the RECORDINGS tab (unhides if hidden,
         /// expands parent groups, un-hides hidden groups), opens the window, and scrolls to the
         /// recording. Note the HideActive branch below is unreachable - it tests
@@ -1925,6 +1945,7 @@ namespace Parsek
                 else
                 {
                     rec.Hidden = hidden;
+                    NotifyTimelineOfArchiveChange();
                     ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
                 }
             }
@@ -2600,6 +2621,7 @@ namespace Parsek
                     GroupHierarchyStore.AddHiddenGroup(groupName);
                 else
                     GroupHierarchyStore.RemoveHiddenGroup(groupName);
+                NotifyTimelineOfArchiveChange();
                 ParsekLog.Info("UI",
                     $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
             }
@@ -2935,6 +2957,7 @@ namespace Parsek
                 {
                     foreach (int idx in descendants)
                         committed[idx].Hidden = newAllHidden;
+                    NotifyTimelineOfArchiveChange();
                     ParsekLog.Info("UI",
                         $"Virtual group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
                 }
