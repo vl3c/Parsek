@@ -200,7 +200,7 @@ Timeline rows carry a `GoTo` button that navigates from a timeline row to the fl
 - Every failure (recording not committed, no `TreeId`, tree not yet seeded with a mission, target never drawn) warns and lands the player on the tab unscrolled. A pending target is never left armed to fire on an unrelated later frame.
 - The gate is KEPT, re-keyed to `IsVisible(UiSurface.TabMissions, mode)`. It hides nothing today (Missions is visible in both modes); it exists so that re-pointing GoTo at a hidden surface would automatically hide the button again instead of stranding the player. The "gated by the TARGET surface's key" idiom is unchanged. No new `UiSurface` value is needed.
 - Tooltip: `"Show this recording's mission"`.
-- `ScrollToRecording` is retained as the Recordings tab's own navigation API but has **no production caller**; the tab-clamp tests use it as their lever for selecting `TabRecordings`.
+- `ScrollToRecording` is **kept** as the Recordings tab's own navigation API, with no production caller (decided 2026-08-01). The tab-clamp tests use it as their lever for selecting `TabRecordings`, but that lever exercises only its first three lines, so `RecordingsTableApiTests` covers the rest of the method - the resolve, the un-archive, the group expansion and the scheduled scroll - so a callerless API cannot rot behind test names that merely look like coverage. Its unreachable `HideActive` filter-clear branch (it tested `target.Hidden` after the un-archive above had cleared it) was removed at the same time.
 
 ### 4.2 Strings that must NOT be renamed
 
