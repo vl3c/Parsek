@@ -2782,10 +2782,12 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(expectedDir, "rec-1_ghost.craft"), ghost);
         }
 
-        // Design §4.1a: the pending scroll id is consumed only inside the
-        // Recordings-tab row draw, which sits after the Missions-tab early return.
-        // With Missions as the default tab, the cross-link must select the
-        // Recordings tab explicitly or the scroll silently never lands.
+        // The pending scroll id is consumed only inside the Recordings-tab row draw, which
+        // sits after the Missions-tab early return. With Missions as the default tab, any
+        // caller must select the Recordings tab explicitly or the scroll silently never
+        // lands. Design §4.1a moved the Timeline GoTo cross-link off this method and onto
+        // ShowMissionForRecording (see TimelineGoToMissionTests), so this now guards the
+        // Recordings tab's own navigation API rather than a live cross-link.
         [Fact]
         public void ScrollToRecordingSelectsRecordingsTab()
         {

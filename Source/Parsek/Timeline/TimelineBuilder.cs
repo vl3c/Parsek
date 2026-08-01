@@ -22,12 +22,24 @@ namespace Parsek
         /// ledger actions, and legacy milestones. Accepts data sources as parameters
         /// for testability — does not read global state directly.
         /// </summary>
+        /// <param name="includeArchivedRecordings">
+        /// When false (the default, and today's behaviour) recordings the player
+        /// ARCHIVED in the Recordings tab (<see cref="Recording.Hidden"/>) contribute no
+        /// rows. When true they do, each entry stamped
+        /// <see cref="TimelineEntry.IsArchivedRecording"/>.
+        /// <para>Supplied by the caller, never read from a store: the archive filter's
+        /// state lives in <c>GroupHierarchyStore.HideActive</c> and this stays a pure
+        /// function of its inputs. It is emphatically NOT a UI-complexity-mode read -
+        /// the Timeline's row set is identical in Basic and Advanced (design
+        /// `docs/dev/design-ui-basic-advanced.md` sections 4.4, 5).</para>
+        /// </param>
         internal static List<TimelineEntry> Build(
             IReadOnlyList<Recording> committedRecordings,
             IReadOnlyList<GameAction> ledgerActions,
             IReadOnlyList<Milestone> milestones,
             Func<GameStateEvent, bool> isLegacyEventVisible,
-            Game.Modes? currentMode = null)
+            Game.Modes? currentMode = null,
+            bool includeArchivedRecordings = false)
         {
             // Build recording-id to vessel-name lookup once, shared by both collectors
             var vesselNameById = new Dictionary<string, string>();
@@ -45,7 +57,8 @@ namespace Parsek
 
             var entries = new List<TimelineEntry>();
 
-            int recordingCount = CollectRecordingEntries(committedRecordings, vesselNameById, entries);
+            int recordingCount = CollectRecordingEntries(
+                committedRecordings, vesselNameById, includeArchivedRecordings, entries);
             int actionCount = CollectGameActionEntries(ledgerActions, vesselNameById, evaBranchKeys, currentMode, entries);
             int legacyCount = CollectLegacyEntries(
                 milestones,
@@ -144,10 +157,12 @@ namespace Parsek
         private static int CollectRecordingEntries(
             IReadOnlyList<Recording> recordings,
             Dictionary<string, string> vesselNameById,
+            bool includeArchivedRecordings,
             List<TimelineEntry> entries)
         {
             int count = 0;
             int hiddenSkipped = 0;
+            int archivedShown = 0;
             int crewDeathCount = 0;
 
             int debrisSkipped = 0;
@@ -159,8 +174,18 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
-                if (rec.Hidden) { hiddenSkipped++; continue; }
+                // Archive is a view filter, never a suppression: the caller decides
+                // whether archived recordings contribute rows, and the Timeline's own
+                // "Archived" toggle is what supplies that decision (design section 4.4).
+                // Before that toggle existed this skip was unconditional, which made an
+                // archive irreversible for anyone who could not reach the Recordings tab.
+                if (rec.Hidden && !includeArchivedRecordings) { hiddenSkipped++; continue; }
                 if (rec.IsDebris) { debrisSkipped++; continue; }
+
+                // Stamp every entry this recording is about to add, so the row draw can
+                // mark a revealed row. Captured before the Try*/Add* calls below and
+                // applied after, rather than threading a flag through four signatures.
+                int firstEntryIndexForRecording = entries.Count;
 
                 // EVA detection: EvaCrewName set, or vessel name matches a crew end state
                 // (standalone EVA recordings may not have EvaCrewName set)
@@ -270,13 +295,22 @@ namespace Parsek
                 int addedCrewDeaths = AddCrewDeathEntries(rec, entries);
                 count += addedCrewDeaths;
                 crewDeathCount += addedCrewDeaths;
+
+                if (rec.Hidden)
+                {
+                    for (int e = firstEntryIndexForRecording; e < entries.Count; e++)
+                        entries[e].IsArchivedRecording = true;
+                    if (entries.Count > firstEntryIndexForRecording)
+                        archivedShown++;
+                }
             }
 
             ParsekLog.Verbose("Timeline",
                 $"Recording collector: {count} entries from {recordings.Count} recordings " +
-                $"(hidden={hiddenSkipped} debris={debrisSkipped} treeChild={treeChildSkipped} " +
-                $"chainChild={chainChildSkipped} destroyed={destroyedSkipped} " +
-                $"midChain={midChainSkipped} crewDeath={crewDeathCount})");
+                $"(hidden={hiddenSkipped} archivedShown={archivedShown} debris={debrisSkipped} " +
+                $"treeChild={treeChildSkipped} chainChild={chainChildSkipped} " +
+                $"destroyed={destroyedSkipped} midChain={midChainSkipped} " +
+                $"crewDeath={crewDeathCount})");
 
             return count;
         }

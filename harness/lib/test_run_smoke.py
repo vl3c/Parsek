@@ -65,8 +65,13 @@ class FakeRuntime(run.Runtime):
 
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
-                 analyzer_fail_calls=0, produced_parsed=True):
+                 analyzer_fail_calls=0, produced_parsed=True, inject_noop=False):
         self.mode = mode
+        # HARNESS-INJECT-FAILS-OPEN seam: when True, run_inject exits 0 having
+        # written NOTHING - the measured `--no-build`-against-a-never-built-assembly
+        # shape (and the KSP.log lock-probe refusal, which exits the same way).
+        self.inject_noop = inject_noop
+        self.inject_call_count = 0
         # Item 10: when False the PRODUCED-save careerSave block is {parsed:false}, so an
         # active ledger-oracle slot 8 must classify tooling INVALID (the analyzer could
         # not parse the produced save), never PARSEK-FAIL missing-facet.
@@ -151,10 +156,17 @@ class FakeRuntime(run.Runtime):
     # ---- stubbed verifier subprocesses -----------------------------------
 
     def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
+        self.inject_call_count += 1
+        if self.inject_noop:
+            return run.ToolResult(0, False)  # exit 0, fixture never written
         rec = os.path.join(instance_dir, "saves", save_name, "Parsek", "Recordings")
         os.makedirs(rec, exist_ok=True)
         for i in range(8):
             open(os.path.join(rec, "rec%02d.prec" % i), "w").close()
+        if preset == "rewind-b9":
+            rp_dir = os.path.join(instance_dir, "saves", save_name, "Parsek", "RewindPoints")
+            os.makedirs(rp_dir, exist_ok=True)
+            open(os.path.join(rp_dir, "rp_b9_root.sfs"), "w").close()
         return run.ToolResult(0, False)
 
     def run_analyzer(self, save_dir, fresh_gate, timeout):
@@ -728,6 +740,122 @@ class StageFixtureContainmentTests(unittest.TestCase):
         self.assertTrue(run._is_strictly_inside(os.path.join(self.saves, "fresh-career"), self.saves))
         self.assertFalse(run._is_strictly_inside(self.saves, self.saves))
         self.assertFalse(run._is_strictly_inside(self.instance, self.saves))
+
+
+class InjectPostconditionTests(unittest.TestCase):
+    """HARNESS-INJECT-FAILS-OPEN, fail-closed half (found by S1.5 attempt 1; cost
+    two more full V1-map-dwell flights before this fix). A fixture injection that
+    exits 0 having written NOTHING must fail the STAGE, pre-boot, with the
+    terminal INVALID(stage-inject-noop) classification - never report staging
+    success and let the miss surface minutes later as an unrelated seam rejection
+    (`invokerewind refused: unknown-rp`) classified against a correct spec."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-inject-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "gloops-airshow")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "inject_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _injected_spec(self, preset):
+        spec = _make_spec(self.template, 30, 600)
+        spec["fixture"]["injectedRecordings"] = preset
+        return spec
+
+    def test_noop_injection_is_terminal_invalid_pre_boot(self):
+        # The full-run shape of the S1.5 / V1-map-dwell burn, driven through the
+        # fake-KSP harness: the injector runs, exits 0, writes nothing. The run must
+        # terminate INVALID(stage-inject-noop) WITHOUT booting KSP - the whole point
+        # is that the miss costs seconds at stage time, not a 21-minute flight plus a
+        # misdirecting `driver-arg` classification.
+        spec = self._injected_spec("all-synthetic")
+        rt = FakeRuntime("pass", inject_noop=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("stage-inject-noop", result["subkind"])
+        self.assertEqual(1, rt.inject_call_count, "the injector WAS invoked")
+        self.assertEqual(0, rt.launch_count,
+                         "a failed postcondition must never boot KSP")
+        # Deterministic miss (same worktree -> same result): NOT retryable, so the
+        # `once` budget is preserved for genuine flakes instead of burning a second
+        # identical attempt (the V1-map-dwell double-flight shape).
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertFalse(hlib.should_retry(v, attempt=1, retry_policy="once"))
+        # The harness log names the fail-closed classification at stage time.
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            log_body = fh.read()
+        self.assertIn("stage-inject-noop", log_body)
+        self.assertIn("inject postcondition failed", log_body)
+
+    def test_successful_all_synthetic_injection_stages(self):
+        spec = self._injected_spec("all-synthetic")
+        ok, name, subkind = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                              self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+
+    def test_successful_rewind_b9_injection_stages(self):
+        spec = self._injected_spec("rewind-b9")
+        ok, name, subkind = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                              self.logger)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.instance, "saves", name, "Parsek", "RewindPoints", "rp_b9_root.sfs")))
+
+    def test_rewind_b9_without_its_rp_fails_closed(self):
+        # The second silent trigger from the V1-map-dwell attempt 2 (KSP.log lock
+        # probe refusing mid-way): recordings landed but the preset's RP did not. The
+        # rewind-b9 postcondition requires BOTH, because the consumer's
+        # `InvokeRewind rp=rp_b9_root` needs the RP specifically.
+        class RpLessRuntime(FakeRuntime):
+            def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
+                rec = os.path.join(instance_dir, "saves", save_name,
+                                   "Parsek", "Recordings")
+                os.makedirs(rec, exist_ok=True)
+                open(os.path.join(rec, "b9-root.prec"), "w").close()
+                return run.ToolResult(0, False)
+
+        spec = self._injected_spec("rewind-b9")
+        ok, _name, subkind = run.stage_fixture(spec, self.instance,
+                                               RpLessRuntime("pass"), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("stage-inject-noop", subkind)
+
+    def test_postcondition_predicate_shapes(self):
+        # The predicate itself, so a refactor cannot silently invert a branch.
+        save = os.path.join(self.tmp, "postcond-save")
+        os.makedirs(save, exist_ok=True)
+        self.assertEqual(["non-empty Parsek/Recordings/"],
+                         run._inject_postcondition_missing(save, "all-synthetic"))
+        self.assertEqual(["non-empty Parsek/Recordings/",
+                          "Parsek/RewindPoints/rp_b9_root.sfs"],
+                         run._inject_postcondition_missing(save, "rewind-b9"))
+        # An EMPTY Recordings dir is still a miss (the dir alone proves nothing).
+        rec = os.path.join(save, "Parsek", "Recordings")
+        os.makedirs(rec, exist_ok=True)
+        self.assertEqual(["non-empty Parsek/Recordings/"],
+                         run._inject_postcondition_missing(save, "all-synthetic"))
+        open(os.path.join(rec, "a.prec"), "w").close()
+        self.assertEqual([], run._inject_postcondition_missing(save, "all-synthetic"))
+        self.assertEqual(["Parsek/RewindPoints/rp_b9_root.sfs"],
+                         run._inject_postcondition_missing(save, "rewind-b9"))
+        rp_dir = os.path.join(save, "Parsek", "RewindPoints")
+        os.makedirs(rp_dir, exist_ok=True)
+        open(os.path.join(rp_dir, "rp_b9_root.sfs"), "w").close()
+        self.assertEqual([], run._inject_postcondition_missing(save, "rewind-b9"))
 
 
 class AutopilotHandoffSmokeTests(unittest.TestCase):

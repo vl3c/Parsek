@@ -66,6 +66,12 @@ namespace Parsek
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
 
+        // The archive-filter value the cached list was BUILT with. The filter is shared
+        // cross-window state (see ShowArchivedRecordings), so the Recordings tab's own
+        // Archive header toggle can change it while this cache is warm and nothing else
+        // would mark it dirty.
+        private bool cachedTimelineShowedArchived;
+
         // Filter state
         private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
         private bool showRecordingEntries = true;
@@ -394,8 +400,10 @@ namespace Parsek
             // Zone 2b: Time-Range Filter
             DrawTimeRangeFilterBar();
 
-            // Rebuild cache if dirty
-            if (timelineDirty || cachedTimeline == null)
+            // Rebuild cache if dirty, or if the shared archive filter moved under us
+            bool showArchivedRows = ShowArchivedRecordings;
+            if (ShouldRebuildTimeline(
+                    timelineDirty, cachedTimeline == null, cachedTimelineShowedArchived, showArchivedRows))
             {
                 // [Phase 3] ERS+ELS-routed: timeline view feeds from visible
                 // recordings and non-tombstoned ledger actions only (design §3.4).
@@ -405,7 +413,9 @@ namespace Parsek
                     EffectiveState.ComputeELS(),
                     MilestoneStore.Milestones,
                     GameStateStore.IsEventVisibleToCurrentTimeline,
-                    GetCurrentGameMode());
+                    GetCurrentGameMode(),
+                    showArchivedRows);
+                cachedTimelineShowedArchived = showArchivedRows;
                 timelineDirty = false;
 
                 // Rebuild recording lookup cache (ERS-scoped so cross-link
@@ -647,6 +657,40 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Positive-polarity view of the ARCHIVE filter for
+        /// <see cref="Recording.Hidden"/>: true means archived recordings contribute
+        /// Timeline rows.
+        /// <para>Deliberately the SAME state the Recordings tab's Archive header toggle
+        /// writes (<see cref="GroupHierarchyStore.HideActive"/>, persisted with the save),
+        /// not a second flag. One archive flag, one filter switch, reachable from either
+        /// list that honours it - which is what makes an archive reversible in Basic mode,
+        /// where the Recordings tab is hidden (design
+        /// `docs/dev/design-ui-basic-advanced.md` section 4.4).</para>
+        /// <para>The polarity flips because the two labels are opposites: the Recordings
+        /// tab's header checkbox means "hide archived", while every toggle in the
+        /// Timeline's own filter row means "show this". The stored bool keeps the
+        /// Recordings-tab sense; this property is the Timeline's.</para>
+        /// </summary>
+        internal static bool ShowArchivedRecordings
+        {
+            get => !GroupHierarchyStore.HideActive;
+            set => GroupHierarchyStore.HideActive = !value;
+        }
+
+        /// <summary>
+        /// Whether the cached timeline must be rebuilt this pass. Pure so the
+        /// archive-filter arm is unit-testable: the ordinary dirty / no-cache arms are
+        /// joined by "the archive filter changed since the cache was built", which is the
+        /// only rebuild trigger no invalidation call announces (the Recordings tab writes
+        /// the shared filter directly).
+        /// </summary>
+        internal static bool ShouldRebuildTimeline(
+            bool dirty, bool cacheMissing, bool cachedShowedArchived, bool showArchivedNow)
+        {
+            return dirty || cacheMissing || cachedShowedArchived != showArchivedNow;
+        }
+
         private void DrawFilterBar()
         {
             GUILayout.Space(5);
@@ -740,6 +784,39 @@ namespace Parsek
                 tierFilterMode = TimelineTierFilterMode.ReFly;
                 showRecordingEntries = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
+            }
+
+            // Empty column 3, same Label-not-Space idiom as the first row, so the
+            // Archived toggle lands in column 4 directly under Recordings - it modifies
+            // the recording rows, and reads as a qualifier on that source toggle.
+            GUILayout.Label("", GUILayout.Width(btnW));
+
+            // Archive reveal. This is the ONLY control for the archive filter that Basic
+            // mode can reach: the Recordings tab that owns the Archive checkbox is hidden
+            // there, so without this an archived flight could never come back to the
+            // Timeline (design section 4.4). Ungated on purpose - the Timeline shows the
+            // same rows in both modes; nothing here reads the UI complexity mode.
+            bool showArchived = ShowArchivedRecordings;
+            bool newShowArchived = GUILayout.Toggle(
+                showArchived,
+                // Tooltip names no window. The obvious wording ("archived in the
+                // Recordings tab") would point a Basic player at a tab their mode does
+                // not have - the same defect the proximity-alert and seal-guidance fixes
+                // just removed elsewhere. Mode-dependent text is permitted (design 9.1)
+                // but unnecessary here: wording that describes the ITEMS rather than the
+                // surface is correct in both modes and needs no mode read.
+                new GUIContent("Archived",
+                    "Show rows for flights you archived.\n"
+                    + "This is the same Archive filter the recordings list uses, so turning it\n"
+                    + "on is how an archived flight comes back."),
+                toggleButtonStyle,
+                GUILayout.Width(btnW));
+            if (newShowArchived != showArchived)
+            {
+                ShowArchivedRecordings = newShowArchived;
+                ParsekLog.Info("UI",
+                    $"Timeline Archived toggle: showArchived={newShowArchived} " +
+                    $"hideActive={GroupHierarchyStore.HideActive}");
             }
             GUILayout.EndHorizontal();
         }
@@ -1072,16 +1149,17 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
 
-            // Basic / Advanced gating (design 4.1a). The GoTo cross-link's sole purpose is
-            // navigating to the raw Recordings TAB, so it is gated by that TARGET surface's
-            // key, not by its host window's (Timeline itself is visible in both modes). No
-            // dedicated UiSurface value exists for it. Hiding the button also prevents its
-            // side effects (unhiding the target recording, disabling the HideActive filter)
-            // from firing with no visible destination.
+            // Basic / Advanced gating (design 4.1a). The GoTo cross-link navigates to the
+            // MISSIONS tab, so it is gated by that TARGET surface's key, not by its host
+            // window's (Timeline itself is visible in both modes). Missions is a surface Basic
+            // KEEPS, so this reads true in both modes - the gate stays for the invariant it
+            // states, not to hide anything: it is what makes "GoTo can never point at a hidden
+            // destination" mechanical rather than a comment. Retargeting the button at a hidden
+            // surface would flip it back to hiding, which is the correct failure.
             // Read the FRAME-LATCHED mode, never the settings field: GoTo is a control, and
             // the Layout and Repaint passes of one frame must agree on the control count.
-            bool showRecordingsCrossLink = UiSurfaceVisibility.IsVisible(
-                UiSurface.TabRecordings, ParsekUI.AppliedUiComplexityMode);
+            bool showMissionCrossLink = UiSurfaceVisibility.IsVisible(
+                UiSurface.TabMissions, ParsekUI.AppliedUiComplexityMode);
 
             // Pick style based on entry state
             GUIStyle style;
@@ -1102,8 +1180,15 @@ namespace Parsek
             // that appears before the R / FF / L / GoTo buttons on the far right.
             GUILayout.Space(14f);
 
-            // Description text
-            GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
+            // Description text. A revealed archived row is marked, or the player would
+            // have no way to tell which rows the Archive filter had been covering - and
+            // therefore no way to know what to un-archive. Composed into the SAME single
+            // Label (never a second control), so the control count is identical in the
+            // Layout and Repaint passes of one frame.
+            string description = entry.IsArchivedRecording
+                ? entry.DisplayText + "   [archived]"
+                : entry.DisplayText;
+            GUILayout.Label(description, style, GUILayout.ExpandWidth(true));
 
             // R/FF + GoTo for RecordingStart entries (R/FF first, GoTo last for alignment)
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
@@ -1199,19 +1284,21 @@ namespace Parsek
                         GUI.enabled = true;
                     }
 
-                    // GoTo button — always last, right-aligned. Hidden in Basic (design 4.1a).
-                    if (showRecordingsCrossLink)
+                    // GoTo button — always last, right-aligned. Shown in both modes (design 4.1a).
+                    if (showMissionCrossLink)
                     {
+                        // Shown DISABLED rather than dropped when the row has no mission to go
+                        // to (mirrors the Watch button above, and keeps the row layout stable).
+                        GUI.enabled = CanGoToMission(rec);
                         if (GUILayout.Button(
-                                new GUIContent("GoTo", "Show in Recordings tab"),
+                                new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
                                 GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                         {
-                            parentUI.SelectedRecordingId = entry.RecordingId;
-                            if (tableUI != null)
-                                tableUI.ScrollToRecording(entry.RecordingId);
+                            tableUI.ShowMissionForRecording(entry.RecordingId);
                             ParsekLog.Verbose("Timeline",
                                 $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId}");
                         }
+                        GUI.enabled = true;
                     }
                 }
             }
@@ -1233,20 +1320,22 @@ namespace Parsek
                         DrawTimelineFlySealButtons(rec);
                     }
 
-                    // Hidden in Basic (design 4.1a), same gate as the RecordingStart row above.
-                    if (showRecordingsCrossLink)
+                    // Same gate as the RecordingStart row above (design 4.1a).
+                    if (showMissionCrossLink)
                     {
+                        // Shown DISABLED rather than dropped when the row has no mission to go
+                        // to (mirrors the Watch button above, and keeps the row layout stable).
+                        GUI.enabled = CanGoToMission(rec);
                         if (GUILayout.Button(
-                                new GUIContent("GoTo", "Show in Recordings tab"),
+                                new GUIContent("GoTo", GetGoToMissionTooltip(rec)),
                                 GUILayout.Width(GetRowActionButtonWidth(TimelineRowActionButtonKind.GoTo))))
                         {
-                            parentUI.SelectedRecordingId = entry.RecordingId;
-                            if (tableUI != null)
-                                tableUI.ScrollToRecording(entry.RecordingId);
+                            tableUI.ShowMissionForRecording(entry.RecordingId);
                             ParsekLog.Verbose("Timeline",
                                 $"GoTo: \"{rec.VesselName}\" id={entry.RecordingId} " +
                                 $"(separation entry, type={entry.Type})");
                         }
+                        GUI.enabled = true;
                     }
                 }
             }
@@ -1370,6 +1459,31 @@ namespace Parsek
                 && slotListIndex >= 0
                 && rp.ChildSlots != null
                 && slotListIndex < rp.ChildSlots.Count;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> belongs to a mission the GoTo cross-link can reach.
+        /// <para>Missions are keyed on recording TREES, so a recording with no
+        /// <see cref="Recording.TreeId"/> belongs to no mission and there is nothing to navigate
+        /// to. That population is not hypothetical: manual Gloops (ghost-only) recordings are
+        /// committed without a tree and DO produce timeline rows, so without this the button
+        /// would be live on those rows and do nothing when clicked. Same argument the design
+        /// makes for the Basic-mode message wording (section 9.1) - an affordance that cannot
+        /// act is worse than no affordance.</para>
+        /// </summary>
+        internal static bool CanGoToMission(Recording rec)
+        {
+            return rec != null && !string.IsNullOrEmpty(rec.TreeId);
+        }
+
+        /// <summary>
+        /// GoTo tooltip: the destination when there is one, otherwise the reason there is not.
+        /// </summary>
+        internal static string GetGoToMissionTooltip(Recording rec)
+        {
+            return CanGoToMission(rec)
+                ? "Show this recording's mission"
+                : "This recording is not part of a mission";
         }
 
         internal static float GetRowActionButtonWidth(TimelineRowActionButtonKind actionKind)

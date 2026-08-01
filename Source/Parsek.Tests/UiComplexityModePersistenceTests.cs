@@ -389,7 +389,8 @@ namespace Parsek.Tests
                 RecordingsTableUI table = ui.GetRecordingsTableUI();
                 Assert.NotNull(table);
 
-                // Land on the Recordings tab the way the Advanced-only GoTo cross-link does.
+                // Land on the Recordings tab. ScrollToRecording is the only lever that selects
+                // it (the Timeline GoTo cross-link now targets Missions instead, design §4.1a).
                 table.ScrollToRecording("no-such-recording");
                 Assert.Equal(RecordingsTableUI.TabRecordings, table.SelectedTabForTesting);
 

@@ -223,7 +223,28 @@ class ManifestEntry:
     when declared, a captured stock award only corroborates this entry if the award's
     reason is in the set. Empty (every committed spec today) leaves corroboration on
     seqKey + facet + amount alone. It is a MATCHING hint only and never enters
-    ``compute_expected`` - a captured amount is still never summed into EXPECTED."""
+    ``compute_expected`` - a captured amount is still never summed into EXPECTED.
+
+    ``ut_window`` (additive, OPTIONAL, default None) is the FLOWN-scenario
+    corroboration key (``utWindow = [lo, hi]``, inclusive). A flown spec cannot pin
+    the exact game UT a stock award lands on (CL-2's impact award measured 119.7 /
+    119.9 / 119.8 across three runs of one craft), so the exact ``seq_key`` join is
+    structurally unsatisfiable there. When declared, the leg-A corroboration matches
+    this entry to a captured award whose UT falls INSIDE the window instead of
+    requiring seqKey equality; a null-UT captured award never window-matches
+    (fail-closed - there is nothing to judge against the bounds). Mutually exclusive
+    with ``ut`` (an entry cannot carry both an exact key and a window). Like
+    ``stock_reasons`` it is a MATCHING hint only and never enters
+    ``compute_expected``.
+
+    MIGRATION CAVEAT for ``repMode = "nominal"`` entries: ``compute_expected``
+    accumulates in ``(ut is None, ut, seq)`` order and the reputation curve is
+    NONLINEAR, so converting a UT-stamped nominal entry to a window (which forces
+    ``ut = null``) moves it to the null-UT tail of the accumulation and can change
+    the expected reputation total. Keep windowed nominal entries in intended
+    chronological order via ``seq``, and re-check the expected total after the
+    conversion. ``applied``-mode entries (every stock rep capture, the CL-2 shape)
+    add raw deltas, which commute - order cannot move their total."""
     ut: Optional[float]
     seq: int
     kind: str
@@ -236,6 +257,7 @@ class ManifestEntry:
     provenance: str
     rec3_row: str = ""
     stock_reasons: Tuple[str, ...] = tuple()
+    ut_window: Optional[Tuple[float, float]] = None
 
     @property
     def seq_key(self):
@@ -382,6 +404,29 @@ def _facet_state(raw: Dict, *keys: str) -> Tuple[Optional[float], bool]:
     return 0.0, False
 
 
+def _is_finite_number(v) -> bool:
+    """True iff ``v`` is a real, FINITE int/float.
+
+    Two traps this exists for, both of which bit:
+
+    - A ``bool`` is an ``int`` in Python, so ``isinstance(True, (int, float))`` is
+      True. A boolean is never an acceptable UT and must read as not-a-number.
+    - ``tomllib`` does NOT clamp integers to int64, so a spec may carry an unbounded
+      Python int and ``float(v)`` then raises ``OverflowError`` instead of returning
+      inf. Left unguarded that propagates out of ``validate_ledger_expectations`` ->
+      ``validate_spec``, which is called with no ``try/except``, and takes down the
+      WHOLE batch - defeating the "an invalid spec is SKIPPED ... so one broken spec
+      cannot abort the batch" contract at the call site. A 400-digit literal must
+      read as NOT finite (one rejected spec), never as a crash.
+    """
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(v))
+    except OverflowError:
+        return False
+
+
 def parse_manifest_entries(
     raw_entries: Optional[Sequence[Dict]],
     captured: Optional[Sequence[ManifestEntry]] = None,
@@ -484,10 +529,33 @@ def parse_manifest_entries(
 
         ut = raw.get("ut")
         if ut is not None:
-            if isinstance(ut, bool) or not isinstance(ut, (int, float)) or not math.isfinite(float(ut)):
+            if not _is_finite_number(ut):
                 errors.append("entry[%d].ut: %r must be a finite number or null" % (i, ut))
                 continue
             ut = float(ut)
+        # OPTIONAL flown-scenario corroboration window (see ManifestEntry.ut_window).
+        # Every malformed shape rejects rather than being coerced: a silently-dropped
+        # window would fall back to the exact seqKey join, which a flown spec can
+        # never satisfy - the author would read every award as "unexpected" without
+        # knowing their window never took effect.
+        raw_window = raw.get("utWindow", raw.get("ut_window"))
+        ut_window: Optional[Tuple[float, float]] = None
+        if raw_window is not None:
+            if (not isinstance(raw_window, (list, tuple)) or len(raw_window) != 2
+                    or any(not _is_finite_number(v) for v in raw_window)):
+                errors.append("entry[%d].utWindow: %r must be [lo, hi], two finite numbers"
+                              % (i, raw_window))
+                continue
+            lo, hi = float(raw_window[0]), float(raw_window[1])
+            if lo > hi:
+                errors.append("entry[%d].utWindow: lo %r > hi %r (empty window)" % (i, lo, hi))
+                continue
+            if ut is not None:
+                errors.append(
+                    "entry[%d].utWindow: mutually exclusive with ut (an entry cannot "
+                    "carry both an exact seqKey and a window; drop one)" % (i,))
+                continue
+            ut_window = (lo, hi)
         seq = raw.get("seq", i)
         if isinstance(seq, bool) or not isinstance(seq, int):
             errors.append("entry[%d].seq: %r must be an int ordinal" % (i, seq))
@@ -548,7 +616,7 @@ def parse_manifest_entries(
             funds=funds, science=science, reputation=reputation,
             rep_mode=rep_mode, subject_ids=subject_ids,
             contract_guid=contract_guid, provenance=provenance, rec3_row=rec3_row,
-            stock_reasons=stock_reasons,
+            stock_reasons=stock_reasons, ut_window=ut_window,
         ))
 
     return ManifestParse(tuple(entries), tuple(errors))

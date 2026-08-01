@@ -297,15 +297,139 @@ class Cl2LedgerBlockTests(unittest.TestCase):
     def test_the_seed_comes_from_the_template(self):
         self.assertEqual("template", self.block.get("seedFrom", "template"))
 
-    def test_the_capture_cross_check_is_report_not_gate(self):
-        # DELIBERATE. hlib's own note says the cross-check "was WRITTEN as a hard gate,
-        # but it has never once run with a working capture" and that arming wants a
-        # reputation-producing scenario - which this is, making it the intended FIRST
-        # arm site. Arming is a separate, deliberate step taken once a green run shows
-        # what this scenario's baseline award set actually is; this cell is what makes
-        # arming a decision rather than a drift.
-        self.assertEqual("report", self.block.get("captureCrossCheck", "report"))
-        self.assertFalse(hlib.capture_cross_check_gates(self.block))
+    def test_the_capture_cross_check_is_armed_as_a_gate(self):
+        # THE RECORDED DECISION. This cell asserted "report" from the day the spec
+        # landed, precisely so that arming would be a deliberate act rather than a
+        # drift. That act was taken 2026-07-31 and this cell is its record: the
+        # scenario now GATES, and a later silent retreat to "report" reds here.
+        #
+        # hlib's own note said the cross-check "was WRITTEN as a hard gate, but it has
+        # never once run with a working capture", and that arming wants a
+        # reputation-producing scenario - which this is, making it the intended first
+        # arm site. It is also the ONLY viable one: the capture is reputation-only
+        # (KSP logs no funds and no science award line), and no other committed spec
+        # is measured producing reputation, so arming anywhere else would arm a check
+        # whose input is provably always empty.
+        #
+        # THE EVIDENCE, one flight per checklist step, all PASS on attempt 1:
+        #   `2026-07-31_1630`  baseline, spec unchanged: stockLines=3 deduped=3
+        #                      seamRejected=0, all three awards UNEXPECTED
+        #                      (report-only) at ut 12.5 / 19.1 / 119.9.
+        #   `2026-07-31_1638`  utWindows declared, still "report": ZERO unexpected
+        #                      rows, ledgerOracle hardDivergences=0 reportOnly=0
+        #                      (3 -> 0), expected totals byte-identical.
+        #   `2026-07-31_1645`  armed: PASS with the gate live.
+        self.assertEqual("gate", self.block.get("captureCrossCheck", "report"))
+        self.assertTrue(hlib.capture_cross_check_gates(self.block))
+
+    def test_the_armed_windows_are_phase_bounds_not_pins(self):
+        # WHAT MAKES THE GATE SURVIVABLE. The exact award UTs are NOT stable - the
+        # second Progression measured 15.98 (archived CL-1), 19.0 (2026-07-30),
+        # 19.1 / 19.0 / 19.1 (the three arming flights), and the impact measured
+        # 119.7 / 119.8 / 119.9 across six archived runs - so every armed entry must
+        # carry a WINDOW and never an exact `ut`. An entry that regressed to an exact
+        # ut would red the next flight for a reason that is not a defect.
+        self.assertEqual(4, len(self.block["manifest"]),
+                         "a 5th manifest entry appeared: re-derive the windows and "
+                         "this cell rather than letting it ride unasserted")
+        windows = {}
+        for e in self.block["manifest"]:
+            self.assertIsNone(e.get("ut"), "an armed entry must not pin an exact ut")
+            self.assertIn("seq", e, "every entry pins its own seq ordinal")
+            windows[e["seq"]] = e.get("utWindow")
+        self.assertEqual([0.0, 100.0], windows[0])
+        self.assertEqual([0.0, 100.0], windows[1])
+        self.assertEqual([100.0, 400.0], windows[2])
+        # The funds milestone entry stays window-free ON PURPOSE: KSP logs no funds
+        # award at all (hlib.STOCK_AWARD_PATTERNS_DEAD), so it is never
+        # capture-matched and a window on it would be decoration implying a check
+        # that cannot run.
+        self.assertIsNone(windows[3])
+
+    def test_the_armed_windows_are_bounded_in_absolute_ut_with_pad_dwell_headroom(self):
+        # THE CLOCK. The matched value is the captured award's raw Planetarium
+        # `ut=`, which is `fixtureUT + padDwell + T+` - and pad dwell is a
+        # wall-clock quantity (game time runs 1:1 here, no warp), so the ceilings
+        # must clear the harness's own connect budget, not just the flight profile.
+        # The first draft used 140 and left less headroom than
+        # CONNECT_BUDGET_SECONDS, which would red a good flight with no retry.
+        from mission_runner import CONNECT_BUDGET_SECONDS
+        windows = {e["seq"]: e.get("utWindow") for e in self.block["manifest"]}
+        worst_measured = {0: 12.5, 1: 19.1, 2: 119.9}
+        for seq, measured in worst_measured.items():
+            headroom = windows[seq][1] - measured
+            self.assertGreater(
+                headroom, CONNECT_BUDGET_SECONDS,
+                "seq=%d headroom %.1f s must exceed the %.1f s connect budget: the "
+                "award UT shifts one-for-one with pad dwell, and should_retry never "
+                "retries a PARSEK-FAIL" % (seq, headroom, CONNECT_BUDGET_SECONDS))
+
+    def test_the_armed_entries_keep_their_stock_reason_pins(self):
+        # WITHOUT THESE THE GATE SILENTLY WIDENS. `stockReason` is what makes an
+        # entry explain one NAMED stock effect; drop it and the entry accepts any
+        # award of the right amount inside its window, so a genuinely new stock
+        # reputation effect of the same size would be corroborated instead of
+        # red. Nothing else in the suite pins the two Progression entries' reasons.
+        reasons = {e["seq"]: e.get("stockReason") for e in self.block["manifest"]}
+        self.assertEqual("Progression", reasons[0])
+        self.assertEqual("Progression", reasons[1])
+        self.assertEqual("VesselLoss", reasons[2])
+        # Demonstrate the consequence rather than asserting it abstractly: an
+        # undeclared ContractReward of the same size must stay unexpected.
+        parse = oracle.parse_manifest_entries(self.block["manifest"])
+        tol = oracle.default_tolerances()
+        ctol = {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation}
+        novel = hlib.CapturedAward(
+            kind="stock-reputation-award", facet="reputation", amount=0.9999995,
+            contract_guid="", subject_id="", ut=30.0, seq=7, raw_line="",
+            reason="ContractReward")
+        self.assertEqual([30.0], [u.ut for u in hlib.unmatched_captured_awards(
+            parse.entries, [novel], ctol)])
+
+    def test_the_armed_windows_corroborate_the_measured_award_set(self):
+        # THE CELL THAT WOULD HAVE CAUGHT A BAD ARMING WITHOUT A FLIGHT. Replays the
+        # three awards the 1630 baseline actually captured through the SAME matcher
+        # run.py runs, at the SAME default tolerances: with the gate armed, a single
+        # unmatched award here is a PARSEK-FAIL(ledger) on the next real flight.
+        measured = [(12.5, 0.9999995, "Progression"),
+                    (19.1, 0.9999995, "Progression"),
+                    (119.9, -9.999828, "VesselLoss")]
+        awards = [hlib.CapturedAward(
+            kind="stock-reputation-award", facet="reputation", amount=amt,
+            contract_guid="", subject_id="", ut=ut, seq=i, raw_line="", reason=reason)
+            for i, (ut, amt, reason) in enumerate(measured)]
+        parse = oracle.parse_manifest_entries(self.block["manifest"])
+        self.assertEqual([], list(parse.errors))
+        tol = oracle.default_tolerances()
+        unmatched = hlib.unmatched_captured_awards(
+            parse.entries, awards,
+            {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation})
+        self.assertEqual([], [(u.ut, u.reason) for u in unmatched])
+        # AND THE GATE STILL BITES, tested so that the WINDOW is what decides.
+        # An earlier version appended the stray AFTER the three measured awards,
+        # which had already consumed all three entries under the one-to-one rule -
+        # so the stray came back unexpected no matter how wide the windows were, and
+        # the cell was insensitive to the very bounds it claimed to test. Judge the
+        # stray ALONE against the entries instead.
+        ctol = {"funds": tol.funds, "science": tol.science, "reputation": tol.reputation}
+        out_of_phase = hlib.CapturedAward(
+            kind="stock-reputation-award", facet="reputation", amount=0.9999995,
+            contract_guid="", subject_id="", ut=900.0, seq=9, raw_line="",
+            reason="Progression")
+        self.assertEqual([900.0], [u.ut for u in hlib.unmatched_captured_awards(
+            parse.entries, [out_of_phase], ctol)],
+            "a Progression award far outside the ascent window must stay unexpected")
+        # A SECOND VesselLoss inside the impact window is the case the one-to-one
+        # rule owns: the first consumes the entry, the second has nothing left.
+        def vessel_loss(ut, seq):
+            return hlib.CapturedAward(
+                kind="stock-reputation-award", facet="reputation", amount=-9.999828,
+                contract_guid="", subject_id="", ut=ut, seq=seq, raw_line="",
+                reason="VesselLoss")
+        doubled = hlib.unmatched_captured_awards(
+            parse.entries, [vessel_loss(119.9, 3), vessel_loss(150.0, 4)], ctol)
+        self.assertEqual([150.0], [u.ut for u in doubled],
+                         "a second VesselLoss must stay unexpected even in-window")
 
     def test_every_manifest_entry_parses_with_no_rejections(self):
         # run.py warn-logs a rejected seam entry and the caller reds it as a DROPPED

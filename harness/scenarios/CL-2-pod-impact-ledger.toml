@@ -341,7 +341,23 @@ required  = ["Recording started",
              "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=1 spawnable=0",
              "Committed tree '.+' \\(1 recordings\\)\\. Total committed: 1 recordings, 1 trees",
              "CreateKerbalAssignmentActions: 1 crew members from '.+'",
-             "OnSave: saving 1 committed tree\\(s\\)"]
+             "OnSave: saving 1 committed tree\\(s\\)",
+             # GROUP 4 - THE CAPTURE'S OWN INPUT, and the reason it is pinned here
+             # rather than left to the oracle (PR #1397 review, second pass).
+             # `captureCrossCheck = "gate"` reds on an award it CANNOT explain, so it
+             # is structurally blind to the opposite failure: if `STOCK_AWARD_PATTERNS`
+             # ever stops matching (a KSP text change, a mod, a Parsek log-shape
+             # change), the capture yields ZERO awards, `unmatched` is empty, and the
+             # armed gate reads GREEN forever - the exact "no-op gate" fail-open class
+             # this spec's own WHY-THIS-SPEC paragraph says the gate exists to close.
+             # Nothing else gates on capture non-emptiness: `run.py` only LOGS
+             # `stockLines=N`. These two stock lines are the capture's raw input, so
+             # requiring them makes "the capture had something to check" a positive,
+             # grep-stable assertion instead of an absence proof. They are stock KSP
+             # text, not Parsek's, and have been byte-stable across every archived run
+             # of this craft since 2026-07-28.
+             "Added -9\\.999828 \\(-10\\) reputation: 'VesselLoss'",
+             "Added 0\\.9999995 \\(1\\) reputation: 'Progression'"]
 # UNCHANGED from CL-1, and it was checked against a real crewed-pod crash that killed
 # its kerbal rather than argued by analogy. The NEW error surfaces this spec adds are
 # all failures that SHOULD red: `AutoCommitPendingTreeOutsideFlight (<ctx>) threw
@@ -355,6 +371,11 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 seedFrom     = "template"   # parse the staged career-pad-craft save for the baseline.
 tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
 rec3CarveOut = false        # no route residual anywhere in this scenario.
+# HISTORICAL (2026-07-30), SUPERSEDED BELOW - the shipped value is `gate`, set at the
+# bottom of this block. The next three paragraphs are kept verbatim as the measured
+# record of WHY the mechanism had to change; read them as history, not as the current
+# setting.
+#
 # REPORT, and after flight 1 that is a MEASURED conclusion rather than a placeholder.
 # `hlib`'s own note says the cross-check "was WRITTEN as a hard gate, but it has never
 # once run with a working capture", that no L1 spec can capture anything (all six are
@@ -376,10 +397,95 @@ rec3CarveOut = false        # no route residual anywhere in this scenario.
 # the key itself has to change. Recorded in docs/dev/todo-and-known-bugs.md so the
 # next author does not re-derive it from another flight.
 #
+# 2026-07-31 UPDATE: the key CHANGED (branch `harness-hardening-2`) - a manifest
+# entry may now declare `utWindow = [lo, hi]` and the cross-check matches a captured
+# award inside the window instead of on the exact UT. The paragraphs above stay as
+# the measured record of why the mechanism exists.
+#
+# 2026-07-31, SAME DAY, SECOND SESSION: **THE GATE IS ARMED**, and this is the FIRST
+# committed spec in the suite to arm `captureCrossCheck`. The three entries below
+# declare `utWindow`s from mission phase bounds; an unexpected stock award is now a
+# HARD PARSEK-FAIL(ledger) here, not a report row. The known-gate 3 operator
+# checklist was walked verbatim, ONE FLIGHT PER STEP, so each claim rests on its own
+# run rather than on the step before it:
+#
+#   1. BASELINE - run `2026-07-31_1630_CL-2-pod-impact-ledger`, PASS 168 s attempt 1,
+#      spec UNCHANGED. `manifest-capture stockLines=3 deduped=3 seamRejected=0` and
+#      all three awards reporting UNEXPECTED (report-only), at ut 12.5 / 19.1 / 119.9.
+#   2. WINDOWS DECLARED, STILL `report` - run `2026-07-31_1638`, PASS 168 s attempt 1.
+#      ZERO `unexpected stock award` lines and `ledgerOracle status=PASS
+#      hardDivergences=0 reportOnly=0` (it was reportOnly=3 in step 1). This is the
+#      step that proves the windows MATCH before anything gates on them.
+#   3. ARMED - run `2026-07-31_1645`, PASS attempt 1 with `captureCrossCheck = "gate"`
+#      live, so the check is now load-bearing on this scenario.
+#   4. CORRECTED + RE-FLOWN - run `2026-07-31_1759`, PASS attempt 1, 180 s, after the
+#      review moved the bounds off the wrong clock and added the group-4 capture
+#      tokens: `expectations mismatches=0` (both new stock-award tokens matched a
+#      real line) and `ledgerOracle status=PASS hardDivergences=0 reportOnly=0
+#      crossCheck=gate` - the mode is now IN THE ARCHIVE, so "armed and flown green"
+#      is greppable rather than narrative. THIS FLIGHT ALSO EARNED ITS KEEP: its
+#      awards landed at ut 12.8 / 19.3 / 120.2 - ALL THREE moved again, and the
+#      impact set a new high above every prior run's 119.7-119.9.
+#
+# WHY THE WINDOWS ARE PHASE BOUNDS AND NOT PINS, demonstrated BY THESE THREE FLIGHTS
+# rather than merely asserted: the second `Progression` award landed at ut 19.1 on
+# step 1 and 19.0 on step 2 - it moved between two runs of the same craft on the same
+# afternoon - and the impact award has measured 119.7 / 119.8 / 119.9 across SIX
+# archived runs (the B1 recording, both 2026-07-30 flights, all three above). An
+# exact-UT pin would have red the very next flight.
+#
+# AND THE WINDOWS ARE IN ABSOLUTE UT, NOT T+. This bit the first draft: the bounds
+# were originally [0,60] / [100,140], reasoned from the FLIGHT profile, but the
+# matched value is `fixtureUT(9.06) + padDwell + T+` and pad dwell is wall-clock.
+# The per-entry comments below derive the corrected bounds; the short version is
+# that a 140 ceiling had less headroom than the harness's own documented 30 s kRPC
+# connect budget, and `should_retry` never retries a PARSEK-FAIL.
+#
+# WHY THIS SPEC AND NOT ANOTHER, stated precisely (an earlier draft said "the only
+# committed scenario measured producing reputation", which is FALSE - `CL-1-pod-impact`
+# flies the same crash and the archived `logs/2026-07-28_1913_CL-1-pod-impact/KSP.log`
+# carries the identical three award lines). The real reason is narrower and still
+# decisive: the capture is REPUTATION-ONLY (KSP logs no funds and no science award
+# line), so only a reputation-producing flight can arm it at all - and of the two that
+# qualify, CL-1 carries NO `[expectations.ledger]` block and
+# `test_cl1_crew_loss.py::test_the_spec_drives_no_commit_and_declares_no_ledger_block`
+# forbids adding one, because CL-1 has no commit route. That leaves this spec. Arming
+# an L1 spec instead would arm a check whose input is provably always empty - a no-op
+# gate reading green forever, the same fail-open class this gate exists to close.
+#
+# RE-PIN CONTRACT, inherited from the funds row below and binding here too: if a
+# future flight's awards land OUTSIDE these windows, re-pin to the newly measured
+# bounds and record the run id. Do NOT widen a window blindly to make a red go away,
+# and do not retreat to `report` to silence one - either throws away what three
+# flights bought. A genuinely NEW award (a stock effect this mission did not trip
+# before) is the gate doing its job: declare it, do not window around it. (Widening
+# the impact ceiling from 140 to 400 was NOT that: it corrected a bound derived
+# against the wrong clock, and was verified to leave the gate's bite intact.)
+#
+# WHAT ARMING DOES *NOT* BUY, so nobody reads more into the green than it carries:
+#   1. It cannot see an award that never fired. The check reds on a captured award it
+#      cannot explain, so a capture yielding ZERO awards is unmatched-empty and
+#      GREEN. Group 4 of the logContracts above closes this at the log level; the
+#      cross-check itself remains one-directional by construction.
+#   2. The two `Progression` awards are separated only by a UT read off the nearest
+#      preceding [Parsek] line. Replaying an archived log with the Verbose and
+#      Extrapolator lines stripped, both correlate to the SAME ut and
+#      `dedupe_captured_awards` (which keys on seqKey + kind + identity + rounded
+#      amount) collapses them to one - after which one of the two entries below
+#      corroborates nothing and the run is still green. That is a fail-OPEN, bounded
+#      by the save diff (a genuinely duplicated award moves the pool). Measured max
+#      gap between UT-stamped [Parsek] lines around the impact is ~4 s against ~20 s
+#      of headroom, so it is not at risk today - recorded because nothing else names
+#      the coupling, and a PR that quiets Parsek's Info cadence could surface it.
+#
 # NONE OF THIS WEAKENS THE ORACLE. The cross-check only classifies; a captured amount
 # is never summed into EXPECTED, and the seam-declared-vs-produced-save diff below
-# reds exactly as before. Flight 1's ledger verifier passed with 0 hard divergences.
-captureCrossCheck = "report"
+# reds exactly as before. Adding the windows did NOT move the expected totals: every
+# entry here is already `ut`-less (the window is not a `ut`, and `_sort_key` orders on
+# `(ut is None, ut, seq)`), and all three are `repMode = "applied"`, so the nonlinear
+# rep curve is not re-entered either. MEASURED IDENTICAL across steps 1 and 2:
+# `oracle-expected funds=529600.0 science=100.0 rep=-7.999829000000001`.
+captureCrossCheck = "gate"
 
 # THE MANIFEST DECLARES DELTAS, and every number below is MEASURED, not derived.
 # Source: the two archived CL-1 flights, identical across both, cross-checked against
@@ -413,11 +519,43 @@ captureCrossCheck = "report"
   # running it through `apply_rep_curve` a second time would double-distort it. The
   # `gameevents-captured` provenance defaults to `applied` for exactly this reason;
   # it is written explicitly here so the intent survives a default change.
+  #
+  # `utWindow` = THE IMPACT PHASE, a bound rather than a pin. The exact impact UT is
+  # NOT stable and must never be written here: MEASURED 119.7 (archived B1 run of
+  # this craft), 119.9 and 119.8 (the two 2026-07-30 flights), and 119.9 on all
+  # three 2026-07-31 arming flights - six runs, three distinct values (and a
+  # fourth, 120.2, on the corrected re-fly `2026-07-31_1759` below).
+  #
+  # THE UPPER BOUND IS 400, NOT 140, AND THE REASON IS A CLOCK. (PR #1397 review,
+  # second pass - this bound was originally 140 and that was a latent false-red.)
+  # The matched quantity is the captured award's `ut=`, which is the RAW Planetarium
+  # UT off the neighbouring [Parsek] line - NOT time since ignition. This fixture
+  # starts at `UT = 9.06` (career-pad-craft/persistent.sfs) and the arming flight
+  # logged `phase PRELAUNCH -> FLIGHT ut=11.020`, so the matched value is
+  #   fixtureUT + PAD DWELL + T+
+  # and pad dwell is a HARNESS/wall-clock quantity, not mission physics: game time
+  # runs 1:1 with wall here (missionWallSeconds 111 vs 108.9 s of UT, no warp), so
+  # every second spent connecting kRPC or driving a seam verb on the pad shifts every
+  # award UT by one second. A 140 ceiling left ~20 s of headroom against
+  # `mission_runner.CONNECT_BUDGET_SECONDS = 30.0` (10 attempts, 3 s backoff,
+  # connecting with the game already unpaused on the pad) - i.e. the documented
+  # budget alone exceeded the headroom, and `hlib.should_retry` never retries a
+  # PARSEK-FAIL, so one slow connect would red the nightly with no absorption and
+  # look exactly like a real ledger regression. Measured dwell today is ~2 s.
+  #
+  # WIDENING COSTS NOTHING HERE, which is why this is a correction and not the
+  # blind widening the RE-PIN CONTRACT forbids: the window is not what discriminates
+  # this entry. `stockReason = "VesselLoss"`, the amount against a 0.1 tolerance, and
+  # the one-to-one-per-(entry, pool) rule are. Verified against the real matcher: at
+  # [100, 400] an EXTRA VesselLoss award at ut 150 is still unexpected, and a stray
+  # Progression at ut 80 is still unexpected - the gate bites exactly as before, and
+  # only the pad-dwell exposure is gone.
   seq        = 2
   kind       = "stock-reputation-award"
   reputation = -9.999828
   repMode    = "applied"
   stockReason = "VesselLoss"
+  utWindow   = [100.0, 400.0]
   provenance = "gameevents-captured"
 
 [[expectations.ledger.manifest]]
@@ -430,11 +568,36 @@ captureCrossCheck = "report"
   # They are declared as TWO entries rather than one summed row because they are two
   # distinct stock events with two distinct log lines, and the capture cross-check
   # corroborates one-to-one on (seqKey, facet, amount).
+  #
+  # `utWindow` = THE ASCENT PHASE. Both awards are progress nodes tripped on the way
+  # up, and BOTH move between runs - neither is a constant:
+  #   first  award: 12.0 (archived 2026-07-28 CL-1 run of the same craft and
+  #                 mission), 12.5 / 12.4 (2026-07-30 flights), 12.5 on the three
+  #                 arming flights, 12.8 on the corrected re-fly.
+  #   second award: 15.98 (that CL-1 run), 19.0 (2026-07-30), 19.1 / 19.0 / 19.1
+  #                 (arming flights), 19.3 (corrected re-fly).
+  # The second award's real observed spread is therefore ~16 to ~19.3, several times
+  # wider than the arming flights alone suggested. That is the instability in miniature and
+  # the reason a bound is the only honest declaration.
+  #
+  # THE UPPER BOUND IS 100, and it carries the same pad-dwell exposure the impact
+  # entry's comment derives at length: these are absolute Planetarium UTs, so
+  # `fixtureUT(9.06) + padDwell + T+`. At 100 the ascent group tolerates ~80 s of
+  # pad dwell against a documented 30 s connect budget. It ABUTS the impact window
+  # at exactly 100 rather than leaving a gap: a gap is a place an award can land and
+  # be unmatched for no reason anyone intended. The two groups never contend anyway -
+  # their amounts differ by ~11 against a 0.1 tolerance and their `stockReason`s
+  # differ - so the shared endpoint is harmless.
+  # The two entries carry the SAME window deliberately:
+  # they are interchangeable by construction (same amount, same reason, two distinct
+  # stock events), and the one-to-one-per-(entry, pool) rule is what assigns one
+  # award to each rather than letting a single entry corroborate both.
   seq        = 0
   kind       = "stock-reputation-award"
   reputation = 0.9999995
   repMode    = "applied"
   stockReason = "Progression"
+  utWindow   = [0.0, 100.0]
   provenance = "gameevents-captured"
 
 [[expectations.ledger.manifest]]
@@ -443,6 +606,7 @@ captureCrossCheck = "report"
   reputation = 0.9999995
   repMode    = "applied"
   stockReason = "Progression"
+  utWindow   = [0.0, 100.0]
   provenance = "gameevents-captured"
 
 [[expectations.ledger.manifest]]

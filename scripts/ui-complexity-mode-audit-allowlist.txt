@@ -33,6 +33,13 @@ Source/Parsek/ParsekUI.cs
 # ParsekUI.ApplyPendingUiComplexityModeIfAny first thing, ahead of their
 # early-outs, so the latch runs before OnGUI. They name the apply method only;
 # neither reads the mode to decide any recording or playback behavior.
+# ParsekFlight also CONSUMES the mode, through ParsekUI.IsSpawnControlReachable,
+# to decide whether its proximity screen message names a window Basic has hidden
+# the launcher for (design 9.1). That accessor is itself one of the scanned
+# patterns, precisely so this consumption is a real hit that has to be
+# allowlisted rather than an invisible back door: it changes the message WORDING
+# only, never whether the message fires, what is detected, or what spawning
+# does.
 Source/Parsek/ParsekFlight.cs
 Source/Parsek/ParsekKSC.cs
 
