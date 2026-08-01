@@ -66,6 +66,12 @@ namespace Parsek
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
 
+        // The archive-filter value the cached list was BUILT with. The filter is shared
+        // cross-window state (see ShowArchivedRecordings), so the Recordings tab's own
+        // Archive header toggle can change it while this cache is warm and nothing else
+        // would mark it dirty.
+        private bool cachedTimelineShowedArchived;
+
         // Filter state
         private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
         private bool showRecordingEntries = true;
@@ -394,8 +400,10 @@ namespace Parsek
             // Zone 2b: Time-Range Filter
             DrawTimeRangeFilterBar();
 
-            // Rebuild cache if dirty
-            if (timelineDirty || cachedTimeline == null)
+            // Rebuild cache if dirty, or if the shared archive filter moved under us
+            bool showArchivedRows = ShowArchivedRecordings;
+            if (ShouldRebuildTimeline(
+                    timelineDirty, cachedTimeline == null, cachedTimelineShowedArchived, showArchivedRows))
             {
                 // [Phase 3] ERS+ELS-routed: timeline view feeds from visible
                 // recordings and non-tombstoned ledger actions only (design §3.4).
@@ -405,7 +413,9 @@ namespace Parsek
                     EffectiveState.ComputeELS(),
                     MilestoneStore.Milestones,
                     GameStateStore.IsEventVisibleToCurrentTimeline,
-                    GetCurrentGameMode());
+                    GetCurrentGameMode(),
+                    showArchivedRows);
+                cachedTimelineShowedArchived = showArchivedRows;
                 timelineDirty = false;
 
                 // Rebuild recording lookup cache (ERS-scoped so cross-link
@@ -647,6 +657,40 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Positive-polarity view of the ARCHIVE filter for
+        /// <see cref="Recording.Hidden"/>: true means archived recordings contribute
+        /// Timeline rows.
+        /// <para>Deliberately the SAME state the Recordings tab's Archive header toggle
+        /// writes (<see cref="GroupHierarchyStore.HideActive"/>, persisted with the save),
+        /// not a second flag. One archive flag, one filter switch, reachable from either
+        /// list that honours it - which is what makes an archive reversible in Basic mode,
+        /// where the Recordings tab is hidden (design
+        /// `docs/dev/design-ui-basic-advanced.md` section 4.4).</para>
+        /// <para>The polarity flips because the two labels are opposites: the Recordings
+        /// tab's header checkbox means "hide archived", while every toggle in the
+        /// Timeline's own filter row means "show this". The stored bool keeps the
+        /// Recordings-tab sense; this property is the Timeline's.</para>
+        /// </summary>
+        internal static bool ShowArchivedRecordings
+        {
+            get => !GroupHierarchyStore.HideActive;
+            set => GroupHierarchyStore.HideActive = !value;
+        }
+
+        /// <summary>
+        /// Whether the cached timeline must be rebuilt this pass. Pure so the
+        /// archive-filter arm is unit-testable: the ordinary dirty / no-cache arms are
+        /// joined by "the archive filter changed since the cache was built", which is the
+        /// only rebuild trigger no invalidation call announces (the Recordings tab writes
+        /// the shared filter directly).
+        /// </summary>
+        internal static bool ShouldRebuildTimeline(
+            bool dirty, bool cacheMissing, bool cachedShowedArchived, bool showArchivedNow)
+        {
+            return dirty || cacheMissing || cachedShowedArchived != showArchivedNow;
+        }
+
         private void DrawFilterBar()
         {
             GUILayout.Space(5);
@@ -740,6 +784,33 @@ namespace Parsek
                 tierFilterMode = TimelineTierFilterMode.ReFly;
                 showRecordingEntries = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
+            }
+
+            // Empty column 3, same Label-not-Space idiom as the first row, so the
+            // Archived toggle lands in column 4 directly under Recordings - it modifies
+            // the recording rows, and reads as a qualifier on that source toggle.
+            GUILayout.Label("", GUILayout.Width(btnW));
+
+            // Archive reveal. This is the ONLY control for the archive filter that Basic
+            // mode can reach: the Recordings tab that owns the Archive checkbox is hidden
+            // there, so without this an archived flight could never come back to the
+            // Timeline (design section 4.4). Ungated on purpose - the Timeline shows the
+            // same rows in both modes; nothing here reads the UI complexity mode.
+            bool showArchived = ShowArchivedRecordings;
+            bool newShowArchived = GUILayout.Toggle(
+                showArchived,
+                new GUIContent("Archived",
+                    "Show rows for recordings archived in the Missions window's Recordings tab.\n"
+                    + "Shares the Archive filter with that tab, so this is also how an archived\n"
+                    + "flight comes back."),
+                toggleButtonStyle,
+                GUILayout.Width(btnW));
+            if (newShowArchived != showArchived)
+            {
+                ShowArchivedRecordings = newShowArchived;
+                ParsekLog.Info("UI",
+                    $"Timeline Archived toggle: showArchived={newShowArchived} " +
+                    $"hideActive={GroupHierarchyStore.HideActive}");
             }
             GUILayout.EndHorizontal();
         }
@@ -1103,8 +1174,15 @@ namespace Parsek
             // that appears before the R / FF / L / GoTo buttons on the far right.
             GUILayout.Space(14f);
 
-            // Description text
-            GUILayout.Label(entry.DisplayText, style, GUILayout.ExpandWidth(true));
+            // Description text. A revealed archived row is marked, or the player would
+            // have no way to tell which rows the Archive filter had been covering - and
+            // therefore no way to know what to un-archive. Composed into the SAME single
+            // Label (never a second control), so the control count is identical in the
+            // Layout and Repaint passes of one frame.
+            string description = entry.IsArchivedRecording
+                ? entry.DisplayText + "   [archived]"
+                : entry.DisplayText;
+            GUILayout.Label(description, style, GUILayout.ExpandWidth(true));
 
             // R/FF + GoTo for RecordingStart entries (R/FF first, GoTo last for alignment)
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))

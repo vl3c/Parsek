@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Archiving a recording no longer removes it from the Timeline for good. The Archive checkbox lives in the Recordings tab, which Basic mode hides, so a flight archived in Advanced vanished from the Timeline with nothing in Basic able to bring it back. The Timeline now has its own "Archived" filter button next to Recordings/Actions/Events: turn it on and archived flights reappear, marked "[archived]", in both modes. It is the same Archive filter the Recordings tab's header checkbox controls, so the two always agree. Timelines still hide archived flights by default, exactly as before.
 - Nearby-craft alerts no longer tell you to open a window you cannot see. In Basic mode the alert keeps the useful part (which craft is nearby, and when it departs) and drops the instruction to open Real Spawn Control, whose button that mode hides.
 - After a merge that could not seal a Re-Fly slot, the message now points at the Timeline, where the Seal button actually is and which is visible in every UI mode.
 - A kerbal who dies when their vessel is destroyed is now correctly recorded as dead on the career timeline. Previously the crew-fate step was skipped for destroyed vessels (the only flights that end with no vessel left to snapshot), so a dead crew member was treated like one still away on a mission: their seat got a temporary reservation and a stand-in kerbal was generated, instead of the permanent reservation a death is supposed to leave behind.

@@ -6,7 +6,7 @@
 
 **Status:** IMPLEMENTED (phases 1-8 landed on branch `claude/mods-ui-basic-advanced-amrgy9`, in-game validation pending). All blocking decisions are RESOLVED. First-run default (section 7.3): the stored setting always wins, Basic is the default for new installs only, an existing install is never changed. Basic hide-set (section 4): as specified, with Logistics explicitly kept visible for discoverability (philosophy 7); the conditional "appear once used" variant is rejected in section 10. Naming (section 4.1): the main-window button, window title, and first/default tab all become Missions in BOTH modes, the one deliberate Advanced-visible change in this feature; section 4.2 lists the "Recordings" strings that must NOT be renamed.
 **Review:** 2026-07-28 four-lens plan review (inventory, sufficiency, risk/invariants, implementation) folded in. Load-bearing changes from that review: install-level footprint + persist-on-resolve + two-input resolve seam (7.3), the Timeline GoTo disposition (4.1a), the frame-latched mode apply rule (7.2), the DrawIfOpen never-gated rule (7.1), the widened close set (7.2), and the Basic v1 limitation on retroactive playback-disable (4.3).
-**Version:** 0.3
+**Version:** 0.4
 **Out of scope:** any change to recording, playback, logistics dispatch, or ledger behavior. This is a visibility gate only, see section 9.
 **Related docs:** `docs/dev/design-mission-abstractions.md` (Missions tab), `docs/parsek-timeline-design.md` (Timeline), `docs/parsek-logistics-supply-routes-design.md` (Logistics).
 
@@ -222,6 +222,43 @@ The only UI writing `Recording.PlaybackEnabled` is the hidden Recordings tab (pe
 
 Consequence: "I committed this flight and later want its ghost gone" is Advanced-only in v1. Pre-commit regret is fully covered in Basic by the Merge dialog's Discard. This is a deliberate, documented exception to philosophy 3, accepted because fixing it inside this feature would require a new Missions-tab control in both modes, violating philosophy 6 (no other Advanced-visible change). The follow-up is section 17.8 (mission-level ghost-visibility toggle). Related: debris recordings never become mission legs (`MissionStructure.cs:139` - debris rides its parent), so individual debris enable/hide is likewise Advanced-only; acceptable because debris follows its parent's loop inclusion.
 
+Not to be confused with `Recording.Hidden`, the OTHER Recordings-tab-only flag, which is a different axis and is NOT a v1 limitation: it is decided in section 4.4.
+
+### 4.4 What `Recording.Hidden` (Archive) means, and the Timeline's reveal (DECIDED 2026-08-01)
+
+Found by the same 2026-07-31 audit as the 4.1a revision, and left open there because it needed a decision rather than a fix.
+
+**The gap.** `Recording.Hidden` suppressed Timeline rows unconditionally (`Timeline/TimelineBuilder.cs`, `if (rec.Hidden) { hiddenSkipped++; continue; }`), but every writer of the flag lives in the Recordings tab (the per-row Archive checkbox `RecordingsTableUI.cs:1897`, the group aggregates `:2594` / `:2934`), which Basic hides. Archive a recording in Advanced, switch to Basic, and the flight was gone from the Timeline with no reachable control able to bring it back. It still appeared in the Missions tab, which does not filter on the flag.
+
+**The decision.** State the flag's meaning first, because both candidate fixes presuppose an answer:
+
+> **Archive is a per-list view filter, never a suppression. Every list that honours `Recording.Hidden` carries its own control to show archived items again.**
+
+That is already how the flag behaves everywhere except the Timeline. The Recordings tab honours it and pairs it with the Archive header checkbox (`GroupHierarchyStore.HideActive`, persisted, default on). The mission-level twin `Mission.Archived` honours it in the Missions tab and pairs it with that tab's own Archive checkbox (`MissionStore.HideArchived`). The Timeline was the single list consuming the flag with no paired reveal - a defect that predates Basic mode; Basic only made it terminal, by hiding the one surface that could undo it.
+
+**The fix.** The Timeline gets an `Archived` toggle in its filter bar, second row, column 4 (directly under `Recordings`, the source toggle it qualifies), in BOTH modes:
+
+- `TimelineBuilder.Build` takes `bool includeArchivedRecordings` (default false, so every existing caller and the whole default row set are unchanged). The builder stays pure and reads no store; the window supplies the value.
+- The toggle is bound to the SAME state the Recordings tab's Archive header already owns, through `TimelineWindowUI.ShowArchivedRecordings` (`= !GroupHierarchyStore.HideActive`; the polarity flips because the Recordings-tab label means "hide archived" while every Timeline filter toggle means "show this"). One archive flag, one filter switch, two places to reach it. A Timeline-private second flag was rejected: it would give one flag two switches that could disagree.
+- Because that state is shared, the Recordings tab can move it while the Timeline's cache is warm and nothing marks the cache dirty. `TimelineWindowUI.ShouldRebuildTimeline(dirty, cacheMissing, cachedShowedArchived, showArchivedNow)` is the pure predicate that adds the missing trigger.
+- Revealed rows are marked `[archived]`, composed into the row's existing single description `Label` (never a second control, so the IMGUI control count is identical in the Layout and Repaint passes). Without the marker the player can see the rows are back but not which ones were archived, and so cannot tell what to un-archive.
+- Entries carry `TimelineEntry.IsArchivedRecording`, stamped by the collector over the entry range one recording contributed, rather than threaded through four `Try*Add` signatures.
+
+**Nothing here reads the mode.** The Timeline's row set is identical in Basic and Advanced; the mode symbol does not appear in `Source/Parsek/Timeline/` and the section 13.4 grep gate's allowlist is untouched. Basic reaches the toggle because the Timeline is a surface Basic keeps, not because the gate treats it specially.
+
+**Rejected: have the Timeline ignore `Hidden` in Basic** (audit candidate a). Four reasons, any one sufficient:
+
+- It inverts the mental model. Every other mode difference is Basic ⊂ Advanced; this would make Basic show rows Advanced does not, so switching Basic -> Advanced would silently delete Timeline rows - the exact "a default changed what the player sees" failure section 7.3 exists to prevent.
+- It crosses the section 5 / 9.1 line. The mode may decide what a message SAYS, never "whether it fires, what is detected". A per-row inclusion decision inside `TimelineBuilder` is detection.
+- It would force `Source/Parsek/Timeline/` onto the 13.4 grep-gate allowlist, weakening the mechanism that keeps section 9 honest, in order to make a data filter mode-dependent - precisely the rot that gate exists to catch.
+- It gives the player nothing. The recording stays archived; the mode merely masks the flag, and the player still has no control over it.
+
+**Rejected: an un-archive affordance in the Missions tab** (audit candidate b, as literally written). It builds a second, mission-level archive control beside the `Mission.Archived` one that already exists, which is section 17.8's design space (mission vs row granularity, does debris follow the parent, how it composes with the include checkboxes) - much larger than this gap, and a new both-modes control with open questions. The shipped fix IS a Basic-reachable restore affordance; it is placed on the surface where the loss is felt and bound to the state that already exists.
+
+**Precedent this is consistent with.** §7.33 already refuses to archive an Unfinished Flight (`RecordingsTableUI.cs:1911`, "rewind access must remain visible"), because archiving one would sweep a re-fly opportunity out of view. The codebase therefore already treats "an archive made something unreachable" as a bug class, and already solves it by preserving reachability - not by making the filter mode-dependent.
+
+**Known residual, deliberately not widened here.** The archive filter has always been partial: it gates the four row flavours the recording collector emits (RecordingStart, Separation / UnfinishedFlightSeparation, VesselSpawn, CrewDeath), while the same flight's ledger action rows and legacy event rows come from collectors that never read the flag. Revealing is therefore additive and honest, but archiving still leaves a flight's career actions on the Timeline. Making the flag reach the action collectors is a scope-and-semantics question of its own (it would change what Advanced shows for every archived flight) and is not part of this decision.
+
 ---
 
 ## 5. Mental Model
@@ -248,7 +285,10 @@ Consequence: "I committed this flight and later want its ghost gone" is Advanced
               handler, and player-facing TEXT that names a gated surface (9.1)
               ONLY. No recorder, playback, dispatch, or ledger path ever reads it,
               and the text case may decide only what a message SAYS, never whether
-              it fires or what any action does. The per-window DrawIfOpen call sites are NEVER gated
+              it fires or what any action does. It never decides which DATA a kept
+              surface shows either: the fix for a Recordings-tab-only flag reaching
+              a Basic-kept list is a reachable control, not a mode-dependent filter
+              (4.4). The per-window DrawIfOpen call sites are NEVER gated
               (section 7.1) - their !IsOpen -> ReleaseInputLock() prologue is the
               per-frame lock self-heal and must keep running in both modes.
 ```
@@ -423,6 +463,7 @@ One more GoTo consequence (4.1a): after the revision, the only production tab mo
 12. **Timeline GoTo.** See section 4.1a: phase 1 made `ScrollToRecording` select the Recordings tab and Basic hid the button; the revision retargets GoTo at the Missions tab through `ShowMissionForRecording`, so it is visible in both modes and its gate key is `TabMissions`.
 13. **Two test runner windows.** The Settings-launched `ParsekTestRunner` window is in the close set (no reopen path in Basic); the global Ctrl+Shift+T `ParsekTestRunnerGlobal` window is a separate window with a separate lock and is never gated (section 6.3).
 14. **`autoRecordOnLaunch` off in Basic.** The Recording section stays visible, so a Basic player can turn auto-record off; with Gloops hidden there is then no manual recorder at all. Pre-existing shape (Advanced has no manual tree-recorder start either) and the toggle is the player's own explicit act; no rule, just noted.
+15. **A Recordings-tab-only flag reaching a Basic-kept surface.** `Recording.Hidden` (Archive) is written only from the hidden Recordings tab yet filtered the Timeline, so an archive was irreversible in Basic. Resolved in section 4.4 by giving the Timeline its own reveal toggle over the SAME shared filter state, in both modes. The general rule it establishes: when a hidden surface owns the only writer of a flag a KEPT surface consumes, give the kept surface a control, never a mode-dependent filter. Any future flag with that shape gets the same treatment.
 
 ---
 
@@ -515,6 +556,7 @@ The existing `[UI]` tag is correct here; this feature introduces no new subsyste
 - **`RecordingStoragePathsAreUnaffectedByRename`** - asserts `RecordingPaths` still resolves the `Parsek/Recordings` directory (`RecordingPaths` already has xUnit precedent). Guards the section 4.2 trap where an over-eager rename orphans every recording on disk.
 - **`CloseHandlerCoversEveryGatedLockOwner`** - pins the section 7.2 close set: every lock-owning window whose launcher Basic hides (career, kerbals, gloops, spawn control, settings-launched test runner) appears in the handler's list, plus the group picker close. Guards the drift failure the existing `Cleanup()` sweep exhibits (it omits three windows).
 - **`ScrollToRecordingSelectsRecordingsTab`** - phase 1 guard for section 4.1a, asserting the explicit `selectedTab = TabRecordings` write. After the 4.1a revision it guards the Recordings tab's own navigation API rather than a live cross-link; the cross-link's own cells live in `TimelineGoToMissionTests` (happy path, tab move off Recordings, mid-scene default-mission seeding, original-not-clone pick, the three Archive-filter rules, the three headless-reachable failure paths, the stale-target clear, the gate key in both modes, and a source-text gate over both button sites). The fourth failure path - target armed but never drawn - is draw-loop-only and has no headless cell.
+- **Section 4.4 archive reveal** - `TimelineArchivedRowsTests` (13 cells: the default still hides, the reveal includes and is purely additive, the `IsArchivedRecording` stamp follows the RECORDING and not the build flag, the collector's `hidden=` / `archivedShown=` diagnostic, both directions of the `ShowArchivedRecordings` polarity and of its write-through to the shared filter, the untouched-save default, and the `ShouldRebuildTimeline` truth table including the archive-filter arm no invalidation call announces) plus `TimelineArchiveFilterWiringTests` (4 loose source-text cells over the IMGUI wiring `DrawTimelineWindow` / `DrawFilterBar` / `DrawEntryRow` cannot expose headlessly - the silent regression being a dropped `Build` argument, which leaves the toggle rendering and storing while the row set never moves). No mode cell is needed or wanted: 4.4 reads no mode, and the existing 13.4 grep gate is what proves it. After the 4.1a revision it guards the Recordings tab's own navigation API rather than a live cross-link; the cross-link's own cells live in `TimelineGoToMissionTests` (happy path, tab move off Recordings, mid-scene default-mission seeding, original-not-clone pick, the three Archive-filter rules, the three headless-reachable failure paths, the stale-target clear, the gate key in both modes, and a source-text gate over both button sites). The fourth failure path - target armed but never drawn - is draw-loop-only and has no headless cell.
 
 ### 13.2 Log-assertion tests
 
@@ -580,6 +622,7 @@ The Timeline has 10 toggles, several being tier filters. Whether those should co
 | Main-window gates | `ParsekUI.cs:193-385` |
 | Tab gates + reorder + clamp | `UI/RecordingsTableUI.cs:124-127`, `:1182-1190` |
 | GoTo cross-link fix + gate | `UI/RecordingsTableUI.ShowMissionForRecording`, `UI/MissionsWindowUI.RevealMissionForRecording`, `UI/TimelineWindowUI.DrawEntryRow` (section 4.1a) |
+| Archive reveal (section 4.4) | `Timeline/TimelineBuilder.Build(..., includeArchivedRecordings)` + `TimelineEntry.IsArchivedRecording`; `UI/TimelineWindowUI.ShowArchivedRecordings` / `ShouldRebuildTimeline` / `DrawFilterBar` / `DrawEntryRow`; shared filter state `GroupHierarchyStore.HideActive` |
 | Rename (button, title, tooltips) | `ParsekUI.cs:239`, `UI/RecordingsTableUI.cs:435`, `UI/TimelineWindowUI.cs:1193/:1223` |
 | Rename exclusions | `UI/RecordingsTableUI.cs:432` (window ID), log strings (section 4.2 blanket rule), `RecordingPaths.cs` (storage), `UI/TimelineWindowUI.cs:695` (unrelated filter), `SettingsWindowUI.cs:581` + `ParsekUI.cs:927` (wipe strings) |
 | Mode-change close handler | `ParsekUI.OnUiComplexityModeChanged` (explicit per-window list, section 7.2) |

@@ -80,6 +80,16 @@ namespace Parsek
         public Color DisplayColor;
         public string RecordingId;
         public string VesselName;
+        /// <summary>
+        /// True when this entry came from a recording the player ARCHIVED in the
+        /// Recordings tab (<see cref="Recording.Hidden"/>). Only ever set on entries
+        /// the builder was explicitly asked to include (design
+        /// `docs/dev/design-ui-basic-advanced.md` section 4.4), so it is false on every
+        /// entry of a default build. The Timeline row draw uses it to mark a revealed
+        /// row, which is what tells the player WHICH rows the Archive filter was
+        /// covering.
+        /// </summary>
+        public bool IsArchivedRecording;
         public bool IsEffective = true;
         public bool IsPlayerAction;  // true = deliberate KSC action, false = gameplay event
         public string MilestoneId;
