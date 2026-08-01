@@ -608,9 +608,43 @@ caught this on EVA-2's first flight.
 
 ---
 
-## ~~Intermittent stock `SpaceTracking.buildVesselsList` NRE on TRACKSTATION ghost teardown is not classified by the ghost-NRE suppressor~~ [FOUND 2026-07-30 by `H23-tracking-station`. FIXED 2026-08-01, branch `small-fixes-batch`]
+## Intermittent stock `SpaceTracking.buildVesselsList` NRE on the `H23-tracking-station` lane [FOUND 2026-07-30 by `H23-tracking-station`. Suppressor gap CLOSED 2026-08-01, branch `small-fixes-batch`. The OBSERVED occurrence is a stock shutdown race and is NOT Parsek's to fix - see "What is actually happening"]
 
-### Fix
+### The correction that matters (2026-08-01, flown)
+
+This entry was written believing the NRE came from Parsek's synthetic-ghost teardown.
+**It does not.** Flying the fix (`2026-08-01_1628_H23-tracking-station`, PASS, 46 s,
+`unityExceptions.total=2`) caught the exception with the new diagnostic fields
+populated, and they read `ghostTeardownInProgress=0 registeredGhostMapVessels=0` -
+BOTH new conjuncts zero. The collected log says why: it fires **715 ms after
+`flushandquit: Application.Quit`**, from
+
+```
+Vessel:OnDestroy()  ->  EventData`1:Fire(Vessel)
+  ->  KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v)
+    ->  SpaceTracking.buildVesselsList_Patch2
+```
+
+i.e. UNITY destroying `Vessel` GameObjects at application exit, against a stock TS UI
+that `UIApp`/`KbApp OnDestroy` have already partly torn down. All three
+`RemoveAllGhostVessels` calls on that flight logged `no ghost vessels to remove`, so
+no Parsek ghost `Die()` ran at all, and `ParsekTrackingStation destroyed` is 1.36 s
+earlier in the log. **Parsek neither causes it nor has anything to suppress**; the
+suppressor leaving it visible is correct, not a missing case.
+
+So the fix below is KEPT and is sound on its own terms - it closes a genuine
+scan-blind hole, and its two new fields are what turned this from a mystery into a
+one-flight diagnosis - but it does NOT close the occurrence this entry was opened
+for, and the header no longer claims it does.
+
+Also corrected: the "2 raw Unity exceptions" reading is ONE exception counted twice
+(`hlib.scan_unity_exceptions` matches both the `[ERR]` line and the `[EXC]` line under
+it). And the five-flight record is 2 / 0 / 0 / 0 / 2 (`2026-07-30_1520`, `_1522`,
+`2026-07-31_1625`, then both 2026-08-01 flights), a base rate near one in three - which
+is why "fly twice, if both read zero then arm" was never a sound test and has been
+replaced in gate 13.
+
+### Fix (kept: closes the scan-blind hole for a REAL ghost-teardown NRE)
 
 The suppressor now carries TWO classes instead of one predicate
 (`BuildVesselsListNreClass`). The answer to THE QUESTION below is: yes, a scan that
@@ -640,44 +674,52 @@ throw, whose whole value is surviving one that does. Seven new headless cells in
 `GhostTrackingStationPatchTests` cover the suppressing shape, drop each conjunct in
 turn, and pin the depth counter's nesting plus its floor-at-zero.
 
-CONSEQUENCE FOR THE HARNESS: a TRACKSTATION spec can now arm
-`[expectations.unityExceptions] maxTotal` without absorbing this. `H23-tracking-station`
-is deliberately NOT armed here - that is a spec change owed a flight, and this branch
-flew nothing (see gate 13 in `autotest-status.md`).
+CONSEQUENCE FOR THE HARNESS: the class itself is no longer what blocks a TRACKSTATION
+spec from arming `[expectations.unityExceptions] maxTotal` - but the SHUTDOWN race
+above still is, and it is a stock bug rather than one Parsek may swallow.
+`H23-tracking-station` therefore stays UNARMED; gate 13 in `autotest-status.md` now
+carries the decision that has to be made first.
 
-### What was happening
+### What is actually happening
 
-Observed on the FIRST `H23-tracking-station` flight (2 raw Unity exceptions) and NOT
-on the second, identical, pinned flight (0) - so it is intermittent, which is why the
-spec deliberately does not arm `[expectations.unityExceptions] maxTotal`.
+An intermittent stock NRE at APPLICATION SHUTDOWN, roughly one flight in three (record
+2 / 0 / 0 / 0 / 2 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625` and both
+2026-08-01 flights). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
+signature; the two "raw Unity exceptions" the scan reports are that ONE exception
+counted twice, not two failures.
 
 ```
 [Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception left visible:
   type=NullReferenceException totalVessels=0 ghostVessels=0
   ghostMissingOrbitRenderers=0 nonGhostMissingOrbitRenderers=0
   firstMissingOrbitRenderer=non-ghost-or-none priorStockNullCandidates=0
+  ghostTeardownInProgress=0 registeredGhostMapVessels=0
   scanError="NullReferenceException: Object reference not set to an instance of an object"
 [ERR] Exception handling event onVesselDestroy in class SpaceTracking:
   System.NullReferenceException
+  at SpaceTracking.buildVesselsList_Patch2 / onVesselDestroyed (Vessel v)
+  at EventData`1[T].Fire (T data)  <- from Vessel:OnDestroy()
 ```
 
-It fires during the synthetic-ghost teardown the TS tests perform
-(`SyntheticTrackingStationRecordingScope` dispose ->
-`GhostMapPresence` ProtoVessel destroy -> stock `onVesselDestroy` ->
-`SpaceTracking.buildVesselsList`).
+`Vessel:OnDestroy()` is Unity reclaiming vessel GameObjects as the process exits: it
+lands 715 ms after `flushandquit: Application.Quit` and 1.36 s after
+`ParsekTrackingStation destroyed`, interleaved with `UIApp`/`KbApp OnDestroy`, so stock
+rebuilds a Tracking Station list whose UI is already partly gone. It is NOT the
+synthetic-ghost teardown this entry originally blamed - on the flight that caught it,
+every `RemoveAllGhostVessels` call logged `no ghost vessels to remove`.
 
-`GhostTrackingStationPatch.IsKnownGhostProtoVesselNre` declined to suppress it, and
-declined CORRECTLY on its own terms: the context scan it classifies from THREW too
-(hence `totalVessels=0 ghostVessels=0` and the populated `scanError`), so it saw a
-zero-ghost context and refused to swallow an exception it could not attribute. That
-is the right default - a suppressor that swallows on missing evidence is how a real
-defect goes quiet.
+`GhostTrackingStationPatch` declines to suppress it, and declines CORRECTLY: the
+context scan throws too (hence `totalVessels=0` and the populated `scanError`), AND
+both scan-independent conjuncts read zero, because there genuinely is no Parsek ghost
+teardown and no registered ghost. A suppressor that swallowed this would be swallowing
+a stock bug it had no part in.
 
-THE QUESTION, not the fix: should a scan that itself failed be classified from
-`scanError` plus the known call site, rather than from counts the failed scan never
-populated? Today the answer is "leave it visible", which costs nothing - the tests it
-interrupts still pass - but it does mean a TRACKSTATION spec cannot arm a Unity
-exception budget without absorbing this.
+WHAT IS LEFT TO DECIDE (not a Parsek code question): whether the harness should
+tolerate a stock shutdown-order NRE so `H23-tracking-station` can arm a Unity-exception
+budget at all. `maxTotal = 0` would red the nightly intermittently; any non-zero
+ceiling has to be justified as deliberately tolerating a stock bug, not sized off a
+green run. Until then the scan stays report-only on this spec, which costs nothing -
+the run is a full PASS with the exception present.
 
 ---
 
