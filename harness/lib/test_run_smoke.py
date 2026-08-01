@@ -144,11 +144,20 @@ class FakeRuntime(run.Runtime):
         # Extract the --result path run.py chose and drive the fake mission with the
         # test-injected mode. The venv python / mission_py are ignored (no real venv).
         result_path = list(args)[list(args).index("--result") + 1]
+        # Route-1 seam bridge: forward run.py's OWN channel path + reserved id so the
+        # `midcommit` mode writes exactly where a real mission would, and the
+        # mid-mission-write reader is exercised against the id run.py actually chose
+        # (not one the test picked).
+        argv = list(args)
+        seam = []
+        for flag in ("--seam-commands", "--seam-commit-id"):
+            if flag in argv:
+                seam += [flag, argv[argv.index(flag) + 1]]
         out = open(stdout_path, "w", encoding="utf-8")
         try:
             return subprocess.Popen(
                 [sys.executable, FAKE_MISSION, "--result", result_path,
-                 "--mode", self.mission_mode],
+                 "--mode", self.mission_mode] + seam,
                 cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
         finally:
             out.close()
@@ -1286,6 +1295,42 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertIn("FlushAndQuit", verbs)
         self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
                          [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+
+    # ---- HARNESS-MIDMISSION-COMMIT-BYPASS, end to end ------------------------
+    # The gap the tail gate above does NOT close, driven over the fake KSP + fake
+    # mission: a route-1 mid-mission CommitTree that lands BEFORE the verdict
+    # exists. REPORT-ONLY, so these assert on the RECORD, never on the verdict.
+
+    def test_mid_mission_commit_before_unmet_is_recorded_but_moves_no_verdict(self):
+        result, lines = self._run("midcommit")
+
+        # (1) The bypass is real: the mission's CommitTree IS in the channel, while the
+        #     DRIVER's own tail CommitTree was correctly skipped by the tail gate. Both
+        #     facts at once are the whole point of the entry.
+        # id 0003 = the mission step's own index-derived id, which run.py donates to
+        # the mission as its reserved id (the mission step writes nothing itself).
+        self.assertIn("id=0003 cmd=CommitTree", lines)
+        self.assertIn("CommitTree", [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+
+        # (2) It is now VISIBLE in the durable record, which is what was missing.
+        mm = result["driver"]["midMissionSeamWrites"]
+        self.assertEqual(1, mm["total"])
+        self.assertEqual(1, mm["worldMutating"])
+        self.assertEqual(["CommitTree"], mm["verbs"])
+        self.assertTrue(mm["exposedAfterUnmetMission"])
+
+        # (3) REPORT-ONLY: the verdict is the same INVALID(mission) the unmet mission
+        #     already earned. If this ever changes, the instrument has become a gate.
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_a_mission_that_writes_nothing_leaves_the_record_unchanged(self):
+        """Every committed non-B-DOCK mission ignores the seam args entirely. Their
+        result record must be byte-identical to what it was before this instrument."""
+        result, _ = self._run("assertfail")
+        self.assertNotIn("midMissionSeamWrites", result["driver"])
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
 
 
 class MissionSpecAdmissionTests(unittest.TestCase):

@@ -187,6 +187,163 @@ namespace Parsek.Tests
                 && line.Contains("priorStockNullCandidates=1"));
         }
 
+        // ---- Teardown shape: the context scan itself threw (H23-tracking-station, 2026-07-30) ----
+        //
+        // Every case below passes scanError, so the #556 count-based class cannot fire: the
+        // counts are zero because the scan never ran. What is under test is whether the
+        // scan-INDEPENDENT evidence (an in-progress Parsek ghost teardown + registered ghosts)
+        // is enough to attribute the NRE, and that removing ANY ONE conjunct leaves it visible.
+
+        private const string TeardownScanError =
+            "NullReferenceException: Object reference not set to an instance of an object";
+
+        // The exact shape H23 observed: zeroed counts, populated scanError, no usable stack.
+        private static Exception FinalizeTeardownShape(
+            Exception exception,
+            string scanError = TeardownScanError,
+            int registeredGhostMapVessels = 2,
+            bool ghostTeardownInProgress = true,
+            string exceptionStackTrace = null)
+        {
+            return GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 0,
+                ghostVesselCount: 0,
+                ghostMissingOrbitRendererCount: 0,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: false,
+                potentialEarlierStockNullCandidateCount: 0,
+                scanError: scanError,
+                exceptionStackTrace: exceptionStackTrace,
+                registeredGhostMapVessels: registeredGhostMapVessels,
+                ghostTeardownInProgress: ghostTeardownInProgress);
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedDuringGhostTeardown_Suppresses()
+        {
+            var exception = new NullReferenceException("stock list rebuild inside onVesselDestroy");
+
+            Exception result = FinalizeTeardownShape(exception);
+
+            Assert.Null(result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Suppressed ghost-teardown")
+                && line.Contains("classification=ghost-teardown-scan-blind")
+                && line.Contains("ghostTeardownInProgress=1")
+                && line.Contains("registeredGhostMapVessels=2"));
+            Assert.DoesNotContain(logLines, line => line.Contains("exception left visible"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedOutsideGhostTeardown_ReturnsOriginalAndWarns()
+        {
+            // The load-bearing conjunct. Without an in-progress Parsek teardown the ONLY thing
+            // linking this NRE to Parsek is that Parsek happens to have ghosts registered, which
+            // is true for most of a TS session and attributes nothing.
+            var exception = new NullReferenceException("stock NRE, no Parsek teardown running");
+
+            Exception result = FinalizeTeardownShape(exception, ghostTeardownInProgress: false);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ghostTeardownInProgress=0")
+                && line.Contains("scanError="));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedWithNoRegisteredGhosts_ReturnsOriginalAndWarns()
+        {
+            var exception = new NullReferenceException("stock NRE with no ghosts to blame");
+
+            Exception result = FinalizeTeardownShape(exception, registeredGhostMapVessels: 0);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("registeredGhostMapVessels=0"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedSomeOtherWay_ReturnsOriginalAndWarns()
+        {
+            // A scan that died of something else is a DIFFERENT fault and corroborates nothing.
+            var exception = new NullReferenceException("stock NRE");
+
+            Exception result = FinalizeTeardownShape(
+                exception,
+                scanError: "InvalidOperationException: Collection was modified");
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("InvalidOperationException: Collection was modified"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns()
+        {
+            // The IL offset still outranks everything: a trace that positively names a
+            // different stock site is evidence of a different failure, teardown or not.
+            var exception = new NullReferenceException("unrelated stock NRE during teardown");
+
+            Exception result = FinalizeTeardownShape(
+                exception,
+                exceptionStackTrace:
+                    "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x00063] in <filename unknown>:0");
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("unrelated stock NRE during teardown"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_NonNreDuringGhostTeardown_ReturnsOriginalAndWarns()
+        {
+            var exception = new InvalidOperationException("stock list build failed during teardown");
+
+            Exception result = FinalizeTeardownShape(exception);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("InvalidOperationException"));
+        }
+
+        [Fact]
+        public void GhostTeardownScope_Nests_AndFloorsAtZero()
+        {
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+
+            GhostMapPresence.BeginGhostTeardown();
+            GhostMapPresence.BeginGhostTeardown();
+            Assert.True(GhostMapPresence.IsGhostTeardownInProgress);
+
+            GhostMapPresence.EndGhostTeardown();
+            // RemoveAllGhostVessels wraps a loop that the per-ghost removers can also enter, so
+            // the flag must stay raised until the OUTERMOST scope leaves.
+            Assert.True(GhostMapPresence.IsGhostTeardownInProgress);
+
+            GhostMapPresence.EndGhostTeardown();
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+
+            // An unbalanced decrement must not latch the flag inverted for the session.
+            GhostMapPresence.EndGhostTeardown();
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+            GhostMapPresence.BeginGhostTeardown();
+            Assert.True(GhostMapPresence.IsGhostTeardownInProgress);
+            GhostMapPresence.EndGhostTeardown();
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+        }
+
         [Fact]
         public void TryClearSelectedVessel_WithPrivateSelection_ClearsAndReturnsPrevious()
         {

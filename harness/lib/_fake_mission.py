@@ -16,6 +16,11 @@ Modes (test-injected by the smoke test's FakeRuntime.spawn_mission):
               run.py maps INVALID(mission), retry-once)
   noresult    write NOTHING and exit 1 (edge 12: a mission that never wrote a
               readable result -> run.py fails closed to INVALID(tooling-mission))
+  midcommit   write a ROUTE-1 mid-mission `cmd=CommitTree` into the seam channel
+              under the reserved id, THEN MISSION-ASSERT-FAIL (exit 1). That is
+              HARNESS-MIDMISSION-COMMIT-BYPASS's exact shape: a world-mutating
+              write landing BEFORE a verdict exists, which the unmet-mission tail
+              gate (driver.steps only) never sees.
 
 ASCII only; stdlib only.
 """
@@ -35,7 +40,13 @@ def main(argv=None):
     parser.add_argument("--stream-port", type=int, default=50001)
     parser.add_argument("--result", required=True)
     parser.add_argument("--budget", type=float, default=600.0)
-    parser.add_argument("--mode", default="ok", choices=["ok", "assertfail", "noresult"])
+    parser.add_argument("--mode", default="ok",
+                        choices=["ok", "assertfail", "noresult", "midcommit"])
+    # Route-1 seam bridge, as run.py hands it to a real mission. Only the
+    # `midcommit` mode uses them; every other mode ignores them exactly as
+    # B1/B2/B4/B5/B7/forge do.
+    parser.add_argument("--seam-commands", default="")
+    parser.add_argument("--seam-commit-id", default="")
     args = parser.parse_args(argv)
 
     print("[Mission][Info][Connect] connected in 0.1s attempts=1 (fake, mode=%s)" % args.mode)
@@ -47,7 +58,14 @@ def main(argv=None):
         print("[Mission][Error][Verdict] fake mission wrote no result (edge 12)")
         return 1
 
-    if args.mode == "assertfail":
+    if args.mode == "midcommit":
+        # Byte-identical to mission_runner._perform_seam_commit's own write.
+        with open(args.seam_commands, "a", encoding="utf-8") as fh:
+            fh.write("id=%s cmd=CommitTree\n" % args.seam_commit_id)
+        print("[Mission][Info][Seam] commit command written id=%s cmd=CommitTree"
+              % args.seam_commit_id)
+
+    if args.mode in ("assertfail", "midcommit"):
         verdict = "MISSION-ASSERT-FAIL"
         reason = "fake apoapsis outside window"
         exit_code = 1

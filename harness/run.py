@@ -904,6 +904,11 @@ class DriveResult:
         # (both have an empty skipped list), and the opt-out would live only in the
         # harness log.
         self.tail_skip_opted_out = False
+        # HARNESS-MIDMISSION-COMMIT-BYPASS: what the mission subprocess wrote into the
+        # seam channel on its own account (route 1). REPORT-ONLY -- see hlib's section
+        # comment. None on every seam-only driver and on any run whose channel could not
+        # be read, so a normal result record is unchanged.
+        self.mid_mission_seam_writes: Optional[hlib.MidMissionSeamWrites] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -1160,6 +1165,24 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
         logger.info("Mission", "mission wall=%.0fs (harness residue = run "
                                "wallSeconds - this: KSP boot + verifier chain)"
                     % result.mission_wall_seconds)
+    # HARNESS-MIDMISSION-COMMIT-BYPASS (report-only). The mission subprocess writes
+    # route-1 commands into the SAME channel run.py drives, under the reserved id
+    # handed to it above -- so the channel file IS the driver-side evidence, and no
+    # mission-side change is needed to read it. Failure-isolated: this is an
+    # instrument, and an unreadable channel must never move a verdict.
+    try:
+        with open(os.path.join(mission_ctx.cwd, "parsek-test-commands.txt"),
+                  "r", encoding="utf-8", errors="replace") as fh:
+            channel_text = fh.read()
+    except OSError:
+        channel_text = None
+    if channel_text is not None:
+        writes = hlib.parse_mid_mission_seam_writes(channel_text, step_id, met)
+        result.mid_mission_seam_writes = writes
+        if writes.exposed:
+            logger.warn("Mission", "mid-mission seam writes: %s" % writes.summary)
+        elif writes.total:
+            logger.info("Mission", "mid-mission seam writes: %s" % writes.summary)
     _log_handoff_return(logger, step_index, verdict, met, subkind or "")
     return False
 
@@ -2838,6 +2861,20 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # that case, so a default-policy run's record is unchanged.
     if drive is not None and drive.tail_skip_opted_out:
         driver_rec[hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+    # HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): the route-1 writes the tail gate
+    # never sees. Emitted only when the mission actually wrote some, so every existing
+    # run's record -- including every seam-only driver's -- is byte-identical.
+    if drive is not None and drive.mid_mission_seam_writes is not None \
+            and drive.mid_mission_seam_writes.total:
+        mm = drive.mid_mission_seam_writes
+        driver_rec["midMissionSeamWrites"] = {
+            "total": mm.total,
+            "worldMutating": mm.world_mutating,
+            "verbs": list(mm.verbs),
+            # True = a world-mutating write landed and the mission then came back UNMET.
+            # REPORT-ONLY: nothing reads this to move a verdict.
+            "exposedAfterUnmetMission": mm.exposed,
+        }
 
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}

@@ -6249,6 +6249,94 @@ class PlanUnmetMissionTailTests(unittest.TestCase):
         self.assertFalse(second.run)
         self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, second.role)
 
+    # ---- Route-1 mid-mission writes (HARNESS-MIDMISSION-COMMIT-BYPASS) --------
+    # The gate above covers `driver.steps`. These cover the writes the MISSION
+    # subprocess makes on its own account, which that gate never sees because they
+    # land mid-flight, before a verdict exists. REPORT-ONLY by design.
+
+    MIDMISSION_RESERVED = "0003"
+
+    # A B-DOCK-shaped channel: the driver's own steps, plus the mission's route-1
+    # writes under the reserved id it was handed.
+    MIDMISSION_CHANNEL = "\n".join([
+        "id=0001 cmd=LoadGame save=bdock name=persistent",
+        "id=0002 cmd=StartRecording",
+        "id=0003 cmd=CommitTree",
+        "id=0003.stop cmd=StopRecording",
+        "id=0004 cmd=FlushAndQuit",
+    ])
+
+    def test_mid_mission_counts_only_the_missions_own_writes(self):
+        w = hlib.parse_mid_mission_seam_writes(
+            self.MIDMISSION_CHANNEL, self.MIDMISSION_RESERVED, mission_met=True)
+        # The driver's index-derived ids (0001/0002/0004) are NOT the mission's, even
+        # though 0004 sorts adjacent to the reserved id.
+        self.assertEqual(2, w.total)
+        self.assertEqual(("CommitTree", "StopRecording"), w.verbs)
+
+    def test_mid_mission_sub_ids_of_the_reserved_id_belong_to_the_mission(self):
+        """The generalized bridge writes `<reserved>.<tag>`; the C# seam skips
+        duplicate ids, which is WHY the sub-id exists and why it must be counted."""
+        w = hlib.parse_mid_mission_seam_writes(
+            "id=0003.commit cmd=CommitTree", self.MIDMISSION_RESERVED, mission_met=False)
+        self.assertEqual(1, w.total)
+        self.assertTrue(w.exposed)
+
+    def test_mid_mission_role_classification_reuses_the_tail_gate_table(self):
+        w = hlib.parse_mid_mission_seam_writes(
+            self.MIDMISSION_CHANNEL, self.MIDMISSION_RESERVED, mission_met=True)
+        # CommitTree is world-mutating, StopRecording is cleanup - the same call the
+        # tail gate makes, so both paths are measured on ONE scale.
+        self.assertEqual(1, w.world_mutating)
+
+    def test_mid_mission_world_mutating_write_then_unmet_is_the_exposed_shape(self):
+        w = hlib.parse_mid_mission_seam_writes(
+            self.MIDMISSION_CHANNEL, self.MIDMISSION_RESERVED, mission_met=False)
+        self.assertTrue(w.exposed)
+        self.assertIn("REPORT-ONLY", w.summary)
+        self.assertIn("UNMET", w.summary)
+
+    def test_mid_mission_met_mission_is_not_exposed_however_much_it_wrote(self):
+        """Today's ONLY committed emitters (the B-DOCK / orbit-commit machines) fire
+        their mid-mission commit on the SUCCESS path. That must stay quiet."""
+        w = hlib.parse_mid_mission_seam_writes(
+            self.MIDMISSION_CHANNEL, self.MIDMISSION_RESERVED, mission_met=True)
+        self.assertFalse(w.exposed)
+        self.assertNotIn("REPORT-ONLY", w.summary)
+
+    def test_mid_mission_cleanup_only_writes_are_never_exposed(self):
+        w = hlib.parse_mid_mission_seam_writes(
+            "id=0003.stop cmd=StopRecording", self.MIDMISSION_RESERVED, mission_met=False)
+        self.assertEqual(1, w.total)
+        self.assertEqual(0, w.world_mutating)
+        self.assertFalse(w.exposed)
+
+    def test_mid_mission_unknown_verb_is_counted_but_not_claimed_world_mutating(self):
+        """A verb this build's role table does not know is REPORTED (so it surfaces)
+        but not asserted to mutate the world on evidence we do not have."""
+        w = hlib.parse_mid_mission_seam_writes(
+            "id=0003 cmd=SomeFutureVerb", self.MIDMISSION_RESERVED, mission_met=False)
+        self.assertEqual(1, w.total)
+        self.assertEqual(("SomeFutureVerb",), w.verbs)
+        self.assertEqual(0, w.world_mutating)
+        self.assertFalse(w.exposed)
+
+    def test_mid_mission_seam_only_and_unparseable_channels_report_nothing(self):
+        for text in ("", "\n\n", "garbage with no id", "cmd=CommitTree"):
+            w = hlib.parse_mid_mission_seam_writes(
+                text, self.MIDMISSION_RESERVED, mission_met=False)
+            self.assertEqual(0, w.total, text)
+            self.assertFalse(w.exposed, text)
+            self.assertIn("no route-1", w.summary)
+
+    def test_mid_mission_no_reserved_id_attributes_nothing(self):
+        """A seam-only driver has no mission step and no reserved id; the instrument
+        must not then attribute the DRIVER's own writes to a mission."""
+        w = hlib.parse_mid_mission_seam_writes(
+            self.MIDMISSION_CHANNEL, "", mission_met=False)
+        self.assertEqual(0, w.total)
+        self.assertFalse(w.exposed)
+
     def test_real_committed_eva4_spec_skips_its_two_in_world_verbs(self):
         # The REAL committed spec, not a hand-built shape: this is the exact step list
         # flight 1 drove at terminal velocity. Fixture-over-mock for the same reason

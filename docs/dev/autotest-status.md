@@ -1647,9 +1647,23 @@ six publish or compare numbers the runner already measured.
     `GhostTrackingStationPatch.IsKnownGhostProtoVesselNre` declined to suppress it
     because the CONTEXT SCAN ITSELF threw (hence `totalVessels=0` and the populated
     `scanError`), so the classifier saw a zero-ghost context and correctly refused to
-    swallow an exception it could not attribute. Report-only today; the open question
-    is whether a scan that fails should be classified from the scanError instead of
-    from its empty counts. Costs nothing today - the tests it interrupts still pass.
+    swallow an exception it could not attribute. **CLASSIFIER FIXED 2026-08-01
+    (branch `small-fixes-batch`), HEADLESS ONLY - NOT FLOWN.** The suppressor now
+    carries a second class (`GhostTeardownScanBlind`) that attributes the failure from
+    evidence the failed scan never touched: a Parsek ghost `Vessel.Die()` is on the
+    stack (that is what fires stock `onVesselDestroy` synchronously, so the link is
+    causal, not correlational), Parsek has registered ghost map vessels, the scan
+    failed the same way, and the stock IL offset still does not rule out the known
+    site. Covered by seven new `GhostTrackingStationPatchTests` cells. **THE GATE
+    STAYS OPEN**: `[expectations.unityExceptions] maxTotal` is still NOT armed on
+    `H23-tracking-station`, because arming it is a spec change owed a flight and this
+    fix has not been flown - the branch that made it had no game to fly. To pick this
+    up: provision, fly `H23-tracking-station` twice, and if both read zero raw Unity
+    exceptions where the first 2026-07-30 flight read two, arm the budget and close
+    this gate. If a flight still shows the raw exception, the warn line now names
+    which conjunct was missing (`ghostTeardownInProgress=` /
+    `registeredGhostMapVessels=` / `scanError=`), so that is a diagnosis rather than a
+    mystery.
 
 ## Operator items outstanding
 

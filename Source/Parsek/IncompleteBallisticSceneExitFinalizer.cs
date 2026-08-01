@@ -1871,6 +1871,17 @@ namespace Parsek
                             return false;
                         }
                     },
+                    // FRAME MISMATCH #3, PINNED NOT FIXED - see todo-and-known-bugs.md
+                    // "BallisticExtrapolator frame mismatches". This pair is INTERNALLY
+                    // INCONSISTENT, and that half needs no in-game measurement to see:
+                    // `getPositionAtUT` returns ABSOLUTE Y-up world (it is
+                    // `getRelativePositionAtUT(ut).xzy + referenceBody.position`), while
+                    // `getOrbitalVelocityAtUT` returns Zup-swizzled body-relative - so one
+                    // state carries two frames, wrong under EITHER swizzle convention. The
+                    // SOI entry/exit logic that consumes it compares against Zup
+                    // parent-relative vessel states, so the likely fix is
+                    // `getRelativePositionAtUT(ut)`. Left as-is deliberately: it ships with
+                    // the other three sites, behind the one in-game calibration.
                     ParentFrameState = bodyOrbit != null
                         ? (ParentFrameStateResolver)((double ut, out Vector3d position, out Vector3d velocity) =>
                         {
@@ -1944,6 +1955,16 @@ namespace Parsek
         {
             try
             {
+                // FRAME MISMATCH #1, PINNED NOT FIXED - see todo-and-known-bugs.md
+                // "BallisticExtrapolator frame mismatches". `position` arrives in the
+                // extrapolator's Zup-swizzled body-relative frame (BallisticExtrapolator's
+                // TwoBodyOrbit contract comment), while `body.position` is Y-up world - so
+                // this sum reads a Zup vector as a Y-up offset and the derived lat/lon are
+                // wrong by an axis swap. The likely correction is `position.xzy`, but the
+                // swizzle/sign convention must be CALIBRATED IN-GAME (a known-impact descent
+                // whose recorded terminal lat/lon is compared against the actual crash site),
+                // never re-derived on paper - and it must land together with the other three
+                // sites the entry lists, since they share this frame.
                 Vector3d worldPos = body.position + position;
                 latitude = body.GetLatitude(worldPos);
                 longitude = body.GetLongitude(worldPos);
@@ -2035,6 +2056,15 @@ namespace Parsek
                     && IsFinite(startPosition)
                     && IsFinite(startVelocity))
                 {
+                    // FRAME MISMATCH #4, PINNED NOT FIXED - see todo-and-known-bugs.md
+                    // "BallisticExtrapolator frame mismatches". These vectors are the
+                    // extrapolator's Zup-swizzled body-relative ones, but playback resolves
+                    // this rotation against `ParsekFlight.ComputeOrbitalRotation`, which
+                    // builds its frame from `orbit.getPositionAtUT` WORLD positions - so a
+                    // predicted segment's ghost attitude is off by exactly the frame
+                    // difference. COSMETIC (attitude only, not position), which is why it is
+                    // last in the entry's list; it still ships with the other three, behind
+                    // the same in-game calibration.
                     segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                         currentWorldRotation,
                         startPosition,
@@ -2119,6 +2149,16 @@ namespace Parsek
             if (vessel?.orbit == null || vessel.orbit.referenceBody == null)
                 return false;
 
+            // FRAME MISMATCH #2, PINNED NOT FIXED - see todo-and-known-bugs.md
+            // "BallisticExtrapolator frame mismatches". Same internal inconsistency as the
+            // ParentFrameState resolver above: `getPositionAtUT` is ABSOLUTE Y-up world
+            // (it includes `referenceBody.position`) and `getOrbitalVelocityAtUT` is
+            // Zup-swizzled body-relative, so this state carries two frames at once. The
+            // likely seed is `getRelativePositionAtUT(commitUT)` + the same velocity.
+            // WHY IT IS NOT JUST CHANGED: in practice this is the DESTROYED-VESSEL fallback
+            // path, and `SubSurfaceStart`'s destroyed-fingerprint classification keys on the
+            // garbage state this produces - so the fix owes that path a re-verification, on
+            // top of the shared in-game calibration.
             Vector3d position = vessel.orbit.getPositionAtUT(commitUT);
             Vector3d velocity = vessel.orbit.getOrbitalVelocityAtUT(commitUT);
             if (!IsFinite(position) || !IsFinite(velocity))

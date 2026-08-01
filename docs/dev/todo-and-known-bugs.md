@@ -14,21 +14,66 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. TUNING TODO on the SHARED b5 capture machine - not picked up on the `v1-map-dwell` branch]
+## ~~B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node~~ [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. MEASURED 2026-08-01, branch `small-fixes-batch`: BOTH NAMED KNOBS ARE INERT. NO MACHINE CHANGE, so no confirmation flight is owed]
 
-The stretch from Mun SOI entry to the capture (circularize-at-periapsis) node
-runs slower than it needs to. Today capture mode warps TARGET-FLYBY to
-`periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900 s) off the orbit's own
-periapsis clock, then PLAN-CAPTURE plans at `planWarpFactor` (2) and the
-executor autowarps the rest; the operator's observation is that the whole
-in-SOI approach up to the node should carry a higher warp so the pass reaches
-the burn faster. Constraints when picking this up: the machine is SHARED
-(B11/B12 fly it nightly, both LIVE-PROVEN, so a profile change owes a
-confirmation flight per the standing rule), the periapsis-clock bound exists
-because the B12 flight-3 rails stair sailed past the only capture point on the
-pass (never re-derive that the altitude-trend way), and MechJeb's own ~600 s 1x
-pre-ignition WARPALIGN hold is the executor's, not ours - the tunable stretch
-is the coast INTO the lead window plus the plan-phase warp, not the hold.
+### The measurement, and why it closes the note rather than implementing it
+
+The note names two tunables - the coast INTO the lead window, and the plan-phase
+warp. Neither can buy what it wanted, and the flown record already said so:
+
+- **B11 flight 1 (the spec's own pin):** SOI entry ut 16,518.6 -> node ut 21,549.0
+  = **5,030 game seconds**, "of which the last 600 are MechJeb's 1x pre-ignition hold".
+- **B11 flight 3:** "TARGET-FLYBY collapsed from 8,213 game seconds to **27 game
+  seconds** on 2 warp commands."
+
+Driving the pure `b5_decide` headlessly over a B11-shaped arrival reproduces both
+numbers exactly and shows the ownership (new
+`CaptureApproachWarpOwnershipTests` in `test_mlib.py`):
+
+```
+frame  ut        phase          actions
+    0  16518.6   TARGET-FLYBY   warp_to_ut=20649.0     <- pe_ut - 900, the capture bound
+    1  16527.6   TARGET-FLYBY   -
+    2  16536.6   PLAN-CAPTURE   cancel_warp, mj_plan_capture
+    3  16545.6   CAPTURE-BURN   mj_execute_nodes       <- SOI entry + 27 s
+   4+  ...       CAPTURE-BURN   -                      <- zero warp actions, ever
+```
+
+Two warp commands, matching flight 3's count. So:
+
+1. **`CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900) is a BOUND, not a stop-point.**
+   The native warp aimed at ut 20,649 is CANCELLED at ut 16,536.6 by PLAN-CAPTURE
+   entry - **4,112 game seconds short of its own target**. It is never reached on a
+   healthy capture, so changing it cannot move a healthy flight by one second. It
+   binds only when arming is DELAYED, which is precisely the B12 flight-3 sail-past
+   it was added for - and lowering it moves toward that failure, against the
+   deliberate asymmetry the constant documents ("stopping later loses the pass
+   outright").
+2. **`planWarpFactor` governs ONE poll.** PLAN-CAPTURE is entered at SOI entry + 18 s
+   and left at + 27 s. Raising its factor saves a fraction of one poll.
+3. **The machine owns 27 of 5,030 game seconds (0.5%) and emits nothing after that.**
+   The remaining ~5,003 s are MechJeb's NodeExecutor autowarp, whose final 600 game
+   s are its 1x WARPALIGN hold - roughly 600 WALL seconds of B11's ~1,270 s total.
+
+So the cost the operator watched is, to a first approximation, MechJeb's hold: the
+one thing the note itself rules out of scope ("the executor's, not ours"). It cannot
+be shortened from our side either - `StateWarpAlign` calls `MinimumWarp()` every
+frame inside that window by construction, so commanding warp there is a fight with
+the executor for the wheel, which is how B-DOCK flight 12 lost a burn.
+
+### What was done instead
+
+Nothing to the machine - so the shared-machine confirmation-flight debt does not
+arise. The finding is guarded by three cells that pin WHO OWNS THE COAST: the lead
+bound is unreachable, the handoff happens within one poll of arming, and CAPTURE-BURN
+emits zero warp actions. Anything that makes either knob matter has changed the
+ownership, and reds there first.
+
+### What would reopen this
+
+A flight whose TARGET-FLYBY spans a large fraction of the in-SOI coast (i.e. arming
+delayed, so the lead actually binds). At that point the knob is the lead - and it
+must move toward MORE lead, not less.
 
 ---
 
@@ -413,7 +458,55 @@ One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees
 
 ---
 
-## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)
+## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration) [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. STILL NOT FIXED - the calibration flight has not been flown]
+
+### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two
+
+Each site was re-read against current `HEAD` and carries a `FRAME MISMATCH #n,
+PINNED NOT FIXED` comment naming its frame, its likely correction, and the fact that
+it ships with the other three - so nobody fixes one in isolation:
+
+| # | Site | Line |
+|---|------|------|
+| 1 | `IncompleteBallisticSceneExitFinalizer.ResolveBodyFixedSurfaceCoordinates` | `worldPos = body.position + position` |
+| 2 | `IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromVessel` | `getPositionAtUT` + `getOrbitalVelocityAtUT` |
+| 3 | `IncompleteBallisticSceneExitFinalizer` `ParentFrameState` resolver | `bodyOrbit.getPositionAtUT(ut)` |
+| 4 | `IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations` | `ComputeOrbitalFrameRotationFromState` |
+
+The split matters because it says which half is actually blocked on a flight:
+
+- **Sites 2 and 3 need NO in-game measurement to be called wrong.** Each builds ONE
+  state vector out of TWO frames: `Orbit.getPositionAtUT` returns ABSOLUTE Y-up
+  world (it is `getRelativePositionAtUT(ut).xzy + referenceBody.position`), while
+  `getOrbitalVelocityAtUT` returns Zup-swizzled body-relative. That is inconsistent
+  under EITHER swizzle convention, and it contradicts the extrapolator's own
+  in-file contract ("state vectors live in the same frame as
+  `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` (Zup-swizzled,
+  body-relative)"). The fix is still not free: site 2 is the destroyed-vessel
+  fallback and `SubSurfaceStart`'s destroyed-fingerprint classification keys on the
+  garbage state it produces, so it owes that path a re-verification.
+- **Sites 1 and 4 are the genuinely calibration-blocked half** - they turn on the
+  axis/sign mapping between the two frames, which is exactly what must be measured
+  in-game rather than derived.
+
+### The calibration this is waiting on
+
+One flight answers all four, because they share the frame:
+
+1. Fly a deliberate impact whose crash site is known (CL1's pod-impact lane is the
+   cheapest existing subject) and let the scene-exit finalizer author the terminal
+   tail.
+2. Compare the recording's terminal lat/lon against the ACTUAL crash site. An
+   axis-swap error shows up as a gross, structured offset, not jitter.
+3. Re-run with `position.xzy` at site 1 and confirm the offset collapses. That
+   single measurement fixes the convention for all four sites.
+4. Site 4 is cosmetic (predicted-segment ghost ATTITUDE, not position), so it is
+   verified by eye on the same flight once 1-3 agree.
+
+Until that flight happens, do not "fix" any of the four on paper - that is the
+instruction this entry has carried since the units audit, and it still stands.
+
+### The original finding
 
 Found during the units audit, deliberately NOT fixed there because world-frame sign/swizzle conventions must be calibrated in-game, never re-derived on paper. With the units fixed, `TwoBodyOrbit` state vectors are well-defined: KSP Zup-swizzled body-relative (the `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` frame). Three extrapolator consumers do not honor that frame:
 
@@ -515,7 +608,44 @@ caught this on EVA-2's first flight.
 
 ---
 
-## Intermittent stock `SpaceTracking.buildVesselsList` NRE on TRACKSTATION ghost teardown is not classified by the ghost-NRE suppressor [FOUND 2026-07-30 by `H23-tracking-station`. NOT FIXED, low cost]
+## ~~Intermittent stock `SpaceTracking.buildVesselsList` NRE on TRACKSTATION ghost teardown is not classified by the ghost-NRE suppressor~~ [FOUND 2026-07-30 by `H23-tracking-station`. FIXED 2026-08-01, branch `small-fixes-batch`]
+
+### Fix
+
+The suppressor now carries TWO classes instead of one predicate
+(`BuildVesselsListNreClass`). The answer to THE QUESTION below is: yes, a scan that
+itself failed should be classified - but NOT from the counts it never populated,
+and not from the call site alone either. It is classified from evidence the failed
+scan never touched.
+
+`GhostMapPresence` gained a nesting `ghostTeardownDepth`, raised around all four
+`vessel.Die()` sites (`RemoveGhostVessel`, `RemoveGhostVesselForRecording`,
+`RemoveAllGhostVessels`, `RemoveOverlapInstance`), each released in a `finally` so
+an exception cannot latch it. `Vessel.Die()` fires stock `onVesselDestroy`
+SYNCHRONOUSLY, which is *how* `buildVesselsList` came to be running at all - so
+`IsGhostTeardownInProgress` is CAUSAL attribution, not correlation, and it reads
+false for every stock TS failure outside our teardown. The new
+`GhostTeardownScanBlind` class requires ALL of: the exception is an NRE; the context
+scan actually threw; it threw the SAME way (a scan that died of something else is a
+different fault and corroborates nothing); `RegisteredGhostMapVesselCount > 0`; a
+teardown is in progress; and the stock IL offset still does not RULE OUT the known
+site. Miss any one conjunct and the exception stays visible - with the warn line now
+naming the two new fields (`ghostTeardownInProgress=`, `registeredGhostMapVessels=`)
+so an unclassified case says which evidence was missing.
+
+The `#556` count-based class is untouched: an empty `ScanError` routes to exactly
+the old predicate, so all seven pre-existing cells assert the same behaviour. Both
+new fields are captured BEFORE the scan and outside its `try` - reads that cannot
+throw, whose whole value is surviving one that does. Seven new headless cells in
+`GhostTrackingStationPatchTests` cover the suppressing shape, drop each conjunct in
+turn, and pin the depth counter's nesting plus its floor-at-zero.
+
+CONSEQUENCE FOR THE HARNESS: a TRACKSTATION spec can now arm
+`[expectations.unityExceptions] maxTotal` without absorbing this. `H23-tracking-station`
+is deliberately NOT armed here - that is a spec change owed a flight, and this branch
+flew nothing (see gate 13 in `autotest-status.md`).
+
+### What was happening
 
 Observed on the FIRST `H23-tracking-station` flight (2 raw Unity exceptions) and NOT
 on the second, identical, pinned flight (0) - so it is intermittent, which is why the
@@ -613,9 +743,60 @@ Key risks carried in the doc: (1) input-lock leak when a gated window is force-c
 
 Separate UI improvements proposed in section 17 of the doc (each ships on its own): extract the window chrome duplicated across 10 files (explicitly NOT a prerequisite for this feature), group the flat 8-button main window, add a name filter to the Recordings table and Missions tab, first-run onboarding, toolbar-button state badge for broken routes, collapsible Settings sections, mission-level ghost-visibility toggle (17.8).
 
-## HARNESS-MIDMISSION-COMMIT-BYPASS: a mid-mission seam CommitTree bypasses the unmet-mission tail gate [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT, NOT CAUSING FAILURES. Decision wanted: gate it, or document it as intended]
+## ~~HARNESS-MIDMISSION-COMMIT-BYPASS: a mid-mission seam CommitTree bypasses the unmet-mission tail gate~~ [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. RESOLVED 2026-08-01, branch `small-fixes-batch`: MADE VISIBLE, report-only]
 
-### What happens
+### The decision, and why it is neither of the two options as stated
+
+Neither "gate it" nor "document it as intended" - a THIRD reading the two options
+did not separate: the route-1 write is not currently doing damage, but it was
+INVISIBLE, and invisibility is what made the choice hard. So it is now measured and
+recorded, and gating is left to be armed later FROM EVIDENCE (the M-C2 save-parse
+discipline: report-only reading first, `gating = true` after).
+
+Three facts argue against gating it today, and each is checkable:
+
+1. **No committed mission hits it.** The only emitters of a mid-mission CommitTree
+   are the B-DOCK / orbit-commit machines, all on their SUCCESS path.
+2. **The state does not leak.** `run.py::stage_fixture` rmtree's and re-copies the
+   save template at the start of EVERY attempt, so a junk mid-mission commit dies
+   with the run save. The exposure is within-run, not across runs.
+3. **The run is already INVALID.** An unmet mission is terminal driver-INVALID at
+   `classify_verdict`'s "driver stage failed" branch, which precedes every
+   save-reading verifier - so a gate here would mostly rename an outcome that is
+   already failing, and the new spec opt-in key it needs has no consumer.
+
+### What was implemented
+
+Pure core `hlib.parse_mid_mission_seam_writes` + a thin read in `run.py`. The
+mission subprocess writes its route-1 commands into the SAME channel file run.py
+owns, under the reserved id run.py hands it - so the channel IS driver-side
+evidence and NO mission-side change was needed. After the mission step resolves,
+run.py reads that channel, attributes the lines whose id is the reserved id (or a
+`<reserved>.<tag>` sub-id of it - the generalized bridge's shape), and classifies
+each verb through the SAME `SEAM_VERB_TAIL_ROLE` table the tail gate uses, so both
+paths are measured on ONE scale. A world-mutating write followed by an UNMET
+mission logs a named WARN; the counts land in the result JSON as
+`driver.midMissionSeamWrites` (`total` / `worldMutating` / `verbs` /
+`exposedAfterUnmetMission`).
+
+REPORT-ONLY, and pinned as such: the key is emitted ONLY when the mission actually
+wrote something, so every existing run's record - including every seam-only
+driver's - is byte-identical. The end-to-end smoke cell (`_fake_mission --mode
+midcommit`) asserts the whole shape at once: the mission's `id=0003 cmd=CommitTree`
+IS in the channel, the DRIVER's tail `CommitTree` was correctly skipped by the
+existing gate, the record carries `exposedAfterUnmetMission: true`, and the verdict
+is the same `INVALID(mission)` the unmet mission already earned. If that verdict
+assertion ever changes, the instrument has silently become a gate. An unreadable
+channel is failure-isolated and an unknown verb is counted but never claimed
+world-mutating - a report-only instrument that invented attribution would be worse
+than one that under-reports.
+
+Scope note unchanged: "PR #1349 closed the world-mutating-tail-after-UNMET hole"
+remains true for `driver.steps` ONLY. What is new is that route-1's writes are now
+in the record, so the evidence for arming a real gate will exist the first time a
+forge/mission does mid-commit and then fail.
+
+### What was happening
 
 PR #1349 added the unmet-mission tail gate in `harness/run.py` (`plan_unmet_mission_tail`, ~line 1137): after a mission returns UNMET, only `cleanup`-role seam verbs in the remaining `driver.steps` are driven, so a world-mutating tail (a CommitTree over a flight that never reached its envelope) can no longer fire. That gate covers the DRIVER-side tail only.
 
