@@ -132,6 +132,13 @@ namespace Parsek
         // Read-only test seam for the transient tab selection (section 4.1/4.1a guards).
         internal int SelectedTabForTesting => selectedTab;
 
+        // The scroll ScrollToRecording schedules, and the expansion set it grows. Both are
+        // consumed only inside the row draw (an IMGUI callback with no headless seam), so they
+        // are the only observable outcome of the method beyond the window/tab writes - and
+        // without them the API's coverage would stop at its first three lines.
+        internal string PendingScrollToRecordingIdForTesting => pendingScrollToRecordingId;
+        internal IReadOnlyCollection<string> ExpandedGroupsForTesting => expandedGroups;
+
         /// <summary>
         /// How many tabs the tab bar draws in <paramref name="mode"/> (design 7.4). The
         /// pure, testable expression of the zero-toolbar rule.
@@ -435,16 +442,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Ensures the target recording is visible in the RECORDINGS tab (unhides if hidden,
-        /// expands parent groups, un-hides hidden groups), opens the window, and scrolls to the
-        /// recording. Note the HideActive branch below is unreachable - it tests
-        /// <c>target.Hidden</c> after the line above has already cleared it - so the filter is
-        /// in practice never disabled here.
-        /// <para>NOTE: no production caller. The Timeline GoTo button used to be the only one;
-        /// it now routes through <see cref="ShowMissionForRecording"/> so it works in Basic too.
-        /// This is retained as the Recordings tab's navigation API (and is exercised by the tab
-        /// tests, which need a lever that selects <see cref="TabRecordings"/>). It needs no
-        /// complexity gate of its own: the defensive on-draw clamp in
+        /// The Recordings tab's navigation API: opens the window on that tab, makes the target
+        /// recording visible there (un-archives it, expands its parent groups and their
+        /// ancestors, un-hides hidden groups), and schedules the scroll that the row draw
+        /// consumes two passes later.
+        /// <para>DECIDED (2026-08-01): kept, with no production caller. The Timeline GoTo button
+        /// was the only one; it routes through <see cref="ShowMissionForRecording"/> since design
+        /// 4.1a so it works in Basic too. This stays because "reveal a recording in the
+        /// Recordings tab" is a coherent capability of that tab rather than scaffolding left over
+        /// from GoTo, and deleting it would also mean unpicking
+        /// <see cref="pendingScrollToRecordingId"/> / <see cref="pendingScrollRowIndex"/> /
+        /// <see cref="renderedRowCounter"/> from the row-draw hot path for no behavioural gain.
+        /// The obligation that comes with keeping it is COVERAGE: `RecordingsTableApiTests` drives
+        /// the whole method, not just the tab flip the clamp tests use it for, so the machinery
+        /// cannot rot silently behind three test names that only exercise its first three
+        /// lines.</para>
+        /// <para>It needs no complexity gate of its own: the defensive on-draw clamp in
         /// <c>DrawRecordingsWindow</c> (design 7.4) covers any caller, and the Basic dispatch is
         /// pinned to Missions regardless.</para>
         /// </summary>
@@ -482,19 +495,17 @@ namespace Parsek
                 return;
             }
 
-            // Unhide if the recording itself is hidden
+            // Un-archive if the recording itself is archived. Note this is all that is needed:
+            // the HideActive filter only hides recordings whose flag is set, so clearing the flag
+            // is what makes the row visible, and the filter itself is left as the player set it.
+            // (A branch that also cleared HideActive used to sit here; it tested target.Hidden
+            // immediately AFTER this block cleared it, so it could never run. Removed rather than
+            // repaired - clearing a global filter is a bigger hammer than revealing one row
+            // needs, and the group-level case below is handled separately.)
             if (target.Hidden)
             {
                 target.Hidden = false;
                 ParsekLog.Info("UI", $"Cross-link: unhid recording \"{target.VesselName}\"");
-            }
-
-            // Disable hide filter if it would prevent the recording from showing
-            // (e.g., recording was just unhidden but other hidden recordings exist)
-            if (GroupHierarchyStore.HideActive && target.Hidden)
-            {
-                GroupHierarchyStore.HideActive = false;
-                ParsekLog.Info("UI", "Cross-link: disabled HideActive to show recording");
             }
 
             // Expand all parent groups so the recording is visible in the tree
