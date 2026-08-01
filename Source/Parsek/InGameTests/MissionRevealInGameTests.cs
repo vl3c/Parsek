@@ -70,7 +70,19 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
+            // Nothing clicks the toolbar in an unattended run, so every window draw in
+            // ParsekFlight.OnGUI is gated off. This test's subject is a scroll offset measured
+            // from real layout rects, which only exist inside a live draw - so the UI has to be
+            // raised, not just the window's open flag.
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                InGameAssert.Skip("No live ParsekFlight in this scene");
+                yield break;
+            }
+
             bool originalOpen = table.IsOpen;
+            bool originalShowUI = flight.ShowUIForTesting;
             int originalTab = table.SelectedTabForTesting;
             bool originalHideArchived = MissionStore.HideArchived;
             string treeA = SeedTreeIdPrefix + "a";
@@ -87,6 +99,7 @@ namespace Parsek.InGameTests
                 // Open on the Missions tab and let it draw. This first draw is what seeds the
                 // two default missions (EnsureDefaultsForTrees runs inside it) and establishes
                 // the first-header reference the offsets are measured against.
+                flight.ShowUIForTesting = true;
                 table.IsOpen = true;
                 yield return null;
                 yield return null;
@@ -133,6 +146,7 @@ namespace Parsek.InGameTests
                 MissionStore.HideArchived = originalHideArchived;
                 table.SelectedTabForTesting = originalTab;
                 table.IsOpen = originalOpen;
+                flight.ShowUIForTesting = originalShowUI;
             }
         }
 

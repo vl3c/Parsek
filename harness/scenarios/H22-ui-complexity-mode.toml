@@ -72,10 +72,12 @@ count = { min = 0, max = 0 }
 # 3 in UiComplexityModeInGameTests plus MissionRevealScrollsToTheTargetMission in
 # MissionRevealInGameTests - all AllowBatchExecution default-true, all
 # scene-eligible at FLIGHT, so total = executable = 4 with zero attribute-forced
-# skips. passed=4 skipped=0 is DERIVED, not yet measured: every runtime
-# InGameAssert.Skip guard in the category (no live ParsekUI, Gloops recording in
-# progress, windows not constructed, probe missions not seeded) is unreachable on
-# this fixture. The mission-reveal test SEEDS ITS OWN two synthetic trees rather
+# skips. passed=4 skipped=0 is MEASURED (run 2026-08-01_1435, FULL PASS): every
+# runtime InGameAssert.Skip guard in the category (no live ParsekUI / ParsekFlight,
+# Gloops recording in progress, windows not constructed, probe missions not seeded)
+# is unreachable on this fixture ONCE the mission-reveal test raises
+# ParsekFlight.ShowUIForTesting - the first archived attempt skipped precisely
+# because it did not, so that raise is load-bearing, not incidental. The mission-reveal test SEEDS ITS OWN two synthetic trees rather
 # than relying on the fixture, precisely because this fixture injects no
 # recordings and the test would otherwise skip on the very run meant to verify
 # it; it removes them in a finally and writes nothing to disk. If a test is added

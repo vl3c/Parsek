@@ -944,6 +944,21 @@ namespace Parsek
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = false;
+
+        /// <summary>
+        /// The toolbar's "is the Parsek UI shown" flag, exposed for in-game tests.
+        /// <para>Every window draw in <c>OnGUI</c> sits inside <c>if (showUI)</c>, and nothing
+        /// clicks the toolbar in an unattended harness run - so a test that needs a window to
+        /// actually DRAW (rather than just flipping its open flag) has to raise this first, and
+        /// restore it afterwards. `MissionRevealInGameTests` is the first such test: its subject
+        /// is a scroll offset measured from real IMGUI layout rects, which only exist inside a
+        /// live draw pass.</para>
+        /// </summary>
+        internal bool ShowUIForTesting
+        {
+            get { return showUI; }
+            set { showUI = value; }
+        }
         private static ToolbarControl toolbarControl;
         private ParsekUI ui;
 
