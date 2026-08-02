@@ -1736,8 +1736,10 @@ six publish or compare numbers the runner already measured.
     `GhostMapPresence.RemoveAllGhostVessels`, so leaving the TS with any ghost still
     registered runs OUR `Die()` INSIDE stock's own UI teardown - which satisfies every
     conjunct and would suppress precisely the stock bug above. The conjuncts also read
-    stronger than they were: `registeredGhostMapVessels > 0` is IMPLIED by a teardown
-    being in progress (pids are removed only after `EndGhostTeardown`), and the
+    stronger than they were: `registeredGhostMapVessels > 0` is very nearly implied by a
+    teardown being in progress (all four sites remove the pid only after
+    `EndGhostTeardown`; the lone gap is `RemoveOverlapInstance`, whose vessel may carry
+    persistentId 0), and the
     IL-offset check never rules anything out in production, because Harmony's
     `DynamicMethod` frame carries no `[0x..]` offset (separate entry
     `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`). A hole no flight has ever shown, against

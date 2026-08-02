@@ -232,8 +232,10 @@ namespace Parsek.Patches
     ///     stock teardown window — which would have satisfied every conjunct and suppressed
     ///     exactly the stock bug above.
     ///   - The conjuncts were also weaker than they looked: RegisteredGhostMapVesselCount > 0
-    ///     is IMPLIED by a teardown being in progress (pids are removed only after
-    ///     EndGhostTeardown), and the IL-offset check never rules anything out in production
+    ///     is very nearly implied by a teardown being in progress (all four sites remove the
+    ///     pid only after EndGhostTeardown; the one gap is RemoveOverlapInstance, which raises
+    ///     the scope for a vessel whose persistentId may be 0), and the IL-offset check never
+    ///     rules anything out in production
     ///     (Harmony's DynamicMethod frame carries no [0x..] offset — see the
     ///     BUILDVESSELSLIST-IL-OFFSET-GATE-INERT entry in todo-and-known-bugs.md).
     /// The hole it closed has never been observed; the over-suppression it enabled was
@@ -363,13 +365,27 @@ namespace Parsek.Patches
             if (StackTraceRulesOutKnownGhostRendererNre(exceptionStackTrace))
                 return BuildVesselsListNreClass.Unclassified;
 
-            // A scan that THREW leaves every count below zero-because-unmeasured, not
-            // zero-because-empty, so there is nothing here to classify from and the exception
-            // stays visible. That is deliberate and was re-confirmed by flight on 2026-08-01:
-            // the class that used to fill this gap from teardown evidence instead is gone
-            // (see the type comment for why it was withdrawn). The two context fields the
-            // attempt added are KEPT and reported on the warn line below — as diagnostics,
-            // which is the job they actually did well.
+            // A scan that THREW is not classified from, and the exception stays visible.
+            //
+            // READ THE REASON CAREFULLY, because the obvious one is wrong. It is NOT that the
+            // counts are "zero because the scan never ran": `context` is a struct mutated IN
+            // PLACE inside the scan's try, and the catch only appends ScanError, so every count
+            // accumulated BEFORE the throw survives. A scan that walks three vessels, sets
+            // FirstMissingOrbitRendererIsGhost, increments GhostMissingOrbitRendererCount, and
+            // only then throws on a half-destroyed Unity object hands us a fully #195-shaped
+            // context WITH a ScanError. That state is reachable, and without this gate it
+            // suppresses.
+            //
+            // The real reason is that PARTIAL EVIDENCE IS NOT PROOF. The scan's counts mean
+            // "first missing renderer belongs to a ghost" only if the walk COMPLETED; a walk
+            // that died partway cannot rule out an earlier non-ghost candidate it never
+            // reached, which is exactly the discriminator `PotentialEarlierStockNullCandidateCount`
+            // exists to provide. So this gate is load-bearing on its own, not a shortcut past
+            // counts that happen to be zero.
+            //
+            // (The class that used to classify this case from teardown evidence instead was
+            // withdrawn — see the type comment. Its two context fields are KEPT and reported on
+            // the warn line below, as diagnostics, which is the job they actually did well.)
             if (!string.IsNullOrEmpty(context.ScanError))
                 return BuildVesselsListNreClass.Unclassified;
 

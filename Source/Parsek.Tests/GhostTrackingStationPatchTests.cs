@@ -201,10 +201,16 @@ namespace Parsek.Tests
         // same stock teardown window. The class could therefore have swallowed exactly the stock
         // bug that must stay visible, to close a hole no flight has ever shown. It was withdrawn.
         //
-        // These cells now pin the STANDING guarantee, which is the stronger property: a scan that
-        // failed is NEVER enough to suppress, however suggestive the surrounding state — AND the
-        // two diagnostic fields ride every one of those warn lines, which is what made that
-        // flight a one-flight diagnosis instead of a mystery.
+        // These cells pin the STANDING guarantee: a scan that failed is NEVER enough to suppress,
+        // however suggestive the surrounding state — AND the two diagnostic fields ride every one
+        // of those warn lines, which is what made that flight a one-flight diagnosis.
+        //
+        // CAUTION for anyone adding cells here. `FinalizeTeardownShape` zeroes every count, so on
+        // its fixtures the #556 count check ALSO declines and the ScanError gate is not what
+        // decides the outcome. The cell that actually pins that gate is
+        // ...ScanThrewAfterSeeingAGhostMissingRenderer... below, and it deliberately does NOT use
+        // this helper. Mutation-tested: without that cell, deleting the ScanError early-out from
+        // the classifier leaves every cell in this file green.
 
         private const string TeardownScanError =
             "NullReferenceException: Object reference not set to an instance of an object";
@@ -233,6 +239,48 @@ namespace Parsek.Tests
                 exceptionStackTrace: exceptionStackTrace,
                 registeredGhostMapVessels: registeredGhostMapVessels,
                 ghostTeardownInProgress: ghostTeardownInProgress);
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanThrewAfterSeeingAGhostMissingRenderer_ReturnsOriginal()
+        {
+            // THE CELL THAT PINS THE ScanError GATE, and the only one that does.
+            //
+            // The scan mutates its context struct IN PLACE and its catch only appends ScanError,
+            // so counts accumulated before the throw SURVIVE. This is that state: a fully
+            // #195-shaped context (a ghost's missing renderer seen first, no earlier stock
+            // candidate) that ALSO carries a ScanError because the walk died partway through.
+            // Every other conjunct of the #556 class is satisfied, so the ScanError gate is the
+            // only thing preventing a suppression here.
+            //
+            // Why it must not suppress: those counts mean "the first missing renderer belongs to
+            // a ghost" only if the walk COMPLETED. A walk that died cannot rule out an earlier
+            // non-ghost candidate it never reached. Partial evidence, not proof.
+            //
+            // Deliberately NOT built from FinalizeTeardownShape, which hardcodes zeroed counts -
+            // on those fixtures the count check declines too and this gate is never exercised.
+            var exception = new NullReferenceException("stock NRE, scan died mid-walk");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                potentialEarlierStockNullCandidateCount: 0,
+                scanError: TeardownScanError,
+                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0",
+                registeredGhostMapVessels: 1,
+                ghostTeardownInProgress: true);
+
+            Assert.Same(exception, result);
+            Assert.DoesNotContain(logLines, line => line.Contains("Suppressed"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ghostMissingOrbitRenderers=1")
+                && line.Contains("scanError="));
         }
 
         [Fact]
@@ -279,10 +327,13 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedWithNoRegisteredGhosts_ReturnsOriginalAndWarns()
         {
-            // NOT an independent case in production: all four teardown sites remove the pid only
-            // AFTER EndGhostTeardown, so a teardown in progress IMPLIES a registered ghost. That
-            // implication is part of why the withdrawn class had fewer real conjuncts than it
-            // appeared to. Kept as a pin that the count is REPORTED whatever it reads.
+            // NEARLY not an independent case in production: all four teardown sites remove the pid
+            // only AFTER EndGhostTeardown, so a teardown in progress almost always implies a
+            // registered ghost. Not quite always - RemoveOverlapInstance raises the scope for a
+            // vessel whose persistentId may be 0, and its ghostMapVesselPids removal sits behind
+            // an `if (ghostPid != 0)` guard - but close enough that the pair was far weaker
+            // evidence than the withdrawn class's five-conjunct framing suggested. Kept as a pin
+            // that the count is REPORTED whatever it reads.
             var exception = new NullReferenceException("stock NRE with no ghosts to blame");
 
             Exception result = FinalizeTeardownShape(exception, registeredGhostMapVessels: 0);
@@ -297,7 +348,10 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedSomeOtherWay_ReturnsOriginalAndWarns()
         {
-            // A scan that died of something else is a DIFFERENT fault and corroborates nothing.
+            // A scan that died of something else is a DIFFERENT fault. NOTE this cell no longer
+            // DISCRIMINATES on that: since the withdrawal, ANY non-empty ScanError declines, so
+            // the scan's own exception type stops mattering to the outcome. Kept because the
+            // type must still be REPORTED verbatim on the warn line, which is what it asserts.
             var exception = new NullReferenceException("stock NRE");
 
             Exception result = FinalizeTeardownShape(
@@ -314,12 +368,16 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns()
         {
-            // CAVEAT, and it is the fixture's: this stack-trace format is one the game does not
-            // produce for this method. Harmony replaces buildVesselsList with a DynamicMethod, and
-            // the real frame is `(wrapper dynamic-method) ...buildVesselsList_Patch2(...)` with no
-            // [0x..] offset at all — so in production the IL check never rules anything out. See
-            // BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md. This cell pins the
-            // resolver's behaviour on a trace that HAS an offset, nothing more.
+            // TWO CAVEATS, both worth stating so this cell is not mistaken for a guard it is not.
+            // (1) It does NOT pin the IL-offset gate: the ScanError early-out declines first, so
+            //     deleting the offset check entirely leaves this cell green. The cells that pin
+            //     that gate are ..._NreAtDifferentStockOffset_... and ..._KnownGhost...NRE_...,
+            //     which pass an EMPTY scanError and so actually reach it.
+            // (2) The trace format here is one the game does not produce for this method anyway.
+            //     Harmony replaces buildVesselsList with a DynamicMethod and the real frame is
+            //     `(wrapper dynamic-method) ...buildVesselsList_Patch2(...)` with no [0x..] offset,
+            //     so in production the IL check never rules anything out - see
+            //     BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.
             var exception = new NullReferenceException("unrelated stock NRE during teardown");
 
             Exception result = FinalizeTeardownShape(
