@@ -14,6 +14,87 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-TIER-TAXONOMY: `tier` encodes cadence membership, not cost or readiness, so "run everything" needs out-of-band knowledge [RAISED 2026-08-02 by the `V1-map-dwell-mun-orbit` promotion (PR #1407). NOT STARTED. Design change against a binding authority; the shape below is a problem statement, not a chosen solution]
+
+The invocation model we actually want is agent-driven: an agent runs the WHOLE
+batch on request, or a cheap smoke subset. The selection layer is built around
+scheduled cadences instead, and the two do not line up.
+
+### What exists today, measured not assumed
+
+`run.py` selects by `--id | --tier | --tag | --cadence` (no other selector).
+`hlib.TIERS` is `("perpr", "daily", "nightly", "weekly", "pending-fixture",
+"operator")` - four cadence memberships plus two EXCLUSIONS - and
+`CADENCE_TIERS` is cumulative:
+
+| cadence | tiers it resolves to |
+|---|---|
+| `per-pr` | `perpr` |
+| `daily` | `daily` |
+| `nightly` | `daily`, `nightly` |
+| `weekly` | `perpr`, `daily`, `nightly`, `weekly` |
+
+with an explicit note in `hlib` that `operator` is in NO set: those specs "are
+never picked up by a cadence and run only under an explicit `--tier operator` /
+`--id`". Spec counts on 2026-08-02: nightly 34, daily 22, operator 5,
+`pending-fixture` 0, `weekly` 0.
+
+### The friction, stated precisely
+
+1. **"Run everything" is three invocations plus knowledge.** `--cadence weekly`
+   is the closest thing and it IS nearly-all, but it silently omits the
+   `operator` and `pending-fixture` tiers, so the full set is
+   `--cadence weekly` + `--tier operator` + `--tier pending-fixture`. Nothing
+   tells a caller that; you have to know `CADENCE_TIERS` leaves them out. There
+   is no `--all`.
+2. **There is no smoke set.** One spec is named `H13-ksp-api-smoke` and a
+   `SMOKE-autopilot` fixture exists, but no tag or selector means "cheap, fast,
+   proves the stack is alive". The 18 tags in use are subject-matter labels
+   (`mechjeb`, `rewind`, `eva`, `mun`), not cost labels.
+3. **The data to select on already exists and nothing selects on it.**
+   `coverage/duration.json` (tracked) holds per-scenario `last/p50/p95`;
+   `coverage/flake.json` (gitignored, advisory) holds the trust signal. A
+   cost-aware or trust-aware selection is a read away and is not wired.
+4. **`tier` therefore does double duty** - it is read as a cost/readiness label
+   by humans (see every spec's TIER header) while functioning as cadence
+   membership. `operator` is not "a human runs it"; it is "no cadence will pick
+   this up", which is why a green scenario can sit invisible to automation.
+
+### Why it bites, with the case that raised it
+
+`V1-map-dwell-mun-orbit` sat at `tier = "operator"` while GREEN and fully
+automated, invisible to every cadence, until a human promoted it on 2026-08-02.
+Nothing failed; nothing could. That is the same class
+`PendingOperatorTagHonestyTests` already documents for `EVA-1-pad-flag` ("the
+tier stays nightly until the operator promotes it" - a pending human call with
+no signal that could go red), and the same reason that check exists as two
+hand-maintained lists.
+
+### Constraints for whoever takes this
+
+- `docs/dev/design-autotest-harness-core.md` (M-A5) is the BINDING authority for
+  the selection layer; section 10 owns the cadence -> tier map. Change the doc in
+  the same commit.
+- `hlib.TIERS` is validated by `validate_spec`, so the vocabulary cannot be
+  narrowed without a spec sweep.
+- `PendingOperatorTagHonestyTests` pins the `pending-operator` carrier set in
+  BOTH directions AND covers the `tier = "operator"` population, so collapsing
+  or renaming the tier vocabulary reds it until that inventory is re-reasoned -
+  by design.
+- `harness/lib/test_doc_spec_sync.py` reads `docs/dev`, so spec/doc drift is
+  caught there.
+- Additive beats destructive: an `--all` selector and a cost tag can land
+  without touching `TIERS` at all, which is the cheap first step.
+
+### What done looks like
+
+An agent can ask for "everything" or "the smokes" in ONE invocation with no
+out-of-band knowledge, and selection can use the cost and trust data the harness
+already records. Whether `tier` then shrinks to a pure cost/readiness label or
+disappears is the open design call, not a foregone one.
+
+---
+
 ## ~~HARNESS-RUNID-COLLISION: two runs of one scenario in the same minute share a run id, and the second silently overwrites the first's evidence~~ [FOUND 2026-08-01 from the results dir of two back-to-back `H23-tracking-station` flights. FIXED 2026-08-01, branch `harness-runid-collision`]
 
 `run.py` built the run id at MINUTE granularity (`%Y-%m-%d_%H%M` + `_<scenarioId>`),
