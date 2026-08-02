@@ -20,6 +20,22 @@ namespace Parsek.Tests.Generators
         private readonly List<RewindPoint> rewindPoints = new List<RewindPoint>();
         private uint milestoneEpoch;
         private bool useV3Format;
+
+        /// <summary>
+        /// Display-name prefix stamped on each per-slot VESSEL in an RP quicksave
+        /// sidecar (<c>"&lt;prefix&gt;&lt;slotIndex&gt;"</c>). Cosmetic only - slot
+        /// identity is the pid + launch-guid triangle, never the name - but a second
+        /// rewind fixture whose sidecar vessels are all called "B9 Slot N" is a
+        /// diagnosis trap when two fixtures' logs sit side by side.
+        ///
+        /// <para>
+        /// DEFAULTS TO <c>"B9 Slot "</c> ON PURPOSE: <c>RewindB9FixtureTests</c> and
+        /// the committed-fixture sweep assert the B9 sidecar's exact bytes, so the
+        /// default must reproduce them. A new fixture sets its own prefix before
+        /// injecting.
+        /// </para>
+        /// </summary>
+        public string RewindSlotVesselNamePrefix { get; set; } = "B9 Slot ";
         // One-shot guard: InjectRewindB9 calls InjectIntoSaveFile once per target
         // file (persistent.sfs AND the run target), but the RP quicksave sidecar is a
         // single shared artifact under Parsek/RewindPoints/ that does not depend on
@@ -556,7 +572,8 @@ namespace Parsek.Tests.Generators
                 if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
                     Directory.CreateDirectory(destDir);
 
-                BuildRewindPointQuicksave(donorRoot, rp, destPath, trees);
+                BuildRewindPointQuicksave(donorRoot, rp, destPath, trees,
+                    RewindSlotVesselNamePrefix);
             }
         }
 
@@ -571,7 +588,8 @@ namespace Parsek.Tests.Generators
         /// </summary>
         internal static void BuildRewindPointQuicksave(
             ConfigNode donorRoot, RewindPoint rp, string destPath,
-            IEnumerable<ConfigNode> treeNodes = null)
+            IEnumerable<ConfigNode> treeNodes = null,
+            string slotVesselNamePrefix = "B9 Slot ")
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -612,7 +630,7 @@ namespace Parsek.Tests.Generators
                     ? flightState.AddNode(donorVessel.CreateCopy())
                     : BuildSyntheticVessel(flightState);
                 StampVesselIdentity(vessel, vesselPid, rootPid,
-                    "B9 Slot " + slot.SlotIndex.ToString(ic),
+                    (slotVesselNamePrefix ?? "B9 Slot ") + slot.SlotIndex.ToString(ic),
                     DeriveVesselLaunchGuid(slot.OriginChildRecordingId));
 
                 if (slot.SlotIndex == rp.FocusSlotIndex)

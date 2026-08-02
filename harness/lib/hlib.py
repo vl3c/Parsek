@@ -89,11 +89,20 @@ TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixtur
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
-# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. "rewind-b9" is
-# the one named fixture preset added ahead of that: the B9 rewindable-tree fixture
-# (a committed tree with a crashed booster sibling + a Rewind-to-Separation
-# RewindPoint), injected via `dotnet test --filter InjectRewindB9` for S4.1 / S1.5.
-INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9")
+# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Two named fixture
+# presets are added ahead of that, and they are SIBLINGS - same shape, one difference:
+#   "rewind-b9"        - the B9 rewindable-tree fixture (committed tree with a
+#                        CREWLESS crashed booster sibling + a Rewind-to-Separation
+#                        RewindPoint), `--filter InjectRewindB9`, for S4.1 / S1.5 / R1.
+#   "rewind-crew-loss" - the same shape with a CREWED destroyed pod as the re-fly
+#                        target, `--filter InjectRewindCrewLoss`, for CL stage B. The
+#                        crew is what puts a KerbalAssignment+KerbalEndState.Dead row
+#                        in the supersede subtree, which is the only way a merge can
+#                        be observed tombstoning a kerbal death.
+# Keep in step with run.py's RP_SIDECAR_BY_PRESET (the fail-closed inject
+# postcondition) and scripts/inject-recordings.ps1's $injectFilterByPreset.
+INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
+                                        "rewind-crew-loss")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
