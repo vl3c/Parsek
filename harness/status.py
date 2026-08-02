@@ -77,8 +77,13 @@ _OVERCAP_RE = re.compile(
 _NEGLIGIBLE_RE = re.compile(
     r"course-correction dv (?P<dv>[0-9.]+) m/s is negligible")
 
+# `_run<N>` is the run-instance ordinal a COLLIDING run takes (two runs of one
+# scenario inside one minute); `_a<N>` is the retry attempt within ONE run. Both
+# optional, ordinal before attempt (hlib.format_run_id), so the scenario group
+# stays the bare scenario id and load_scenario_spec still finds the spec toml.
 _RUN_ID_RE = re.compile(
-    r"^(?P<ts>\d{4}-\d{2}-\d{2}_\d{4})_(?P<scenario>.+?)(?:_a(?P<attempt>\d+))?$")
+    r"^(?P<ts>\d{4}-\d{2}-\d{2}_\d{4})_(?P<scenario>.+?)"
+    r"(?:_run(?P<run>\d+))?(?:_a(?P<attempt>\d+))?$")
 
 _VERDICT_RE = re.compile(
     r"^mission verdict=(?P<verdict>\S+) reason=(?P<reason>.*?)"
@@ -230,12 +235,14 @@ def is_event_line(parsed: Dict) -> bool:
 
 
 def split_run_id(run_id: str) -> Dict:
-    """Split '2026-07-22_1210_B5-mun-flyby[_a2]' into
-    {ts, scenario, attempt}; attempt defaults to 1 (no suffix = attempt 1)."""
+    """Split '2026-07-22_1210_B5-mun-flyby[_run2][_a2]' into
+    {ts, scenario, run, attempt}; both ordinals default to 1 (no suffix = the
+    first run of that scenario in that minute, attempt 1)."""
     m = _RUN_ID_RE.match(run_id)
     if not m:
-        return {"ts": "", "scenario": run_id, "attempt": 1}
+        return {"ts": "", "scenario": run_id, "run": 1, "attempt": 1}
     return {"ts": m.group("ts"), "scenario": m.group("scenario"),
+            "run": int(m.group("run") or 1),
             "attempt": int(m.group("attempt") or 1)}
 
 
@@ -1309,8 +1316,10 @@ def render_panel(run_id: str, results_dir: str, scenarios_dir: str,
                   ("  [REPLAY: first %d lines]" % head)
                   if head is not None else ""))
     out.append("=" * 72)
-    out.append("scenario: %-28s attempt: %d"
-               % (parts["scenario"], parts["attempt"]))
+    out.append("scenario: %-28s attempt: %d%s"
+               % (parts["scenario"], parts["attempt"],
+                  ("  run: %d (id collided with an earlier run, which was kept)"
+                   % parts["run"]) if parts["run"] > 1 else ""))
     start = run_start_epoch(run_id)
     if start is not None:
         out.append("run age:  %s (started %s UTC)"
