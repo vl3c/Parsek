@@ -6282,12 +6282,21 @@ class PlanUnmetMissionTailTests(unittest.TestCase):
         self.assertEqual(1, w.total)
         self.assertTrue(w.exposed)
 
-    def test_mid_mission_role_classification_reuses_the_tail_gate_table(self):
+    def test_mid_mission_role_classification_reuses_the_tail_gate_function(self):
         w = hlib.parse_mid_mission_seam_writes(
             self.MIDMISSION_CHANNEL, self.MIDMISSION_RESERVED, mission_met=True)
-        # CommitTree is world-mutating, StopRecording is cleanup - the same call the
-        # tail gate makes, so both paths are measured on ONE scale.
+        # CommitTree is world-mutating, StopRecording is cleanup.
         self.assertEqual(1, w.world_mutating)
+        # PIN THE CLAIM, not just the shape. The old cell asserted only this count, so it
+        # passed while the two paths genuinely DISAGREED on the unknown-verb fallback (the
+        # instrument did a bare table lookup; the gate calls a function that fails safe).
+        # Assert agreement VERB BY VERB, including one with no row.
+        for verb in ("CommitTree", "StopRecording", "RecordingState", "NoSuchVerbAnywhere"):
+            expected = hlib.seam_verb_tail_role(verb) == hlib.TAIL_ROLE_WORLD_MUTATING
+            one = hlib.parse_mid_mission_seam_writes(
+                "id=%s cmd=%s" % (self.MIDMISSION_RESERVED, verb),
+                self.MIDMISSION_RESERVED, mission_met=True)
+            self.assertEqual(1 if expected else 0, one.world_mutating, verb)
 
     def test_mid_mission_world_mutating_write_then_unmet_is_the_exposed_shape(self):
         w = hlib.parse_mid_mission_seam_writes(
@@ -6311,15 +6320,67 @@ class PlanUnmetMissionTailTests(unittest.TestCase):
         self.assertEqual(0, w.world_mutating)
         self.assertFalse(w.exposed)
 
-    def test_mid_mission_unknown_verb_is_counted_but_not_claimed_world_mutating(self):
-        """A verb this build's role table does not know is REPORTED (so it surfaces)
-        but not asserted to mutate the world on evidence we do not have."""
+    def test_mid_mission_unknown_verb_fails_SAFE_exactly_like_the_tail_gate(self):
+        """An unknown verb is presumed world-mutating, matching `seam_verb_tail_role`.
+
+        This cell used to assert the OPPOSITE (fail-OPEN, `world_mutating=0`), which put
+        the instrument at odds with the tail gate on the single case the shared-scale
+        claim is about. Failing open in a RISK instrument is backwards: it reports
+        `exposed=False` for a write the tail gate would have refused to drive."""
         w = hlib.parse_mid_mission_seam_writes(
             "id=0003 cmd=SomeFutureVerb", self.MIDMISSION_RESERVED, mission_met=False)
         self.assertEqual(1, w.total)
         self.assertEqual(("SomeFutureVerb",), w.verbs)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.seam_verb_tail_role("SomeFutureVerb"))
+        self.assertEqual(1, w.world_mutating)
+        self.assertTrue(w.exposed)
+
+    def test_mid_mission_line_with_no_cmd_is_counted_but_not_classified(self):
+        """An UNPARSED line is not an UNKNOWN VERB; conflating them invents attribution.
+
+        A line under the mission's id with no `cmd=` is counted in `total` (it IS a
+        mission write) but is NOT claimed world-mutating - there is no verb to reason
+        about. The fail-safe above applies where a NAME exists and no row does."""
+        w = hlib.parse_mid_mission_seam_writes(
+            "id=0003 nocmd=1", self.MIDMISSION_RESERVED, mission_met=False)
+        self.assertEqual(1, w.total)
+        self.assertEqual((), w.verbs)
         self.assertEqual(0, w.world_mutating)
         self.assertFalse(w.exposed)
+
+    def test_mid_mission_summary_never_says_mission_met_on_an_unmet_run(self):
+        """The summary is the one operator-facing line this instrument produces, and it
+        must not contradict the run. The non-exposed branch hardcoded "; mission met", so
+        a cleanup/inert-only write on an UNMET mission printed a flat falsehood - and both
+        StopRecording and RecordingState are real mission-emitted verbs."""
+        for text in ("id=0003 cmd=StopRecording", "id=0003 cmd=RecordingState",
+                     "id=0003 nocmd=1"):
+            unmet = hlib.parse_mid_mission_seam_writes(
+                text, self.MIDMISSION_RESERVED, mission_met=False)
+            self.assertFalse(unmet.exposed, text)
+            self.assertIn("mission UNMET", unmet.summary, text)
+            self.assertNotIn("; mission met", unmet.summary, text)
+            met = hlib.parse_mid_mission_seam_writes(
+                text, self.MIDMISSION_RESERVED, mission_met=True)
+            self.assertIn("; mission met", met.summary, text)
+
+    def test_mid_mission_exposed_summary_names_the_world_mutating_verbs_only(self):
+        """The count and the bracketed list must describe the SAME set. The exposed line
+        printed EVERY verb seen against the world-mutating COUNT, so one CommitTree among
+        two cleanup verbs read `1 world-mutating ... [CommitTree, RecordingState,
+        StopRecording]` - overstating the blast radius in the line an operator reads when
+        deciding whether to arm a gate."""
+        w = hlib.parse_mid_mission_seam_writes(
+            "id=0003 cmd=CommitTree\nid=0003 cmd=StopRecording\nid=0003 cmd=RecordingState",
+            self.MIDMISSION_RESERVED, mission_met=False)
+        self.assertEqual(1, w.world_mutating)
+        head = w.summary.split("(all verbs:")[0]
+        self.assertIn("[CommitTree]", head)
+        self.assertNotIn("StopRecording", head)
+        self.assertNotIn("RecordingState", head)
+        # The full set is still reported, just no longer conflated with the count.
+        self.assertIn("all verbs: [CommitTree, RecordingState, StopRecording]", w.summary)
 
     def test_mid_mission_seam_only_and_unparseable_channels_report_nothing(self):
         for text in ("", "\n\n", "garbage with no id", "cmd=CommitTree"):

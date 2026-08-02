@@ -1332,6 +1332,70 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertEqual("INVALID", result["verdict"])
         self.assertEqual("mission", result["subkind"])
 
+    def test_an_unreadable_channel_records_a_GAP_not_a_silent_zero(self):
+        """Failure-isolated must not mean SILENT.
+
+        The read was `except OSError: pass`, which left a run whose channel could not be
+        read byte-identical to one where the mission wrote nothing - reproducing exactly
+        the invisibility this instrument exists to end, intermittently and with no trace
+        (a Windows PermissionError while the KSP addon holds the file is the live route).
+        It must say so, record a GAP rather than a zero, and still move no verdict."""
+        import builtins
+        real_open = builtins.open
+        target = os.path.abspath(
+            os.path.join(self.instance, "parsek-test-commands.txt"))
+        fired = []
+
+        def exploding_open(path, mode="r", *a, **kw):
+            # ONE-SHOT, and only for a READ of the command channel: run.py's own append of
+            # driver commands must still work, and so must this class's `_commands()`
+            # helper, which reads the very same file once the run has returned.
+            if ("r" in mode and not fired
+                    and os.path.abspath(str(path)) == target):
+                fired.append(True)
+                raise PermissionError("channel held by another process")
+            return real_open(path, mode, *a, **kw)
+
+        builtins.open = exploding_open
+        try:
+            result, _ = self._run("midcommit")
+        finally:
+            builtins.open = real_open
+        self.assertTrue(fired, "the instrument never read the channel; gate is vacuous")
+
+        mm = result["driver"]["midMissionSeamWrites"]
+        self.assertIn("PermissionError", mm["readError"])
+        # A GAP is not a zero: the count keys are ABSENT rather than reading 0, so nobody
+        # can mistake "we could not look" for "we looked and saw none".
+        self.assertNotIn("total", mm)
+        self.assertNotIn("exposedAfterUnmetMission", mm)
+        # Still report-only: the verdict is the one the unmet mission already earned.
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_the_run_budget_kill_path_still_reads_the_channel(self):
+        """A KILLED mission is the STRONGEST form of the shape this measures - it has no
+        verdict at all - and the run-budget branch `return True`s before the normal exit
+        path, so it used to skip the instrument entirely and lose the highest-value case.
+
+        Pinned at source level (the pattern `SettingsSectionGateWiringTests` uses) because
+        driving a real run-budget kill through the fake mission would need a hanging
+        subprocess: what must not regress is that the branch CALLS the reader, with
+        mission_met=False, BEFORE it returns."""
+        src = real_open_source = open(
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "run.py"), "r", encoding="utf-8").read()
+        head, _, tail = src.partition('kill_scope = "run"')
+        self.assertTrue(tail, "the run-budget kill branch moved; re-anchor this gate")
+        branch = tail.split("return True")[0]
+        self.assertIn("_record_mid_mission_seam_writes", branch,
+                      "the run-budget kill path stopped reading the seam channel; a "
+                      "killed mission's mid-mission writes would go unrecorded")
+        self.assertIn("False", branch.split("_record_mid_mission_seam_writes")[1][:120],
+                      "the kill path must pass mission_met=False - no verdict is not a "
+                      "met one")
+        del real_open_source
+
 
 class MissionSpecAdmissionTests(unittest.TestCase):
     """M-B1 deliverable 1 (run.py spec admission): resolve_mission_schemas reads the

@@ -187,17 +187,33 @@ namespace Parsek.Tests
                 && line.Contains("priorStockNullCandidates=1"));
         }
 
-        // ---- Teardown shape: the context scan itself threw (H23-tracking-station, 2026-07-30) ----
+        // ---- Teardown shape: the context scan itself threw (H23-tracking-station) ----
         //
         // Every case below passes scanError, so the #556 count-based class cannot fire: the
-        // counts are zero because the scan never ran. What is under test is whether the
-        // scan-INDEPENDENT evidence (an in-progress Parsek ghost teardown + registered ghosts)
-        // is enough to attribute the NRE, and that removing ANY ONE conjunct leaves it visible.
+        // counts are zero because the scan never ran.
+        //
+        // WHAT CHANGED 2026-08-01. A `GhostTeardownScanBlind` class used to SUPPRESS the first
+        // case below, attributing it from an in-progress Parsek ghost teardown. Flying it
+        // (`2026-08-01_1628_H23-tracking-station`) showed the NRE this lane actually produces is
+        // a stock APPLICATION-SHUTDOWN race — it fires 715 ms after Application.Quit from
+        // Vessel:OnDestroy() -> onVesselDestroy -> buildVesselsList — and that
+        // ParsekTrackingStation.OnDestroy -> RemoveAllGhostVessels puts OUR Die() inside that
+        // same stock teardown window. The class could therefore have swallowed exactly the stock
+        // bug that must stay visible, to close a hole no flight has ever shown. It was withdrawn.
+        //
+        // These cells now pin the STANDING guarantee, which is the stronger property: a scan that
+        // failed is NEVER enough to suppress, however suggestive the surrounding state — AND the
+        // two diagnostic fields ride every one of those warn lines, which is what made that
+        // flight a one-flight diagnosis instead of a mystery.
 
         private const string TeardownScanError =
             "NullReferenceException: Object reference not set to an instance of an object";
 
-        // The exact shape H23 observed: zeroed counts, populated scanError, no usable stack.
+        // Zeroed counts, populated scanError, no usable stack. NOTE the defaults describe the
+        // shape the WITHDRAWN class would have suppressed (teardown running, ghosts registered),
+        // not the shape the 2026-08-01 flight actually logged — that one read
+        // ghostTeardownInProgress=0 registeredGhostMapVessels=0 and is covered by
+        // ...ScanFailedOutsideGhostTeardown... below.
         private static Exception FinalizeTeardownShape(
             Exception exception,
             string scanError = TeardownScanError,
@@ -220,28 +236,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildVesselsListFinalizer_ScanFailedDuringGhostTeardown_Suppresses()
+        public void BuildVesselsListFinalizer_ScanFailedDuringGhostTeardown_StillReturnsOriginal()
         {
+            // THE REGRESSION GUARD for the withdrawn class. This is its exact fixture — a
+            // teardown in progress, ghosts registered, the scan dead of the same NRE — and it
+            // must NOT suppress. Reachable in production: leaving the TS with a ghost still
+            // registered runs RemoveAllGhostVessels (and so Die(), and so onVesselDestroy)
+            // inside stock's own UI teardown, which is where the stock shutdown NRE lives.
             var exception = new NullReferenceException("stock list rebuild inside onVesselDestroy");
 
             Exception result = FinalizeTeardownShape(exception);
 
-            Assert.Null(result);
+            Assert.Same(exception, result);
+            Assert.DoesNotContain(logLines, line => line.Contains("Suppressed"));
+            // The diagnostics are the half that was KEPT, so the warn must carry both fields:
+            // this is the line that identified the real cause from a single flight.
             Assert.Contains(logLines, line =>
-                line.Contains("[GhostMap]")
-                && line.Contains("Suppressed ghost-teardown")
-                && line.Contains("classification=ghost-teardown-scan-blind")
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
                 && line.Contains("ghostTeardownInProgress=1")
-                && line.Contains("registeredGhostMapVessels=2"));
-            Assert.DoesNotContain(logLines, line => line.Contains("exception left visible"));
+                && line.Contains("registeredGhostMapVessels=2")
+                && line.Contains("scanError="));
         }
 
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedOutsideGhostTeardown_ReturnsOriginalAndWarns()
         {
-            // The load-bearing conjunct. Without an in-progress Parsek teardown the ONLY thing
-            // linking this NRE to Parsek is that Parsek happens to have ghosts registered, which
-            // is true for most of a TS session and attributes nothing.
+            // The shape actually observed in flight: no teardown running, no ghosts registered,
+            // the scan dead of the same NRE as the exception. Stock's shutdown race.
             var exception = new NullReferenceException("stock NRE, no Parsek teardown running");
 
             Exception result = FinalizeTeardownShape(exception, ghostTeardownInProgress: false);
@@ -257,6 +279,10 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedWithNoRegisteredGhosts_ReturnsOriginalAndWarns()
         {
+            // NOT an independent case in production: all four teardown sites remove the pid only
+            // AFTER EndGhostTeardown, so a teardown in progress IMPLIES a registered ghost. That
+            // implication is part of why the withdrawn class had fewer real conjuncts than it
+            // appeared to. Kept as a pin that the count is REPORTED whatever it reads.
             var exception = new NullReferenceException("stock NRE with no ghosts to blame");
 
             Exception result = FinalizeTeardownShape(exception, registeredGhostMapVessels: 0);
@@ -288,8 +314,12 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns()
         {
-            // The IL offset still outranks everything: a trace that positively names a
-            // different stock site is evidence of a different failure, teardown or not.
+            // CAVEAT, and it is the fixture's: this stack-trace format is one the game does not
+            // produce for this method. Harmony replaces buildVesselsList with a DynamicMethod, and
+            // the real frame is `(wrapper dynamic-method) ...buildVesselsList_Patch2(...)` with no
+            // [0x..] offset at all — so in production the IL check never rules anything out. See
+            // BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md. This cell pins the
+            // resolver's behaviour on a trace that HAS an offset, nothing more.
             var exception = new NullReferenceException("unrelated stock NRE during teardown");
 
             Exception result = FinalizeTeardownShape(

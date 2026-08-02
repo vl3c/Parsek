@@ -60,6 +60,15 @@ def main(argv=None):
 
     if args.mode == "midcommit":
         # Byte-identical to mission_runner._perform_seam_commit's own write.
+        #
+        # FAIL-CLOSED like the real thing (mission_runner._perform_seam_commit): without
+        # the guard, a spawn that did not forward --seam-commands hits open("") and dies
+        # with a FileNotFoundError traceback, which the harness would classify as a
+        # tooling-mission failure -- a confusing, self-inflicted verdict standing in for
+        # the plain "this fixture was not wired up".
+        if not args.seam_commands:
+            print("[Mission][Error][Seam] midcommit requires --seam-commands; none given")
+            return 1
         with open(args.seam_commands, "a", encoding="utf-8") as fh:
             fh.write("id=%s cmd=CommitTree\n" % args.seam_commit_id)
         print("[Mission][Info][Seam] commit command written id=%s cmd=CommitTree"

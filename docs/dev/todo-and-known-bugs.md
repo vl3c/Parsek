@@ -21,39 +21,68 @@ When referencing prior item numbers from source comments or plans, consult the r
 The note names two tunables - the coast INTO the lead window, and the plan-phase
 warp. Neither can buy what it wanted, and the flown record already said so:
 
-- **B11 flight 1 (the spec's own pin):** SOI entry ut 16,518.6 -> node ut 21,549.0
-  = **5,030 game seconds**, "of which the last 600 are MechJeb's 1x pre-ignition hold".
+- **B11 flight 1, from its own mission log** (`2026-07-24_2334_B11-mun-orbit_mission.stdout.log`):
+
+  ```
+  COAST-TO-TARGET -> TARGET-FLYBY   ut 16,419.836   <- SOI ENTRY
+  TARGET-FLYBY    -> PLAN-CAPTURE   ut 16,497.836   (+78.0 s)
+  PLAN-CAPTURE    -> CAPTURE-BURN   ut 16,518.635   (+98.8 s)  <- handoff to MechJeb
+  node                              ut 21,549.027
+  ```
+
+  SOI entry -> node = **5,129.2 game seconds**, of which the machine owns **98.8
+  (1.9%)** and MechJeb's NodeExecutor owns 5,030.4, its last 600 being the 1x
+  pre-ignition hold.
 - **B11 flight 3:** "TARGET-FLYBY collapsed from 8,213 game seconds to **27 game
   seconds** on 2 warp commands."
 
-Driving the pure `b5_decide` headlessly over a B11-shaped arrival reproduces both
-numbers exactly and shows the ownership (new
-`CaptureApproachWarpOwnershipTests` in `test_mlib.py`):
+> **Correction (2026-08-02).** This entry first read the span as "SOI entry ut
+> 16,518.6 -> node ut 21,549.0 = 5,030 game seconds". **16,518.6 is the CAPTURE-BURN
+> phase entry, not SOI entry** - B11's spec pins it under `captureBurnTimeoutSeconds`
+> and never calls it SOI entry. The mistake started the denominator ~99 s late,
+> exactly inside the window the machine does own, and it was baked into
+> `CaptureApproachWarpOwnershipTests` as `SOI_ENTRY_UT` too. Both are fixed. The
+> conclusion is unchanged and if anything better supported: 1.9% is still a rounding
+> error against MechJeb's share.
+
+Driving the pure `b5_decide` headlessly over a B11-shaped arrival shows the OWNERSHIP
+(new `CaptureApproachWarpOwnershipTests` in `test_mlib.py`):
 
 ```
-frame  ut        phase          actions
-    0  16518.6   TARGET-FLYBY   warp_to_ut=20649.0     <- pe_ut - 900, the capture bound
-    1  16527.6   TARGET-FLYBY   -
-    2  16536.6   PLAN-CAPTURE   cancel_warp, mj_plan_capture
-    3  16545.6   CAPTURE-BURN   mj_execute_nodes       <- SOI entry + 27 s
-   4+  ...       CAPTURE-BURN   -                      <- zero warp actions, ever
+poll   phase          actions
+   0   TARGET-FLYBY   warp_to_ut = node_ut - 900   <- the capture bound
+   1   TARGET-FLYBY   -
+   2   PLAN-CAPTURE   cancel_warp, mj_plan_capture <- exactly ONE poll
+   3   CAPTURE-BURN   mj_execute_nodes             <- handoff
+  4+   CAPTURE-BURN   -                            <- zero warp actions, ever
 ```
 
-Two warp commands, matching flight 3's count. So:
+> **What that walk does and does not prove.** It establishes the phase SEQUENCE, that
+> the capture warp is issued exactly once and aimed at `node_ut - lead`, that
+> PLAN-CAPTURE is one poll, and that CAPTURE-BURN never emits a warp. It does NOT
+> "reproduce the measurements" - an earlier draft of this entry said so, but the UTs
+> it printed were the walk's own inputs on a synthetic 9 s cadence, and the flown
+> cadence is nothing like it (flight 1's TARGET-FLYBY spanned 78 s; flight 3's
+> PLAN-CAPTURE was a single 0.583 s poll). The ownership arithmetic above is taken
+> from the flight log, not from the walk.
+
+So:
 
 1. **`CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900) is a BOUND, not a stop-point.**
-   The native warp aimed at ut 20,649 is CANCELLED at ut 16,536.6 by PLAN-CAPTURE
-   entry - **4,112 game seconds short of its own target**. It is never reached on a
-   healthy capture, so changing it cannot move a healthy flight by one second. It
-   binds only when arming is DELAYED, which is precisely the B12 flight-3 sail-past
-   it was added for - and lowering it moves toward that failure, against the
-   deliberate asymmetry the constant documents ("stopping later loses the pass
-   outright").
-2. **`planWarpFactor` governs ONE poll.** PLAN-CAPTURE is entered at SOI entry + 18 s
-   and left at + 27 s. Raising its factor saves a fraction of one poll.
-3. **The machine owns 27 of 5,030 game seconds (0.5%) and emits nothing after that.**
-   The remaining ~5,003 s are MechJeb's NodeExecutor autowarp, whose final 600 game
-   s are its 1x WARPALIGN hold - roughly 600 WALL seconds of B11's ~1,270 s total.
+   The native warp is aimed at `node_ut - 900` = ut 20,649.0 and is CANCELLED on
+   PLAN-CAPTURE entry at ut 16,497.8 - **4,151 game seconds short of its own
+   target**. It is never reached on a healthy capture, so changing it cannot move a
+   healthy flight by one second. It binds only when arming is DELAYED, which is
+   precisely the B12 flight-3 sail-past it was added for - and lowering it moves
+   toward that failure, against the deliberate asymmetry the constant documents
+   ("stopping later loses the pass outright").
+2. **`planWarpFactor` governs ONE poll.** PLAN-CAPTURE is entered at SOI entry
+   + 78.0 s and left at + 98.8 s - one poll of the approach. Raising its factor
+   saves a fraction of that.
+3. **The machine owns 98.8 of 5,129.2 game seconds (1.9%) and emits nothing after
+   that.** The remaining 5,030.4 s are MechJeb's NodeExecutor autowarp, whose final
+   600 game s are its 1x WARPALIGN hold - roughly 600 WALL seconds of B11's ~1,270 s
+   total.
 
 So the cost the operator watched is, to a first approximation, MechJeb's hold: the
 one thing the note itself rules out of scope ("the executor's, not ours"). It cannot
@@ -508,7 +537,7 @@ instruction this entry has carried since the units audit, and it still stands.
 
 ### The original finding
 
-Found during the units audit, deliberately NOT fixed there because world-frame sign/swizzle conventions must be calibrated in-game, never re-derived on paper. With the units fixed, `TwoBodyOrbit` state vectors are well-defined: KSP Zup-swizzled body-relative (the `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` frame). Three extrapolator consumers do not honor that frame:
+Found during the units audit, deliberately NOT fixed there because world-frame sign/swizzle conventions must be calibrated in-game, never re-derived on paper. With the units fixed, `TwoBodyOrbit` state vectors are well-defined: KSP Zup-swizzled body-relative (the `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` frame). FOUR extrapolator consumers do not honor that frame (the count read "three" until the 2026-08-01 re-verification enumerated four; the list below has always had four items):
 
 1. `IncompleteBallisticSceneExitFinalizer.ResolveBodyFixedSurfaceCoordinates` computes `worldPos = body.position + position` with no `.xzy` unswizzle, so terrain-altitude sampling and the recorded terminal impact lat/lon interpret Zup vectors as Y-up world offsets (lat/lon wrong by an axis swap).
 2. `TryBuildStartStateFromVessel` seeds `position = vessel.orbit.getPositionAtUT(commitUT)` - ABSOLUTE world position (includes `referenceBody.position`), not body-relative - mixed with a Zup-relative velocity. In practice this is the destroyed-vessel fallback path (the garbage state is what `SubSurfaceStart` classifies on), but a live vessel reaching it would extrapolate from a nonsense frame. The likely-correct seed is `getRelativePositionAtUT(commitUT)` + `getOrbitalVelocityAtUT(commitUT)` (both Zup body-relative); note the `SubSurfaceStart` destroyed-fingerprint classification depends on the current behavior, so any change must re-verify that path.
@@ -644,35 +673,48 @@ it). And the five-flight record is 2 / 0 / 0 / 0 / 2 (`2026-07-30_1520`, `_1522`
 is why "fly twice, if both read zero then arm" was never a sound test and has been
 replaced in gate 13.
 
-### Fix (kept: closes the scan-blind hole for a REAL ghost-teardown NRE)
+### What shipped: the diagnostics. And what did NOT: a second suppression class
 
-The suppressor now carries TWO classes instead of one predicate
-(`BuildVesselsListNreClass`). The answer to THE QUESTION below is: yes, a scan that
-itself failed should be classified - but NOT from the counts it never populated,
-and not from the call site alone either. It is classified from evidence the failed
-scan never touched.
+The open question this entry used to carry - should a scan that itself failed be
+classified from `scanError` plus the known call site? - was answered "yes", built as
+`GhostTeardownScanBlind`, and then answered **no** by the flight above plus review. The
+suppressor still carries exactly ONE suppressing class (`#556`'s
+`KnownGhostMissingRenderer`); a failed scan still leaves the exception visible.
 
-`GhostMapPresence` gained a nesting `ghostTeardownDepth`, raised around all four
-`vessel.Die()` sites (`RemoveGhostVessel`, `RemoveGhostVesselForRecording`,
-`RemoveAllGhostVessels`, `RemoveOverlapInstance`), each released in a `finally` so
-an exception cannot latch it. `Vessel.Die()` fires stock `onVesselDestroy`
-SYNCHRONOUSLY, which is *how* `buildVesselsList` came to be running at all - so
-`IsGhostTeardownInProgress` is CAUSAL attribution, not correlation, and it reads
-false for every stock TS failure outside our teardown. The new
-`GhostTeardownScanBlind` class requires ALL of: the exception is an NRE; the context
-scan actually threw; it threw the SAME way (a scan that died of something else is a
-different fault and corroborates nothing); `RegisteredGhostMapVesselCount > 0`; a
-teardown is in progress; and the stock IL offset still does not RULE OUT the known
-site. Miss any one conjunct and the exception stays visible - with the warn line now
-naming the two new fields (`ghostTeardownInProgress=`, `registeredGhostMapVessels=`)
-so an unclassified case says which evidence was missing.
+**Why the second class was withdrawn**, beyond "it did not cover the observed case":
 
-The `#556` count-based class is untouched: an empty `ScanError` routes to exactly
-the old predicate, so all seven pre-existing cells assert the same behaviour. Both
-new fields are captured BEFORE the scan and outside its `try` - reads that cannot
-throw, whose whole value is surviving one that does. Seven new headless cells in
-`GhostTrackingStationPatchTests` cover the suppressing shape, drop each conjunct in
-turn, and pin the depth counter's nesting plus its floor-at-zero.
+- It was **reachable in the wrong direction**. `ParsekTrackingStation.OnDestroy` calls
+  `GhostMapPresence.RemoveAllGhostVessels`, so leaving the TS with any ghost still
+  registered runs OUR `Die()` *inside stock's own UI teardown* - the same window that
+  produces the shutdown NRE. Every conjunct would have held, and the class would have
+  swallowed the stock bug this entry now documents. On the flight that caught it the
+  ghosts happened to be gone already; a user leaving the TS with ghosts visible is the
+  ordinary case.
+- **The conjuncts read stronger than they were.** `RegisteredGhostMapVesselCount > 0` is
+  *implied* by a teardown being in progress, because all four sites remove the pid only
+  after `EndGhostTeardown`. And the IL-offset check never rules anything out in
+  production - see `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`. So "five conjuncts" was
+  really two plus a causal one.
+
+Trading an over-suppression that is reachable for a hole no flight has ever shown is a
+bad trade for a suppressor, whose entire job is to not hide things.
+
+**What is kept, because it is the half that worked.** `GhostMapPresence` gained a
+nesting `ghostTeardownDepth`, raised around all four `vessel.Die()` sites
+(`RemoveGhostVessel`, `RemoveGhostVesselForRecording`, `RemoveAllGhostVessels`,
+`RemoveOverlapInstance`), each released in a `finally` so an exception cannot latch it,
+plus `RegisteredGhostMapVesselCount`. Both are read BEFORE the context scan and outside
+its `try` - reads that cannot throw, whose whole value is surviving one that does - and
+both are reported on the warn line as `ghostTeardownInProgress=` and
+`registeredGhostMapVessels=`. Those two fields reading `0 0` are what identified the
+real cause from a single flight instead of another round of guessing.
+
+The `#556` class is untouched: an empty `ScanError` routes to exactly the old predicate,
+so all seven pre-existing cells assert the same behaviour. The headless cells now pin
+the STANDING guarantee rather than the withdrawn one - including a regression cell using
+the withdrawn class's exact fixture (teardown running, ghosts registered, scan dead of
+the same NRE) asserting it must NOT suppress - plus the depth counter's nesting and
+floor-at-zero.
 
 CONSEQUENCE FOR THE HARNESS: the class itself is no longer what blocks a TRACKSTATION
 spec from arming `[expectations.unityExceptions] maxTotal` - but the SHUTDOWN race
@@ -680,9 +722,63 @@ above still is, and it is a stock bug rather than one Parsek may swallow.
 `H23-tracking-station` therefore stays UNARMED; gate 13 in `autotest-status.md` now
 carries the decision that has to be made first.
 
+---
+
+## BUILDVESSELSLIST-IL-OFFSET-GATE-INERT: the stack-trace guard on the ghost-NRE suppressor never fires in the real game [FOUND 2026-08-02 by review of the flown H23 log. PRE-EXISTING since #556. NOT FIXED]
+
+### What is wrong
+
+`GhostTrackingStationPatch.StackTraceRulesOutKnownGhostRendererNre` is described - in
+its own comments, and in every doc that counts the suppressor's conjuncts - as a guard
+that rules out a suppression when the trace names a DIFFERENT stock IL offset. In
+production it rules out nothing, ever, because it can never find an offset to compare.
+
+Harmony replaces `SpaceTracking.buildVesselsList` with a `DynamicMethod`, and Mono emits
+no `[0x…]` offset for a wrapper frame. The real frame, from
+`2026-08-01_1628_H23-tracking-station_shots/KSP.log:12071`:
+
+```
+at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)
+```
+
+`TryFindBuildVesselsListIlOffset` matches the substring `SpaceTracking.buildVesselsList`
+on that line, finds no `[0x`, and **`return false` - it does not continue scanning later
+frames**. So the resolver always fails, `StackTraceRulesOutKnownGhostRendererNre` always
+returns `false`, and `BuildVesselsListOrbitRendererLoadOffset` (`0x00b4`) /
+`BuildVesselsListIconEventLoadOffset` (`0x00b9`) are dead constants.
+
+### Why it survived
+
+Every cell that exercises it feeds the hand-written fixture
+`"at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0"`
+- a format the game does not produce for this patched method. The gate is real against
+the fixture and inert against reality: the fixture-shaped guarantee this codebase warns
+about elsewhere.
+
+### What it costs, and what it does not
+
+Today: the `#556` `KnownGhostMissingRenderer` class fires on its three count conditions
+alone, one guard weaker than every description of it claims. That class's remaining
+conditions are positive evidence from a live scan, so this is a weakened guard rather
+than an open door - and no log anywhere in the repo shows `Suppressed known ghost
+ProtoVessel`, so it may never have fired at all.
+
+It is recorded here rather than fixed because the fix changes WHEN a shipped suppressor
+fires, which is a behavioural change owed its own change and its own flight - not a
+rider on a PR about something else.
+
+### Fix
+
+Make `TryFindBuildVesselsListIlOffset` keep scanning subsequent frames when a matching
+frame carries no offset (and decide explicitly what a wrapper-only trace should mean -
+"no evidence either way" is the honest reading, which is what it already does by
+accident). Then re-pin the cells against the REAL production frame format, keeping one
+fixture for the offset-bearing case. Cheap to do; needs a live TS flight afterwards to
+confirm the `#556` class still behaves.
+
 ### What is actually happening
 
-An intermittent stock NRE at APPLICATION SHUTDOWN, roughly one flight in three (record
+An intermittent stock NRE at APPLICATION SHUTDOWN, on 2 of 5 flights so far (record
 2 / 0 / 0 / 0 / 2 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625` and both
 2026-08-01 flights). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
 signature; the two "raw Unity exceptions" the scan reports are that ONE exception
@@ -797,7 +893,11 @@ discipline: report-only reading first, `gating = true` after).
 
 Three facts argue against gating it today, and each is checkable:
 
-1. **No committed mission hits it.** The only emitters of a mid-mission CommitTree
+1. **No committed mission has been OBSERVED to hit it** - an observation, not a
+   structural guarantee. `mission_runner._perform_seam_commit` appends the line and
+   THEN polls, so a commit that times out (or any later assertion failure) leaves the
+   write in the channel with an unmet mission: the `exposed` shape exactly. The only
+   emitters of a mid-mission CommitTree
    are the B-DOCK / orbit-commit machines, all on their SUCCESS path.
 2. **The state does not leak.** `run.py::stage_fixture` rmtree's and re-copies the
    save template at the start of EVERY attempt, so a junk mid-mission commit dies

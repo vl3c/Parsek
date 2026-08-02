@@ -909,6 +909,9 @@ class DriveResult:
         # comment. None on every seam-only driver and on any run whose channel could not
         # be read, so a normal result record is unchanged.
         self.mid_mission_seam_writes: Optional[hlib.MidMissionSeamWrites] = None
+        # Set instead when the channel could not be read/parsed, so an unreadable channel
+        # records a GAP rather than being indistinguishable from "the mission wrote nothing".
+        self.mid_mission_seam_read_error: Optional[str] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -1124,6 +1127,13 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
             _forward_mission_stdout(stdout_path, logger)
+            # A killed mission has NO verdict, so it is the strongest form of the shape
+            # this instrument measures (a world-mutating write landing before any verdict
+            # exists). mission_met=False: no verdict is not a met one. Read it BEFORE the
+            # early return -- this path used to skip the instrument entirely, losing the
+            # highest-value case, and the mission's own stdout is block-buffered and
+            # routinely lost when the process is killed.
+            _record_mid_mission_seam_writes(result, mission_ctx, step_id, False, logger)
             return True
         if now - mission_start > mission_budget:
             logger.warn("Budget", "mission budget exceeded (%ds) elapsed=%.0f; killing mission subprocess"
@@ -1165,26 +1175,48 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
         logger.info("Mission", "mission wall=%.0fs (harness residue = run "
                                "wallSeconds - this: KSP boot + verifier chain)"
                     % result.mission_wall_seconds)
-    # HARNESS-MIDMISSION-COMMIT-BYPASS (report-only). The mission subprocess writes
-    # route-1 commands into the SAME channel run.py drives, under the reserved id
-    # handed to it above -- so the channel file IS the driver-side evidence, and no
-    # mission-side change is needed to read it. Failure-isolated: this is an
-    # instrument, and an unreadable channel must never move a verdict.
+    _record_mid_mission_seam_writes(result, mission_ctx, step_id, met, logger)
+    _log_handoff_return(logger, step_index, verdict, met, subkind or "")
+    return False
+
+
+def _record_mid_mission_seam_writes(result: "DriveResult", mission_ctx, reserved_id: str,
+                                    mission_met: bool, logger: HarnessLogger) -> None:
+    """HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): read the route-1 writes.
+
+    The mission subprocess writes into the SAME channel run.py drives, under the
+    reserved id handed to it at spawn -- so the channel file IS driver-side evidence
+    and no mission-side change is needed to read it.
+
+    Failure-isolated: an unreadable channel must never move a verdict. But it must
+    not be SILENT either. This instrument exists precisely because a mid-mission
+    write was invisible, and a bare `except OSError: pass` reproduced that
+    invisibility -- an unreadable channel used to leave a record byte-identical to
+    "the mission wrote nothing", intermittently and without a trace. So the failure
+    is warned AND recorded, and `Exception` is caught rather than `OSError` alone
+    (the read and the parse both live under it now; an instrument may not cost an
+    attempt its result).
+
+    Called from the normal exit path AND from the run-budget kill path: a mission
+    killed mid-flight is BY CONSTRUCTION a mission with no verdict at all, which is
+    the very shape this measures, and the early `return True` used to skip it.
+    """
     try:
         with open(os.path.join(mission_ctx.cwd, "parsek-test-commands.txt"),
                   "r", encoding="utf-8", errors="replace") as fh:
             channel_text = fh.read()
-    except OSError:
-        channel_text = None
-    if channel_text is not None:
-        writes = hlib.parse_mid_mission_seam_writes(channel_text, step_id, met)
-        result.mid_mission_seam_writes = writes
-        if writes.exposed:
-            logger.warn("Mission", "mid-mission seam writes: %s" % writes.summary)
-        elif writes.total:
-            logger.info("Mission", "mid-mission seam writes: %s" % writes.summary)
-    _log_handoff_return(logger, step_index, verdict, met, subkind or "")
-    return False
+        writes = hlib.parse_mid_mission_seam_writes(channel_text, reserved_id, mission_met)
+    except Exception as exc:                                   # noqa: BLE001 - instrument
+        result.mid_mission_seam_read_error = "%s: %s" % (type(exc).__name__, exc)
+        logger.warn("Mission", "mid-mission seam writes UNREADABLE (%s); this run's "
+                               "midMissionSeamWrites is a GAP, not a zero"
+                    % result.mid_mission_seam_read_error)
+        return
+    result.mid_mission_seam_writes = writes
+    if writes.exposed:
+        logger.warn("Mission", "mid-mission seam writes: %s" % writes.summary)
+    elif writes.total:
+        logger.info("Mission", "mid-mission seam writes: %s" % writes.summary)
 
 
 def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
@@ -2868,13 +2900,22 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
             and drive.mid_mission_seam_writes.total:
         mm = drive.mid_mission_seam_writes
         driver_rec["midMissionSeamWrites"] = {
+            # Counts WIRE WRITES, not executed commands: the seam skips a duplicate id, so a
+            # mission that retries its commit writes twice and executes once. Read these as
+            # "what the mission put on the wire", which is what the tail gate would have been
+            # judging too.
             "total": mm.total,
             "worldMutating": mm.world_mutating,
             "verbs": list(mm.verbs),
-            # True = a world-mutating write landed and the mission then came back UNMET.
-            # REPORT-ONLY: nothing reads this to move a verdict.
+            # True = a world-mutating write was made and the mission did NOT come back met
+            # (unmet, or killed with no verdict at all). REPORT-ONLY: nothing reads this to
+            # move a verdict.
             "exposedAfterUnmetMission": mm.exposed,
         }
+    elif drive is not None and drive.mid_mission_seam_read_error:
+        # A GAP is not a zero. Recorded so a reader can tell "we looked and saw none" from
+        # "we could not look" -- the distinction this whole instrument exists to make.
+        driver_rec["midMissionSeamWrites"] = {"readError": drive.mid_mission_seam_read_error}
 
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}

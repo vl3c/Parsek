@@ -7458,23 +7458,46 @@ class CaptureApproachWarpOwnershipTests(unittest.TestCase):
     operator note (B11-CAPTURE-APPROACH-WARP, 2026-07-30) proposed tuning that
     stretch through two knobs this walk shows are INERT on a healthy capture.
 
-    THE MEASUREMENTS THESE REPRODUCE. B11's own spec records flight 1: SOI entry
-    ut 16,518.6 -> node ut 21,549.0 = 5,030 game seconds. Flight 3 measured
-    TARGET-FLYBY at 27 game seconds on 2 warp commands. This walk lands on both:
-    the machine hands off at SOI entry + 27 s having issued exactly warp_to_ut
-    then cancel_warp, and emits NOTHING for the remaining ~5,003 game seconds -
-    which MechJeb's NodeExecutor autowarp owns, its last 600 s being MechJeb's own
-    1x WARPALIGN hold.
+    WHAT IS MEASURED vs WHAT THIS WALK SHOWS - keep them apart. An earlier version
+    of this docstring did not, and said the walk "reproduces" numbers that were in
+    fact its own inputs.
+
+    MEASURED, from flight 1's mission log
+    (`2026-07-24_2334_B11-mun-orbit_mission.stdout.log`):
+
+        COAST-TO-TARGET -> TARGET-FLYBY   ut 16,419.836   <- SOI ENTRY
+        TARGET-FLYBY    -> PLAN-CAPTURE   ut 16,497.836   (+78.0 s)
+        PLAN-CAPTURE    -> CAPTURE-BURN   ut 16,518.635   (+98.8 s)  <- handoff
+        node                              ut 21,549.027
+
+    so SOI entry -> node is 5,129.2 game s, of which the MACHINE owns 98.8 (1.9%)
+    and MechJeb's NodeExecutor owns the remaining 5,030.4, its last 600 s being
+    MechJeb's own 1x WARPALIGN hold. NOTE 16,518.6 is the CAPTURE-BURN phase entry,
+    NOT SOI entry - B11's spec pins it under `captureBurnTimeoutSeconds`, and this
+    class once mislabelled it, which put the denominator's start ~99 s late, inside
+    the very window the machine owns.
+
+    WHAT THE WALK ESTABLISHES, none of which needs timing fidelity: the phase
+    SEQUENCE, that the capture warp is issued exactly once and aimed at node_ut
+    minus the lead, that PLAN-CAPTURE is ONE poll, and that CAPTURE-BURN never
+    emits a warp of its own. Its cadence is SYNTHETIC - see POLL.
 
     WHY THAT SETTLES THE TUNING QUESTION. Neither named knob can buy what the note
     wanted: CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS is a bound the healthy approach
-    never gets near (cancelled ~4,100 game s short of it), and planWarpFactor
-    governs a single PLAN-CAPTURE poll. Anything that makes either knob matter has
-    changed WHO OWNS THE COAST, and should red here first."""
+    never gets near (the warp is cancelled thousands of game s short of it), and
+    planWarpFactor governs a single PLAN-CAPTURE poll. Anything that makes either
+    knob matter has changed WHO OWNS THE COAST, and should red here first."""
 
-    SOI_ENTRY_UT = 16518.6
-    NODE_UT = 21549.0          # MEASURED, B11 flight 1
-    POLL = 9.0                 # 27 game s / 3 polls, MEASURED, B11 flight 3
+    # MEASURED, B11 flight 1 (the log extract above).
+    SOI_ENTRY_UT = 16419.836
+    NODE_UT = 21549.027
+    FLOWN_HANDOFF_UT = 16518.635   # PLAN-CAPTURE -> CAPTURE-BURN
+    # SYNTHETIC, NOT MEASURED: a round cadence chosen so the walk stays short and
+    # deterministic. The flown cadence is nothing like it and varies by phase
+    # (flight 1's TARGET-FLYBY spanned 78 s; flight 3's PLAN-CAPTURE was one poll of
+    # 0.583 game s). Nothing here may assert a DURATION derived from it - the
+    # ownership arithmetic uses the FLOWN constants above instead.
+    POLL = 9.0
     ALT_ENTRY = 2_229_559.0    # Mun SOI edge above the surface
     ALT_PERIAPSIS = 250_000.0  # B11's courseCorrectPeriapsisMeters
 
@@ -7539,16 +7562,29 @@ class CaptureApproachWarpOwnershipTests(unittest.TestCase):
                            "the warp dies thousands of game seconds short of its target")
 
     def test_the_machine_leaves_the_coast_to_mechjeb_within_one_poll_of_arming(self):
-        """TARGET-FLYBY + PLAN-CAPTURE together span ~27 game s of a 5,030 game-s
-        approach, and PLAN-CAPTURE is ONE poll of it - so planWarpFactor governs a
-        single poll and cannot be the lever on this stretch."""
+        """PLAN-CAPTURE is ONE poll, so planWarpFactor governs one poll and cannot be
+        the lever on this stretch. Asserted STRUCTURALLY (a poll count), never as a
+        duration: a duration here would just be POLL times an integer, i.e. the walk
+        restating its own synthetic input."""
         _, phases = self._walk(6)
         self.assertEqual(phases[:4], [mlib.B5_TARGET_FLYBY, mlib.B5_TARGET_FLYBY,
                                       mlib.B5_PLAN_CAPTURE, mlib.B5_CAPTURE_BURN])
-        handoff_ut = self.SOI_ENTRY_UT + 3 * self.POLL
-        self.assertAlmostEqual(handoff_ut - self.SOI_ENTRY_UT, 27.0, places=3)
-        self.assertLess((handoff_ut - self.SOI_ENTRY_UT) / (self.NODE_UT - self.SOI_ENTRY_UT),
-                        0.01, "the machine owns under 1% of the in-SOI approach")
+        self.assertEqual(1, phases.count(mlib.B5_PLAN_CAPTURE),
+                         "PLAN-CAPTURE must occupy exactly one poll")
+
+    def test_the_flown_record_puts_the_machine_at_under_2_percent_of_the_approach(self):
+        """The ownership claim, checked against the FLOWN numbers rather than the walk.
+
+        This is the arithmetic the operator note turns on, so it must not be derived
+        from the synthetic cadence: SOI entry -> handoff is what the machine owns, SOI
+        entry -> node is the stretch the note wanted shortened."""
+        machine = self.FLOWN_HANDOFF_UT - self.SOI_ENTRY_UT
+        approach = self.NODE_UT - self.SOI_ENTRY_UT
+        self.assertAlmostEqual(98.799, machine, places=2)
+        self.assertAlmostEqual(5129.191, approach, places=2)
+        self.assertLess(machine / approach, 0.02,
+                        "the machine owns under 2% of the in-SOI approach; the rest is "
+                        "MechJeb's NodeExecutor and is not ours to tune")
 
     def test_capture_burn_emits_no_warp_of_its_own(self):
         """The rest of the coast is the executor's. A warp action appearing here is
