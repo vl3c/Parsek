@@ -5247,7 +5247,8 @@ class MidMissionSeamWrites:
     """What the mission subprocess wrote into the seam channel on its own account."""
     total: int
     world_mutating: int
-    verbs: Tuple[str, ...]          # distinct verbs, sorted; EMPTY if no line carried a cmd=
+    verbs: Tuple[str, ...]          # distinct verbs, sorted; EMPTY if no line carried a
+                                    # NON-EMPTY cmd= (a bare `cmd=` counts as none)
     exposed: bool                   # a world-mutating write + an UNMET mission
     summary: str
 
@@ -5276,6 +5277,15 @@ def parse_mid_mission_seam_writes(channel_text: str, reserved_id: str,
     to drive. Latent today (every mission-emitted verb has an explicit row, and a
     unit cell keeps the table total over IMPLEMENTED_SEAM_VERBS), but the mission
     side takes an arbitrary verb string, so it is one new verb away from mattering.
+
+    ONE ACKNOWLEDGED DIVERGENCE, stated rather than glossed: for the EMPTY verb the two
+    paths differ on purpose. ``plan_unmet_mission_tail`` hands ``seam_verb_tail_role``
+    a declared step's ``cmd`` and gets world-mutating for ``""``, which is right there
+    -- a spec step with no verb is malformed and must not be driven. Here an empty
+    ``cmd`` is a LINE we could not parse, not a verb nobody has reasoned about, and
+    counting it as world-mutating would invent attribution rather than fail safe. Same
+    table, same function, deliberately different treatment of the one input that means
+    something different on each side.
     """
     reserved = str(reserved_id or "")
     total = 0
@@ -5298,7 +5308,8 @@ def parse_mid_mission_seam_writes(channel_text: str, reserved_id: str,
             total += 1
             verb = fields.get("cmd", "")
             if not verb:
-                # No `cmd=` at all: nothing to classify. Counted in `total` (a line under the
+                # No verb: either no `cmd=` key, or a bare `cmd=` with an empty value.
+                # Both are lines we could not parse, so both land here. Counted in `total` (a line under the
                 # mission's id IS a mission write) but NOT claimed world-mutating -- that would
                 # be inventing attribution, which this parser deliberately refuses to do. The
                 # fail-safe below is for an unknown VERB, which is a different thing from an
@@ -5312,7 +5323,9 @@ def parse_mid_mission_seam_writes(channel_text: str, reserved_id: str,
                     world_mutating_verbs.append(verb)
 
     exposed = world_mutating > 0 and not mission_met
-    all_verbs = ", ".join(sorted(verbs)) or "unknown"
+    # "no cmd", not "unknown": an unrecognised verb now renders BY NAME (it fails safe
+    # and is listed), so this placeholder can only mean "no line carried a verb at all".
+    all_verbs = ", ".join(sorted(verbs)) or "no cmd"
     if not total:
         summary = "no route-1 mid-mission seam writes"
     elif exposed:
@@ -5323,7 +5336,7 @@ def parse_mid_mission_seam_writes(channel_text: str, reserved_id: str,
         summary = ("REPORT-ONLY: %d world-mutating mid-mission seam write(s) [%s] fired "
                    "BEFORE the mission returned UNMET; the unmet-mission tail gate covers "
                    "driver.steps only and never saw them (all verbs: [%s])"
-                   % (world_mutating, ", ".join(sorted(world_mutating_verbs)) or "unknown",
+                   % (world_mutating, ", ".join(sorted(world_mutating_verbs)) or "no cmd",
                       all_verbs))
     else:
         # NOT necessarily "mission met": this branch is also every write whose verbs are all

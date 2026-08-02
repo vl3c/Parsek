@@ -61,11 +61,14 @@ def main(argv=None):
     if args.mode == "midcommit":
         # Byte-identical to mission_runner._perform_seam_commit's own write.
         #
-        # FAIL-CLOSED like the real thing (mission_runner._perform_seam_commit): without
-        # the guard, a spawn that did not forward --seam-commands hits open("") and dies
-        # with a FileNotFoundError traceback, which the harness would classify as a
-        # tooling-mission failure -- a confusing, self-inflicted verdict standing in for
-        # the plain "this fixture was not wired up".
+        # Guard a spawn that did not forward --seam-commands: without it, open("") dies
+        # with a FileNotFoundError traceback. NOTE what this does and does not buy. It
+        # does NOT change the verdict: this returns before writing the result JSON, so
+        # the harness still reads no verdict and still classifies tooling-mission. What
+        # it buys is a NAMED reason in the log instead of a traceback. It is also not
+        # the real thing's behaviour -- mission_runner._perform_seam_commit requires all
+        # three of commands path / responses path / commit id, and warns + yields
+        # "ERROR" so the machine flakes, rather than aborting.
         if not args.seam_commands:
             print("[Mission][Error][Seam] midcommit requires --seam-commands; none given")
             return 1

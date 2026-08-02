@@ -1179,11 +1179,15 @@ owns, under the reserved id run.py hands it - so the channel IS driver-side
 evidence and NO mission-side change was needed. After the mission step resolves,
 run.py reads that channel, attributes the lines whose id is the reserved id (or a
 `<reserved>.<tag>` sub-id of it - the generalized bridge's shape), and classifies
-each verb through the SAME `SEAM_VERB_TAIL_ROLE` table the tail gate uses, so both
-paths are measured on ONE scale. A world-mutating write followed by an UNMET
-mission logs a named WARN; the counts land in the result JSON as
-`driver.midMissionSeamWrites` (`total` / `worldMutating` / `verbs` /
-`exposedAfterUnmetMission`).
+each verb through `seam_verb_tail_role` - the same FUNCTION the tail gate calls, not
+merely the table it reads, so the two share the unknown-verb fallback as well as the
+rows. A world-mutating write followed by an unmet mission logs a named WARN; the
+counts land in the result JSON as `driver.midMissionSeamWrites` (`total` /
+`worldMutating` / `verbs` / `exposedAfterUnmetMission`), or as a lone `readError`
+when the channel could not be read - a GAP is deliberately not recorded as a zero.
+The RUN-BUDGET KILL path reads the channel too, judging it against the verdict
+actually on disk (a killed mission may already have written one; `poll_exit` is
+checked before the budget).
 
 REPORT-ONLY, and pinned as such: the key is emitted ONLY when the mission actually
 wrote something, so every existing run's record - including every seam-only
@@ -1193,9 +1197,11 @@ IS in the channel, the DRIVER's tail `CommitTree` was correctly skipped by the
 existing gate, the record carries `exposedAfterUnmetMission: true`, and the verdict
 is the same `INVALID(mission)` the unmet mission already earned. If that verdict
 assertion ever changes, the instrument has silently become a gate. An unreadable
-channel is failure-isolated and an unknown verb is counted but never claimed
-world-mutating - a report-only instrument that invented attribution would be worse
-than one that under-reports.
+channel is failure-isolated AND warned. An unknown VERB fails SAFE to world-mutating,
+matching `seam_verb_tail_role`: failing open in a risk instrument would report
+`exposed=False` for a write the tail gate would have refused to drive. A line with no
+`cmd=` at all is different - it is counted but not classified, because there is no
+verb to reason about and inventing attribution is worse than under-reporting.
 
 Scope note unchanged: "PR #1349 closed the world-mutating-tail-after-UNMET hole"
 remains true for `driver.steps` ONLY. What is new is that route-1's writes are now

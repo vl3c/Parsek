@@ -1127,13 +1127,23 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
             _forward_mission_stdout(stdout_path, logger)
-            # A killed mission has NO verdict, so it is the strongest form of the shape
-            # this instrument measures (a world-mutating write landing before any verdict
-            # exists). mission_met=False: no verdict is not a met one. Read it BEFORE the
-            # early return -- this path used to skip the instrument entirely, losing the
-            # highest-value case, and the mission's own stdout is block-buffered and
+            # Read the channel BEFORE the early return -- this path used to skip the
+            # instrument entirely, losing its highest-value case (a world-mutating write
+            # with no verdict yet), and the mission's own stdout is block-buffered and
             # routinely lost when the process is killed.
-            _record_mid_mission_seam_writes(result, mission_ctx, step_id, False, logger)
+            #
+            # DO NOT hardcode mission_met=False here, however obvious "a killed mission has
+            # no verdict" sounds. `poll_exit` is checked BEFORE the budget, so the live
+            # window is "result already written, process not yet reaped" - the ordinary
+            # shape for a long mission near its wall. The mission-budget branch immediately
+            # below exists for exactly that reason and does this same final read.
+            # Hardcoding False made the record claim `exposedAfterUnmetMission` and the log
+            # say "returned UNMET" over a mission that had already written MISSION-OK - and
+            # this path never sets result.mission_step, so nothing else in the record
+            # contradicts it.
+            killed_verdict = _read_mission_verdict(result_path)
+            killed_met, _ = hlib.classify_mission_step(killed_verdict)
+            _record_mid_mission_seam_writes(result, mission_ctx, step_id, killed_met, logger)
             return True
         if now - mission_start > mission_budget:
             logger.warn("Budget", "mission budget exceeded (%ds) elapsed=%.0f; killing mission subprocess"

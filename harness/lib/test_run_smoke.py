@@ -1374,28 +1374,6 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertEqual("INVALID", result["verdict"])
         self.assertEqual("mission", result["subkind"])
 
-    def test_the_run_budget_kill_path_still_reads_the_channel(self):
-        """A KILLED mission is the STRONGEST form of the shape this measures - it has no
-        verdict at all - and the run-budget branch `return True`s before the normal exit
-        path, so it used to skip the instrument entirely and lose the highest-value case.
-
-        Pinned at source level (the pattern `SettingsSectionGateWiringTests` uses) because
-        driving a real run-budget kill through the fake mission would need a hanging
-        subprocess: what must not regress is that the branch CALLS the reader, with
-        mission_met=False, BEFORE it returns."""
-        src = real_open_source = open(
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                         "run.py"), "r", encoding="utf-8").read()
-        head, _, tail = src.partition('kill_scope = "run"')
-        self.assertTrue(tail, "the run-budget kill branch moved; re-anchor this gate")
-        branch = tail.split("return True")[0]
-        self.assertIn("_record_mid_mission_seam_writes", branch,
-                      "the run-budget kill path stopped reading the seam channel; a "
-                      "killed mission's mid-mission writes would go unrecorded")
-        self.assertIn("False", branch.split("_record_mid_mission_seam_writes")[1][:120],
-                      "the kill path must pass mission_met=False - no verdict is not a "
-                      "met one")
-        del real_open_source
 
 
 class MissionSpecAdmissionTests(unittest.TestCase):
@@ -1705,6 +1683,66 @@ class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
         self.assertEqual("MISSION-OK", result.mission_step["missionVerdict"])
         self.assertTrue(result.mission_step["met"])
         self.assertNotIn("reason", result.mission_step)  # not the fabricated row
+
+    def _drive_run_budget_kill(self, rt):
+        """Drive the RUN-budget branch (not the mission-budget one) with a
+        world-mutating mid-mission write already in the channel."""
+        with open(os.path.join(self.tmp, "parsek-test-commands.txt"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("id=0003 cmd=CommitTree\n")
+        result = run.DriveResult()
+        ctx = run.MissionContext("m", "vpy", "m.py", {}, self.tmp,
+                                 "stamp.json", {"krpc": "0.5.4"})
+        step = {"phase": "mission", "expect": "MISSION-OK", "budget": 10_000}
+        proc = type("P", (), {"pid": 12345})()
+        killed = run._drive_mission_step(result, step, "0003", 2, proc, rt, self.logger,
+                                         run_budget=1.0, run_start=0.0,
+                                         mission_ctx=ctx, run_id="testrun",
+                                         preceding_load_ok=True)
+        return result, killed
+
+    def test_run_budget_kill_reads_the_channel_and_judges_the_REAL_verdict(self):
+        """The run-budget kill must record mid-mission seam writes, and must judge them
+        against the verdict actually on disk - NOT against a hardcoded "killed means
+        unmet".
+
+        NOT HYPOTHETICAL: `poll_exit` is checked BEFORE the budget, so the live window is
+        "result already written, process not yet reaped" - the ordinary shape for a long
+        mission near its wall, and the same window the NIT 7 cells above exist for. A
+        first version of this fix hardcoded `mission_met=False`; over a mission that had
+        written MISSION-OK it recorded `exposedAfterUnmetMission: true` and logged
+        "returned UNMET", and since this path never sets `result.mission_step`, nothing
+        in the record contradicted it.
+
+        Replaces a source-grep gate that only asserted a call EXISTED - it could not see
+        wrong arguments, which is exactly why it missed that defect."""
+        result, killed = self._drive_run_budget_kill(
+            _MiniMissionRuntime(write_result_verdict="MISSION-OK"))
+
+        self.assertTrue(killed, "expected the RUN-budget branch, not the mission-budget one")
+        self.assertEqual("run", result.kill_scope)
+        # (a) it read the channel at all - the regression the fix was for
+        mm = result.mid_mission_seam_writes
+        self.assertIsNotNone(mm)
+        self.assertEqual(1, mm.total)
+        self.assertEqual(1, mm.world_mutating)
+        # (b) and judged it against the REAL verdict: the mission MET, so this is not the
+        #     exposed shape and the summary must not claim it returned UNMET
+        self.assertFalse(mm.exposed)
+        self.assertNotIn("UNMET", mm.summary)
+        self.assertIn("; mission met", mm.summary)
+
+    def test_run_budget_kill_with_no_verdict_IS_the_exposed_shape(self):
+        """The other half: killed with nothing written is genuinely unmet, and a
+        world-mutating write there is precisely what this instrument exists to surface.
+        Without this cell, reading the real verdict could regress to always-met."""
+        result, _ = self._drive_run_budget_kill(
+            _MiniMissionRuntime(write_result_verdict=None))
+
+        mm = result.mid_mission_seam_writes
+        self.assertIsNotNone(mm)
+        self.assertTrue(mm.exposed)
+        self.assertIn("UNMET", mm.summary)
 
     def test_no_result_at_expiry_is_distinguishable_flake(self):
         # No result was written; the fabricated FLAKE row is tagged so it never
