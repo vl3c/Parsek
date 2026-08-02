@@ -663,27 +663,58 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
-## `dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable [FOUND 2026-07-30 during the CL-2 scope fence. NOT RESOLVED]
+## ~~`dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable~~ [FOUND 2026-07-30 during the CL-2 scope fence. **DEFINITION PINNED 2026-08-02**, branch `cl2-stage-b`]
 
-`harness/coverage/registry.toml` carries no per-cell definitions beyond the D12 block
-comment, which asserts that `dead-crew-strip` and `tombstone-rep-penalty` are "a RE-FLY
-consequence of a death that already happened". For `tombstone-rep-penalty` that is
-checkable - `SupersedeCommit.TryPairBundledRepPenalty` is the named producer. For
-`dead-crew-strip` it is not: the only code in the repo actually NAMED for stripping
-dead crew is SPAWN-time, not re-fly-time (`VesselSpawner.cs` "Individual dead crew are
-already removed by `RespawnVessel.RemoveDeadCrewFromSnapshot`", and
-`ShouldBlockSpawnForDeadCrew`), while the re-fly `Strip` is `PostLoadStripper.Strip`
-(`RewindInvoker.cs`), which strips VESSELS, not crew. The nearest re-fly-time CREW
-behaviour is `CrewReservationManager.RecomputeAfterTombstones()` plus the
-tombstoned-roster cleanup in `SupersedeCommit.CommitTombstones`.
+### What it now means
 
-So whoever builds stage B must PIN what the cell means before claiming it, or the claim
-is unfalsifiable. The strongest available definition is the one the in-game test that
-owns the behaviour states: `InGameTests/KerbalRecoveryOnSupersedeTest` asserts that
-after the merge, every eligible kerbal-death action in the supersede subtree is
-tombstoned AND each previously-Dead kerbal is back in the roster as `Available` or
-`Assigned`. Writing that into the registry comment (or splitting the cell) is a
-registry-authoring task, not a flight.
+Pinned into the D12 block comment of `harness/coverage/registry.toml`, because a cell
+you cannot falsify must not be claimed:
+
+> After a re-fly merge whose supersede subtree contains a `KerbalAssignment` action
+> carrying `KerbalEndState.Dead`, (i) that action is TOMBSTONED - observable as a
+> non-zero `Kerbal=` term in `CommitTombstones`'s `Tombstoned N career actions
+> (... Kerbal=K ...)` line and as `tombstones >= 1` in the M-C2 save parse - and
+> (ii) the ELS recompute that follows leaves NO surviving reservation or stand-in for
+> the dead kerbal.
+
+### The correction the old draft needed
+
+The earlier draft proposed borrowing `InGameTests/KerbalRecoveryOnSupersedeTest`'s pair
+of invariants verbatim, including "each previously-Dead kerbal is back in the roster as
+`Available` or `Assigned`". That second half is a MISLEADING gate, and the reason is
+mechanical: **nothing in Parsek flips a `Dead` roster status back.**
+`CrewReservationManager.RescueOrphanedCrew` skips Dead crew by explicit comment ("Dead
+crew are skipped") and only promotes `Assigned`; `RescueReservedCrewAfterEvaRemoval`
+only rescues `Missing`. The kerbal is alive after a re-fly because the **rewind
+quicksave predates the death** and KSP reloads the roster from it. Asserting the roster
+status therefore proves the quicksave loaded - it does not prove the tombstone did
+anything. The in-game test keeps that assertion as corroboration; it must not be a
+sole gate, and the registry says so.
+
+### The other cell in the same scope fence: `tombstone-rep-penalty` is UNREACHABLE
+
+Not "uncovered" - unreachable by any flight, and the old note pointing at
+`SupersedeCommit.TryPairBundledRepPenalty` as "the named producer" was wrong twice
+over:
+
+1. **It produces no tombstone.** `CommitTombstones` gates on
+   `TombstoneEligibility.IsSupersedeTombstoneEligible`, which admits `KerbalAssignment`
+   of ANY end state. `IsEligible` (death-only) and `TryPairBundledRepPenalty` are called
+   ONLY from `SupersedeCommit.IsWorldStateChangingRecordingAction`, the autoseal /
+   retry-blocking classifier.
+2. **Its input never exists.** The cell needs a `GameActionType.ReputationPenalty`
+   action in the subtree. `Source/Parsek/` has exactly ONE construction site for that
+   type - `GameActions/GameStateEventConverter.cs` (Bail-Out Grant) - and it hardcodes
+   `RepPenaltySource = ReputationPenaltySource.Strategy`. Nothing ever constructs a
+   `ReputationPenaltySource.KerbalDeath` action, so a crew death yields no Parsek rep
+   row at all: stock applies the hit (`Added -9.999828 (-10) reputation: 'VesselLoss'.`,
+   measured by both CL-1 and CL-2) and the ledger absorbs it through the generic
+   captured-award path, which is not a `GameAction` and cannot be tombstoned.
+
+Unblocking it is a PRODUCT change, not a flight - Parsek would have to construct a
+KerbalDeath rep penalty on crew death, which moves CL-2's armed ledger totals and so
+belongs in its own PR with its own oracle re-pin. Recorded in the registry so the
+coverage report stops implying a flight could close it.
 
 `CL-2-pod-impact-ledger` claims NEITHER cell, and
 `test_cl2_crew_loss_ledger.py::test_the_scope_fenced_re_fly_cells_stay_unclaimed` keeps

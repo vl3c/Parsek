@@ -129,15 +129,50 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # and `CommitTombstones` runs strictly inside the RE-FLY merge tail, which no
 # auto-commit can reach. Both cells belong to stage B (a rewind ACROSS the crew loss).
 #
-# BEFORE CLAIMING `dead-crew-strip`, PIN WHAT IT MEANS. The comment above asserts it is
-# a "RE-FLY consequence", but the only code in the repo NAMED for stripping dead crew is
-# SPAWN-time (`VesselSpawner`'s `RemoveDeadCrewFromSnapshot` note and
-# `ShouldBlockSpawnForDeadCrew`); the re-fly `Strip` is `PostLoadStripper.Strip`, which
-# strips VESSELS. The strongest available definition is the one
-# `InGameTests/KerbalRecoveryOnSupersedeTest` asserts: after the merge every eligible
-# kerbal-death action in the supersede subtree is tombstoned AND each previously-Dead
-# kerbal is back in the roster as Available or Assigned. Details in
-# docs/dev/todo-and-known-bugs.md.
+# `dead-crew-strip` IS NOW PINNED (2026-08-02, CL stage B). It was unfalsifiable while
+# it had no definition; the definition below is what a claim must gate on, and it is
+# stated so a reader can tell which half is Parsek's doing and which half is the
+# quicksave's:
+#
+#   After a re-fly merge whose supersede subtree contains a `KerbalAssignment` action
+#   carrying `KerbalEndState.Dead`, (i) that action is TOMBSTONED - observable as a
+#   non-zero `Kerbal=` term in `CommitTombstones`'s `Tombstoned N career actions
+#   (... Kerbal=K ...)` line and as `tombstones >= 1` in the M-C2 save parse - and
+#   (ii) the ELS recompute that follows leaves NO surviving reservation or stand-in
+#   for the dead kerbal (`CrewReservationManager.RecomputeAfterTombstones`).
+#
+# WHAT THE CELL DOES NOT MEAN, and this is the part the old "back in the roster as
+# Available or Assigned" phrasing got wrong: NOTHING IN PARSEK FLIPS A `Dead` ROSTER
+# STATUS BACK. `CrewReservationManager.RescueOrphanedCrew` explicitly skips Dead crew
+# ("Dead crew are skipped") and `RescueReservedCrewAfterEvaRemoval` only rescues
+# Missing. The kerbal is alive after a re-fly because the REWIND QUICKSAVE PREDATES
+# THE DEATH and KSP reloads the roster from it - so asserting the roster status proves
+# the quicksave loaded, not that the tombstone did anything. The tombstone's real job
+# is (i)+(ii): stopping the Effective Ledger Set from re-deriving a reservation and a
+# stand-in for a corpse the merged timeline says never died.
+# `InGameTests/KerbalRecoveryOnSupersedeTest` still asserts the roster half as a
+# corroboration; it is the weaker of its two invariants and must not be the sole gate.
+# Details in docs/dev/todo-and-known-bugs.md.
+#
+# `tombstone-rep-penalty` IS UNREACHABLE BY ANY FLIGHT, not merely uncovered
+# (2026-08-02, CL stage B; mechanical, re-check by grep before ever claiming it).
+# The cell needs a `GameActionType.ReputationPenalty` action in the supersede subtree.
+# `Source/Parsek/` has exactly ONE construction site for that type -
+# `GameActions/GameStateEventConverter.cs` (the Bail-Out Grant), which hardcodes
+# `RepPenaltySource = ReputationPenaltySource.Strategy`. No code path ever constructs
+# a `ReputationPenaltySource.KerbalDeath` action, so a crew death produces NO Parsek
+# rep row: stock applies the hit directly (`Added -9.999828 (-10) reputation:
+# 'VesselLoss'.`, measured by CL-1 and CL-2) and the ledger absorbs it through the
+# generic captured-award path, which is not a `GameAction` and cannot be tombstoned.
+# `TombstoneEligibility.TryPairBundledRepPenalty` therefore has nothing to pair on a
+# flown death - and note it is called ONLY from `SupersedeCommit`'s autoseal /
+# retry-blocking classifier (`IsWorldStateChangingRecordingAction`), NEVER from
+# `CommitTombstones`, which gates on `IsSupersedeTombstoneEligible`. So the older
+# note naming it "the named producer" for this cell was doubly wrong: it produces no
+# tombstone, and its input never exists.
+# UNBLOCKING IT IS A PRODUCT CHANGE, NOT A FLIGHT: Parsek would have to construct a
+# KerbalDeath rep penalty on crew death, which moves CL-2's armed ledger totals and
+# so belongs in its own PR with its own oracle re-pin.
 values = ["reservation-auto-hire", "stand-ins", "seat-matching", "rescue-marker",
           "crew-death-in-flight",
           "dead-crew-strip", "tombstone-rep-penalty", "missed-endut-auto-free", "crew-swap",
