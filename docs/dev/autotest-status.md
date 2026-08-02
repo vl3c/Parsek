@@ -1931,7 +1931,12 @@ six publish or compare numbers the runner already measured.
     persistentId 0), and the
     IL-offset check never rules anything out in production, because Harmony's
     `DynamicMethod` frame carries no `[0x..]` offset (separate entry
-    `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`). A hole no flight has ever shown, against
+    `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`, FIXED 2026-08-02 - the resolver no longer
+    aborts at the first offsetless frame and the abstention is now written down as a
+    decision, but Mono still prints no offset, so the check abstains on every real trace
+    and must not be re-counted as a working conjunct; the warn line now carries
+    `ilOffset=none` so that reading is visible in the log instead of only in a comment).
+    A hole no flight has ever shown, against
     an over-suppression that is reachable: the class is gone. What stays is the
     DIAGNOSTIC half - `ghostTeardownInProgress=` and `registeredGhostMapVessels=` on the
     warn line, which is what made this a one-flight diagnosis - plus a regression cell

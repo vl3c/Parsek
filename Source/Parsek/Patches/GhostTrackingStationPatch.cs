@@ -235,9 +235,11 @@ namespace Parsek.Patches
     ///     is very nearly implied by a teardown being in progress (all four sites remove the
     ///     pid only after EndGhostTeardown; the one gap is RemoveOverlapInstance, which raises
     ///     the scope for a vessel whose persistentId may be 0), and the IL-offset check never
-    ///     rules anything out in production
-    ///     (Harmony's DynamicMethod frame carries no [0x..] offset — see the
-    ///     BUILDVESSELSLIST-IL-OFFSET-GATE-INERT entry in todo-and-known-bugs.md).
+    ///     rules anything out in production — Harmony's DynamicMethod frame carries no [0x..]
+    ///     offset, so StackTraceRulesOutKnownGhostRendererNre abstains on every real trace. That
+    ///     is still true after BUILDVESSELSLIST-IL-OFFSET-GATE-INERT was fixed on 2026-08-02: the
+    ///     fix stopped the resolver aborting at the first offsetless frame and wrote the
+    ///     abstention down as a decision, but it did not give Mono an offset to print.
     /// The hole it closed has never been observed; the over-suppression it enabled was
     /// reachable. So the DIAGNOSTIC half is kept and the suppression is not: the warn line
     /// carries ghostTeardownInProgress= and registeredGhostMapVessels=, which is what turned
@@ -246,7 +248,9 @@ namespace Parsek.Patches
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
     {
-        // KSP 1.12.5 Assembly-CSharp.dll: vessel.orbitRenderer.onVesselIconClicked.
+        // KSP 1.12.5 Assembly-CSharp.dll: vessel.orbitRenderer.onVesselIconClicked. Compared only
+        // against a trace that actually carries an offset for this method, which the shipped game
+        // does not produce — see StackTraceRulesOutKnownGhostRendererNre.
         private const int BuildVesselsListOrbitRendererLoadOffset = 0x00b4;
         private const int BuildVesselsListIconEventLoadOffset = 0x00b9;
 
@@ -304,8 +308,14 @@ namespace Parsek.Patches
             if (exception == null)
                 return null;
 
+            // Resolved ONCE and REPORTED on both lines below. That reporting is not decoration:
+            // BUILDVESSELSLIST-IL-OFFSET-GATE-INERT survived from #556 to 2026-08-02 precisely
+            // because nothing in the log ever said which way this gate read, so an offset the
+            // resolver could never find looked identical to one it found and accepted.
+            bool haveIlOffset = TryFindBuildVesselsListIlOffset(exceptionStackTrace, out int ilOffset);
+
             BuildVesselsListNreClass classification =
-                ClassifyBuildVesselsListException(exception, context, exceptionStackTrace);
+                ClassifyBuildVesselsListException(exception, context, haveIlOffset, ilOffset);
 
             if (classification == BuildVesselsListNreClass.KnownGhostMissingRenderer)
             {
@@ -313,11 +323,12 @@ namespace Parsek.Patches
                     string.Format(CultureInfo.InvariantCulture,
                         "Suppressed known ghost ProtoVessel SpaceTracking.buildVesselsList NRE: " +
                         "type={0} totalVessels={1} ghostVessels={2} ghostMissingOrbitRenderers={3} " +
-                        "firstMissingOrbitRenderer=ghost",
+                        "firstMissingOrbitRenderer=ghost ilOffset={4}",
                         exception.GetType().Name,
                         context.TotalVessels,
                         context.GhostVesselCount,
-                        context.GhostMissingOrbitRendererCount));
+                        context.GhostMissingOrbitRendererCount,
+                        FormatIlOffset(haveIlOffset, ilOffset)));
                 return null; // swallow — return null tells Harmony to suppress the exception
             }
 
@@ -327,7 +338,7 @@ namespace Parsek.Patches
                     "totalVessels={1} ghostVessels={2} ghostMissingOrbitRenderers={3} " +
                     "nonGhostMissingOrbitRenderers={4} firstMissingOrbitRenderer={5} " +
                     "priorStockNullCandidates={6} ghostTeardownInProgress={7} " +
-                    "registeredGhostMapVessels={8}{9} message=\"{10}\"",
+                    "registeredGhostMapVessels={8} ilOffset={9}{10} message=\"{11}\"",
                     exception.GetType().Name,
                     context.TotalVessels,
                     context.GhostVesselCount,
@@ -337,6 +348,7 @@ namespace Parsek.Patches
                     context.PotentialEarlierStockNullCandidateCount,
                     context.GhostTeardownInProgress ? 1 : 0,
                     context.RegisteredGhostMapVessels,
+                    FormatIlOffset(haveIlOffset, ilOffset),
                     FormatScanError(context.ScanError),
                     exception.Message ?? string.Empty));
             return exception;
@@ -358,11 +370,12 @@ namespace Parsek.Patches
         private static BuildVesselsListNreClass ClassifyBuildVesselsListException(
             Exception exception,
             BuildVesselsListExceptionContext context,
-            string exceptionStackTrace)
+            bool haveIlOffset,
+            int ilOffset)
         {
             if (!(exception is NullReferenceException))
                 return BuildVesselsListNreClass.Unclassified;
-            if (StackTraceRulesOutKnownGhostRendererNre(exceptionStackTrace))
+            if (StackTraceRulesOutKnownGhostRendererNre(haveIlOffset, ilOffset))
                 return BuildVesselsListNreClass.Unclassified;
 
             // A scan that THREW is not classified from, and the exception stays visible.
@@ -454,21 +467,57 @@ namespace Parsek.Patches
             return context;
         }
 
-        private static bool StackTraceRulesOutKnownGhostRendererNre(string stackTrace)
+        /// <summary>
+        /// VETOES a #556 suppression when the trace names a stock IL offset inside
+        /// <c>buildVesselsList</c> that is NOT one of the two <c>vessel.orbitRenderer</c> loads —
+        /// i.e. when the trace positively says the NRE came from somewhere else in the method.
+        ///
+        /// A TRACE WITH NO OFFSET MEANS NOTHING EITHER WAY, and that is a decision, not an
+        /// oversight. It is also the ORDINARY production shape rather than an edge case: Harmony
+        /// replaces <c>buildVesselsList</c> with a <c>DynamicMethod</c>, and Mono prints that frame
+        /// as <c>at (wrapper dynamic-method) …SpaceTracking.buildVesselsList_Patch2(…)</c> with no
+        /// <c>[0x…]</c> on it. Reading a missing offset as "not the known offset" would veto every
+        /// real trace and silently delete the #556 class; reading it as "is the known offset" would
+        /// invent proof the trace does not carry. So it abstains and lets the live vessel scan's
+        /// counts decide alone.
+        ///
+        /// CONSEQUENCE, STATED PLAINLY: against the shipped game this guard never fires. Every
+        /// production frame for this method is the offsetless wrapper, so the veto branch below is
+        /// reachable only from a trace shape KSP 1.12.5 + Harmony do not currently produce. It is
+        /// kept because it is correct and cheap, NOT because it is load-bearing — do not count it
+        /// as one of the #556 class's working conjuncts. (Before 2026-08-02 the resolver ALSO
+        /// aborted on the first offsetless match, which is the same inertness arrived at by a bug:
+        /// see BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.)
+        /// </summary>
+        private static bool StackTraceRulesOutKnownGhostRendererNre(bool haveIlOffset, int ilOffset)
         {
-            if (string.IsNullOrEmpty(stackTrace))
+            if (!haveIlOffset)
                 return false;
 
-            if (!TryFindBuildVesselsListIlOffset(stackTrace, out int offset))
-                return false;
-
-            return offset != BuildVesselsListOrbitRendererLoadOffset
-                && offset != BuildVesselsListIconEventLoadOffset;
+            return ilOffset != BuildVesselsListOrbitRendererLoadOffset
+                && ilOffset != BuildVesselsListIconEventLoadOffset;
         }
 
+        /// <summary>
+        /// Returns the first PARSEABLE IL offset carried by a frame naming
+        /// <c>SpaceTracking.buildVesselsList</c>, scanning EVERY such frame.
+        ///
+        /// A matching frame that yields no usable offset — Harmony's wrapper frame, a truncated
+        /// <c>[0x</c> with no <c>]</c>, unparseable hex — is SKIPPED, not treated as a verdict on
+        /// the whole trace. Aborting on it was the defect: the wrapper frame is the FIRST match in
+        /// every real trace, so the loop never looked past it and the resolver could not succeed.
+        ///
+        /// The offset must come off a <c>buildVesselsList</c> frame and no other. Neighbouring
+        /// frames DO carry offsets in the real trace (<c>onVesselDestroyed (Vessel v) [0x000f8]</c>
+        /// sits directly under the wrapper), and reading one of those would hand the veto an offset
+        /// from a different method entirely.
+        /// </summary>
         private static bool TryFindBuildVesselsListIlOffset(string stackTrace, out int offset)
         {
             offset = 0;
+            if (string.IsNullOrEmpty(stackTrace))
+                return false;
+
             string[] lines = stackTrace.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             for (int i = 0; i < lines.Length; i++)
             {
@@ -478,18 +527,29 @@ namespace Parsek.Patches
 
                 int marker = line.IndexOf("[0x", StringComparison.OrdinalIgnoreCase);
                 if (marker < 0)
-                    return false;
+                    continue;
 
                 int start = marker + 3;
                 int end = line.IndexOf(']', start);
                 if (end <= start)
-                    return false;
+                    continue;
 
                 string hex = line.Substring(start, end - start);
-                return int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out offset);
+                if (int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out offset))
+                    return true;
             }
 
             return false;
+        }
+
+        private static string FormatIlOffset(bool haveIlOffset, int ilOffset)
+        {
+            // "none" is the reading EVERY production trace produces. Spelled out rather than left
+            // as an absent field so a log reader can tell "the gate abstained" from "the gate was
+            // never consulted".
+            return haveIlOffset
+                ? "0x" + ilOffset.ToString("x5", CultureInfo.InvariantCulture)
+                : "none";
         }
 
         private static string FormatScanError(string scanError)
