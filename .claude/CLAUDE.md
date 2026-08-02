@@ -30,15 +30,21 @@ Its DEPLOY phase copies this worktree's `Source/Parsek/bin/Debug/Parsek.dll` int
 ls -la "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
 ls -la Source/Parsek/bin/Debug/Parsek.dll
 
-# 2. Grep the deployed DLL for a distinctive new UTF-16 string from your change
+# 2. Grep the deployed DLL for a distinctive new marker from your change.
+#    CHECK BOTH ENCODINGS: metadata identifiers (method / type / enum-member names) live
+#    in the #Strings heap as UTF-8; string literals live in the #US heap as UTF-16LE.
 python -c "
 with open(r'...GameData/Parsek/Plugins/Parsek.dll','rb') as f: d=f.read()
-for s in ['NewLabel','OldLabel']: print(s, d.count(s.encode('utf-16-le')))
+for s in ['NewMethodName','some new literal']:
+    u8, u16 = d.count(s.encode('utf-8')), d.count(s.encode('utf-16-le'))
+    print(s, 'utf8=%d utf16=%d' % (u8, u16), 'OK' if (u8 or u16) else 'MISSING')
 "
 
 # 3. If mismatch, force-copy manually
 cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
 ```
+
+**Check both encodings, and prefer a literal as the marker.** A UTF-16-only count (what this recipe said before 2026-08-02) reports every method / type / enum-member name as absent from a DLL that does carry it - measured against the deployed `Parsek.dll`, the type name `RecordingTreeSplitter` counts `utf8=1 utf16=0` while the literal `format-version-mismatch` counts `utf8=0 utf16=2`. Verifying a metadata identifier with the old one-encoding check therefore makes a correctly-deployed DLL look like a deploy failure and sends you hunting a non-existent sibling-worktree clobber, which is the exact confusion this whole section exists to prevent. So: when your change adds a distinctive new **string literal**, prefer it as the marker - a literal you wrote is emitted verbatim into `#US`, whereas the compiler decorates some identifier spellings (a local function `Name` declared inside `Outer` is emitted as `<Outer>g__Name|0_0`; lambdas and iterators get generated type names), so an exact-name count on those reads ambiguously. An identifier that also appears in a `nameof()` or a log message shows nonzero counts in BOTH heaps; that is normal, not a contradiction. Only `utf8=0 utf16=0` means missing.
 
 From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `Kerbal Space Program/` probe only walks parent directories of the csproj - a sibling-of-the-worktree layout at `C:/Users/vlad3/Documents/Code/Parsek/Kerbal Space Program/` is NOT reachable from `C:/Users/vlad3/Documents/Code/Parsek-<branch>/Source/Parsek/` via ancestor walking.
 
