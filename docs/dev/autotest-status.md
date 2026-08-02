@@ -963,7 +963,7 @@ measured 2,825 s - the whole H7-H20 wave costs under a third of one landing miss
 | H19-recording-finalization | nightly | BackgroundRecorder finalization-cache apply: destroyed-cache tail trim at the deletion UT, stable-cache Orbiting finalization, active-crash tail append (D1 finalization-cache) | LIVE-PROVEN 2026-07-27, 49 s, matched token for token: `total=3 passed=3 failed=0 skipped=0` |
 | H20-eva-spawn-position | nightly | EVA spawn within 10 m of the recorded endpoint and at least 50 m off the parent; trajectory walkback when the endpoint overlaps (D13 terrain-correction/trajectory-walkback) | LIVE-PROVEN 2026-07-27, 49 s in the sweep + a 59 s solo re-fly to capture the split. Pinned WHOLE: `total=2 passed=2 failed=0 skipped=0`. The overlap probe DID fire, so the walkback path really executed. Its `skipped=0` is measured, not derivable - see the group note |
 | H22-ui-complexity-mode | daily | The LIVE `InputLockManager`, which headless xUnit structurally cannot reach: entering Basic must force-close every gated window AND leave no Parsek control lock held (design 7.2 / section 8 edge case 2 - a leaked lock soft-locks the player's mouse for the rest of the scene session), a Basic round trip must preserve gated-window state, and Advanced must restore every `UiSurface`. Every mode flip goes through the `ParsekUI.SetUiComplexityMode` seam and waits on the DEFERRED latch, so the run also proves the real `ParsekFlight.Update` apply wiring exists - the two `Mode changed: uiComplexityMode=` contract lines are PRODUCTION emissions, not test echoes (D14 sandbox/scene-flight only - NO NEW REGISTRY VALUE; D15 UI surfaces deliberately NOT claimed, because it carries exactly one value and `test_real_registry_denominator` pins that count, so growing it is a separate reviewed decision) | LIVE-PROVEN 2026-07-28, 53 s, flown under its pre-rename id `H7-ui-complexity-mode` (runId `2026-07-28_1808_H7-ui-complexity-mode`; renamed to H22 in the PR #1370 merge because main's batch-wiring wave took H7-H20). FULL PASS on attempt 1, all six verifiers green (driverValidity, batchComplete perCategory=1, analyzer red=0, logValidate recRulesSuppressed=True, anomalySweep hits=[], expectations mismatches=0). Matched token for token: `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=UiComplexityMode scene=FLIGHT` - all three `InGameAssert.Skip` guards (no live ParsekUI, Gloops recording in progress) were indeed unreachable on the gloops-airshow fixture, and the FLIGHT LoadGame route inferred from it is confirmed. Measured alongside: `opened 6 gated surfaces, locksHeldBeforeSwitch=0`, `12 surfaces visible in Advanced after the round trip`, `round trip preserved Career tab=3`, zero `[Parsek][ERROR]` lines. Adding a test to the category moves BOTH numbers in the spec, same commit. EXTENDED 2026-08-01 to total=4: `MissionRevealScrollsToTheTargetMission` (`InGameTests/MissionRevealInGameTests.cs`) covers the Timeline GoTo cross-link's mission-reveal SCROLL, whose capture reads real `GUILayoutUtility` rects and so was unreachable headless - it shipped in PR #1401 on manual playtest alone. It guards the unsolved-layout-cache defect that class of code fails silently with: a Repaint painted against a layout cache that was never solved reads zeros, consumes the target, lands the list at offset 0 and logs it as a success. The test SEEDS ITS OWN two synthetic trees through the non-flushing `AddCommittedTreeInternal` (this fixture injects no recordings, so a skip-if-absent test would verify nothing on the very run meant to verify it) and removes them in a finally, writing nothing to disk. Its assertion is sort- and size-independent: two different missions must capture two DIFFERENT offsets, which the defect collapses to a shared 0. Spec tally, `test_hlib` row, and the category-inventory doc all moved in the same commit. LIVE-PROVEN 2026-08-01 (runId `2026-08-01_1435_H22-ui-complexity-mode`, FULL PASS, 66 s, every verifier green, unityExceptions total=0): measured `BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0` and `MissionReveal: captured distinct offsets A=0.0px B=52.0px fromClosed=52.0px` (re-flown 2026-08-01_1449 after the test was extended). The FIRST attempt (`2026-08-01_1432`) red'd `expectations mismatches=2` with the test SKIPPED - every window draw in `ParsekFlight.OnGUI` sits inside `if (showUI)` and nothing clicks the toolbar unattended, so the Missions tab never drew and never seeded the probe missions. Fixed by raising `ParsekFlight.ShowUIForTesting` (new seam) for the duration of the test. That is exactly the class of gap only a live flight finds: the other three tests in the category pass without any draw at all, because they only flip window flags and the mode. The measured `A=0.0px` also vindicates the sort-independent DIFFER assertion - mission A is legitimately the first row, so a `> 0` assertion on a single mission would have false-red'd. SCOPE, stated because the test's name implies more: it proves the capture measures real DISTINCT content-space rects end to end, and that the `missionsLayoutFrame` guard does not OVER-suppress (an over-strict guard starves both captures to NaN and reds). It does NOT regression-guard the mid-OnGUI unsolved-cache defect that motivated the guard - a coroutine resumes BETWEEN frames and so cannot open a window mid-OnGUI, and deleting the guard leaves the steady-state cases green. The third case reveals from a CLOSED window, the closest reachable approximation (the reveal's own force-open means the capture must survive a window that did not exist last frame), and pins that it lands on the same row the open-window reveal did - `fromClosed=52.0px` against `B=52.0px` |
-| H23-tracking-station | daily | The 10-test `TrackingStation` category, stranded since it was written: 9 batch-eligible tests that no driven run could reach, because `DecideLoadRoute` had exactly two routes and no seam verb changed scenes. Covers the TS scene host (`ParsekTrackingStation` + stock `SpaceTracking` + `MapView.fetch` + `flightState`), the span-clock TS seam including the zero-drift scheduled variant, the synthetic-ghost `ProtoVessel` lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth - which is Unity-runtime by nature and is exactly what `MapRenderProbe.ReadLineActive` regressed on once already (D14 sandbox + scene-ts, the latter a NEW registry value; no other value claimed - the run boots and batches, it does not record) | LIVE-PROVEN 2026-07-30, run `2026-07-30_1522_H23-tracking-station`, PASS attempt 1, 44 s, every verifier PASS/SKIPPED. Tally MEASURED on a first flight flown deliberately with the interim `passed=[1-9][0-9]*` pin, then re-pinned WHOLE and re-flown green: `BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=TrackingStation scene=TRACKSTATION`. total/skipped agree with the attributes (one member carries `AllowBatchExecution = false`); passed=9 could NOT be derived, because three members carry runtime `InGameAssert.Skip` guards keyed on whether KSP built a Vectrosity orbit line for a synthetic ghost that session - all three were satisfied. `scene=TRACKSTATION` inside the tally is the B10 fail-open guard and is the point of the cell: every member is TRACKSTATION-scoped, so a silently-wrong-scene boot reports `total=10 passed=0 skipped=10` and a bare `failed=0` would read GREEN over zero executed tests. The fixture is the FLIGHT-route `gloops-airshow` host on purpose, so a TRACKSTATION landing can only mean the requested scene overrode the save-derived route. Observed once and not gated: an INTERMITTENT stock `SpaceTracking.buildVesselsList` NRE during synthetic-ghost teardown (2 raw Unity exceptions on the measuring flight, ZERO on the pinned one) - see gate 13 |
+| H23-tracking-station | daily | The 10-test `TrackingStation` category, stranded since it was written: 9 batch-eligible tests that no driven run could reach, because `DecideLoadRoute` had exactly two routes and no seam verb changed scenes. Covers the TS scene host (`ParsekTrackingStation` + stock `SpaceTracking` + `MapView.fetch` + `flightState`), the span-clock TS seam including the zero-drift scheduled variant, the synthetic-ghost `ProtoVessel` lifecycle and Fly-strip, and the map/TS render tracer's LIVE Vectrosity line truth - which is Unity-runtime by nature and is exactly what `MapRenderProbe.ReadLineActive` regressed on once already (D14 sandbox + scene-ts, the latter a NEW registry value; no other value claimed - the run boots and batches, it does not record) | LIVE-PROVEN 2026-07-30, run `2026-07-30_1522_H23-tracking-station`, PASS attempt 1, 44 s, every verifier PASS/SKIPPED. Tally MEASURED on a first flight flown deliberately with the interim `passed=[1-9][0-9]*` pin, then re-pinned WHOLE and re-flown green: `BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=TrackingStation scene=TRACKSTATION`. total/skipped agree with the attributes (one member carries `AllowBatchExecution = false`); passed=9 could NOT be derived, because three members carry runtime `InGameAssert.Skip` guards keyed on whether KSP built a Vectrosity orbit line for a synthetic ghost that session - all three were satisfied. `scene=TRACKSTATION` inside the tally is the B10 fail-open guard and is the point of the cell: every member is TRACKSTATION-scoped, so a silently-wrong-scene boot reports `total=10 passed=0 skipped=10` and a bare `failed=0` would read GREEN over zero executed tests. The fixture is the FLIGHT-route `gloops-airshow` host on purpose, so a TRACKSTATION landing can only mean the requested scene overrode the save-derived route. Observed and not gated: an INTERMITTENT stock `SpaceTracking.buildVesselsList` NRE, first blamed on synthetic-ghost teardown and DIAGNOSED 2026-08-01 as a stock APPLICATION-SHUTDOWN race instead - it fires from `Vessel:OnDestroy()` 715 ms after `Application.Quit`, with no Parsek ghost `Die()` on the stack and no ghosts registered, so Parsek correctly leaves it visible. Flight record 2 / 0 / 0 / 0 / 2 / 0 across six runs (2 of 6); the "2 raw Unity exceptions" is ONE exception counted twice (`[ERR]` + `[EXC]`). `[expectations.unityExceptions] maxTotal` stays unarmed - see gate 13 |
 
 ### In-game ISOLATED batch wiring, R5 (1)
 
@@ -1884,21 +1884,77 @@ six publish or compare numbers the runner already measured.
     of `SolveHyperbolicKepler` and recordings of 278 / 96 points, so the trigger looks
     specific to an orbital (or otherwise degenerate-conic) EVA. Forensics, the chosen
     fix and its three layers in `todo-and-known-bugs.md`.
-13. INTERMITTENT stock `SpaceTracking.buildVesselsList` NRE during TRACKSTATION
-    synthetic-ghost teardown, and Parsek's own classifier does not recognise it.
-    Observed 2026-07-30 on the FIRST `H23-tracking-station` flight (2 raw Unity
-    exceptions) and NOT on the second, identical, pinned flight (0) - which is why
-    `[expectations.unityExceptions] maxTotal` is deliberately NOT armed on that spec.
-    The signature: `[Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception
-    left visible: type=NullReferenceException totalVessels=0 ghostVessels=0 ...
-    scanError="NullReferenceException..."` immediately followed by
-    `[ERR] Exception handling event onVesselDestroy in class SpaceTracking`.
-    `GhostTrackingStationPatch.IsKnownGhostProtoVesselNre` declined to suppress it
-    because the CONTEXT SCAN ITSELF threw (hence `totalVessels=0` and the populated
-    `scanError`), so the classifier saw a zero-ghost context and correctly refused to
-    swallow an exception it could not attribute. Report-only today; the open question
-    is whether a scan that fails should be classified from the scanError instead of
-    from its empty counts. Costs nothing today - the tests it interrupts still pass.
+13. INTERMITTENT stock `SpaceTracking.buildVesselsList` NRE on the `H23-tracking-station`
+    lane. **DIAGNOSED 2026-08-01 AND IT IS NOT WHAT THIS GATE SAID IT WAS**: it is a
+    stock APPLICATION-SHUTDOWN race, not a Parsek synthetic-ghost teardown. The gate
+    stays OPEN and `[expectations.unityExceptions] maxTotal` stays UNARMED on that spec,
+    for a better-understood reason than before.
+
+    The signature (unchanged): `[Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList
+    exception left visible: type=NullReferenceException totalVessels=0 ghostVessels=0 ...
+    scanError="NullReferenceException..."` immediately followed by `[ERR] Exception
+    handling event onVesselDestroy in class SpaceTracking`. Those two lines are ONE
+    exception counted TWICE by `hlib.scan_unity_exceptions` (an `[ERR]` line and the
+    `[EXC]` line under it both name the type) - which is the whole of the "2 raw Unity
+    exceptions" reading, not two separate failures.
+
+    WHAT THE 2026-08-01 FLIGHT SHOWED. Run `2026-08-01_1628_H23-tracking-station` (PASS,
+    46 s, `unityExceptions.total=2`) caught it with the new diagnostic fields populated:
+    `ghostTeardownInProgress=0 registeredGhostMapVessels=0`. BOTH new conjuncts read
+    zero, and the collected `KSP.log` says why - the exception fires at `19:29:26.725`,
+    **715 ms AFTER `flushandquit: Application.Quit`** and 1.36 s after
+    `ParsekTrackingStation destroyed`, from this stack:
+
+    ```
+    Vessel:OnDestroy()  ->  EventData`1:Fire(Vessel)
+      ->  KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v)
+        ->  SpaceTracking.buildVesselsList_Patch2
+    ```
+
+    That is UNITY tearing down `Vessel` GameObjects at application exit, firing stock
+    `onVesselDestroy`, and stock rebuilding a TS list whose UI is already half-destroyed
+    (`UIApp`/`KbApp OnDestroy` precede it in the log). All three of that flight's
+    `RemoveAllGhostVessels` calls logged `no ghost vessels to remove`, so no Parsek ghost
+    `Die()` ran at all. **Parsek did not cause it and has nothing to suppress**; the
+    suppressor leaving it visible is CORRECT behaviour, not a missing case.
+
+    CONSEQUENCE FOR THE CLASSIFIER FIX: THE SUPPRESSION WAS WITHDRAWN, THE DIAGNOSTICS
+    KEPT. `GhostTeardownScanBlind` was written on branch `small-fixes-batch` to attribute
+    a scan-blind NRE from an in-progress ghost teardown. Review of the flown evidence
+    showed it fails in the OTHER direction too: `ParsekTrackingStation.OnDestroy` calls
+    `GhostMapPresence.RemoveAllGhostVessels`, so leaving the TS with any ghost still
+    registered runs OUR `Die()` INSIDE stock's own UI teardown - which satisfies every
+    conjunct and would suppress precisely the stock bug above. The conjuncts also read
+    stronger than they were: `registeredGhostMapVessels > 0` is very nearly implied by a
+    teardown being in progress (all four sites remove the pid only after
+    `EndGhostTeardown`; the lone gap is `RemoveOverlapInstance`, whose vessel may carry
+    persistentId 0), and the
+    IL-offset check never rules anything out in production, because Harmony's
+    `DynamicMethod` frame carries no `[0x..]` offset (separate entry
+    `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`). A hole no flight has ever shown, against
+    an over-suppression that is reachable: the class is gone. What stays is the
+    DIAGNOSTIC half - `ghostTeardownInProgress=` and `registeredGhostMapVessels=` on the
+    warn line, which is what made this a one-flight diagnosis - plus a regression cell
+    pinning that the withdrawn class's exact fixture must NOT suppress. The
+    post-withdrawal build was re-flown green (`2026-08-02_1140`, PASS, 75 s, tally
+    unchanged), so the flight evidence matches the shipped code and not just the version
+    that carried the class. NOTE for the next re-verification: the literal
+    `ghost-teardown-scan-blind` used as the 2026-08-01 deploy marker NO LONGER EXISTS -
+    its absence is now itself the proof the withdrawal landed. Use
+    `ghostTeardownInProgress` instead, checking both string heaps per the DLL recipe.
+
+    WHY THE OLD ARMING PROCEDURE WAS UNSAFE, and what replaces it. The previous text said
+    "fly twice, and if both read zero, arm". That cannot distinguish a working fix from a
+    flight where the intermittent race simply did not fire: the record is 2 / 0 / 0
+    (`2026-07-30_1520`, `_1522`, `2026-07-31_1625`), 0 / 2 (`2026-08-01_1628`, flown
+    twice), 0 (`2026-08-02_1140`, flown against the post-withdrawal HEAD) - 2 of 6, so
+    two clean flights are ~44% likely even if nothing had changed.
+    The discriminator is the log, not the count: `exception left visible` with the two
+    fields named tells you whether the NRE fired at all and what the state was when it
+    did. TO CLOSE THIS GATE, someone must first decide what to do about a stock
+    shutdown-order NRE that Parsek correctly declines to swallow - `maxTotal = 0` would
+    red the nightly intermittently, and any non-zero ceiling has to be justified as
+    deliberately tolerating a stock bug rather than sized off a green run.
 
 ## Operator items outstanding
 

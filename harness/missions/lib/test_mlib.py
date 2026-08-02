@@ -7453,6 +7453,151 @@ class CaptureFlybyPeriapsisBoundTests(unittest.TestCase):
                            mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS)
 
 
+class CaptureApproachWarpOwnershipTests(unittest.TestCase):
+    """WHO ACTUALLY FLIES Mun-SOI-entry -> circularization node, pinned because an
+    operator note (B11-CAPTURE-APPROACH-WARP, 2026-07-30) proposed tuning that
+    stretch through two knobs this walk shows are INERT on a healthy capture.
+
+    WHAT IS MEASURED vs WHAT THIS WALK SHOWS - keep them apart. An earlier version
+    of this docstring did not, and said the walk "reproduces" numbers that were in
+    fact its own inputs.
+
+    MEASURED, from flight 1's mission log
+    (`2026-07-24_2334_B11-mun-orbit_mission.stdout.log`):
+
+        COAST-TO-TARGET -> TARGET-FLYBY   ut 16,419.836   <- SOI ENTRY
+        TARGET-FLYBY    -> PLAN-CAPTURE   ut 16,497.836   (+78.0 s)
+        PLAN-CAPTURE    -> CAPTURE-BURN   ut 16,518.635   (+98.8 s)  <- handoff
+        node                              ut 21,549.027
+
+    so SOI entry -> node is 5,129.2 game s, of which the MACHINE owns 98.8 (1.9%)
+    and MechJeb's NodeExecutor owns the remaining 5,030.4, its last 600 s being
+    MechJeb's own 1x WARPALIGN hold. NOTE 16,518.6 is the CAPTURE-BURN phase entry,
+    NOT SOI entry - B11's spec pins it under `captureBurnTimeoutSeconds`, and this
+    class once mislabelled it, which put the denominator's start ~99 s late, inside
+    the very window the machine owns.
+
+    WHAT THE WALK ESTABLISHES, none of which needs timing fidelity: the phase
+    SEQUENCE, that the capture warp is issued exactly once and aimed at node_ut
+    minus the lead, that PLAN-CAPTURE is ONE poll, and that CAPTURE-BURN never
+    emits a warp of its own. Its cadence is SYNTHETIC - see POLL.
+
+    WHY THAT SETTLES THE TUNING QUESTION. Neither named knob can buy what the note
+    wanted: CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS is a bound the healthy approach
+    never gets near (the warp is cancelled thousands of game s short of it), and
+    planWarpFactor governs a single PLAN-CAPTURE poll. Anything that makes either
+    knob matter has changed WHO OWNS THE COAST, and should red here first."""
+
+    # MEASURED, B11 flight 1 (the log extract above).
+    SOI_ENTRY_UT = 16419.836
+    NODE_UT = 21549.027
+    FLOWN_HANDOFF_UT = 16518.635   # PLAN-CAPTURE -> CAPTURE-BURN
+    # SYNTHETIC, NOT MEASURED: a round cadence chosen so the walk stays short and
+    # deterministic. The flown cadence is nothing like it and varies by phase
+    # (flight 1's TARGET-FLYBY spanned 78 s; flight 3's PLAN-CAPTURE was one poll of
+    # 0.583 game s). Nothing here may assert a DURATION derived from it - the
+    # ownership arithmetic uses the FLOWN constants above instead.
+    POLL = 9.0
+    ALT_ENTRY = 2_229_559.0    # Mun SOI edge above the surface
+    ALT_PERIAPSIS = 250_000.0  # B11's courseCorrectPeriapsisMeters
+
+    def _state(self):
+        base = mlib.b5_initial_state(B11_PARAMS)
+        return base.__class__(**{**base.__dict__,
+                                 "phase": mlib.B5_TARGET_FLYBY,
+                                 "phase_entry_ut": self.SOI_ENTRY_UT})
+
+    def _frame(self, i, node_count, node_ut, exec_enabled, warping_to):
+        ut = self.SOI_ENTRY_UT + i * self.POLL
+        frac = min(1.0, (ut - self.SOI_ENTRY_UT) / (self.NODE_UT - self.SOI_ENTRY_UT))
+        return snap(ut=ut, body="Mun",
+                    altitude=self.ALT_ENTRY + (self.ALT_PERIAPSIS - self.ALT_ENTRY) * frac,
+                    periapsis=self.ALT_PERIAPSIS, apoapsis=-1_560_099.0,
+                    time_to_periapsis=max(1.0, self.NODE_UT - ut),
+                    time_to_soi=float("nan"), vertical_speed=-500.0,
+                    node_count=node_count, node_ut=node_ut,
+                    node_executor_enabled=exec_enabled, warping_to=warping_to,
+                    eccentricity=1.4)
+
+    def _walk(self, frames):
+        """Drive the in-SOI approach, standing in for the actors the machine hands
+        off to: MechJeb answers the plan on the next poll, then runs the executor.
+        Returns (per-frame actions, per-frame phase)."""
+        state = self._state()
+        node_count, node_ut, exec_on, warping_to = 0, float("nan"), 0, float("nan")
+        emitted, phases = [], []
+        for i in range(frames):
+            state, actions = mlib.b5_decide(
+                state, self._frame(i, node_count, node_ut, exec_on, warping_to))
+            emitted.append(actions)
+            phases.append(state.phase)
+            for a in actions:
+                if a.kind == mlib.ACTION_WARP_TO_UT:
+                    warping_to = a.value
+                elif a.kind == mlib.ACTION_CANCEL_WARP:
+                    warping_to = float("nan")
+            if state.phase == mlib.B5_PLAN_CAPTURE and node_count == 0:
+                node_count, node_ut = 1, self.NODE_UT
+            if state.phase == mlib.B5_CAPTURE_BURN:
+                exec_on = 1
+        return emitted, phases
+
+    def test_capture_lead_bound_is_never_reached_on_a_healthy_approach(self):
+        """The lead is a BOUND, not a stop-point: PLAN-CAPTURE cancels the native
+        warp thousands of game seconds before it could arrive. Lowering the lead
+        therefore cannot shorten a healthy flight - it only widens the window in
+        which B12 flight 3's sail-past becomes possible again."""
+        emitted, phases = self._walk(6)
+        targets = [a.value for acts in emitted for a in acts
+                   if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(targets), 1, "the capture warp is issued exactly once")
+        self.assertAlmostEqual(
+            targets[0], self.NODE_UT - mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS, places=3)
+
+        cancel_frame = next(i for i, acts in enumerate(emitted)
+                            if any(a.kind == mlib.ACTION_CANCEL_WARP for a in acts))
+        cancel_ut = self.SOI_ENTRY_UT + cancel_frame * self.POLL
+        self.assertEqual(phases[cancel_frame], mlib.B5_PLAN_CAPTURE)
+        self.assertGreater(targets[0] - cancel_ut, 3000.0,
+                           "the warp dies thousands of game seconds short of its target")
+
+    def test_the_machine_leaves_the_coast_to_mechjeb_within_one_poll_of_arming(self):
+        """PLAN-CAPTURE is ONE poll, so planWarpFactor governs one poll and cannot be
+        the lever on this stretch. Asserted STRUCTURALLY (a poll count), never as a
+        duration: a duration here would just be POLL times an integer, i.e. the walk
+        restating its own synthetic input."""
+        _, phases = self._walk(6)
+        self.assertEqual(phases[:4], [mlib.B5_TARGET_FLYBY, mlib.B5_TARGET_FLYBY,
+                                      mlib.B5_PLAN_CAPTURE, mlib.B5_CAPTURE_BURN])
+        self.assertEqual(1, phases.count(mlib.B5_PLAN_CAPTURE),
+                         "PLAN-CAPTURE must occupy exactly one poll")
+
+    def test_the_flown_record_puts_the_machine_at_under_2_percent_of_the_approach(self):
+        """The ownership claim, checked against the FLOWN numbers rather than the walk.
+
+        This is the arithmetic the operator note turns on, so it must not be derived
+        from the synthetic cadence: SOI entry -> handoff is what the machine owns, SOI
+        entry -> node is the stretch the note wanted shortened."""
+        machine = self.FLOWN_HANDOFF_UT - self.SOI_ENTRY_UT
+        approach = self.NODE_UT - self.SOI_ENTRY_UT
+        self.assertAlmostEqual(98.799, machine, places=2)
+        self.assertAlmostEqual(5129.191, approach, places=2)
+        self.assertLess(machine / approach, 0.02,
+                        "the machine owns under 2% of the in-SOI approach; the rest is "
+                        "MechJeb's NodeExecutor and is not ours to tune")
+
+    def test_capture_burn_emits_no_warp_of_its_own(self):
+        """The rest of the coast is the executor's. A warp action appearing here is
+        the machine fighting MechJeb for the wheel, which is how B-DOCK flight 12
+        lost a burn - so this stays at exactly zero."""
+        emitted, phases = self._walk(14)
+        burn_actions = [a for i, acts in enumerate(emitted)
+                        if phases[i] == mlib.B5_CAPTURE_BURN for a in acts]
+        warp_kinds = (mlib.ACTION_WARP_TO_UT, mlib.ACTION_CANCEL_WARP,
+                      mlib.ACTION_SET_RAILS_WARP)
+        self.assertEqual([a.kind for a in burn_actions if a.kind in warp_kinds], [])
+
+
 class CaptureFlybyEntryHandoffTests(unittest.TestCase):
     """COAST -> TARGET-FLYBY must not carry the coast's runaway warp into the
     target SOI in capture mode (B12 flight 3 crossed at RAILSx10000 and its

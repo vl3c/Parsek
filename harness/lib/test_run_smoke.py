@@ -145,11 +145,20 @@ class FakeRuntime(run.Runtime):
         # Extract the --result path run.py chose and drive the fake mission with the
         # test-injected mode. The venv python / mission_py are ignored (no real venv).
         result_path = list(args)[list(args).index("--result") + 1]
+        # Route-1 seam bridge: forward run.py's OWN channel path + reserved id so the
+        # `midcommit` mode writes exactly where a real mission would, and the
+        # mid-mission-write reader is exercised against the id run.py actually chose
+        # (not one the test picked).
+        argv = list(args)
+        seam = []
+        for flag in ("--seam-commands", "--seam-commit-id"):
+            if flag in argv:
+                seam += [flag, argv[argv.index(flag) + 1]]
         out = open(stdout_path, "w", encoding="utf-8")
         try:
             return subprocess.Popen(
                 [sys.executable, FAKE_MISSION, "--result", result_path,
-                 "--mode", self.mission_mode],
+                 "--mode", self.mission_mode] + seam,
                 cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
         finally:
             out.close()
@@ -1288,6 +1297,84 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
                          [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
 
+    # ---- HARNESS-MIDMISSION-COMMIT-BYPASS, end to end ------------------------
+    # The gap the tail gate above does NOT close, driven over the fake KSP + fake
+    # mission: a route-1 mid-mission CommitTree that lands BEFORE the verdict
+    # exists. REPORT-ONLY, so these assert on the RECORD, never on the verdict.
+
+    def test_mid_mission_commit_before_unmet_is_recorded_but_moves_no_verdict(self):
+        result, lines = self._run("midcommit")
+
+        # (1) The bypass is real: the mission's CommitTree IS in the channel, while the
+        #     DRIVER's own tail CommitTree was correctly skipped by the tail gate. Both
+        #     facts at once are the whole point of the entry.
+        # id 0003 = the mission step's own index-derived id, which run.py donates to
+        # the mission as its reserved id (the mission step writes nothing itself).
+        self.assertIn("id=0003 cmd=CommitTree", lines)
+        self.assertIn("CommitTree", [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+
+        # (2) It is now VISIBLE in the durable record, which is what was missing.
+        mm = result["driver"]["midMissionSeamWrites"]
+        self.assertEqual(1, mm["total"])
+        self.assertEqual(1, mm["worldMutating"])
+        self.assertEqual(["CommitTree"], mm["verbs"])
+        self.assertTrue(mm["exposedAfterUnmetMission"])
+
+        # (3) REPORT-ONLY: the verdict is the same INVALID(mission) the unmet mission
+        #     already earned. If this ever changes, the instrument has become a gate.
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_a_mission_that_writes_nothing_leaves_the_record_unchanged(self):
+        """Every committed non-B-DOCK mission ignores the seam args entirely. Their
+        result record must be byte-identical to what it was before this instrument."""
+        result, _ = self._run("assertfail")
+        self.assertNotIn("midMissionSeamWrites", result["driver"])
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_an_unreadable_channel_records_a_GAP_not_a_silent_zero(self):
+        """Failure-isolated must not mean SILENT.
+
+        The read was `except OSError: pass`, which left a run whose channel could not be
+        read byte-identical to one where the mission wrote nothing - reproducing exactly
+        the invisibility this instrument exists to end, intermittently and with no trace
+        (a Windows PermissionError while the KSP addon holds the file is the live route).
+        It must say so, record a GAP rather than a zero, and still move no verdict."""
+        import builtins
+        real_open = builtins.open
+        target = os.path.abspath(
+            os.path.join(self.instance, "parsek-test-commands.txt"))
+        fired = []
+
+        def exploding_open(path, mode="r", *a, **kw):
+            # ONE-SHOT, and only for a READ of the command channel: run.py's own append of
+            # driver commands must still work, and so must this class's `_commands()`
+            # helper, which reads the very same file once the run has returned.
+            if ("r" in mode and not fired
+                    and os.path.abspath(str(path)) == target):
+                fired.append(True)
+                raise PermissionError("channel held by another process")
+            return real_open(path, mode, *a, **kw)
+
+        builtins.open = exploding_open
+        try:
+            result, _ = self._run("midcommit")
+        finally:
+            builtins.open = real_open
+        self.assertTrue(fired, "the instrument never read the channel; gate is vacuous")
+
+        mm = result["driver"]["midMissionSeamWrites"]
+        self.assertIn("PermissionError", mm["readError"])
+        # A GAP is not a zero: the count keys are ABSENT rather than reading 0, so nobody
+        # can mistake "we could not look" for "we looked and saw none".
+        self.assertNotIn("total", mm)
+        self.assertNotIn("exposedAfterUnmetMission", mm)
+        # Still report-only: the verdict is the one the unmet mission already earned.
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+
 
 class MissionSpecAdmissionTests(unittest.TestCase):
     """M-B1 deliverable 1 (run.py spec admission): resolve_mission_schemas reads the
@@ -1596,6 +1683,66 @@ class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
         self.assertEqual("MISSION-OK", result.mission_step["missionVerdict"])
         self.assertTrue(result.mission_step["met"])
         self.assertNotIn("reason", result.mission_step)  # not the fabricated row
+
+    def _drive_run_budget_kill(self, rt):
+        """Drive the RUN-budget branch (not the mission-budget one) with a
+        world-mutating mid-mission write already in the channel."""
+        with open(os.path.join(self.tmp, "parsek-test-commands.txt"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("id=0003 cmd=CommitTree\n")
+        result = run.DriveResult()
+        ctx = run.MissionContext("m", "vpy", "m.py", {}, self.tmp,
+                                 "stamp.json", {"krpc": "0.5.4"})
+        step = {"phase": "mission", "expect": "MISSION-OK", "budget": 10_000}
+        proc = type("P", (), {"pid": 12345})()
+        killed = run._drive_mission_step(result, step, "0003", 2, proc, rt, self.logger,
+                                         run_budget=1.0, run_start=0.0,
+                                         mission_ctx=ctx, run_id="testrun",
+                                         preceding_load_ok=True)
+        return result, killed
+
+    def test_run_budget_kill_reads_the_channel_and_judges_the_REAL_verdict(self):
+        """The run-budget kill must record mid-mission seam writes, and must judge them
+        against the verdict actually on disk - NOT against a hardcoded "killed means
+        unmet".
+
+        NOT HYPOTHETICAL: `poll_exit` is checked BEFORE the budget, so the live window is
+        "result already written, process not yet reaped" - the ordinary shape for a long
+        mission near its wall, and the same window the NIT 7 cells above exist for. A
+        first version of this fix hardcoded `mission_met=False`; over a mission that had
+        written MISSION-OK it recorded `exposedAfterUnmetMission: true` and logged
+        "returned UNMET", and since this path never sets `result.mission_step`, nothing
+        in the record contradicted it.
+
+        Replaces a source-grep gate that only asserted a call EXISTED - it could not see
+        wrong arguments, which is exactly why it missed that defect."""
+        result, killed = self._drive_run_budget_kill(
+            _MiniMissionRuntime(write_result_verdict="MISSION-OK"))
+
+        self.assertTrue(killed, "expected the RUN-budget branch, not the mission-budget one")
+        self.assertEqual("run", result.kill_scope)
+        # (a) it read the channel at all - the regression the fix was for
+        mm = result.mid_mission_seam_writes
+        self.assertIsNotNone(mm)
+        self.assertEqual(1, mm.total)
+        self.assertEqual(1, mm.world_mutating)
+        # (b) and judged it against the REAL verdict: the mission MET, so this is not the
+        #     exposed shape and the summary must not claim it returned UNMET
+        self.assertFalse(mm.exposed)
+        self.assertNotIn("UNMET", mm.summary)
+        self.assertIn("; mission met", mm.summary)
+
+    def test_run_budget_kill_with_no_verdict_IS_the_exposed_shape(self):
+        """The other half: killed with nothing written is genuinely unmet, and a
+        world-mutating write there is precisely what this instrument exists to surface.
+        Without this cell, reading the real verdict could regress to always-met."""
+        result, _ = self._drive_run_budget_kill(
+            _MiniMissionRuntime(write_result_verdict=None))
+
+        mm = result.mid_mission_seam_writes
+        self.assertIsNotNone(mm)
+        self.assertTrue(mm.exposed)
+        self.assertIn("UNMET", mm.summary)
 
     def test_no_result_at_expiry_is_distinguishable_flake(self):
         # No result was written; the fabricated FLAKE row is tagged so it never

@@ -904,6 +904,14 @@ class DriveResult:
         # (both have an empty skipped list), and the opt-out would live only in the
         # harness log.
         self.tail_skip_opted_out = False
+        # HARNESS-MIDMISSION-COMMIT-BYPASS: what the mission subprocess wrote into the
+        # seam channel on its own account (route 1). REPORT-ONLY -- see hlib's section
+        # comment. None on every seam-only driver and on any run whose channel could not
+        # be read, so a normal result record is unchanged.
+        self.mid_mission_seam_writes: Optional[hlib.MidMissionSeamWrites] = None
+        # Set instead when the channel could not be read/parsed, so an unreadable channel
+        # records a GAP rather than being indistinguishable from "the mission wrote nothing".
+        self.mid_mission_seam_read_error: Optional[str] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -1119,6 +1127,23 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
             _forward_mission_stdout(stdout_path, logger)
+            # Read the channel BEFORE the early return -- this path used to skip the
+            # instrument entirely, losing its highest-value case (a world-mutating write
+            # with no verdict yet), and the mission's own stdout is block-buffered and
+            # routinely lost when the process is killed.
+            #
+            # DO NOT hardcode mission_met=False here, however obvious "a killed mission has
+            # no verdict" sounds. `poll_exit` is checked BEFORE the budget, so the live
+            # window is "result already written, process not yet reaped" - the ordinary
+            # shape for a long mission near its wall. The mission-budget branch immediately
+            # below exists for exactly that reason and does this same final read.
+            # Hardcoding False made the record claim `exposedAfterUnmetMission` and the log
+            # say "returned UNMET" over a mission that had already written MISSION-OK - and
+            # this path never sets result.mission_step, so nothing else in the record
+            # contradicts it.
+            killed_verdict = _read_mission_verdict(result_path)
+            killed_met, _ = hlib.classify_mission_step(killed_verdict)
+            _record_mid_mission_seam_writes(result, mission_ctx, step_id, killed_met, logger)
             return True
         if now - mission_start > mission_budget:
             logger.warn("Budget", "mission budget exceeded (%ds) elapsed=%.0f; killing mission subprocess"
@@ -1160,8 +1185,48 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
         logger.info("Mission", "mission wall=%.0fs (harness residue = run "
                                "wallSeconds - this: KSP boot + verifier chain)"
                     % result.mission_wall_seconds)
+    _record_mid_mission_seam_writes(result, mission_ctx, step_id, met, logger)
     _log_handoff_return(logger, step_index, verdict, met, subkind or "")
     return False
+
+
+def _record_mid_mission_seam_writes(result: "DriveResult", mission_ctx, reserved_id: str,
+                                    mission_met: bool, logger: HarnessLogger) -> None:
+    """HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): read the route-1 writes.
+
+    The mission subprocess writes into the SAME channel run.py drives, under the
+    reserved id handed to it at spawn -- so the channel file IS driver-side evidence
+    and no mission-side change is needed to read it.
+
+    Failure-isolated: an unreadable channel must never move a verdict. But it must
+    not be SILENT either. This instrument exists precisely because a mid-mission
+    write was invisible, and a bare `except OSError: pass` reproduced that
+    invisibility -- an unreadable channel used to leave a record byte-identical to
+    "the mission wrote nothing", intermittently and without a trace. So the failure
+    is warned AND recorded, and `Exception` is caught rather than `OSError` alone
+    (the read and the parse both live under it now; an instrument may not cost an
+    attempt its result).
+
+    Called from the normal exit path AND from the run-budget kill path: a mission
+    killed mid-flight is BY CONSTRUCTION a mission with no verdict at all, which is
+    the very shape this measures, and the early `return True` used to skip it.
+    """
+    try:
+        with open(os.path.join(mission_ctx.cwd, "parsek-test-commands.txt"),
+                  "r", encoding="utf-8", errors="replace") as fh:
+            channel_text = fh.read()
+        writes = hlib.parse_mid_mission_seam_writes(channel_text, reserved_id, mission_met)
+    except Exception as exc:                                   # noqa: BLE001 - instrument
+        result.mid_mission_seam_read_error = "%s: %s" % (type(exc).__name__, exc)
+        logger.warn("Mission", "mid-mission seam writes UNREADABLE (%s); this run's "
+                               "midMissionSeamWrites is a GAP, not a zero"
+                    % result.mid_mission_seam_read_error)
+        return
+    result.mid_mission_seam_writes = writes
+    if writes.exposed:
+        logger.warn("Mission", "mid-mission seam writes: %s" % writes.summary)
+    elif writes.total:
+        logger.info("Mission", "mid-mission seam writes: %s" % writes.summary)
 
 
 def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
@@ -2957,6 +3022,29 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # that case, so a default-policy run's record is unchanged.
     if drive is not None and drive.tail_skip_opted_out:
         driver_rec[hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+    # HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): the route-1 writes the tail gate
+    # never sees. Emitted only when the mission actually wrote some, so every existing
+    # run's record -- including every seam-only driver's -- is byte-identical.
+    if drive is not None and drive.mid_mission_seam_writes is not None \
+            and drive.mid_mission_seam_writes.total:
+        mm = drive.mid_mission_seam_writes
+        driver_rec["midMissionSeamWrites"] = {
+            # Counts WIRE WRITES, not executed commands: the seam skips a duplicate id, so a
+            # mission that retries its commit writes twice and executes once. Read these as
+            # "what the mission put on the wire", which is what the tail gate would have been
+            # judging too.
+            "total": mm.total,
+            "worldMutating": mm.world_mutating,
+            "verbs": list(mm.verbs),
+            # True = a world-mutating write was made and the mission did NOT come back met
+            # (unmet, or killed with no verdict at all). REPORT-ONLY: nothing reads this to
+            # move a verdict.
+            "exposedAfterUnmetMission": mm.exposed,
+        }
+    elif drive is not None and drive.mid_mission_seam_read_error:
+        # A GAP is not a zero. Recorded so a reader can tell "we looked and saw none" from
+        # "we could not look" -- the distinction this whole instrument exists to make.
+        driver_rec["midMissionSeamWrites"] = {"readError": drive.mid_mission_seam_read_error}
 
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}

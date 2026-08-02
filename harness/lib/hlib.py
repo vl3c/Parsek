@@ -5221,6 +5221,153 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
                          tuple(run_indices), tuple(skipped_indices), summary)
 
 
+# ---------------------------------------------------------------------------
+# ROUTE-1 MID-MISSION SEAM WRITES (HARNESS-MIDMISSION-COMMIT-BYPASS, found
+# 2026-07-28 by the retrospective review of PRs #1345-#1363).
+#
+# WHAT THE TAIL GATE ABOVE DOES NOT COVER. `plan_unmet_mission_tail` gates
+# `driver.steps` -- the steps run.py itself writes into the seam channel. The
+# route-1 bridge is a SECOND path to the same verbs: `mission_runner` writes
+# `id=<reserved> cmd=CommitTree` (and, through the generalized sibling,
+# `id=<reserved>.<tag> cmd=<verb> ...`) into the SAME channel from inside the
+# mission subprocess, mid-flight, BEFORE the mission's verdict exists. A mission
+# that commits mid-flight and THEN returns UNMET has therefore landed a
+# world-mutating write the tail gate never saw.
+#
+# WHAT THIS IS, AND DELIBERATELY IS NOT. REPORT-ONLY. It counts those writes and
+# classifies them through `seam_verb_tail_role` -- the same FUNCTION the tail gate
+# calls, not merely the table it reads, so the two paths share the unknown-verb
+# fallback as well as the rows and are genuinely measured on one scale. It moves NO
+# verdict and gates NOTHING -- the M-C2 save-parse discipline (measure report-only
+# first, arm from evidence later) applied to a hole nobody has yet fallen into.
+#
+# WHY REPORT-ONLY IS THE PROPORTIONATE ANSWER TODAY, stated so a future reader can
+# check the reasoning rather than inherit it:
+#   1. NO COMMITTED MISSION HAS BEEN OBSERVED TO HIT IT. The only emitters of a
+#      mid-mission CommitTree are the B-DOCK / orbit-commit machines, on their
+#      SUCCESS path. Note this is an observation, not a structural guarantee:
+#      `mission_runner._perform_seam_commit` appends the line and THEN polls, so a
+#      commit that times out (or any later assertion failure) leaves the write in
+#      the channel with an unmet mission -- exactly the `exposed` shape.
+#   2. THE STATE DOES NOT LEAK. `run.py::stage_fixture` rmtree's and re-copies the
+#      save template at the start of EVERY attempt, so a junk mid-mission commit
+#      dies with the run save. The exposure is within-run, not across runs.
+#   3. THE RUN IS ALREADY INVALID. An unmet mission is terminal driver-INVALID at
+#      `classify_verdict`'s "driver stage failed" branch, which precedes every
+#      save-reading verifier -- so a gate here would mostly rename an outcome that
+#      is already failing.
+# What was genuinely missing is that the fact was INVISIBLE: nothing in the result
+# record said a mid-mission world-mutating write had fired at all. That is what
+# this closes. If a future forge/mission ever does mid-commit and then fail, the
+# evidence for arming a real gate will be sitting in its result JSON.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MidMissionSeamWrites:
+    """What the mission subprocess wrote into the seam channel on its own account."""
+    total: int
+    world_mutating: int
+    verbs: Tuple[str, ...]          # distinct verbs, sorted; EMPTY if no line carried a
+                                    # NON-EMPTY cmd= (a bare `cmd=` counts as none)
+    exposed: bool                   # a world-mutating write + an UNMET mission
+    summary: str
+
+
+def parse_mid_mission_seam_writes(channel_text: str, reserved_id: str,
+                                  mission_met: bool) -> MidMissionSeamWrites:
+    """Count the route-1 writes in a seam command channel. Pure; text in, counts out.
+
+    A line is the MISSION's (not the driver's) exactly when its id is the reserved
+    id handed to the mission subprocess, or a `<reserved>.<tag>` sub-id of it. The
+    driver's own steps use index-derived ids (`step_id_for_index`), and the mission
+    step -- which consumes an index but writes nothing itself -- is what donates
+    the reserved id, so the two families cannot collide.
+
+    Unparseable and id-less lines are IGNORED rather than guessed at: this is a
+    report-only instrument, and a parser that invented attribution would be worse
+    than one that under-reports.
+
+    An UNKNOWN verb is classified through ``seam_verb_tail_role`` -- the same
+    FUNCTION the unmet tail gate calls, not a bare lookup in the table it reads.
+    That distinction is the whole point: the function FAILS SAFE to world-mutating,
+    and a bare ``.get()`` here failed OPEN, so the two paths disagreed about exactly
+    the case the "one scale" claim is meant to cover -- a verb nobody has reasoned
+    about. Failing open in a RISK instrument is the wrong direction: it would report
+    ``worldMutating=0, exposed=False`` for a write the tail gate would have refused
+    to drive. Latent today (every mission-emitted verb has an explicit row, and a
+    unit cell keeps the table total over IMPLEMENTED_SEAM_VERBS), but the mission
+    side takes an arbitrary verb string, so it is one new verb away from mattering.
+
+    ONE ACKNOWLEDGED DIVERGENCE, stated rather than glossed: for the EMPTY verb the two
+    paths differ on purpose. ``plan_unmet_mission_tail`` hands ``seam_verb_tail_role``
+    a declared step's ``cmd`` and gets world-mutating for ``""``, which is right there
+    -- a spec step with no verb is malformed and must not be driven. Here an empty
+    ``cmd`` is a LINE we could not parse, not a verb nobody has reasoned about, and
+    counting it as world-mutating would invent attribution rather than fail safe. Same
+    table, same function, deliberately different treatment of the one input that means
+    something different on each side.
+    """
+    reserved = str(reserved_id or "")
+    total = 0
+    world_mutating = 0
+    verbs: List[str] = []
+    world_mutating_verbs: List[str] = []
+    if reserved:
+        for raw in (channel_text or "").splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            fields = {}
+            for token in line.split():
+                key, sep, value = token.partition("=")
+                if sep and key not in fields:
+                    fields[key] = value
+            line_id = fields.get("id", "")
+            if line_id != reserved and not line_id.startswith(reserved + "."):
+                continue
+            total += 1
+            verb = fields.get("cmd", "")
+            if not verb:
+                # No verb: either no `cmd=` key, or a bare `cmd=` with an empty value.
+                # Both are lines we could not parse, so both land here. Counted in `total` (a line under the
+                # mission's id IS a mission write) but NOT claimed world-mutating -- that would
+                # be inventing attribution, which this parser deliberately refuses to do. The
+                # fail-safe below is for an unknown VERB, which is a different thing from an
+                # unparsed line: there, a name exists and we simply have no row for it.
+                continue
+            if verb not in verbs:
+                verbs.append(verb)
+            if seam_verb_tail_role(verb) == TAIL_ROLE_WORLD_MUTATING:
+                world_mutating += 1
+                if verb not in world_mutating_verbs:
+                    world_mutating_verbs.append(verb)
+
+    exposed = world_mutating > 0 and not mission_met
+    # "no cmd", not "unknown": an unrecognised verb now renders BY NAME (it fails safe
+    # and is listed), so this placeholder can only mean "no line carried a verb at all".
+    all_verbs = ", ".join(sorted(verbs)) or "no cmd"
+    if not total:
+        summary = "no route-1 mid-mission seam writes"
+    elif exposed:
+        # Name the WORLD-MUTATING verbs here, not every verb seen: this is the line an
+        # operator reads when deciding whether to arm a gate, and listing the cleanup /
+        # inert verbs alongside a world-mutating COUNT overstated the blast radius
+        # ("1 world-mutating ... [CommitTree, RecordingState, StopRecording]").
+        summary = ("REPORT-ONLY: %d world-mutating mid-mission seam write(s) [%s] fired "
+                   "BEFORE the mission returned UNMET; the unmet-mission tail gate covers "
+                   "driver.steps only and never saw them (all verbs: [%s])"
+                   % (world_mutating, ", ".join(sorted(world_mutating_verbs)) or "no cmd",
+                      all_verbs))
+    else:
+        # NOT necessarily "mission met": this branch is also every write whose verbs are all
+        # cleanup/inert on an UNMET mission (StopRecording and RecordingState are both real
+        # mission-emitted verbs). Saying "mission met" there put a false statement in the one
+        # operator-facing line the instrument exists to produce.
+        summary = ("%d route-1 mid-mission seam write(s) [%s], %d world-mutating; mission %s"
+                   % (total, all_verbs, world_mutating, "met" if mission_met else "UNMET"))
+    return MidMissionSeamWrites(total, world_mutating, tuple(sorted(verbs)), exposed, summary)
+
+
 def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple[bool, str]:
     """Admit (or refuse) the mission venv before any KSP launch (design edge 4).
 
