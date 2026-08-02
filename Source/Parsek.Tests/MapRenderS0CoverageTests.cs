@@ -31,6 +31,7 @@ namespace Parsek.Tests
         public MapRenderS0CoverageTests()
         {
             GhostMapPresence.ResetCoverageSetsForTesting();
+            GhostMapPresence.ClearFrameCoverageSets();
             GhostMapPresence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.ResetRateLimitsForTesting();
@@ -43,6 +44,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostMapPresence.ResetCoverageSetsForTesting();
+            GhostMapPresence.ClearFrameCoverageSets();
             GhostMapPresence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.ResetRateLimitsForTesting();
@@ -218,7 +220,7 @@ namespace Parsek.Tests
         public void PaintedSet_ResolvesThroughThePidBridge()
         {
             GhostMapPresence.SetProtoBearingPidForTesting(4242u, "rec-painted");
-            GhostMapPresence.NotePaintedRecordingLine("rec-painted");
+            GhostMapPresence.SetPaintedRecordingLineForTesting("rec-painted", painted: true);
 
             Assert.True(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
         }
@@ -228,7 +230,7 @@ namespace Parsek.Tests
         {
             // No pid -> recordingId bridge entry: the probe must read "not painting" rather than throw
             // or match some other recording's paint.
-            GhostMapPresence.NotePaintedRecordingLine("rec-painted");
+            GhostMapPresence.SetPaintedRecordingLineForTesting("rec-painted", painted: true);
 
             Assert.False(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
         }
@@ -266,7 +268,7 @@ namespace Parsek.Tests
             // Same per-frame lifecycle as the other frame sets: a stale paint must never carry into the
             // next frame and silently cover a genuinely dark one.
             GhostMapPresence.SetProtoBearingPidForTesting(4242u, "rec-painted");
-            GhostMapPresence.NotePaintedRecordingLine("rec-painted");
+            GhostMapPresence.SetPaintedRecordingLineForTesting("rec-painted", painted: true);
             GhostMapPresence.ClearFrameCoverageSets();
 
             Assert.False(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));

@@ -198,9 +198,9 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 # that the dead token is retired) plus this tuple. A new raise site that nobody
 # gates therefore reds the harness suite instead of quietly widening the fail-open.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
-    ("icon-teleport", "Source/Parsek/MapRenderProbe.cs:812"),
-    ("icon-off-orbit", "Source/Parsek/MapRenderProbe.cs:893"),
-    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:448"),
+    ("icon-teleport", "Source/Parsek/MapRenderProbe.cs:871"),
+    ("icon-off-orbit", "Source/Parsek/MapRenderProbe.cs:952"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
     ("gap-vs-retire", "Source/Parsek/MapRender/GhostRenderReconciler.cs:240"),
     ("decision-vs-old-truth", "Source/Parsek/MapRender/GhostRenderReconciler.cs:260"),
     ("clock-not-ready", "Source/Parsek/MapRender/ShadowRenderDriver.cs:316"),

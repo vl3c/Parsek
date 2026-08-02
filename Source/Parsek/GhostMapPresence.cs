@@ -722,17 +722,31 @@ namespace Parsek
 
         /// <summary>
         /// PAINTED set (V1-REPLAY-LINE-BLINK, RecordingId domain): every recording for which the polyline
-        /// Driver's decide walk actually enqueued SOME trajectory line this frame - the current-element
-        /// leg (the <see cref="IsPolylineOwningGhostPhase"/> case) OR a forward run leg OR a forward arc.
+        /// Driver's decide walk committed SOME trajectory line this frame - the current-element leg (the
+        /// <see cref="IsPolylineOwningGhostPhase"/> case) OR a forward run leg OR a forward arc.
         /// Deliberately BROADER than the ownership set: ownership answers "is the HEAD inside a drawn
         /// CURRENT leg", which is the right question for hiding the proto conic and is unchanged, while
-        /// this answers "did the map actually have a line for this ghost". The two differ exactly in the
+        /// this answers "did the map have a line for this ghost at all". The two differ exactly in the
         /// inter-leg gaps, where the run legs + arcs stay painted but the head sits between legs.
-        /// Populated by <see cref="NotePaintedRecordingLine"/>, cleared by
+        ///
+        /// <para>WHAT THIS SIGNAL DOES NOT PROMISE, stated precisely because a maintainer will otherwise
+        /// assume it. (1) It is DECIDE-TIME, not paint-time: the publishes fire where the Driver enqueues
+        /// a leg / arc for the <c>onPreCull</c> pass, and that pass can still decline one (a past run leg
+        /// whose <c>requireConicAnchor</c> fails, a cache miss, or a frame on which the map camera never
+        /// issues <c>onPreCull</c>). The pre-existing ownership publish has the IDENTICAL property - it is
+        /// published from <c>anyDrawn</c> in the same decide walk - so this set is no weaker than the
+        /// contract it borrows from, but neither is "actual draw" in the strict sense. The true paint set
+        /// (<c>currentDrewForwardArcRecordings</c>) is populated in <c>onPreCull</c>, which runs AFTER the
+        /// probe's <c>LateUpdate</c>, so it is unreadable same-frame; that ordering, not oversight, is why
+        /// it is not used. (2) Each publish is keyed on the MEMBER the leg / arc belongs to, so a chain
+        /// run credits every member it actually drew for - but a recording is a coarse key, so the
+        /// boundary-overlap instances of one recording share it and cannot be told apart here.</para>
+        ///
+        /// <para>Populated by <see cref="NotePaintedRecordingLine"/>, cleared by
         /// <see cref="ClearFrameCoverageSets"/> on the same pre-early-return lifecycle as the other frame
         /// sets. Read ONLY by the map-render probe's line-blink guard through
         /// <see cref="IsPolylinePaintingGhostTrajectory"/>; nothing in the live render path consults it,
-        /// and the Driver populates it only while tracing is on, so it is observability-only.
+        /// and the Driver populates it only while tracing is on, so it is observability-only.</para>
         /// </summary>
         private static readonly HashSet<string> paintedRecordingIdsThisFrame =
             new HashSet<string>(StringComparer.Ordinal);
@@ -9649,8 +9663,15 @@ namespace Parsek
         {
             drawnRecordingIdsThisFrame.Clear();
             protoLessCoverageRecordingIdsThisFrame.Clear();
-            paintedRecordingIdsThisFrame.Clear();
             protoBearingRecordingIdScratch.Clear();
+            // DELIBERATELY NOT the PAINTED set. This helper has a LIVE in-game caller
+            // (ExtendedRuntimeTests' AccountedSetCoversDrawnSet, which calls it at entry and again in
+            // finally), and for the painted set the polarity is inverted relative to the others: empty
+            // means "nothing painted", which is the RAISE direction of the line-blink guard, and
+            // `line-blink` is a GATED harness token. Stranding it empty mid-frame could inject a
+            // spurious PARSEK-FAIL into any in-game batch that happens to run with tracing on and a
+            // ghost mid-dark-window. Unit tests that need it cleared call ClearFrameCoverageSets(),
+            // the same per-frame clear the live Driver runs.
         }
 
         internal static bool TryGetCommittedRecordingById(

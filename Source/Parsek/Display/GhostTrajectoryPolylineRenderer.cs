@@ -4549,27 +4549,18 @@ namespace Parsek.Display
                     // prerequisite, safest option (a)). Gated on the SAME visibility the rest of the loop
                     // resolved (renderHidden already continued above) plus the Director's gap-hold.
                     //
-                    // PAINTED-vs-OWNING (V1-REPLAY-LINE-BLINK): snapshot the forward counters so the two
-                    // forward passes below can be diffed into a per-recording "this recording had a line
-                    // PAINTED this frame" bit. That bit is DELIBERATELY broader than
-                    // drewNonOrbitalLegRecordings: ownership answers "is the HEAD inside a drawn CURRENT
-                    // leg" (which is the right question for hiding the proto conic, and must stay exactly
-                    // as it is), while the run legs + forward arcs this pass enqueues keep the ghost's
+                    // PAINTED-vs-OWNING (V1-REPLAY-LINE-BLINK): the forward passes below publish the
+                    // per-recording PAINTED bit themselves, keyed on the MEMBER each leg / arc belongs to
+                    // (see the enqueue sites in DecideForwardWindowForRecording). That bit is DELIBERATELY
+                    // broader than drewNonOrbitalLegRecordings: ownership answers "is the HEAD inside a
+                    // drawn CURRENT leg" - the right question for hiding the proto conic, and left exactly
+                    // as it is - while the run legs + forward arcs this pass enqueues keep the ghost's
                     // trajectory on screen even when the head sits BETWEEN legs
                     // (ride=fallback-head-outside-legs). The map-render probe's line-blink guard needs the
-                    // broader question - "did the map actually go dark for this ghost" - and reading
+                    // broader question, "did the map actually go dark for this ghost", and reading
                     // ownership for it raised on inter-leg gaps where 4 run legs + 2 arcs were painted the
-                    // whole time (measured, run 2026-08-01_1551). Still strictly ACTUAL-DRAW, never the
-                    // Director's classification.
+                    // whole time (measured, run 2026-08-01_1551).
                     //
-                    // Two conservative misses, both in the SAFE direction (a miss makes the detector raise,
-                    // never go quiet): a later member of a chain whose run the FIRST member already drew
-                    // returns at the chain-dedupe above with a zero delta, and a hypothetical
-                    // bridge-only frame is not counted (bridges only ever arm alongside the legs they
-                    // bridge, so that frame does not occur in practice).
-                    int paintedLegsBefore = frameForwardLegs;
-                    int paintedArcsBefore = frameForwardArcs;
-
                     // PRIMARY forward pass runs only when the primary is in-window. When the primary is hidden
                     // (downstream through-line at an orbital phase) but a secondary is live, the primary has no
                     // forward trajectory to draw here - the secondary forward pass below carries the launch
@@ -4598,16 +4589,6 @@ namespace Parsek.Display
                             secondaryGhostPid, drawFrame, surface, committed, suppressed,
                             ref frameForwardLegs, ref frameForwardArcs, ref frameForwardSkippedGapHold,
                             boundaryOverlapSecondary: true);
-                    }
-
-                    // Publish the PAINTED bit (see the snapshot note above). Tracing-gated like the
-                    // coverage sets, so default play pays nothing and the whole signal is
-                    // OBSERVABILITY-ONLY: the only reader is MapRenderProbe's line-blink guard, and
-                    // nothing in the live render path consults it.
-                    if (MapRenderTrace.IsEnabled
-                        && (frameForwardLegs > paintedLegsBefore || frameForwardArcs > paintedArcsBefore))
-                    {
-                        GhostMapPresence.NotePaintedRecordingLine(rec.RecordingId);
                     }
                 }
 
@@ -5689,6 +5670,13 @@ namespace Parsek.Display
                                 requireConicAnchor = isPast && anchorCandidate,
                             });
                             frameForwardLegs++;
+                            // PAINTED publish (V1-REPLAY-LINE-BLINK), keyed on the MEMBER whose leg this
+                            // is - not on the recording that happens to be driving the chain run. The run
+                            // spans every chain member, so crediting the driver would both over-credit it
+                            // with siblings' geometry and leave the siblings unmarked. See the set's doc
+                            // comment in GhostMapPresence for what this signal does and does not promise.
+                            if (MapRenderTrace.IsEnabled)
+                                GhostMapPresence.NotePaintedRecordingLine(member.rec.RecordingId);
 
                             // FUTURE legs and kept TERMINAL past legs are bridge-eligible. Anchored
                             // future legs are harmless to include: the draw-time anchor puts them ON
@@ -5749,6 +5737,10 @@ namespace Parsek.Display
                                     drawEndIndex = -1,
                                 });
                                 frameForwardArcs++;
+                                // PAINTED publish, keyed on the MEMBER (dictKey is namespaced for the
+                                // boundary-overlap secondary, so it is NOT a bare recording id).
+                                if (MapRenderTrace.IsEnabled)
+                                    GhostMapPresence.NotePaintedRecordingLine(member.rec.RecordingId);
                             }
                         }
                     }

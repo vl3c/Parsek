@@ -616,6 +616,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DarkWindow_InterLegStretch_OwnershipPatternWouldHaveRaised()
+        {
+            // The OTHER half of the pin above, and the one that makes it discriminate rather than just
+            // restate "all painted does not raise". Same window, but fed the MEASURED current-leg
+            // ownership pattern T T F T T T F F instead of the paint pattern. Ownership goes false in
+            // the inter-leg gaps (ride=fallback-head-outside-legs) even though four run legs and two
+            // forward arcs stayed painted, so feeding ownership DOES raise - which is precisely what
+            // run 2026-08-01_1551 measured (hitCounts={line-blink: 1}, offWindowCovered=False
+            // polylineOwns=False, sinceFrames=8). Read together, the two cells pin the correction: the
+            // guard's answer must change when and only when the input changes from ownership to paint.
+            Assert.True(ReplayDarkWindow(true, true, false, true, true, true, false, false));
+        }
+
+        [Fact]
         public void DarkWindow_OwningNeverWidensCoverage_UnpaintedFrameStillRaises()
         {
             // The guard must not have been widened into "our cascade intended the darkness". PAINT is

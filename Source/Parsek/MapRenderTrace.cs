@@ -998,8 +998,11 @@ namespace Parsek
         ///
         /// <para>This guard SHARPENS the detector rather than weakening it, and the coverage input
         /// is PAINT, never the Director's classification. An UNPAINTED dark frame - the proto line
-        /// hidden while the polyline drew nothing at all for the ghost - still raises, and that is
-        /// the only shape in which the map actually goes dark. Reading OWNERSHIP
+        /// hidden while the polyline committed nothing at all for the ghost - still raises, and that
+        /// is the only shape in which the map actually goes dark. The paint signal is DECIDE-TIME,
+        /// not strictly paint-time (see <c>GhostMapPresence.paintedRecordingIdsThisFrame</c> for
+        /// exactly what it does and does not promise); it is no weaker than the ownership publish it
+        /// sits beside, which is decide-time in the same walk. Reading OWNERSHIP
         /// (<c>drewNonOrbitalLegRecordings</c>, "is the HEAD inside a drawn CURRENT leg") for this
         /// was the first cut and it over-raised: run <c>2026-08-01_1551</c> raised on a window whose
         /// bracketing <c>onPreCull</c> draws both read <c>totalLegsDrawn=4 runLegs=4/4 arcsDrawn=2</c>,
@@ -1042,12 +1045,17 @@ namespace Parsek
         /// this frame: true once ANY frame of the current dark window had nothing painted.
         ///
         /// <para>Three rules. (1) While the line is LIT there is no window to account, so the
-        /// prior verdict is passed through untouched - the off-&gt;on edge reads it, then the
-        /// caller clears it. (2) A dark frame whose predecessor was LIT STARTS a fresh window, so
-        /// the previous window's verdict never leaks forward. (3) A dark frame with nothing
-        /// painted poisons the window permanently: one unpainted frame is one dark frame, and no
-        /// amount of later painting un-darkens it. Unity-free, so the whole dark-vs-not decision
-        /// is unit-testable without a live KSP.</para>
+        /// prior verdict is passed through untouched for the re-activation edge to read. (2) A dark
+        /// frame whose predecessor was LIT STARTS a fresh window - this rule alone is what stops the
+        /// previous window's verdict leaking forward, so no separate clear is needed after the edge.
+        /// (3) A dark frame with nothing painted poisons the window permanently: one unpainted frame
+        /// is one dark frame, and no amount of later painting un-darkens it. Unity-free, so the whole
+        /// dark-vs-not decision is unit-testable without a live KSP.</para>
+        ///
+        /// <para>The caller decides what counts as dark and as painted. It keys the window on LIT
+        /// (anything not definitively lit extends it) and never passes
+        /// <paramref name="polylinePainted"/> true on a DEGENERATE line read, so a transient
+        /// renderer read can neither end a window nor be mistaken for coverage.</para>
         /// </summary>
         internal static bool NextOffWindowUncovered(
             bool lineIsOff, bool lineWasOff, bool polylinePainted, bool wasUncovered)
