@@ -563,9 +563,10 @@ namespace Parsek.Patches
 
         private static string FormatIlOffset(bool haveIlOffset, int ilOffset)
         {
-            // "none" is the reading EVERY production trace produces. Spelled out rather than left
-            // as an absent field so a log reader can tell "the gate abstained" from "the gate was
-            // never consulted".
+            // "none" is the reading both production traces on record produced — see
+            // StackTraceRulesOutKnownGhostRendererNre for why that is expected, and for how little
+            // "both" is. Spelled out rather than left as an absent field so a log reader can tell
+            // "the gate abstained" from "the gate was never consulted".
             return haveIlOffset
                 ? "0x" + ilOffset.ToString("x5", CultureInfo.InvariantCulture)
                 : "none";

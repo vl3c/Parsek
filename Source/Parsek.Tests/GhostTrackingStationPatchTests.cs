@@ -239,6 +239,14 @@ namespace Parsek.Tests
             // back into `return false` and this cell reds (result null, no warn). No other cell in
             // this file moves.
             //
+            // THE INTERVENING NON-MATCHING FRAME IS LOAD-BEARING, not scene-setting. It is what
+            // separates "scan EVERY matching frame" — which is what the resolver's doc block
+            // promises — from "scan until the first frame that does not match": with the frame-name
+            // `continue` turned into a `break`, the scan stops at onVesselDestroyed, never reaches
+            // the offset below it, abstains, and this #195-shaped context SUPPRESSES. That is the
+            // over-suppression direction, and until 2026-08-02 no cell caught it, because both
+            // multi-frame fixtures happened to place their matching frames adjacently.
+            //
             // The trace shape is synthetic by necessity — the game prints the wrapper alone, and a
             // shape it does produce cannot exercise a scan past the first frame. This pins the
             // resolver's contract, NOT a claim that the gate fires in production; it does not.
@@ -253,6 +261,7 @@ namespace Parsek.Tests
                 firstMissingOrbitRendererIsGhost: true,
                 exceptionStackTrace:
                     "  at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)\n"
+                    + "  at KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v) [0x000f8] in <4b449f2841f84227adfaad3149c8fdba>:0 \n"
                     + OtherStockOffsetStackTrace);
 
             Assert.Same(exception, result);
@@ -402,11 +411,13 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_NreAtDifferentStockOffset_ReturnsOriginalAndWarns()
         {
-            // THE RETAINED OFFSET-BEARING VETO CASE, and the cell that pins the gate itself:
-            // delete the StackTraceRulesOutKnownGhostRendererNre call from the classifier and this
-            // is the cell that reds (the context is otherwise fully #195-shaped, so it suppresses).
-            // The fixture is synthetic — see KnownStockOffsetStackTrace — because a trace the game
-            // produces carries no offset to disagree with.
+            // THE RETAINED OFFSET-BEARING VETO CASE. Delete the
+            // StackTraceRulesOutKnownGhostRendererNre call from the classifier and this cell reds —
+            // measured, along with the two continue-scan cells, so that mutation reds THREE cells
+            // and this is the simplest of them (the context is otherwise fully #195-shaped, so
+            // without the veto it suppresses). The fixture is synthetic — see
+            // KnownStockOffsetStackTrace — because a trace the game produces carries no offset to
+            // disagree with.
             var exception = new NullReferenceException("unrelated stock NRE");
 
             Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
@@ -630,16 +641,32 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns()
         {
-            // TWO CAVEATS, both worth stating so this cell is not mistaken for a guard it is not.
-            // (1) It does NOT pin the IL-offset gate: the ScanError early-out declines first, so
-            //     deleting the offset check entirely leaves this cell green. The cells that pin
-            //     that gate are ..._NreAtDifferentStockOffset_... and
-            //     ..._KnownGhostMissingRendererNreAtTheKnownStockOffset_..., which pass an EMPTY
-            //     scanError and so actually reach it. This cell is about ORDERING only.
-            // (2) The trace is the SYNTHETIC offset-bearing fixture, which the game does not print
-            //     for this method — chosen here because ordering is the whole point: an offset the
-            //     gate WOULD veto on, declined earlier by ScanError. In production the gate abstains
-            //     on every trace regardless (see StackTraceRulesOutKnownGhostRendererNre).
+            // WHAT THIS CELL IS AND IS NOT, because its fixture satisfies THREE separate declining
+            // gates at once and it is easy to credit it with pinning one of them.
+            //
+            // The classifier's real order is: NRE check, then the IL-offset veto
+            // (GhostTrackingStationPatch.ClassifyBuildVesselsListException), then the ScanError
+            // early-out, then the counts. On THIS fixture the offset gate declines FIRST — 0x00063
+            // is neither orbitRenderer load — and if it did not, the non-empty scanError would, and
+            // if THAT did not, FinalizeTeardownShape's zeroed counts would. Triply inert.
+            //
+            // (1) It pins NO INDIVIDUAL GATE. Delete any one of the three and it stays green.
+            // (2) It pins NO ORDERING either, and nothing in this file does or can: every gate
+            //     returns the same Unclassified and none of them logs a distinguishing token, so
+            //     swapping the offset gate and the ScanError gate leaves the whole suite green.
+            //     (An earlier version of this comment asserted the reverse order as though the cell
+            //     depended on it. It does not, and the order it named was wrong.)
+            // (3) What it DOES pin is the end-to-end guarantee, which is worth a cell on its own:
+            //     an NRE during teardown, at an unrelated offset, with a dead scan, comes back
+            //     VISIBLE and warns — by whichever gate reaches it first.
+            //
+            // The gates that ARE isolated: the veto half of the offset check by
+            // ..._NreAtDifferentStockOffset_..., ..._OffsetBearingFrameBelowTheHarmonyWrapper_...
+            // and ..._UnusableOffsetFramesDoNotEndTheScan_...; its accept half by
+            // ..._KnownGhostMissingRendererNreAtTheKnownStockOffset_... and
+            // ..._NreAtTheOrbitRendererLoadOffset_...; the ScanError gate by
+            // ..._ScanThrewAfterSeeingAGhostMissingRenderer_.... All of those pass an EMPTY
+            // scanError or non-zero counts, and so actually reach the gate they name.
             var exception = new NullReferenceException("unrelated stock NRE during teardown");
 
             Exception result = FinalizeTeardownShape(

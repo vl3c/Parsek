@@ -1094,33 +1094,59 @@ post-unwind; the Finalizer reads `__exception.StackTrace` inside the wrapper, so
 outer frames are probably not present yet at the call under test - which makes the fixture
 a strictly HARDER input than production rather than a weaker one.
 
-Six-way mutation-tested, each mutation applied and reverted against the real suite. The
-last three were added after review found them green:
+Seven-way mutation-tested, each mutation applied and reverted against the real suite. The
+last four were added after review found them green, and every count below was re-measured
+at final HEAD rather than carried forward:
 
 | mutation | cells that red |
 | --- | --- |
 | `continue` -> `return false` on an offsetless frame (the original defect) | 1 - `..._OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns` |
 | delete the `StackTraceRulesOutKnownGhostRendererNre` call | 3 - `..._NreAtDifferentStockOffset_...` + the two continue-scan cells |
-| delete the `SpaceTracking.buildVesselsList` frame filter (neighbour theft) | 2 - both production-trace suppress cells |
+| delete the `SpaceTracking.buildVesselsList` frame filter (neighbour theft) | 3 - both production-trace suppress cells + `..._SameMethodNameOnAnotherType_...` |
 | drop the `0x00b4` conjunct, or change the constant | 1 - `..._NreAtTheOrbitRendererLoadOffset_Suppresses` |
 | `marker + 3` -> `marker + 4` (the index past `[0x`) | 1 - `..._OffsetWithoutMonoZeroPadding_ParsesTheWholePayload` |
 | LOOSEN the frame filter to the bare `buildVesselsList` | 1 - `..._SameMethodNameOnAnotherType_IsNotReadAsThisMethodsOffset` |
+| frame-name `continue` -> `break` (stop at the first NON-matching frame) | 1 - `..._OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns` |
 
-The last three are the review's real finding, and the first of them is the same
-fixture-shaped hole this entry is about: `0x00b4` was pinned by NOTHING, so it could be
-changed to any value - or dropped from the accept-list entirely - with every cell green.
-The gate's arithmetic is a two-value ACCEPT-LIST, not a two-way branch, so it takes three
-offset fixtures and not two.
+The last four are the review's real finding. Two of them matter more than the rest:
+
+- `0x00b4` was pinned by NOTHING - it could be changed to any value, or dropped from the
+  accept-list entirely, with every cell green. That is the same fixture-shaped hole this
+  entry is about, one level down. The gate's arithmetic is a two-value ACCEPT-LIST, not a
+  two-way branch, so it takes three offset fixtures and not the two an earlier draft of
+  this table claimed.
+- `continue` -> `break` on the frame-name skip was green, and it is the OVER-SUPPRESSION
+  direction: with `break` the scan stops at the first non-matching frame, abstains, and a
+  #195-shaped context suppresses where shipped code vetoes. Both multi-frame fixtures
+  happened to place their matching frames ADJACENTLY, so nothing could tell "scan every
+  matching frame" from "scan until the first non-match". Closed by inserting an
+  intervening `onVesselDestroyed` frame into the continue-scan fixture.
+
+WHAT IS STILL NOT PINNED, and cannot be by a cell in this file: the ORDER of the
+classifier's gates. Every gate returns the same `Unclassified` and none logs a
+distinguishing token, so swapping the IL-offset veto and the `ScanError` early-out leaves
+the whole suite green. `..._ScanFailedDuringTeardownAtDifferentOffset_...` reads as though
+it covered this; it does not, and its comment now says so.
 
 ### Established while fixing it: the `#556` class has never fired in production
 
 `Suppressed known ghost ProtoVessel` occurs in **zero** `.log` files anywhere under the
-umbrella root: 4121 logs carry `[Parsek][`, and 2231 of those have Verbose enabled (the
-line is `VerboseRateLimited`, so only those could have printed it). The positive control
-- `buildVesselsList exception left visible` - matched exactly ONE file at the time of the
-sweep, the flown `2026-08-01_1628` H23 log; the 2026-08-02 `_1436` re-fly added a second.
-So `buildVesselsList` reaching the Finalizer at all is rare, and every occurrence on
-record was DECLINED.
+umbrella root.
+
+SIZE THE POPULATION PROPERLY, because the raw file count is nearly all noise: 4132 `.log`
+files contain `[Parsek][`, but **3780 of them are checked-in test fixtures** -
+`Source/Parsek.Tests/Fixtures/KspLog/*.log`, a dozen files duplicated across ~320 sibling
+checkouts and worktrees, some of them eleven lines long. A committed fixture never printed
+anything, so counting it toward "logs that could have printed the line" is meaningless.
+The real population is **171 collected `KSP.log` files, 168 distinct by content hash - and
+all 168 have Verbose enabled**, which is what actually matters, since the line is
+`VerboseRateLimited` and only a Verbose-enabled session could emit it. So the whole
+population could have printed it and none did.
+
+The positive control - `buildVesselsList exception left visible` - matches exactly TWO
+files: the flown `2026-08-01_1628` H23 log and the 2026-08-02 `_1436` re-fly. So
+`buildVesselsList` reaching the Finalizer at all is rare, and both occurrences on record
+were DECLINED.
 
 The likely reason is the Prefix, not the classifier: `EnsureGhostOrbitRenderers()` runs
 before stock's loop and fixes the null `orbitRenderer` that #195 was about, so the shape
