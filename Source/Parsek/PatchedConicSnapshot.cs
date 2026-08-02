@@ -351,6 +351,29 @@ namespace Parsek
         /// NaN element would - and <c>ToOrbitSegment</c>'s <c>patch.EndUT &lt; startUT</c>
         /// clamp cannot catch it, because every comparison against NaN is false.
         /// </para>
+        /// <para>
+        /// <c>EndUT</c> IS DELIBERATELY NOT REQUIRED TO BE FINITE, and getting this
+        /// wrong silently discards healthy orbits. <c>+Infinity</c> is stock's own
+        /// sentinel for "this patch never ends", not a degeneracy - verified against
+        /// decompiled KSP 1.12.5, on two independent paths:
+        /// <list type="bullet">
+        /// <item><c>PatchedConicSolver.Update</c> seeds the root patch with
+        /// <c>patches[0].EndUT = patches[0].period</c> whenever
+        /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
+        /// <c>period = double.PositiveInfinity</c> for every open orbit.</item>
+        /// <item><c>PatchedConics._CalculatePatch</c> assigns
+        /// <c>p.EndUT = double.PositiveInfinity</c> outright for a hyperbolic patch
+        /// whose reference body has an infinite sphere of influence (the Sun), and
+        /// marks it <c>patchEndTransition = FINAL</c> - a fully solved patch.</item>
+        /// </list>
+        /// So a solar-escape probe carries <c>EndUT = +Infinity</c> with all seven
+        /// elements finite and perfectly propagatable. Refusing it would abort the
+        /// whole capture at patch 0 and leave the recording with no predicted tail at
+        /// all, while a 30 s WARN described a permanent orbital condition as a
+        /// transient solver glitch. Only NaN (the measured EVA case) and
+        /// <c>-Infinity</c> (never legitimate - time does not run backwards to a
+        /// bound) are refused here.
+        /// </para>
         /// </summary>
         internal static bool HasFinitePatchElements(IPatchedConicOrbitPatch patch)
         {
@@ -358,7 +381,7 @@ namespace Parsek
                 return false;
 
             return IsFinite(patch.StartUT)
-                && IsFinite(patch.EndUT)
+                && IsUsableEndUT(patch.EndUT)
                 && IsFinite(patch.Inclination)
                 && IsFinite(patch.Eccentricity)
                 && IsFinite(patch.SemiMajorAxis)
@@ -374,9 +397,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The end bound's weaker contract: anything but NaN and <c>-Infinity</c>.
+        /// See <see cref="HasFinitePatchElements"/> for why <c>+Infinity</c> is a
+        /// legitimate stock value here and nowhere else in the patch.
+        /// </summary>
+        private static bool IsUsableEndUT(double value)
+        {
+            return !double.IsNaN(value) && !double.IsNegativeInfinity(value);
+        }
+
+        /// <summary>
         /// Names the offending input on the refusal log line: which of the nine values
-        /// were non-finite, and what they were. Without this the WARN says a patch was
-        /// bad without saying which number was bad.
+        /// failed their check, and what they were. Without this the WARN says a patch
+        /// was bad without saying which number was bad.
+        /// <para>
+        /// This MUST apply the same per-field rule as
+        /// <see cref="HasFinitePatchElements"/> - note <c>endUT</c> uses the weaker
+        /// <see cref="IsUsableEndUT"/> test, so a legitimate <c>+Infinity</c> end bound
+        /// is not reported as offending. If the two ever diverge, the WARN starts
+        /// printing "has non-finite elements ((all-finite))" about a patch the
+        /// predicate just rejected.
+        /// </para>
         /// </summary>
         private static string DescribePatchElements(IPatchedConicOrbitPatch patch)
         {
@@ -385,7 +426,8 @@ namespace Parsek
 
             var offending = new List<string>();
             AppendIfNonFinite(offending, "startUT", patch.StartUT);
-            AppendIfNonFinite(offending, "endUT", patch.EndUT);
+            if (!IsUsableEndUT(patch.EndUT))
+                offending.Add("endUT=" + patch.EndUT.ToString("R", CultureInfo.InvariantCulture));
             AppendIfNonFinite(offending, "inc", patch.Inclination);
             AppendIfNonFinite(offending, "ecc", patch.Eccentricity);
             AppendIfNonFinite(offending, "sma", patch.SemiMajorAxis);

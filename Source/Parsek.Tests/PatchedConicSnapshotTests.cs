@@ -359,6 +359,55 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The non-finite abort WARN is rate-limited to the documented 30 s, NOT
+        /// <c>WarnRateLimited</c>'s implicit 5 s default and NOT a plain
+        /// <c>ParsekLog.Warn</c>. This is the same regression PR #553 caught on the
+        /// sibling null-solver emitter (see
+        /// <see cref="Snapshot_NullSolver_BetweenFiveAndThirtySeconds_RemainsSuppressed"/>),
+        /// and it matters more here: the measured 2026-07-30 EVA hit this exact path on
+        /// every one of 501 physics frames, so a downgrade would restore a per-refresh
+        /// WARN flood on precisely the scenario this fix exists for.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchElements_WarnIsRateLimitedToThirtySeconds()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            var nanPatch = MakePatch(100, 200);
+            nanPatch.Eccentricity = double.NaN;
+            var source = new FakePatchedConicSnapshotSource(4) { RootPatch = nanPatch };
+
+            for (int i = 0; i < 10; i++)
+            {
+                clockSeconds += 0.1;
+                PatchedConicSnapshot.SnapshotPatchedConicChain(source, 100 + i, 8, "Flooding Vessel");
+            }
+
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("Flooding Vessel") &&
+                l.Contains("has non-finite elements")));
+
+            // Past the 5 s default but inside 30 s: still exactly one.
+            clockSeconds += 10.0;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(source, 200, 8, "Flooding Vessel");
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("Flooding Vessel") &&
+                l.Contains("has non-finite elements")));
+
+            // Across 30 s: re-emits, attributing the absorbed hits.
+            clockSeconds += 21.0;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(source, 300, 8, "Flooding Vessel");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("Flooding Vessel") &&
+                l.Contains("has non-finite elements") &&
+                l.Contains("suppressed=10"));
+        }
+
+        /// <summary>
         /// A NaN <c>EndUT</c> is its own route to the same throw and is invisible to
         /// <c>ToOrbitSegment</c>'s <c>patch.EndUT &lt; startUT</c> clamp, because every
         /// comparison against NaN is false. It matters because the finalizer propagates
@@ -435,7 +484,6 @@ namespace Parsek.Tests
             foreach (double poison in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
             {
                 AssertFieldRejected(p => p.StartUT = poison, "StartUT", poison);
-                AssertFieldRejected(p => p.EndUT = poison, "EndUT", poison);
                 AssertFieldRejected(p => p.Inclination = poison, "Inclination", poison);
                 AssertFieldRejected(p => p.Eccentricity = poison, "Eccentricity", poison);
                 AssertFieldRejected(p => p.SemiMajorAxis = poison, "SemiMajorAxis", poison);
@@ -444,6 +492,56 @@ namespace Parsek.Tests
                 AssertFieldRejected(p => p.MeanAnomalyAtEpoch = poison, "MeanAnomalyAtEpoch", poison);
                 AssertFieldRejected(p => p.Epoch = poison, "Epoch", poison);
             }
+
+            // endUT carries a WEAKER contract than the seven elements - see the
+            // +Infinity cell below for why. NaN and -Infinity are still refused.
+            AssertFieldRejected(p => p.EndUT = double.NaN, "EndUT", double.NaN);
+            AssertFieldRejected(p => p.EndUT = double.NegativeInfinity, "EndUT", double.NegativeInfinity);
+        }
+
+        /// <summary>
+        /// REGRESSION GUARD, and the reason the end bound is not screened like an
+        /// element. <c>EndUT == +Infinity</c> is stock's own sentinel for "this patch
+        /// never ends" - NOT a degeneracy - verified against decompiled KSP 1.12.5 on
+        /// two independent paths:
+        /// <list type="bullet">
+        /// <item><c>PatchedConicSolver.Update</c> seeds the root patch with
+        /// <c>patches[0].EndUT = patches[0].period</c> whenever
+        /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
+        /// <c>period = double.PositiveInfinity</c> for every open orbit.</item>
+        /// <item><c>PatchedConics._CalculatePatch</c> assigns
+        /// <c>p.EndUT = double.PositiveInfinity</c> and
+        /// <c>patchEndTransition = FINAL</c> for a hyperbolic patch whose reference
+        /// body has an infinite sphere of influence (the Sun).</item>
+        /// </list>
+        /// So a solar-escape probe presents all seven elements finite, perfectly
+        /// propagatable, with an infinite end bound. What makes this fail: screening
+        /// <c>EndUT</c> with the same <c>IsFinite</c> test as the elements aborts the
+        /// whole capture at patch 0, leaving the recording with NO predicted tail and
+        /// a 30 s WARN calling a permanent orbital condition a transient solver glitch.
+        /// </summary>
+        [Fact]
+        public void Snapshot_HyperbolicPatchWithInfiniteEndUT_IsCapturedNotRefused()
+        {
+            var escapePatch = MakePatch(100, double.PositiveInfinity, body: "Sun");
+            escapePatch.Eccentricity = 1.4;
+            escapePatch.SemiMajorAxis = -2000000.0;
+
+            Assert.True(PatchedConicSnapshot.HasFinitePatchElements(escapePatch));
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = escapePatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Solar Escape Probe");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.None, result.FailureReason);
+            Assert.Single(result.Segments);
+            Assert.Equal("Sun", result.Segments[0].bodyName);
+            Assert.Equal(1, result.CapturedPatchCount);
+            Assert.DoesNotContain(logLines, line => line.Contains("has non-finite elements"));
         }
 
         private static void AssertFieldRejected(

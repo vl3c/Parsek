@@ -779,6 +779,51 @@ namespace Parsek.Tests
             Assert.True(TwoBodyOrbit.TryCreateFromSegment(MakeWellFormedEllipticSegment(), KerbinMu, out _));
         }
 
+        /// <summary>
+        /// ISOLATING rows for two clauses the table above cannot prove on its own.
+        /// <para>
+        /// <see cref="MakeWellFormedEllipticSegment"/> carries a POSITIVE semi-major
+        /// axis, so the sign-consistency clause (<c>e &gt;= 1</c> requires <c>a &lt; 0</c>)
+        /// independently rejects both a NaN/+Infinity eccentricity and a parabolic
+        /// <c>e == 1</c>. Every such row therefore stays green even if the clause it
+        /// names is deleted - the rejection is over-determined. Flipping the sign to
+        /// NEGATIVE removes that backstop, so each case below fails if and only if its
+        /// own clause is present.
+        /// </para>
+        /// <para>
+        /// What deleting them would cost: a segment with <c>eccentricity = NaN</c> and
+        /// <c>a &lt; 0</c> would be ACCEPTED, and <c>TryPropagate</c> would report
+        /// <c>true</c> while handing back an all-NaN position and velocity - precisely
+        /// the "hand a caller a NaN state" outcome the guard exists to prevent. For
+        /// <c>e == 1</c> with <c>a &lt; 0</c>, <c>p = a(1 - e^2)</c> evaluates to
+        /// <c>-0.0</c>, so <c>sqrt(mu / -0.0)</c> is NaN and the whole velocity is NaN.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TryCreateFromSegment_RejectsEccentricityAndParabolicClauses_IndependentlyOfTheSemiMajorAxisSign()
+        {
+            // Non-finite eccentricity, with a NEGATIVE sma so the sign clause agrees
+            // with the open-conic class and cannot be what does the rejecting.
+            foreach (double poison in new[] { double.NaN, double.PositiveInfinity })
+            {
+                OrbitSegment segment = MakeWellFormedEllipticSegment();
+                segment.eccentricity = poison;
+                segment.semiMajorAxis = -4000000.0;
+                Assert.False(
+                    TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _),
+                    $"eccentricity={Format(poison)} with a negative sma must be refused by the "
+                    + "finiteness clause, not by the sign clause");
+            }
+
+            // Parabolic, likewise with the sign clause satisfied for an open conic.
+            OrbitSegment parabolic = MakeWellFormedEllipticSegment();
+            parabolic.eccentricity = 1.0;
+            parabolic.semiMajorAxis = -4000000.0;
+            Assert.False(
+                TwoBodyOrbit.TryCreateFromSegment(parabolic, KerbinMu, out _),
+                "e == 1 with a negative sma must be refused by the parabolic clause, not by the sign clause");
+        }
+
         [Fact]
         public void TryCreateFromSegment_RejectsShapesTheConicEquationCannotExpress()
         {

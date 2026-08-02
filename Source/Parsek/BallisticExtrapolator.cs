@@ -1647,8 +1647,13 @@ namespace Parsek
             /// <item>PARABOLIC (e == 1): the semi-major axis is undefined and the
             /// semi-latus rectum a(1 - e^2) collapses to zero, so the velocity scale
             /// sqrt(mu / p) is infinite. <see cref="TryCreate"/> rejects the same case
-            /// from the state-vector side (zero specific energy), so both constructors
-            /// now agree.</item>
+            /// from the state-vector side, so both constructors now agree - and the
+            /// check that makes them agree is its ECCENTRICITY-BAND else-return (the
+            /// same <c>OrbitEpsilon</c> half-width used here), NOT its zero-specific-
+            /// energy test, which is a 1e-8 ABSOLUTE threshold and at KSP scales
+            /// corresponds to a band roughly six orders of magnitude tighter. Cited
+            /// precisely because a future reader loosening the energy test would
+            /// otherwise believe they had relaxed the parabolic rule symmetrically.</item>
             /// <item>A SEMI-MAJOR AXIS WHOSE SIGN DISAGREES WITH THE CONIC CLASS. Closed
             /// orbits have a &gt; 0 and open ones a &lt; 0; mixing them makes the
             /// hyperbolic mean motion sqrt(mu / (-a)^3) take the root of a negative and
@@ -1800,9 +1805,20 @@ namespace Parsek
             /// with a single point and 501 ArithmeticExceptions in the log.
             /// </para>
             /// <para>
-            /// A NaN return is safe for every caller: each one validates the resulting
-            /// state through an IsFinite check and treats a non-finite result as a
-            /// declined propagation. A non-finite ECCENTRICITY needs no guard here - it
+            /// A NaN return is handled by the three <see cref="TryPropagate"/> consumers
+            /// in <c>IncompleteBallisticSceneExitFinalizer</c>: each validates the
+            /// resulting state through an IsFinite check and treats a non-finite result
+            /// as a declined propagation. Do NOT read that as "every caller checks" -
+            /// the in-extrapolator <c>GetStateAtUT</c> sites (the horizon state written
+            /// into <c>terminalPosition</c>/<c>terminalVelocity</c>, <c>SampleOrbitWindow</c>,
+            /// <c>GetAltitudeAtUT</c>, <c>GetSurfaceDeltaAtUT</c>) consume the state
+            /// unchecked, and a NaN there reads false out of every comparison rather
+            /// than announcing itself. Those sites are safe today only because they
+            /// reach this solver through <see cref="AreSegmentElementsPropagatable"/>-
+            /// or <see cref="TryCreate"/>-validated elements at finite UTs; a new caller
+            /// that skips that validation would need its own check. Before this guard
+            /// they threw instead, which was louder but cost the whole frame.
+            /// A non-finite ECCENTRICITY needs no guard here - it
             /// poisons the iteration arithmetically and falls out as NaN without ever
             /// reaching <c>Math.Sign</c> - and is refused up front by
             /// <see cref="AreSegmentElementsPropagatable"/> anyway.

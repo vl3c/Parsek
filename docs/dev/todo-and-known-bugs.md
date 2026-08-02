@@ -442,14 +442,29 @@ sign-inconsistent) elements, matching stock's own upstream `M: NaN`, not mis-sca
 ones. Three layers, source outwards:
 
 1. **Source - `PatchedConicSnapshot.HasFinitePatchElements`.** A stock patch whose
-   nine elements/UT bounds are not all finite is refused instead of being copied into
+   seven elements or `StartUT` are not finite is refused instead of being copied into
    an `OrbitSegment`, under a new `NonFinitePatchElements` failure reason with the
    same partial-keep semantics as `MissingPatchBody` (patch 0 aborts, patch N>0
    truncates and keeps the valid prefix). This is what keeps a NaN out of the
    recording's persisted predicted segments and out of every downstream degrees
    consumer. The UT bounds are checked WITH the elements: `ToOrbitSegment`'s
    `patch.EndUT < startUT` clamp cannot catch a NaN `EndUT` (the comparison is false),
-   and `endUT` is the UT the finalizer propagates the terminal segment AT.
+   and `endUT` is the UT the finalizer propagates the terminal segment AT - which is
+   exactly the member of the class the live 2026-08-01 capture turned out to hit.
+   `EndUT` CARRIES A WEAKER RULE THAN THE ELEMENTS, and this is load-bearing:
+   `+Infinity` is stock's own sentinel for "this patch never ends", not a degeneracy.
+   Verified against decompiled KSP 1.12.5 on two independent paths -
+   `PatchedConicSolver.Update` seeds the root patch with
+   `patches[0].EndUT = patches[0].period` whenever `eccentricity >= 1.0` and `Orbit`
+   assigns `period = double.PositiveInfinity` for every open orbit; and
+   `PatchedConics._CalculatePatch` assigns `p.EndUT = double.PositiveInfinity` with
+   `patchEndTransition = FINAL` for a hyperbolic patch whose reference body has an
+   infinite sphere of influence (the Sun). So a solar-escape probe presents finite,
+   perfectly propagatable elements with an infinite end bound; screening it like an
+   element would abort the whole capture at patch 0 and leave that recording with no
+   predicted tail at all. Only NaN and `-Infinity` are refused on `EndUT`. Caught in
+   review before merge, guarded by
+   `Snapshot_HyperbolicPatchWithInfiniteEndUT_IsCapturedNotRefused`.
 2. **Solver boundary - `TwoBodyOrbit.AreSegmentElementsPropagatable`.**
    `TryCreateFromSegment` checked only `semiMajorAxis` for finiteness, so the other
    six elements went through unvalidated; a NaN eccentricity then failed the
@@ -461,9 +476,16 @@ ones. Three layers, source outwards:
    `a` whose SIGN disagrees with the conic class (elliptic needs `a > 0`, hyperbolic
    `a < 0`, or `sqrt(mu / (-a)^3)` roots a negative and manufactures the NaN itself
    with every element finite). `SolveHyperbolicKepler` is additionally made TOTAL:
-   a non-finite mean anomaly returns NaN, which every caller already handles through
-   its `IsFinite` state check. Not a narrowing - a genuine hyperbola in element form
-   still builds and still matches closed form.
+   a non-finite mean anomaly returns NaN, which the three `TryPropagate` consumers in
+   `IncompleteBallisticSceneExitFinalizer` already handle through their `IsFinite`
+   state checks. Do NOT read that as "every caller checks" - the in-extrapolator
+   `GetStateAtUT` sites (the horizon state written into
+   `terminalPosition`/`terminalVelocity`, `SampleOrbitWindow`, `GetAltitudeAtUT`,
+   `GetSurfaceDeltaAtUT`) consume the state unchecked, and a NaN there reads false out
+   of every comparison instead of announcing itself. Those sites are safe today only
+   because they reach the solver through validated elements at finite UTs; a new
+   caller that skips that validation needs its own check. Not a narrowing - a genuine
+   hyperbola in element form still builds and still matches closed form.
 3. **Caller - `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`.** The
    finalization cache is an optimisation and must never cost a sample, so the default
    finalizer call is wrapped: a throw fails loud once (grep-stable
@@ -488,17 +510,24 @@ NaN-`EndUT` case, and a per-field predicate table) and
 `RecordingFinalizationCacheProducerTests` (a throwing finalizer declines loudly, the
 previous cache stays preservable, and an ordinary decline keeps its own reason).
 
-STILL OPEN, unchanged by this fix: the harness-side companion below - an
-`expectations.recordings` assertion on POINTS rather than on `.prec` file count. It is
-what would have caught this on EVA-2's first flight, and it is still what would catch
-the next recording that finalizes empty.
+STILL OPEN, unchanged by this fix (status owned by gate 12 in
+`docs/dev/autotest-status.md`; this is a pointer, not a second verdict): the
+harness-side companion below - an `expectations.recordings` assertion on POINTS rather
+than on `.prec` file count. It is what would have caught the 2026-07-30 run, and it is
+still what would catch the next recording that finalizes empty - though note the
+2026-08-01 A/B control measured the stock trigger as INTERMITTENT, so it reds only when
+that trigger actually fires.
 
 SCOPE FENCE, so layer 1 is not over-read: it screens patched-conic PATCHES, which is
 where the measured NaN came from. It does NOT screen the LIVE vessel orbit.
-`RecordingFinalizationCacheProducer.BuildOrbitSegmentFromVessel` copies `vessel.orbit`
-verbatim, and a NaN eccentricity there passes `ShouldExtrapolate`'s
-`eccentricity >= 1.0` test (false for NaN) into `PopulateStableOrbitCache`, which can
-stamp a `TerminalOrbit` carrying the NaN. Layer 2 means that can no longer throw or
+`RecordingFinalizationCacheProducer.BuildOrbitSegmentFromVessel` copies the orbit view
+obtained from `vessel.TryGetOrbit` verbatim, and a NaN eccentricity there passes
+`ShouldExtrapolate`'s `eccentricity >= 1.0` test (false for NaN) into
+`PopulateStableOrbitCache`, which can stamp a `TerminalOrbit` carrying the NaN. Narrower
+than it reads, so the fence is not over-stated in the other direction: that route needs
+`situation == ORBITING` AND a finite periapsis altitude above the cutoff, because
+`ShouldExtrapolate` returns true early on a NaN periapsis and unconditionally for
+FLYING / SUB_ORBITAL / ESCAPING. Layer 2 means that can no longer throw or
 mis-propagate, but a non-finite element could still be PERSISTED by that path. Not
 fixed here: the measurement had NaN only in the patches, so guarding the live orbit
 would be speculative. Recorded so nobody assumes it is covered.
@@ -523,6 +552,14 @@ so this was checked rather than assumed - and the collected log independently ca
 `has non-finite elements` / `NonFinitePatchElements`, strings that exist only in this
 build).
 
+BUILD DELTA, stated rather than glossed: the flights were made on the build at commit
+`a5271f0f7`. The review pass that followed changed `HasFinitePatchElements` to accept
+`EndUT = +Infinity`. That cannot affect these runs: the patch refused in the fixed-build
+run was `endUT=NaN` (and `DescribePatchElements` lists EVERY offending field, so NaN was
+the only one), NaN is still refused, and the change strictly WIDENS acceptance to a value
+neither run produced. The rest of the review delta is comments, log formatting and the
+rate-limit key. A confirmatory re-fly was not run because it could not discriminate.
+
 | run | build | stock `dT is NaN` | patch refused | `ArithmeticException` | EVA kerbal |
 | --- | --- | --- | --- | --- | --- |
 | `2026-07-30_1532_S0.7-exit-auto-commit` | pre-fix | 2196 | n/a | **501** | `points=1 maxDist=0m` |
@@ -530,8 +567,9 @@ build).
 | `2026-08-01_1634_EVA-2-orbital-board` | pre-fix (A/B control) | 0 | n/a | 0 | `points=4` |
 
 PROVEN by the fixed-build run: the guard fires in flight on a REAL stock degenerate
-patch - stock produced one at `snapshotUT=422.15`, the same UT as the 2026-07-30 first
-exception, and layer 1 refused it with
+patch - stock produced one at `snapshotUT=422.15`, the same UT band as the 2026-07-30
+first exception (which followed that run's `ut=422.15` sample-skip by one physics
+frame), and layer 1 refused it with
 `has non-finite elements (endUT=NaN); aborting predicted snapshot capture`, after which
 the tail declined `NonFinitePatchElements` and the next snapshot 80 ms later was clean.
 The EVA then recorded 5 points with 1888 m of spatial extent across its 10.068 s dwell,
@@ -555,8 +593,9 @@ forensics, where a NaN eccentricity misclassified the conic as hyperbolic. Layer
 checks the UT bounds WITH the elements precisely because `ToOrbitSegment`'s
 `patch.EndUT < startUT` clamp is blind to NaN, and that half is what caught this flight.
 It also means this particular patch could not have reproduced the original throw on the
-old build: `Math.Sign` exists only in `SolveHyperbolicKepler`, which a finite (near-zero)
-eccentricity never reaches.
+old build: within the extrapolator `Math.Sign` exists only in `SolveHyperbolicKepler`
+(the third mod-wide call site, `ReputationModule.ApplyReputationCurve`, is off this
+path entirely), and a finite near-zero eccentricity never routes there.
 
 ### The measurement
 
