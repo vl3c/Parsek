@@ -3124,6 +3124,34 @@ class RunIdCollisionSmokeTests(unittest.TestCase):
         self.assertEqual(2, status.split_run_id(second["runId"])["run"])
         self.assertEqual(self.SCENARIO, status.split_run_id(second["runId"])["scenario"])
 
+    def test_only_the_second_run_retrying_still_keeps_it_off_run_1s_stem(self):
+        """The shape that DISCRIMINATES the ordinal threading, and the reason the
+        cell above is not enough on its own: when both runs retry, run 1 leaves
+        `..._a2` on disk and the plain results/ scan produces the same four ids
+        whether or not `_run_scenario_with_retry` threads its ordinal.
+
+        Here run 1 flies clean and never retries, so `..._a2` is FREE. Without
+        the threading, run 2's attempt 2 resolves straight back onto run 1's stem
+        and its record is filed - and rendered in the status panel and the run
+        index - as run 1's attempt 2. Nothing is overwritten (that id really was
+        free), so only an attribution assertion catches it."""
+        first = run._run_scenario_with_retry(self._spec(), self.instance, self.tmp,
+                                             FakeRuntime("pass"), self.logger)
+        self.assertEqual(self.BASE, first["runId"], "run 1 must not have retried")
+
+        second = run._run_scenario_with_retry(self._spec(), self.instance, self.tmp,
+                                              FakeRuntime("bootcrash"), self.logger)
+        self.assertEqual(self.BASE + "_run2_a2", second["runId"])
+        parts = status.split_run_id(second["runId"])
+        self.assertEqual(2, parts["run"], "run 2's retry must read as run 2")
+        self.assertEqual(2, parts["attempt"])
+        # The negative is the load-bearing half: these are the paths run 2's
+        # attempt 2 lands on when the ordinal is NOT carried forward.
+        for stray in (self.BASE + "_a2.json", self.BASE + "_a2_shots",
+                      self.BASE + "_a2.claim"):
+            self.assertFalse(os.path.exists(self._results_path(stray)),
+                             "run 2's retry was filed on run 1's stem as %s" % stray)
+
 
 if __name__ == "__main__":
     unittest.main()

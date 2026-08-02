@@ -67,6 +67,19 @@ commit - `os.makedirs` over a path that exists as a FILE also raises
 re-resolving forever and hanging the suite; the handlers are now separate, plus a
 bounded loop as a hang guard.
 
+Five independent reviews then raised 18 findings; 16 were refuted and 2 held, both
+fixed on the branch. (1) `harness/results/.gitignore` covered every sibling
+artifact shape but not `.claim`, so each run left a permanent untracked file in a
+tracked directory - and a COMMITTED stake would burn that run id for every clone,
+which makes the pattern load-bearing rather than tidiness. (2) The smoke cell
+asserting the ordinal threading flew BOTH runs with a retry, the one shape where
+threading is invisible (run 1 leaves `_a2` on disk, so the scan yields the same
+ids either way) - mutating the threading away left all three suites green. A
+sibling cell now flies run 1 clean and only run 2 retrying, where `_a2` is FREE:
+without threading, run 2's retry lands back on run 1's stem and is rendered as run
+1's attempt 2. Nothing is overwritten there (the id genuinely was free), so only
+an attribution assertion catches it.
+
 `_run<N>` sits BEFORE the `_a<N>` attempt suffix, which stays terminal:
 `_a<N>` is the `[retry] policy = "once"` path re-flying ONE run and is NOT a
 collision, `_run<N>` is a SEPARATE run that would have collided. One run's
