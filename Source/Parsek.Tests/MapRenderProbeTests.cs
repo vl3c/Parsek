@@ -402,9 +402,10 @@ namespace Parsek.Tests
         [Fact]
         public void IsLineBlink_WithinWindow_OffWindowCovered_NotBlink()
         {
-            // V1-REPLAY-LINE-BLINK: the dark window between the two toggles was covered end to end by
-            // an actual polyline draw. The proto line hid because the polyline OWNED the leg - the
-            // anti-double-draw invariant requires exactly that - so the user saw one continuous
+            // V1-REPLAY-LINE-BLINK: the dark window between the two toggles had a polyline line
+            // painted on every frame. The proto line hid either because the polyline OWNED the leg -
+            // the anti-double-draw invariant requires exactly that - or because the head was between
+            // legs while the run legs carried the trajectory. Either way the user saw one continuous
             // trajectory. Two correct transitions compressed below the frame window by a 100x-1000x
             // rails ramp, not a flicker.
             bool blink = MapRenderTrace.IsLineBlink(
@@ -419,10 +420,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsLineBlink_WithinWindow_OffWindowUncovered_StillBlink()
+        public void IsLineBlink_WithinWindow_OffWindowUnpainted_StillBlink()
         {
-            // The guard must NOT blanket-disable the detector: an UNCOVERED dark window is the case
-            // worth gating - the proto line hidden while nothing drew, i.e. the map actually went dark.
+            // The guard must NOT blanket-disable the detector: an UNPAINTED dark window is the case
+            // worth gating - the proto line hidden while the polyline painted nothing, i.e. the map really
+            // did go dark for the ghost.
             bool blink = MapRenderTrace.IsLineBlink(
                 toggled: true,
                 hasLastToggleFrame: true,
@@ -474,7 +476,7 @@ namespace Parsek.Tests
             // While the line is LIT there is no window accumulating: the just-ended window's verdict
             // must survive untouched so the off->on edge can read it (the probe clears it after).
             bool next = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: false, lineWasOff: true, polylineOwns: false, wasUncovered: wasUncovered);
+                lineIsOff: false, lineWasOff: true, polylinePainted: false, wasUncovered: wasUncovered);
 
             Assert.Equal(wasUncovered, next);
         }
@@ -485,7 +487,7 @@ namespace Parsek.Tests
             // A dark frame whose predecessor was LIT opens a NEW window. A stale poison from the
             // previous window must not leak forward and red an unrelated later handoff.
             bool next = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: true, lineWasOff: false, polylineOwns: true, wasUncovered: true);
+                lineIsOff: true, lineWasOff: false, polylinePainted: true, wasUncovered: true);
 
             Assert.False(next);
         }
@@ -493,9 +495,9 @@ namespace Parsek.Tests
         [Fact]
         public void NextOffWindowUncovered_FirstDarkFrameWithNoDraw_IsUncovered()
         {
-            // A window that opens with nothing drawing is poisoned from its very first frame.
+            // A window that opens with nothing painted is poisoned from its very first frame.
             bool next = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: true, lineWasOff: false, polylineOwns: false, wasUncovered: false);
+                lineIsOff: true, lineWasOff: false, polylinePainted: false, wasUncovered: false);
 
             Assert.True(next);
         }
@@ -504,7 +506,7 @@ namespace Parsek.Tests
         public void NextOffWindowUncovered_CoveredWindowStaysCovered()
         {
             bool next = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: true, lineWasOff: true, polylineOwns: true, wasUncovered: false);
+                lineIsOff: true, lineWasOff: true, polylinePainted: true, wasUncovered: false);
 
             Assert.False(next);
         }
@@ -512,9 +514,9 @@ namespace Parsek.Tests
         [Fact]
         public void NextOffWindowUncovered_UncoveredFramePoisonsWindow()
         {
-            // One dark frame with no owner is one dark frame the user saw.
+            // One dark frame with nothing painted is one dark frame the user saw.
             bool next = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: true, lineWasOff: true, polylineOwns: false, wasUncovered: false);
+                lineIsOff: true, lineWasOff: true, polylinePainted: false, wasUncovered: false);
 
             Assert.True(next);
         }
@@ -522,11 +524,11 @@ namespace Parsek.Tests
         [Fact]
         public void NextOffWindowUncovered_PoisonSurvivesLaterCoverage()
         {
-            // Coverage arriving AFTER a dark frame cannot un-darken it: the verdict is sticky for the
-            // rest of the window. Without this a 1-frame gap followed by a long covered leg would
-            // silently pass.
+            // Paint arriving AFTER an unpainted frame cannot un-darken it: the verdict is sticky for
+            // the rest of the window. Without this a 1-frame gap followed by a long painted stretch
+            // would silently pass.
             bool next = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: true, lineWasOff: true, polylineOwns: true, wasUncovered: true);
+                lineIsOff: true, lineWasOff: true, polylinePainted: true, wasUncovered: true);
 
             Assert.True(next);
         }
@@ -537,10 +539,12 @@ namespace Parsek.Tests
         /// Replays the probe's per-frame accounting exactly as <c>MapRenderProbe.Sample</c> does
         /// (accumulate through <see cref="MapRenderTrace.NextOffWindowUncovered"/>, then judge the
         /// off-&gt;on edge), over a lit -&gt; dark-window -&gt; lit sequence.
-        /// <paramref name="ownsPerDarkFrame"/> is the polyline's actual-draw signal on each dark
-        /// frame. Returns whether the re-activation edge raised <c>line-blink</c>.
+        /// <paramref name="paintedPerDarkFrame"/> is the polyline's actual-PAINT signal on each dark
+        /// frame (any line for the recording: current-element leg, run leg, or forward arc - NOT the
+        /// narrower current-leg ownership bit). Returns whether the re-activation edge raised
+        /// <c>line-blink</c>.
         /// </summary>
-        private static bool ReplayDarkWindow(params bool[] ownsPerDarkFrame)
+        private static bool ReplayDarkWindow(params bool[] paintedPerDarkFrame)
         {
             bool uncovered = false;
             bool prevOff = false;          // the frame before the window: line lit
@@ -548,11 +552,11 @@ namespace Parsek.Tests
             bool hasLastToggle = false;
             int frame = 1000;
 
-            foreach (bool owns in ownsPerDarkFrame)
+            foreach (bool painted in paintedPerDarkFrame)
             {
                 frame++;
                 uncovered = MapRenderTrace.NextOffWindowUncovered(
-                    lineIsOff: true, lineWasOff: prevOff, polylineOwns: owns, wasUncovered: uncovered);
+                    lineIsOff: true, lineWasOff: prevOff, polylinePainted: painted, wasUncovered: uncovered);
                 if (!prevOff) { lastToggleFrame = frame; hasLastToggle = true; } // lit -> dark toggle
                 prevOff = true;
             }
@@ -560,7 +564,7 @@ namespace Parsek.Tests
             // The re-activation frame: line lit again, so the accounting passes the verdict through.
             frame++;
             uncovered = MapRenderTrace.NextOffWindowUncovered(
-                lineIsOff: false, lineWasOff: prevOff, polylineOwns: false, wasUncovered: uncovered);
+                lineIsOff: false, lineWasOff: prevOff, polylinePainted: false, wasUncovered: uncovered);
 
             return MapRenderTrace.IsLineBlink(
                 toggled: true,
@@ -574,26 +578,51 @@ namespace Parsek.Tests
         [Fact]
         public void DarkWindow_FullyCoveredByPolyline_DoesNotRaise()
         {
-            // The V1-REPLAY-LINE-BLINK shape: a 4-frame dark window (the first of the two measured
-            // raises) in which the polyline drew the recording's ascent leg on every frame. By-design
-            // ownership handoff - nothing on screen went dark - so no raise.
+            // V1-REPLAY-LINE-BLINK window A (flown 2026-07-30 x2, re-flown as run 2026-08-01_1551 where
+            // the guard suppressed it): frames 85516-85518, reason=polyline-owns-phase, the polyline
+            // drawing the recording's ascent leg on every frame. By-design ownership handoff - nothing
+            // on screen went dark - so no raise.
             Assert.False(ReplayDarkWindow(true, true, true, true));
         }
 
         [Fact]
-        public void DarkWindow_WithOneUncoveredFrame_StillRaises()
+        public void DarkWindow_WithOneUnpaintedFrame_StillRaises()
         {
-            // The same window with ONE frame where neither surface drew. That single frame is the
-            // render defect (the classification-keyed proto suppress outrunning the actual draw), and
-            // it must survive the guard.
+            // The same window with ONE frame where the polyline painted NOTHING for the recording.
+            // That single frame is the render defect - the map genuinely had no line for the ghost -
+            // and it must survive the guard.
             Assert.True(ReplayDarkWindow(true, false, true, true));
         }
 
         [Fact]
-        public void DarkWindow_NothingDrewAtAll_StillRaises()
+        public void DarkWindow_NothingPaintedAtAll_StillRaises()
         {
-            // The pure gap case: proto line hidden, polyline never drew. Unambiguously a raise.
+            // The pure gap case: proto line hidden, polyline painted nothing. Unambiguously a raise.
             Assert.True(ReplayDarkWindow(false, false, false, false));
+        }
+
+        [Fact]
+        public void DarkWindow_InterLegStretch_PaintedThroughout_DoesNotRaise()
+        {
+            // V1-REPLAY-LINE-BLINK window B, THE REGRESSION PIN for run 2026-08-01_1551's surviving
+            // raise. Frames 85552-85559, reason=director-traced-path-suppress: the head crosses BETWEEN
+            // recorded legs, so the narrow current-leg OWNERSHIP bit read
+            // T T F T T T F F (ride=fallback-head-outside-legs on the F frames) - which is what raised
+            // when ownership fed the guard. But the bracketing onPreCull draws (frames 85463 and 85580)
+            // both read totalLegsDrawn=4 runLegs=4/4 arcsDrawn=2 with no forward-arc set change in
+            // between: a line was PAINTED on every frame of the window, so nothing went dark. Feeding
+            // PAINT instead of ownership is exactly this assertion.
+            Assert.False(ReplayDarkWindow(true, true, true, true, true, true, true, true));
+        }
+
+        [Fact]
+        public void DarkWindow_OwningNeverWidensCoverage_UnpaintedFrameStillRaises()
+        {
+            // The guard must not have been widened into "our cascade intended the darkness". PAINT is
+            // the only coverage input, so a window in which the polyline stops painting still raises
+            // even though the proto line was deliberately held down the whole time - the case where the
+            // map really is empty for the ghost.
+            Assert.True(ReplayDarkWindow(true, true, false, false));
         }
 
         [Fact]
@@ -616,20 +645,20 @@ namespace Parsek.Tests
             // red every legitimate handoff after it.
             bool uncovered = false;
 
-            // Window 1, frames 1001-1002: nothing drew.
-            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: false, polylineOwns: false, wasUncovered: uncovered);
-            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: true, polylineOwns: false, wasUncovered: uncovered);
+            // Window 1, frames 1001-1002: nothing painted.
+            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: false, polylinePainted: false, wasUncovered: uncovered);
+            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: true, polylinePainted: false, wasUncovered: uncovered);
             // Frame 1003: lit again - the edge that consumes window 1's verdict.
-            uncovered = MapRenderTrace.NextOffWindowUncovered(false, lineWasOff: true, polylineOwns: false, wasUncovered: uncovered);
+            uncovered = MapRenderTrace.NextOffWindowUncovered(false, lineWasOff: true, polylinePainted: false, wasUncovered: uncovered);
             Assert.True(MapRenderTrace.IsLineBlink(
                 toggled: true, hasLastToggleFrame: true, lastToggleFrame: 1001, currentFrame: 1003,
                 bodyChanged: false, offWindowCovered: !uncovered));
 
-            // Window 2, frames 1004-1005: the polyline drew throughout. lineWasOff is false on the
+            // Window 2, frames 1004-1005: the polyline painted throughout. lineWasOff is false on the
             // first dark frame, which is what wipes window 1's verdict.
-            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: false, polylineOwns: true, wasUncovered: uncovered);
-            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: true, polylineOwns: true, wasUncovered: uncovered);
-            uncovered = MapRenderTrace.NextOffWindowUncovered(false, lineWasOff: true, polylineOwns: false, wasUncovered: uncovered);
+            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: false, polylinePainted: true, wasUncovered: uncovered);
+            uncovered = MapRenderTrace.NextOffWindowUncovered(true, lineWasOff: true, polylinePainted: true, wasUncovered: uncovered);
+            uncovered = MapRenderTrace.NextOffWindowUncovered(false, lineWasOff: true, polylinePainted: false, wasUncovered: uncovered);
             Assert.False(MapRenderTrace.IsLineBlink(
                 toggled: true, hasLastToggleFrame: true, lastToggleFrame: 1004, currentFrame: 1006,
                 bodyChanged: false, offWindowCovered: !uncovered));

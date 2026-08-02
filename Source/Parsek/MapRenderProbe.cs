@@ -117,14 +117,15 @@ namespace Parsek
         // orbit) from a true same-geometry flicker. Without this, a Kerbin-escape -> Sun-heliocentric
         // handoff under high warp compresses two correct toggles below the frame window and reads as a blink.
         private readonly Dictionary<uint, string> lastLineToggleBody = new Dictionary<uint, string>();
-        // Pids whose CURRENT proto-orbit-line DARK WINDOW has had at least one frame that NO surface
-        // covered - the line read inactive and the trajectory polyline was not drawing that recording's
-        // leg either. Membership is the blink predicate's handoff-vs-gap discriminator: a window that
-        // never appears here was covered end to end by the polyline (the by-design ownership handoff -
-        // the proto line MUST hide while the polyline owns), while a window that does appear is a real
-        // gap where the map went dark. Accumulated per frame through the pure
-        // MapRenderTrace.NextOffWindowUncovered, read on the off->on edge, cleared there and on scene
-        // change. See V1-REPLAY-LINE-BLINK.
+        // Pids whose CURRENT proto-orbit-line DARK WINDOW has had at least one frame that NOTHING
+        // covered - the line read inactive and the trajectory polyline painted no line at all for that
+        // recording. Membership is the blink predicate's dark-vs-not discriminator: a window that never
+        // appears here had a line painted end to end (either the by-design ownership handoff - the
+        // proto line MUST hide while the polyline owns - or the inter-leg stretch where the run legs and
+        // arcs carry the trajectory while the current orbit is a meaningless per-frame reseed), while a
+        // window that does appear is a real gap where the map went dark for this ghost. Accumulated per
+        // frame through the pure MapRenderTrace.NextOffWindowUncovered, read on the off->on edge,
+        // cleared there and on scene change. See V1-REPLAY-LINE-BLINK.
         private readonly HashSet<uint> lineOffWindowUncovered = new HashSet<uint>();
         // Universal time at the previous sample per pid. The icon-jump expected-motion model uses the ACTUAL
         // per-frame UT advance (currentUT - prevSampleUT) instead of Time.unscaledDeltaTime *
@@ -634,19 +635,31 @@ namespace Parsek
             // OBSERVABILITY-ONLY: flag-OFF / tracing-OFF normal play is byte-identical (the probe never ran).
 
             // --- Proto-line DARK-WINDOW coverage accounting (feeds the line-blink guard below) ---
-            // While the proto orbit line reads inactive, record whether the trajectory polyline was
-            // ACTUALLY drawing this recording's leg on that frame. polylineOwns above is the
-            // actual-draw ownership signal (drewNonOrbitalLegRecordings), published by the Driver at
-            // exec-order -50 EARLIER THIS FRAME, so it is same-frame coherent with the line.active read
-            // - the ordering the ownership contract is built on. A window covered on every frame is the
-            // by-design handoff (polyline draws, proto hides, one continuous trajectory on screen); a
-            // window with even one uncovered frame is a real gap where nothing drew. Only "False" opens
-            // a window: a degenerate read ("(line-null)" / "(no-renderer)") is deliberately NOT treated
-            // as covered darkness, so it keeps raising.
+            // While the proto orbit line reads inactive, record whether the trajectory polyline
+            // ACTUALLY PAINTED a line for this recording on that frame. Both signals are published by
+            // the Driver at exec-order -50 EARLIER THIS FRAME, so they are same-frame coherent with the
+            // line.active read - the ordering the ownership contract is built on.
+            //
+            // COVERAGE IS polylinePainted, NOT polylineOwns, and the difference is the whole finding of
+            // run 2026-08-01_1551. Ownership (drewNonOrbitalLegRecordings) answers "is the HEAD inside a
+            // drawn CURRENT leg" - exactly the right question for hiding the proto conic, and unchanged -
+            // but it goes FALSE in the gaps BETWEEN legs (ride=fallback-head-outside-legs) while the run
+            // legs + forward arcs keep the ghost's trajectory on screen. Judging darkness by ownership
+            // therefore raised on a window whose bracketing onPreCull draws both read
+            // totalLegsDrawn=4 runLegs=4/4 arcsDrawn=2: nothing had gone dark. polylinePainted asks the
+            // question the guard actually needs - "did the map have ANY line for this ghost" - and is
+            // still strictly ACTUAL-DRAW, never the Director's TracedPath classification.
+            //
+            // A window painted on every frame is by design (either the polyline owns the leg, or it is
+            // mid-run between legs while the conic is meaningless); a window with even one unpainted
+            // frame is a real gap where the map went dark for this ghost. Only "False" opens a window: a
+            // degenerate read ("(line-null)" / "(no-renderer)") is deliberately NOT treated as covered
+            // darkness, so it keeps raising.
+            bool polylinePainted = GhostMapPresence.IsPolylinePaintingGhostTrajectory(pid);
             bool lineIsOff = lineActive == "False";
             bool lineWasOff = hadPrevLine && prevLineActive == "False";
             if (MapRenderTrace.NextOffWindowUncovered(
-                    lineIsOff, lineWasOff, polylineOwns, lineOffWindowUncovered.Contains(pid)))
+                    lineIsOff, lineWasOff, polylinePainted, lineOffWindowUncovered.Contains(pid)))
                 lineOffWindowUncovered.Add(pid);
             else
                 lineOffWindowUncovered.Remove(pid);
@@ -679,15 +692,19 @@ namespace Parsek
                         offWindowCovered: offWindowCovered))
                 {
                     // offWindowCovered rides the line so a collected log states WHICH shape raised:
-                    // False here is the load-bearing fact - the line went dark and no polyline covered it.
+                    // False here is the load-bearing fact - the line went dark and the polyline painted
+                    // nothing over it. polylinePainted is the coverage input this frame; polylineOwns is
+                    // carried alongside precisely because the two DISAGREE in the inter-leg gaps, and a
+                    // raise reading painted=False owns=False is a different animal from painted=True
+                    // owns=False (which no longer raises).
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "line-blink",
                         string.Format(ic,
                             "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
-                            + "offWindowCovered={5} polylineOwns={6}",
+                            + "offWindowCovered={5} polylinePainted={6} polylineOwns={7}",
                             lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
-                            offWindowCovered, polylineOwns));
+                            offWindowCovered, polylinePainted, polylineOwns));
                 }
                 lastLineToggleFrame[pid] = frame;
                 lastLineToggleBody[pid] = bodyName;

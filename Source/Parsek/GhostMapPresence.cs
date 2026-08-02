@@ -720,6 +720,23 @@ namespace Parsek
         private static readonly HashSet<string> protoLessCoverageRecordingIdsThisFrame =
             new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// PAINTED set (V1-REPLAY-LINE-BLINK, RecordingId domain): every recording for which the polyline
+        /// Driver's decide walk actually enqueued SOME trajectory line this frame - the current-element
+        /// leg (the <see cref="IsPolylineOwningGhostPhase"/> case) OR a forward run leg OR a forward arc.
+        /// Deliberately BROADER than the ownership set: ownership answers "is the HEAD inside a drawn
+        /// CURRENT leg", which is the right question for hiding the proto conic and is unchanged, while
+        /// this answers "did the map actually have a line for this ghost". The two differ exactly in the
+        /// inter-leg gaps, where the run legs + arcs stay painted but the head sits between legs.
+        /// Populated by <see cref="NotePaintedRecordingLine"/>, cleared by
+        /// <see cref="ClearFrameCoverageSets"/> on the same pre-early-return lifecycle as the other frame
+        /// sets. Read ONLY by the map-render probe's line-blink guard through
+        /// <see cref="IsPolylinePaintingGhostTrajectory"/>; nothing in the live render path consults it,
+        /// and the Driver populates it only while tracing is on, so it is observability-only.
+        /// </summary>
+        private static readonly HashSet<string> paintedRecordingIdsThisFrame =
+            new HashSet<string>(StringComparer.Ordinal);
+
         // Scratch holding the proto-bearing RecordingId set built once per assertion pass from the live
         // vesselPidToRecordingId values, so the per-drawn-recording check is O(1). Reused (cleared, not
         // re-allocated) to keep the gated path allocation-light.
@@ -9476,6 +9493,47 @@ namespace Parsek
         {
             drawnRecordingIdsThisFrame.Clear();
             protoLessCoverageRecordingIdsThisFrame.Clear();
+            paintedRecordingIdsThisFrame.Clear();
+        }
+
+        /// <summary>
+        /// Records that the polyline Driver's decide walk enqueued SOME trajectory line for
+        /// <paramref name="recordingId"/> this frame (current-element leg, forward run leg, or forward
+        /// arc). Called from the Driver's decide walk, already gated there on
+        /// <see cref="MapRenderTrace.IsEnabled"/>. Diagnostic-only; no render/draw effect. See
+        /// <see cref="paintedRecordingIdsThisFrame"/> for why this is broader than the ownership set.
+        /// </summary>
+        internal static void NotePaintedRecordingLine(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+            paintedRecordingIdsThisFrame.Add(recordingId);
+        }
+
+        /// <summary>
+        /// Did the trajectory polyline actually paint ANY line for this ghost's recording this frame?
+        /// The map-render probe's <c>line-blink</c> coverage input: a proto-orbit-line dark window is a
+        /// render defect only if the map had NOTHING for the ghost across it, and the ghost's trajectory
+        /// stays on screen through the inter-leg gaps that <see cref="IsPolylineOwningGhostPhase"/>
+        /// reports false for. Same pid -&gt; RecordingId bridge and the same same-frame ordering as
+        /// ownership (the Driver publishes at <c>[DefaultExecutionOrder(-50)]</c>, before the probe's
+        /// LateUpdate). Always false when tracing is off, since the Driver only populates the set then -
+        /// which is harmless because the probe only runs when tracing is on.
+        /// </summary>
+        internal static bool IsPolylinePaintingGhostTrajectory(uint pid)
+        {
+            return vesselPidToRecordingId.TryGetValue(pid, out string recId)
+                && recId != null
+                && paintedRecordingIdsThisFrame.Contains(recId);
+        }
+
+        /// <summary>Test-only seam: set/clear PAINTED-set membership without a live Driver walk.</summary>
+        internal static void SetPaintedRecordingLineForTesting(string recordingId, bool painted)
+        {
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+            if (painted) paintedRecordingIdsThisFrame.Add(recordingId);
+            else paintedRecordingIdsThisFrame.Remove(recordingId);
         }
 
         /// <summary>
@@ -9591,6 +9649,7 @@ namespace Parsek
         {
             drawnRecordingIdsThisFrame.Clear();
             protoLessCoverageRecordingIdsThisFrame.Clear();
+            paintedRecordingIdsThisFrame.Clear();
             protoBearingRecordingIdScratch.Clear();
         }
 
