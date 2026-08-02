@@ -972,13 +972,51 @@ namespace Parsek
         /// can compress below the frame window and read as a blink. Mirrors the
         /// <see cref="IsIconJump"/> bodyChanged guard. Defaults false so every
         /// existing call site is byte-identical.</para>
+        ///
+        /// <para><paramref name="offWindowCovered"/> suppresses the blink when EVERY frame of the
+        /// dark window that just ended had an ACTUAL trajectory-polyline line PAINTED for the same
+        /// recording (the caller accumulates this through <see cref="NextOffWindowUncovered"/> from
+        /// <c>GhostMapPresence.IsPolylinePaintingGhostTrajectory</c>). Two by-design shapes produce
+        /// such a window, and neither is a flicker:</para>
+        /// <para>(1) the OWNERSHIP HANDOFF - while the polyline owns a recording's non-orbital leg
+        /// the proto orbit line MUST hide, or the two surfaces double-draw (the invariant the
+        /// <c>polyline-orbit-overlap</c> oracle enforces from the other side). The user sees ONE
+        /// continuous trajectory across the window: polyline in the middle, proto conic on both
+        /// sides.</para>
+        /// <para>(2) the INTER-LEG / gap-glide stretch - the head sits BETWEEN recorded legs while
+        /// the run legs and forward arcs stay painted, and <c>GhostOrbitLinePatch</c>'s
+        /// TracedPath branch holds the conic down because the current orbit is a per-frame
+        /// state-vector reseed (measured across one such window: sma 816,626/e 0.9893 -&gt;
+        /// 2,013,136/e 0.9993 -&gt; 2,014,153/e 0.9999 -&gt; 6,377,213/e 0.8939 in eight frames).
+        /// Showing that conic is the burn-seam churn the branch exists to prevent, so the darkness
+        /// is the correct render.</para>
+        /// <para>Either way the toggle pair is two correct transitions, exactly like the
+        /// <paramref name="bodyChanged"/> seam. Under a 100x-1000x rails ramp a whole recorded
+        /// ascent / burn leg replays in a handful of frames, compressing those two transitions
+        /// below <see cref="LineBlinkFrameWindow"/> where the pid-only truth read cannot tell them
+        /// from a flicker (V1-REPLAY-LINE-BLINK).</para>
+        ///
+        /// <para>This guard SHARPENS the detector rather than weakening it, and the coverage input
+        /// is PAINT, never the Director's classification. An UNPAINTED dark frame - the proto line
+        /// hidden while the polyline committed nothing at all for the ghost - still raises, and that
+        /// is the only shape in which the map actually goes dark. The paint signal is DECIDE-TIME,
+        /// not strictly paint-time (see <c>GhostMapPresence.paintedRecordingIdsThisFrame</c> for
+        /// exactly what it does and does not promise); it is no weaker than the ownership publish it
+        /// sits beside, which is decide-time in the same walk. Reading OWNERSHIP
+        /// (<c>drewNonOrbitalLegRecordings</c>, "is the HEAD inside a drawn CURRENT leg") for this
+        /// was the first cut and it over-raised: run <c>2026-08-01_1551</c> raised on a window whose
+        /// bracketing <c>onPreCull</c> draws both read <c>totalLegsDrawn=4 runLegs=4/4 arcsDrawn=2</c>,
+        /// i.e. shape (2) with nothing dark. Ownership is still the right question for HIDING the
+        /// conic and is unchanged; it is just the wrong question for "did the map go dark".
+        /// Defaults false so every existing call site is byte-identical.</para>
         /// </summary>
         internal static bool IsLineBlink(
             bool toggled,
             bool hasLastToggleFrame,
             int lastToggleFrame,
             int currentFrame,
-            bool bodyChanged = false)
+            bool bodyChanged = false,
+            bool offWindowCovered = false)
         {
             if (!toggled)
                 return false;
@@ -988,8 +1026,47 @@ namespace Parsek
             // legitimate transitions at a real geometry seam, not a flicker.
             if (bodyChanged)
                 return false;
+            // The dark window between the two toggles had an actual polyline line painted on every
+            // frame: a by-design ownership handoff or inter-leg stretch, not a flicker. Nothing went
+            // dark.
+            if (offWindowCovered)
+                return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
+        }
+
+        /// <summary>
+        /// PURE per-frame accounting step for the proto-orbit-line DARK WINDOW that feeds
+        /// <see cref="IsLineBlink"/>'s <c>offWindowCovered</c> guard. Given this frame's line
+        /// state (<paramref name="lineIsOff"/>), the previous sample's
+        /// (<paramref name="lineWasOff"/>), whether the trajectory polyline actually PAINTED any
+        /// line for this recording this frame (<paramref name="polylinePainted"/>), and the
+        /// window's verdict so far (<paramref name="wasUncovered"/>), returns the verdict after
+        /// this frame: true once ANY frame of the current dark window had nothing painted.
+        ///
+        /// <para>Three rules. (1) While the line is LIT there is no window to account, so the
+        /// prior verdict is passed through untouched for the re-activation edge to read. (2) A dark
+        /// frame whose predecessor was LIT STARTS a fresh window - this rule alone is what stops the
+        /// previous window's verdict leaking forward, so no separate clear is needed after the edge.
+        /// (3) A dark frame with nothing painted poisons the window permanently: one unpainted frame
+        /// is one dark frame, and no amount of later painting un-darkens it. Unity-free, so the whole
+        /// dark-vs-not decision is unit-testable without a live KSP.</para>
+        ///
+        /// <para>The caller decides what counts as dark and as painted. It keys the window on LIT
+        /// (anything not definitively lit extends it) and never passes
+        /// <paramref name="polylinePainted"/> true on a DEGENERATE line read, so a transient
+        /// renderer read can neither end a window nor be mistaken for coverage.</para>
+        /// </summary>
+        internal static bool NextOffWindowUncovered(
+            bool lineIsOff, bool lineWasOff, bool polylinePainted, bool wasUncovered)
+        {
+            // Line lit: no window is accumulating. Hold the just-ended window's verdict for the
+            // off->on edge to consume.
+            if (!lineIsOff)
+                return wasUncovered;
+            // A dark frame following a lit one opens a NEW window; anything older is irrelevant.
+            bool carried = lineWasOff && wasUncovered;
+            return carried || !polylinePainted;
         }
 
         /// <summary>

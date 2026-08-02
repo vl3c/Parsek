@@ -14,6 +14,84 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-TIER-TAXONOMY: `tier` encodes cadence membership, not cost or readiness, so "run everything" needs out-of-band knowledge [RAISED 2026-08-02 by the `V1-map-dwell-mun-orbit` promotion (PR #1407). NOT STARTED. Design change against a binding authority; the shape below is a problem statement, not a chosen solution]
+
+The invocation model we actually want is agent-driven: an agent runs the WHOLE
+batch on request, or a cheap smoke subset. The selection layer is built around
+scheduled cadences instead, and the two do not line up.
+
+### What exists today, measured not assumed
+
+`run.py` selects by `--id | --tier | --tag | --cadence` (no other selector).
+`hlib.TIERS` is `("perpr", "daily", "nightly", "weekly", "pending-fixture",
+"operator")` - four cadence memberships plus two EXCLUSIONS - and
+`CADENCE_TIERS` is cumulative:
+
+| cadence | tiers it resolves to |
+|---|---|
+| `per-pr` | `perpr` |
+| `daily` | `daily` |
+| `nightly` | `daily`, `nightly` |
+| `weekly` | `perpr`, `daily`, `nightly`, `weekly` |
+
+with an explicit note in `hlib` that `operator` is in NO set: those specs "are
+never picked up by a cadence and run only under an explicit `--tier operator` /
+`--id`". Spec counts on 2026-08-02: nightly 34, daily 22, operator 5,
+`pending-fixture` 0, `weekly` 0.
+
+### The friction, stated precisely
+
+1. **"Run everything" is three invocations plus knowledge.** `--cadence weekly`
+   is the closest thing and it IS nearly-all, but it silently omits the
+   `operator` and `pending-fixture` tiers, so the full set is
+   `--cadence weekly` + `--tier operator` + `--tier pending-fixture`. Nothing
+   tells a caller that; you have to know `CADENCE_TIERS` leaves them out. There
+   is no `--all`.
+2. **There is no smoke set.** One spec is named `H13-ksp-api-smoke` and a
+   `SMOKE-autopilot` fixture exists, but no tag or selector means "cheap, fast,
+   proves the stack is alive". The 18 tags in use are subject-matter labels
+   (`mechjeb`, `rewind`, `eva`, `mun`), not cost labels.
+3. **The data to select on already exists and nothing selects on it.**
+   `coverage/duration.json` (tracked) holds per-scenario `last/p50/p95`;
+   `coverage/flake.json` (gitignored, advisory) holds the trust signal. A
+   cost-aware or trust-aware selection is a read away and is not wired.
+4. **`tier` therefore does double duty** - it is read as a cost/readiness label
+   by humans (see every spec's TIER header) while functioning as cadence
+   membership. `operator` is not "a human runs it"; it is "no cadence will pick
+   this up", which is why a green scenario can sit invisible to automation.
+
+### Why it bites, with the case that raised it
+
+`V1-map-dwell-mun-orbit` sat at `tier = "operator"` while GREEN and fully
+automated, invisible to every cadence, until a human promoted it on 2026-08-02.
+Nothing failed; nothing could. That is the same class
+`PendingOperatorTagHonestyTests` already documents for `EVA-1-pad-flag` ("the
+tier stays nightly until the operator promotes it" - a pending human call with
+no signal that could go red), and the same reason that check exists as two
+hand-maintained lists.
+
+### Constraints for whoever takes this
+
+- `docs/dev/design-autotest-harness-core.md` (M-A5) is the BINDING authority for
+  the selection layer; section 10 owns the cadence -> tier map. Change the doc in
+  the same commit.
+- `hlib.TIERS` is validated by `validate_spec`, so the vocabulary cannot be
+  narrowed without a spec sweep.
+- `PendingOperatorTagHonestyTests` pins the `pending-operator` carrier set in
+  BOTH directions AND covers the `tier = "operator"` population, so collapsing
+  or renaming the tier vocabulary reds it until that inventory is re-reasoned -
+  by design.
+- `harness/lib/test_doc_spec_sync.py` reads `docs/dev`, so spec/doc drift is
+  caught there.
+- Additive beats destructive: an `--all` selector and a cost tag can land
+  without touching `TIERS` at all, which is the cheap first step.
+
+### What done looks like
+
+An agent can ask for "everything" or "the smokes" in ONE invocation with no
+out-of-band knowledge, and selection can use the cost and trust data the harness
+already records. Whether `tier` then shrinks to a pure cost/readiness label or
+disappears is the open design call, not a foregone one.
 ## DEV-INSTANCE-UNLOCKED: shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
 
 The machine lock (`<umbrella>/automation/.ksp-machine.lock`) serializes `run.py`
@@ -231,7 +309,7 @@ must move toward MORE lead, not less.
 
 ---
 
-## V1-REPLAY-LINE-BLINK: the replaying flown ghost's proto orbit line blinks off/on under 100x rails warp [FOUND 2026-07-30 by V1-map-dwell-mun-orbit's FIRST dwell (run `2026-07-30_2251` collected log; that mission red on an unrelated over-strict assertion, so the sweep never classified it). REPRODUCED the same day by the SECOND dwell (run `2026-07-30_1955`, collected log `2026-07-30_2322`): mission PASS, every other verifier green, anomaly sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]` -> the scenario's first honest `PARSEK-FAIL(anomaly)`. Two independent replays, two raises each. REPORTED, NOT DIAGNOSED. The first real-geometry finding of the visual-validation program]
+## ~~V1-REPLAY-LINE-BLINK: the replaying flown ghost's proto orbit line blinks off/on under 100x rails warp~~ [FOUND 2026-07-30 by V1-map-dwell-mun-orbit's FIRST dwell (run `2026-07-30_2251` collected log; that mission red on an unrelated over-strict assertion, so the sweep never classified it). REPRODUCED the same day by the SECOND dwell (run `2026-07-30_1955`, collected log `2026-07-30_2322`): mission PASS, every other verifier green, anomaly sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]` -> the scenario's first honest `PARSEK-FAIL(anomaly)`. Two independent replays, two raises each. DIAGNOSED 2026-08-01, branch `fix-v1-line-blink`: verdict (B) BENIGN in BOTH of the two dark windows per dwell, but by two DIFFERENT mechanisms (an ownership handoff and an inter-leg stretch), suppressed with an evidence-based guard rather than a budget - see "Diagnosis" below. The first cut, which fed the guard the current-leg OWNERSHIP bit, was flown 2026-08-01 (run `2026-08-01_1551`): it correctly killed the handoff raise and left the inter-leg one, `hitCounts={line-blink: 1}`, which is the measurement that produced the PAINT-vs-ownership correction. CLOSED 2026-08-02: run `2026-08-02_1046` gave V1 its first fully green run (`hitCounts={}`, PASS), and after a four-reviewer pass corrected the paint signal's attribution, degenerate-read handling, pid lifetime and honesty about what it promises, run `2026-08-02_1336` re-proved it green at HEAD with the suppressions now logged. The first real-geometry finding of the visual-validation program, found and closed by the program itself]
 
 ### What happens
 
@@ -248,21 +326,25 @@ phase=Anomaly surface=ProtoOrbitLine ... frame=87807 currentUT=1996.390 reason=l
 ```
 
 The blink windows are 4 and 8 frames at 100x (~50-670 game seconds of replayed
-ascent/early-transfer per toggle span), i.e. a visible flicker of the ghost's
-orbit line exactly where a human watching the map would see it. The surrounding
+ascent/early-transfer per toggle span). SUPERSEDED READING, kept because it is
+what the report said at the time: this was read as a visible flicker of the
+ghost's orbit line. The Diagnosis below establishes the opposite - a polyline
+line was painted on every frame of both windows, so nothing on screen went
+dark. The surrounding
 Tier-B truth shows the line owned by `director-stockconic-visible` on the
 re-activation frames.
 
 DIAGNOSTIC HINT from the second dwell's decision lines: the toggles sit inside
 OWNERSHIP HANDOFFS - the orbit-line decision cycles
 `director-traced-path-suppress` -> `director-stockconic-visible` ->
-`polyline-owns-phase` around the raises, so the first suspect is the
+`polyline-owns-phase` around the raises, so the first suspect was the
 polyline/TracedPath <-> StockConic ownership transition going dark for a few
 frames at high warp (phase-boundary handoff lag), not the map-orbit reseed
-cadence itself. DETERMINISTIC: exactly 2 raises per dwell across all three
+cadence itself. That hint pointed at the right seam but the wrong conclusion
+for the second window: see the Diagnosis. DETERMINISTIC: exactly 2 raises per dwell across all three
 dwells flown 2026-07-30, and nothing else raised (zero unlisted reasons).
 
-### Why this entry exists before a diagnosis
+### Why this entry existed before a diagnosis
 
 `line-blink` is in the GATED `hlib.ANOMALY_TOKENS` set, so the moment a V1
 flight is otherwise green the sweep classifies `PARSEK-FAIL(anomaly)` against
@@ -275,6 +357,167 @@ reseed cadence), fix it if it is a real render defect, or - if it proves benign
 at bounded frequency - arm a measured `{ token = "line-blink", maxCount = N }`
 budget on the V1 spec from green-run `hitCounts` evidence. Do NOT whitelist the
 bare token; do NOT set a budget from this single run.
+
+### Diagnosis (2026-08-01): verdict (B), two by-design suppressions
+
+**Both raises are the proto orbit line correctly standing down while the
+trajectory polyline carries the recording on screen - but the two windows are
+not the same shape**, which is why the first fix only killed one of them. The
+first window is an OWNERSHIP HANDOFF: hiding the proto line while the polyline
+owns the leg is not an accident, it is the anti-double-draw invariant that
+`polyline-orbit-overlap` enforces from the other side, and across it the user
+sees ONE continuous trajectory - proto conic, then polyline, then proto conic
+again. The second is an INTER-LEG stretch where the head crosses a gap between
+recorded legs and the conic is deliberately held down because it is meaningless
+there (see the table below). `MapRenderProbe.IsLineBlink` watches only the
+ProtoOrbitLine surface, so it sees a bare off/on pair in both cases and cannot
+tell either from a flicker.
+
+Warp is what made it visible to the detector rather than what caused it. The
+two windows are 4 and 8 frames; the probe samples EVERY frame (no cadence -
+`MapRenderProbe.LateUpdate` calls `Sample` per ghost per frame), so those are
+real Unity frames. At the ramp step in force between the two raises (frames
+87767 -> 87807 advance UT 1329.4 -> 1996.4, i.e. ~16.7 s of replay per frame),
+4 and 8 frames are ~67 and ~134 game-seconds of replayed ascent / early
+transfer - the length of real recorded non-orbital stretches on a Kerbal X
+flight, not a 1-2 frame artifact. At 1x the same two transitions are seconds
+apart and never come near `LineBlinkFrameWindow = 8`; the ramp compresses a
+whole leg into the window. That is exactly the shape the existing `bodyChanged`
+guard already handles for the SOI seam ("two correct transitions ... under high
+warp those two toggles can compress below the frame window").
+
+Three code facts support the reading, and one bounds it:
+
+1. The suppression is deliberate and ours. `GhostOrbitLinePatch.Postfix` sets
+   `line.active = false` in exactly the branches the reported reason cycle
+   names (`director-traced-path-suppress`, `polyline-owns-phase`) and back true
+   at `director-stockconic-visible`, which the collected Tier-B truth shows
+   owning the re-activation frames.
+2. `polyline-owns-phase` cannot log unless `IsPolylineOwningGhostPhase` is
+   true, and that resolves through `drewNonOrbitalLegRecordings`, which is
+   published ONLY on an ACTUAL draw. Its appearance in the reason cycle around
+   the raises is direct evidence a polyline leg was drawing there.
+3. `decision-vs-truth` stayed silent on every one of those frames. That
+   reconciles the patch's recorded intent against the end-of-frame truth, so
+   the line being dark was INTENDED by our own cascade - not KSP or another
+   patch mutating `line.active` behind us.
+
+**There are TWO dark windows per dwell, not one shape twice, and only the
+first is an ownership handoff.** Reconstructed frame by frame from the
+change-based `MarkerDecision` lines (whose `polylineOwning=` field IS
+`GhostMapPresence.IsPolylineOwningGhostPhase`, the same call the probe makes),
+identically in both 2026-07-30 dwells and again in the 2026-08-01 re-fly:
+
+| Window | Reason | Ownership per dark frame | Shape |
+|---|---|---|---|
+| A (e.g. frames 85516-85518) | `polyline-owns-phase` | owning throughout | the ownership handoff above |
+| B (e.g. frames 85552-85559) | `director-traced-path-suppress` | `T T F T T T F F` | the head crossing BETWEEN recorded legs |
+
+Window B's `F` frames are all `ride=fallback-head-outside-legs`: the head sits
+in a gap between recorded legs, so the CURRENT-element leg is not drawing. That
+is NOT the map going dark. `drewNonOrbitalLegRecordings` is the current-element
+set only - the forward run legs and arcs deliberately never touch it - and the
+`onPreCull draw` summaries bracketing window B both read `totalLegsDrawn=4
+runLegs=4/4 arcsDrawn=2`, with no `PolylineForwardArc` set-change event
+anywhere in the surrounding 300 frames. Four run legs and two forward arcs stay
+painted straight through. What the proto conic would add there is garbage: the
+current orbit across those eight frames is a per-frame state-vector reseed
+churning `sma 816,626/e 0.9893 -> 2,013,136/e 0.9993 -> 2,014,153/e 0.9999 ->
+6,377,213/e 0.8939`. Hiding it is the burn-seam churn suppression working, and
+re-showing it - i.e. making `director-traced-path-suppress` draw-backed, the
+obvious-looking fix - would paint four near-parabolic ellipses in eight frames
+on the predicate that also drives icon suppression. So window B is BENIGN too,
+by a different mechanism.
+
+### The fix: make the token discriminate, on PAINT rather than ownership
+
+Rather than arm a `maxCount` budget - which would tolerate a benign window and
+a real dark one identically, at the same count - the raise site distinguishes
+them. `MapRenderProbe` accumulates, for the dark window it is currently inside,
+whether EVERY frame of that window had an actual polyline line PAINTED for the
+recording. `MapRenderTrace.IsLineBlink` gains an `offWindowCovered` guard,
+mirroring `bodyChanged`, that suppresses a fully painted window. The accounting
+is a pure predicate, `MapRenderTrace.NextOffWindowUncovered`, with one sticky
+rule: a single unpainted frame poisons the window for its whole length, and
+later painting cannot un-darken it.
+
+**The coverage input is PAINT, not ownership, and that distinction is the whole
+finding.** Ownership answers "is the HEAD inside a drawn CURRENT leg" - exactly
+the right question for HIDING the conic, and left untouched - but it goes false
+in the inter-leg gaps while the trajectory stays on screen, which is why the
+first cut of this guard still raised on window B (run `2026-08-01_1551`). The
+guard now reads a new per-recording PAINTED set
+(`GhostMapPresence.IsPolylinePaintingGhostTrajectory`), published by the same
+Driver decide walk at `[DefaultExecutionOrder(-50)]` - so same-frame coherent
+with the `line.active` read - from the current-element leg draw OR a forward
+run leg OR a forward arc. Still strictly ACTUAL-DRAW; the Director's TracedPath
+classification is never consulted, so this is not a "we intended the darkness"
+whitelist. Two conservative misses are accepted deliberately, both in the safe
+direction (a miss makes the detector raise, never go quiet): a later chain
+member whose run the first member already drew, and a hypothetical
+bridge-only frame.
+
+This SHARPENS the instrument rather than softening it. After the guard, a
+`line-blink` raise on the RE-ACTIVATION edge - the direction every V1 raise has
+fired in - means "the proto line went dark and the polyline painted nothing at
+all for this ghost", the only shape in which the map actually goes dark and the
+shape worth gating. Before it, the token could not tell that from a correct
+handoff. The opposite direction (a brief LIT interval between two dark windows)
+is deliberately unchanged: a conic line flashing on for a couple of frames
+between two polyline legs is its own visible artefact, and there is no future
+window to judge it against anyway. Every raise carries `offWindowCovered=`,
+`polylinePainted=` and `polylineOwns=` so a collected log states which shape
+fired - the last two are BOTH carried precisely because they disagree in the
+inter-leg gaps. Observability-only: `MapRenderProbe` / `MapRenderTrace` are
+`mapRenderTracing`-gated and off by default, the PAINTED set is populated only
+while tracing is on, and no render behaviour changed.
+
+Consequently NO budget is armed on the V1 spec and no `allowedAnomalies` entry
+is added - per the arming guidance, a benign-and-suppressed finding needs
+neither.
+
+**FLOWN THREE TIMES, and the third run is the close.**
+
+**Run `2026-08-02_1336` (the post-review HEAD): `hitCounts={}`, verdict PASS** -
+2,046 s wall / 1,989 s mission, attempt 1, fully unattended, every verifier
+green. This is the run that proves the shape at HEAD, and it carries evidence
+the earlier greens could not: the guard now LOGS its suppressions, so the run
+shows the two by-design windows being caught rather than merely not raising -
+```
+line-blink-suppressed pid=991524106 frame=86301 sinceFrames=3 body=Kerbin offWindowCovered=True polylinePainted=True polylineOwns=False
+line-blink-suppressed pid=991524106 frame=86342 sinceFrames=8 body=Kerbin offWindowCovered=True polylinePainted=True polylineOwns=False
+```
+Both windows stamped `polylinePainted=True polylineOwns=False`: the
+paint-vs-ownership divergence measured directly at the suppression point, on
+the very frames the ownership-fed cut raised on. 130 nonzero-ghost probe frames
+of 399, 10 `faithful-parity sampled>0` all `overTolerance=0`, zero
+`[Parsek][ERROR]`, zero Tier-C raises of any reason.
+
+**Run `2026-08-02_1046` (the first PAINT-fed cut, pre-review): `hitCounts={}`,
+verdict PASS** - 2,082 s wall / 1,988 s mission, attempt 1, fully unattended.
+Every verifier green including `expectations` (which the earlier sweep FAIL had
+been preempting, so this is the first run where the harness itself evaluated
+all 12 required pins + the forbidden-ERROR contract rather than a human doing it
+by hand). Non-vacuous: 131 nonzero-ghost probe frames of 399, 13
+`faithful-parity summary sampled>0` with `overTolerance=0`, zero
+`[Parsek][ERROR]`. Zero Tier-C anomaly raises of ANY reason - not just
+`line-blink`, but all nine of the ungated report-only reasons too. The dwell log
+still shows the same `director-traced-path-suppress` -> `director-stockconic-visible`
+toggle cycle that raised on every prior run; it is now correctly read as a
+painted window.
+
+**Run `2026-08-01_1551` (the ownership-fed first cut),** collected log
+`logs/2026-08-01_1925_V1-map-dwell-mun-orbit`, 2,047 s wall, fully unattended,
+attempt 1. `hitCounts={line-blink: 1}` `unlistedReasons=[]` - the guard halved
+the raises 2 -> 1, suppressing window A exactly as intended, and the survivor
+arrived stamped `offWindowCovered=False polylineOwns=False` at
+`sinceFrames=8`, which is what sent the forensics to window B and produced the
+PAINT-vs-ownership correction above. Everything else on that run was green:
+MISSION-OK with all assertion rows met and 12 phases reached,
+driverValidity/analyzer(`red=0`)/logValidate PASS, 130 nonzero-ghost probe
+frames of 399, 13 `faithful-parity summary sampled>0` with `overTolerance=0`,
+zero `[Parsek][ERROR]`, and all 12 required `logContracts` pins matched (checked
+manually, since the sweep FAIL preempts the expectations verifier).
 
 ### Evidence
 
@@ -2545,23 +2788,23 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 
 | Raised reason | In ANOMALY_TOKENS? | Producer (decision site) |
 |---|---|---|
-| `parity-drift` | yes | `MapRenderProbe.cs:1193`, `:1449`, `:1627` (via `MapRenderTrace.AnomalyParityDrift`) |
-| `line-blink` | yes | `MapRenderProbe.cs:647` |
-| `decision-vs-truth` | yes | `MapRenderProbe.cs:579` |
-| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:599` |
+| `parity-drift` | yes | `MapRenderProbe.cs:1311`, `:1567`, `:1745` (via `MapRenderTrace.AnomalyParityDrift`) |
+| `line-blink` | yes | `MapRenderProbe.cs:742` |
+| `decision-vs-truth` | yes | `MapRenderProbe.cs:619` |
+| `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:639` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | **NO** | `MapRenderProbe.cs:753` |
-| `icon-off-orbit` | **NO** | `MapRenderProbe.cs:834` |
-| `unaccounted-drawn-recording` | **NO** | `MapRenderProbe.cs:437` |
+| `icon-teleport` | **NO** | `MapRenderProbe.cs:871` |
+| `icon-off-orbit` | **NO** | `MapRenderProbe.cs:952` |
+| `unaccounted-drawn-recording` | **NO** | `MapRenderProbe.cs:477` |
 | `gap-vs-retire` | **NO** | `MapRender/GhostRenderReconciler.cs:240` |
 | `decision-vs-old-truth` | **NO** | `MapRender/GhostRenderReconciler.cs:260` |
-| `clock-not-ready` | **NO** | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1342`) |
-| `retire-not-held` | **NO** | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1365`) |
-| `anchor-resolve-fail` | **NO** | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1391`) |
-| `factory-parity` | **NO** | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1416`) |
+| `clock-not-ready` | **NO** | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1407`) |
+| `retire-not-held` | **NO** | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1430`) |
+| `anchor-resolve-fail` | **NO** | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1455`) |
+| `factory-parity` | **NO** | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1485`) |
 
-That is NINE ungated reasons, not five. **The first version of this table listed five**, and the four it missed are the last four rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace.cs:1294` `EmitRaw(true, "Anomaly", ...)`), so all four are genuinely ungated. Understating the ungated count understates the size of the fail-open, which is the one thing this entry exists to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
+That is NINE ungated reasons, not five. **The first version of this table listed five**, and the four it missed are the last four rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace.cs:1371` `EmitRaw(true, "Anomaly", ...)`), so all four are genuinely ungated. Understating the ungated count understates the size of the fail-open, which is the one thing this entry exists to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
 
 And `icon-jump` WAS in the set but is raised by nothing - it is a DEAD token (RETIRED from the gated set 2026-07-29, see the FIXED HALF above). That one matters most: the icon-teleport family is precisely the defect class the map-render wave has spent months chasing, and the sweep has never been able to see it. Before the anchoring fix the token would occasionally "hit" by matching prose (`MapRenderHighWarpCanaryInGameTest`'s own description text contains `icon-jump`), which is a false positive dressed as coverage, not a gate. Retiring it removes the false advertisement; it does NOT add the coverage - that is the `icon-teleport` decision below.
 

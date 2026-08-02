@@ -31,6 +31,7 @@ namespace Parsek.Tests
         public MapRenderS0CoverageTests()
         {
             GhostMapPresence.ResetCoverageSetsForTesting();
+            GhostMapPresence.ClearFrameCoverageSets();
             GhostMapPresence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.ResetRateLimitsForTesting();
@@ -43,6 +44,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             GhostMapPresence.ResetCoverageSetsForTesting();
+            GhostMapPresence.ClearFrameCoverageSets();
             GhostMapPresence.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.ResetRateLimitsForTesting();
@@ -208,6 +210,68 @@ namespace Parsek.Tests
             int fires = 0;
             GhostMapPresence.AssertDrawnRecordingsAccounted((recId, pb, plc, drawn) => fires++);
             Assert.Equal(0, fires); // drawn set empty after the per-frame clear
+        }
+
+        // =====================================================================
+        // PAINTED set (V1-REPLAY-LINE-BLINK): the line-blink guard's coverage input
+        // =====================================================================
+
+        [Fact]
+        public void PaintedSet_ResolvesThroughThePidBridge()
+        {
+            GhostMapPresence.SetProtoBearingPidForTesting(4242u, "rec-painted");
+            GhostMapPresence.SetPaintedRecordingLineForTesting("rec-painted", painted: true);
+
+            Assert.True(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
+        }
+
+        [Fact]
+        public void PaintedSet_UnmappedPid_IsNotPainting()
+        {
+            // No pid -> recordingId bridge entry: the probe must read "not painting" rather than throw
+            // or match some other recording's paint.
+            GhostMapPresence.SetPaintedRecordingLineForTesting("rec-painted", painted: true);
+
+            Assert.False(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
+        }
+
+        [Fact]
+        public void PaintedSet_MappedPidWithoutAPaint_IsNotPainting()
+        {
+            // The bridge resolves but nothing painted for that recording this frame - the shape that
+            // must still let line-blink raise (the map really had no line for this ghost).
+            GhostMapPresence.SetProtoBearingPidForTesting(4242u, "rec-quiet");
+
+            Assert.False(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
+        }
+
+        [Fact]
+        public void PaintedSet_IsBroaderThanTheOwnershipSet()
+        {
+            // THE distinction the guard turns on (run 2026-08-01_1551). A recording can be PAINTED -
+            // run legs / forward arcs keeping its trajectory on screen - on a frame where the narrow
+            // current-leg OWNERSHIP bit is false because the head sits between legs
+            // (ride=fallback-head-outside-legs). Ownership is driven here through the renderer's own
+            // publish seam, so this pins the two as genuinely separate signals rather than aliases.
+            GhostMapPresence.SetProtoBearingPidForTesting(4242u, "rec-interleg");
+            Parsek.Display.GhostTrajectoryPolylineRenderer.SetOwnershipPublishForTesting(
+                "rec-interleg", inDrewSet: false);
+            GhostMapPresence.NotePaintedRecordingLine("rec-interleg");
+
+            Assert.False(GhostMapPresence.IsPolylineOwningGhostPhase(4242u));
+            Assert.True(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
+        }
+
+        [Fact]
+        public void ClearFrameCoverageSets_EmptiesThePaintedSet()
+        {
+            // Same per-frame lifecycle as the other frame sets: a stale paint must never carry into the
+            // next frame and silently cover a genuinely dark one.
+            GhostMapPresence.SetProtoBearingPidForTesting(4242u, "rec-painted");
+            GhostMapPresence.SetPaintedRecordingLineForTesting("rec-painted", painted: true);
+            GhostMapPresence.ClearFrameCoverageSets();
+
+            Assert.False(GhostMapPresence.IsPolylinePaintingGhostTrajectory(4242u));
         }
     }
 }

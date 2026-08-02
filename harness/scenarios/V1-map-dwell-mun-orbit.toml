@@ -38,11 +38,23 @@
 # provisional through the product's own abandon path and leaves every
 # committed tree (the flown B11 tree AND the injected b9 corpus) untouched.
 #
-# TIER: operator, reason (b) EXPENSIVE AND NOT YET GREEN (the R1 precedent).
-# Worst case is ~4,900 s x `retry.policy = "once"` = ~2.7 h, so a systematic
-# failure must never ride a nightly until cost and flake data exist.
-# PROMOTE TO: a cadence is a HUMAN call after green flights land run ids,
-# wall time and the anomaly baseline in docs/dev/autotest-status.md.
+# TIER: nightly since 2026-08-02. It was `operator` for reason (b) EXPENSIVE AND
+# NOT YET GREEN (the R1 precedent), and that reason is now discharged on its own
+# stated terms - green flights with run ids, wall time and an anomaly baseline
+# recorded in docs/dev/autotest-status.md:
+#   - GREEN, twice consecutively and unattended: 2026-08-02_1046 and
+#     2026-08-02_1336, both hitCounts={} with every verifier green.
+#   - COST measured, not estimated: ~2,055 s (~34 min) per unattended run across
+#     2,044 / 2,047 / 2,082 / 2,046 s. The ~4,900 s x retry = ~2.7 h worst case
+#     still stands as the budget ceiling; it is the systematic-failure case the
+#     operator tier existed to keep off a cadence, and two consecutive greens at
+#     the corrected shape are the evidence that it is not the expected case.
+#   - The remaining unknown the spec was built to measure is measured: zero
+#     Tier-C raises of ANY reason on real geometry, so no budget is armed.
+# WHY NIGHTLY AND NOT DAILY: ~34 min is disproportionate every day for a lane
+# whose value is catching RARE real-geometry render regressions; nightly still
+# reads against each day's main. Not `weekly` either - no spec uses that tier,
+# so it would look scheduled while very likely never firing.
 #
 # GATING DISCIPLINE (first flights):
 #  - REQUIRED tokens make an empty dwell impossible: the probe summary with
@@ -60,11 +72,10 @@
 # =============================================================================
 schema = 1
 id = "V1-map-dwell-mun-orbit"
-tier = "operator"
+tier = "nightly"
 description = "V1 visual validation: fly and commit the B11 Mun-orbit profile, rewind so the flown tree re-enters replay scope, stage a deterministic kRPC map camera, and dwell (1x hold, warp ramp, recorded-SOI re-cross) while the per-frame MapRenderProbe + RenderParityOracle measure the REPLAYING real geometry."
 instanceProfile = "stock-minimal"
-tags = ["V1", "visual", "map-dwell", "render-parity", "rewind", "mun", "mechjeb",
-        "pending-operator"]
+tags = ["V1", "visual", "map-dwell", "render-parity", "rewind", "mun", "mechjeb"]
 
 [fixture]
 # The B11 fixture VERBATIM (the stock Kerbal X on the pad) with rewind-b9

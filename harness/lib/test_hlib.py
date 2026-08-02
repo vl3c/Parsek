@@ -4229,7 +4229,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # machine-checked below; the rest are human judgements recorded here.
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
-        "V1-map-dwell-mun-orbit.toml": "tier=operator",
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "
@@ -4861,7 +4860,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:753",
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:871",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))

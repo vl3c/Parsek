@@ -117,6 +117,19 @@ namespace Parsek
         // orbit) from a true same-geometry flicker. Without this, a Kerbin-escape -> Sun-heliocentric
         // handoff under high warp compresses two correct toggles below the frame window and reads as a blink.
         private readonly Dictionary<uint, string> lastLineToggleBody = new Dictionary<uint, string>();
+        // Pids whose CURRENT proto-orbit-line DARK WINDOW has had at least one frame that NOTHING
+        // covered - the line read inactive and the trajectory polyline painted no line at all for that
+        // recording. Membership is the blink predicate's dark-vs-not discriminator: a window that never
+        // appears here had a line painted end to end (either the by-design ownership handoff - the
+        // proto line MUST hide while the polyline owns - or the inter-leg stretch where the run legs and
+        // arcs carry the trajectory while the current orbit is a meaningless per-frame reseed), while a
+        // window that does appear is a real gap where the map went dark for this ghost. Accumulated per
+        // frame through the pure MapRenderTrace.NextOffWindowUncovered, read on the off->on edge,
+        // cleared there and on scene change. See V1-REPLAY-LINE-BLINK.
+        private readonly HashSet<uint> lineOffWindowUncovered = new HashSet<uint>();
+        // Reusable scratch for the departed-pid sweep below (cannot mutate a dictionary while
+        // enumerating it). Allocated once; only ever non-empty on a frame where a ghost went away.
+        private readonly List<uint> pidPruneScratch = new List<uint>();
         // Universal time at the previous sample per pid. The icon-jump expected-motion model uses the ACTUAL
         // per-frame UT advance (currentUT - prevSampleUT) instead of Time.unscaledDeltaTime *
         // TimeWarp.CurrentRate, which under-counts the real on-rails warp step by ~20x at high warp and
@@ -229,6 +242,7 @@ namespace Parsek
             lastIconSuppressed.Clear();
             lastLineToggleFrame.Clear();
             lastLineToggleBody.Clear();
+            lineOffWindowUncovered.Clear();
             prevSampleUT.Clear();
             suppressedLastSample.Clear();
             lastJumpEmitRealtime.Clear();
@@ -289,6 +303,32 @@ namespace Parsek
                     }
                     Sample(v, pid, frame, currentUT, foShiftFrame, realtime);
                     sampled++;
+                }
+            }
+
+            // Drop the whole per-pid LINE history for any pid that is no longer a tracked ghost, so a
+            // destroyed-and-recreated ghost starts from a clean slate instead of inheriting the dead
+            // incarnation's last line state. Ghost pids are craft-baked and reused (see the persistentId
+            // note in CLAUDE.md), so a teardown/respawn inside the 8-frame blink window is routine at
+            // high warp rather than exotic. Without this the stale prevActive manufactures a phantom
+            // toggle on the first frame back, and - since the dark-window verdict GATES a raise, where
+            // the older dicts only fed one - the stale verdict then resolves it wrongly in EITHER
+            // direction: a stale "covered" swallows the new incarnation's real blink, a stale poison
+            // reds its first clean window. Cheap and tracing-gated: on almost every frame nothing has
+            // departed and the scratch list stays empty.
+            if (lastLineActive.Count > 0)
+            {
+                pidPruneScratch.Clear();
+                foreach (var kv in lastLineActive)
+                    if (pids == null || !pids.Contains(kv.Key))
+                        pidPruneScratch.Add(kv.Key);
+                for (int i = 0; i < pidPruneScratch.Count; i++)
+                {
+                    uint gone = pidPruneScratch[i];
+                    lastLineActive.Remove(gone);
+                    lastLineToggleFrame.Remove(gone);
+                    lastLineToggleBody.Remove(gone);
+                    lineOffWindowUncovered.Remove(gone);
                 }
             }
 
@@ -623,6 +663,44 @@ namespace Parsek
             // MapRenderTrace.IsEnabled-gated (tracing OFF by default), so removing the call is
             // OBSERVABILITY-ONLY: flag-OFF / tracing-OFF normal play is byte-identical (the probe never ran).
 
+            // --- Proto-line DARK-WINDOW coverage accounting (feeds the line-blink guard below) ---
+            // While the proto orbit line reads inactive, record whether the trajectory polyline
+            // ACTUALLY PAINTED a line for this recording on that frame. Both signals are published by
+            // the Driver at exec-order -50 EARLIER THIS FRAME, so they are same-frame coherent with the
+            // line.active read - the ordering the ownership contract is built on.
+            //
+            // COVERAGE IS polylinePainted, NOT polylineOwns, and the difference is the whole finding of
+            // run 2026-08-01_1551. Ownership (drewNonOrbitalLegRecordings) answers "is the HEAD inside a
+            // drawn CURRENT leg" - exactly the right question for hiding the proto conic, and unchanged -
+            // but it goes FALSE in the gaps BETWEEN legs (ride=fallback-head-outside-legs) while the run
+            // legs + forward arcs keep the ghost's trajectory on screen. Judging darkness by ownership
+            // therefore raised on a window whose bracketing onPreCull draws both read
+            // totalLegsDrawn=4 runLegs=4/4 arcsDrawn=2: nothing had gone dark. polylinePainted asks the
+            // question the guard actually needs - "did the map have ANY line for this ghost" - and is
+            // still strictly ACTUAL-DRAW, never the Director's TracedPath classification.
+            //
+            // A window painted on every frame is by design (either the polyline owns the leg, or it is
+            // mid-run between legs while the conic is meaningless); a window with even one unpainted
+            // frame is a real gap where the map went dark for this ghost. Only "False" opens a window: a
+            // degenerate read ("(line-null)" / "(no-renderer)") is deliberately NOT treated as covered
+            // darkness, so it keeps raising.
+            // A DEGENERATE read ("(line-null)" / "(no-renderer)" / "(read-err:...)") means we do not know
+            // what the line was doing, which is NOT evidence that a dark window ended. So the window is
+            // keyed on LIT: anything that is not definitively "True" extends the current window, and a
+            // degenerate frame can never count as covered no matter what the polyline painted. Reading
+            // it as "the line came back on" (the first cut's !lineIsOff) let a transient renderer read
+            // both judge and then clear a window that had a genuinely unpainted frame in it.
+            bool polylinePainted = GhostMapPresence.IsPolylinePaintingGhostTrajectory(pid);
+            bool lineIsLit = lineActive == "True";
+            bool lineIsOff = !lineIsLit;
+            bool lineWasOff = hadPrevLine && prevLineActive != "True";
+            bool coveredThisFrame = polylinePainted && lineActive == "False";
+            if (MapRenderTrace.NextOffWindowUncovered(
+                    lineIsOff, lineWasOff, coveredThisFrame, lineOffWindowUncovered.Contains(pid)))
+                lineOffWindowUncovered.Add(pid);
+            else
+                lineOffWindowUncovered.Remove(pid);
+
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
             // predicate fires only when the PREVIOUS toggle was within the window,
@@ -637,19 +715,59 @@ namespace Parsek
                 // prior toggle's body; differs from the current body => cross-seam => not a blink.
                 bool toggleCrossedBody = lastLineToggleBody.TryGetValue(pid, out string priorToggleBody)
                     && priorToggleBody != bodyName;
+                // This is the RE-ACTIVATION edge iff the previous sample was not lit and this one is;
+                // only then is there a finished dark window behind us to judge. On the opposite edge
+                // (lit -> dark) this is false BY CONSTRUCTION, not because anything was unpainted - see
+                // the emit comment below, which is the only place a reader can be misled about that.
+                bool offWindowCovered =
+                    lineWasOff && lineIsLit && !lineOffWindowUncovered.Contains(pid);
                 if (MapRenderTrace.IsLineBlink(
                         toggled: true,
                         hasLastToggleFrame: hasLastToggle,
                         lastToggleFrame: lastToggle,
                         currentFrame: frame,
-                        bodyChanged: toggleCrossedBody))
+                        bodyChanged: toggleCrossedBody,
+                        offWindowCovered: offWindowCovered))
                 {
+                    // The three coverage fields ride the line so a collected log states WHICH shape
+                    // raised. READ THEM WITH lineActive/prevActive: on the RE-ACTIVATION edge
+                    // (lineActive=True prevActive=False) offWindowCovered=False is the load-bearing
+                    // fact - the line went dark and the polyline painted nothing over it. On the
+                    // OPPOSITE edge (lineActive=False) offWindowCovered is false by construction and
+                    // says nothing; that direction is deliberately ungated (a conic flashing on for a
+                    // couple of frames between two legs is its own visible artefact, and there is no
+                    // future window to judge it against). polylinePainted is the coverage input this
+                    // frame; polylineOwns is carried alongside precisely because the two DISAGREE in
+                    // the inter-leg gaps.
                     MapRenderTrace.EmitAnomaly(
                         MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
                         "line-blink",
                         string.Format(ic,
-                            "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4}",
-                            lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName));
+                            "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
+                            + "offWindowCovered={5} polylinePainted={6} polylineOwns={7}",
+                            lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
+                            offWindowCovered, polylinePainted, polylineOwns));
+                }
+                else if (offWindowCovered && hasLastToggle
+                         && frame - lastToggle >= 0 && frame - lastToggle <= MapRenderTrace.LineBlinkFrameWindow)
+                {
+                    // THE GUARD FIRED: a raise the pre-guard detector would have made was suppressed
+                    // because the window was painted end to end. Logged because a silent guard on a
+                    // GATED token is undebuggable - without this line a collected log cannot tell "no
+                    // toggle happened" from "a toggle happened and the guard ate it", which is exactly
+                    // the position the 2026-08-01 investigation started from. Also gives the harness a
+                    // countable NON-gating signal, so a future run can show the guard is not
+                    // over-firing. VerboseOnChange-free: this is rare (once per painted window) and the
+                    // frame numbers make each occurrence distinct.
+                    MapRenderTrace.EmitOnChange(
+                        "line-blink-suppressed",
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
+                        string.Format(ic,
+                            "lineActive={0} prevActive={1} lastToggleFrame={2} sinceFrames={3} body={4} "
+                            + "offWindowCovered=True polylinePainted={5} polylineOwns={6}",
+                            lineActive, prevLineActive, lastToggle, frame - lastToggle, bodyName,
+                            polylinePainted, polylineOwns),
+                        recId);
                 }
                 lastLineToggleFrame[pid] = frame;
                 lastLineToggleBody[pid] = bodyName;
