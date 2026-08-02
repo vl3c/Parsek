@@ -3093,9 +3093,10 @@ class MachineLockWiringTests(unittest.TestCase):
         """The reclaim path is bounded to ONE retry and then refuses. Two racers
         that both loop on reclaim livelock instead of serializing.
 
-        Driven by making the remove genuinely fail: an open handle blocks delete
-        on Windows, so acquire takes the reclaim branch, fails to remove, retries
-        the exclusive create once, and must then refuse rather than spin."""
+        Driven by making the reclaim genuinely fail: an open handle blocks the
+        rename on Windows, so acquire takes the reclaim branch, cannot move the
+        stale lock aside, exhausts its bounded retries, and must then refuse
+        rather than spin."""
         path = self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0})
         blocker = open(path, "r", encoding="utf-8")
         self.addCleanup(blocker.close)
@@ -3225,6 +3226,9 @@ class LeaseCoversWorstCaseScenarioTests(unittest.TestCase):
     def test_lease_exceeds_the_worst_committed_spec_including_retries(self):
         import provlib
         specs = run.load_all_specs()
+        # load_all_specs() returns [] when SCENARIOS_DIR is missing, which would
+        # make this invariant pass having proven nothing.
+        self.assertTrue(specs, "no committed specs loaded; the invariant is vacuous")
         worst_id, worst_wall = None, 0.0
         for spec in specs:
             budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))

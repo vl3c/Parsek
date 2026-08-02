@@ -3395,7 +3395,7 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     exit_code = 0
     ran_any = False
     ran_count = 0
-    for spec in selected:
+    for index, spec in enumerate(selected):
         # Refresh our lease at each scenario boundary so a long but LIVE
         # selection can never expire out from under itself.
         #
@@ -3410,6 +3410,13 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
             logger.error("Lock", "lost the machine lock mid-selection; a sibling has "
                                  "reclaimed it. Stopping after %d scenario(s) rather than "
                                  "running unlocked." % ran_count)
+            # Leave the same evidence the acquire-refusal path leaves: one
+            # INVALID(instance-locked) row per ABANDONED scenario. Without this
+            # the unrun tail is simply absent from results/, which reads as
+            # "never selected" rather than "stopped because the lock was lost".
+            note = "machine lock lost mid-selection after %d scenario(s)" % ran_count
+            for abandoned in selected[index:]:
+                _write_instance_locked_result(abandoned, note, runtime, logger)
             return max(exit_code, 1)
         # M-B1 spec admission: resolve the autopilot mission ref SHELL-SIDE (read
         # the mission's declared schema toml + confirm the mission .py exists) and

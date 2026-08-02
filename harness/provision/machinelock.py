@@ -37,7 +37,16 @@ livelock instead of serializing; refusing is always safe (a refusal costs a run,
 a false acquire costs a corrupted flight and possibly a false PASS).
 
 Stdlib only, no third-party deps. Windows is the target platform, so there is no
-fcntl and no reliance on delete-while-open semantics.
+fcntl.
+
+PORTABILITY NOTE, stated honestly because an earlier draft claimed the opposite:
+the create and the payload write are two operations, so between a winner's
+O_EXCL create and the close of its write the lockfile exists and is EMPTY. On
+Windows the winner's open handle makes a racer's rename fail with a sharing
+violation, which closes that window as a side effect of platform semantics
+rather than by design. The protocol does not RELY on that -- an empty file is
+never treated as a lock and never reclaimed (see the ``raw == b""`` branch) --
+so the window is closed on POSIX too, where the rename would otherwise succeed.
 """
 
 from __future__ import annotations
@@ -113,6 +122,40 @@ def describe_holder(existing: Optional[Dict]) -> str:
         existing.get("selection") or "?", existing.get("startedIso") or "?")
 
 
+def _restore_quarantined(
+    quarantine: str,
+    path: str,
+    log: Callable[[str, str], None],
+) -> None:
+    """Put a wrongly-quarantined lock back, WITHOUT overwriting a new winner.
+
+    The restore is an exclusive create, not an ``os.replace``: while the lock
+    path was briefly empty a third process may have legitimately won it via
+    O_EXCL, and stomping that would break this module's one invariant -- that
+    holding is decided solely by the exclusive create. If the path is taken, the
+    new winner keeps it and we simply drop our copy.
+    """
+    payload = read_lock_bytes(quarantine)
+    if payload is None:
+        return
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        log("Warn", "run-lock: not restoring the quarantined lock -- another "
+                    "holder won %s in the meantime" % path)
+    except OSError as exc:
+        log("Error", "run-lock: could not restore %s after an aborted "
+                     "reclaim: %s" % (path, exc))
+        return
+    else:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(payload)
+    try:
+        os.remove(quarantine)
+    except OSError:
+        pass
+
+
 def acquire(
     path: str,
     payload_fn: Callable[[], Dict],
@@ -139,7 +182,7 @@ def acquire(
         except FileExistsError:
             pass
         except OSError as exc:
-            log("Error", "machine lock unusable at %s: %s" % (path, exc))
+            log("Error", "run-lock unusable at %s: %s" % (path, exc))
             return None, REFUSED_IO, None
         else:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -148,6 +191,15 @@ def acquire(
 
         # Someone holds it. Decide against the CURRENT contents.
         raw = read_lock_bytes(path)
+        if raw == b"":
+            # THE CREATE WINDOW. Between a winner's O_EXCL create and the close
+            # of its write the file exists and is EMPTY. Parsing that yields
+            # "no lock", and reclaiming on it would delete the winner's file
+            # while it is still writing. On Windows the winner's open handle
+            # makes our rename fail anyway, but that is a platform accident, not
+            # the guarantee -- on POSIX the rename succeeds and BOTH would hold.
+            # An empty file is never a real lock, so back off and re-decide.
+            continue
         existing = parse_lock(raw)
         decision = provlib.acquire_lock(existing, pid, now_fn(), pid_alive_fn,
                                         lease_seconds=lease_seconds)
@@ -155,7 +207,7 @@ def acquire(
             return None, REFUSED_LIVE, existing
 
         if attempt == ATTEMPTS:
-            log("Warn", "machine lock: gave up after %d attempts; current holder %s"
+            log("Warn", "run-lock: gave up after %d attempts; current holder %s"
                 % (ATTEMPTS, describe_holder(read_lock(path))))
             return None, REFUSED_RACE, read_lock(path)
 
@@ -170,19 +222,21 @@ def acquire(
             continue
 
         moved = read_lock_bytes(quarantine)
-        if moved != raw:
-            # Not the lock we judged: a fresh holder created it between our read
-            # and our move. Put it back and refuse rather than steal it.
-            try:
-                os.replace(quarantine, path)
-            except OSError as exc:
-                log("Error", "machine lock: could not restore %s after an aborted "
-                             "reclaim: %s" % (path, exc))
-            log("Warn", "machine lock: aborted reclaim, a fresh holder appeared (%s)"
-                % describe_holder(parse_lock(moved)))
+        if moved is None or raw is None or moved != raw:
+            # Not provably the lock we judged. Either a fresh holder created it
+            # between our read and our move, or a read failed -- and a read
+            # failure is NOT benign here: if the file had simply been released,
+            # the rename above would have raised FileNotFoundError instead of
+            # succeeding. Two correlated unreadable reads (one AV or backup hold
+            # spans both) would otherwise compare None == None, "verify", and
+            # delete a LIVE holder's lock. Restore and refuse.
+            _restore_quarantined(quarantine, path, log)
+            log("Warn", "run-lock: aborted reclaim, %s"
+                % ("a read failed while verifying" if (moved is None or raw is None)
+                   else "a fresh holder appeared (%s)" % describe_holder(parse_lock(moved))))
             return None, REFUSED_LIVE, parse_lock(moved)
 
-        log("Warn", "machine lock reclaiming stale lock (%s, reason=%s)"
+        log("Warn", "run-lock reclaiming stale lock (%s, reason=%s)"
             % (describe_holder(existing), decision.reason))
         try:
             os.remove(quarantine)
@@ -204,22 +258,51 @@ def heartbeat(
     hold BEGAN, not when it was last refreshed.
     """
     existing = read_lock(path)
+    if existing is None:
+        # A transient read failure (an AV or backup hold) is indistinguishable
+        # from "reclaimed", and treating it as loss would abort a whole nightly.
+        # Retry once before believing it.
+        existing = read_lock(path)
     if not provlib.should_release(existing, os.getpid()):
         if log_fn:
-            log_fn("Warn", "machine lock heartbeat: lock is no longer ours (%s)"
+            log_fn("Warn", "run-lock heartbeat: lock is no longer ours (%s)"
                    % describe_holder(existing))
         return False
     payload = payload_fn()
     if existing and existing.get("startedIso"):
         payload["startedIso"] = existing["startedIso"]
+    tmp = "%s.tmp-%d" % (path, os.getpid())
     try:
-        tmp = "%s.tmp-%d" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
+    except OSError as exc:
+        if log_fn:
+            log_fn("Warn", "run-lock heartbeat failed: %s" % exc)
+        return True   # we still held it a moment ago; the next beat re-checks
+
+    # FINAL ownership check, as late as possible. This read and the replace below
+    # are still a TOCTOU pair -- a file cannot be compare-and-swapped -- but the
+    # window is now two adjacent syscalls rather than spanning the payload build.
+    # Checking AFTER the replace instead would be worthless: by then we have
+    # already overwritten whoever reclaimed us, so the read only ever shows our
+    # own write. Reaching here at all requires the lease to have expired under a
+    # live holder, which LeaseCoversWorstCaseScenarioTests makes unreachable for
+    # every committed spec.
+    current = read_lock(path)
+    if not provlib.should_release(current, os.getpid()):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        if log_fn:
+            log_fn("Warn", "run-lock heartbeat: reclaimed mid-beat by %s"
+                   % describe_holder(current))
+        return False
+    try:
         os.replace(tmp, path)
     except OSError as exc:
         if log_fn:
-            log_fn("Warn", "machine lock heartbeat failed: %s" % exc)
+            log_fn("Warn", "run-lock heartbeat failed: %s" % exc)
     return True
 
 
@@ -238,7 +321,7 @@ def release(
     existing = read_lock(path)
     if not provlib.should_release(existing, os.getpid()):
         if existing is not None and log_fn:
-            log_fn("Warn", "machine lock not released: held by %s, not us (pid=%d)"
+            log_fn("Warn", "run-lock not released: held by %s, not us (pid=%d)"
                    % (describe_holder(existing), os.getpid()))
         return False
     try:
@@ -246,5 +329,5 @@ def release(
     except OSError:
         return False
     if log_fn:
-        log_fn("Info", "machine lock released path=%s" % path)
+        log_fn("Info", "run-lock released path=%s" % path)
     return True
