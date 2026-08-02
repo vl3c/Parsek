@@ -850,13 +850,34 @@ loop), so it takes the SAMPLING with it. Everything the recorder would have done
 frame - trajectory points, part events, the background pass - does not happen. The
 recording is not degraded, it is empty.
 
-### Why nothing caught it
+### Why nothing caught it [HARNESS HALF ADDRESSED 2026-08-02]
 
-`EVA-2-orbital-board` is green and stays green. Its numeric guard is
+`EVA-2-orbital-board` is green and stayed green. Its numeric guard is
 `recordings.count = { min = 2, max = 2 }`, which counts `.prec` FILES, and two empty
 recordings are still two files. This is the category inventory's "fourth trap" (a
 vacuous PASS the tally cannot see) reappearing in the RECORDINGS dimension instead of
-the batch-tally one. Nothing in the verifier chain asserts a recording has points.
+the batch-tally one. Stated precisely, because the loose version is false: the trap is
+the BLIND SPOT, not a green EVA-2 run that exploited it. No EVA-2 run is on record
+having PASSED with empty recordings - the empty pair was measured on
+`2026-07-30_1532_S0.7-exit-auto-commit`, which flew EVA-2's profile and finished
+PARSEK-FAIL with `recordings.count = 0`.
+
+"Nothing in the verifier chain asserts a recording has points" is NO LONGER TRUE as
+of 2026-08-02: `[expectations.recordings.points]` (autotest-status gate 12) asserts
+`total` / `largest` / `smallest` / `trivialRecordings` windows over the per-recording
+`pointCount` the save carries, evaluated by the R9 `saveParse` row. EVA-2 declares
+`largest = { min = 2 }` + `trivialRecordings = { max = 1 }`, REPORT-ONLY pending its
+arming run. Two honest limits on that:
+
+- It reds only when the trigger FIRES. The stock trigger is intermittent - `dT is
+  NaN` occurred 2196x / 6x / 0x across three runs of the same fixture during the
+  #1408 verification, and the A/B control `2026-08-01_1634` flew CLEAN on a
+  byte-verified PRE-FIX DLL (`points=4`), i.e. a DEFECTIVE build would have satisfied
+  this window. A green EVA-2 is NOT evidence the NaN path did not happen. The
+  assertion bounds the blast radius of the next recording-emptying defect; it does not
+  guarantee detection of this one.
+- It is a DETECTOR, not the fix. The product fix is the "Fix" section above (all three
+  directions below were taken); this only changes what the harness can SEE.
 
 ### Scope, as far as the evidence goes
 
@@ -894,10 +915,14 @@ the batch-tally one. Nothing in the verifier chain asserts a recording has point
    `FlightRecorder.OnPhysicsFrame` from a single site, and it degrades through the
    producer's existing `Fail(...)` decline contract rather than inventing a second one.
 
-A harness-side companion is worth considering separately: an
+~~A harness-side companion is worth considering separately: an
 `expectations.recordings` assertion on POINTS, not only on file count, would have
-caught this on EVA-2's first flight. NOT DONE - still open, and still the thing that
-would catch the next recording that finalizes empty.
+caught this on EVA-2's first flight.~~ DONE 2026-08-02 - see "Why nothing caught it"
+above. Landed as `[expectations.recordings.points]`, a third M-C2 save-parse block
+read off the save's own `pointCount` (the `FinalizeTreeRecordings: ... points=N` log
+line was rejected as a source: it is Verbose, so it would go silent fail-open on any
+spec not pinning `verboseLogging`). Note the claim is narrower than "would have
+caught this on EVA-2's first flight" - see the intermittency limit above.
 
 ---
 

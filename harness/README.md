@@ -14,7 +14,11 @@ Everything the harness fetches or generates lives UNDER `harness/`:
 
 - Code: `run.py`, `lib/` (`hlib.py` pure decision library + `oracle.py`, the
   M-B2 pure ledger oracle, + `saveparse.py`, the M-C2 pure save-structure
-  parser/evaluator behind the `saveParse` verifier row), `provision/` (`provlib.py` pure, `provision.py`
+  parser/evaluator behind the `saveParse` verifier row - `[expectations.rewind]`,
+  `[expectations.recordings.structure]`, and the gate-12
+  `[expectations.recordings.points]` block that asserts recordings actually
+  RECORDED something rather than merely existing as `.prec` files),
+  `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
   decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives
   seam-only scenarios AND autopilot scenarios (the mission handoff spawns the

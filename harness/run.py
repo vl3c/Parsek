@@ -2176,7 +2176,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 7b. Save-parse structural verifier (M-C2 / R9). Parses the produced save's
     # ParsekScenario SCENARIO surfaces (RECORDING_TREE topology, supersede rows,
     # tombstones, rewind points) and evaluates [expectations.rewind] +
-    # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
+    # [expectations.recordings.structure] + [expectations.recordings.points].
+    # REPORT-ONLY by default (VERDICT
     # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
     # move a committed nightly's verdict with no live run to prove the readings);
     # a block opts in with gating = true - declared by exactly ONE committed
@@ -2211,14 +2212,24 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "scenarioFound": sp.scenario_found,
         }
         rewind_obs = (sp.observed.get("rewind") or {})
+        # Gate 12: the recorded-POINTS distribution rides the SAME line. It is
+        # recorded unconditionally (no block needed), so an operator sizing a
+        # first window can read it straight off a green run's console output
+        # instead of digging the number out of results/<runId>.json.
+        points_obs = ((sp.observed.get("recordings") or {}).get("points") or {})
         logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
                               "scenarioFound=%s supersedeRows=%s tombstones=%s "
-                              "rewindPoints=%s mismatches=%d"
+                              "rewindPoints=%s pointsTotal=%s pointsLargest=%s "
+                              "pointsSmallest=%s pointsUnparsed=%s mismatches=%d"
                     % (sp.status, sp.gating, list(sp.blocks) or "-",
                        list(sp.armed_blocks) or "-", sp.scenario_found,
                        rewind_obs.get("supersedeRows", "-"),
                        rewind_obs.get("tombstones", "-"),
-                       rewind_obs.get("rewindPoints", "-"), len(sp.mismatches)))
+                       rewind_obs.get("rewindPoints", "-"),
+                       points_obs.get("total", "-"),
+                       points_obs.get("largest", "-"),
+                       points_obs.get("smallest", "-"),
+                       points_obs.get("unparsed", "-"), len(sp.mismatches)))
         report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
         if report_only:
             logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
