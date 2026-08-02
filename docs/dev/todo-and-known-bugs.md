@@ -451,20 +451,27 @@ ones. Three layers, source outwards:
    `patch.EndUT < startUT` clamp cannot catch a NaN `EndUT` (the comparison is false),
    and `endUT` is the UT the finalizer propagates the terminal segment AT - which is
    exactly the member of the class the live 2026-08-01 capture turned out to hit.
-   `EndUT` CARRIES A WEAKER RULE THAN THE ELEMENTS, and this is load-bearing:
-   `+Infinity` is stock's own sentinel for "this patch never ends", not a degeneracy.
-   Verified against decompiled KSP 1.12.5 on two independent paths -
-   `PatchedConicSolver.Update` seeds the root patch with
-   `patches[0].EndUT = patches[0].period` whenever `eccentricity >= 1.0` and `Orbit`
+   AN INFINITE `EndUT` IS DECLINED BUT NOT CALLED A DEGENERACY, and the distinction is
+   the whole of what review changed here. `+Infinity` is stock's own sentinel for "this
+   patch never ends" on a FULLY SOLVED open orbit - verified against decompiled
+   KSP 1.12.5 on two independent paths: `PatchedConicSolver.Update` seeds the root patch
+   with `patches[0].EndUT = patches[0].period` whenever `eccentricity >= 1.0` and `Orbit`
    assigns `period = double.PositiveInfinity` for every open orbit; and
    `PatchedConics._CalculatePatch` assigns `p.EndUT = double.PositiveInfinity` with
    `patchEndTransition = FINAL` for a hyperbolic patch whose reference body has an
-   infinite sphere of influence (the Sun). So a solar-escape probe presents finite,
-   perfectly propagatable elements with an infinite end bound; screening it like an
-   element would abort the whole capture at patch 0 and leave that recording with no
-   predicted tail at all. Only NaN and `-Infinity` are refused on `EndUT`. Caught in
-   review before merge, guarded by
-   `Snapshot_HyperbolicPatchWithInfiniteEndUT_IsCapturedNotRefused`.
+   infinite sphere of influence (the Sun). So a solar-escape probe is a healthy patch,
+   not a broken one. ADMITTING IT WOULD NOT HELP, which is where the first attempt at
+   this correction went wrong: `endUT` is the UT
+   `IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment` propagates the
+   terminal segment AT, so an infinite bound yields a NaN state, fails that call's
+   `IsFinite` check and declines anyway - through a plain UN-rate-limited `Warn` that
+   then repeats on every periodic refresh for the whole coast. Declining at the snapshot
+   layer reaches the identical outcome with bounded logging. What the carve-out buys is
+   the LABEL: an open-orbit sentinel logs Verbose and change-keyed
+   (`is an open orbit with no end bound`), while a genuine degeneracy still WARNs.
+   Guarded by `Snapshot_OpenOrbitInfiniteEndUT_IsDeclinedQuietlyNotAsADegeneracy` and
+   `Snapshot_InfiniteEndUTWithADegenerateElement_StillWarnsAsADegeneracy`, so a NaN
+   cannot ride an escape trajectory into the quiet path.
 2. **Solver boundary - `TwoBodyOrbit.AreSegmentElementsPropagatable`.**
    `TryCreateFromSegment` checked only `semiMajorAxis` for finiteness, so the other
    six elements went through unvalidated; a NaN eccentricity then failed the
@@ -553,12 +560,13 @@ so this was checked rather than assumed - and the collected log independently ca
 build).
 
 BUILD DELTA, stated rather than glossed: the flights were made on the build at commit
-`a5271f0f7`. The review pass that followed changed `HasFinitePatchElements` to accept
-`EndUT = +Infinity`. That cannot affect these runs: the patch refused in the fixed-build
-run was `endUT=NaN` (and `DescribePatchElements` lists EVERY offending field, so NaN was
-the only one), NaN is still refused, and the change strictly WIDENS acceptance to a value
-neither run produced. The rest of the review delta is comments, log formatting and the
-rate-limit key. A confirmatory re-fly was not run because it could not discriminate.
+`a5271f0f7`. The review pass that followed changed only the LOG LEVEL an infinite
+`EndUT` takes (Verbose open-orbit sentinel instead of a degeneracy WARN), the exception
+detail in the finalizer-cache WARN, and comments. The accept/reject decision for every
+input is unchanged, and the patch refused in the fixed-build run was `endUT=NaN` - still
+refused, still WARNed, since `DescribePatchElements` lists EVERY offending field and NaN
+was the only one. A confirmatory re-fly was not run because nothing in the delta can
+discriminate on those two runs.
 
 | run | build | stock `dT is NaN` | patch refused | `ArithmeticException` | EVA kerbal |
 | --- | --- | --- | --- | --- | --- |

@@ -1615,11 +1615,11 @@ six publish or compare numbers the runner already measured.
     boundary (`TwoBodyOrbit.AreSegmentElementsPropagatable` - non-finite, negative
     `e`, parabolic `e == 1`, and `a`-sign-vs-conic-class disagreement), refuses a
     non-finite stock patch at the source (`PatchedConicSnapshot`, new
-    `NonFinitePatchElements` reason, `MissingPatchBody` partial-keep semantics - with
-    `EndUT` deliberately allowing `+Infinity`, which is stock's "this patch never
-    ends" sentinel for an open orbit rather than a degeneracy; screening it like an
-    element would strip solar-escape probes of their predicted tail, caught in review
-    before merge), and
+    `NonFinitePatchElements` reason, `MissingPatchBody` partial-keep semantics - an
+    infinite `EndUT` is still declined, since it is the UT the finalizer would
+    propagate the terminal segment at, but is logged as the open-orbit sentinel it is
+    rather than as a degeneracy, so a solar-escape probe does not WARN for its whole
+    coast; caught in review before merge), and
     stops any finalizer throw from costing a sample
     (`RecordingFinalizationCacheProducer.TryBuildFromLiveVessel` fails loud once and
     declines through the existing `Fail(...)` path). Full reasoning - including why
@@ -1656,10 +1656,11 @@ six publish or compare numbers the runner already measured.
     assertion only reds when the stock trigger actually fires, so it bounds the
     blast radius of the next such defect rather than guaranteeing detection.
     BUILD DELTA, stated rather than glossed: both flights ran the build at commit
-    `a5271f0f7`; the review pass that followed widened `HasFinitePatchElements` to
-    accept `EndUT = +Infinity`. It cannot discriminate on these runs - the refused
-    patch was `endUT=NaN`, which is still refused, and the widening admits a value
-    neither run produced - so no confirmatory re-fly was taken.
+    `a5271f0f7`; the review pass that followed changed only the LOG LEVEL an infinite
+    `EndUT` takes, the exception detail in the finalizer-cache WARN, and comments. No
+    accept/reject decision changed, and the refused patch on those runs was
+    `endUT=NaN`, which still refuses and still WARNs - so nothing in the delta can
+    discriminate and no confirmatory re-fly was taken.
     WHAT THE GATE IS ABOUT, and what is NOT fixed: nothing in the verifier chain
     asserts a recording has POINTS. `EVA-2-orbital-board`'s `recordings.count = { min = 2,
     max = 2 }` counts `.prec` FILES, and two empty recordings are still two files,

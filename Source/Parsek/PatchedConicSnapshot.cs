@@ -256,6 +256,29 @@ namespace Parsek
                         }
 
                         ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.NonFinitePatchElements);
+                        if (IsOpenOrbitEndSentinel(patch))
+                        {
+                            // NOT a degeneracy, and must not be logged as one. See
+                            // IsOpenOrbitEndSentinel: this is stock's own "never ends"
+                            // marker on a healthy open orbit, so it is a PERMANENT
+                            // condition of a solar-escape coast rather than a transient
+                            // solver glitch. It is still declined - there is no finite
+                            // terminal UT to propagate a tail at - but at Verbose, and
+                            // change-keyed, so an escaping probe does not emit a WARN
+                            // every 30 s for the rest of its coast.
+                            ParsekLog.VerboseOnChange("PatchedSnapshot",
+                                "snapshot-open-orbit|" + safeVesselName,
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "patchIndex={0}|body={1}",
+                                    failedPatchIndex,
+                                    bodyName ?? "(null)"),
+                                $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                                $"body={bodyName} is an open orbit with no end bound (endUT=Infinity); " +
+                                "declining predicted snapshot capture - there is no finite terminal to propagate at");
+                            return result;
+                        }
+
                         ParsekLog.WarnRateLimited("PatchedSnapshot",
                             "nonfinite-patch-" + safeVesselName,
                             $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
@@ -352,27 +375,12 @@ namespace Parsek
         /// clamp cannot catch it, because every comparison against NaN is false.
         /// </para>
         /// <para>
-        /// <c>EndUT</c> IS DELIBERATELY NOT REQUIRED TO BE FINITE, and getting this
-        /// wrong silently discards healthy orbits. <c>+Infinity</c> is stock's own
-        /// sentinel for "this patch never ends", not a degeneracy - verified against
-        /// decompiled KSP 1.12.5, on two independent paths:
-        /// <list type="bullet">
-        /// <item><c>PatchedConicSolver.Update</c> seeds the root patch with
-        /// <c>patches[0].EndUT = patches[0].period</c> whenever
-        /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
-        /// <c>period = double.PositiveInfinity</c> for every open orbit.</item>
-        /// <item><c>PatchedConics._CalculatePatch</c> assigns
-        /// <c>p.EndUT = double.PositiveInfinity</c> outright for a hyperbolic patch
-        /// whose reference body has an infinite sphere of influence (the Sun), and
-        /// marks it <c>patchEndTransition = FINAL</c> - a fully solved patch.</item>
-        /// </list>
-        /// So a solar-escape probe carries <c>EndUT = +Infinity</c> with all seven
-        /// elements finite and perfectly propagatable. Refusing it would abort the
-        /// whole capture at patch 0 and leave the recording with no predicted tail at
-        /// all, while a 30 s WARN described a permanent orbital condition as a
-        /// transient solver glitch. Only NaN (the measured EVA case) and
-        /// <c>-Infinity</c> (never legitimate - time does not run backwards to a
-        /// bound) are refused here.
+        /// A non-finite <c>EndUT</c> IS refused - but see
+        /// <see cref="IsOpenOrbitEndSentinel"/> before concluding that every such patch
+        /// is broken. <c>+Infinity</c> there is stock's own "this patch never ends"
+        /// marker on a perfectly healthy open orbit, so it is declined for a DIFFERENT
+        /// reason (no finite terminal UT exists to propagate a tail at) and is logged
+        /// as the ordinary condition it is rather than as a degeneracy.
         /// </para>
         /// </summary>
         internal static bool HasFinitePatchElements(IPatchedConicOrbitPatch patch)
@@ -381,7 +389,7 @@ namespace Parsek
                 return false;
 
             return IsFinite(patch.StartUT)
-                && IsUsableEndUT(patch.EndUT)
+                && IsFinite(patch.EndUT)
                 && IsFinite(patch.Inclination)
                 && IsFinite(patch.Eccentricity)
                 && IsFinite(patch.SemiMajorAxis)
@@ -397,13 +405,43 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The end bound's weaker contract: anything but NaN and <c>-Infinity</c>.
-        /// See <see cref="HasFinitePatchElements"/> for why <c>+Infinity</c> is a
-        /// legitimate stock value here and nowhere else in the patch.
+        /// A patch that is healthy in every element and simply HAS NO END: an open
+        /// orbit carrying stock's <c>EndUT = +Infinity</c> sentinel.
+        /// <para>
+        /// Verified against decompiled KSP 1.12.5 on two independent paths.
+        /// <c>PatchedConicSolver.Update</c> seeds the root patch with
+        /// <c>patches[0].EndUT = patches[0].period</c> whenever
+        /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
+        /// <c>period = double.PositiveInfinity</c> for every open orbit;
+        /// <c>PatchedConics._CalculatePatch</c> assigns
+        /// <c>p.EndUT = double.PositiveInfinity</c> with
+        /// <c>patchEndTransition = FINAL</c> for a hyperbolic patch whose reference
+        /// body has an infinite sphere of influence (the Sun). A solar-escape probe is
+        /// therefore a FULLY SOLVED patch, not a degenerate one.
+        /// </para>
+        /// <para>
+        /// It is still declined, and admitting it would not help: <c>endUT</c> is the
+        /// UT <c>IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment</c>
+        /// propagates the terminal segment AT, so an infinite bound yields a NaN state,
+        /// fails that call's <c>IsFinite</c> check, and declines anyway - via a plain
+        /// UN-rate-limited <c>Warn</c> that would then repeat on every periodic refresh.
+        /// Declining here instead keeps the same outcome with bounded, honestly-labelled
+        /// logging. What this predicate buys is the LABEL, not the decision.
+        /// </para>
         /// </summary>
-        private static bool IsUsableEndUT(double value)
+        private static bool IsOpenOrbitEndSentinel(IPatchedConicOrbitPatch patch)
         {
-            return !double.IsNaN(value) && !double.IsNegativeInfinity(value);
+            if (patch == null || !double.IsPositiveInfinity(patch.EndUT))
+                return false;
+
+            return IsFinite(patch.StartUT)
+                && IsFinite(patch.Inclination)
+                && IsFinite(patch.Eccentricity)
+                && IsFinite(patch.SemiMajorAxis)
+                && IsFinite(patch.LongitudeOfAscendingNode)
+                && IsFinite(patch.ArgumentOfPeriapsis)
+                && IsFinite(patch.MeanAnomalyAtEpoch)
+                && IsFinite(patch.Epoch);
         }
 
         /// <summary>
@@ -412,10 +450,8 @@ namespace Parsek
         /// was bad without saying which number was bad.
         /// <para>
         /// This MUST apply the same per-field rule as
-        /// <see cref="HasFinitePatchElements"/> - note <c>endUT</c> uses the weaker
-        /// <see cref="IsUsableEndUT"/> test, so a legitimate <c>+Infinity</c> end bound
-        /// is not reported as offending. If the two ever diverge, the WARN starts
-        /// printing "has non-finite elements ((all-finite))" about a patch the
+        /// <see cref="HasFinitePatchElements"/>. If the two ever diverge, the WARN
+        /// starts printing "has non-finite elements ((all-finite))" about a patch the
         /// predicate just rejected.
         /// </para>
         /// </summary>
@@ -426,8 +462,7 @@ namespace Parsek
 
             var offending = new List<string>();
             AppendIfNonFinite(offending, "startUT", patch.StartUT);
-            if (!IsUsableEndUT(patch.EndUT))
-                offending.Add("endUT=" + patch.EndUT.ToString("R", CultureInfo.InvariantCulture));
+            AppendIfNonFinite(offending, "endUT", patch.EndUT);
             AppendIfNonFinite(offending, "inc", patch.Inclination);
             AppendIfNonFinite(offending, "ecc", patch.Eccentricity);
             AppendIfNonFinite(offending, "sma", patch.SemiMajorAxis);

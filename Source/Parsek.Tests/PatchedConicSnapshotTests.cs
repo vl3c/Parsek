@@ -484,6 +484,7 @@ namespace Parsek.Tests
             foreach (double poison in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
             {
                 AssertFieldRejected(p => p.StartUT = poison, "StartUT", poison);
+                AssertFieldRejected(p => p.EndUT = poison, "EndUT", poison);
                 AssertFieldRejected(p => p.Inclination = poison, "Inclination", poison);
                 AssertFieldRejected(p => p.Eccentricity = poison, "Eccentricity", poison);
                 AssertFieldRejected(p => p.SemiMajorAxis = poison, "SemiMajorAxis", poison);
@@ -493,41 +494,43 @@ namespace Parsek.Tests
                 AssertFieldRejected(p => p.Epoch = poison, "Epoch", poison);
             }
 
-            // endUT carries a WEAKER contract than the seven elements - see the
-            // +Infinity cell below for why. NaN and -Infinity are still refused.
-            AssertFieldRejected(p => p.EndUT = double.NaN, "EndUT", double.NaN);
-            AssertFieldRejected(p => p.EndUT = double.NegativeInfinity, "EndUT", double.NegativeInfinity);
         }
 
         /// <summary>
-        /// REGRESSION GUARD, and the reason the end bound is not screened like an
-        /// element. <c>EndUT == +Infinity</c> is stock's own sentinel for "this patch
-        /// never ends" - NOT a degeneracy - verified against decompiled KSP 1.12.5 on
-        /// two independent paths:
+        /// A SOLAR-ESCAPE PROBE IS NOT A DEGENERATE PATCH, and must not be logged as
+        /// one. <c>EndUT == +Infinity</c> is stock's own "this patch never ends"
+        /// sentinel on a fully solved open orbit - verified against decompiled
+        /// KSP 1.12.5 on two independent paths:
         /// <list type="bullet">
         /// <item><c>PatchedConicSolver.Update</c> seeds the root patch with
         /// <c>patches[0].EndUT = patches[0].period</c> whenever
         /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
         /// <c>period = double.PositiveInfinity</c> for every open orbit.</item>
         /// <item><c>PatchedConics._CalculatePatch</c> assigns
-        /// <c>p.EndUT = double.PositiveInfinity</c> and
+        /// <c>p.EndUT = double.PositiveInfinity</c> with
         /// <c>patchEndTransition = FINAL</c> for a hyperbolic patch whose reference
         /// body has an infinite sphere of influence (the Sun).</item>
         /// </list>
-        /// So a solar-escape probe presents all seven elements finite, perfectly
-        /// propagatable, with an infinite end bound. What makes this fail: screening
-        /// <c>EndUT</c> with the same <c>IsFinite</c> test as the elements aborts the
-        /// whole capture at patch 0, leaving the recording with NO predicted tail and
-        /// a 30 s WARN calling a permanent orbital condition a transient solver glitch.
+        /// <para>
+        /// It is still DECLINED - <c>endUT</c> is the UT the finalizer propagates the
+        /// terminal segment AT, so an infinite bound yields a NaN state and declines
+        /// downstream regardless, through a plain un-rate-limited WARN that would then
+        /// repeat on every periodic refresh of an escaping probe's whole coast.
+        /// Declining here keeps the identical outcome with bounded logging.
+        /// </para>
+        /// <para>
+        /// What makes this fail: routing the sentinel through the degenerate-patch WARN
+        /// (which is what calling it "non-finite elements" invites), so a normal
+        /// interplanetary escape emits a 30 s WARN about a permanent orbital condition
+        /// for as long as it coasts.
+        /// </para>
         /// </summary>
         [Fact]
-        public void Snapshot_HyperbolicPatchWithInfiniteEndUT_IsCapturedNotRefused()
+        public void Snapshot_OpenOrbitInfiniteEndUT_IsDeclinedQuietlyNotAsADegeneracy()
         {
             var escapePatch = MakePatch(100, double.PositiveInfinity, body: "Sun");
             escapePatch.Eccentricity = 1.4;
             escapePatch.SemiMajorAxis = -2000000.0;
-
-            Assert.True(PatchedConicSnapshot.HasFinitePatchElements(escapePatch));
 
             var source = new FakePatchedConicSnapshotSource(4)
             {
@@ -537,11 +540,46 @@ namespace Parsek.Tests
             PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
                 source, 120, 8, "Solar Escape Probe");
 
-            Assert.Equal(PatchedConicSnapshotFailureReason.None, result.FailureReason);
-            Assert.Single(result.Segments);
-            Assert.Equal("Sun", result.Segments[0].bodyName);
-            Assert.Equal(1, result.CapturedPatchCount);
-            Assert.DoesNotContain(logLines, line => line.Contains("has non-finite elements"));
+            // Declined, like any patch with no finite terminal to propagate at.
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Equal(4, source.PatchLimit);
+
+            // ...but NOT as a degeneracy: no WARN, and the line says what it actually is.
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("Solar Escape Probe"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("Solar Escape Probe") &&
+                line.Contains("open orbit with no end bound (endUT=Infinity)") &&
+                line.Contains("no finite terminal to propagate at"));
+        }
+
+        /// <summary>
+        /// The sentinel carve-out is EXACTLY that: an infinite end bound on an otherwise
+        /// healthy patch. A patch that is infinite-ended AND carries a genuinely
+        /// degenerate element is still a degeneracy and still WARNs - otherwise a NaN
+        /// could ride an escape trajectory into the quiet path.
+        /// </summary>
+        [Fact]
+        public void Snapshot_InfiniteEndUTWithADegenerateElement_StillWarnsAsADegeneracy()
+        {
+            var poisoned = MakePatch(100, double.PositiveInfinity, body: "Sun");
+            poisoned.Eccentricity = double.NaN;
+
+            var source = new FakePatchedConicSnapshotSource(4) { RootPatch = poisoned };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Poisoned Escape");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("Poisoned Escape") &&
+                line.Contains("has non-finite elements") &&
+                line.Contains("ecc=NaN"));
         }
 
         private static void AssertFieldRejected(
