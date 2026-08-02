@@ -4484,7 +4484,13 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         # expressed some other way is not claimed to be caught.)
         lines = src.splitlines()
         def _indent(needle):
-            ln = next(l for l in lines if needle in l)
+            # Default None rather than a bare next(): without it, deleting the
+            # ANCHOR line turns this guard into a StopIteration *error* with no
+            # message instead of the authored assertion below.
+            ln = next((l for l in lines if needle in l), None)
+            self.assertIsNotNone(ln, "anchor line %r is gone from %s - the "
+                                     "indentation guard has nothing to compare against"
+                                 % (needle, os.path.basename(path)))
             return len(ln) - len(ln.lstrip())
         self.assertEqual(_indent('recNode.AddValue("lastResIdx"'),
                          _indent('recNode.AddValue("pointCount"'),

@@ -2111,7 +2111,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 7b. Save-parse structural verifier (M-C2 / R9). Parses the produced save's
     # ParsekScenario SCENARIO surfaces (RECORDING_TREE topology, supersede rows,
     # tombstones, rewind points) and evaluates [expectations.rewind] +
-    # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
+    # [expectations.recordings.structure] + [expectations.recordings.points].
+    # REPORT-ONLY by default (VERDICT
     # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
     # move a committed nightly's verdict with no live run to prove the readings);
     # a block opts in with gating = true - declared by exactly ONE committed

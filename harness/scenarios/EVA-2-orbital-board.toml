@@ -111,22 +111,39 @@ count = { min = 2, max = 2 }
 
 # GATE 12, REPORT-ONLY (landed 2026-08-02, deliberately UNARMED - no `gating` key).
 # WHY THIS BLOCK EXISTS ON THIS SPEC. The window above counts `.prec` FILES, and two
-# EMPTY recordings are still two files. That is exactly how the 2026-07-30 "AN ORBITAL
-# EVA RECORDS NOTHING" defect stayed green here while recording nothing: this scenario
-# PASSED with both recordings finalized at a single point. `count` is structurally
-# blind to it; `points` is not, because it reads the per-recording `pointCount` the
-# save itself carries (`RecordingTreeRecordCodec.SaveRecording`), NOT the
+# EMPTY recordings are still two files - so the exact `{ min = 2, max = 2 }` pin above
+# is STRUCTURALLY INCAPABLE of noticing that neither recording recorded anything. That
+# is the blind spot the 2026-07-30 "AN ORBITAL EVA RECORDS NOTHING" defect sat in.
+# STATED PRECISELY, because the loose version of this sentence is false: NO EVA-2 run
+# is on record having PASSED with empty recordings. The empty recordings were measured
+# on `2026-07-30_1532_S0.7-exit-auto-commit`, which flew THIS scenario's profile and
+# fixture and finished PARSEK-FAIL with `recordings.count = 0`. What this block closes
+# is the blind spot, not a specific green run that exploited it.
+# `count` is structurally blind to it; `points` is not, because it reads the
+# per-recording `pointCount` the
+# save itself carries (`RecordingTreeRecordCodec`, the write at
+# `RecordingTreeRecordCodec.cs:344`), NOT the
 # `FinalizeTreeRecordings: ... points=N` line, which is Verbose and would go silent on
 # any spec that does not pin `verboseLogging`.
 #
-# WHY `largest` AND NOT A PER-RECORDING FLOOR. Measured 2026-08-01 on
+# WHY NOT A PER-RECORDING FLOOR. Measured 2026-08-01 on
 # `2026-08-01_1626_EVA-2-orbital-board` (PR #1408 verification): the EVA kerbal
 # recorded `points=5 maxDist=1888m` across the 10.068 s EvaExit dwell, while the POD
 # recorded `points=1` - it lives only 0.167 s (EvaBoard -> StopRecording) against a
 # 0.200 s minimum sample interval, so ONE point is its correct, healthy value. A window
-# demanding >1 point from every recording would red this green run. `largest` is the
-# facet that separates it from the broken baseline
-# (`2026-07-30_1532_S0.7-exit-auto-commit`, BOTH recordings `points=1 maxDist=0m`).
+# demanding >1 point from every recording would red this green run. The BROKEN
+# measurement (`2026-07-30_1532_S0.7-exit-auto-commit`) finalized BOTH recordings at
+# `points=1 maxDist=0m`. `smallest` is 1 in BOTH, so a floor cannot discriminate.
+#
+# WHY TWO KEYS, NOT JUST `largest`. `largest` alone is an AGGREGATE and leaves a
+# PARTIAL recurrence open: one healthy recording hides any number of empty siblings,
+# so a tree reading (5, 1, 1, 1) passes a `largest` floor just as happily as (5, 1).
+# `trivialRecordings` is the per-recording key that closes it - it counts recordings
+# that finalized at <= 1 point, i.e. recorded no trajectory at all. This scenario
+# measures exactly ONE (the pod), so `max = 1` is a BUDGET sized on the green run: it
+# stays green on the healthy shape and reds the moment a SECOND recording goes empty.
+# On the broken measurement it reads 2 and reds. Keep BOTH keys - `largest` proves
+# something recorded, `trivialRecordings` proves nothing silently stopped.
 #
 # WHY UNARMED. Repo discipline (the `saveParse` R9 precedent, and S4.1's arming
 # workflow): land report-only, take a reading run, then arm as an explicit per-scenario
@@ -142,7 +159,8 @@ count = { min = 2, max = 2 }
 # `gating = true` here, add this spec to `ARMED_ALLOWLIST` in test_hlib.py, and flip
 # `test_eva2_declares_the_points_block_unarmed`, all in one commit.
 [expectations.recordings.points]
-largest = { min = 2 }
+largest           = { min = 2 }
+trivialRecordings = { max = 1 }
 
 [expectations.logContracts]
 # "Auto-record started" is VERBOSE (ParsekFlight.Log) - requires the verboseLogging pin;

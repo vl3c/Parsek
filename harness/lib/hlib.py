@@ -3370,7 +3370,8 @@ class ExpectationResult:
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
 # M-C2 (R9): ``rewind`` LEFT the tuple the same way -- the save-parse verifier
 # (saveparse.evaluate_save_structure, run as its own chain row) is its sole owner,
-# alongside the new ``[expectations.recordings.structure]`` sub-block. ``route`` and
+# alongside the ``[expectations.recordings.structure]`` and (gate 12)
+# ``[expectations.recordings.points]`` sub-blocks. ``route`` and
 # ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
 # either), and building an evaluator with zero declarers would be unused surface.
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
@@ -4672,7 +4673,8 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # are the downstream symptoms.
     "mission-outcome",
     # M-C2 (R9): a GATING-armed [expectations.rewind] / [expectations.recordings.
-    # structure] mismatch (saveparse.evaluate_save_structure). Named separately
+    # structure] / [expectations.recordings.points] mismatch
+    # (saveparse.evaluate_save_structure). Named separately
     # from "expectation" for the same reason mission-outcome is: the structural
     # save assertion is its own failure class, and the flag is only reachable
     # for a scenario that armed gating = true. The verifier ships REPORT-ONLY;
