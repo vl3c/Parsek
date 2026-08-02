@@ -37,6 +37,9 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - coverage + flake computation (``compute_coverage`` / ``compute_flake``)
   - result-record serialization + schema gate (``serialize_result`` /
     ``deserialize_result`` / ``check_schema``)
+  - run-id resolution (``format_run_id`` / ``claimed_run_ids`` /
+    ``resolve_run_id``): the id every results/ artifact is keyed by, resolved so
+    a second run can never overwrite a first run's evidence
 
 Design authority: docs/dev/design-autotest-harness-core.md (Module M-A5).
 Consumed contracts pinned against their public surfaces: the command seam
@@ -55,7 +58,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -5227,6 +5230,135 @@ def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple
         if str(stamp_pins.get(dist)) != str(want):
             return False, VENV_INVALID_SUBKIND
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Run id (design Result record). Pure.
+#
+# results/<runId>.json and EVERY sibling artifact -- <runId>_shots/ (holding the
+# collected KSP.log), <runId>_contact.html, <runId>_mission.json,
+# <runId>_mission.stdout.log, <runId>.manifest.json, <runId>.seed -- are keyed by
+# the run id ALONE, and the id stamps only the MINUTE. So two runs of one
+# scenario started inside the same minute used to land on one id, and the second
+# silently overwrote the first's evidence.
+#
+# Observed 2026-08-01: two H23-tracking-station flights 52 seconds apart left two
+# per-invocation harness logs (those ARE second-granular) but ONE result JSON and
+# ONE _shots dir. The first flight's clean verdict and its collected KSP.log were
+# gone, nothing warned, and a reader of results/ could not tell two runs happened
+# -- exactly the silent evidence loss the contact sheet exists to prevent.
+#
+# The id is now resolved against what results/ ALREADY holds: a claimed base id
+# takes a `_run<N>` run-instance suffix instead of overwriting. The suffix sits
+# BEFORE the `_a<N>` attempt suffix, so the attempts of one run stay grouped under
+# one stem and `_a<N>` stays TERMINAL (status.split_run_id parses it there).
+# `_run<N>` and `_a<N>` are different axes and must not be conflated: `_a<N>` is
+# the retry policy re-flying ONE run, `_run<N>` is a SEPARATE run that would have
+# collided.
+# ---------------------------------------------------------------------------
+
+# The runId's UTC timestamp granularity. Deliberately still the MINUTE: the
+# collision guard below, not a finer stamp, is what makes an overwrite
+# impossible, and the minute stamp is what status.py's run-id parse and every
+# committed doc example already read.
+RUN_ID_TIMESTAMP_FORMAT = "%Y-%m-%d_%H%M"
+
+# Every results/ filename shape a run claims, MOST-SPECIFIC FIRST -- ".json" must
+# be tried LAST or it would strip "<runId>_mission.json" to "<runId>_mission".
+# An entry matching none of these (summary.txt, index.html, *_harness.log,
+# .pending, *.tmp) belongs to no run and is ignored.
+RUN_ID_ARTIFACT_SUFFIXES: Tuple[str, ...] = (
+    "_mission.stdout.log",
+    "_mission.json",
+    ".manifest.json",
+    "_status.json",
+    "_contact.html",
+    "_shots",
+    ".claim",
+    ".seed",
+    ".json",
+)
+
+# The zero-cost stake a run drops the instant it resolves its id, closing the
+# window between resolving and writing the first real artifact (run.py's
+# `_try_claim_run_id`). Two CONCURRENT run.py invocations of one scenario both
+# resolve before either writes -- the per-instance run lock does not help, since
+# the refused one writes its INVALID(instance-locked) record immediately while
+# the winner is still flying -- so without an exclusive-create stake they would
+# both land on the same base id.
+RUN_ID_CLAIM_SUFFIX = ".claim"
+
+
+def format_run_id(stamp: str, scenario_id: str, attempt: int = 1,
+                  ordinal: int = 1) -> str:
+    """``<stamp>_<scenarioId>[_run<ordinal>][_a<attempt>]``.
+
+    Ordinal 1 / attempt 1 add nothing, so the ordinary run id is unchanged from
+    before the collision guard existed.
+    """
+    run_id = "%s_%s" % (stamp, scenario_id)
+    if ordinal > 1:
+        run_id += "_run%d" % ordinal
+    if attempt > 1:
+        run_id += "_a%d" % attempt
+    return run_id
+
+
+def claimed_run_ids(names: Iterable[str]) -> Set[str]:
+    """The run ids a results-dir listing already holds artifacts for.
+
+    Takes the raw directory entry names (files AND the ``_shots`` dirs) so the
+    caller does no stat-ing, and returns every id that owns at least one of
+    ``RUN_ID_ARTIFACT_SUFFIXES``. A run whose result JSON is missing but whose
+    ``_shots`` dir survived still counts as claimed -- the point is to never
+    write over ANY surviving artifact of an earlier run.
+    """
+    claimed: Set[str] = set()
+    for name in names or ():
+        for suffix in RUN_ID_ARTIFACT_SUFFIXES:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                claimed.add(name[:-len(suffix)])
+                break
+    return claimed
+
+
+@dataclass(frozen=True)
+class RunIdResolution:
+    run_id: str
+    # The run-instance ordinal that produced ``run_id`` (1 = no suffix).
+    ordinal: int
+    # The already-claimed ids this resolution stepped over, in the order tried.
+    # Non-empty means a collision happened and the caller must SAY SO.
+    collided_with: Tuple[str, ...]
+
+    @property
+    def collided(self) -> bool:
+        return bool(self.collided_with)
+
+
+def resolve_run_id(stamp: str, scenario_id: str, claimed: Iterable[str],
+                   attempt: int = 1, min_ordinal: int = 1) -> RunIdResolution:
+    """The first run id at or above ``min_ordinal`` that ``claimed`` does not
+    already hold, plus the claimed ids it stepped over.
+
+    ``min_ordinal`` carries a run-instance ordinal already resolved for attempt 1
+    into the later attempts of the SAME run, so those attempts share one stem
+    (``..._run2`` / ``..._run2_a2``) instead of drifting apart.
+
+    Terminates without an arbitrary cap: ``claimed`` is finite, so at most
+    ``len(claimed) + 1`` ordinals can be occupied. A cap would have to either
+    raise (losing a verdict, which the design forbids) or overwrite (the bug),
+    and neither is acceptable.
+    """
+    taken = frozenset(claimed or ())
+    collided: List[str] = []
+    ordinal = max(1, int(min_ordinal))
+    while True:
+        candidate = format_run_id(stamp, scenario_id, attempt, ordinal)
+        if candidate not in taken:
+            return RunIdResolution(candidate, ordinal, tuple(collided))
+        collided.append(candidate)
+        ordinal += 1
 
 
 # ---------------------------------------------------------------------------

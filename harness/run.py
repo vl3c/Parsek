@@ -34,7 +34,7 @@ import sys
 import time
 import tomllib
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(HERE, "lib")
@@ -2361,25 +2361,133 @@ def _run_log_validate_retrying(runtime, log_path, no_rec, logger):
 # ---------------------------------------------------------------------------
 
 
-def _make_run_id(scenario_id: str, attempt: int) -> str:
+def _run_id_stamp() -> str:
+    """The runId's UTC minute stamp. A seam: the smoke test pins it to drive two
+    runs into ONE minute and prove both keep their results."""
+    return datetime.now(timezone.utc).strftime(hlib.RUN_ID_TIMESTAMP_FORMAT)
+
+
+def _claimed_run_ids() -> Set[str]:
+    """Run ids results/ already holds an artifact for (I/O half of
+    ``hlib.claimed_run_ids``). Reads the ``.pending`` fallback dir too -- a
+    verdict that degraded to .pending is still a run's evidence."""
+    claimed: Set[str] = set()
+    for directory in (RESULTS_DIR, os.path.join(RESULTS_DIR, ".pending")):
+        try:
+            claimed |= hlib.claimed_run_ids(os.listdir(directory))
+        except OSError:
+            continue
+    return claimed
+
+
+def _resolve_run_id(scenario_id: str, attempt: int, run_ordinal: int,
+                    logger: Optional[HarnessLogger]) -> hlib.RunIdResolution:
+    """Resolve this attempt's runId against what results/ already holds, and SAY
+    SO when the base id was taken.
+
+    Two runs of one scenario started inside the same minute used to share an id,
+    and the second overwrote the first's result JSON, _shots dir (KSP.log
+    included) and contact sheet with nothing warning. The resolution never
+    overwrites; the Warn is what makes the collision impossible to miss in the
+    per-invocation harness log."""
+    res = hlib.resolve_run_id(_run_id_stamp(), scenario_id, _claimed_run_ids(),
+                              attempt=attempt, min_ordinal=run_ordinal)
+    if res.collided and logger is not None:
+        logger.warn("Result", "runId collision: %s is already claimed in results/; "
+                              "this run writes %s instead (%d id%s stepped over; the "
+                              "earlier run's result JSON, _shots artifacts and contact "
+                              "sheet are kept)"
+                    % (res.collided_with[0], res.run_id, len(res.collided_with),
+                       "" if len(res.collided_with) == 1 else "s"))
+    return res
+
+
+# Hang guard on the resolve-stake-re-resolve loop (see _make_run_id). Set far
+# above any real contention: staking loses a pass only to a genuinely concurrent
+# invocation, and the scan sees that id on the very next pass.
+_RUN_ID_CLAIM_ATTEMPTS = 100
+
+
+def _try_claim_run_id(run_id: str) -> bool:
+    """Stake ``results/<runId>.claim`` atomically. ``open(..., "x")`` is
+    O_CREAT|O_EXCL on both NTFS and POSIX -- the one primitive that closes the
+    window between RESOLVING an id and writing the first artifact under it.
+
+    That window is real: two concurrent run.py invocations of one scenario both
+    resolve before either writes anything, and the per-instance run lock does not
+    serialize them (the refused one writes its INVALID(instance-locked) record
+    immediately, while the winner is still flying).
+
+    The stake is never reaped. A claim left by a run that died is CORRECT: that
+    id was issued, and re-issuing it is exactly the overwrite this guards. The
+    files are empty-ish and results/ already keeps every result JSON forever.
+
+    Returns False ONLY when the id itself was already staked. An I/O failure
+    returns True -- a results dir that cannot be written to must not block a run
+    (design edge 10: never lose a verdict); the run then falls back to scan-only
+    resolution, which is still strictly better than the unguarded id.
+
+    The two failures are kept in SEPARATE try blocks deliberately: makedirs over
+    a path that exists as a FILE raises FileExistsError too, and folding that in
+    with the stake's would report "already staked" forever and spin the caller's
+    re-resolve loop."""
+    try:
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+    except OSError:
+        return True
+    path = os.path.join(RESULTS_DIR, "%s%s" % (run_id, hlib.RUN_ID_CLAIM_SUFFIX))
+    try:
+        with open(path, "x", encoding="utf-8", newline="\n") as fh:
+            fh.write(utcnow_iso() + "\n")
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return True
+
+
+def _make_run_id(scenario_id: str, attempt: int, run_ordinal: int = 1,
+                 logger: Optional[HarnessLogger] = None) -> str:
     """The per-attempt runId (design "Mission result": ATTEMPT-SUFFIXED so each
     retry writes its own <runId>_mission.json). Computed ONCE per attempt in
     run_attempt so the mission-result filename the handoff writes/reads matches the
     runId the durable result JSON records, even if the minute rolls over during a
-    long flight."""
-    run_id = "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), scenario_id)
-    if attempt > 1:
-        run_id += "_a%d" % attempt
-    return run_id
+    long flight.
+
+    Resolves against results/ and then STAKES the id, re-resolving from the next
+    ordinal if a concurrent invocation staked it first. Each pass starts strictly
+    above an ordinal now taken on disk, and the bounded loop is a HANG GUARD, not
+    a collision cap: a stake that reports "taken" for a reason unrelated to the
+    id (the makedirs-over-a-file shape `_try_claim_run_id` calls out) would
+    otherwise spin an unattended nightly forever. Exhausting it degrades to the
+    scan-only id -- loudly."""
+    ordinal = run_ordinal
+    res = None
+    for _ in range(_RUN_ID_CLAIM_ATTEMPTS):
+        res = _resolve_run_id(scenario_id, attempt, ordinal, logger)
+        if _try_claim_run_id(res.run_id):
+            return res.run_id
+        if logger is not None:
+            logger.warn("Result", "runId %s was claimed by a concurrent run between "
+                                  "resolving and staking it; re-resolving above "
+                                  "ordinal %d" % (res.run_id, res.ordinal))
+        ordinal = res.ordinal + 1
+    if logger is not None:
+        logger.error("Result", "runId staking failed %d times for scenario=%s; "
+                               "falling back to the scan-only id %s (results/ may be "
+                               "unwritable -- an artifact overwrite is possible)"
+                     % (_RUN_ID_CLAIM_ATTEMPTS, scenario_id, res.run_id))
+    return res.run_id
 
 
 def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runtime,
-                attempt: int, prior_boot_crashed: bool, logger: HarnessLogger) -> Dict:
+                attempt: int, prior_boot_crashed: bool, logger: HarnessLogger,
+                run_ordinal: int = 1) -> Dict:
     scenario_id = spec.get("id")
     profile = spec.get("instanceProfile")
     started = utcnow_iso()
     start_wall = runtime.now()
-    run_id = _make_run_id(scenario_id, attempt)
+    run_id = _make_run_id(scenario_id, attempt, run_ordinal, logger)
 
     # ---- ADMIT -----------------------------------------------------------
     manifest, incomplete = read_manifest(instance_dir)
@@ -2804,7 +2912,7 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     ended = utcnow_iso()
     wall = int(runtime.now() - start_wall)
     if run_id is None:
-        run_id = _make_run_id(scenario_id, attempt)
+        run_id = _make_run_id(scenario_id, attempt, logger=logger)
 
     steps_rec = []
     if drive is not None:
@@ -3347,9 +3455,16 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
     prior_boot_crashed = False
     attempts_wall = 0.0
     attempts_run = 0
+    # ONE run-instance ordinal for the whole scenario run, resolved (and warned
+    # about) exactly once here, then carried into both attempts -- `..._run2` and
+    # `..._run2_a2` -- instead of each attempt disambiguating on its own and
+    # drifting onto different stems. Each attempt still re-stamps its own minute
+    # (a long flight rolls the clock over), so the ordinal is what is carried,
+    # not the whole id; `_a<N>` stays the terminal suffix either way.
+    run_ordinal = _resolve_run_id(spec.get("id"), 1, 1, logger).ordinal
     for attempt in (1, 2):
         result = run_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
-                             prior_boot_crashed, logger)
+                             prior_boot_crashed, logger, run_ordinal=run_ordinal)
         last_result = result
         attempts_run += 1
         wall = result.get("wallSeconds")
@@ -3397,7 +3512,7 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
     started = utcnow_iso()
     result = {
         "schema": hlib.SCHEMA_VERSION,
-        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), safe_id),
+        "runId": _make_run_id(safe_id, 1, logger=logger),
         "scenarioId": scenario_id,
         "tier": spec.get("tier"),
         "instanceProfile": spec.get("instanceProfile"),

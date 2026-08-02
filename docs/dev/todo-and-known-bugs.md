@@ -14,6 +14,71 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARNESS-RUNID-COLLISION: two runs of one scenario in the same minute share a run id, and the second silently overwrites the first's evidence~~ [FOUND 2026-08-01 from the results dir of two back-to-back `H23-tracking-station` flights. FIXED 2026-08-01, branch `harness-runid-collision`]
+
+`run.py` built the run id at MINUTE granularity (`%Y-%m-%d_%H%M` + `_<scenarioId>`),
+and `results/<runId>.json`, `results/<runId>_shots/` (holding the copied KSP.log),
+`results/<runId>_contact.html`, `<runId>_mission.json`, `<runId>.manifest.json` and
+`<runId>.seed` are ALL keyed by that id alone. Two runs of one scenario started
+inside one minute therefore collided, and the second wrote straight over the
+first's.
+
+### The measurement
+
+Two `H23-tracking-station` flights launched at 19:28:02 and 19:28:54 produced TWO
+per-invocation harness logs (`results/2026-08-01_162803_harness.log` and
+`..._162854_harness.log`, which ARE second-granular) but ONE result JSON and ONE
+`_shots` dir. The first flight was clean (`unityExceptions.total=0`); the second
+was not (`total=2`), and it is the second's record that survived. Nothing warned,
+and a reader of `results/` could not tell two runs had happened at all.
+
+This is the harness's own evidence store losing a completed verdict and its
+collected KSP.log - the exact silent loss the V3 contact-sheet work exists to
+prevent.
+
+### Fix (branch `harness-runid-collision`)
+
+The id is resolved against what `results/` already holds instead of being assumed
+free. Pure core in `hlib`: `format_run_id` / `claimed_run_ids` / `resolve_run_id`
+(+ `RUN_ID_TIMESTAMP_FORMAT`, `RUN_ID_ARTIFACT_SUFFIXES`). A claimed base id takes
+a `_run<N>` run-instance suffix; ANY surviving artifact shape claims the id, not
+just the result JSON, so a `_shots` dir whose record never landed still cannot be
+written over. `run.py` logs a `Warn` naming both ids at the moment it happens, so
+the collision is in the harness log rather than inferable only from a missing file.
+
+Granularity was deliberately left at the minute: the guard, not a finer stamp, is
+what makes an overwrite impossible, and a second-granular stamp would still have a
+window. There is no ordinal cap - `claimed` is finite, so the scan is bounded, and
+a cap could only either raise (losing a verdict) or overwrite (the bug).
+
+The scan alone leaves a TOCTOU window, found by self-review before this landed: an
+id is resolved at the TOP of `run_attempt`, long before anything is written under
+it, so two CONCURRENT `run.py` invocations of one scenario both see an empty
+`results/` and both take the base id. The per-instance run lock does not serialize
+them - the refused one writes its `INVALID(instance-locked)` record straight away
+while the winner is still flying - so `run.py` now also STAKES the id the instant
+it resolves one (`results/<runId>.claim`, exclusive-create), re-resolving above
+the next ordinal if a concurrent invocation staked it first. Stakes are never
+reaped: a claim left by a run that died is correct, since that id WAS issued. An
+unwritable `results/` degrades to scan-only rather than blocking a run (design
+edge 10). Building that guard produced one defect the smoke cell caught before
+commit - `os.makedirs` over a path that exists as a FILE also raises
+`FileExistsError`, and one combined handler read that as "already staked",
+re-resolving forever and hanging the suite; the handlers are now separate, plus a
+bounded loop as a hang guard.
+
+`_run<N>` sits BEFORE the `_a<N>` attempt suffix, which stays terminal:
+`_a<N>` is the `[retry] policy = "once"` path re-flying ONE run and is NOT a
+collision, `_run<N>` is a SEPARATE run that would have collided. One run's
+ordinal is resolved once in `_run_scenario_with_retry` and threaded through both
+attempts, so they share one stem (`..._run2`, `..._run2_a2`).
+`status.split_run_id` learned the new suffix and now returns `run` alongside
+`attempt` - without that the panel's scenario would have read
+`H23-tracking-station_run2`, missed the spec toml, and silently lost its mission
+params and wall budget mid-flight.
+
+---
+
 ## B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. TUNING TODO on the SHARED b5 capture machine - not picked up on the `v1-map-dwell` branch]
 
 The stretch from Mun SOI entry to the capture (circularize-at-periapsis) node
