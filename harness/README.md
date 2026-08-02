@@ -31,6 +31,16 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   `missions/<name>.schema.toml` + `missions/requirements.txt`.
 - Generated per-run (gitignored): `results/<runId>.json` + `<runId>.manifest.json`
   + `<runId>_mission.json`.
+- The runId is `<UTC minute>_<scenarioId>[_run<N>][_a<N>]`. Every per-run
+  artifact is keyed by it ALONE, so it is resolved against what `results/`
+  already holds rather than assumed free (`hlib.resolve_run_id` over
+  `hlib.claimed_run_ids`), then STAKED (`results/<runId>.claim`,
+  exclusive-create, never reaped) so two CONCURRENT invocations cannot both take
+  a free id: a second run of one scenario inside the same minute
+  takes `_run2` and run.py Warns naming both ids -- it never overwrites an
+  earlier run's result JSON, `_shots` dir or contact sheet. `_a<N>` is a
+  different axis: the `[retry] policy` re-flying ONE run, which deliberately
+  shares the stem and is distinguished by the attempt suffix.
 - Caches + scratch (gitignored): `provision/.cache/` (release zips, the
   module-owned git source clones `krpc-src` / `krpc_mechjeb-src`, kRPC compile
   refs, the built `TestingTools.dll`) and `provision/.stage/`.
