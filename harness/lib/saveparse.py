@@ -19,10 +19,22 @@ KSP, NO network, and NO filesystem writes. It covers:
   - the measured structural facets (``observed_structure_facets``), mirroring
     the ``[expectations.*]`` block shape the way
     ``hlib.observed_expectation_facets`` does for ``recordings.count``.
-  - the ``[expectations.rewind]`` / ``[expectations.recordings.structure]``
-    evaluation (``evaluate_save_structure``) and their spec-surface validators
-    (``validate_rewind_expectations`` / ``validate_structure_expectations``,
-    called from ``hlib.validate_spec``).
+  - the ``[expectations.rewind]`` / ``[expectations.recordings.structure]`` /
+    ``[expectations.recordings.points]`` evaluation
+    (``evaluate_save_structure``) and their spec-surface validators
+    (``validate_rewind_expectations`` / ``validate_structure_expectations`` /
+    ``validate_points_expectations``, called from ``hlib.validate_spec``).
+
+The third block, ``[expectations.recordings.points]``, closes GATE 12 ("AN
+ORBITAL EVA RECORDS NOTHING"). ``recordings.count`` counts ``.prec`` FILES, and
+two EMPTY recordings are still two files - which is exactly how a run that
+recorded nothing stayed green. The points block asserts over the per-recording
+``pointCount`` the save itself carries, so "a recording exists" and "a recording
+recorded something" become different claims. Reading it out of the SAVE (not the
+``FinalizeTreeRecordings: ... points=N`` log line) is deliberate: that line is
+``ParsekLog.Verbose`` and would silently stop being emitted on any spec that
+does not pin ``verboseLogging = true``, turning the assertion into a no-op in
+the fail-open direction.
 
 VERDICT NEUTRALITY (binding, and the reason the verifier ships REPORT-ONLY):
 S4.1-rewind-merge already DECLARES an ``[expectations.rewind]`` block, so a
@@ -290,6 +302,16 @@ class RecordingRow:
     is_debris: bool
     parent_anchor_recording_id: Optional[str]
     schema_generation: Optional[int]
+    # RECORDED TRAJECTORY SIZE. `RecordingTreeRecordCodec.SaveRecording` writes
+    # `pointCount` UNCONDITIONALLY on every RECORDING node as `rec.Points.Count`
+    # -- the same number the `FinalizeTreeRecordings: ... points=N` line reports,
+    # but written by the SAVE path rather than a Verbose log line, so reading it
+    # needs no `verboseLogging` pin and no `.prec` binary decode. It is
+    # write-only on the C# side ("pointCount is informational -- Points list is
+    # loaded from sidecar file"), which is why nothing but this parser reads it.
+    # None = the key was ABSENT or unparseable; that must never collapse to 0
+    # (see `observed_points_facets`, which counts it separately as `unparsed`).
+    point_count: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -413,6 +435,7 @@ def _parse_recording(node: SfsNode) -> RecordingRow:
         is_debris=_parse_bool(node.value("isDebris"), default=False),
         parent_anchor_recording_id=node.value("parentAnchorRecordingId"),
         schema_generation=_parse_int(node.value("recordingSchemaGeneration")),
+        point_count=_parse_int(node.value("pointCount")),
     )
 
 
@@ -542,6 +565,66 @@ def duplicate_recording_ids(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
+def observed_points_facets(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
+    """Summarise the per-recording ``pointCount`` distribution of a parsed save.
+
+    Gate 12's defect class ("a recording is a FILE, and an EMPTY recording is
+    still a file") needs a statistic that separates a tree which recorded motion
+    from one which recorded a single sample per recording. The three order
+    statistics below do that with no magic threshold constant:
+
+    - ``total``    - sum of ``pointCount`` over every RECORDING node.
+    - ``largest``  - the biggest single recording's ``pointCount``.
+    - ``smallest`` - the smallest single recording's ``pointCount``.
+
+    ``largest`` is the discriminating one for a mixed tree. Measured on
+    ``2026-08-01_1626_EVA-2-orbital-board``: the EVA kerbal recorded 5 points
+    over its ~10 s dwell while the pod recorded 1 (it lives 0.167 s, from
+    EvaBoard to StopRecording, against a 0.200 s minimum sample interval), so
+    ``largest = 5`` / ``smallest = 1``. The BROKEN baseline
+    ``2026-07-30_1532_S0.7-exit-auto-commit`` finalized BOTH recordings at 1
+    point, so ``largest = 1``. A ``largest = { min = 2 }`` window separates them;
+    any window requiring EVERY recording to exceed 1 point would red the healthy
+    run too.
+
+    DEGENERATE CASES, both deliberate:
+
+    - ZERO recordings => ``total``/``largest``/``smallest`` are all 0. A save
+      that recorded nothing at all is the STRONGER form of the same defect, so
+      it must red the same window rather than vanish into an absent facet.
+    - ``unparsed`` counts RECORDING nodes whose ``pointCount`` was absent or
+      unparseable. Those contribute NOTHING to the three statistics (a missing
+      count must never read as a real 0 -- the same "never read a torn file as
+      zero rows" rule the snapshot-level faults follow), and a non-zero
+      ``unparsed`` is a DEFINED mismatch for a declared points block: the
+      distribution is not fully measured, so no window over it can be trusted.
+    - ``recordings`` is how many nodes DID contribute, so a reader can tell
+      "smallest = 0 across 4 recordings" from "no recordings at all".
+
+    KNOWN LEGITIMATE ZERO, and the reason `smallest` is the least safe key to
+    pin: `pointCount` is the FLAT `rec.Points` list, and
+    `DebrisRelativeRecorderPolicy.TrimFlatPointsPastRenderableTail` deliberately
+    EMPTIES that list on a parent-anchored debris recording with no renderable
+    tail - its real coverage lives in `TrackSection.frames` /
+    `bodyFixedFrames`, which this facet does not see. So a scenario that
+    produces debris can carry a healthy recording reading `pointCount = 0`.
+    `total` and `largest` are unaffected in practice (the parent recording
+    dominates both); a `smallest` window on a debris-producing scenario would
+    be measuring that trim, not a defect. The section-authoritative sidecar path
+    is NOT such a case - it changes what the `.prec` stores, while `rec.Points`
+    stays populated in memory (the writer logs both numbers separately).
+    """
+    counts = [r.point_count for r in snapshot.recordings if r.point_count is not None]
+    unparsed = sum(1 for r in snapshot.recordings if r.point_count is None)
+    return {
+        "total": sum(counts),
+        "largest": max(counts) if counts else 0,
+        "smallest": min(counts) if counts else 0,
+        "recordings": len(counts),
+        "unparsed": unparsed,
+    }
+
+
 def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, Any]:
     """The MEASURED facets recorded alongside the verifier row, mirroring the
     ``[expectations.*]`` spec shape so a future pin slots in beside its spec
@@ -584,13 +667,17 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 # the duplicate_recording_ids helper reach the run JSON.
                 "duplicateRecordingIds": list(duplicate_recording_ids(snapshot)),
             },
+            # Gate 12: the recorded-POINTS distribution, sibling of `structure`
+            # and independently armable. Recorded UNCONDITIONALLY, which is how
+            # a scenario sizes its first honest window off a green run.
+            "points": observed_points_facets(snapshot),
         },
     }
 
 
 # ---------------------------------------------------------------------------
 # Spec-surface vocabulary + validation ([expectations.rewind] /
-# [expectations.recordings.structure]).
+# [expectations.recordings.structure] / [expectations.recordings.points]).
 # ---------------------------------------------------------------------------
 
 GATING_KEY = "gating"
@@ -603,6 +690,16 @@ STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
     GATING_KEY, "trees", "committedTrees", "recordings",
     "terminalStates", "branchPoints")
+
+# Gate 12. A SIBLING of `structure`, not a key inside it, and deliberately so:
+# gating is PER-BLOCK (see SaveStructureResult / adversarial-review finding 3),
+# so folding points into `structure` would mean a spec that had already armed
+# `structure` auto-armed every points window the day one was added. A separate
+# block keeps a NEW, unproven assertion class independently armable -- the same
+# reason `rewind` and `structure` are two blocks rather than one.
+POINTS_BLOCK = "points"  # nested under [expectations.recordings]
+POINTS_ASSERTION_KEYS: Tuple[str, ...] = ("total", "largest", "smallest")
+POINTS_BLOCK_KEYS: Tuple[str, ...] = (GATING_KEY,) + POINTS_ASSERTION_KEYS
 
 STATUS_REPORT = "REPORT"
 STATUS_PASS = "PASS"
@@ -712,6 +809,28 @@ def validate_structure_expectations(block: Any) -> List[str]:
     return errs
 
 
+def validate_points_expectations(block: Any) -> List[str]:
+    """Validate the ``[expectations.recordings.points]`` spec surface (gate 12).
+    None => no block declared => valid."""
+    if block is None:
+        return []
+    if not isinstance(block, dict):
+        return ["expectations.recordings.points: must be a table"]
+    errs: List[str] = []
+    unknown = sorted(k for k in block if k not in POINTS_BLOCK_KEYS)
+    if unknown:
+        errs.append("expectations.recordings.points: unknown key(s) %s (accepted: %s)"
+                    % (unknown, list(POINTS_BLOCK_KEYS)))
+    errs.extend(_validate_gating("expectations.recordings.points", block))
+    errs.extend(_validate_armed_empty(
+        "expectations.recordings.points", block, POINTS_ASSERTION_KEYS))
+    for key in POINTS_ASSERTION_KEYS:
+        if key in block:
+            errs.extend(_validate_window(
+                "expectations.recordings.points.%s" % key, block[key]))
+    return errs
+
+
 def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[str]:
     """Inert-declaration WARNINGS (never errors): a declared-but-assertion-less
     UNARMED block degrades silently to an empty report row - the author wrote a
@@ -731,6 +850,11 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
             k in structure for k in ("trees", "committedTrees", "recordings",
                                      "terminalStates", "branchPoints")):
         warns.append("expectations.recordings.structure: declared with no assertion "
+                     "key - the block reports nothing and gates nothing")
+    points = (recordings.get(POINTS_BLOCK)
+              if isinstance(recordings, dict) else None)
+    if isinstance(points, dict) and not any(k in points for k in POINTS_ASSERTION_KEYS):
+        warns.append("expectations.recordings.points: declared with no assertion "
                      "key - the block reports nothing and gates nothing")
     return warns
 
@@ -765,26 +889,36 @@ class SaveStructureResult:
     gating: bool                      # any declared block armed
     mismatches: Tuple[str, ...]       # all mismatches, armed + report-only
     observed: Dict[str, Any]
-    blocks: Tuple[str, ...]           # declared blocks: "rewind" / "recordings.structure"
+    blocks: Tuple[str, ...]           # "rewind" / "recordings.structure" / "recordings.points"
     armed_blocks: Tuple[str, ...]     # the gating = true subset of blocks
     armed_mismatches: Tuple[str, ...]  # the verdict-driving subset
     scenario_found: Optional[bool]    # None = save unreadable / not read
 
 
-def _structure_block(expectations: Dict) -> Optional[Dict]:
+def _recordings_sub_block(expectations: Dict, name: str) -> Optional[Dict]:
     recordings = expectations.get("recordings")
-    structure = recordings.get(STRUCTURE_BLOCK) if isinstance(recordings, dict) else None
-    return structure if isinstance(structure, dict) else None
+    sub = recordings.get(name) if isinstance(recordings, dict) else None
+    return sub if isinstance(sub, dict) else None
+
+
+def _structure_block(expectations: Dict) -> Optional[Dict]:
+    return _recordings_sub_block(expectations, STRUCTURE_BLOCK)
+
+
+def _points_block(expectations: Dict) -> Optional[Dict]:
+    return _recordings_sub_block(expectations, POINTS_BLOCK)
 
 
 def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
-    """Which of the two M-C2 blocks the spec declares, stable order."""
+    """Which of the three M-C2 save-parse blocks the spec declares, stable order."""
     expectations = expectations or {}
     out: List[str] = []
     if isinstance(expectations.get(REWIND_BLOCK), dict):
         out.append(REWIND_BLOCK)
     if _structure_block(expectations) is not None:
         out.append("recordings.structure")
+    if _points_block(expectations) is not None:
+        out.append("recordings.points")
     return tuple(out)
 
 
@@ -800,6 +934,9 @@ def armed_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     structure = _structure_block(expectations)
     if structure is not None and structure.get(GATING_KEY) is True:
         out.append("recordings.structure")
+    points = _points_block(expectations)
+    if points is not None and points.get(GATING_KEY) is True:
+        out.append("recordings.points")
     return tuple(out)
 
 
@@ -835,7 +972,8 @@ def _check_window(label: str, spec_val: Any, measured: int,
 def evaluate_save_structure(
         expectations: Optional[Dict],
         snapshot: Optional[ParsekSaveSnapshot]) -> SaveStructureResult:
-    """Evaluate the declared M-C2 blocks against the parsed save snapshot.
+    """Evaluate the declared M-C2 blocks (``rewind`` / ``recordings.structure``
+    / ``recordings.points``) against the parsed save snapshot.
 
     Two structural faults are DEFINED mismatches whenever any block is
     declared, attributed to every declared block (so they gate whenever
@@ -899,6 +1037,25 @@ def evaluate_save_structure(
                     count = measured[group].get(name, 0)
                     _check_window("recordings.structure.%s.%s" % (group, name),
                                   window, count, out)
+        points_spec = _points_block(expectations)
+        if points_spec is not None:
+            out = per_block["recordings.points"]
+            measured = facets["recordings"]["points"]
+            # A RECORDING node with no readable `pointCount` is a DEFINED
+            # mismatch, not a silent zero: the distribution the windows below
+            # are read against is incomplete, so every one of them would be
+            # asserting over a number the save did not actually supply. The
+            # C# writer emits the key unconditionally, so this fires only on a
+            # hand-mutated save or a fixture whose RECORDING nodes predate it.
+            if measured["unparsed"]:
+                out.append(
+                    "recordings.points: %d recording(s) carry no readable "
+                    "pointCount - the distribution is not fully measured"
+                    % measured["unparsed"])
+            for key in POINTS_ASSERTION_KEYS:
+                if key in points_spec:
+                    _check_window("recordings.points.%s" % key,
+                                  points_spec[key], measured[key], out)
 
     # Dedupe while preserving order: a STRUCTURAL fault is attributed to every
     # declared block (it must gate whichever block is armed), but the flattened

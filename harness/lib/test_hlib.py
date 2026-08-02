@@ -4419,6 +4419,79 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok,
                         "a well-formed structure block must validate")
 
+    def test_validate_spec_rejects_malformed_points_block(self):
+        # Gate 12's block reaches validate_spec through the same delegation as
+        # the other two, so a malformed window is a PRE-LAUNCH rejection rather
+        # than a block that silently evaluates as a no-op mid-chain.
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["expectations"]["recordings"]["points"] = {"biggest": {"min": 2}}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("recordings.points" in e for e in v.errors))
+        # An ARMED-and-empty points block is a gate that can never red.
+        spec["expectations"]["recordings"]["points"] = {"gating": True}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("gates nothing" in e for e in v.errors))
+        spec["expectations"]["recordings"]["points"] = {"largest": {"min": 2}}
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "a well-formed points block must validate")
+
+    def test_eva2_declares_the_points_block_unarmed(self):
+        # Gate 12 landed REPORT-ONLY on EVA-2 (the scenario whose green
+        # `count = {min=2,max=2}` let the empty-recording defect through).
+        # UNARMED is the whole point of the landing: the window is measured
+        # from live runs BEFORE it may move a verdict, so this cell must be
+        # flipped in the same commit that arms it - alongside the allowlist
+        # below and the run ids that justify it.
+        exp = load_spec("EVA-2-orbital-board.toml")["expectations"]
+        self.assertEqual(("recordings.points",),
+                         saveparse.declared_structure_blocks(exp))
+        self.assertEqual((), saveparse.armed_structure_blocks(exp))
+        self.assertFalse(saveparse.gating_armed(exp))
+        # It must still ASSERT something, or it is an inert header that reports
+        # nothing (the warn case) and could never be promoted from a reading.
+        self.assertTrue(
+            set(exp["recordings"]["points"]) & set(saveparse.POINTS_ASSERTION_KEYS),
+            "EVA-2's points block declares no assertion key - nothing to read")
+
+    def test_the_c_sharp_writer_still_emits_pointcount(self):
+        # SOURCE-SYNC GATE, same shape as CommittedBatchTallySourceSyncTests:
+        # this cell reads OUTSIDE harness/ on purpose. The ENTIRE points
+        # assertion rests on one C# line - RecordingTreeRecordCodec writing
+        # `pointCount` UNCONDITIONALLY on every RECORDING node. If that write is
+        # renamed, removed, or made conditional, every declared points window
+        # silently degrades to "unparsed": quiet while the block is report-only,
+        # and a confusing red once someone arms it. Fail HERE, locally, naming
+        # the cause, instead of on a nightly.
+        path = os.path.join(PARSEK_SOURCE_DIR, "RecordingTreeRecordCodec.cs")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        self.assertIn('recNode.AddValue("pointCount"', src,
+                      "RecordingTreeRecordCodec no longer writes pointCount onto the "
+                      "RECORDING node - [expectations.recordings.points] reads that key "
+                      "as its ONLY source of truth (the FinalizeTreeRecordings log line "
+                      "was rejected: it is Verbose, so it fails open). Either restore "
+                      "the write or re-source the block.")
+        # ...and UNCONDITIONALLY. A `pointCount` written under an `if` would make
+        # an absent key mean "this recording had none" rather than "this save
+        # predates the key" - exactly the ambiguity the `unparsed` counter exists
+        # to refuse, and it would flip the facet from fail-loud to fail-quiet.
+        # Checked structurally by INDENTATION against `lastResIdx`, the adjacent
+        # write that is unconditional today: wrapping either in a guard block
+        # indents it and reds here. (This catches the guard-block form; a guard
+        # expressed some other way is not claimed to be caught.)
+        lines = src.splitlines()
+        def _indent(needle):
+            ln = next(l for l in lines if needle in l)
+            return len(ln) - len(ln.lstrip())
+        self.assertEqual(_indent('recNode.AddValue("lastResIdx"'),
+                         _indent('recNode.AddValue("pointCount"'),
+                         "the pointCount write is no longer at the same (unconditional) "
+                         "nesting as the lastResIdx write beside it - if it is now "
+                         "guarded, an absent key stops meaning 'not measured'")
+
     # THE ARMED ALLOWLIST. This started life as `assertEqual([], armed)` - the
     # hard verdict-neutrality property that shipped with the verifier, when
     # nothing was armed and every arming was still unproven. S4.1 was promoted

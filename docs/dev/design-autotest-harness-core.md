@@ -291,7 +291,8 @@ D14 = ["career", "cold-load-ut0", "scene-ksc"]
 # format break when those verifiers arrive. world ACTIVATED with M-B2 (ledger
 # oracle, verifier 8); rewind ACTIVATED with M-C2/R9 (save-parse verifier 7b,
 # report-only until a block arms gating = true), which also added the
-# [expectations.recordings.structure] sub-block.
+# [expectations.recordings.structure] sub-block, and (gate 12, 2026-08-02) the
+# [expectations.recordings.points] sub-block.
 [expectations]
 # allowedAnomalies: the scenario's bounded, documented exceptions to the Tier-C
 # anomaly sweep. This is a DEDICATED field (NOT logContracts.forbidden): the sweep's
@@ -307,6 +308,10 @@ D14 = ["career", "cold-load-ut0", "scene-ksc"]
 allowedAnomalies = []                # e.g. ["polyline-orbit-overlap"] for a known-benign leg
 
 [expectations.recordings]
+# count is a count of .prec FILES. It cannot see whether a recording recorded
+# ANYTHING -- two EMPTY recordings are still two files, which is exactly how the
+# gate-12 defect ("AN ORBITAL EVA RECORDS NOTHING") stayed green on a spec whose
+# count window was an exact pin. For that claim use [expectations.recordings.points].
 count = { min = 0, max = 0 }
 # treeShape, sectionFrameKinds, eventKinds, resourceDeltas -> reserved
 [expectations.logContracts]
@@ -332,6 +337,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # [expectations.rewind] supersedeRows / tombstones / rewindPoints (M-C2/R9)   -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.recordings.structure] trees / committedTrees / recordings /
 #   terminalStates / branchPoints (M-C2/R9)                                   -> ACTIVE (verifier 7b, report-only until gating = true)
+# [expectations.recordings.points] total / largest / smallest (gate 12)       -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.loop]   LoopStartUT / LoopEndUT / first-play floor (M-C2)     -> reserved (zero declarers)
 # [expectations.route]  hold-reason strings (M-D1)                            -> reserved (zero declarers)
 
@@ -604,7 +610,7 @@ guessing.
     "testResults":    { "status": "PASS", "failures": 0, "path": "parsek-test-results.txt" },
     "anomalySweep":   { "status": "PASS", "hits": 0 },
     "expectations":   { "status": "PASS", "mismatches": [], "reserved": [], "observed": { "recordings": { "count": 7 } } },
-    "saveParse":      { "status": "REPORT", "reason": "", "gating": false, "blocks": [], "armedBlocks": [], "mismatches": [], "observed": { "rewind": { "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0, "rewindRetirements": 0 }, "recordings": { "structure": { "trees": 1, "committedTrees": 1, "recordings": 3, "terminalStates": { "Destroyed": 1 }, "branchPoints": { "Undock": 1 }, "duplicateRecordingIds": [] } } }, "parsed": true, "parseError": "", "scenarioFound": true },
+    "saveParse":      { "status": "REPORT", "reason": "", "gating": false, "blocks": [], "armedBlocks": [], "mismatches": [], "observed": { "rewind": { "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0, "rewindRetirements": 0 }, "recordings": { "structure": { "trees": 1, "committedTrees": 1, "recordings": 3, "terminalStates": { "Destroyed": 1 }, "branchPoints": { "Undock": 1 }, "duplicateRecordingIds": [] }, "points": { "total": 412, "largest": 300, "smallest": 5, "recordings": 3, "unparsed": 0 } } }, "parsed": true, "parseError": "", "scenarioFound": true },
     "ledgerOracle":   { "status": "SKIPPED", "reason": "no-actions-or-mb2-not-landed" }
   },
   "expectedFail": { "bugId": "", "matched": false },
@@ -1209,7 +1215,10 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    A mismatch -> PARSEK-FAIL (expectation). Reserved blocks (route/loop) are
    recorded as SKIPPED until their verifiers land; `world` left the reserved set
    with M-B2 (row 8 owns it) and `rewind` left it with M-C2/R9 (row 7b owns it,
-   alongside the new `recordings.structure` sub-block).
+   alongside the `recordings.structure` and `recordings.points` sub-blocks).
+   NOTE the deliberate blind spot this row keeps: `recordings.count` counts
+   `.prec` FILES, so it cannot distinguish a recording that traced a flight from
+   one that finalized with a single point (gate 12). Row 7b owns that claim.
 7b. **Save-parse structural verifier** (M-C2 / R9, 2026-07-31;
    `saveparse.evaluate_save_structure` over `saveparse.parse_parsek_scenario`):
    parses the produced save's ParsekScenario SCENARIO surfaces (RECORDING_TREE
@@ -1218,7 +1227,16 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    rows, REWIND_POINTS/CHILD_SLOTs) and evaluates `[expectations.rewind]`
    (supersedeRows / tombstones / rewindPoints count windows) plus
    `[expectations.recordings.structure]` (trees / committedTrees / recordings
-   windows, terminalStates and branchPoints buckets by enum NAME). REPORT-ONLY by
+   windows, terminalStates and branchPoints buckets by enum NAME) plus
+   `[expectations.recordings.points]` (gate 12: the per-recording `pointCount`
+   distribution summarised as total / largest / smallest count windows). The
+   points block is a SIBLING of structure, not a key inside it, precisely because
+   gating is per-block: folding it in would have auto-armed every points window
+   on any spec that had already armed structure. Its source is the save's own
+   `pointCount` (written unconditionally by `RecordingTreeRecordCodec`), NOT the
+   `FinalizeTreeRecordings: ... points=N` log line - that line is `Verbose` and
+   would go silent, fail-open, on any spec not pinning `verboseLogging`.
+   REPORT-ONLY by
    default - VERDICT NEUTRALITY: S4.1 already declared a rewind block when this
    verifier landed, so a gating default would have moved a committed nightly's
    verdict with no live run to prove the readings. A block opts in with

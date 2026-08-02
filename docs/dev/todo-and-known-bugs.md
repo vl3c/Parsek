@@ -477,13 +477,26 @@ loop), so it takes the SAMPLING with it. Everything the recorder would have done
 frame - trajectory points, part events, the background pass - does not happen. The
 recording is not degraded, it is empty.
 
-### Why nothing caught it
+### Why nothing caught it [HARNESS HALF ADDRESSED 2026-08-02]
 
-`EVA-2-orbital-board` is green and stays green. Its numeric guard is
+`EVA-2-orbital-board` was green and STAYED green. Its numeric guard is
 `recordings.count = { min = 2, max = 2 }`, which counts `.prec` FILES, and two empty
 recordings are still two files. This is the category inventory's "fourth trap" (a
 vacuous PASS the tally cannot see) reappearing in the RECORDINGS dimension instead of
-the batch-tally one. Nothing in the verifier chain asserts a recording has points.
+the batch-tally one.
+
+"Nothing in the verifier chain asserts a recording has points" is NO LONGER TRUE as
+of 2026-08-02: `[expectations.recordings.points]` (autotest-status gate 12) asserts
+`total` / `largest` / `smallest` windows over the per-recording `pointCount` the save
+carries, evaluated by the R9 `saveParse` row. EVA-2 declares `largest = { min = 2 }`,
+REPORT-ONLY pending its arming run. Two honest limits on that:
+
+- It reds only when the trigger FIRES. The stock trigger is intermittent - `dT is
+  NaN` occurred 2196x / 6x / 0x across three runs of the same fixture during the
+  #1408 verification - so a green EVA-2 is NOT evidence the NaN path did not happen.
+  The assertion bounds the blast radius of the next recording-emptying defect; it
+  does not guarantee detection of this one.
+- It is a DETECTOR, not the fix. The three fix directions below are untouched by it.
 
 ### Scope, as far as the evidence goes
 
@@ -509,9 +522,14 @@ the batch-tally one. Nothing in the verifier chain asserts a recording has point
    REGARDLESS of the other two - the finalization cache is an optimisation, and it
    should not be able to stop the recorder.
 
-A harness-side companion is worth considering separately: an
+~~A harness-side companion is worth considering separately: an
 `expectations.recordings` assertion on POINTS, not only on file count, would have
-caught this on EVA-2's first flight.
+caught this on EVA-2's first flight.~~ DONE 2026-08-02 - see "Why nothing caught it"
+above. Landed as `[expectations.recordings.points]`, a third M-C2 save-parse block
+read off the save's own `pointCount` (the `FinalizeTreeRecordings: ... points=N` log
+line was rejected as a source: it is Verbose, so it would go silent fail-open on any
+spec not pinning `verboseLogging`). Note the claim is narrower than "would have
+caught this on EVA-2's first flight" - see the intermittency limit above.
 
 ---
 

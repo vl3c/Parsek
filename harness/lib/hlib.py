@@ -2950,8 +2950,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
-    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind] and
-    # [expectations.recordings.structure]. Same rationale as the unityExceptions
+    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind],
+    # [expectations.recordings.structure] and (gate 12)
+    # [expectations.recordings.points]. Same rationale as the unityExceptions
     # block above - a malformed window (or a non-bool gating key) must be a
     # pre-launch rejection, never a block that silently evaluates as a no-op.
     if "rewind" in expectations:
@@ -2960,6 +2961,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
         errors.extend(saveparse.validate_structure_expectations(
             recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+    if isinstance(recordings_block, dict) and saveparse.POINTS_BLOCK in recordings_block:
+        errors.extend(saveparse.validate_points_expectations(
+            recordings_block.get(saveparse.POINTS_BLOCK)))
     # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
     # WARN like the unityExceptions precedent (armed-and-empty is a hard error
     # inside the validators above).
@@ -3386,12 +3390,21 @@ def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any
 
     Shape: mirrors the ``[expectations.*]`` spec surface, so a future measured
     facet slots in beside its spec counterpart without a format break
-    (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
-    ONLY facet the recordings block declares (hence the only one to observe);
-    the logContracts facets are regex predicates with no numeric counterpart
-    worth persisting, and route/loop stay RESERVED. The rewind / structure
-    facets are owned and observed by the M-C2 save-parse verifier
-    (saveparse.observed_structure_facets), not here - one owner per facet.
+    (``{"recordings": {"count": 7}}``). ``recordings.count`` is the only facet
+    THIS verifier owns: it is the one recordings facet derived from the
+    ``.prec`` FILE listing rather than from the save's content. The logContracts
+    facets are regex predicates with no numeric counterpart worth persisting,
+    and route/loop stay RESERVED. The rewind / structure / points facets are
+    owned and observed by the M-C2 save-parse verifier
+    (saveparse.observed_structure_facets), not here - one owner per facet, and a
+    facet read out of the SAVE belongs to the verifier that parses the save.
+
+    Gate 12 is exactly why that split matters: ``count`` counts FILES, so two
+    EMPTY recordings satisfy ``count = { min = 2, max = 2 }``. The claim "a
+    recording recorded something" needs the save's per-recording ``pointCount``
+    and therefore lives in ``[expectations.recordings.points]``, which also
+    gives it the report-only-then-arm discipline this verifier does not have
+    (a ``count`` mismatch is a hard FAIL the moment it is declared).
 
     Recording is UNCONDITIONAL on the spec: a scenario that declares no count
     window still gets its measured count recorded, which is how a NEW scenario
@@ -3417,9 +3430,14 @@ def evaluate_expectations(
     written now needs no format break then. ``world`` is NO LONGER reserved here
     (M-B2 gave verifier 8 sole ownership, design ~495), ``rewind`` is NO LONGER
     reserved here either (M-C2/R9 gave the save-parse verifier sole ownership,
-    alongside ``recordings.structure`` which this evaluator ignores), and
-    ``ledger`` is a tolerated-unknown block this evaluator ignores (verifier 8
-    owns it).
+    alongside ``recordings.structure`` and ``recordings.points`` which this
+    evaluator ignores), and ``ledger`` is a tolerated-unknown block this
+    evaluator ignores (verifier 8 owns it).
+
+    NOTE the deliberate blind spot this evaluator keeps: ``recordings.count`` is
+    a count of ``.prec`` FILES, so it cannot distinguish a recording that traced
+    a flight from one that finalized with a single point (gate 12). That claim
+    belongs to ``[expectations.recordings.points]`` on the save-parse verifier.
 
     The result also carries ``observed`` - the MEASURED facets
     (``observed_expectation_facets``) - so a green run's numbers survive into
