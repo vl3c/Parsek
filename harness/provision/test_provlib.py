@@ -8,6 +8,7 @@ Each test names the regression it guards (design Test Plan). No pytest, no KSP,
 no network, no filesystem writes.
 """
 
+import inspect
 import os
 import tomllib
 import unittest
@@ -353,9 +354,11 @@ class LivePhaseExceptionTests(unittest.TestCase):
             ctx = self._live_ctx(um)
             provision._write_incomplete_marker(ctx)
             marker = provision._incomplete_marker_path(ctx)
-            lock_path = os.path.join(ctx.parsek_gamedata, ".provision.lock")
+            lock_path = os.path.join(ctx.parsek_gamedata, ".ksp-machine.lock")
+            # Production-shaped payload: release re-reads the file and confirms
+            # the pid is ours before deleting (an empty {} is not an owned lock).
             with open(lock_path, "w", encoding="utf-8") as fh:
-                fh.write("{}")
+                fh.write('{"pid": %d}' % os.getpid())
             ctx.lock_path = lock_path
             ctx.lock_acquired = True
             saved = {n: getattr(provision, n) for n in
@@ -1228,6 +1231,117 @@ class LockTests(unittest.TestCase):
             self.assertEqual(d.reason, "reclaimed-stale")
 
 
+class LockLeaseTests(unittest.TestCase):
+    """Leak L4: pid-liveness alone has no escape from a RECYCLED pid. Windows
+    reuses pids, so a hard-killed holder whose number lands on any long-lived
+    process would refuse every future run forever. The lease is the backstop; a
+    live selection heartbeats its timestamp so expiry can never fire on it."""
+
+    ALIVE = staticmethod(lambda p: True)
+
+    def test_live_holder_within_lease_still_refused(self):
+        d = provlib.acquire_lock({"pid": 99, "timestamp": 1000.0}, pid=42,
+                                 now=1000.0 + 60, is_alive_fn=self.ALIVE,
+                                 lease_seconds=3600.0)
+        self.assertFalse(d.acquired)
+        self.assertEqual(d.reason, "refused-live")
+
+    def test_live_holder_past_lease_reclaimed(self):
+        d = provlib.acquire_lock({"pid": 99, "timestamp": 1000.0}, pid=42,
+                                 now=1000.0 + 3601, is_alive_fn=self.ALIVE,
+                                 lease_seconds=3600.0)
+        self.assertTrue(d.acquired)
+        self.assertEqual(d.reason, "reclaimed-stale")
+        self.assertEqual(d.holder_pid, 99)
+
+    def test_no_lease_preserves_original_pid_only_contract(self):
+        # lease_seconds=None is the pre-existing behavior: an ancient timestamp
+        # on a live pid is still a refusal.
+        d = provlib.acquire_lock({"pid": 99, "timestamp": 0.0}, pid=42,
+                                 now=10 ** 9, is_alive_fn=self.ALIVE)
+        self.assertFalse(d.acquired)
+
+    def test_dead_holder_reclaimed_regardless_of_lease(self):
+        d = provlib.acquire_lock({"pid": 99, "timestamp": 1000.0}, pid=42,
+                                 now=1000.0 + 1, is_alive_fn=lambda p: False,
+                                 lease_seconds=3600.0)
+        self.assertTrue(d.acquired)
+        self.assertEqual(d.reason, "reclaimed-stale")
+
+    def test_reentrant_holder_never_expires(self):
+        # Our OWN lock is re-entrant even if we somehow blew past the lease.
+        d = provlib.acquire_lock({"pid": 42, "timestamp": 0.0}, pid=42,
+                                 now=10 ** 9, is_alive_fn=self.ALIVE,
+                                 lease_seconds=1.0)
+        self.assertTrue(d.acquired)
+        self.assertEqual(d.reason, "acquired-free")
+
+    def test_untrustworthy_timestamp_is_expired(self):
+        # Missing / non-numeric / NaN: we cannot prove the holder is live, and a
+        # lockfile we cannot trust must not wedge every future run (same
+        # philosophy as the malformed-PID branch).
+        for bad in ({"pid": 99}, {"pid": 99, "timestamp": "soon"},
+                    {"pid": 99, "timestamp": None},
+                    {"pid": 99, "timestamp": float("nan")}):
+            d = provlib.acquire_lock(bad, pid=42, now=1000.0,
+                                     is_alive_fn=self.ALIVE, lease_seconds=3600.0)
+            self.assertTrue(d.acquired, bad)
+            self.assertEqual(d.reason, "reclaimed-stale", bad)
+
+    def test_future_timestamp_is_not_expired(self):
+        # Clock skew must not hand a live holder's lock away.
+        self.assertFalse(provlib.lock_lease_expired(
+            {"pid": 99, "timestamp": 10 ** 9}, now=1000.0, lease_seconds=1.0))
+
+    def test_lease_boundary_is_strict(self):
+        exactly = {"pid": 99, "timestamp": 0.0}
+        self.assertFalse(provlib.lock_lease_expired(exactly, now=3600.0, lease_seconds=3600.0))
+        self.assertTrue(provlib.lock_lease_expired(exactly, now=3600.1, lease_seconds=3600.0))
+
+
+class LockOwnershipTests(unittest.TestCase):
+    """Leak L2: release must re-read and confirm ownership, never delete blind."""
+
+    def test_own_lock_releasable(self):
+        self.assertTrue(provlib.should_release({"pid": 42}, 42))
+
+    def test_foreign_lock_not_releasable(self):
+        self.assertFalse(provlib.should_release({"pid": 43}, 42))
+
+    def test_absent_or_malformed_lock_not_releasable(self):
+        for bad in (None, {}, {"pid": None}, {"pid": "x"}):
+            self.assertFalse(provlib.should_release(bad, 42), bad)
+
+    def test_string_pid_compares_numerically(self):
+        # A hand-edited lockfile carrying "42" is still ours.
+        self.assertTrue(provlib.should_release({"pid": "42"}, 42))
+
+
+class MachineLockPathTests(unittest.TestCase):
+    """ONE MACHINE, ONE LOCK. The key is the machine, not the instance dir: the
+    monopolised resources (kRPC 50000/50001, the single GPU) are machine-global,
+    so a per-instance key let two profiles both acquire and both launch."""
+
+    def test_relpath_is_umbrella_scoped_not_instance_scoped(self):
+        self.assertEqual(provlib.MACHINE_LOCK_RELPATH, ("automation", ".ksp-machine.lock"))
+        # Must NOT sit inside automation/<profile>/, which would be per-profile
+        # by construction -- the exact bug this replaces.
+        self.assertNotIn("stock-minimal", provlib.MACHINE_LOCK_RELPATH)
+        self.assertNotIn("GameData", provlib.MACHINE_LOCK_RELPATH)
+
+    def test_provisioner_resolves_the_shared_path_from_the_umbrella_root(self):
+        # The provisioner must key off umbrella_root, NOT ctx.parsek_gamedata
+        # (which is per-instance). run.py's half of this agreement is pinned by
+        # MachineLockPathAgreementTests in lib/test_run_smoke.py.
+        import provision
+        source = inspect.getsource(provision.phase_preflight)
+        self.assertIn("MACHINE_LOCK_RELPATH", source)
+        self.assertIn("ctx.umbrella_root", source)
+        # The old per-instance path must no longer be CONSTRUCTED (a mention in
+        # the rationale comment is fine, hence matching the join, not the name).
+        self.assertNotIn('ctx.parsek_gamedata, ".provision.lock"', source)
+
+
 class PairDecisionTests(unittest.TestCase):
     """Reviewer 7: extracted PAIR assertion (GT-6 / EC-14)."""
 
@@ -1408,14 +1522,37 @@ class LockfileReleaseTests(unittest.TestCase):
         import tempfile
         import provision
         with tempfile.TemporaryDirectory() as umbrella:
-            lock = os.path.join(umbrella, ".provision.lock")
+            lock = os.path.join(umbrella, ".ksp-machine.lock")
+            # Production-shaped: a live acquire always stamps os.getpid(). The
+            # fixture used to seed {"pid": 1} while asserting release, which only
+            # passed because release trusted the in-process lock_acquired flag
+            # and never re-read the file.
             with open(lock, "w") as fh:
-                json.dump({"pid": 1}, fh)
+                json.dump({"pid": os.getpid()}, fh)
             ctx = self._ctx(umbrella)
             ctx.lock_path = lock
             ctx.lock_acquired = True
             provision._finish(ctx, 0)
             self.assertFalse(os.path.exists(lock))
+
+    def test_reclaimed_lock_not_removed_even_when_we_think_we_own_it(self):
+        """Leak L2: in-process ownership bookkeeping can be STALE relative to
+        disk. A provision that stalled long enough to be reclaimed as stale must
+        not delete the lock a different LIVE holder now owns -- doing so converts
+        one refusal into two concurrent writers of the same instance."""
+        import json
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            lock = os.path.join(umbrella, ".ksp-machine.lock")
+            with open(lock, "w") as fh:
+                json.dump({"pid": os.getpid() + 1}, fh)   # someone else reclaimed it
+            ctx = self._ctx(umbrella)
+            ctx.lock_path = lock
+            ctx.lock_acquired = True                       # we still believe we hold it
+            provision._finish(ctx, 0)
+            self.assertTrue(os.path.exists(lock),
+                            "a reclaimed lock belongs to its new live holder")
 
     def test_unowned_lock_not_removed(self):
         import json

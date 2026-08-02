@@ -396,7 +396,16 @@ def phase_preflight(ctx: ProvisionContext) -> None:
     _enable_and_flush_log_file(ctx)
 
     # Lock decision (EC-10) -- pure logic; live acquisition writes the lockfile.
-    lock_path = os.path.join(ctx.parsek_gamedata, ".provision.lock")
+    #
+    # THE SAME MACHINE LOCK run.py TAKES. This used to be a per-instance
+    # `.provision.lock` that run.py's `.harness-run.lock` never read (and vice
+    # versa), so a routine `provision.py --profile stock-minimal` could run its
+    # DEPLOY phase -- overwriting Parsek.dll, settings, and the MM cache -- while
+    # a sibling harness run held its own lock and was between KSP boots. The only
+    # thing that ever stopped it was the coarse EC-1 "any KSP alive" probe below,
+    # which passes during the harness's entire pre-launch and post-exit windows.
+    # One shared file makes provisioning and running mutually exclusive.
+    lock_path = os.path.join(ctx.umbrella_root, *provlib.MACHINE_LOCK_RELPATH)
     existing = None
     if os.path.isfile(lock_path):
         try:
@@ -404,15 +413,35 @@ def phase_preflight(ctx: ProvisionContext) -> None:
                 existing = json.load(fh)
         except (OSError, ValueError):
             existing = None
-    decision = provlib.acquire_lock(existing, os.getpid(), _now(), _pid_alive)
-    log(ctx, "Info", "Preflight", "lock decision=%s holder=%s" % (decision.reason, decision.holder_pid))
+    decision = provlib.acquire_lock(existing, os.getpid(), _now(), _pid_alive,
+                                    lease_seconds=provlib.DEFAULT_LEASE_SECONDS)
+    log(ctx, "Info", "Preflight", "lock decision=%s holder=%s path=%s"
+        % (decision.reason, decision.holder_pid, lock_path))
     if not decision.acquired:
-        abort(ctx, "Preflight", "EC-10", "instance locked by live pid %s" % decision.holder_pid)
+        holder = existing or {}
+        abort(ctx, "Preflight", "EC-10",
+              "machine locked by live pid %s (worktree=%s selection=%s since=%s); "
+              "a harness run or another provision is active"
+              % (decision.holder_pid, holder.get("worktree") or "?",
+                 holder.get("selection") or "?", holder.get("startedIso") or "?"))
         return
     if not ctx.dry_run:
-        os.makedirs(ctx.parsek_gamedata, exist_ok=True)
-        with open(lock_path, "w", encoding="utf-8") as fh:
-            json.dump({"pid": os.getpid(), "timestamp": _now()}, fh)
+        # O_CREAT|O_EXCL so two racers cannot both win; on an existing file we
+        # already decided above that it is stale, so replace it atomically.
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        payload = json.dumps({"pid": os.getpid(), "timestamp": _now(),
+                              "worktree": WORKTREE_ROOT, "selection": "provision:%s" % ctx.profile_name,
+                              "startedIso": _utcnow_iso()})
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            tmp = lock_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            os.replace(tmp, lock_path)
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
         # Record ownership so _finish removes ONLY a lock this run created (never
         # a lock a concurrent live run holds, which we would have refused above).
         ctx.lock_path = lock_path  # type: ignore[attr-defined]
@@ -2496,11 +2525,25 @@ def _finish(ctx: ProvisionContext, code: int) -> int:
     if getattr(ctx, "lock_acquired", False) and not ctx.dry_run:
         lock_path = getattr(ctx, "lock_path", None)
         if lock_path and os.path.isfile(lock_path):
+            # Re-read and confirm the lock is still OURS before deleting. A
+            # provision that stalled long enough to be reclaimed as stale must not
+            # remove the lock a different LIVE holder now owns.
+            existing = None
             try:
-                os.remove(lock_path)
-                log(ctx, "Info", "Summary", "released provision lock %s" % lock_path)
-            except OSError as exc:
-                log(ctx, "Warn", "Summary", "could not remove lock %s: %s" % (lock_path, exc))
+                with open(lock_path, "r", encoding="utf-8") as fh:
+                    existing = json.load(fh)
+            except (OSError, ValueError):
+                existing = None
+            if not provlib.should_release(existing, os.getpid()):
+                log(ctx, "Warn", "Summary",
+                    "machine lock not released: now held by pid=%s, not us (pid=%d)"
+                    % ((existing or {}).get("pid"), os.getpid()))
+            else:
+                try:
+                    os.remove(lock_path)
+                    log(ctx, "Info", "Summary", "released machine lock %s" % lock_path)
+                except OSError as exc:
+                    log(ctx, "Warn", "Summary", "could not remove lock %s: %s" % (lock_path, exc))
     if ctx.aborted:
         log(ctx, "Error", "Summary", "ABORT: %s (exit=2)" % ctx.abort_reason)
         return 2

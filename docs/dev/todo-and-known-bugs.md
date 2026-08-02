@@ -14,6 +14,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## DEV-INSTANCE-UNLOCKED: three shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
+
+The machine lock (`<umbrella>/automation/.ksp-machine.lock`) serializes `run.py`
+and `provision.py`. It deliberately does NOT cover the DEV instance or routine dev
+commands, because locking those would serialize all parallel dev work behind an
+8h harness hold to protect surfaces where a collision costs a re-run, not a false
+product verdict. Filing them so they stop being invisible:
+
+1. **`dotnet build` races on the shared dev DLL.** Two worktrees building
+   concurrently both copy into `Kerbal Space Program/GameData/Parsek/Plugins/Parsek.dll`
+   (`Source/Parsek/Parsek.csproj`, `ContinueOnError="true"`); last writer wins, and
+   the `SyncAgentInstructionMirrors` target races the same way on the two umbrella
+   `CLAUDE.md` / `AGENTS.md` mirrors. Mitigation today is the hash-verify recipe in
+   `.claude/CLAUDE.md`, which is operator discipline, not a guarantee.
+2. **The `InjectAllRecordings` fixture purges the dev save's recordings.**
+   `SyntheticRecordingTests.InjectAllRecordings` targets the dev KSP install's
+   `saves/test career` and calls `PurgeRecordingSidecars`. It DOES refuse when KSP
+   is live (`ScenarioWriter.TryPurgeRecordingSidecarsForInject` probes `KSP.log`
+   with an exclusive open and raises `SkipException`), and it early-returns when the
+   target save is absent - so the residual hazard is test-vs-test, not test-vs-flight:
+   two sibling worktrees running `dotnet test` at once both purge and re-inject the
+   same save. It carries `[Trait("Category", "Manual")]`, which does not exclude it
+   from a bare `dotnet test`. Cheap fix if it ever bites: an env-var `Skip` gate.
+3. **`collect-logs.py` collides on minute-granularity folder names** in the shared
+   `../logs/` sink and hard-exits, which loses a failing run's only evidence. A
+   `-pid<N>` suffix instead of `sys.exit(1)` would close it.
+
+Related coupling, recorded here because it is easy to miss: **roadmap R8 (narrow
+the zombie preflight to a per-instance KSP-pid binding) must not land before the
+machine lock exists** - that coarse probe was the accidental sole guard on kRPC
+port 50000 and the single GPU. See `harness/README.md` "The machine lock".
+
+---
+
 ## B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. TUNING TODO on the SHARED b5 capture machine - not picked up on the `v1-map-dwell` branch]
 
 The stretch from Mun SOI entry to the capture (circularize-at-periapsis) node

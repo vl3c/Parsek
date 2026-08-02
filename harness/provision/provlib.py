@@ -829,7 +829,35 @@ def check_instance_dir_alias(instance_dir: str, dev_install: str, instance_rel: 
 # ---------------------------------------------------------------------------
 # Lockfile acquire / reclaim (design EC-10). Pure over injected clock + pid +
 # liveness probe.
+#
+# ONE MACHINE, ONE LOCK. The lock is keyed on the MACHINE, not on the instance
+# directory. The resources a KSP automation run actually monopolises are
+# machine-global, not per-instance: the hardcoded kRPC ports 50000/50001
+# (mission_runner.py --rpc-port/--stream-port), the single GPU, and the
+# timing-sensitive physics clock that a second concurrent KSP perturbs. A
+# per-instance-dir lock lets two DIFFERENT profiles both acquire, both launch,
+# and both bind port 50000 -- where the loser's bind fails soft and its mission
+# then drives the WINNER's game, a live path to a false PASS. Keying on the
+# machine makes the serialization structural instead of accidental.
 # ---------------------------------------------------------------------------
+
+# Relative to the umbrella root, so every worktree and both shells (run.py and
+# provision.py) resolve the SAME file. Lives beside the instances rather than
+# inside one: a lock inside automation/<profile>/ would be per-profile by
+# construction, which is the bug.
+#
+# Exposed as a RELPATH TUPLE, not a joined path: this module is the PURE half and
+# imports no ``os``. The shells join it (``os.path.join(umbrella_root,
+# *provlib.MACHINE_LOCK_RELPATH)``), the same convention hlib.SETTINGS_SIDECAR_RELPATH
+# already uses in run.py.
+MACHINE_LOCK_RELPATH: Tuple[str, ...] = ("automation", ".ksp-machine.lock")
+
+# Wall-clock backstop for pid-liveness (leak L4). Windows recycles pids, so a
+# hard-killed holder whose pid is reused by any long-lived process would wedge
+# every future run FOREVER under pid-liveness alone. A live selection heartbeats
+# the timestamp at each scenario boundary, so this expiry can never fire on a
+# genuinely running holder; it only frees a wedged one.
+DEFAULT_LEASE_SECONDS: float = 4 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -844,16 +872,25 @@ def acquire_lock(
     pid: int,
     now: float,
     is_alive_fn: Callable[[int], bool],
+    lease_seconds: Optional[float] = None,
 ) -> LockDecision:
-    """Decide whether ``pid`` may acquire the instance lock.
+    """Decide whether ``pid`` may acquire the machine lock.
 
-    ``existing_lock`` is None (no lock) or ``{"pid": int, "timestamp": float}``.
+    ``existing_lock`` is None (no lock) or ``{"pid": int, "timestamp": float}``
+    (plus optional identity fields the decision ignores).
     - No lock -> acquire (``acquired-free``).
     - Lock held by this same pid -> acquire (re-entrant, ``acquired-free``).
-    - Lock held by a LIVE other pid -> refuse (``refused-live``, EC-10 second
-      concurrent run).
     - Lock held by a DEAD pid -> reclaim (``reclaimed-stale``).
+    - Lock held by a LIVE other pid whose lease has EXPIRED -> reclaim.
+    - Lock held by a LIVE other pid within its lease -> refuse (``refused-live``,
+      EC-10 second concurrent run).
     ``is_alive_fn(pid) -> bool`` and ``now`` are injected for purity.
+
+    ``lease_seconds=None`` disables expiry (pid-liveness only, the original
+    contract). When set, a lock whose timestamp is missing, malformed, or older
+    than the lease is stale -- same fail-safe philosophy as the malformed-pid
+    branch: a lockfile we cannot trust must not wedge every future run. A
+    timestamp in the FUTURE (clock skew) is never treated as expired.
     """
     if not existing_lock:
         return LockDecision(True, "acquired-free", pid)
@@ -867,9 +904,49 @@ def acquire_lock(
         holder_pid = int(holder)
     except (TypeError, ValueError):
         return LockDecision(True, "reclaimed-stale", None)
-    if is_alive_fn(holder_pid):
-        return LockDecision(False, "refused-live", holder_pid)
-    return LockDecision(True, "reclaimed-stale", holder_pid)
+    if not is_alive_fn(holder_pid):
+        return LockDecision(True, "reclaimed-stale", holder_pid)
+    if lease_seconds is not None and lock_lease_expired(existing_lock, now, lease_seconds):
+        return LockDecision(True, "reclaimed-stale", holder_pid)
+    return LockDecision(False, "refused-live", holder_pid)
+
+
+def lock_lease_expired(
+    existing_lock: Optional[Dict],
+    now: float,
+    lease_seconds: float,
+) -> bool:
+    """True when ``existing_lock``'s timestamp is untrustworthy or older than the
+    lease. Split out so the expiry rule is directly testable and so the
+    heartbeat path can reuse it. A missing/malformed timestamp counts as
+    EXPIRED (we cannot prove the holder is live); a future timestamp does not."""
+    if not existing_lock:
+        return False
+    raw = existing_lock.get("timestamp")
+    try:
+        stamped = float(raw)
+    except (TypeError, ValueError):
+        return True
+    if stamped != stamped:  # NaN: unusable, same as malformed
+        return True
+    return (now - stamped) > lease_seconds
+
+
+def should_release(existing_lock: Optional[Dict], pid: int) -> bool:
+    """True only when the on-disk lock is OURS (leak L2).
+
+    Release must re-read and confirm ownership before deleting: an unconditional
+    delete lets a run that already lost its lock (reclaimed as stale after a
+    stall, or deleted by hand) remove the lock a DIFFERENT live run now holds,
+    silently converting one refusal into two concurrent flights. Mirrors the
+    ownership tracking provision.py already does around its own lockfile.
+    """
+    if not existing_lock:
+        return False
+    try:
+        return int(existing_lock.get("pid")) == int(pid)
+    except (TypeError, ValueError):
+        return False
 
 
 # ---------------------------------------------------------------------------

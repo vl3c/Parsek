@@ -143,6 +143,53 @@ python tools/contact_sheet.py --run-id <id>  # one run's sheet + index
 python tools/contact_sheet.py --index-only   # just the index
 ```
 
+## The machine lock (only one run at a time, machine-wide)
+
+`run.py` and `provision/provision.py` are mutually exclusive, arbitrated by ONE
+lockfile:
+
+```
+<umbrella-root>/automation/.ksp-machine.lock
+```
+
+**Why the MACHINE and not the instance directory.** The resources an automation
+run monopolises are machine-global, not per-instance: the hardcoded kRPC ports
+(50000/50001), the single GPU, and the timing-sensitive physics clock a second
+concurrent KSP perturbs. A per-instance lock let two different profiles both
+acquire, both launch, and both bind 50000 - where the loser's bind fails soft and
+its mission then drives the WINNER's game, a live path to a false PASS.
+
+**What takes it.** A whole `run.py` invocation (acquired before the spec loop,
+released in a `finally`, timestamp heartbeated at each scenario boundary) and a
+whole `provision.py` run including `--repair`. A nightly therefore holds the
+machine for its full duration, which is the point.
+
+**What does NOT take it,** deliberately: `--dry-run` (launches nothing), the unit
+suites, venv bootstrap, `collect-logs.py`, and `dotnet build`'s deploy to the DEV
+instance. Locking routine dev builds behind an 8h harness hold would be worse
+than the disease; the dev install stays under the hash-verify discipline in
+`.claude/CLAUDE.md`.
+
+**On contention** both shells fail FAST (no queueing): `run.py` writes one
+`INVALID(instance-locked)` result per selected scenario and exits 1;
+`provision.py` aborts `EC-10`. Neither ever touches the holder's lockfile. The
+refusal names the holder's pid, worktree, selection and start time.
+
+**Stale locks** are reclaimed automatically two ways: the holder pid is dead, or
+the lease (`provlib.DEFAULT_LEASE_SECONDS`, 4h) has expired - the second is the
+backstop for Windows pid reuse, which pid-liveness alone cannot escape. A live
+run heartbeats its timestamp, so expiry never fires on a genuinely running
+selection. If you are certain nothing is running and want the machine back now,
+delete the lockfile.
+
+The coarse "any `KSP_x64.exe` alive" zombie preflight is UNCHANGED and still runs
+per attempt. It is the backstop for KSPs no lockfile knows about (a manual
+launch, an orphan from a killed run). It cannot bind a pid to a directory, so a
+dev-instance KSP being open also refuses a harness run - a deliberate
+false-positive, since one GPU means it would perturb the flight anyway. **Do not
+narrow it (roadmap R8) without re-reading this section:** it is a second,
+independent guard.
+
 ## Running the tests
 
 ```
