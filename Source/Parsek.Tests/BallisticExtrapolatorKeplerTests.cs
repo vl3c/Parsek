@@ -625,6 +625,303 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // Degenerate element sets (the orbital-EVA ArithmeticException class)
+        //
+        // An orbital EVA recorded NOTHING for ten seconds because stock KSP's own
+        // patched-conic solver handed Parsek a Not-a-Number patch (stock logs
+        // "dT is NaN! tA: NaN, E: NaN, M: NaN, T: NaN" while producing it),
+        // PatchedConicSnapshot copied it verbatim into an OrbitSegment, and the
+        // propagator threw rather than declining: Math.Sign is the one System.Math
+        // entry point that THROWS ArithmeticException on NaN instead of propagating
+        // it, and SolveHyperbolicKepler's initial guess calls it. The throw escaped
+        // the per-physics-frame finalization-cache refresh, which FlightRecorder
+        // calls BEFORE it samples, so every frame died before recording anything.
+        //
+        // The cells below pin both halves of the contract: the degenerate sets are
+        // DECLINED (not clamped into a fake answer), and the neighbouring VALID sets
+        // still propagate to the textbook closed form, so the guard did not narrow
+        // what the propagator accepts.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The exact shape measured in flight: a NaN eccentricity. Every comparison
+        /// against NaN is false, so <c>eccentricity &lt; 1.0</c> classified it as
+        /// HYPERBOLIC while the semi-major axis stayed positive - which makes the
+        /// hyperbolic mean motion sqrt(mu / (-a)^3) the square root of a negative,
+        /// i.e. NaN, i.e. Math.Sign(NaN) inside the solver.
+        /// </summary>
+        [Fact]
+        public void NanEccentricitySegment_IsDeclinedInsteadOfThrowingOutOfTheHyperbolicSolver()
+        {
+            OrbitSegment segment = MakeWellFormedEllipticSegment();
+            segment.eccentricity = double.NaN;
+
+            Assert.False(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _));
+
+            // And through the propagation entry point the finalizer actually uses:
+            // a clean false, with no exception and no garbage state handed back.
+            bool propagated = BallisticExtrapolator.TryPropagate(
+                segment, KerbinMu, segment.endUT, out Vector3d position, out Vector3d velocity);
+
+            Assert.False(propagated);
+            Assert.Equal(0.0, Mag(position));
+            Assert.Equal(0.0, Mag(velocity));
+        }
+
+        /// <summary>
+        /// The second, independent route to the same throw: elements that are entirely
+        /// well-formed, propagated at a non-finite UT. It matters because the finalizer
+        /// propagates the terminal predicted segment AT <c>segment.endUT</c>, and a stock
+        /// patch with a NaN EndUT survives <c>ToOrbitSegment</c>'s
+        /// <c>patch.EndUT &lt; startUT</c> clamp (that comparison is false for NaN).
+        /// Only the solver's own totality guard stops this one - the element set is valid.
+        /// <para>
+        /// The NaN row is the regression: it threw before the guard. The two infinite
+        /// rows never threw (Math.Sign is finite-valued for +-Infinity) and already
+        /// produced NaN by arithmetic; they are here because the guard's contract is
+        /// "non-finite in, NaN out, never throws" for the whole class, and because they
+        /// now short-circuit instead of spending 24 Newton iterations on Infinity.
+        /// </para>
+        /// </summary>
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void HyperbolicOrbit_NonFinitePropagationUT_YieldsNaNStateInsteadOfThrowing(double ut)
+        {
+            const double e = 1.5;
+            const double periapsisRadius = 800000.0;
+            double a = periapsisRadius / (1.0 - e);
+
+            TwoBodyOrbit orbit = BuildOrbit(a, e, 0.5, 1.2, 0.9, trueAnomaly: 0.0, epoch: 1000.0, mu: KerbinMu);
+            Assert.False(orbit.IsElliptic);
+
+            // The assertion is "does not throw" first and "declines" second: before the
+            // guard this call raised ArithmeticException out of Math.Sign(NaN).
+            orbit.GetStateAtUT(ut, out Vector3d position, out Vector3d velocity);
+
+            Assert.True(
+                double.IsNaN(position.x) && double.IsNaN(position.y) && double.IsNaN(position.z),
+                $"expected a NaN position for ut={Format(ut)}, got "
+                + $"({Format(position.x)}, {Format(position.y)}, {Format(position.z)})");
+            Assert.True(
+                double.IsNaN(velocity.x) && double.IsNaN(velocity.y) && double.IsNaN(velocity.z),
+                $"expected a NaN velocity for ut={Format(ut)}, got "
+                + $"({Format(velocity.x)}, {Format(velocity.y)}, {Format(velocity.z)})");
+        }
+
+        /// <summary>
+        /// The sign-inconsistent conic, with no NaN anywhere in the input: an orbit
+        /// flagged open while carrying a closed orbit's positive semi-major axis. The
+        /// hyperbolic mean motion manufactures the NaN itself, so this is the class that
+        /// survives any amount of "are the inputs finite" checking upstream.
+        /// </summary>
+        [Fact]
+        public void OpenOrbitWithAPositiveSemiMajorAxis_YieldsNaNStateInsteadOfThrowing()
+        {
+            var orbit = new TwoBodyOrbit
+            {
+                GravitationalParameter = KerbinMu,
+                SemiMajorAxis = 4000000.0,   // positive: a CLOSED orbit's sign
+                Eccentricity = 1.5,
+                MeanAnomalyAtEpoch = 0.3,
+                Epoch = 0.0,
+                IsElliptic = false           // ... flagged OPEN
+            };
+
+            orbit.GetStateAtUT(120.0, out Vector3d position, out _);
+
+            Assert.True(double.IsNaN(position.x), $"expected NaN, got {Format(position.x)}");
+
+            // And the element-level constructor refuses to build it in the first place.
+            OrbitSegment segment = MakeWellFormedEllipticSegment();
+            segment.eccentricity = 1.5;
+            segment.semiMajorAxis = 4000000.0;
+            Assert.False(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _));
+        }
+
+        /// <summary>
+        /// Every element the propagator reads must be finite, not just the semi-major
+        /// axis (which was the only one checked). Each case here is a segment that is
+        /// well-formed except for one field.
+        /// </summary>
+        [Theory]
+        [InlineData("inclination")]
+        [InlineData("eccentricity")]
+        [InlineData("semiMajorAxis")]
+        [InlineData("longitudeOfAscendingNode")]
+        [InlineData("argumentOfPeriapsis")]
+        [InlineData("meanAnomalyAtEpoch")]
+        [InlineData("epoch")]
+        public void TryCreateFromSegment_RejectsANonFiniteValueInAnyElement(string field)
+        {
+            foreach (double poison in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            {
+                OrbitSegment segment = MakeWellFormedEllipticSegment();
+                switch (field)
+                {
+                    case "inclination": segment.inclination = poison; break;
+                    case "eccentricity": segment.eccentricity = poison; break;
+                    case "semiMajorAxis": segment.semiMajorAxis = poison; break;
+                    case "longitudeOfAscendingNode": segment.longitudeOfAscendingNode = poison; break;
+                    case "argumentOfPeriapsis": segment.argumentOfPeriapsis = poison; break;
+                    case "meanAnomalyAtEpoch": segment.meanAnomalyAtEpoch = poison; break;
+                    case "epoch": segment.epoch = poison; break;
+                    default: throw new ArgumentOutOfRangeException(nameof(field), field, "unmapped element");
+                }
+
+                Assert.False(
+                    TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _),
+                    $"{field}={Format(poison)} must be refused");
+            }
+
+            // Control: the unpoisoned segment the cases were derived from is accepted.
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(MakeWellFormedEllipticSegment(), KerbinMu, out _));
+        }
+
+        /// <summary>
+        /// ISOLATING rows for two clauses the table above cannot prove on its own.
+        /// <para>
+        /// <see cref="MakeWellFormedEllipticSegment"/> carries a POSITIVE semi-major
+        /// axis, so the sign-consistency clause (<c>e &gt;= 1</c> requires <c>a &lt; 0</c>)
+        /// independently rejects both a NaN/+Infinity eccentricity and a parabolic
+        /// <c>e == 1</c>. Every such row therefore stays green even if the clause it
+        /// names is deleted - the rejection is over-determined. Flipping the sign to
+        /// NEGATIVE removes that backstop, so each case below fails if and only if its
+        /// own clause is present.
+        /// </para>
+        /// <para>
+        /// What deleting them would cost: a segment with <c>eccentricity = NaN</c> and
+        /// <c>a &lt; 0</c> would be ACCEPTED, and <c>TryPropagate</c> would report
+        /// <c>true</c> while handing back an all-NaN position and velocity - precisely
+        /// the "hand a caller a NaN state" outcome the guard exists to prevent. For
+        /// <c>e == 1</c> with <c>a &lt; 0</c>, <c>p = a(1 - e^2)</c> evaluates to
+        /// <c>-0.0</c>, so <c>sqrt(mu / -0.0)</c> is NaN and the whole velocity is NaN.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TryCreateFromSegment_RejectsEccentricityAndParabolicClauses_IndependentlyOfTheSemiMajorAxisSign()
+        {
+            // Non-finite eccentricity, with a NEGATIVE sma so the sign clause agrees
+            // with the open-conic class and cannot be what does the rejecting.
+            foreach (double poison in new[] { double.NaN, double.PositiveInfinity })
+            {
+                OrbitSegment segment = MakeWellFormedEllipticSegment();
+                segment.eccentricity = poison;
+                segment.semiMajorAxis = -4000000.0;
+                Assert.False(
+                    TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _),
+                    $"eccentricity={Format(poison)} with a negative sma must be refused by the "
+                    + "finiteness clause, not by the sign clause");
+            }
+
+            // Parabolic, likewise with the sign clause satisfied for an open conic.
+            OrbitSegment parabolic = MakeWellFormedEllipticSegment();
+            parabolic.eccentricity = 1.0;
+            parabolic.semiMajorAxis = -4000000.0;
+            Assert.False(
+                TwoBodyOrbit.TryCreateFromSegment(parabolic, KerbinMu, out _),
+                "e == 1 with a negative sma must be refused by the parabolic clause, not by the sign clause");
+        }
+
+        [Fact]
+        public void TryCreateFromSegment_RejectsShapesTheConicEquationCannotExpress()
+        {
+            // Negative eccentricity is not a conic.
+            OrbitSegment segment = MakeWellFormedEllipticSegment();
+            segment.eccentricity = -0.1;
+            Assert.False(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _));
+
+            // Parabolic: a is undefined and the semi-latus rectum a(1 - e^2) is zero, so
+            // the velocity scale sqrt(mu / p) is infinite. TryCreate refuses the same
+            // case from the state-vector side, so both constructors now agree.
+            segment = MakeWellFormedEllipticSegment();
+            segment.eccentricity = 1.0;
+            Assert.False(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _));
+
+            // Closed orbit carrying an open orbit's negative semi-major axis.
+            segment = MakeWellFormedEllipticSegment();
+            segment.semiMajorAxis = -4000000.0;
+            Assert.False(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out _));
+
+            // A zeroed segment (a = 0) is not an orbit either; it used to be accepted
+            // and then divide by zero inside the propagator.
+            Assert.False(TwoBodyOrbit.TryCreateFromSegment(new OrbitSegment { bodyName = "Kerbin" }, KerbinMu, out _));
+        }
+
+        /// <summary>
+        /// The guard must reject ONLY what it claims to. A genuine hyperbola in element
+        /// form still builds and still propagates to the same closed form as the
+        /// state-vector constructor - i.e. the fix is a boundary check, not a narrowing.
+        /// </summary>
+        [Theory]
+        [InlineData(1.2)]
+        [InlineData(1.5)]
+        [InlineData(3.0)]
+        public void TryCreateFromSegment_StillAcceptsAGenuineHyperbolaAndMatchesClosedForm(double e)
+        {
+            const double periapsisRadius = 800000.0;
+            double a = periapsisRadius / (1.0 - e); // negative for e > 1
+            const double radiansToDegrees = 180.0 / Math.PI;
+
+            var segment = new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 1000.0,
+                endUT = 1600.0,
+                inclination = 0.5 * radiansToDegrees,
+                eccentricity = e,
+                semiMajorAxis = a,
+                longitudeOfAscendingNode = 1.2 * radiansToDegrees,
+                argumentOfPeriapsis = 0.9 * radiansToDegrees,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = 1000.0
+            };
+
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+            Assert.False(orbit.IsElliptic);
+            AssertRelative(periapsisRadius, orbit.PeriapsisRadius, 1e-9, "hyperbolic segment periapsis");
+
+            // The segment was authored at periapsis (M = 0 at the epoch), so the epoch
+            // state must be the closed-form periapsis state of that hyperbola: radius
+            // a(1 - e), speed sqrt(mu (1 + e) / r_pe), purely transverse.
+            orbit.GetStateAtUT(segment.epoch, out Vector3d position, out Vector3d velocity);
+            AssertRelative(periapsisRadius, Mag(position), 1e-8, "hyperbolic segment periapsis radius");
+            AssertRelative(
+                Math.Sqrt(KerbinMu * (1.0 + e) / periapsisRadius),
+                Mag(velocity),
+                1e-8,
+                "hyperbolic segment periapsis speed");
+            Assert.True(
+                Math.Abs(Dot(position, velocity)) / (Mag(position) * Mag(velocity)) < 1e-9,
+                "velocity at periapsis must be perpendicular to the radius");
+
+            // Independently reconstructed from that state: same orbit, same elements.
+            Assert.True(TwoBodyOrbit.TryCreate(position, velocity, KerbinMu, segment.epoch, out TwoBodyOrbit recovered));
+            AssertRelative(a, recovered.SemiMajorAxis, 1e-8, "recovered hyperbolic sma");
+            Assert.True(
+                Math.Abs(recovered.Eccentricity - e) < 1e-8,
+                $"recovered eccentricity: expected {Format(e)}, got {Format(recovered.Eccentricity)}");
+        }
+
+        private static OrbitSegment MakeWellFormedEllipticSegment()
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                startUT = 400.0,
+                endUT = 460.0,
+                inclination = 28.5,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 45.0,
+                meanAnomalyAtEpoch = 0.2,
+                epoch = 400.0
+            };
+        }
+
+        // ------------------------------------------------------------------
         // Construction helpers (independent of the product rotation code)
         // ------------------------------------------------------------------
 
