@@ -41,10 +41,22 @@ product verdict. Filing them so they stop being invisible:
    `../logs/` sink and hard-exits, which loses a failing run's only evidence. A
    `-pid<N>` suffix instead of `sys.exit(1)` would close it.
 
-Related coupling, recorded here because it is easy to miss: **roadmap R8 (narrow
-the zombie preflight to a per-instance KSP-pid binding) must not land before the
-machine lock exists** - that coarse probe was the accidental sole guard on kRPC
-port 50000 and the single GPU. See `harness/README.md` "The machine lock".
+Related coupling, recorded here because it is easy to miss: **the deferred
+residual R8 "`_ksp_running_against` coarseness"
+(`docs/dev/design-autotest-stack-setup.md:740`) must not narrow the zombie
+preflight without re-reading `harness/README.md` "The machine lock"** - that
+coarse probe is a second, independent guard on kRPC port 50000 and the single
+GPU. Note this is NOT the R8 in `autotest-roadmap.md`, which is an unrelated
+scenario-coverage item.
+
+A fourth exposure, filed 2026-08-02 with the machine lock: **the lock key is the
+umbrella root, not truly the machine.** Runs given different `--umbrella-root`
+values, or started from a checkout with a different parent (a nested
+`.claude/worktrees/<name>` isolation worktree), resolve different lockfiles while
+still sharing kRPC 50000/50001 and the GPU; `--instance-dir` bypasses umbrella
+resolution altogether. Deliberate - a machine-global path would serialize the
+unit suites against real runs - but it means "machine-wide" holds by convention
+for the documented sibling layout, not by construction.
 
 ---
 

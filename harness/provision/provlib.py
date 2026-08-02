@@ -854,10 +854,19 @@ MACHINE_LOCK_RELPATH: Tuple[str, ...] = ("automation", ".ksp-machine.lock")
 
 # Wall-clock backstop for pid-liveness (leak L4). Windows recycles pids, so a
 # hard-killed holder whose pid is reused by any long-lived process would wedge
-# every future run FOREVER under pid-liveness alone. A live selection heartbeats
-# the timestamp at each scenario boundary, so this expiry can never fire on a
-# genuinely running holder; it only frees a wedged one.
-DEFAULT_LEASE_SECONDS: float = 4 * 60 * 60
+# every future run FOREVER under pid-liveness alone.
+#
+# THE LEASE MUST EXCEED ONE SCENARIO'S WORST-CASE WALL TIME, not one selection's:
+# a live run refreshes the timestamp at each scenario boundary, so the only
+# window that must fit inside the lease is a single scenario including its
+# retries. The worst committed spec is BDOCK-1 at budgetSeconds=6900 with
+# retry.policy="once" (two attempts = 13,800s), plus staging, boot, the verifier
+# chain and collect-logs on each. At the original 4h this left ~10 minutes of
+# margin, and an overrun is not benign: a sibling then LEGITIMATELY reclaims
+# mid-flight and puts two KSPs on one kRPC port. 8h roughly doubles the headroom.
+# The invariant is pinned by LeaseCoversWorstCaseScenarioTests so a future spec
+# that raises budgetSeconds reds here instead of in a night flight.
+DEFAULT_LEASE_SECONDS: float = 8 * 60 * 60
 
 
 @dataclass(frozen=True)

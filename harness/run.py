@@ -44,6 +44,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
         sys.path.insert(0, _p)
 
 import hlib  # noqa: E402
+import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
 import saveparse  # noqa: E402
@@ -620,19 +621,7 @@ def build_expected_from_manifest(manifest: Dict, instance_dir: str,
 
 
 def run_lock_path(umbrella_root: str) -> str:
-    return os.path.join(umbrella_root, *provlib.MACHINE_LOCK_RELPATH)
-
-
-def _read_lock(lock_path: str) -> Optional[Dict]:
-    """Read the lockfile, or None when absent/unreadable/torn. A torn read is
-    reported as 'no lock' and the pure predicate's malformed-pid branch decides;
-    it never raises into the caller."""
-    try:
-        with open(lock_path, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-    except (OSError, ValueError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    return machinelock.lock_path_for(umbrella_root)
 
 
 def _lock_payload(runtime: Runtime, selection: str) -> Dict:
@@ -647,108 +636,52 @@ def _lock_payload(runtime: Runtime, selection: str) -> Dict:
     }
 
 
-def _describe_holder(existing: Optional[Dict]) -> str:
-    if not existing:
-        return "unknown holder"
-    return "pid=%s worktree=%s selection=%s since=%s" % (
-        existing.get("pid"), existing.get("worktree") or "?",
-        existing.get("selection") or "?", existing.get("startedIso") or "?")
-
-
 def acquire_run_lock(umbrella_root: str, runtime: Runtime, logger: HarnessLogger,
                      selection: str = "?",
                      lease_seconds: Optional[float] = provlib.DEFAULT_LEASE_SECONDS):
-    """Acquire the machine lock ATOMICALLY, or return None if a live sibling holds it.
+    """Acquire the machine lock, or return None if a live sibling holds it.
 
-    The create is O_CREAT|O_EXCL so two racers cannot both win: the loser gets
-    FileExistsError and re-decides against whatever is actually on disk. The old
-    read-decide-write had a ~100ms window (both racers shell out to `tasklist`
-    between the read and the write) in which both could reclaim the same stale
-    lock, both stage, and both launch.
+    The protocol lives in ``machinelock.acquire`` and is SHARED with
+    provision.py -- see that module for why winning is decided solely by the
+    exclusive create and why a stale lock is reclaimed by verified quarantine
+    rather than a bare remove.
     """
     lock_path = run_lock_path(umbrella_root)
-    payload = json.dumps(_lock_payload(runtime, selection))
-
-    for attempt in (1, 2):
-        try:
-            os.makedirs(os.path.dirname(lock_path), exist_ok=True)
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            pass
-        except OSError as exc:
-            logger.error("Lock", "run-lock unusable at %s: %s" % (lock_path, exc))
-            return None
-        else:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                fh.write(payload)
-            logger.info("Lock", "run-lock acquired path=%s pid=%d selection=%s"
-                        % (lock_path, os.getpid(), selection))
-            return lock_path
-
-        # The file exists. Decide against its CURRENT contents.
-        existing = _read_lock(lock_path)
-        decision = provlib.acquire_lock(existing, os.getpid(), runtime.now(),
-                                        runtime.pid_alive, lease_seconds=lease_seconds)
-        if not decision.acquired:
-            logger.warn("Lock", "run-lock refused: live holder %s (lockfile %s)"
-                        % (_describe_holder(existing), lock_path))
-            return None
-        if attempt == 2:
-            # We reclaimed once and lost the re-create race: another process got
-            # there first and is now the live holder. Refuse rather than loop -- a
-            # retry loop here is how two racers livelock each other.
-            logger.warn("Lock", "run-lock reclaim lost the race to %s; refusing"
-                        % _describe_holder(_read_lock(lock_path)))
-            return None
-        logger.warn("Lock", "run-lock reclaiming stale lock (%s, reason=%s)"
-                    % (_describe_holder(existing), decision.reason))
-        try:
-            os.remove(lock_path)
-        except OSError:
-            # Someone else reclaimed it first; the second pass re-decides.
-            pass
-    return None
+    path, reason, holder = machinelock.acquire(
+        lock_path,
+        payload_fn=lambda: _lock_payload(runtime, selection),
+        now_fn=runtime.now,
+        pid_alive_fn=runtime.pid_alive,
+        lease_seconds=lease_seconds,
+        log_fn=lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+    if path is None:
+        logger.warn("Lock", "run-lock refused (%s): holder %s (lockfile %s)"
+                    % (reason, machinelock.describe_holder(holder), lock_path))
+        return None
+    logger.info("Lock", "run-lock acquired (%s) path=%s pid=%d selection=%s"
+                % (reason, lock_path, os.getpid(), selection))
+    return lock_path
 
 
 def heartbeat_run_lock(lock_path: Optional[str], runtime: Runtime,
-                       logger: HarnessLogger, selection: str = "?") -> None:
+                       logger: HarnessLogger, selection: str = "?") -> bool:
     """Refresh our lock's timestamp so a long but LIVE selection never hits the
-    lease expiry. Only rewrites a lock we still own; a lock that is no longer
-    ours is left alone and warned about (it means we were reclaimed)."""
+    lease expiry. Returns False when the lock is no longer ours, which the
+    caller MUST treat as fatal: continuing would fly unlocked beside whoever
+    reclaimed us -- the two-KSPs-one-port case the lock exists to prevent."""
     if not lock_path:
-        return
-    existing = _read_lock(lock_path)
-    if not provlib.should_release(existing, os.getpid()):
-        logger.warn("Lock", "run-lock heartbeat: lock is no longer ours (%s)"
-                    % _describe_holder(existing))
-        return
-    try:
-        tmp = lock_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(_lock_payload(runtime, selection), fh)
-        os.replace(tmp, lock_path)
-    except OSError as exc:
-        logger.warn("Lock", "run-lock heartbeat failed: %s" % exc)
+        return True
+    return machinelock.heartbeat(
+        lock_path, payload_fn=lambda: _lock_payload(runtime, selection),
+        log_fn=lambda level, msg: getattr(logger, level.lower())("Lock", msg))
 
 
 def release_run_lock(lock_path: Optional[str], logger: Optional[HarnessLogger] = None) -> None:
-    """Delete the lock ONLY if it is still ours (leak L2). An unconditional
-    delete lets a run that was already reclaimed as stale remove the lock a
-    different LIVE run now holds, turning one refusal into two concurrent KSPs."""
-    if not lock_path:
-        return
-    existing = _read_lock(lock_path)
-    if not provlib.should_release(existing, os.getpid()):
-        if existing is not None and logger:
-            logger.warn("Lock", "run-lock not released: held by %s, not us (pid=%d)"
-                        % (_describe_holder(existing), os.getpid()))
-        return
-    try:
-        os.remove(lock_path)
-        if logger:
-            logger.info("Lock", "run-lock released path=%s" % lock_path)
-    except OSError:
-        pass
+    """Delete the lock ONLY if it is still ours (leak L2)."""
+    machinelock.release(
+        lock_path,
+        log_fn=(lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+        if logger else None)
 
 
 # ---------------------------------------------------------------------------
@@ -3461,10 +3394,23 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     bug_ids = _load_bug_ids()
     exit_code = 0
     ran_any = False
+    ran_count = 0
     for spec in selected:
         # Refresh our lease at each scenario boundary so a long but LIVE
         # selection can never expire out from under itself.
-        heartbeat_run_lock(lock_path, runtime, logger, selection=expr)
+        #
+        # Losing the lock here is FATAL, not a warning. If a sibling reclaimed
+        # us (lease overrun, or a hand-deleted lockfile) it is now flying the
+        # same instance; continuing would put two KSPs on one kRPC port and one
+        # GPU, which is the exact failure this lock exists to prevent -- and the
+        # resulting flight could report a confident false PASS. Stop the
+        # selection and leave the remaining scenarios unrun rather than produce
+        # evidence we cannot trust.
+        if not heartbeat_run_lock(lock_path, runtime, logger, selection=expr):
+            logger.error("Lock", "lost the machine lock mid-selection; a sibling has "
+                                 "reclaimed it. Stopping after %d scenario(s) rather than "
+                                 "running unlocked." % ran_count)
+            return max(exit_code, 1)
         # M-B1 spec admission: resolve the autopilot mission ref SHELL-SIDE (read
         # the mission's declared schema toml + confirm the mission .py exists) and
         # hand the parsed registry to the pure validator. A missing schema / missing
@@ -3490,6 +3436,7 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
             continue
 
         ran_any = True
+        ran_count += 1
         terminal = _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
         if terminal["verdict"] in (hlib.VERDICT_PARSEK_FAIL, hlib.VERDICT_INVALID,
                                    hlib.VERDICT_KILLED, hlib.VERDICT_XPASS):

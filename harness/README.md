@@ -187,8 +187,24 @@ per attempt. It is the backstop for KSPs no lockfile knows about (a manual
 launch, an orphan from a killed run). It cannot bind a pid to a directory, so a
 dev-instance KSP being open also refuses a harness run - a deliberate
 false-positive, since one GPU means it would perturb the flight anyway. **Do not
-narrow it (roadmap R8) without re-reading this section:** it is a second,
-independent guard.
+narrow it without re-reading this section** (the deferred residual R8
+"`_ksp_running_against` coarseness" in `docs/dev/design-autotest-stack-setup.md`
+- NOT the unrelated R8 in `autotest-roadmap.md`): it is a second, independent
+guard.
+
+### Known constraint: the key is the umbrella root
+
+The lockfile path is derived from the umbrella root, so exclusion holds across
+checkouts that SHARE an umbrella - the documented sibling-worktree layout. Two
+invocations given different `--umbrella-root` values, or run from a checkout
+whose parent differs (e.g. a nested `.claude/worktrees/<name>` isolation
+worktree), resolve DIFFERENT lockfiles while still contending for the same
+machine-global kRPC ports and GPU. This is deliberate: a truly machine-global
+path would serialize the unit suites and `--umbrella-root` test runs against
+real runs. `--instance-dir` bypasses umbrella resolution entirely, so pointing it
+at the shared automation instance from an odd umbrella flies that instance under
+a different lock. Prefer the default umbrella; treat those flags as
+single-operator tools.
 
 ## Running the tests
 

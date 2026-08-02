@@ -1331,15 +1331,20 @@ class MachineLockPathTests(unittest.TestCase):
 
     def test_provisioner_resolves_the_shared_path_from_the_umbrella_root(self):
         # The provisioner must key off umbrella_root, NOT ctx.parsek_gamedata
-        # (which is per-instance). run.py's half of this agreement is pinned by
-        # MachineLockPathAgreementTests in lib/test_run_smoke.py.
+        # (which is per-instance), and must resolve it through the SAME helper
+        # run.py uses. run.py's half is pinned by MachineLockPathAgreementTests
+        # in lib/test_run_smoke.py.
+        import machinelock
         import provision
         source = inspect.getsource(provision.phase_preflight)
-        self.assertIn("MACHINE_LOCK_RELPATH", source)
-        self.assertIn("ctx.umbrella_root", source)
+        self.assertIn("machinelock.lock_path_for(ctx.umbrella_root)", source)
         # The old per-instance path must no longer be CONSTRUCTED (a mention in
         # the rationale comment is fine, hence matching the join, not the name).
         self.assertNotIn('ctx.parsek_gamedata, ".provision.lock"', source)
+        # And the helper must resolve exactly the documented relpath.
+        umbrella = os.path.join("C:", os.sep, "umb")
+        self.assertEqual(machinelock.lock_path_for(umbrella),
+                         os.path.join(umbrella, *provlib.MACHINE_LOCK_RELPATH))
 
 
 class PairDecisionTests(unittest.TestCase):

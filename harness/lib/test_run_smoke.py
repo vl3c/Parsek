@@ -3059,6 +3059,36 @@ class MachineLockWiringTests(unittest.TestCase):
                 self.umbrella, _LockRuntime(now=1000.0, alive=True), self.logger))
             self.assertEqual(self._read(), holder)
 
+    def test_a_racer_never_deletes_the_winners_fresh_lock(self):
+        """THE reclaim race (found in review, reproduced with a PoC before the
+        fix). Two processes both read the same STALE lock and both decide to
+        reclaim. The first removes it and creates its own. Under a bare
+        `os.remove` the second then deleted the WINNER's fresh lock and created
+        its own -- both believed they held it, and both would launch KSP.
+
+        The fix quarantines by atomic rename and then VERIFIES the moved bytes
+        are the stale lock it judged. Here the file mutates to a fresh live
+        holder between our read and our reclaim, exactly as the loser sees it."""
+        stale = {"pid": os.getpid() + 1, "timestamp": 0.0, "selection": "stale"}
+        self._seed(stale)
+        winner = {"pid": os.getpid() + 2, "timestamp": 5000.0, "selection": "winner"}
+        swapped = []
+
+        class Loser(_LockRuntime):
+            def pid_alive(inner, pid):
+                # We judged the stale lock dead; the winner reclaims and creates
+                # its own lock in the window before our reclaim lands.
+                if not swapped:
+                    swapped.append(True)
+                    self._seed(winner)
+                    return False
+                return True
+
+        self.assertIsNone(run.acquire_run_lock(
+            self.umbrella, Loser(now=5000.0), self.logger))
+        self.assertEqual(self._read(), winner,
+                         "the winner's live lock must be restored untouched")
+
     def test_a_reclaim_that_cannot_complete_refuses_instead_of_looping(self):
         """The reclaim path is bounded to ONE retry and then refuses. Two racers
         that both loop on reclaim livelock instead of serializing.
@@ -3099,17 +3129,32 @@ class MachineLockWiringTests(unittest.TestCase):
         rt = _LockRuntime(now=1000.0)
         run.acquire_run_lock(self.umbrella, rt, self.logger, selection="tier=nightly")
         rt._now = 1000.0 + 9999
-        run.heartbeat_run_lock(self._lock(), rt, self.logger, selection="tier=nightly")
+        self.assertTrue(
+            run.heartbeat_run_lock(self._lock(), rt, self.logger, selection="tier=nightly"))
         self.assertEqual(self._read()["timestamp"], 1000.0 + 9999)
         self.assertEqual(self._read()["pid"], os.getpid())
 
-    def test_heartbeat_does_not_resurrect_a_lock_we_lost(self):
+    def test_heartbeat_preserves_when_the_hold_began(self):
+        """The refusal message promises 'since=' is when the holder ACQUIRED. A
+        heartbeat that restamped startedIso made it mean 'last refreshed', so a
+        blocked operator could not tell a 10-second hold from an 8-hour one."""
+        rt = _LockRuntime(now=1000.0)
+        run.acquire_run_lock(self.umbrella, rt, self.logger, selection="tier=nightly")
+        began = self._read()["startedIso"]
+        rt._now = 1000.0 + 9999
+        run.heartbeat_run_lock(self._lock(), rt, self.logger, selection="tier=nightly")
+        self.assertEqual(self._read()["startedIso"], began)
+
+    def test_heartbeat_reports_loss_so_the_caller_can_stop(self):
+        """Losing the lock mid-selection must be FATAL to the caller: a sibling
+        reclaimed us and is flying the same instance."""
         self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0})
-        run.heartbeat_run_lock(self._lock(), _LockRuntime(), self.logger)
-        self.assertEqual(self._read()["pid"], os.getpid() + 1)
+        self.assertFalse(run.heartbeat_run_lock(self._lock(), _LockRuntime(), self.logger))
+        self.assertEqual(self._read()["pid"], os.getpid() + 1,
+                         "must not resurrect a lock we lost")
 
     def test_heartbeat_on_absent_lock_is_a_noop(self):
-        run.heartbeat_run_lock(None, _LockRuntime(), self.logger)
+        self.assertTrue(run.heartbeat_run_lock(None, _LockRuntime(), self.logger))
         run.heartbeat_run_lock(self._lock(), _LockRuntime(), self.logger)
         self.assertFalse(os.path.isfile(self._lock()))
 
@@ -3168,6 +3213,81 @@ class MachineLockScopeTests(unittest.TestCase):
         called = _calls(run.run_attempt)
         self.assertIn("admit_instance", called)
         self.assertNotIn("acquire_run_lock", called)
+
+
+class LeaseCoversWorstCaseScenarioTests(unittest.TestCase):
+    """The lease must exceed ONE scenario's worst-case wall time, since the
+    heartbeat refreshes at each scenario boundary. If a spec ever declares a
+    budget that outgrows the lease, a sibling can LEGITIMATELY reclaim the lock
+    mid-flight and put two KSPs on one kRPC port -- so this reds here rather
+    than in a night flight."""
+
+    def test_lease_exceeds_the_worst_committed_spec_including_retries(self):
+        import provlib
+        specs = run.load_all_specs()
+        worst_id, worst_wall = None, 0.0
+        for spec in specs:
+            budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))
+            policy = (spec.get("retry", {}) or {}).get("policy", "once")
+            attempts = 2 if policy == "once" else 1
+            wall = budget * attempts
+            if wall > worst_wall:
+                worst_id, worst_wall = spec.get("id"), wall
+        # Per-attempt overhead the budget does NOT cover: staging + boot +
+        # verifier chain + collect-logs, generously bounded.
+        overhead = 900.0 * 2
+        needed = worst_wall + overhead
+        self.assertGreater(
+            provlib.DEFAULT_LEASE_SECONDS, needed,
+            "lease %.0fs must exceed the worst scenario's %.0fs (%s: %.0fs budget"
+            " x retries + %.0fs overhead). Raise DEFAULT_LEASE_SECONDS or lower"
+            " the budget." % (provlib.DEFAULT_LEASE_SECONDS, needed, worst_id,
+                              worst_wall, overhead))
+
+
+class MachineLockLossStopsTheSelectionTests(unittest.TestCase):
+    """Losing the lock mid-selection must STOP the run, not warn and continue."""
+
+    def test_selection_loop_returns_on_a_failed_heartbeat(self):
+        source = textwrap.dedent(inspect.getsource(run._run_selection))
+        tree = ast.parse(source)
+        # Find `if not heartbeat_run_lock(...)` and prove its body returns.
+        guarded = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.UnaryOp):
+                continue
+            called = {n.func.id for n in ast.walk(node.test)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            if "heartbeat_run_lock" in called:
+                guarded.append(any(isinstance(n, ast.Return) for n in ast.walk(node)))
+        self.assertTrue(guarded, "no `if not heartbeat_run_lock(...)` guard found")
+        self.assertTrue(all(guarded),
+                        "a failed heartbeat must return, never fall through and "
+                        "keep flying without the lock")
+
+
+class MachineLockSharedProtocolTests(unittest.TestCase):
+    """Both shells must take the SAME acquire protocol. The first cut had two
+    implementations and the provisioner's weaker one could clobber a live
+    holder's lock; sharing the module is the structural fix."""
+
+    def test_both_shells_call_the_shared_acquire(self):
+        import provision
+        self.assertIn("acquire", _calls(run.acquire_run_lock))
+        self.assertIn("acquire", _calls(provision.phase_preflight))
+
+    def test_neither_shell_reimplements_an_unguarded_replace_of_the_lock(self):
+        import provision
+        for fn in (run.acquire_run_lock, provision.phase_preflight):
+            src = textwrap.dedent(inspect.getsource(fn))
+            self.assertNotIn("os.replace(tmp, lock_path)", src)
+
+    def test_the_shared_acquire_verifies_before_it_reclaims(self):
+        import machinelock
+        src = inspect.getsource(machinelock.acquire)
+        # The reclaim must compare what it moved against what it judged.
+        self.assertIn("moved != raw", src)
+        self.assertNotIn("os.remove(path)", src)
 
 
 class MachineLockPathAgreementTests(unittest.TestCase):
