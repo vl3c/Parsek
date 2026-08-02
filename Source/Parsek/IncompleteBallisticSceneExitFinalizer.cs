@@ -567,7 +567,8 @@ namespace Parsek
             }
 
             // Early ascent / transient patched-conic failures (`MissingPatchBody`,
-            // `PatchLimitUnavailable`, `UpdateFailed`) mean the vessel is alive
+            // `PatchLimitUnavailable`, `UpdateFailed`, `NonFinitePatchElements`)
+            // mean the vessel is alive
             // but its patched-conic chain isn't fully populated yet — e.g. a
             // freshly-launched rocket in its first 30 s where KSP has not yet
             // computed a full coast chain. The live-orbit fallback via
