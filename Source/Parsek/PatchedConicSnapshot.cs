@@ -11,7 +11,17 @@ namespace Parsek
         NullSolver = 1,
         UpdateFailed = 2,
         PatchLimitUnavailable = 3,
-        MissingPatchBody = 4
+        MissingPatchBody = 4,
+
+        /// <summary>
+        /// A patch whose orbital elements (or UT bounds) are not finite. Stock's own
+        /// solver can produce these - it logs "dT is NaN! tA: NaN, E: NaN, M: NaN,
+        /// T: NaN" while doing it - and they are unusable as a predicted tail, so they
+        /// are refused here rather than copied into a recording. Treated exactly like
+        /// <see cref="MissingPatchBody"/> downstream: a transient degenerate solver
+        /// state, not a destroyed vessel.
+        /// </summary>
+        NonFinitePatchElements = 5
     }
 
     internal enum PatchedConicTransitionType
@@ -217,6 +227,66 @@ namespace Parsek
                         return result;
                     }
 
+                    if (!HasFinitePatchElements(patch))
+                    {
+                        // Same partial-keep semantics as the null-body case above, for
+                        // the same reason: earlier patches in the chain are real orbits
+                        // worth recording, and only a degenerate patch 0 means "no usable
+                        // data". Refusing here is what keeps a NaN out of the recording's
+                        // predicted segments (and out of every downstream `new Orbit(...)`
+                        // consumer) instead of relying on each of them to notice.
+                        int failedPatchIndex = result.CapturedPatchCount;
+                        string elements = DescribePatchElements(patch);
+                        if (failedPatchIndex > 0)
+                        {
+                            result.FailureReason = PatchedConicSnapshotFailureReason.NonFinitePatchElements;
+                            result.HasTruncatedTail = true;
+                            ParsekLog.VerboseOnChange("PatchedSnapshot",
+                                "snapshot-nonfinite|" + safeVesselName,
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "patchIndex={0}|valid={1}|elements={2}",
+                                    failedPatchIndex,
+                                    failedPatchIndex,
+                                    elements),
+                                $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                                $"body={bodyName} has non-finite elements ({elements}); truncated chain after " +
+                                $"{failedPatchIndex} valid patch(es), keeping partial result");
+                            break;
+                        }
+
+                        ResetFailedResult(ref result, PatchedConicSnapshotFailureReason.NonFinitePatchElements);
+                        if (IsOpenOrbitEndSentinel(patch))
+                        {
+                            // NOT a degeneracy, and must not be logged as one. See
+                            // IsOpenOrbitEndSentinel: this is stock's own "never ends"
+                            // marker on a healthy open orbit, so it is a PERMANENT
+                            // condition of a solar-escape coast rather than a transient
+                            // solver glitch. It is still declined - there is no finite
+                            // terminal UT to propagate a tail at - but at Verbose, and
+                            // change-keyed, so an escaping probe does not emit a WARN
+                            // every 30 s for the rest of its coast.
+                            ParsekLog.VerboseOnChange("PatchedSnapshot",
+                                "snapshot-open-orbit|" + safeVesselName,
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "patchIndex={0}|body={1}",
+                                    failedPatchIndex,
+                                    bodyName ?? "(null)"),
+                                $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                                $"body={bodyName} is an open orbit with no end bound (endUT=Infinity); " +
+                                "declining predicted snapshot capture - there is no finite terminal to propagate at");
+                            return result;
+                        }
+
+                        ParsekLog.WarnRateLimited("PatchedSnapshot",
+                            "nonfinite-patch-" + safeVesselName,
+                            $"SnapshotPatchedConicChain: vessel={safeVesselName} patchIndex={failedPatchIndex} " +
+                            $"body={bodyName} has non-finite elements ({elements}); aborting predicted snapshot capture",
+                            minIntervalSeconds: 30.0);
+                        return result;
+                    }
+
                     bool endsAtManeuverNode = patch.EndTransition == PatchedConicTransitionType.Maneuver;
                     result.Segments.Add(ToOrbitSegment(
                         patch,
@@ -289,6 +359,125 @@ namespace Parsek
             result.EncounteredManeuverNode = false;
             result.LastCapturedBodyName = null;
             result.FailureReason = failureReason;
+        }
+
+        /// <summary>
+        /// Whether a stock patch carries elements Parsek can actually record. Stock's
+        /// patched-conic solver does hand out Not-a-Number patches (measured on an
+        /// orbital EVA kerbal, alongside stock's own "dT is NaN! tA: NaN, E: NaN,
+        /// M: NaN, T: NaN" and "CheckEncounter: failed to find any intercepts at all"),
+        /// and <see cref="ToOrbitSegment"/> copies every field verbatim.
+        /// <para>
+        /// The UT BOUNDS are checked with the elements, not separately: a segment's
+        /// <c>endUT</c> is the UT the finalizer propagates the terminal predicted
+        /// segment AT, so a NaN there poisons the propagation just as thoroughly as a
+        /// NaN element would - and <c>ToOrbitSegment</c>'s <c>patch.EndUT &lt; startUT</c>
+        /// clamp cannot catch it, because every comparison against NaN is false.
+        /// </para>
+        /// <para>
+        /// A non-finite <c>EndUT</c> IS refused - but see
+        /// <see cref="IsOpenOrbitEndSentinel"/> before concluding that every such patch
+        /// is broken. <c>+Infinity</c> there is stock's own "this patch never ends"
+        /// marker on a perfectly healthy open orbit, so it is declined for a DIFFERENT
+        /// reason (no finite terminal UT exists to propagate a tail at) and is logged
+        /// as the ordinary condition it is rather than as a degeneracy.
+        /// </para>
+        /// </summary>
+        internal static bool HasFinitePatchElements(IPatchedConicOrbitPatch patch)
+        {
+            if (patch == null)
+                return false;
+
+            return IsFinite(patch.StartUT)
+                && IsFinite(patch.EndUT)
+                && IsFinite(patch.Inclination)
+                && IsFinite(patch.Eccentricity)
+                && IsFinite(patch.SemiMajorAxis)
+                && IsFinite(patch.LongitudeOfAscendingNode)
+                && IsFinite(patch.ArgumentOfPeriapsis)
+                && IsFinite(patch.MeanAnomalyAtEpoch)
+                && IsFinite(patch.Epoch);
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        /// <summary>
+        /// A patch that is healthy in every element and simply HAS NO END: an open
+        /// orbit carrying stock's <c>EndUT = +Infinity</c> sentinel.
+        /// <para>
+        /// Verified against decompiled KSP 1.12.5 on two independent paths.
+        /// <c>PatchedConicSolver.Update</c> seeds the root patch with
+        /// <c>patches[0].EndUT = patches[0].period</c> whenever
+        /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
+        /// <c>period = double.PositiveInfinity</c> for every open orbit;
+        /// <c>PatchedConics._CalculatePatch</c> assigns
+        /// <c>p.EndUT = double.PositiveInfinity</c> with
+        /// <c>patchEndTransition = FINAL</c> for a hyperbolic patch whose reference
+        /// body has an infinite sphere of influence (the Sun). A solar-escape probe is
+        /// therefore a FULLY SOLVED patch, not a degenerate one.
+        /// </para>
+        /// <para>
+        /// It is still declined, and admitting it would not help: <c>endUT</c> is the
+        /// UT <c>IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment</c>
+        /// propagates the terminal segment AT, so an infinite bound yields a NaN state,
+        /// fails that call's <c>IsFinite</c> check, and declines anyway - via a plain
+        /// UN-rate-limited <c>Warn</c> that would then repeat on every periodic refresh.
+        /// Declining here instead keeps the same outcome with bounded, honestly-labelled
+        /// logging. What this predicate buys is the LABEL, not the decision.
+        /// </para>
+        /// </summary>
+        private static bool IsOpenOrbitEndSentinel(IPatchedConicOrbitPatch patch)
+        {
+            if (patch == null || !double.IsPositiveInfinity(patch.EndUT))
+                return false;
+
+            return IsFinite(patch.StartUT)
+                && IsFinite(patch.Inclination)
+                && IsFinite(patch.Eccentricity)
+                && IsFinite(patch.SemiMajorAxis)
+                && IsFinite(patch.LongitudeOfAscendingNode)
+                && IsFinite(patch.ArgumentOfPeriapsis)
+                && IsFinite(patch.MeanAnomalyAtEpoch)
+                && IsFinite(patch.Epoch);
+        }
+
+        /// <summary>
+        /// Names the offending input on the refusal log line: which of the nine values
+        /// failed their check, and what they were. Without this the WARN says a patch
+        /// was bad without saying which number was bad.
+        /// <para>
+        /// This MUST apply the same per-field rule as
+        /// <see cref="HasFinitePatchElements"/>. If the two ever diverge, the WARN
+        /// starts printing "has non-finite elements ((all-finite))" about a patch the
+        /// predicate just rejected.
+        /// </para>
+        /// </summary>
+        private static string DescribePatchElements(IPatchedConicOrbitPatch patch)
+        {
+            if (patch == null)
+                return "(null-patch)";
+
+            var offending = new List<string>();
+            AppendIfNonFinite(offending, "startUT", patch.StartUT);
+            AppendIfNonFinite(offending, "endUT", patch.EndUT);
+            AppendIfNonFinite(offending, "inc", patch.Inclination);
+            AppendIfNonFinite(offending, "ecc", patch.Eccentricity);
+            AppendIfNonFinite(offending, "sma", patch.SemiMajorAxis);
+            AppendIfNonFinite(offending, "lan", patch.LongitudeOfAscendingNode);
+            AppendIfNonFinite(offending, "argPe", patch.ArgumentOfPeriapsis);
+            AppendIfNonFinite(offending, "mEp", patch.MeanAnomalyAtEpoch);
+            AppendIfNonFinite(offending, "epoch", patch.Epoch);
+
+            return offending.Count > 0 ? string.Join(" ", offending.ToArray()) : "(all-finite)";
+        }
+
+        private static void AppendIfNonFinite(List<string> offending, string name, double value)
+        {
+            if (!IsFinite(value))
+                offending.Add(name + "=" + value.ToString("R", CultureInfo.InvariantCulture));
         }
 
         private static OrbitSegment ToOrbitSegment(

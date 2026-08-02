@@ -225,12 +225,96 @@ namespace Parsek
 
             Recording context = recording ?? BuildContextRecording(recordingId, vesselPid, refreshUT);
             IncompleteBallisticFinalizationResult result;
-            if (!TryBuildDefaultFinalizationResult(
+            bool finalized;
+            try
+            {
+                finalized = TryBuildDefaultFinalizationResult(
                     context,
                     vessel.RawVessel,
                     refreshUT,
                     recordingTree,
-                    out result))
+                    out result);
+            }
+            catch (Exception ex)
+            {
+                // The finalization cache is an OPTIMISATION - it pre-computes the tail a
+                // recording would be finalized with - and it must never be able to cost a
+                // sample. It could: FlightRecorder.OnPhysicsFrame calls the refresh BEFORE
+                // it samples the trajectory, so an exception escaping here takes that
+                // frame's trajectory point, part events and background pass with it.
+                // Measured on an orbital EVA (2026-07-30): one degenerate stock patched
+                // conic threw ArithmeticException out of the extrapolator on all 501
+                // physics frames of a ten-second EVA, and the recording finalized with a
+                // single point - not degraded, empty.
+                //
+                // The specific throw is fixed at its source and at the solver boundary;
+                // this guard is the structural half, so the NEXT unforeseen extrapolator
+                // failure inside THIS refresh path degrades to "no fresh cache this
+                // refresh" instead of to "no recording". Scope, so it is not over-read:
+                // the SCENE-EXIT twin is NOT covered - IncompleteBallisticSceneExitFinalizer
+                // .TryApply reaches the same TryFinalizeRecording and deliberately rethrows
+                // anything that is not a headless-FlightGlobals failure, and neither
+                // ParsekFlight.Finalization call site catches, so a throw there still costs
+                // the remaining recordings in the tree their finalization.
+                //
+                // Failing the cache re-uses the existing terminal decline path:
+                // TryPreservePreviousCacheAfterFailedRefresh keeps the last good cache.
+                // Note it re-uses the terminal Fail only, NOT the atmospheric-deletion
+                // branch an ordinary `!finalized` decline can take below - a throw on a
+                // packed atmospheric vessel stamps no Destroyed terminal this refresh, and
+                // is left to the destroy_event / background_destroy path. Note also the
+                // RETRY cadence, because the two outcomes differ: with no preservable
+                // previous cache the stored status stays Failed, which holds
+                // `requiresPeriodicRefresh` true and retries on the periodic cadence; when a
+                // previous cache IS preserved the stored status becomes Stale, so a coasting
+                // vessel next retries on a digest change rather than on the cadence. Either
+                // way the RECORDER KEEPS SAMPLING, which is the point - but a long-lived
+                // preserve is not a free lunch for the tail: a Stale cache no longer
+                // advances through TryTouchObservedTerminalCache and the Applier rejects it
+                // once its TerminalUT falls behind the last authored sample.
+                //
+                // The WHOLE exception - type, message AND stack - is logged, and that is
+                // load-bearing rather than verbose. Before this catch existed the throw
+                // escaped into Unity, which logged the frames; that stack is exactly how
+                // the 2026-07-30 EVA defect was pinned to SolveHyperbolicKepler. This guard
+                // spans BallisticExtrapolator + PatchedConicSnapshot +
+                // IncompleteBallisticSceneExitFinalizer, so a bare type+message would name
+                // none of the thousands of lines the next failure could come from. The 30 s
+                // rate limit already bounds the volume. Multi-line content goes LAST so the
+                // grep-stable head of the line survives an exception whose own Message
+                // wraps (MissingReferenceException's does).
+                result = default(IncompleteBallisticFinalizationResult);
+                finalized = false;
+                ParsekLog.WarnRateLimited("FinalizerCache",
+                    $"refresh-threw.{cache.VesselPersistentId}.{ex.GetType().Name}",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Refresh threw: owner={0} rec={1} pid={2} reason={3} refreshUT={4:F3} body={5} "
+                        + "situation={6} loaded={7} packed={8} exception={9}; "
+                        + "declining the finalization cache for this refresh, recording sampling continues"
+                        + "; detail={10}",
+                        cache.Owner,
+                        recordingId ?? "(pending)",
+                        cache.VesselPersistentId,
+                        reason ?? "(none)",
+                        refreshUT,
+                        cache.LastObservedBodyName ?? "(unknown)",
+                        vessel.Situation,
+                        vessel.IsLoaded,
+                        vessel.IsPacked,
+                        ex.GetType().Name,
+                        ex),
+                    minIntervalSeconds: 30.0);
+
+                return CompleteRefresh(
+                    cache,
+                    Fail(cache, "default-finalizer-threw"),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            if (!finalized)
             {
                 if (IsSuppressedSubSurfaceDestroyedDecline(result))
                 {

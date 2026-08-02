@@ -30,15 +30,21 @@ Its DEPLOY phase copies this worktree's `Source/Parsek/bin/Debug/Parsek.dll` int
 ls -la "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
 ls -la Source/Parsek/bin/Debug/Parsek.dll
 
-# 2. Grep the deployed DLL for a distinctive new UTF-16 string from your change
+# 2. Grep the deployed DLL for a distinctive new marker from your change.
+#    CHECK BOTH ENCODINGS: metadata identifiers (method / type / enum-member names) live
+#    in the #Strings heap as UTF-8; string literals live in the #US heap as UTF-16LE.
 python -c "
 with open(r'...GameData/Parsek/Plugins/Parsek.dll','rb') as f: d=f.read()
-for s in ['NewLabel','OldLabel']: print(s, d.count(s.encode('utf-16-le')))
+for s in ['NewMethodName','some new literal']:
+    u8, u16 = d.count(s.encode('utf-8')), d.count(s.encode('utf-16-le'))
+    print(s, 'utf8=%d utf16=%d' % (u8, u16), 'OK' if (u8 or u16) else 'MISSING')
 "
 
 # 3. If mismatch, force-copy manually
 cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
 ```
+
+**Reading the result.** A UTF-16-only count reports a name that appears only as metadata as absent from a DLL that carries it - measured against the dev instance's `Parsek.dll`, the type name `RecordingTreeSplitter` counts `utf8=1 utf16=0` while the literal `format-version-mismatch` counts `utf8=0 utf16=2`. Checking an identifier that way makes a correct deploy read as a deploy failure and sends you hunting a non-existent sibling-worktree clobber. Two rules for reading the corrected output. (1) **The marker must be long and distinctive** - `count` is a raw substring scan, so a marker that is merely a fragment of a pre-existing name passes against a DLL that does NOT carry your change (`RecordingTreeSplit` counts `utf8=1`, `Reap` counts `utf8=28`). Nonzero proves presence only for a marker too specific to occur inside an existing name, and zero proves absence only for a marker stored verbatim. (2) **Both counts nonzero is normal** - a name also used in a `nameof()` or a log message lands in both heaps. Prefer a distinctive new **string literal** where your change adds one, since you control its exact text - but three traps: an interpolated string is NOT stored the way it renders (the compiler splits it at the holes), so grep one literal run between holes and never a line pasted out of KSP.log; an attribute argument (`[InGameTest(Category = "X")]`) is NOT a `#US` literal - it is UTF-8 in `#Blob`, like an identifier; and a change made purely of lambda bodies leaves no identifier to grep at all.
 
 From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `Kerbal Space Program/` probe only walks parent directories of the csproj - a sibling-of-the-worktree layout at `C:/Users/vlad3/Documents/Code/Parsek/Kerbal Space Program/` is NOT reachable from `C:/Users/vlad3/Documents/Code/Parsek-<branch>/Source/Parsek/` via ancestor walking.
 
