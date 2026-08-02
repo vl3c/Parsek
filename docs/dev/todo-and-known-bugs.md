@@ -964,9 +964,9 @@ confirm the `#556` class still behaves.
 
 ### What is actually happening
 
-An intermittent stock NRE at APPLICATION SHUTDOWN, on 2 of 5 flights so far (record
-2 / 0 / 0 / 0 / 2 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625` and both
-2026-08-01 flights). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
+An intermittent stock NRE at APPLICATION SHUTDOWN, on 2 of 6 flights so far (record
+2 / 0 / 0 / 0 / 2 / 0 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625`, both
+2026-08-01 flights, and `2026-08-02_1140` flown against the post-withdrawal HEAD). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
 signature; the two "raw Unity exceptions" the scan reports are that ONE exception
 counted twice, not two failures.
 
