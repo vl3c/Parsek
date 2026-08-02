@@ -14,6 +14,84 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~HARNESS-RUNID-COLLISION: two runs of one scenario in the same minute share a run id, and the second silently overwrites the first's evidence~~ [FOUND 2026-08-01 from the results dir of two back-to-back `H23-tracking-station` flights. FIXED 2026-08-01, branch `harness-runid-collision`]
+
+`run.py` built the run id at MINUTE granularity (`%Y-%m-%d_%H%M` + `_<scenarioId>`),
+and `results/<runId>.json`, `results/<runId>_shots/` (holding the copied KSP.log),
+`results/<runId>_contact.html`, `<runId>_mission.json`, `<runId>.manifest.json` and
+`<runId>.seed` are ALL keyed by that id alone. Two runs of one scenario started
+inside one minute therefore collided, and the second wrote straight over the
+first's.
+
+### The measurement
+
+Two `H23-tracking-station` flights launched at 19:28:02 and 19:28:54 produced TWO
+per-invocation harness logs (`results/2026-08-01_162803_harness.log` and
+`..._162854_harness.log`, which ARE second-granular) but ONE result JSON and ONE
+`_shots` dir. The first flight was clean (`unityExceptions.total=0`); the second
+was not (`total=2`), and it is the second's record that survived. Nothing warned,
+and a reader of `results/` could not tell two runs had happened at all.
+
+This is the harness's own evidence store losing a completed verdict and its
+collected KSP.log - the exact silent loss the V3 contact-sheet work exists to
+prevent.
+
+### Fix (branch `harness-runid-collision`)
+
+The id is resolved against what `results/` already holds instead of being assumed
+free. Pure core in `hlib`: `format_run_id` / `claimed_run_ids` / `resolve_run_id`
+(+ `RUN_ID_TIMESTAMP_FORMAT`, `RUN_ID_ARTIFACT_SUFFIXES`). A claimed base id takes
+a `_run<N>` run-instance suffix; ANY surviving artifact shape claims the id, not
+just the result JSON, so a `_shots` dir whose record never landed still cannot be
+written over. `run.py` logs a `Warn` naming both ids at the moment it happens, so
+the collision is in the harness log rather than inferable only from a missing file.
+
+Granularity was deliberately left at the minute: the guard, not a finer stamp, is
+what makes an overwrite impossible, and a second-granular stamp would still have a
+window. There is no ordinal cap - `claimed` is finite, so the scan is bounded, and
+a cap could only either raise (losing a verdict) or overwrite (the bug).
+
+The scan alone leaves a TOCTOU window, found by self-review before this landed: an
+id is resolved at the TOP of `run_attempt`, long before anything is written under
+it, so two CONCURRENT `run.py` invocations of one scenario both see an empty
+`results/` and both take the base id. The per-instance run lock does not serialize
+them - the refused one writes its `INVALID(instance-locked)` record straight away
+while the winner is still flying - so `run.py` now also STAKES the id the instant
+it resolves one (`results/<runId>.claim`, exclusive-create), re-resolving above
+the next ordinal if a concurrent invocation staked it first. Stakes are never
+reaped: a claim left by a run that died is correct, since that id WAS issued. An
+unwritable `results/` degrades to scan-only rather than blocking a run (design
+edge 10). Building that guard produced one defect the smoke cell caught before
+commit - `os.makedirs` over a path that exists as a FILE also raises
+`FileExistsError`, and one combined handler read that as "already staked",
+re-resolving forever and hanging the suite; the handlers are now separate, plus a
+bounded loop as a hang guard.
+
+Five independent reviews then raised 18 findings; 16 were refuted and 2 held, both
+fixed on the branch. (1) `harness/results/.gitignore` covered every sibling
+artifact shape but not `.claim`, so each run left a permanent untracked file in a
+tracked directory - and a COMMITTED stake would burn that run id for every clone,
+which makes the pattern load-bearing rather than tidiness. (2) The smoke cell
+asserting the ordinal threading flew BOTH runs with a retry, the one shape where
+threading is invisible (run 1 leaves `_a2` on disk, so the scan yields the same
+ids either way) - mutating the threading away left all three suites green. A
+sibling cell now flies run 1 clean and only run 2 retrying, where `_a2` is FREE:
+without threading, run 2's retry lands back on run 1's stem and is rendered as run
+1's attempt 2. Nothing is overwritten there (the id genuinely was free), so only
+an attribution assertion catches it.
+
+`_run<N>` sits BEFORE the `_a<N>` attempt suffix, which stays terminal:
+`_a<N>` is the `[retry] policy = "once"` path re-flying ONE run and is NOT a
+collision, `_run<N>` is a SEPARATE run that would have collided. One run's
+ordinal is resolved once in `_run_scenario_with_retry` and threaded through both
+attempts, so they share one stem (`..._run2`, `..._run2_a2`).
+`status.split_run_id` learned the new suffix and now returns `run` alongside
+`attempt` - without that the panel's scenario would have read
+`H23-tracking-station_run2`, missed the spec toml, and silently lost its mission
+params and wall budget mid-flight.
+
+---
+
 ## B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. TUNING TODO on the SHARED b5 capture machine - not picked up on the `v1-map-dwell` branch]
 
 The stretch from Mun SOI entry to the capture (circularize-at-periapsis) node
@@ -572,11 +650,184 @@ Each is a behavioral change on live extrapolation paths; fix together with an in
 
 ---
 
-## AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame [FOUND 2026-07-30 by the R12 live-validation runs. NOT FIXED]
+## ~~AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame~~ [FOUND 2026-07-30 by the R12 live-validation runs. FIXED 2026-08-01, branch `fix-orbital-eva-kepler`]
+
+### Fix
+
+NOT a residual of ORBITSEGMENT-ANGLE-UNITS, and NOT a clamp. The unit question is
+settled structurally: the only values that reach `SolveHyperbolicKepler` are
+`MeanAnomalyAtEpoch`, `Epoch`, `SemiMajorAxis`, `Eccentricity`, the gravitational
+parameter and the propagation UT. The unit-ambiguous angular elements
+(inc / LAN / argPe) are consumed AFTER the solve, in `RotateFromPerifocal`, so a
+degrees-vs-radians mismatch can only mis-ORIENT the answer - it cannot make
+`Math.Sign` throw, and a mis-scaled `mEp` would be a finite wrong angle, not NaN.
+`Math.Sign` throws for exactly one input: NaN. So the input class is NON-FINITE (or
+sign-inconsistent) elements, matching stock's own upstream `M: NaN`, not mis-scaled
+ones. Three layers, source outwards:
+
+1. **Source - `PatchedConicSnapshot.HasFinitePatchElements`.** A stock patch whose
+   seven elements or `StartUT` are not finite is refused instead of being copied into
+   an `OrbitSegment`, under a new `NonFinitePatchElements` failure reason with the
+   same partial-keep semantics as `MissingPatchBody` (patch 0 aborts, patch N>0
+   truncates and keeps the valid prefix). This is what keeps a NaN out of the
+   recording's persisted predicted segments and out of every downstream degrees
+   consumer. The UT bounds are checked WITH the elements: `ToOrbitSegment`'s
+   `patch.EndUT < startUT` clamp cannot catch a NaN `EndUT` (the comparison is false),
+   and `endUT` is the UT the finalizer propagates the terminal segment AT - which is
+   exactly the member of the class the live 2026-08-01 capture turned out to hit.
+   AN INFINITE `EndUT` IS DECLINED BUT NOT CALLED A DEGENERACY, and the distinction is
+   the whole of what review changed here. `+Infinity` is stock's own sentinel for "this
+   patch never ends" on a FULLY SOLVED open orbit - verified against decompiled
+   KSP 1.12.5 on two independent paths: `PatchedConicSolver.Update` seeds the root patch
+   with `patches[0].EndUT = patches[0].period` whenever `eccentricity >= 1.0` and `Orbit`
+   assigns `period = double.PositiveInfinity` for every open orbit; and
+   `PatchedConics._CalculatePatch` assigns `p.EndUT = double.PositiveInfinity` with
+   `patchEndTransition = FINAL` for a hyperbolic patch whose reference body has an
+   infinite sphere of influence (the Sun). So a solar-escape probe is a healthy patch,
+   not a broken one. ADMITTING IT WOULD NOT HELP, which is where the first attempt at
+   this correction went wrong: `endUT` is the UT
+   `IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment` propagates the
+   terminal segment AT, so an infinite bound yields a NaN state, fails that call's
+   `IsFinite` check and declines anyway - through a plain UN-rate-limited `Warn` that
+   then repeats on every periodic refresh for the whole coast. Declining at the snapshot
+   layer reaches the identical outcome with bounded logging. What the carve-out buys is
+   the LABEL: an open-orbit sentinel logs Verbose and change-keyed
+   (`is an open orbit with no end bound`), while a genuine degeneracy still WARNs.
+   Guarded by `Snapshot_OpenOrbitInfiniteEndUT_IsDeclinedQuietlyNotAsADegeneracy` and
+   `Snapshot_InfiniteEndUTWithADegenerateElement_StillWarnsAsADegeneracy`, so a NaN
+   cannot ride an escape trajectory into the quiet path.
+2. **Solver boundary - `TwoBodyOrbit.AreSegmentElementsPropagatable`.**
+   `TryCreateFromSegment` checked only `semiMajorAxis` for finiteness, so the other
+   six elements went through unvalidated; a NaN eccentricity then failed the
+   `< 1.0` elliptic test (every comparison against NaN is false) and was classified
+   HYPERBOLIC. It now declines four classes the propagation has no finite answer for:
+   any non-finite element, negative eccentricity, parabolic `e == 1` (`a` undefined,
+   `p = a(1-e^2) = 0`, so `sqrt(mu/p)` is infinite - `TryCreate` already refused the
+   same case from the state-vector side, so the two constructors now agree), and an
+   `a` whose SIGN disagrees with the conic class (elliptic needs `a > 0`, hyperbolic
+   `a < 0`, or `sqrt(mu / (-a)^3)` roots a negative and manufactures the NaN itself
+   with every element finite). `SolveHyperbolicKepler` is additionally made TOTAL:
+   a non-finite mean anomaly returns NaN, which the three `TryPropagate` consumers in
+   `IncompleteBallisticSceneExitFinalizer` already handle through their `IsFinite`
+   state checks. Do NOT read that as "every caller checks" - the in-extrapolator
+   `GetStateAtUT` sites (the horizon state written into
+   `terminalPosition`/`terminalVelocity`, `SampleOrbitWindow`, `GetAltitudeAtUT`,
+   `GetSurfaceDeltaAtUT`) consume the state unchecked, and a NaN there reads false out
+   of every comparison instead of announcing itself. Those sites are safe today only
+   because they reach the solver through validated elements at finite UTs; a new
+   caller that skips that validation needs its own check. Not a narrowing - a genuine
+   hyperbola in element form still builds and still matches closed form.
+3. **Caller - `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`.** The
+   finalization cache is an optimisation and must never cost a sample, so the default
+   finalizer call is wrapped: a throw fails loud once (grep-stable
+   `[Parsek][WARN][FinalizerCache] Refresh threw:` naming vessel pid, refresh reason,
+   UT, body, situation and exception, `WarnRateLimited` 30 s) and declines through the
+   existing `Fail(cache, "default-finalizer-threw")` path, so
+   `TryPreservePreviousCacheAfterFailedRefresh` keeps the last good cache. Retry cadence
+   follows that existing contract rather than a new one, and the two outcomes differ: no
+   preservable previous cache leaves the stored status Failed (which holds
+   `requiresPeriodicRefresh` true, so the periodic cadence retries), while a preserved
+   one is stored Stale (so a coasting vessel retries on a digest change instead). This
+   covers `BackgroundRecorder` as well as `FlightRecorder`, and is worth having
+   regardless of layer 1/2 - it is the half that makes the NEXT unforeseen extrapolator
+   failure cost a cache, not a recording.
+
+Guarded by new xUnit cells in `BallisticExtrapolatorKeplerTests` (the NaN-eccentricity
+segment declines instead of throwing; a valid hyperbola at a non-finite UT yields NaN
+instead of throwing; the sign-inconsistent conic; a per-element rejection table; and
+closed-form periapsis radius / vis-viva speed / `r.v = 0` proving the accepted set did
+not shrink), `PatchedConicSnapshotTests` (abort at patch 0, truncate at patch N>0, the
+NaN-`EndUT` case, and a per-field predicate table) and
+`RecordingFinalizationCacheProducerTests` (a throwing finalizer declines loudly, the
+previous cache stays preservable, and an ordinary decline keeps its own reason).
+
+STILL OPEN, unchanged by this fix (status owned by gate 12 in
+`docs/dev/autotest-status.md`; this is a pointer, not a second verdict): the
+harness-side companion below - an `expectations.recordings` assertion on POINTS rather
+than on `.prec` file count. It is what would have caught the 2026-07-30 run, and it is
+still what would catch the next recording that finalizes empty - though note the
+2026-08-01 A/B control measured the stock trigger as INTERMITTENT, so it reds only when
+that trigger actually fires.
+
+SCOPE FENCE, so layer 1 is not over-read: it screens patched-conic PATCHES, which is
+where the measured NaN came from. It does NOT screen the LIVE vessel orbit.
+`RecordingFinalizationCacheProducer.BuildOrbitSegmentFromVessel` copies the orbit view
+obtained from `vessel.TryGetOrbit` verbatim, and a NaN eccentricity there passes
+`ShouldExtrapolate`'s `eccentricity >= 1.0` test (false for NaN) into
+`PopulateStableOrbitCache`, which can stamp a `TerminalOrbit` carrying the NaN. Narrower
+than it reads, so the fence is not over-stated in the other direction: that route needs
+`situation == ORBITING` AND a finite periapsis altitude above the cutoff, because
+`ShouldExtrapolate` returns true early on a NaN periapsis and unconditionally for
+FLYING / SUB_ORBITAL / ESCAPING. Layer 2 means that can no longer throw or
+mis-propagate, but a non-finite element could still be PERSISTED by that path. Not
+fixed here: the measurement had NaN only in the patches, so guarding the live orbit
+would be speculative. Recorded so nobody assumes it is covered.
+
+NOTED WHILE FIXING, not fixed (different subsystem, no evidence it is reachable):
+`Math.Sign` throws on NaN, and `Source/Parsek/` has exactly three call sites. Two are
+the ones fixed here; the third is `ReputationModule.ApplyReputationCurve`'s
+`Math.Sign(nominal)` (`GameActions/ReputationModule.cs`), whose `nominal == 0f`
+early-out does not catch NaN. Reaching it needs a NaN reputation delta out of a
+recorded ledger action, i.e. a corrupt save rather than a stock-solver quirk, so it is
+recorded here rather than guarded speculatively.
 
 Sibling of the frame-mismatch entry above - same file family (`BallisticExtrapolator`
 / `IncompleteBallisticSceneExitFinalizer`), different failure: this one does not
 mis-orient the answer, it destroys the recording.
+
+### Live proof, and exactly how far it reaches
+
+Flown 2026-08-01 on `stock-minimal`, automation DLL sha256-verified against the branch
+build immediately before each launch (a sibling worktree clobbered it once mid-session,
+so this was checked rather than assumed - and the collected log independently carries
+`has non-finite elements` / `NonFinitePatchElements`, strings that exist only in this
+build).
+
+BUILD DELTA, stated rather than glossed: the flights were made on the build at commit
+`a5271f0f7`. The review pass that followed changed only the LOG LEVEL an infinite
+`EndUT` takes (Verbose open-orbit sentinel instead of a degeneracy WARN), the exception
+detail in the finalizer-cache WARN, and comments. The accept/reject decision for every
+input is unchanged, and the patch refused in the fixed-build run was `endUT=NaN` - still
+refused, still WARNed, since `DescribePatchElements` lists EVERY offending field and NaN
+was the only one. A confirmatory re-fly was not run because nothing in the delta can
+discriminate on those two runs.
+
+| run | build | stock `dT is NaN` | patch refused | `ArithmeticException` | EVA kerbal |
+| --- | --- | --- | --- | --- | --- |
+| `2026-07-30_1532_S0.7-exit-auto-commit` | pre-fix | 2196 | n/a | **501** | `points=1 maxDist=0m` |
+| `2026-08-01_1626_EVA-2-orbital-board` | FIXED | 6 | 1 (`endUT=NaN`) | 0 | `points=5 maxDist=1888m` |
+| `2026-08-01_1634_EVA-2-orbital-board` | pre-fix (A/B control) | 0 | n/a | 0 | `points=4` |
+
+PROVEN by the fixed-build run: the guard fires in flight on a REAL stock degenerate
+patch - stock produced one at `snapshotUT=422.15`, the same UT band as the 2026-07-30
+first exception (which followed that run's `ut=422.15` sample-skip by one physics
+frame), and layer 1 refused it with
+`has non-finite elements (endUT=NaN); aborting predicted snapshot capture`, after which
+the tail declined `NonFinitePatchElements` and the next snapshot 80 ms later was clean.
+The EVA then recorded 5 points with 1888 m of spatial extent across its 10.068 s dwell,
+with zero `ArithmeticException`, zero `SolveHyperbolicKepler` frames, zero
+`[FinalizerCache] Refresh threw` (layer 3 never fired) and zero `[Parsek][ERROR]`.
+`S0.7-exit-auto-commit` re-flew green the same day (`2026-08-01_1630`, PASS, 48 s), so
+there is no regression on the transition path.
+
+NOT PROVEN, and worth stating plainly because a green EVA-2 invites over-reading. The
+A/B control - same spec, same fixture, flown on a pre-fix DLL built from the merge base
+and byte-verified to carry NONE of the fix's strings - also flew clean, because stock's
+degenerate-conic window never opened that run at all. So the trigger is INTERMITTENT
+across runs of one fixture (2196 / 6 / 0 occurrences of stock's own `dT is NaN`), and
+the fixed-build run is NOT a controlled reproduction of the 501-exception crash: the
+absence of the exception there is CONSISTENT WITH the fix rather than solely
+attributable to it.
+
+One structural note the live capture settled. The NaN arrived in `endUT`, with the seven
+orbital elements finite - a DIFFERENT member of the degenerate class than the 2026-07-30
+forensics, where a NaN eccentricity misclassified the conic as hyperbolic. Layer 1
+checks the UT bounds WITH the elements precisely because `ToOrbitSegment`'s
+`patch.EndUT < startUT` clamp is blind to NaN, and that half is what caught this flight.
+It also means this particular patch could not have reproduced the original throw on the
+old build: within the extrapolator `Math.Sign` exists only in `SolveHyperbolicKepler`
+(the third mod-wide call site, `ReputationModule.ApplyReputationCurve`, is off this
+path entirely), and a finite near-zero eccentricity never routes there.
 
 ### The measurement
 
@@ -623,13 +874,34 @@ loop), so it takes the SAMPLING with it. Everything the recorder would have done
 frame - trajectory points, part events, the background pass - does not happen. The
 recording is not degraded, it is empty.
 
-### Why nothing caught it
+### Why nothing caught it [HARNESS HALF ADDRESSED 2026-08-02]
 
-`EVA-2-orbital-board` is green and stays green. Its numeric guard is
+`EVA-2-orbital-board` is green and stayed green. Its numeric guard is
 `recordings.count = { min = 2, max = 2 }`, which counts `.prec` FILES, and two empty
 recordings are still two files. This is the category inventory's "fourth trap" (a
 vacuous PASS the tally cannot see) reappearing in the RECORDINGS dimension instead of
-the batch-tally one. Nothing in the verifier chain asserts a recording has points.
+the batch-tally one. Stated precisely, because the loose version is false: the trap is
+the BLIND SPOT, not a green EVA-2 run that exploited it. No EVA-2 run is on record
+having PASSED with empty recordings - the empty pair was measured on
+`2026-07-30_1532_S0.7-exit-auto-commit`, which flew EVA-2's profile and finished
+PARSEK-FAIL with `recordings.count = 0`.
+
+"Nothing in the verifier chain asserts a recording has points" is NO LONGER TRUE as
+of 2026-08-02: `[expectations.recordings.points]` (autotest-status gate 12) asserts
+`total` / `largest` / `smallest` / `trivialRecordings` windows over the per-recording
+`pointCount` the save carries, evaluated by the R9 `saveParse` row. EVA-2 declares
+`largest = { min = 2 }` + `trivialRecordings = { max = 1 }`, REPORT-ONLY pending its
+arming run. Two honest limits on that:
+
+- It reds only when the trigger FIRES. The stock trigger is intermittent - `dT is
+  NaN` occurred 2196x / 6x / 0x across three runs of the same fixture during the
+  #1408 verification, and the A/B control `2026-08-01_1634` flew CLEAN on a
+  byte-verified PRE-FIX DLL (`points=4`), i.e. a DEFECTIVE build would have satisfied
+  this window. A green EVA-2 is NOT evidence the NaN path did not happen. The
+  assertion bounds the blast radius of the next recording-emptying defect; it does not
+  guarantee detection of this one.
+- It is a DETECTOR, not the fix. The product fix is the "Fix" section above (all three
+  directions below were taken); this only changes what the harness can SEE.
 
 ### Scope, as far as the evidence goes
 
@@ -642,22 +914,39 @@ the batch-tally one. Nothing in the verifier chain asserts a recording has point
   only non-EVA orbital recording measured here ran 133 ms and never got far enough to
   say.
 
-### Fix directions (not chosen)
+### Fix directions (all three taken - see Fix above)
 
 1. Guard the boundary: `TwoBodyOrbit.TryCreateFromSegment` / `GetStateAtUT` reject
    non-finite elements and return false instead of throwing, so a degenerate conic
    declines to extrapolate rather than killing the frame. Cheapest, and it matches
-   how the rest of the finalizer treats an unresolvable tail.
+   how the rest of the finalizer treats an unresolvable tail. TAKEN, and widened: the
+   audit that wrote this list assumed non-finiteness was the whole input class, but a
+   sign-inconsistent conic (`e > 1` with `a > 0`) reaches the same throw with every
+   element finite, so the guard is on the ELEMENT SET's propagability, not just on
+   finiteness.
 2. Guard the source: `PatchedConicSnapshot` drops a patch whose elements are not
-   finite, so the NaN never enters a recording's predicted segments either.
+   finite, so the NaN never enters a recording's predicted segments either. TAKEN,
+   and widened to the patch's UT BOUNDS: `endUT` is the UT the finalizer propagates
+   the terminal predicted segment at, and `ToOrbitSegment`'s `patch.EndUT < startUT`
+   clamp is blind to a NaN.
 3. Defensive: wrap `RefreshFinalizationCache`'s call in `OnPhysicsFrame` so a
    finalization-cache failure can never cost a sample. This one is worth doing
    REGARDLESS of the other two - the finalization cache is an optimisation, and it
-   should not be able to stop the recorder.
+   should not be able to stop the recorder. TAKEN, but placed one level DOWN from
+   what this line proposed: the guard sits inside
+   `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`, around the default
+   finalizer call, so it covers `BackgroundRecorder`'s refresh path as well as
+   `FlightRecorder.OnPhysicsFrame` from a single site, and it degrades through the
+   producer's existing `Fail(...)` decline contract rather than inventing a second one.
 
-A harness-side companion is worth considering separately: an
+~~A harness-side companion is worth considering separately: an
 `expectations.recordings` assertion on POINTS, not only on file count, would have
-caught this on EVA-2's first flight.
+caught this on EVA-2's first flight.~~ DONE 2026-08-02 - see "Why nothing caught it"
+above. Landed as `[expectations.recordings.points]`, a third M-C2 save-parse block
+read off the save's own `pointCount` (the `FinalizeTreeRecordings: ... points=N` log
+line was rejected as a source: it is Verbose, so it would go silent fail-open on any
+spec not pinning `verboseLogging`). Note the claim is narrower than "would have
+caught this on EVA-2's first flight" - see the intermittency limit above.
 
 ---
 

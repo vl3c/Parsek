@@ -37,6 +37,9 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - coverage + flake computation (``compute_coverage`` / ``compute_flake``)
   - result-record serialization + schema gate (``serialize_result`` /
     ``deserialize_result`` / ``check_schema``)
+  - run-id resolution (``format_run_id`` / ``claimed_run_ids`` /
+    ``resolve_run_id``): the id every results/ artifact is keyed by, resolved so
+    a second run can never overwrite a first run's evidence
 
 Design authority: docs/dev/design-autotest-harness-core.md (Module M-A5).
 Consumed contracts pinned against their public surfaces: the command seam
@@ -55,7 +58,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -2950,8 +2953,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
-    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind] and
-    # [expectations.recordings.structure]. Same rationale as the unityExceptions
+    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind],
+    # [expectations.recordings.structure] and (gate 12)
+    # [expectations.recordings.points]. Same rationale as the unityExceptions
     # block above - a malformed window (or a non-bool gating key) must be a
     # pre-launch rejection, never a block that silently evaluates as a no-op.
     if "rewind" in expectations:
@@ -2960,6 +2964,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
         errors.extend(saveparse.validate_structure_expectations(
             recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+    if isinstance(recordings_block, dict) and saveparse.POINTS_BLOCK in recordings_block:
+        errors.extend(saveparse.validate_points_expectations(
+            recordings_block.get(saveparse.POINTS_BLOCK)))
     # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
     # WARN like the unityExceptions precedent (armed-and-empty is a hard error
     # inside the validators above).
@@ -3366,7 +3373,8 @@ class ExpectationResult:
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
 # M-C2 (R9): ``rewind`` LEFT the tuple the same way -- the save-parse verifier
 # (saveparse.evaluate_save_structure, run as its own chain row) is its sole owner,
-# alongside the new ``[expectations.recordings.structure]`` sub-block. ``route`` and
+# alongside the ``[expectations.recordings.structure]`` and (gate 12)
+# ``[expectations.recordings.points]`` sub-blocks. ``route`` and
 # ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
 # either), and building an evaluator with zero declarers would be unused surface.
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
@@ -3386,12 +3394,21 @@ def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any
 
     Shape: mirrors the ``[expectations.*]`` spec surface, so a future measured
     facet slots in beside its spec counterpart without a format break
-    (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
-    ONLY facet the recordings block declares (hence the only one to observe);
-    the logContracts facets are regex predicates with no numeric counterpart
-    worth persisting, and route/loop stay RESERVED. The rewind / structure
-    facets are owned and observed by the M-C2 save-parse verifier
-    (saveparse.observed_structure_facets), not here - one owner per facet.
+    (``{"recordings": {"count": 7}}``). ``recordings.count`` is the only facet
+    THIS verifier owns: it is the one recordings facet derived from the
+    ``.prec`` FILE listing rather than from the save's content. The logContracts
+    facets are regex predicates with no numeric counterpart worth persisting,
+    and route/loop stay RESERVED. The rewind / structure / points facets are
+    owned and observed by the M-C2 save-parse verifier
+    (saveparse.observed_structure_facets), not here - one owner per facet, and a
+    facet read out of the SAVE belongs to the verifier that parses the save.
+
+    Gate 12 is exactly why that split matters: ``count`` counts FILES, so two
+    EMPTY recordings satisfy ``count = { min = 2, max = 2 }``. The claim "a
+    recording recorded something" needs the save's per-recording ``pointCount``
+    and therefore lives in ``[expectations.recordings.points]``, which also
+    gives it the report-only-then-arm discipline this verifier does not have
+    (a ``count`` mismatch is a hard FAIL the moment it is declared).
 
     Recording is UNCONDITIONAL on the spec: a scenario that declares no count
     window still gets its measured count recorded, which is how a NEW scenario
@@ -3417,9 +3434,14 @@ def evaluate_expectations(
     written now needs no format break then. ``world`` is NO LONGER reserved here
     (M-B2 gave verifier 8 sole ownership, design ~495), ``rewind`` is NO LONGER
     reserved here either (M-C2/R9 gave the save-parse verifier sole ownership,
-    alongside ``recordings.structure`` which this evaluator ignores), and
-    ``ledger`` is a tolerated-unknown block this evaluator ignores (verifier 8
-    owns it).
+    alongside ``recordings.structure`` and ``recordings.points`` which this
+    evaluator ignores), and ``ledger`` is a tolerated-unknown block this
+    evaluator ignores (verifier 8 owns it).
+
+    NOTE the deliberate blind spot this evaluator keeps: ``recordings.count`` is
+    a count of ``.prec`` FILES, so it cannot distinguish a recording that traced
+    a flight from one that finalized with a single point (gate 12). That claim
+    belongs to ``[expectations.recordings.points]`` on the save-parse verifier.
 
     The result also carries ``observed`` - the MEASURED facets
     (``observed_expectation_facets``) - so a green run's numbers survive into
@@ -4654,7 +4676,8 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # are the downstream symptoms.
     "mission-outcome",
     # M-C2 (R9): a GATING-armed [expectations.rewind] / [expectations.recordings.
-    # structure] mismatch (saveparse.evaluate_save_structure). Named separately
+    # structure] / [expectations.recordings.points] mismatch
+    # (saveparse.evaluate_save_structure). Named separately
     # from "expectation" for the same reason mission-outcome is: the structural
     # save assertion is its own failure class, and the flag is only reachable
     # for a scenario that armed gating = true. The verifier ships REPORT-ONLY;
@@ -5227,6 +5250,135 @@ def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple
         if str(stamp_pins.get(dist)) != str(want):
             return False, VENV_INVALID_SUBKIND
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Run id (design Result record). Pure.
+#
+# results/<runId>.json and EVERY sibling artifact -- <runId>_shots/ (holding the
+# collected KSP.log), <runId>_contact.html, <runId>_mission.json,
+# <runId>_mission.stdout.log, <runId>.manifest.json, <runId>.seed -- are keyed by
+# the run id ALONE, and the id stamps only the MINUTE. So two runs of one
+# scenario started inside the same minute used to land on one id, and the second
+# silently overwrote the first's evidence.
+#
+# Observed 2026-08-01: two H23-tracking-station flights 52 seconds apart left two
+# per-invocation harness logs (those ARE second-granular) but ONE result JSON and
+# ONE _shots dir. The first flight's clean verdict and its collected KSP.log were
+# gone, nothing warned, and a reader of results/ could not tell two runs happened
+# -- exactly the silent evidence loss the contact sheet exists to prevent.
+#
+# The id is now resolved against what results/ ALREADY holds: a claimed base id
+# takes a `_run<N>` run-instance suffix instead of overwriting. The suffix sits
+# BEFORE the `_a<N>` attempt suffix, so the attempts of one run stay grouped under
+# one stem and `_a<N>` stays TERMINAL (status.split_run_id parses it there).
+# `_run<N>` and `_a<N>` are different axes and must not be conflated: `_a<N>` is
+# the retry policy re-flying ONE run, `_run<N>` is a SEPARATE run that would have
+# collided.
+# ---------------------------------------------------------------------------
+
+# The runId's UTC timestamp granularity. Deliberately still the MINUTE: the
+# collision guard below, not a finer stamp, is what makes an overwrite
+# impossible, and the minute stamp is what status.py's run-id parse and every
+# committed doc example already read.
+RUN_ID_TIMESTAMP_FORMAT = "%Y-%m-%d_%H%M"
+
+# Every results/ filename shape a run claims, MOST-SPECIFIC FIRST -- ".json" must
+# be tried LAST or it would strip "<runId>_mission.json" to "<runId>_mission".
+# An entry matching none of these (summary.txt, index.html, *_harness.log,
+# .pending, *.tmp) belongs to no run and is ignored.
+RUN_ID_ARTIFACT_SUFFIXES: Tuple[str, ...] = (
+    "_mission.stdout.log",
+    "_mission.json",
+    ".manifest.json",
+    "_status.json",
+    "_contact.html",
+    "_shots",
+    ".claim",
+    ".seed",
+    ".json",
+)
+
+# The zero-cost stake a run drops the instant it resolves its id, closing the
+# window between resolving and writing the first real artifact (run.py's
+# `_try_claim_run_id`). Two CONCURRENT run.py invocations of one scenario both
+# resolve before either writes -- the per-instance run lock does not help, since
+# the refused one writes its INVALID(instance-locked) record immediately while
+# the winner is still flying -- so without an exclusive-create stake they would
+# both land on the same base id.
+RUN_ID_CLAIM_SUFFIX = ".claim"
+
+
+def format_run_id(stamp: str, scenario_id: str, attempt: int = 1,
+                  ordinal: int = 1) -> str:
+    """``<stamp>_<scenarioId>[_run<ordinal>][_a<attempt>]``.
+
+    Ordinal 1 / attempt 1 add nothing, so the ordinary run id is unchanged from
+    before the collision guard existed.
+    """
+    run_id = "%s_%s" % (stamp, scenario_id)
+    if ordinal > 1:
+        run_id += "_run%d" % ordinal
+    if attempt > 1:
+        run_id += "_a%d" % attempt
+    return run_id
+
+
+def claimed_run_ids(names: Iterable[str]) -> Set[str]:
+    """The run ids a results-dir listing already holds artifacts for.
+
+    Takes the raw directory entry names (files AND the ``_shots`` dirs) so the
+    caller does no stat-ing, and returns every id that owns at least one of
+    ``RUN_ID_ARTIFACT_SUFFIXES``. A run whose result JSON is missing but whose
+    ``_shots`` dir survived still counts as claimed -- the point is to never
+    write over ANY surviving artifact of an earlier run.
+    """
+    claimed: Set[str] = set()
+    for name in names or ():
+        for suffix in RUN_ID_ARTIFACT_SUFFIXES:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                claimed.add(name[:-len(suffix)])
+                break
+    return claimed
+
+
+@dataclass(frozen=True)
+class RunIdResolution:
+    run_id: str
+    # The run-instance ordinal that produced ``run_id`` (1 = no suffix).
+    ordinal: int
+    # The already-claimed ids this resolution stepped over, in the order tried.
+    # Non-empty means a collision happened and the caller must SAY SO.
+    collided_with: Tuple[str, ...]
+
+    @property
+    def collided(self) -> bool:
+        return bool(self.collided_with)
+
+
+def resolve_run_id(stamp: str, scenario_id: str, claimed: Iterable[str],
+                   attempt: int = 1, min_ordinal: int = 1) -> RunIdResolution:
+    """The first run id at or above ``min_ordinal`` that ``claimed`` does not
+    already hold, plus the claimed ids it stepped over.
+
+    ``min_ordinal`` carries a run-instance ordinal already resolved for attempt 1
+    into the later attempts of the SAME run, so those attempts share one stem
+    (``..._run2`` / ``..._run2_a2``) instead of drifting apart.
+
+    Terminates without an arbitrary cap: ``claimed`` is finite, so at most
+    ``len(claimed) + 1`` ordinals can be occupied. A cap would have to either
+    raise (losing a verdict, which the design forbids) or overwrite (the bug),
+    and neither is acceptable.
+    """
+    taken = frozenset(claimed or ())
+    collided: List[str] = []
+    ordinal = max(1, int(min_ordinal))
+    while True:
+        candidate = format_run_id(stamp, scenario_id, attempt, ordinal)
+        if candidate not in taken:
+            return RunIdResolution(candidate, ordinal, tuple(collided))
+        collided.append(candidate)
+        ordinal += 1
 
 
 # ---------------------------------------------------------------------------

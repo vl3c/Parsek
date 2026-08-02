@@ -4419,6 +4419,85 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         self.assertTrue(hlib.validate_spec(spec, load_registry()).ok,
                         "a well-formed structure block must validate")
 
+    def test_validate_spec_rejects_malformed_points_block(self):
+        # Gate 12's block reaches validate_spec through the same delegation as
+        # the other two, so a malformed window is a PRE-LAUNCH rejection rather
+        # than a block that silently evaluates as a no-op mid-chain.
+        spec = copy.deepcopy(load_spec("S4.1-rewind-merge.toml"))
+        reg = load_registry()
+        spec["expectations"]["recordings"]["points"] = {"biggest": {"min": 2}}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("recordings.points" in e for e in v.errors))
+        # An ARMED-and-empty points block is a gate that can never red.
+        spec["expectations"]["recordings"]["points"] = {"gating": True}
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("gates nothing" in e for e in v.errors))
+        spec["expectations"]["recordings"]["points"] = {"largest": {"min": 2}}
+        self.assertTrue(hlib.validate_spec(spec, reg).ok,
+                        "a well-formed points block must validate")
+
+    def test_eva2_declares_the_points_block_unarmed(self):
+        # Gate 12 landed REPORT-ONLY on EVA-2 (the scenario whose green
+        # `count = {min=2,max=2}` let the empty-recording defect through).
+        # UNARMED is the whole point of the landing: the window is measured
+        # from live runs BEFORE it may move a verdict, so this cell must be
+        # flipped in the same commit that arms it - alongside the allowlist
+        # below and the run ids that justify it.
+        exp = load_spec("EVA-2-orbital-board.toml")["expectations"]
+        self.assertEqual(("recordings.points",),
+                         saveparse.declared_structure_blocks(exp))
+        self.assertEqual((), saveparse.armed_structure_blocks(exp))
+        self.assertFalse(saveparse.gating_armed(exp))
+        # It must still ASSERT something, or it is an inert header that reports
+        # nothing (the warn case) and could never be promoted from a reading.
+        self.assertTrue(
+            set(exp["recordings"]["points"]) & set(saveparse.POINTS_ASSERTION_KEYS),
+            "EVA-2's points block declares no assertion key - nothing to read")
+
+    def test_the_c_sharp_writer_still_emits_pointcount(self):
+        # SOURCE-SYNC GATE, same shape as CommittedBatchTallySourceSyncTests:
+        # this cell reads OUTSIDE harness/ on purpose. The ENTIRE points
+        # assertion rests on one C# line - RecordingTreeRecordCodec writing
+        # `pointCount` UNCONDITIONALLY on every RECORDING node. If that write is
+        # renamed, removed, or made conditional, every declared points window
+        # silently degrades to "unparsed": quiet while the block is report-only,
+        # and a confusing red once someone arms it. Fail HERE, locally, naming
+        # the cause, instead of on a nightly.
+        path = os.path.join(PARSEK_SOURCE_DIR, "RecordingTreeRecordCodec.cs")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        self.assertIn('recNode.AddValue("pointCount"', src,
+                      "RecordingTreeRecordCodec no longer writes pointCount onto the "
+                      "RECORDING node - [expectations.recordings.points] reads that key "
+                      "as its ONLY source of truth (the FinalizeTreeRecordings log line "
+                      "was rejected: it is Verbose, so it fails open). Either restore "
+                      "the write or re-source the block.")
+        # ...and UNCONDITIONALLY. A `pointCount` written under an `if` would make
+        # an absent key mean "this recording had none" rather than "this save
+        # predates the key" - exactly the ambiguity the `unparsed` counter exists
+        # to refuse, and it would flip the facet from fail-loud to fail-quiet.
+        # Checked structurally by INDENTATION against `lastResIdx`, the adjacent
+        # write that is unconditional today: wrapping either in a guard block
+        # indents it and reds here. (This catches the guard-block form; a guard
+        # expressed some other way is not claimed to be caught.)
+        lines = src.splitlines()
+        def _indent(needle):
+            # Default None rather than a bare next(): without it, deleting the
+            # ANCHOR line turns this guard into a StopIteration *error* with no
+            # message instead of the authored assertion below.
+            ln = next((l for l in lines if needle in l), None)
+            self.assertIsNotNone(ln, "anchor line %r is gone from %s - the "
+                                     "indentation guard has nothing to compare against"
+                                 % (needle, os.path.basename(path)))
+            return len(ln) - len(ln.lstrip())
+        self.assertEqual(_indent('recNode.AddValue("lastResIdx"'),
+                         _indent('recNode.AddValue("pointCount"'),
+                         "the pointCount write is no longer at the same (unconditional) "
+                         "nesting as the lastResIdx write beside it - if it is now "
+                         "guarded, an absent key stops meaning 'not measured'")
+
     # THE ARMED ALLOWLIST. This started life as `assertEqual([], armed)` - the
     # hard verdict-neutrality property that shipped with the verifier, when
     # nothing was armed and every arming was still unproven. S4.1 was promoted
@@ -8765,3 +8844,148 @@ class DebrisPopulationGateTests(unittest.TestCase):
         log = "Recording started\n%s\nRecording stopped\n" % self.EMITTED_FG
         self.assertIsNone(re.search(first_cut, log))
         self.assertIsNotNone(re.search(self.TOKEN, log))
+
+
+class RunIdCollisionTests(unittest.TestCase):
+    """The runId stamps only the MINUTE, and results/<runId>.json,
+    <runId>_shots/ (with the collected KSP.log), <runId>_contact.html,
+    <runId>_mission.json and <runId>.manifest.json are ALL keyed by it alone.
+
+    Observed 2026-08-01: two H23-tracking-station flights 52 seconds apart shared
+    one id; the second overwrote the first's clean verdict (unityExceptions
+    total=0) and its collected KSP.log, and nothing warned. These cells pin the
+    resolution that makes that overwrite impossible.
+    """
+
+    STAMP = "2026-08-01_1628"
+    SCENARIO = "H23-tracking-station"
+    BASE = "2026-08-01_1628_H23-tracking-station"
+
+    def _resolve(self, listing, attempt=1, min_ordinal=1):
+        """Compose the two halves exactly as run.py does: a results/ LISTING ->
+        claimed ids -> the resolved id."""
+        return hlib.resolve_run_id(self.STAMP, self.SCENARIO,
+                                   hlib.claimed_run_ids(listing),
+                                   attempt=attempt, min_ordinal=min_ordinal)
+
+    def test_an_uncontested_run_id_is_exactly_what_it_always_was(self):
+        # The guard must be invisible on the ordinary path -- every committed doc
+        # example, results/ listing and status panel reads this shape.
+        res = self._resolve([])
+        self.assertEqual(self.BASE, res.run_id)
+        self.assertEqual(1, res.ordinal)
+        self.assertFalse(res.collided)
+        self.assertEqual((), res.collided_with)
+
+    def test_the_ordinal_sits_before_the_terminal_attempt_suffix(self):
+        # status.split_run_id reads `_a<N>` at the END of the id. An ordinal
+        # appended after it would make every collided run's attempt unparseable,
+        # and would split one run's two attempts across two stems.
+        self.assertEqual(self.BASE + "_a2",
+                         hlib.format_run_id(self.STAMP, self.SCENARIO, attempt=2))
+        self.assertEqual(self.BASE + "_run2",
+                         hlib.format_run_id(self.STAMP, self.SCENARIO, ordinal=2))
+        self.assertEqual(self.BASE + "_run2_a2",
+                         hlib.format_run_id(self.STAMP, self.SCENARIO,
+                                            attempt=2, ordinal=2))
+
+    def test_the_observed_incident_no_longer_overwrites(self):
+        # results/ as the 19:28:02 flight left it, verbatim.
+        first = [self.BASE + ".json", self.BASE + "_shots", self.BASE + "_contact.html"]
+        res = self._resolve(first)
+        self.assertEqual(self.BASE + "_run2", res.run_id)
+        self.assertEqual(2, res.ordinal)
+        self.assertEqual((self.BASE,), res.collided_with)
+        self.assertTrue(res.collided, "a collision the caller cannot see is the bug")
+        # Nothing the 19:28:54 flight writes can land on a first-flight path.
+        for suffix in hlib.RUN_ID_ARTIFACT_SUFFIXES:
+            self.assertNotIn(res.run_id + suffix, first)
+
+    def test_the_old_construction_would_have_reused_that_very_id(self):
+        # Negative control -- what makes the fix load-bearing rather than
+        # decorative. The pre-fix id was the bare stamp+scenario unconditionally,
+        # so the second flight's result path WAS the first flight's result path.
+        old_id = "%s_%s" % (self.STAMP, self.SCENARIO)
+        self.assertEqual(self.BASE, old_id)
+        self.assertNotEqual(old_id, self._resolve([old_id + ".json"]).run_id)
+
+    def test_a_third_run_in_the_same_minute_steps_over_both(self):
+        res = self._resolve([self.BASE + ".json", self.BASE + "_run2.json"])
+        self.assertEqual(self.BASE + "_run3", res.run_id)
+        self.assertEqual((self.BASE, self.BASE + "_run2"), res.collided_with)
+
+    def test_any_surviving_artifact_claims_the_id_not_just_the_result_json(self):
+        # A run can leave a _shots dir (with its KSP.log) whose result JSON never
+        # landed -- the write degraded to .pending, or the record was hand-moved.
+        # Writing over that dir would still destroy collected evidence.
+        for suffix in hlib.RUN_ID_ARTIFACT_SUFFIXES:
+            res = self._resolve([self.BASE + suffix])
+            self.assertEqual(self.BASE + "_run2", res.run_id,
+                             "a surviving '%s' must claim the id" % suffix)
+
+    def test_the_json_suffix_does_not_swallow_the_more_specific_shapes(self):
+        # Ordering regression: ".json" matched before "_mission.json" would claim
+        # "<runId>_mission" and leave the REAL run id free to be overwritten.
+        for suffix in ("_mission.json", ".manifest.json", "_status.json"):
+            self.assertEqual({self.BASE}, hlib.claimed_run_ids([self.BASE + suffix]),
+                             "'%s' must claim the run id, not a mangled stem" % suffix)
+
+    def test_entries_that_belong_to_no_run_claim_nothing(self):
+        # results/ also holds per-INVOCATION harness logs, the rolling summary,
+        # the index and tmp files. Treating any of those as a claimed run would
+        # push every run id up an ordinal for no reason.
+        self.assertEqual(set(), hlib.claimed_run_ids([
+            "summary.txt", "index.html", "2026-08-01_162803_harness.log",
+            ".pending", self.BASE + ".json.tmp", "index.html.tmp.1234",
+            ".json", "_shots", ".seed"]))
+
+    def test_a_retry_of_one_run_is_not_a_collision(self):
+        # The `[retry] policy = "once"` path: attempt 2 of ONE run legitimately
+        # shares the stem and is distinguished by `_a2`. It must not be pushed to
+        # a new ordinal by its own attempt-1 artifacts.
+        res = self._resolve([self.BASE + ".json", self.BASE + "_shots"], attempt=2)
+        self.assertEqual(self.BASE + "_a2", res.run_id)
+        self.assertEqual(1, res.ordinal)
+        self.assertFalse(res.collided)
+
+    def test_min_ordinal_keeps_the_attempts_of_one_run_on_one_stem(self):
+        # A second run whose FIRST attempt took `_run2` must retry as
+        # `_run2_a2`, not drift back to a bare `_a2` just because the first run
+        # happened never to retry. Same run, one stem.
+        listing = [self.BASE + ".json"]
+        first_attempt = self._resolve(listing)
+        self.assertEqual(2, first_attempt.ordinal)
+        retry = self._resolve(listing, attempt=2, min_ordinal=first_attempt.ordinal)
+        self.assertEqual(self.BASE + "_run2_a2", retry.run_id)
+        self.assertFalse(retry.collided,
+                         "carrying the run's own ordinal forward is not a new collision")
+
+    def test_resolution_terminates_over_a_dense_claim_set(self):
+        # No arbitrary ordinal cap exists, deliberately: a cap would have to
+        # either raise (losing a verdict, which the design forbids) or overwrite
+        # (the bug). `claimed` is finite, so the scan is bounded by len + 1.
+        listing = [hlib.format_run_id(self.STAMP, self.SCENARIO, ordinal=n) + ".json"
+                   for n in range(1, 51)]
+        res = self._resolve(listing)
+        self.assertEqual(51, res.ordinal)
+        self.assertEqual(self.BASE + "_run51", res.run_id)
+        self.assertEqual(50, len(res.collided_with))
+
+    def test_a_different_scenario_in_the_same_minute_never_collides(self):
+        res = hlib.resolve_run_id(self.STAMP, "B5-mun-flyby",
+                                  hlib.claimed_run_ids([self.BASE + ".json"]))
+        self.assertEqual(self.STAMP + "_B5-mun-flyby", res.run_id)
+        self.assertFalse(res.collided)
+
+    def test_the_claim_stake_is_one_of_the_claiming_shapes(self):
+        # The stake exists to be SEEN by the next resolution; a suffix the scan
+        # does not recognize would stake nothing.
+        self.assertIn(hlib.RUN_ID_CLAIM_SUFFIX, hlib.RUN_ID_ARTIFACT_SUFFIXES)
+        self.assertEqual({self.BASE},
+                         hlib.claimed_run_ids([self.BASE + hlib.RUN_ID_CLAIM_SUFFIX]))
+
+    def test_run_py_stamps_the_format_hlib_declares(self):
+        # The stamp is produced in run.py and parsed in status.py against the
+        # format hlib names; a drift between them breaks the run-age readout.
+        self.assertEqual("%Y-%m-%d_%H%M", hlib.RUN_ID_TIMESTAMP_FORMAT)
+        self.assertRegex(run._run_id_stamp(), r"^\d{4}-\d{2}-\d{2}_\d{4}$")

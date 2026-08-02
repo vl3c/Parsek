@@ -30,15 +30,21 @@ Its DEPLOY phase copies this worktree's `Source/Parsek/bin/Debug/Parsek.dll` int
 ls -la "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
 ls -la Source/Parsek/bin/Debug/Parsek.dll
 
-# 2. Grep the deployed DLL for a distinctive new UTF-16 string from your change
+# 2. Grep the deployed DLL for a distinctive new marker from your change.
+#    CHECK BOTH ENCODINGS: metadata identifiers (method / type / enum-member names) live
+#    in the #Strings heap as UTF-8; string literals live in the #US heap as UTF-16LE.
 python -c "
 with open(r'...GameData/Parsek/Plugins/Parsek.dll','rb') as f: d=f.read()
-for s in ['NewLabel','OldLabel']: print(s, d.count(s.encode('utf-16-le')))
+for s in ['NewMethodName','some new literal']:
+    u8, u16 = d.count(s.encode('utf-8')), d.count(s.encode('utf-16-le'))
+    print(s, 'utf8=%d utf16=%d' % (u8, u16), 'OK' if (u8 or u16) else 'MISSING')
 "
 
 # 3. If mismatch, force-copy manually
 cp Source/Parsek/bin/Debug/Parsek.dll "$KSPDIR/GameData/Parsek/Plugins/Parsek.dll"
 ```
+
+**Reading the result.** A UTF-16-only count reports a name that appears only as metadata as absent from a DLL that carries it - measured against the dev instance's `Parsek.dll`, the type name `RecordingTreeSplitter` counts `utf8=1 utf16=0` while the literal `format-version-mismatch` counts `utf8=0 utf16=2`. Checking an identifier that way makes a correct deploy read as a deploy failure and sends you hunting a non-existent sibling-worktree clobber. Two rules for reading the corrected output. (1) **The marker must be long and distinctive** - `count` is a raw substring scan, so a marker that is merely a fragment of a pre-existing name passes against a DLL that does NOT carry your change (`RecordingTreeSplit` counts `utf8=1`, `Reap` counts `utf8=28`). Nonzero proves presence only for a marker too specific to occur inside an existing name, and zero proves absence only for a marker stored verbatim. (2) **Both counts nonzero is normal** - a name also used in a `nameof()` or a log message lands in both heaps. Prefer a distinctive new **string literal** where your change adds one, since you control its exact text - but three traps: an interpolated string is NOT stored the way it renders (the compiler splits it at the holes), so grep one literal run between holes and never a line pasted out of KSP.log; an attribute argument (`[InGameTest(Category = "X")]`) is NOT a `#US` literal - it is UTF-8 in `#Blob`, like an identifier; and a change made purely of lambda bodies leaves no identifier to grep at all.
 
 From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `Kerbal Space Program/` probe only walks parent directories of the csproj - a sibling-of-the-worktree layout at `C:/Users/vlad3/Documents/Code/Parsek/Kerbal Space Program/` is NOT reachable from `C:/Users/vlad3/Documents/Code/Parsek-<branch>/Source/Parsek/` via ancestor walking.
 
@@ -141,7 +147,7 @@ docs/                       # Design docs, roadmap, reference analyses
 - `harness/lib/saveparse.py` - the M-C2 pure save-structure parser + evaluator behind the `saveParse` verifier row (R9): parses the produced save's ParsekScenario surfaces (RECORDING_TREE topology, supersede rows, tombstones, rewind retirements, REWIND_POINTS/slots) and evaluates `[expectations.rewind]` / `[expectations.recordings.structure]`. REPORT-ONLY unless a block declares `gating = true`; exactly ONE committed spec does (`S4.1-rewind-merge`, armed 2026-07-31), guarded by an allowlist cell. Arming is a per-scenario operator decision taken only after a report-only reading run whose facets match the declared windows.
 
 Harness traps that bite C# work:
-- **Two hlib test cells read OUTSIDE `harness/`:** `CommittedBatchTallySourceSyncTests` walks `Source/Parsek` to keep each spec's pinned `BATCH_COMPLETE v1 total=N ... skipped=S` tally in step with the C# `[InGameTest]` attributes it counts - adding an in-game test to `Missions`, `Periodicity`, `GameActionsHealth`, `RouteRewindTimeline`, `RecordingInvariants` or `GhostPlayback` reds locally instead of on the next nightly, and an attribute spelling the parse does not model also reds. `test_doc_spec_sync.py` reads `docs/dev`.
+- **Three hlib test cells read OUTSIDE `harness/`:** `CommittedBatchTallySourceSyncTests` walks `Source/Parsek` to keep each spec's pinned `BATCH_COMPLETE v1 total=N ... skipped=S` tally in step with the C# `[InGameTest]` attributes it counts - adding an in-game test to `Missions`, `Periodicity`, `GameActionsHealth`, `RouteRewindTimeline`, `RecordingInvariants` or `GhostPlayback` reds locally instead of on the next nightly, and an attribute spelling the parse does not model also reds. `test_doc_spec_sync.py` reads `docs/dev`. `test_the_c_sharp_writer_still_emits_pointcount` reads `Source/Parsek/RecordingTreeRecordCodec.cs`: `[expectations.recordings.points]` uses the `pointCount` key that file writes as its ONLY source of truth, so removing or guarding that write reds in `harness/lib` rather than silently degrading every points window to "unparsed".
 - **Mission-vs-Parsek orthogonality:** a mission that did not fly is driver-INVALID, never PARSEK-FAIL. Post-mission RECORDING seam steps are non-gating on a MISSION-OK run (a mis-recorded good flight reds through the verifier chain); post-mission OUTCOME steps DO gate as `PARSEK-FAIL(mission-outcome)` via the `missionOutcome` verifier row (the M-C2 EVA verbs; a driver-INVALID would discard evidence and retry an intermittent subject death into a PASS). A HANDOFF mission declares what it did not verify via `mlib.MISSION_HANDOFF_CONTRACTS`.
 - Two dev-script seams the harness passes (additive, inert by default): `scripts/analyze-recordings.ps1 -FreshSaveGate` and `scripts/validate-ksp-log.ps1 -KilledRun` / `-NoRecordingRun` (the C# checker's `ParseSuppressionList` rejects suppressing FMT/WRN - the cannot-mask guarantee).
 

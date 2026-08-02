@@ -317,6 +317,284 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// AN ORBITAL EVA RECORDS NOTHING (2026-07-30). Stock's own patched-conic
+        /// solver can produce a Not-a-Number patch - on the orbital EVA kerbal it
+        /// logged "dT is NaN! tA: NaN, E: NaN, M: NaN, T: NaN" and "CheckEncounter:
+        /// failed to find any intercepts at all" while doing it - and this snapshot
+        /// copied every field verbatim into the recording's predicted segments.
+        /// Downstream, a NaN eccentricity fails the <c>&lt; 1.0</c> elliptic test, so
+        /// the extrapolator classified it hyperbolic and threw ArithmeticException out
+        /// of <c>Math.Sign(NaN)</c> on every physics frame. Refuse the patch here so
+        /// the NaN never enters a recording at all.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchElements_FailsWithoutCapturingTheNaN()
+        {
+            var nanPatch = MakePatch(100, 200);
+            nanPatch.Eccentricity = double.NaN;
+            nanPatch.MeanAnomalyAtEpoch = double.NaN;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = nanPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 8, "Orbital EVA Kerbal");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Equal(0, result.CapturedPatchCount);
+            Assert.Equal(4, source.PatchLimit);
+
+            // The refusal has to NAME the offending input, or the log says a patch was
+            // bad without saying which number was bad.
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("Orbital EVA Kerbal") &&
+                line.Contains("has non-finite elements") &&
+                line.Contains("ecc=NaN") &&
+                line.Contains("mEp=NaN") &&
+                line.Contains("aborting predicted snapshot capture"));
+        }
+
+        /// <summary>
+        /// The non-finite abort WARN is rate-limited to the documented 30 s, NOT
+        /// <c>WarnRateLimited</c>'s implicit 5 s default and NOT a plain
+        /// <c>ParsekLog.Warn</c>. This is the same regression PR #553 caught on the
+        /// sibling null-solver emitter (see
+        /// <see cref="Snapshot_NullSolver_BetweenFiveAndThirtySeconds_RemainsSuppressed"/>),
+        /// and it matters more here: the measured 2026-07-30 EVA hit this exact path on
+        /// every one of 501 physics frames, so a downgrade would restore a per-refresh
+        /// WARN flood on precisely the scenario this fix exists for.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchElements_WarnIsRateLimitedToThirtySeconds()
+        {
+            double clockSeconds = 0.0;
+            ParsekLog.ClockOverrideForTesting = () => clockSeconds;
+
+            var nanPatch = MakePatch(100, 200);
+            nanPatch.Eccentricity = double.NaN;
+            var source = new FakePatchedConicSnapshotSource(4) { RootPatch = nanPatch };
+
+            for (int i = 0; i < 10; i++)
+            {
+                clockSeconds += 0.1;
+                PatchedConicSnapshot.SnapshotPatchedConicChain(source, 100 + i, 8, "Flooding Vessel");
+            }
+
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("Flooding Vessel") &&
+                l.Contains("has non-finite elements")));
+
+            // Past the 5 s default but inside 30 s: still exactly one.
+            clockSeconds += 10.0;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(source, 200, 8, "Flooding Vessel");
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("Flooding Vessel") &&
+                l.Contains("has non-finite elements")));
+
+            // Across 30 s: re-emits, attributing the absorbed hits.
+            clockSeconds += 21.0;
+            PatchedConicSnapshot.SnapshotPatchedConicChain(source, 300, 8, "Flooding Vessel");
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                l.Contains("Flooding Vessel") &&
+                l.Contains("has non-finite elements") &&
+                l.Contains("suppressed=10"));
+        }
+
+        /// <summary>
+        /// A NaN <c>EndUT</c> is its own route to the same throw and is invisible to
+        /// <c>ToOrbitSegment</c>'s <c>patch.EndUT &lt; startUT</c> clamp, because every
+        /// comparison against NaN is false. It matters because the finalizer propagates
+        /// the terminal predicted segment AT <c>segment.endUT</c>: a well-formed
+        /// hyperbolic tail evaluated at a NaN UT reaches <c>Math.Sign(NaN)</c> just as
+        /// surely as a NaN element does.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchEndUT_IsRefusedRatherThanClamped()
+        {
+            var nanEndPatch = MakePatch(100, double.NaN);
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = nanEndPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 100, 8, "Nan End Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("endUT=NaN"));
+        }
+
+        /// <summary>
+        /// Same partial-keep policy as the null-body case below: earlier patches in the
+        /// chain are real orbits worth recording, so a degenerate patch at index &gt; 0
+        /// truncates rather than discarding everything.
+        /// </summary>
+        [Fact]
+        public void Snapshot_NonFinitePatchAfterValidPrefix_KeepsPartialResult()
+        {
+            var nanPatch = MakePatch(200, 320, body: "Mun");
+            nanPatch.SemiMajorAxis = double.PositiveInfinity;
+            var firstPatch = MakePatch(100, 200, body: "Kerbin",
+                transition: PatchedConicTransitionType.Encounter);
+            firstPatch.NextPatch = nanPatch;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = firstPatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Partial Nan Vessel");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Single(result.Segments);
+            Assert.Equal("Kerbin", result.Segments[0].bodyName);
+            Assert.Equal(1, result.CapturedPatchCount);
+            Assert.True(result.HasTruncatedTail);
+            Assert.All(result.Segments, seg =>
+            {
+                Assert.False(double.IsNaN(seg.semiMajorAxis) || double.IsInfinity(seg.semiMajorAxis));
+                Assert.False(double.IsNaN(seg.endUT) || double.IsInfinity(seg.endUT));
+            });
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("has non-finite elements") &&
+                line.Contains("truncated chain after 1 valid patch(es), keeping partial result"));
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("aborting predicted snapshot capture"));
+        }
+
+        [Fact]
+        public void HasFinitePatchElements_AcceptsAWellFormedPatchAndRejectsEachNonFiniteField()
+        {
+            Assert.True(PatchedConicSnapshot.HasFinitePatchElements(MakePatch(100, 200)));
+            Assert.False(PatchedConicSnapshot.HasFinitePatchElements(null));
+
+            foreach (double poison in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            {
+                AssertFieldRejected(p => p.StartUT = poison, "StartUT", poison);
+                AssertFieldRejected(p => p.EndUT = poison, "EndUT", poison);
+                AssertFieldRejected(p => p.Inclination = poison, "Inclination", poison);
+                AssertFieldRejected(p => p.Eccentricity = poison, "Eccentricity", poison);
+                AssertFieldRejected(p => p.SemiMajorAxis = poison, "SemiMajorAxis", poison);
+                AssertFieldRejected(p => p.LongitudeOfAscendingNode = poison, "LongitudeOfAscendingNode", poison);
+                AssertFieldRejected(p => p.ArgumentOfPeriapsis = poison, "ArgumentOfPeriapsis", poison);
+                AssertFieldRejected(p => p.MeanAnomalyAtEpoch = poison, "MeanAnomalyAtEpoch", poison);
+                AssertFieldRejected(p => p.Epoch = poison, "Epoch", poison);
+            }
+
+        }
+
+        /// <summary>
+        /// A SOLAR-ESCAPE PROBE IS NOT A DEGENERATE PATCH, and must not be logged as
+        /// one. <c>EndUT == +Infinity</c> is stock's own "this patch never ends"
+        /// sentinel on a fully solved open orbit - verified against decompiled
+        /// KSP 1.12.5 on two independent paths:
+        /// <list type="bullet">
+        /// <item><c>PatchedConicSolver.Update</c> seeds the root patch with
+        /// <c>patches[0].EndUT = patches[0].period</c> whenever
+        /// <c>eccentricity &gt;= 1.0</c>, and <c>Orbit</c> assigns
+        /// <c>period = double.PositiveInfinity</c> for every open orbit.</item>
+        /// <item><c>PatchedConics._CalculatePatch</c> assigns
+        /// <c>p.EndUT = double.PositiveInfinity</c> with
+        /// <c>patchEndTransition = FINAL</c> for a hyperbolic patch whose reference
+        /// body has an infinite sphere of influence (the Sun).</item>
+        /// </list>
+        /// <para>
+        /// It is still DECLINED - <c>endUT</c> is the UT the finalizer propagates the
+        /// terminal segment AT, so an infinite bound yields a NaN state and declines
+        /// downstream regardless, through a plain un-rate-limited WARN that would then
+        /// repeat on every periodic refresh of an escaping probe's whole coast.
+        /// Declining here keeps the identical outcome with bounded logging.
+        /// </para>
+        /// <para>
+        /// What makes this fail: routing the sentinel through the degenerate-patch WARN
+        /// (which is what calling it "non-finite elements" invites), so a normal
+        /// interplanetary escape emits a 30 s WARN about a permanent orbital condition
+        /// for as long as it coasts.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void Snapshot_OpenOrbitInfiniteEndUT_IsDeclinedQuietlyNotAsADegeneracy()
+        {
+            var escapePatch = MakePatch(100, double.PositiveInfinity, body: "Sun");
+            escapePatch.Eccentricity = 1.4;
+            escapePatch.SemiMajorAxis = -2000000.0;
+
+            var source = new FakePatchedConicSnapshotSource(4)
+            {
+                RootPatch = escapePatch
+            };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Solar Escape Probe");
+
+            // Declined, like any patch with no finite terminal to propagate at.
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Equal(4, source.PatchLimit);
+
+            // ...but NOT as a degeneracy: no WARN, and the line says what it actually is.
+            Assert.DoesNotContain(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("Solar Escape Probe"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][PatchedSnapshot]") &&
+                line.Contains("Solar Escape Probe") &&
+                line.Contains("open orbit with no end bound (endUT=Infinity)") &&
+                line.Contains("no finite terminal to propagate at"));
+        }
+
+        /// <summary>
+        /// The sentinel carve-out is EXACTLY that: an infinite end bound on an otherwise
+        /// healthy patch. A patch that is infinite-ended AND carries a genuinely
+        /// degenerate element is still a degeneracy and still WARNs - otherwise a NaN
+        /// could ride an escape trajectory into the quiet path.
+        /// </summary>
+        [Fact]
+        public void Snapshot_InfiniteEndUTWithADegenerateElement_StillWarnsAsADegeneracy()
+        {
+            var poisoned = MakePatch(100, double.PositiveInfinity, body: "Sun");
+            poisoned.Eccentricity = double.NaN;
+
+            var source = new FakePatchedConicSnapshotSource(4) { RootPatch = poisoned };
+
+            PatchedConicSnapshotResult result = PatchedConicSnapshot.SnapshotPatchedConicChain(
+                source, 120, 8, "Poisoned Escape");
+
+            Assert.Equal(PatchedConicSnapshotFailureReason.NonFinitePatchElements, result.FailureReason);
+            Assert.Empty(result.Segments);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][WARN][PatchedSnapshot]") &&
+                line.Contains("Poisoned Escape") &&
+                line.Contains("has non-finite elements") &&
+                line.Contains("ecc=NaN"));
+        }
+
+        private static void AssertFieldRejected(
+            Action<FakePatchedConicOrbitPatch> poisonField,
+            string fieldName,
+            double poison)
+        {
+            FakePatchedConicOrbitPatch patch = MakePatch(100, 200);
+            poisonField(patch);
+            Assert.False(
+                PatchedConicSnapshot.HasFinitePatchElements(patch),
+                $"{fieldName}={poison.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} must be refused");
+        }
+
+        /// <summary>
         /// Regression for #575: when patch 0 is valid but a later patch has a
         /// null body, the captured prefix must be preserved instead of the
         /// whole result being reset. The 2026-04-25_1314 marker-validator-fix
