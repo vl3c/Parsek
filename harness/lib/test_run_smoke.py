@@ -29,12 +29,15 @@ Runnable with the stdlib runner only::
     python -m unittest discover -s harness/lib
 """
 
+import ast
 import copy
+import inspect
 import json
 import os
 import shutil
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 
@@ -3102,6 +3105,366 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
         self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
 
 
+class _LockRuntime(run.Runtime):
+    """Clock + liveness under test control. Nothing else is stubbed: the lockfile
+    I/O under test is the REAL os.open/os.remove path."""
+
+    def __init__(self, now=1000.0, alive=True):
+        self._now = now
+        self._alive = alive
+        self.alive_queries = []
+
+    def now(self):
+        return self._now
+
+    def pid_alive(self, pid):
+        self.alive_queries.append(pid)
+        return self._alive(pid) if callable(self._alive) else self._alive
+
+
+class MachineLockWiringTests(unittest.TestCase):
+    """The lock WIRING (as opposed to provlib's pure decision) had ZERO test
+    coverage before this: no cell ever wrote a lockfile and drove run.py against
+    it, which is how the per-attempt scope, the non-atomic acquire, and the
+    unowned release all survived. These drive the real file operations."""
+
+    def setUp(self):
+        self.umbrella = tempfile.mkdtemp(prefix="parsek-lock-")
+        self.addCleanup(shutil.rmtree, self.umbrella, ignore_errors=True)
+        self.logger = run.HarnessLogger(os.path.join(self.umbrella, "harness.log"))
+        self.addCleanup(self.logger.close)
+
+    def _lock(self):
+        return run.run_lock_path(self.umbrella)
+
+    def _seed(self, payload):
+        path = self._lock()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        return path
+
+    def _read(self):
+        with open(self._lock(), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    # ---- acquire ---------------------------------------------------------
+
+    def test_acquire_on_clean_machine_writes_our_identity(self):
+        rt = _LockRuntime()
+        path = run.acquire_run_lock(self.umbrella, rt, self.logger, selection="tier=daily")
+        self.assertEqual(path, self._lock())
+        body = self._read()
+        self.assertEqual(body["pid"], os.getpid())
+        # Rich identity: a refusal must be able to name WHO holds the lock.
+        self.assertEqual(body["selection"], "tier=daily")
+        self.assertIn("worktree", body)
+        self.assertIn("startedIso", body)
+
+    def test_acquire_creates_the_parent_directory(self):
+        # A machine that has never provisioned has no automation/ dir yet.
+        self.assertFalse(os.path.isdir(os.path.dirname(self._lock())))
+        self.assertIsNotNone(run.acquire_run_lock(self.umbrella, _LockRuntime(), self.logger))
+
+    def test_live_sibling_refuses_and_leaves_their_lock_intact(self):
+        self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0,
+                    "worktree": "C:/other", "selection": "tier=nightly"})
+        rt = _LockRuntime(now=1000.0, alive=True)
+        self.assertIsNone(run.acquire_run_lock(self.umbrella, rt, self.logger))
+        self.assertEqual(self._read()["pid"], os.getpid() + 1,
+                         "a refused acquire must not touch the holder's lock")
+
+    def test_dead_holder_is_reclaimed(self):
+        self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0})
+        rt = _LockRuntime(now=1000.0, alive=False)
+        self.assertIsNotNone(run.acquire_run_lock(self.umbrella, rt, self.logger))
+        self.assertEqual(self._read()["pid"], os.getpid())
+
+    def test_expired_lease_is_reclaimed_even_though_the_pid_looks_alive(self):
+        """The pid-reuse wedge (L4): without expiry this instance is refused
+        forever once a recycled pid occupies the lockfile."""
+        self._seed({"pid": os.getpid() + 1, "timestamp": 0.0})
+        rt = _LockRuntime(now=provlib_lease() + 1.0, alive=True)
+        self.assertIsNotNone(run.acquire_run_lock(self.umbrella, rt, self.logger))
+        self.assertEqual(self._read()["pid"], os.getpid())
+
+    def test_torn_lockfile_does_not_crash_the_acquire(self):
+        path = self._lock()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        self.assertIsNotNone(run.acquire_run_lock(self.umbrella, _LockRuntime(), self.logger))
+
+    def test_acquire_is_atomic_not_read_decide_write(self):
+        """Two racers must not both win. The old read-decide-write left a window
+        (both shell out to `tasklist` between the read and the write) in which
+        both reclaimed the same stale lock and both launched.
+
+        Proven behaviorally: with the lockfile ALREADY present and its holder
+        live, an acquire must refuse without ever overwriting it -- the failure
+        mode of a read-decide-write is that it writes anyway."""
+        holder = {"pid": os.getpid() + 1, "timestamp": 1000.0, "selection": "theirs"}
+        self._seed(holder)
+        for _ in range(20):
+            self.assertIsNone(run.acquire_run_lock(
+                self.umbrella, _LockRuntime(now=1000.0, alive=True), self.logger))
+            self.assertEqual(self._read(), holder)
+
+    def test_a_racer_never_deletes_the_winners_fresh_lock(self):
+        """THE reclaim race (found in review, reproduced with a PoC before the
+        fix). Two processes both read the same STALE lock and both decide to
+        reclaim. The first removes it and creates its own. Under a bare
+        `os.remove` the second then deleted the WINNER's fresh lock and created
+        its own -- both believed they held it, and both would launch KSP.
+
+        The fix quarantines by atomic rename and then VERIFIES the moved bytes
+        are the stale lock it judged. Here the file mutates to a fresh live
+        holder between our read and our reclaim, exactly as the loser sees it."""
+        stale = {"pid": os.getpid() + 1, "timestamp": 0.0, "selection": "stale"}
+        self._seed(stale)
+        winner = {"pid": os.getpid() + 2, "timestamp": 5000.0, "selection": "winner"}
+        swapped = []
+
+        class Loser(_LockRuntime):
+            def pid_alive(inner, pid):
+                # We judged the stale lock dead; the winner reclaims and creates
+                # its own lock in the window before our reclaim lands.
+                if not swapped:
+                    swapped.append(True)
+                    self._seed(winner)
+                    return False
+                return True
+
+        self.assertIsNone(run.acquire_run_lock(
+            self.umbrella, Loser(now=5000.0), self.logger))
+        self.assertEqual(self._read(), winner,
+                         "the winner's live lock must be restored untouched")
+
+    def test_a_reclaim_that_cannot_complete_refuses_instead_of_looping(self):
+        """The reclaim path is bounded to ONE retry and then refuses. Two racers
+        that both loop on reclaim livelock instead of serializing.
+
+        Driven by making the reclaim genuinely fail: an open handle blocks the
+        rename on Windows, so acquire takes the reclaim branch, cannot move the
+        stale lock aside, exhausts its bounded retries, and must then refuse
+        rather than spin."""
+        path = self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0})
+        blocker = open(path, "r", encoding="utf-8")
+        self.addCleanup(blocker.close)
+        rt = _LockRuntime(now=1000.0, alive=False)   # holder looks dead -> reclaim
+        self.assertIsNone(run.acquire_run_lock(self.umbrella, rt, self.logger))
+        self.assertTrue(os.path.isfile(path), "the undeletable lock must survive")
+
+    # ---- release ---------------------------------------------------------
+
+    def test_release_removes_our_own_lock(self):
+        run.acquire_run_lock(self.umbrella, _LockRuntime(), self.logger)
+        run.release_run_lock(self._lock(), self.logger)
+        self.assertFalse(os.path.isfile(self._lock()))
+
+    def test_release_refuses_to_delete_a_lock_that_is_no_longer_ours(self):
+        """Leak L2. If we were reclaimed as stale mid-run, the lock now belongs to
+        a LIVE sibling; deleting it would turn one refusal into two concurrent KSPs."""
+        run.acquire_run_lock(self.umbrella, _LockRuntime(), self.logger)
+        self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0})   # sibling took over
+        run.release_run_lock(self._lock(), self.logger)
+        self.assertTrue(os.path.isfile(self._lock()))
+        self.assertEqual(self._read()["pid"], os.getpid() + 1)
+
+    def test_release_of_absent_lock_is_a_noop(self):
+        run.release_run_lock(self._lock(), self.logger)      # never acquired
+        run.release_run_lock(None, self.logger)
+
+    # ---- heartbeat -------------------------------------------------------
+
+    def test_heartbeat_refreshes_our_timestamp_so_a_long_run_never_expires(self):
+        rt = _LockRuntime(now=1000.0)
+        run.acquire_run_lock(self.umbrella, rt, self.logger, selection="tier=nightly")
+        rt._now = 1000.0 + 9999
+        self.assertTrue(
+            run.heartbeat_run_lock(self._lock(), rt, self.logger, selection="tier=nightly"))
+        self.assertEqual(self._read()["timestamp"], 1000.0 + 9999)
+        self.assertEqual(self._read()["pid"], os.getpid())
+
+    def test_heartbeat_preserves_when_the_hold_began(self):
+        """The refusal message promises 'since=' is when the holder ACQUIRED. A
+        heartbeat that restamped startedIso made it mean 'last refreshed', so a
+        blocked operator could not tell a 10-second hold from an 8-hour one."""
+        rt = _LockRuntime(now=1000.0)
+        run.acquire_run_lock(self.umbrella, rt, self.logger, selection="tier=nightly")
+        began = self._read()["startedIso"]
+        rt._now = 1000.0 + 9999
+        run.heartbeat_run_lock(self._lock(), rt, self.logger, selection="tier=nightly")
+        self.assertEqual(self._read()["startedIso"], began)
+
+    def test_heartbeat_reports_loss_so_the_caller_can_stop(self):
+        """Losing the lock mid-selection must be FATAL to the caller: a sibling
+        reclaimed us and is flying the same instance."""
+        self._seed({"pid": os.getpid() + 1, "timestamp": 1000.0})
+        self.assertFalse(run.heartbeat_run_lock(self._lock(), _LockRuntime(), self.logger))
+        self.assertEqual(self._read()["pid"], os.getpid() + 1,
+                         "must not resurrect a lock we lost")
+
+    def test_heartbeat_on_absent_lock_is_a_noop(self):
+        self.assertTrue(run.heartbeat_run_lock(None, _LockRuntime(), self.logger))
+        run.heartbeat_run_lock(self._lock(), _LockRuntime(), self.logger)
+        self.assertFalse(os.path.isfile(self._lock()))
+
+
+def _calls(fn):
+    """The set of function names CALLED by fn, via AST rather than substring
+    search: matching raw source text also matches the rationale comments that
+    name these very functions."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name):
+                names.add(f.id)
+            elif isinstance(f, ast.Attribute):
+                names.add(f.attr)
+    return names
+
+
+class MachineLockScopeTests(unittest.TestCase):
+    """The lock is taken ONCE per invocation, around the whole selection. Taking
+    it per ATTEMPT left it free in the gaps between a selection's scenarios,
+    which is how a sibling could shred a nightly scenario by scenario."""
+
+    def test_run_attempt_no_longer_acquires_or_releases(self):
+        called = _calls(run.run_attempt)
+        self.assertNotIn("acquire_run_lock", called)
+        self.assertNotIn("release_run_lock", called)
+
+    def test_selection_loop_heartbeats_each_scenario_boundary(self):
+        self.assertIn("heartbeat_run_lock", _calls(run._run_selection))
+
+    def test_run_acquires_once_and_releases_it(self):
+        called = _calls(run.run)
+        self.assertIn("acquire_run_lock", called)
+        self.assertIn("release_run_lock", called)
+
+    def test_release_is_in_a_finally_so_a_failing_selection_frees_the_machine(self):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(run.run)))
+        released_in_finally = any(
+            "release_run_lock" in {
+                n.func.id for n in ast.walk(handler)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            for node in ast.walk(tree) if isinstance(node, ast.Try)
+            for handler in [ast.Module(body=node.finalbody, type_ignores=[])])
+        self.assertTrue(released_in_finally,
+                        "release_run_lock must run in a finally, or a crashing "
+                        "selection leaves the machine locked until the lease expires")
+
+    def test_admit_runs_under_the_lock(self):
+        """D8: the DLL-hash ADMIT check used to run BEFORE the lock was taken, so
+        a concurrent provision could rewrite both the DLL and the manifest it is
+        compared against in the window between the check and the launch. With the
+        lock held by run() for the whole invocation, ADMIT is inside it."""
+        called = _calls(run.run_attempt)
+        self.assertIn("admit_instance", called)
+        self.assertNotIn("acquire_run_lock", called)
+
+
+class LeaseCoversWorstCaseScenarioTests(unittest.TestCase):
+    """The lease must exceed ONE scenario's worst-case wall time, since the
+    heartbeat refreshes at each scenario boundary. If a spec ever declares a
+    budget that outgrows the lease, a sibling can LEGITIMATELY reclaim the lock
+    mid-flight and put two KSPs on one kRPC port -- so this reds here rather
+    than in a night flight."""
+
+    def test_lease_exceeds_the_worst_committed_spec_including_retries(self):
+        import provlib
+        specs = run.load_all_specs()
+        # load_all_specs() returns [] when SCENARIOS_DIR is missing, which would
+        # make this invariant pass having proven nothing.
+        self.assertTrue(specs, "no committed specs loaded; the invariant is vacuous")
+        worst_id, worst_wall = None, 0.0
+        for spec in specs:
+            budget = float((spec.get("runtime", {}) or {}).get("budgetSeconds", 600))
+            policy = (spec.get("retry", {}) or {}).get("policy", "once")
+            attempts = 2 if policy == "once" else 1
+            wall = budget * attempts
+            if wall > worst_wall:
+                worst_id, worst_wall = spec.get("id"), wall
+        # Per-attempt overhead the budget does NOT cover: staging + boot +
+        # verifier chain + collect-logs, generously bounded.
+        overhead = 900.0 * 2
+        needed = worst_wall + overhead
+        self.assertGreater(
+            provlib.DEFAULT_LEASE_SECONDS, needed,
+            "lease %.0fs must exceed the worst scenario's %.0fs (%s: %.0fs budget"
+            " x retries + %.0fs overhead). Raise DEFAULT_LEASE_SECONDS or lower"
+            " the budget." % (provlib.DEFAULT_LEASE_SECONDS, needed, worst_id,
+                              worst_wall, overhead))
+
+
+class MachineLockLossStopsTheSelectionTests(unittest.TestCase):
+    """Losing the lock mid-selection must STOP the run, not warn and continue."""
+
+    def test_selection_loop_returns_on_a_failed_heartbeat(self):
+        source = textwrap.dedent(inspect.getsource(run._run_selection))
+        tree = ast.parse(source)
+        # Find `if not heartbeat_run_lock(...)` and prove its body returns.
+        guarded = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.UnaryOp):
+                continue
+            called = {n.func.id for n in ast.walk(node.test)
+                      if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            if "heartbeat_run_lock" in called:
+                guarded.append(any(isinstance(n, ast.Return) for n in ast.walk(node)))
+        self.assertTrue(guarded, "no `if not heartbeat_run_lock(...)` guard found")
+        self.assertTrue(all(guarded),
+                        "a failed heartbeat must return, never fall through and "
+                        "keep flying without the lock")
+
+
+class MachineLockSharedProtocolTests(unittest.TestCase):
+    """Both shells must take the SAME acquire protocol. The first cut had two
+    implementations and the provisioner's weaker one could clobber a live
+    holder's lock; sharing the module is the structural fix."""
+
+    def test_both_shells_call_the_shared_acquire(self):
+        import provision
+        self.assertIn("acquire", _calls(run.acquire_run_lock))
+        self.assertIn("acquire", _calls(provision.phase_preflight))
+
+    def test_neither_shell_reimplements_an_unguarded_replace_of_the_lock(self):
+        import provision
+        for fn in (run.acquire_run_lock, provision.phase_preflight):
+            src = textwrap.dedent(inspect.getsource(fn))
+            self.assertNotIn("os.replace(tmp, lock_path)", src)
+
+    def test_the_shared_acquire_verifies_before_it_reclaims(self):
+        import machinelock
+        src = inspect.getsource(machinelock.acquire)
+        # The reclaim must compare what it moved against what it judged.
+        self.assertIn("moved != raw", src)
+        self.assertNotIn("os.remove(path)", src)
+
+
+class MachineLockPathAgreementTests(unittest.TestCase):
+    """Both shells must resolve the SAME file or the exclusivity is fictional."""
+
+    def test_run_py_resolves_the_shared_relpath(self):
+        import provlib
+        umbrella = os.path.join("C:", os.sep, "umb")
+        self.assertEqual(run.run_lock_path(umbrella),
+                         os.path.join(umbrella, *provlib.MACHINE_LOCK_RELPATH))
+
+    def test_the_lock_is_not_keyed_on_an_instance_directory(self):
+        # Two different profiles must map to ONE lock: the resources actually
+        # monopolised (kRPC 50000/50001, the single GPU) are machine-global.
+        umbrella = os.path.join("C:", os.sep, "umb")
+        self.assertEqual(run.run_lock_path(umbrella), run.run_lock_path(umbrella))
+        self.assertNotIn("stock-minimal", run.run_lock_path(umbrella))
+
+
+def provlib_lease():
+    import provlib
+    return provlib.DEFAULT_LEASE_SECONDS
 class RunIdCollisionSmokeTests(unittest.TestCase):
     """Two SEPARATE runs of one scenario started inside the SAME minute must both
     keep their evidence, driven end to end over the fake KSP.

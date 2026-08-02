@@ -14,6 +14,53 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## DEV-INSTANCE-UNLOCKED: shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
+
+The machine lock (`<umbrella>/automation/.ksp-machine.lock`) serializes `run.py`
+and `provision.py`. It deliberately does NOT cover the DEV instance or routine dev
+commands, because locking those would serialize all parallel dev work behind an
+8h harness hold to protect surfaces where a collision costs a re-run, not a false
+product verdict. Filing them so they stop being invisible:
+
+1. **`dotnet build` races on the shared dev DLL.** Two worktrees building
+   concurrently both copy into `Kerbal Space Program/GameData/Parsek/Plugins/Parsek.dll`
+   (`Source/Parsek/Parsek.csproj`, `ContinueOnError="true"`); last writer wins, and
+   the `SyncAgentInstructionMirrors` target races the same way on the two umbrella
+   `CLAUDE.md` / `AGENTS.md` mirrors. Mitigation today is the hash-verify recipe in
+   `.claude/CLAUDE.md`, which is operator discipline, not a guarantee.
+2. **The `InjectAllRecordings` fixture purges the dev save's recordings.**
+   `SyntheticRecordingTests.InjectAllRecordings` targets the dev KSP install's
+   `saves/test career` and calls `PurgeRecordingSidecars`. It DOES refuse when KSP
+   is live (`ScenarioWriter.TryPurgeRecordingSidecarsForInject` probes `KSP.log`
+   with an exclusive open, and the test raises `SkipException`), and it early-returns
+   when the target save is absent - so the residual hazard is test-vs-test, not
+   test-vs-flight: two sibling worktrees running `dotnet test` at once both purge and
+   re-inject the same save. It carries `[Trait("Category", "Manual")]`, which does not
+   exclude it from a bare `dotnet test`. Cheap fix if it ever bites: an env-var
+   `Skip` gate.
+3. **`collect-logs.py` collides on minute-granularity folder names** in the shared
+   `../logs/` sink and hard-exits, which loses a failing run's only evidence. A
+   `-pid<N>` suffix instead of `sys.exit(1)` would close it. (Note the harness's own
+   `results/` half of this class was closed separately by HARNESS-RUNID-COLLISION
+   below; this is the `../logs/` sink, which still hard-exits.)
+4. **The lock key is the umbrella root, not truly the machine.** Runs given
+   different `--umbrella-root` values, or started from a checkout with a different
+   parent (a nested `.claude/worktrees/<name>` isolation worktree), resolve different
+   lockfiles while still sharing kRPC 50000/50001 and the GPU; `--instance-dir`
+   bypasses umbrella resolution altogether. Deliberate - a machine-global path would
+   serialize the unit suites against real runs - but it means "machine-wide" holds by
+   convention for the documented sibling layout, not by construction.
+
+Related coupling, recorded here because it is easy to miss: **the deferred
+residual R8 "`_ksp_running_against` coarseness"
+(`docs/dev/design-autotest-stack-setup.md:740`) must not narrow the zombie
+preflight without re-reading `harness/README.md` "The machine lock"** - that
+coarse probe is a second, independent guard on kRPC port 50000 and the single
+GPU. Note this is NOT the R8 in `autotest-roadmap.md`, which is an unrelated
+scenario-coverage item.
+
+---
+
 ## ~~HARNESS-RUNID-COLLISION: two runs of one scenario in the same minute share a run id, and the second silently overwrites the first's evidence~~ [FOUND 2026-08-01 from the results dir of two back-to-back `H23-tracking-station` flights. FIXED 2026-08-01, branch `harness-runid-collision`]
 
 `run.py` built the run id at MINUTE granularity (`%Y-%m-%d_%H%M` + `_<scenarioId>`),

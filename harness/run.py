@@ -44,6 +44,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
         sys.path.insert(0, _p)
 
 import hlib  # noqa: E402
+import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
 import saveparse  # noqa: E402
@@ -218,12 +219,28 @@ class Runtime:
         time.sleep(seconds)
 
     def pid_alive(self, pid: int) -> bool:
+        """Liveness probe behind the lock decision. FAILS CLOSED (leak L5): if the
+        probe itself cannot run, report ALIVE so the caller refuses rather than
+        stealing a lock it failed to verify was free. The lease expiry in
+        provlib.acquire_lock is the escape hatch for a genuinely dead holder, so
+        failing closed cannot wedge anything permanently.
+
+        Parses the CSV pid COLUMN rather than substring-matching the whole
+        tasklist output: a bare `str(pid) in text` also matches the Mem Usage
+        column ("42" inside "1,142 K") and the session id.
+        """
         try:
-            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid],
-                                 capture_output=True, text=True)
-            return str(pid) in (out.stdout or "")
+            out = subprocess.run(
+                ["tasklist", "/FI", "PID eq %d" % pid, "/FO", "CSV", "/NH"],
+                capture_output=True, text=True)
         except OSError:
-            return False
+            return True
+        text = out.stdout or ""
+        for row in text.splitlines():
+            cells = [c.strip('"') for c in row.split('","')]
+            if len(cells) >= 2 and cells[1].strip() == str(pid):
+                return True
+        return False
 
     def ksp_running(self, instance_dir: str) -> Optional[int]:
         """Return the pid of a KSP_x64.exe holding the instance (zombie preflight,
@@ -585,40 +602,86 @@ def build_expected_from_manifest(manifest: Dict, instance_dir: str,
 
 
 # ---------------------------------------------------------------------------
-# Run lock (design Run lock / edge 7). The harness's OWN run lock, distinct from
-# the provisioner lock and the seam's in-KSP lock, acquired pre-stage.
+# Machine run lock (design Run lock / edge 7, EC-10).
+#
+# ONE FILE, ONE MACHINE, SHARED WITH THE PROVISIONER. This used to be
+# `<instance>/GameData/Parsek/.harness-run.lock`, a SECOND file that
+# provision.py's `.provision.lock` never read (and vice versa), so a routine
+# `provision.py --profile stock-minimal` could overwrite Parsek.dll under a live
+# run -- the wrong-DLL flight that reads as a product defect. Both shells now
+# take THIS file, so provisioning and running are mutually exclusive by
+# construction. See provlib.MACHINE_LOCK_RELPATH for why the key is the machine
+# rather than the instance directory (kRPC ports, one GPU).
+#
+# SCOPE IS THE WHOLE INVOCATION, not one attempt: acquiring per-attempt left the
+# lock free in the gaps between a selection's scenarios, so a sibling could take
+# the instance mid-nightly and every remaining scenario died non-retryable
+# INVALID(instance-locked).
 # ---------------------------------------------------------------------------
 
 
-def acquire_run_lock(instance_dir: str, runtime: Runtime, logger: HarnessLogger):
-    parsek_gd = os.path.join(instance_dir, "GameData", "Parsek")
-    lock_path = os.path.join(parsek_gd, ".harness-run.lock")
-    existing = None
-    if os.path.isfile(lock_path):
-        try:
-            with open(lock_path, "r", encoding="utf-8") as fh:
-                existing = json.load(fh)
-        except (OSError, ValueError):
-            existing = None
-    decision = provlib.acquire_lock(existing, os.getpid(), runtime.now(), runtime.pid_alive)
-    if decision.reason == "refused-live":
-        logger.warn("Lock", "run-lock refused: live holder pid=%s" % decision.holder_pid)
+def run_lock_path(umbrella_root: str) -> str:
+    return machinelock.lock_path_for(umbrella_root)
+
+
+def _lock_payload(runtime: Runtime, selection: str) -> Dict:
+    """Rich holder identity, so a refusal names WHO holds the lock and from
+    where instead of just a bare pid."""
+    return {
+        "pid": os.getpid(),
+        "timestamp": runtime.now(),
+        "worktree": WORKTREE_ROOT,
+        "selection": selection,
+        "startedIso": utcnow_iso(),
+    }
+
+
+def acquire_run_lock(umbrella_root: str, runtime: Runtime, logger: HarnessLogger,
+                     selection: str = "?",
+                     lease_seconds: Optional[float] = provlib.DEFAULT_LEASE_SECONDS):
+    """Acquire the machine lock, or return None if a live sibling holds it.
+
+    The protocol lives in ``machinelock.acquire`` and is SHARED with
+    provision.py -- see that module for why winning is decided solely by the
+    exclusive create and why a stale lock is reclaimed by verified quarantine
+    rather than a bare remove.
+    """
+    lock_path = run_lock_path(umbrella_root)
+    path, reason, holder = machinelock.acquire(
+        lock_path,
+        payload_fn=lambda: _lock_payload(runtime, selection),
+        now_fn=runtime.now,
+        pid_alive_fn=runtime.pid_alive,
+        lease_seconds=lease_seconds,
+        log_fn=lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+    if path is None:
+        logger.warn("Lock", "run-lock refused (%s): holder %s (lockfile %s)"
+                    % (reason, machinelock.describe_holder(holder), lock_path))
         return None
-    if decision.reason == "reclaimed-stale":
-        logger.warn("Lock", "run-lock reclaimed stale pid=%s" % decision.holder_pid)
-    os.makedirs(parsek_gd, exist_ok=True)
-    with open(lock_path, "w", encoding="utf-8") as fh:
-        json.dump({"pid": os.getpid(), "timestamp": runtime.now()}, fh)
-    logger.info("Lock", "run-lock acquired instance=%s pid=%d" % (instance_dir, os.getpid()))
+    logger.info("Lock", "run-lock acquired (%s) path=%s pid=%d selection=%s"
+                % (reason, lock_path, os.getpid(), selection))
     return lock_path
 
 
-def release_run_lock(lock_path: Optional[str]) -> None:
-    if lock_path and os.path.isfile(lock_path):
-        try:
-            os.remove(lock_path)
-        except OSError:
-            pass
+def heartbeat_run_lock(lock_path: Optional[str], runtime: Runtime,
+                       logger: HarnessLogger, selection: str = "?") -> bool:
+    """Refresh our lock's timestamp so a long but LIVE selection never hits the
+    lease expiry. Returns False when the lock is no longer ours, which the
+    caller MUST treat as fatal: continuing would fly unlocked beside whoever
+    reclaimed us -- the two-KSPs-one-port case the lock exists to prevent."""
+    if not lock_path:
+        return True
+    return machinelock.heartbeat(
+        lock_path, payload_fn=lambda: _lock_payload(runtime, selection),
+        log_fn=lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+
+
+def release_run_lock(lock_path: Optional[str], logger: Optional[HarnessLogger] = None) -> None:
+    """Delete the lock ONLY if it is still ours (leak L2)."""
+    machinelock.release(
+        lock_path,
+        log_fn=(lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+        if logger else None)
 
 
 # ---------------------------------------------------------------------------
@@ -2618,18 +2681,24 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
             requirements=requirements)
 
     # ---- LOCK ------------------------------------------------------------
-    lock_path = acquire_run_lock(instance_dir, runtime, logger)
-    if lock_path is None:
-        return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                hlib.Verdict(hlib.VERDICT_INVALID, "instance-locked", False,
-                                             "run lock held by a live sibling"),
-                                admission=admission_rec, logger=logger, run_id=run_id)
-
+    # The machine lock is held by run() for the WHOLE invocation (see
+    # acquire_run_lock): acquiring it here, per attempt, left it free in the gaps
+    # between a selection's scenarios, so a sibling could steal the instance
+    # mid-nightly and every remaining scenario died non-retryable
+    # INVALID(instance-locked). ADMIT above now also runs under the lock, so the
+    # DLL-hash check can no longer be invalidated by a concurrent provision
+    # between the check and the launch.
     try:
         # ---- ZOMBIE PREFLIGHT --------------------------------------------
+        # Deliberately still PER ATTEMPT and deliberately still COARSE: this is
+        # the backstop for the KSPs no lockfile knows about (a manual launch, an
+        # orphan from a killed run). It cannot bind a pid to a directory, so the
+        # message must not claim it did.
         zombie_pid = runtime.ksp_running(instance_dir)
         if zombie_pid is not None:
-            logger.warn("Preflight", "instance-busy: live KSP pid=%s bound to %s; refusing (INVALID instance-busy)"
+            logger.warn("Preflight", "instance-busy: a live KSP_x64.exe (pid=%s) is running on this machine; "
+                        "the probe cannot tell which install it belongs to, so refusing before %s "
+                        "(INVALID instance-busy). Close KSP, or check for an orphan from a killed run."
                         % (zombie_pid, instance_dir))
             return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
                                     hlib.Verdict(hlib.VERDICT_INVALID, "instance-busy", False,
@@ -2743,7 +2812,6 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # instance-wide and every later flight silently pays the per-frame tracer
         # cost and gets gated by an anomaly sweep it never declared.
         reset_settings_sidecar(instance_dir, logger, "teardown")
-        release_run_lock(lock_path)
 
 
 def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdict,
@@ -3497,12 +3565,66 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             return 1
         return 0
 
+    # ---- MACHINE LOCK (whole invocation) ---------------------------------
+    # Acquired ONCE here, around the entire selection, and released in the
+    # finally below. A nightly therefore holds the machine for its full duration
+    # -- which is CORRECT on a one-GPU box: the alternative (the old per-attempt
+    # lock) let a sibling take the instance between two scenarios and killed the
+    # rest of the selection with non-retryable INVALIDs.
+    lock_path = acquire_run_lock(umbrella_root, runtime, logger, selection=expr)
+    if lock_path is None:
+        holder_note = "machine lock held by a live sibling run or provision"
+        logger.error("Lock", "refusing selection '%s': %s. If you are certain no run is "
+                             "active, delete %s" % (expr, holder_note, run_lock_path(umbrella_root)))
+        for spec in selected:
+            _write_instance_locked_result(spec, holder_note, runtime, logger)
+        logger.close()
+        return 1
+
+    try:
+        exit_code = _run_selection(selected, specs, registry, umbrella_root, args,
+                                   runtime, logger, lock_path, expr)
+    finally:
+        # Release FIRST so a release warning still reaches an open log, then
+        # close. Both run even if the selection raises: an exception must not
+        # leave the machine locked until the lease expires, nor the log unflushed.
+        release_run_lock(lock_path, logger)
+        logger.close()
+    return exit_code
+
+
+def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logger,
+                   lock_path, expr) -> int:
+    """The selection loop, running under an already-held machine lock."""
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC
     # result (never launches KSP), so one broken spec cannot abort the batch.
     bug_ids = _load_bug_ids()
     exit_code = 0
     ran_any = False
-    for spec in selected:
+    ran_count = 0
+    for index, spec in enumerate(selected):
+        # Refresh our lease at each scenario boundary so a long but LIVE
+        # selection can never expire out from under itself.
+        #
+        # Losing the lock here is FATAL, not a warning. If a sibling reclaimed
+        # us (lease overrun, or a hand-deleted lockfile) it is now flying the
+        # same instance; continuing would put two KSPs on one kRPC port and one
+        # GPU, which is the exact failure this lock exists to prevent -- and the
+        # resulting flight could report a confident false PASS. Stop the
+        # selection and leave the remaining scenarios unrun rather than produce
+        # evidence we cannot trust.
+        if not heartbeat_run_lock(lock_path, runtime, logger, selection=expr):
+            logger.error("Lock", "lost the machine lock mid-selection; a sibling has "
+                                 "reclaimed it. Stopping after %d scenario(s) rather than "
+                                 "running unlocked." % ran_count)
+            # Leave the same evidence the acquire-refusal path leaves: one
+            # INVALID(instance-locked) row per ABANDONED scenario. Without this
+            # the unrun tail is simply absent from results/, which reads as
+            # "never selected" rather than "stopped because the lock was lost".
+            note = "machine lock lost mid-selection after %d scenario(s)" % ran_count
+            for abandoned in selected[index:]:
+                _write_instance_locked_result(abandoned, note, runtime, logger)
+            return max(exit_code, 1)
         # M-B1 spec admission: resolve the autopilot mission ref SHELL-SIDE (read
         # the mission's declared schema toml + confirm the mission .py exists) and
         # hand the parsed registry to the pure validator. A missing schema / missing
@@ -3528,6 +3650,7 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             continue
 
         ran_any = True
+        ran_count += 1
         terminal = _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
         if terminal["verdict"] in (hlib.VERDICT_PARSEK_FAIL, hlib.VERDICT_INVALID,
                                    hlib.VERDICT_KILLED, hlib.VERDICT_XPASS):
@@ -3536,7 +3659,8 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     if ran_any and not args.no_coverage:
         refresh_coverage_and_flake(specs, registry, logger)
 
-    logger.close()
+    # The caller (run) owns logger.close() -- it must happen AFTER the lock is
+    # released in its finally, so a release warning still reaches the log.
     return exit_code
 
 
@@ -3599,6 +3723,46 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
     logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
                 % (attempts_run, int(round(attempts_wall)), terminal.verdict))
     return last_result
+
+
+def _write_instance_locked_result(spec, holder_note, runtime, logger) -> None:
+    """One INVALID(instance-locked) result per SELECTED scenario when the machine
+    lock is refused for the whole invocation.
+
+    The lock moved from per-attempt to per-invocation, but the RESULTS contract
+    deliberately did not: previously every scenario refused individually and each
+    wrote its own INVALID record, so results/, the index and coverage all saw one
+    row per selected scenario. Emitting the same shape keeps every downstream
+    reader unchanged, and keeps the "a refusal is never a product verdict"
+    property (INVALID, not PARSEK-FAIL).
+    """
+    scenario_id = spec.get("id") or os.path.basename(spec.get("_path", "unknown")).replace(".toml", "")
+    safe_id = "".join(c if (c.isalnum() or c in "._-") else "_" for c in scenario_id)
+    started = utcnow_iso()
+    result = {
+        "schema": hlib.SCHEMA_VERSION,
+        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), safe_id),
+        "scenarioId": scenario_id,
+        "tier": spec.get("tier"),
+        "instanceProfile": spec.get("instanceProfile"),
+        "startedUtc": started,
+        "endedUtc": started,
+        "wallSeconds": 0,
+        "attempt": 1,
+        "verdict": hlib.VERDICT_INVALID,
+        "subkind": "instance-locked",
+        "note": holder_note,
+        "admission": {"admitted": False, "subkind": "instance-locked", "diff": []},
+        "driver": {"steps": [], "allExpectedMet": False},
+        "verifiers": {},
+        "expectedFail": {"bugId": (spec.get("expectedFail", {}) or {}).get("bugId", "") or "",
+                         "matched": False},
+        "kspExit": {"code": None, "killed": False},
+        "collectLogs": {"ran": False, "path": None},
+        "artifacts": dict(_EMPTY_ARTIFACTS),
+    }
+    write_result(result, logger)
+    _generate_contact_sheet(result["runId"], logger)
 
 
 def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
