@@ -487,13 +487,14 @@ namespace Parsek.Patches
         /// resolver ALSO aborted on the first offsetless match, which is the same inertness arrived
         /// at by a bug: see BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.)
         ///
-        /// THE EVIDENCE FOR THAT, SIZED HONESTLY, because it is a mechanism plus a sample of ONE.
+        /// THE EVIDENCE FOR THAT, SIZED HONESTLY, because it is a mechanism plus a small sample.
         /// The mechanism: a DynamicMethod carries no sequence points, so Mono has no offset to
-        /// print for the wrapper frame. The sample: exactly one production trace of this method
-        /// exists anywhere in the repo's collected logs (2026-08-01_1628 H23), plus the
-        /// 2026-08-02 re-fly of this fix, and both read ilOffset=none. That is why the reading is
-        /// now ON the log line — a second shape, if one exists, will say so in a flight rather
-        /// than in a comment.
+        /// print for the wrapper frame. The sample, as of 2026-08-02: FOUR post-fix raises across
+        /// three H23 flights (_1436, _1840, and _1846 which raised twice), every one reading
+        /// ilOffset=none, plus the pre-fix 2026-08-01_1628 trace whose wrapper frame carries no
+        /// offset by inspection. Getting those four cost 23 flights, because the stock race they
+        /// ride on fires about one flight in six. That is why the reading is now ON the log line —
+        /// a different shape, if one exists, will say so in a flight rather than in a comment.
         /// </summary>
         private static bool StackTraceRulesOutKnownGhostRendererNre(bool haveIlOffset, int ilOffset)
         {

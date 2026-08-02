@@ -1085,6 +1085,11 @@ the resolver could never find looked exactly like one it found and accepted. MEA
 the 2026-08-02 `_1436` flight, which caught the intermittent stock NRE:
 `… ghostTeardownInProgress=0 registeredGhostMapVessels=0 ilOffset=none scanError="…"`.
 
+FOUR post-fix readings now exist, all `none`: `_1436`, `_1840`, and `_1846` twice. They
+cost 23 flights to collect, because a reading is only possible on a flight where the stock
+race fires (~1 in 6). Four is a small sample and is deliberately not described as more than
+that - the mechanism, not the count, is what carries the claim.
+
 Cells re-pinned in `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs` against the
 REAL frame (`ProductionWrapperStackTrace`, copied character-for-character from
 `2026-08-01_1628_H23-tracking-station_shots/KSP.log:12071-12073`), which deliberately
@@ -1157,13 +1162,31 @@ tightening its conjuncts.
 
 ### What is actually happening
 
-An intermittent stock NRE at APPLICATION SHUTDOWN, on 3 of 9 flights so far (record
-2 / 0 / 0 / 0 / 2 / 0 / 0 / 2 / 0 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625`,
-both 2026-08-01 flights, `2026-08-02_1140` flown against the post-withdrawal HEAD, and
-the three 2026-08-02 `_1434` / `_1436` / `_1437` flights of the IL-offset fix). The
-`[Parsek][WARN]` line and the `[ERR]` line under it are the signature; the two "raw
-Unity exceptions" the scan reports are that ONE exception counted twice, not two
-failures.
+An intermittent stock NRE at APPLICATION SHUTDOWN, on **5 of 29 flights** (~17%). The
+`[Parsek][WARN]` line and the `[ERR]` line under it are the signature.
+
+THE BASE RATE WAS OVERESTIMATED BY THE EARLY RECORD. The first nine flights read 3 of 9
+(~33%) and this entry quoted it; a 20-flight batch on 2026-08-02 (`_1832` … `_1846`, all
+20 FULL PASS attempt 1, tally unchanged) added only 2 more raises, taking the pooled
+figure to 5 of 29. Anyone sizing anything off the old number is working from roughly
+double the real rate.
+
+THE EXCEPTION COUNT IS NOT FIXED AT 2, and the earlier wording here ("that ONE exception
+counted twice") described a special case as though it were the rule. The doubling is real
+- `hlib.scan_unity_exceptions` counts each raise twice, once on its `[ERR]` line and once
+on the `[EXC]` line under it - but the number of RAISES varies. Each vessel Unity reclaims
+in the shutdown window fires its own `onVesselDestroy`, and each of those is its own NRE:
+
+| flight | raises | `unityExceptions.total` |
+| --- | --- | --- |
+| `2026-08-02_1840` | 1 | 2 |
+| `2026-08-02_1846` | 2 (1 ms apart, 21:47:16.828 / .829) | 4 |
+
+The H23 fixture carries three vessels (`TrackingStationSceneEntry_HostIsActive: vessels=3`),
+so **6 is reachable on this spec** and nothing observed so far bounds it below that. This
+is load-bearing for the gate-13 arming decision: a `maxTotal` sized off the "always 2"
+reading would red intermittently the first time two vessels are reclaimed together, which
+is exactly the "sized off a green run" mistake that gate warns about.
 
 Line-wrapped from `2026-08-02_1436_H23-tracking-station_shots/KSP.log:10759`, the
 post-fix capture (the `ilOffset=none` field is new; everything else reads as it did on
