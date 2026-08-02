@@ -1272,8 +1272,10 @@ suppressor still carries exactly ONE suppressing class (`#556`'s
 - **The conjuncts read stronger than they were.** `RegisteredGhostMapVesselCount > 0` is
   *implied* by a teardown being in progress, because all four sites remove the pid only
   after `EndGhostTeardown`. And the IL-offset check never rules anything out in
-  production - see `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`. So "five conjuncts" was
-  really two plus a causal one.
+  production - see `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`, whose 2026-08-02 fix stopped
+  the resolver aborting at the first offsetless frame but did NOT make the check fire:
+  Mono still prints no offset for the wrapper frame, so it abstains on every real trace.
+  So "five conjuncts" was really two plus a causal one.
 
 Trading an over-suppression that is reachable for a hole no flight has ever shown is a
 bad trade for a suppressor, whose entire job is to not hide things.
@@ -1303,14 +1305,14 @@ carries the decision that has to be made first.
 
 ---
 
-## BUILDVESSELSLIST-IL-OFFSET-GATE-INERT: the stack-trace guard on the ghost-NRE suppressor never fires in the real game [FOUND 2026-08-02 by review of the flown H23 log. PRE-EXISTING since #556. NOT FIXED]
+## ~~BUILDVESSELSLIST-IL-OFFSET-GATE-INERT: the stack-trace guard on the ghost-NRE suppressor never fires in the real game~~ [FOUND 2026-08-02 by review of the flown H23 log. PRE-EXISTING since #556. FIXED 2026-08-02, branch `claude/beautiful-ptolemy-8b944a`]
 
-### What is wrong
+### What was wrong
 
-`GhostTrackingStationPatch.StackTraceRulesOutKnownGhostRendererNre` is described - in
-its own comments, and in every doc that counts the suppressor's conjuncts - as a guard
-that rules out a suppression when the trace names a DIFFERENT stock IL offset. In
-production it rules out nothing, ever, because it can never find an offset to compare.
+`GhostTrackingStationPatch.StackTraceRulesOutKnownGhostRendererNre` was described - in
+its own comments, and in every doc that counted the suppressor's conjuncts - as a guard
+that rules out a suppression when the trace names a DIFFERENT stock IL offset. It ruled
+out nothing, ever, because it could never find an offset to compare.
 
 Harmony replaces `SpaceTracking.buildVesselsList` with a `DynamicMethod`, and Mono emits
 no `[0x…]` offset for a wrapper frame. The real frame, from
@@ -1320,55 +1322,172 @@ no `[0x…]` offset for a wrapper frame. The real frame, from
 at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)
 ```
 
-`TryFindBuildVesselsListIlOffset` matches the substring `SpaceTracking.buildVesselsList`
-on that line, finds no `[0x`, and **`return false` - it does not continue scanning later
-frames**. So the resolver always fails, `StackTraceRulesOutKnownGhostRendererNre` always
-returns `false`, and `BuildVesselsListOrbitRendererLoadOffset` (`0x00b4`) /
-`BuildVesselsListIconEventLoadOffset` (`0x00b9`) are dead constants.
+`TryFindBuildVesselsListIlOffset` matched the substring `SpaceTracking.buildVesselsList`
+on that line, found no `[0x`, and **`return false` - it did not continue scanning later
+frames**. So the resolver always failed, `StackTraceRulesOutKnownGhostRendererNre` always
+returned `false`, and `BuildVesselsListOrbitRendererLoadOffset` (`0x00b4`) /
+`BuildVesselsListIconEventLoadOffset` (`0x00b9`) were dead constants.
 
 ### Why it survived
 
-Every cell that exercises it feeds the hand-written fixture
+Every cell that exercised it fed the hand-written fixture
 `"at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0"`
-- a format the game does not produce for this patched method. The gate is real against
+- a format the game does not produce for this patched method. The gate was real against
 the fixture and inert against reality: the fixture-shaped guarantee this codebase warns
-about elsewhere.
+about elsewhere. Nothing on the warn line reported which way the gate had read, either,
+so the log could not contradict the comments.
 
-### What it costs, and what it does not
+### What it cost, and what it did not
 
-Today: the `#556` `KnownGhostMissingRenderer` class fires on its three count conditions
-alone, one guard weaker than every description of it claims. That class's remaining
-conditions are positive evidence from a live scan, so this is a weakened guard rather
-than an open door - and no log anywhere in the repo shows `Suppressed known ghost
-ProtoVessel`, so it may never have fired at all.
+The `#556` `KnownGhostMissingRenderer` class fired on its three count conditions alone,
+one guard weaker than every description of it claimed. That class's remaining conditions
+are positive evidence from a live scan, so this was a weakened guard rather than an open
+door.
 
-It is recorded here rather than fixed because the fix changes WHEN a shipped suppressor
-fires, which is a behavioural change owed its own change and its own flight - not a
-rider on a PR about something else.
+### Fix (landed)
 
-### Fix
+`TryFindBuildVesselsListIlOffset` now SKIPS a matching frame that yields no usable offset
+- Harmony's wrapper frame, a truncated `[0x` with no `]`, unparseable hex - and keeps
+scanning, returning the first parseable offset carried by a frame that names
+`buildVesselsList`. Aborting at the first offsetless match was the defect: the wrapper
+frame is the FIRST match in every real trace, so the loop never looked past it.
 
-Make `TryFindBuildVesselsListIlOffset` keep scanning subsequent frames when a matching
-frame carries no offset (and decide explicitly what a wrapper-only trace should mean -
-"no evidence either way" is the honest reading, which is what it already does by
-accident). Then re-pin the cells against the REAL production frame format, keeping one
-fixture for the offset-bearing case. Cheap to do; needs a live TS flight afterwards to
-confirm the `#556` class still behaves.
+The wrapper-only reading is now a DECISION rather than an accident, written down on
+`StackTraceRulesOutKnownGhostRendererNre`: **a trace with no offset means nothing either
+way.** Reading it as "not the known offset" would veto every real trace and silently
+delete the `#556` class; reading it as "is the known offset" would invent proof. So it
+abstains and the live scan's counts decide alone.
+
+STATE PLAINLY WHAT DID NOT CHANGE: against the shipped game this guard is still not
+expected to veto, and must NOT be re-counted as a working conjunct of the `#556` class.
+The fix removes the bug and the overclaiming, not the inertness.
+
+SIZE THAT CLAIM HONESTLY, though, because it is a mechanism plus a sample of one. The
+mechanism: a `DynamicMethod` carries no sequence points, so Mono has no offset to print
+for the wrapper frame. The sample: exactly one production trace of this method existed
+anywhere in the collected logs when the fix was written, and the 2026-08-02 re-fly added
+a second. Both read `ilOffset=none`. If a third shape exists, a flight will now say so.
+
+What IS newly observable, and is what makes that falsifiable: both the warn and the
+suppress line carry `ilOffset=<0xnnnnn|none>`. The reason this defect survived from `#556`
+to 2026-08-02 is that nothing in the log ever said which way the gate read, so an offset
+the resolver could never find looked exactly like one it found and accepted. MEASURED on
+the 2026-08-02 `_1436` flight, which caught the intermittent stock NRE:
+`… ghostTeardownInProgress=0 registeredGhostMapVessels=0 ilOffset=none scanError="…"`.
+
+FOUR post-fix readings now exist, all `none`: `_1436`, `_1840`, and `_1846` twice. They
+cost 23 flights to collect, because a reading is only possible on a flight where the stock
+race fires (~1 in 6). Four is a small sample and is deliberately not described as more than
+that - the mechanism, not the count, is what carries the claim.
+
+Cells re-pinned in `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs` against the
+REAL frame (`ProductionWrapperStackTrace`, copied character-for-character from
+`2026-08-01_1628_H23-tracking-station_shots/KSP.log:12071-12073`), which deliberately
+keeps the two neighbouring offset-bearing frames so the resolver cannot pass by reading
+`onVesselDestroyed`'s `[0x000f8]`. That constant is the trace as KSP.log RENDERS it, i.e.
+post-unwind; the Finalizer reads `__exception.StackTrace` inside the wrapper, so the two
+outer frames are probably not present yet at the call under test - which makes the fixture
+a strictly HARDER input than production rather than a weaker one.
+
+Seven-way mutation-tested, each mutation applied and reverted against the real suite. The
+last four were added after review found them green, and every count below was re-measured
+at final HEAD rather than carried forward:
+
+| mutation | cells that red |
+| --- | --- |
+| `continue` -> `return false` on an offsetless frame (the original defect) | 1 - `..._OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns` |
+| delete the `StackTraceRulesOutKnownGhostRendererNre` call | 3 - `..._NreAtDifferentStockOffset_...` + the two continue-scan cells |
+| delete the `SpaceTracking.buildVesselsList` frame filter (neighbour theft) | 3 - both production-trace suppress cells + `..._SameMethodNameOnAnotherType_...` |
+| drop the `0x00b4` conjunct, or change the constant | 1 - `..._NreAtTheOrbitRendererLoadOffset_Suppresses` |
+| `marker + 3` -> `marker + 4` (the index past `[0x`) | 1 - `..._OffsetWithoutMonoZeroPadding_ParsesTheWholePayload` |
+| LOOSEN the frame filter to the bare `buildVesselsList` | 1 - `..._SameMethodNameOnAnotherType_IsNotReadAsThisMethodsOffset` |
+| frame-name `continue` -> `break` (stop at the first NON-matching frame) | 1 - `..._OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns` |
+
+The last four are the review's real finding. Two of them matter more than the rest:
+
+- `0x00b4` was pinned by NOTHING - it could be changed to any value, or dropped from the
+  accept-list entirely, with every cell green. That is the same fixture-shaped hole this
+  entry is about, one level down. The gate's arithmetic is a two-value ACCEPT-LIST, not a
+  two-way branch, so it takes three offset fixtures and not the two an earlier draft of
+  this table claimed.
+- `continue` -> `break` on the frame-name skip was green, and it is the OVER-SUPPRESSION
+  direction: with `break` the scan stops at the first non-matching frame, abstains, and a
+  #195-shaped context suppresses where shipped code vetoes. Both multi-frame fixtures
+  happened to place their matching frames ADJACENTLY, so nothing could tell "scan every
+  matching frame" from "scan until the first non-match". Closed by inserting an
+  intervening `onVesselDestroyed` frame into the continue-scan fixture.
+
+WHAT IS STILL NOT PINNED, and cannot be by a cell in this file: the ORDER of the
+classifier's gates. Every gate returns the same `Unclassified` and none logs a
+distinguishing token, so swapping the IL-offset veto and the `ScanError` early-out leaves
+the whole suite green. `..._ScanFailedDuringTeardownAtDifferentOffset_...` reads as though
+it covered this; it does not, and its comment now says so.
+
+### Established while fixing it: the `#556` class has never fired in production
+
+`Suppressed known ghost ProtoVessel` occurs in **zero** `.log` files anywhere under the
+umbrella root.
+
+SIZE THE POPULATION PROPERLY, because the raw file count is nearly all noise: 4132 `.log`
+files contain `[Parsek][`, but **3780 of them are checked-in test fixtures** -
+`Source/Parsek.Tests/Fixtures/KspLog/*.log`, a dozen files duplicated across ~320 sibling
+checkouts and worktrees, some of them eleven lines long. A committed fixture never printed
+anything, so counting it toward "logs that could have printed the line" is meaningless.
+The real population is **171 collected `KSP.log` files, 168 distinct by content hash - and
+all 168 have Verbose enabled**, which is what actually matters, since the line is
+`VerboseRateLimited` and only a Verbose-enabled session could emit it. So the whole
+population could have printed it and none did.
+
+The positive control - `buildVesselsList exception left visible` - matches exactly TWO
+files: the flown `2026-08-01_1628` H23 log and the 2026-08-02 `_1436` re-fly. So
+`buildVesselsList` reaching the Finalizer at all is rare, and both occurrences on record
+were DECLINED.
+
+The likely reason is the Prefix, not the classifier: `EnsureGhostOrbitRenderers()` runs
+before stock's loop and fixes the null `orbitRenderer` that #195 was about, so the shape
+the Finalizer classifies is one the Prefix has already prevented. That makes the `#556`
+class a safety net behind a working fix rather than a live code path - worth keeping,
+worth NOT describing as load-bearing, and worth remembering before anyone spends more on
+tightening its conjuncts.
 
 ### What is actually happening
 
-An intermittent stock NRE at APPLICATION SHUTDOWN, on 2 of 6 flights so far (record
-2 / 0 / 0 / 0 / 2 / 0 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625`, both
-2026-08-01 flights, and `2026-08-02_1140` flown against the post-withdrawal HEAD). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
-signature; the two "raw Unity exceptions" the scan reports are that ONE exception
-counted twice, not two failures.
+An intermittent stock NRE at APPLICATION SHUTDOWN, on **5 of 29 flights** (~17%). The
+`[Parsek][WARN]` line and the `[ERR]` line under it are the signature.
+
+THE BASE RATE WAS OVERESTIMATED BY THE EARLY RECORD. The first nine flights read 3 of 9
+(~33%) and this entry quoted it; a 20-flight batch on 2026-08-02 (`_1832` … `_1846`, all
+20 FULL PASS attempt 1, tally unchanged) added only 2 more raises, taking the pooled
+figure to 5 of 29. Anyone sizing anything off the old number is working from roughly
+double the real rate.
+
+THE EXCEPTION COUNT IS NOT FIXED AT 2, and the earlier wording here ("that ONE exception
+counted twice") described a special case as though it were the rule. The doubling is real
+- `hlib.scan_unity_exceptions` counts each raise twice, once on its `[ERR]` line and once
+on the `[EXC]` line under it - but the number of RAISES varies. Each vessel Unity reclaims
+in the shutdown window fires its own `onVesselDestroy`, and each of those is its own NRE:
+
+| flight | raises | `unityExceptions.total` |
+| --- | --- | --- |
+| `2026-08-02_1840` | 1 | 2 |
+| `2026-08-02_1846` | 2 (1 ms apart, 21:47:16.828 / .829) | 4 |
+
+The H23 fixture carries three vessels (`TrackingStationSceneEntry_HostIsActive: vessels=3`),
+so **6 is reachable on this spec** and nothing observed so far bounds it below that. This
+is load-bearing for the gate-13 arming decision: a `maxTotal` sized off the "always 2"
+reading would red intermittently the first time two vessels are reclaimed together, which
+is exactly the "sized off a green run" mistake that gate warns about.
+
+Line-wrapped from `2026-08-02_1436_H23-tracking-station_shots/KSP.log:10759`, the
+post-fix capture (the `ilOffset=none` field is new; everything else reads as it did on
+2026-08-01):
 
 ```
 [Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception left visible:
   type=NullReferenceException totalVessels=0 ghostVessels=0
   ghostMissingOrbitRenderers=0 nonGhostMissingOrbitRenderers=0
   firstMissingOrbitRenderer=non-ghost-or-none priorStockNullCandidates=0
-  ghostTeardownInProgress=0 registeredGhostMapVessels=0
+  ghostTeardownInProgress=0 registeredGhostMapVessels=0 ilOffset=none
   scanError="NullReferenceException: Object reference not set to an instance of an object"
 [ERR] Exception handling event onVesselDestroy in class SpaceTracking:
   System.NullReferenceException

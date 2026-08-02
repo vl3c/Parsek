@@ -36,9 +36,73 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
+        // ---- Stack-trace fixtures ----
+        //
+        // THE FORMAT THE SHIPPED GAME PRINTS FOR THIS METHOD, copied character-for-character
+        // (leading whitespace and all) from the flown log
+        // 2026-08-01_1628_H23-tracking-station_shots/KSP.log:12071-12073. Harmony replaces
+        // buildVesselsList with a DynamicMethod, so Mono renders its frame as a
+        // `(wrapper dynamic-method)` line with NO `[0x..]` on it — while the frames UNDER it do
+        // carry offsets. Both halves are load-bearing: the first is why the IL-offset gate abstains
+        // against a real trace, the second is why the resolver must not read an offset off a
+        // neighbouring frame just because it kept scanning.
+        //
+        // ONE HEDGE, since the name invites a stronger reading than the evidence carries. This is
+        // the trace as KSP.log RENDERS it, i.e. after the exception finished unwinding out into
+        // onVesselDestroyed and EventData.Fire. The Finalizer reads __exception.StackTrace while
+        // the exception is still inside the wrapper, so the two outer frames are probably not there
+        // yet at the moment the code under test runs. That makes this fixture a STRICTLY HARDER
+        // input than production - a real Finalizer read has fewer offsets lying around to steal,
+        // not more - so the neighbour-theft property it pins is still a real property.
+        //
+        // Until 2026-08-02 no cell in this file used this format, and the gate was pinned entirely
+        // by the synthetic fixtures below — real against the fixture, inert against the game
+        // (BUILDVESSELSLIST-IL-OFFSET-GATE-INERT). Cells default to this constant now; a cell that
+        // uses a synthetic offset says why.
+        private const string ProductionWrapperStackTrace =
+            "  at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)\n" +
+            "  at KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v) [0x000f8] in <4b449f2841f84227adfaad3149c8fdba>:0 \n" +
+            "  at EventData`1[T].Fire (T data) [0x000b0] in <4b449f2841f84227adfaad3149c8fdba>:0";
+
+        // The SYNTHETIC offset-bearing fixtures, kept deliberately and kept FEW. KSP 1.12.5 +
+        // Harmony do not print this shape for this method, so a cell built on one proves the gate's
+        // ARITHMETIC and nothing about the game.
+        //
+        // THE ARITHMETIC IS A TWO-VALUE ACCEPT-LIST, NOT A TWO-WAY BRANCH, so it takes THREE
+        // fixtures and not two: each accepted constant needs its own, or one of them can be changed
+        // to any value - or dropped from the disjunction entirely - with every cell still green.
+        // That was true of 0x00b4 until 2026-08-02 and is exactly the fixture-shaped hole this file
+        // is meant to have stopped having.
+        private const string OrbitRendererLoadOffsetStackTrace =
+            "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b4] in <filename unknown>:0";
+        private const string KnownStockOffsetStackTrace =
+            "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0";
+        private const string OtherStockOffsetStackTrace =
+            "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x00063] in <filename unknown>:0";
+
+        // Mono pads to five hex digits; this drops the padding to pin the `marker + 3` index into
+        // "[0x" on its own. With the index one too high the payload parses as 0x9 instead of 0xb9,
+        // which the gate then vetoes - a change every zero-padded fixture above absorbs silently,
+        // because stripping a leading zero leaves the value identical.
+        private const string UnpaddedKnownStockOffsetStackTrace =
+            "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0xb9] in <filename unknown>:0";
+
+        // A DIFFERENT type's method of the same bare name. Pins that the frame filter matches the
+        // QUALIFIED `SpaceTracking.buildVesselsList`: loosen it to a bare `buildVesselsList` and
+        // this frame's offset gets read as though it were stock's.
+        private const string ForeignTypeSameMethodNameStackTrace =
+            "at Contoso.SomeOtherScreen.buildVesselsList () [0x00063] in <filename unknown>:0";
+
         [Fact]
         public void BuildVesselsListFinalizer_KnownGhostMissingRendererNre_Suppresses()
         {
+            // The canonical #556 case, now driven by the trace the game really prints.
+            //
+            // IT DOUBLES AS THE NEIGHBOUR-THEFT GUARD, which is why it uses the full three-frame
+            // trace rather than the wrapper line alone. The frame directly under the wrapper carries
+            // [0x000f8]; if the resolver ever read an offset off a frame that does not name
+            // buildVesselsList, it would resolve 0x000f8, find it is neither orbitRenderer load,
+            // veto — and this cell would red with the exception returned instead of suppressed.
             var exception = new NullReferenceException("orbit renderer click handler");
 
             Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
@@ -48,13 +112,214 @@ namespace Parsek.Tests
                 ghostMissingOrbitRendererCount: 1,
                 nonGhostMissingOrbitRendererCount: 0,
                 firstMissingOrbitRendererIsGhost: true,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0");
+                exceptionStackTrace: ProductionWrapperStackTrace);
 
             Assert.Null(result);
             Assert.Contains(logLines, line =>
                 line.Contains("[GhostMap]")
                 && line.Contains("Suppressed known ghost ProtoVessel")
-                && line.Contains("ghostMissingOrbitRenderers=1"));
+                && line.Contains("ghostMissingOrbitRenderers=1")
+                // The gate abstained, and the log says so. `none` is the reading every production
+                // trace produces; it is reported precisely because its invisibility is what let the
+                // inert gate survive from #556.
+                && line.Contains("ilOffset=none"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_KnownGhostMissingRendererNreAtTheKnownStockOffset_Suppresses()
+        {
+            // THE RETAINED OFFSET-BEARING CASE. Pins the accept half of the gate's arithmetic: an
+            // offset that IS one of the two vessel.orbitRenderer loads must not veto. Paired with
+            // ..._NreAtDifferentStockOffset_... below, which pins the veto half.
+            var exception = new NullReferenceException("orbit renderer click handler");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace: KnownStockOffsetStackTrace);
+
+            Assert.Null(result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[GhostMap]")
+                && line.Contains("Suppressed known ghost ProtoVessel")
+                && line.Contains("ilOffset=0x000b9"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_NreAtTheOrbitRendererLoadOffset_Suppresses()
+        {
+            // THE SECOND ACCEPTED CONSTANT, 0x00b4, which nothing pinned before 2026-08-02. Without
+            // this cell, BuildVesselsListOrbitRendererLoadOffset can be changed to any value, or its
+            // whole conjunct deleted from StackTraceRulesOutKnownGhostRendererNre, with all sixty
+            // other cells still green - because every other offset fixture uses 0x000b9 or 0x00063.
+            var exception = new NullReferenceException("orbit renderer load");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace: OrbitRendererLoadOffsetStackTrace);
+
+            Assert.Null(result);
+            Assert.Contains(logLines, line =>
+                line.Contains("Suppressed known ghost ProtoVessel")
+                && line.Contains("ilOffset=0x000b4"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_OffsetWithoutMonoZeroPadding_ParsesTheWholePayload()
+        {
+            // Pins `int start = marker + 3` - the index just past "[0x". Every other offset fixture
+            // is zero-padded to Mono's five digits, so an index one too high eats a leading zero and
+            // parses to the SAME value; only an unpadded payload can tell the difference. Here
+            // marker+4 yields "9" -> 0x9, which is neither orbitRenderer load, so the gate vetoes
+            // and this cell reds.
+            var exception = new NullReferenceException("orbit renderer click handler, unpadded");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace: UnpaddedKnownStockOffsetStackTrace);
+
+            Assert.Null(result);
+            Assert.Contains(logLines, line =>
+                line.Contains("Suppressed known ghost ProtoVessel")
+                && line.Contains("ilOffset=0x000b9"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_SameMethodNameOnAnotherType_IsNotReadAsThisMethodsOffset()
+        {
+            // Pins the QUALIFIED name match. The trace is the production wrapper plus a frame for a
+            // different type's identically-named method carrying 0x00063. Loosen the filter to a bare
+            // `buildVesselsList` and the resolver reads that 0x00063, vetoes, and this cell reds.
+            //
+            // Complements the neighbour-theft guard on the canonical cell above: that one covers a
+            // DIFFERENTLY-named frame, this one covers a SAME-named frame on a foreign type. The
+            // filter has to reject both, and only one of them was pinned.
+            var exception = new NullReferenceException("orbit renderer click handler");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace: ProductionWrapperStackTrace + "\n" + ForeignTypeSameMethodNameStackTrace);
+
+            Assert.Null(result);
+            Assert.Contains(logLines, line =>
+                line.Contains("Suppressed known ghost ProtoVessel")
+                && line.Contains("ilOffset=none"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns()
+        {
+            // THE CELL THAT PINS THE CONTINUE-SCAN, and the only one that does.
+            //
+            // The wrapper frame matches `SpaceTracking.buildVesselsList` and carries no offset; a
+            // LATER frame for the same method carries one. The resolver must skip the first and
+            // find the second. Before the 2026-08-02 fix it returned false at the first match, so
+            // the veto never fired and this context — fully #195-shaped — SUPPRESSED.
+            //
+            // Mutation-tested: turn the `if (marker < 0) continue;` in TryFindBuildVesselsListIlOffset
+            // back into `return false` and this cell reds (result null, no warn). No other cell in
+            // this file moves.
+            //
+            // THE INTERVENING NON-MATCHING FRAME IS LOAD-BEARING, not scene-setting. It is what
+            // separates "scan EVERY matching frame" — which is what the resolver's doc block
+            // promises — from "scan until the first frame that does not match": with the frame-name
+            // `continue` turned into a `break`, the scan stops at onVesselDestroyed, never reaches
+            // the offset below it, abstains, and this #195-shaped context SUPPRESSES. That is the
+            // over-suppression direction, and until 2026-08-02 no cell caught it, because both
+            // multi-frame fixtures happened to place their matching frames adjacently.
+            //
+            // The trace shape is synthetic by necessity — the game prints the wrapper alone, and a
+            // shape it does produce cannot exercise a scan past the first frame. This pins the
+            // resolver's contract, NOT a claim that the gate fires in production; it does not.
+            var exception = new NullReferenceException("unrelated stock NRE below the wrapper");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace:
+                    "  at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)\n"
+                    + "  at KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v) [0x000f8] in <4b449f2841f84227adfaad3149c8fdba>:0 \n"
+                    + OtherStockOffsetStackTrace);
+
+            Assert.Same(exception, result);
+            Assert.DoesNotContain(logLines, line => line.Contains("Suppressed"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ilOffset=0x00063"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_UnusableOffsetFramesDoNotEndTheScan_VetoesOnTheNextFrame()
+        {
+            // Same contract as the cell above for the other two ways a matching frame can yield no
+            // offset: a truncated "[0x" with no closing bracket, and hex that does not parse. Each
+            // is one frame with nothing on it, not a verdict about the trace.
+            var exception = new NullReferenceException("unrelated stock NRE after malformed frames");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace:
+                    "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x truncated\n"
+                    + "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0xZZZZZ] in <filename unknown>:0\n"
+                    + OtherStockOffsetStackTrace);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ilOffset=0x00063"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_NoStackTraceAtAll_DoesNotVeto()
+        {
+            // A null trace is the same abstention as an offsetless one: no evidence either way, so
+            // the live scan's counts decide alone. Harmony hands the Finalizer __exception.StackTrace,
+            // which is null for an exception that has not been thrown through a frame yet.
+            var exception = new NullReferenceException("orbit renderer click handler, no trace");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                exceptionStackTrace: null);
+
+            Assert.Null(result);
+            Assert.Contains(logLines, line =>
+                line.Contains("Suppressed known ghost ProtoVessel")
+                && line.Contains("ilOffset=none"));
         }
 
         [Fact]
@@ -69,7 +334,7 @@ namespace Parsek.Tests
                 ghostMissingOrbitRendererCount: 1,
                 nonGhostMissingOrbitRendererCount: 0,
                 firstMissingOrbitRendererIsGhost: true,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0");
+                exceptionStackTrace: ProductionWrapperStackTrace);
 
             Assert.Same(exception, result);
             Assert.Contains(logLines, line =>
@@ -92,7 +357,7 @@ namespace Parsek.Tests
                 ghostMissingOrbitRendererCount: 0,
                 nonGhostMissingOrbitRendererCount: 0,
                 firstMissingOrbitRendererIsGhost: false,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x00063] in <filename unknown>:0");
+                exceptionStackTrace: ProductionWrapperStackTrace);
 
             Assert.Same(exception, result);
             Assert.Contains(logLines, line =>
@@ -113,7 +378,7 @@ namespace Parsek.Tests
                 ghostMissingOrbitRendererCount: 1,
                 nonGhostMissingOrbitRendererCount: 1,
                 firstMissingOrbitRendererIsGhost: false,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0");
+                exceptionStackTrace: ProductionWrapperStackTrace);
 
             Assert.Same(exception, result);
             Assert.Contains(logLines, line =>
@@ -134,7 +399,7 @@ namespace Parsek.Tests
                 ghostMissingOrbitRendererCount: 1,
                 nonGhostMissingOrbitRendererCount: 1,
                 firstMissingOrbitRendererIsGhost: true,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0");
+                exceptionStackTrace: ProductionWrapperStackTrace);
 
             Assert.Null(result);
             Assert.Contains(logLines, line =>
@@ -146,6 +411,13 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_NreAtDifferentStockOffset_ReturnsOriginalAndWarns()
         {
+            // THE RETAINED OFFSET-BEARING VETO CASE. Delete the
+            // StackTraceRulesOutKnownGhostRendererNre call from the classifier and this cell reds —
+            // measured, along with the two continue-scan cells, so that mutation reds THREE cells
+            // and this is the simplest of them (the context is otherwise fully #195-shaped, so
+            // without the veto it suppresses). The fixture is synthetic — see
+            // KnownStockOffsetStackTrace — because a trace the game produces carries no offset to
+            // disagree with.
             var exception = new NullReferenceException("unrelated stock NRE");
 
             Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
@@ -155,14 +427,15 @@ namespace Parsek.Tests
                 ghostMissingOrbitRendererCount: 1,
                 nonGhostMissingOrbitRendererCount: 0,
                 firstMissingOrbitRendererIsGhost: true,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x00063] in <filename unknown>:0");
+                exceptionStackTrace: OtherStockOffsetStackTrace);
 
             Assert.Same(exception, result);
             Assert.Contains(logLines, line =>
                 line.Contains("[WARN][GhostMap]")
                 && line.Contains("exception left visible")
                 && line.Contains("unrelated stock NRE")
-                && line.Contains("firstMissingOrbitRenderer=ghost"));
+                && line.Contains("firstMissingOrbitRenderer=ghost")
+                && line.Contains("ilOffset=0x00063"));
         }
 
         [Fact]
@@ -178,7 +451,7 @@ namespace Parsek.Tests
                 nonGhostMissingOrbitRendererCount: 0,
                 firstMissingOrbitRendererIsGhost: true,
                 potentialEarlierStockNullCandidateCount: 1,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0");
+                exceptionStackTrace: ProductionWrapperStackTrace);
 
             Assert.Same(exception, result);
             Assert.Contains(logLines, line =>
@@ -270,7 +543,7 @@ namespace Parsek.Tests
                 firstMissingOrbitRendererIsGhost: true,
                 potentialEarlierStockNullCandidateCount: 0,
                 scanError: TeardownScanError,
-                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0",
+                exceptionStackTrace: ProductionWrapperStackTrace,
                 registeredGhostMapVessels: 1,
                 ghostTeardownInProgress: true);
 
@@ -368,22 +641,37 @@ namespace Parsek.Tests
         [Fact]
         public void BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns()
         {
-            // TWO CAVEATS, both worth stating so this cell is not mistaken for a guard it is not.
-            // (1) It does NOT pin the IL-offset gate: the ScanError early-out declines first, so
-            //     deleting the offset check entirely leaves this cell green. The cells that pin
-            //     that gate are ..._NreAtDifferentStockOffset_... and ..._KnownGhost...NRE_...,
-            //     which pass an EMPTY scanError and so actually reach it.
-            // (2) The trace format here is one the game does not produce for this method anyway.
-            //     Harmony replaces buildVesselsList with a DynamicMethod and the real frame is
-            //     `(wrapper dynamic-method) ...buildVesselsList_Patch2(...)` with no [0x..] offset,
-            //     so in production the IL check never rules anything out - see
-            //     BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.
+            // WHAT THIS CELL IS AND IS NOT, because its fixture satisfies THREE separate declining
+            // gates at once and it is easy to credit it with pinning one of them.
+            //
+            // The classifier's real order is: NRE check, then the IL-offset veto
+            // (GhostTrackingStationPatch.ClassifyBuildVesselsListException), then the ScanError
+            // early-out, then the counts. On THIS fixture the offset gate declines FIRST — 0x00063
+            // is neither orbitRenderer load — and if it did not, the non-empty scanError would, and
+            // if THAT did not, FinalizeTeardownShape's zeroed counts would. Triply inert.
+            //
+            // (1) It pins NO INDIVIDUAL GATE. Delete any one of the three and it stays green.
+            // (2) It pins NO ORDERING either, and nothing in this file does or can: every gate
+            //     returns the same Unclassified and none of them logs a distinguishing token, so
+            //     swapping the offset gate and the ScanError gate leaves the whole suite green.
+            //     (An earlier version of this comment asserted the reverse order as though the cell
+            //     depended on it. It does not, and the order it named was wrong.)
+            // (3) What it DOES pin is the end-to-end guarantee, which is worth a cell on its own:
+            //     an NRE during teardown, at an unrelated offset, with a dead scan, comes back
+            //     VISIBLE and warns — by whichever gate reaches it first.
+            //
+            // The gates that ARE isolated: the veto half of the offset check by
+            // ..._NreAtDifferentStockOffset_..., ..._OffsetBearingFrameBelowTheHarmonyWrapper_...
+            // and ..._UnusableOffsetFramesDoNotEndTheScan_...; its accept half by
+            // ..._KnownGhostMissingRendererNreAtTheKnownStockOffset_... and
+            // ..._NreAtTheOrbitRendererLoadOffset_...; the ScanError gate by
+            // ..._ScanThrewAfterSeeingAGhostMissingRenderer_.... All of those pass an EMPTY
+            // scanError or non-zero counts, and so actually reach the gate they name.
             var exception = new NullReferenceException("unrelated stock NRE during teardown");
 
             Exception result = FinalizeTeardownShape(
                 exception,
-                exceptionStackTrace:
-                    "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x00063] in <filename unknown>:0");
+                exceptionStackTrace: OtherStockOffsetStackTrace);
 
             Assert.Same(exception, result);
             Assert.Contains(logLines, line =>
