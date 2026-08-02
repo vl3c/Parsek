@@ -1,6 +1,77 @@
 # Automated Testing System - Status
 
-Last updated: 2026-08-01 (THE `pending-operator` TAG IS NOW HONEST, and what
+Last updated: 2026-08-02 (GATE 12 CLOSED ON THE HARNESS SIDE: a recording is a
+FILE, and until today nothing in the verifier chain asserted a recording had any
+POINTS in it. `[expectations.recordings.points]` is the third M-C2 save-parse
+block (sibling of `rewind` and `recordings.structure`, evaluated by the same R9
+`saveParse` row) with `total` / `largest` / `smallest` windows over the
+per-recording point distribution.
+
+SOURCE OF TRUTH IS THE SAVE, not the log. `RecordingTreeRecordCodec`
+(`SaveRecordingInto` -> `SaveRecordingResourceAndState` ->
+`SaveMutablePlaybackState`, the write at `RecordingTreeRecordCodec.cs:344`) writes `pointCount` unconditionally on every RECORDING node as `rec.Points.Count`
+- the same number the `FinalizeTreeRecordings: ... points=N` line reports, but
+written by the save path. The log line was rejected because it is
+`ParsekLog.Verbose`: it would go silent on any spec not pinning `verboseLogging`,
+FAIL-OPEN, turning the assertion into a no-op nobody would notice. Decoding the
+`.prec` binary was rejected too - under the section-authoritative path the points
+live inside track sections, so counting them means reimplementing the sidecar
+format in a stdlib-only harness.
+
+IT TAKES TWO KEYS. A per-recording FLOOR is impossible: a healthy EVA-2 records
+5 points on the kerbal and 1 on the pod (the pod lives 0.167 s against a 0.200 s
+sample interval - one point is CORRECT), and the broken measurement recorded 1 on
+both, so `smallest` is 1 either way. But `largest` ALONE is an AGGREGATE and
+leaves the PARTIAL recurrence open - one healthy recording hides any number of
+empty siblings. `trivialRecordings` (how many recordings finalized at <= 1 point)
+is the per-recording key that closes it, as a BUDGET rather than a floor of zero,
+because three paths legitimately produce a low count: the debris flat-list trim,
+TIME WARP (the recorder samples no flat points on rails), and an unbound Re-Fly
+provisional found in S4.1's own produced save. All facets dedupe by recording id
+- production writes the still-active tree a second time, which would otherwise
+make a summed facet a run-to-run coin-flip 2x (measured: 5 of the 149 real
+produced saves carry duplicate ids). `Gate12CalibrationTests` encodes the
+healthy, broken and partial shapes and reads EVA-2's OWN committed block, so
+loosening the shipped window until it stops discriminating reds in unit tests
+rather than on a nightly.
+
+LANDED REPORT-ONLY, per the `saveParse` arming discipline. EVA-2 declares
+`largest = { min = 2 }` with no `gating` key; `ARMED_ALLOWLIST` is still
+`{S4.1-rewind-merge}`. OPERATOR ITEM OUTSTANDING: fly EVA-2 once, read
+`saveParse.observed.recordings.points` off the run JSON (or the new
+`pointsLargest=` token on the `verify saveParse` console line), then arm in a
+commit that flips the block, the allowlist and
+`test_eva2_declares_the_points_block_unarmed` together.
+
+HONEST LIMIT, stated in gate 12 itself rather than buried: the underlying stock
+trigger is INTERMITTENT (`dT is NaN` occurred 2196x / 6x / 0x across three runs
+of the same fixture during #1408), so this assertion reds only when the trigger
+fires. It bounds the blast radius of the next recording-emptying defect; it does
+not guarantee detection of this one. THAT LIMIT IS MEASURED: #1408's A/B control
+`2026-08-01_1634_EVA-2-orbital-board`, flown on a PRE-FIX DLL byte-verified to
+carry none of the fix's strings, flew CLEAN because stock's degenerate window
+never opened - so a defective build would have SATISFIED this block's window. No
+C# touched. Suites: lib 1094 (23 new), provision 203, missions/lib 1107; dotnet
+unaffected - zero C# files in the diff.
+
+FOUR INDEPENDENT OPUS REVIEWS were run against the first cut and changed it
+materially - the findings, not the green suites, are the useful part. TWO
+reviewers converged on the same fail-open: `largest` is an ORDER STATISTIC, so
+one healthy recording hides empty siblings, and the first cut's own test cell
+asserted PASS on exactly that shape. Hence `trivialRecordings`. A third found
+that the load-bearing window value was UNPINNED (rewriting the committed
+`min = 2` to `min = 1` - the broken baseline's own reading - left the whole suite
+green), hence the cell that reads EVA-2's OWN block against the calibrated
+shapes. A fourth parsed all 149 real produced saves under `logs/` and found the
+double-written active tree, which would have made every summed facet a run-to-run
+coin-flip 2x and false-red the new budget; it also found the third legitimate-low
+source (an unbound Re-Fly provisional in S4.1's own save) and the time-warp one.
+Two prose claims were wrong and are corrected: the C# writer was named
+`SaveRecording`, a method that does not exist, and "EVA-2 stayed green while
+recording nothing" was a counterfactual - the empty pair was measured on a
+PARSEK-FAIL S0.7 run, and no EVA-2 run ever passed with empty recordings.)
+
+Prior: 2026-08-01 (THE `pending-operator` TAG IS NOW HONEST, and what
 enforces it is a REVIEWED INVENTORY rather than a cleverer string match. Branch
 `s41-pending-operator-tag`. An adversarial review panel SPLIT on whether
 S4.1-rewind-merge's tag was stale - the tell that nothing was pinning the
@@ -702,7 +773,7 @@ landing, docking, career-ledger lanes) is the frontier.
 | M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); LIVE-PROVEN 2026-07-23 (career fixtures file-constructed headlessly; 7/7 ledger scenarios green, now daily tier). Caveat recorded 2026-07-26: the ORACLE half of those 7 was genuine, but L1-passive-sandbox's and B10's in-game BATCH half executed zero tests under the old category - both re-flown green in `GameActionsHealth` on 2026-07-26 |
 | M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
-| M-C2 save-parse verifier (R9 harness half) | Structural save-content expectations: `saveParse` chain row parses the produced save's ParsekScenario surfaces (tree topology, terminal/merge states, branch points by type, supersede rows, tombstones, rewind retirements, RPs/slots) and evaluates `[expectations.rewind]` + `[expectations.recordings.structure]` | SHIPPED-REPORT-ONLY 2026-07-31 (branch `claude/r9-save-parse-verifier-tshhzv`): pure core `harness/lib/saveparse.py` (oracle-precedent sibling; ConfigNode text parser fail-loud on torn files, node shapes pinned against the C# writers, committed-fixture sweep pins all 12 fixtures + 3 quicksaves exactly), run.py `saveParse` row (SKIPPED on killed/driver-invalid, measured facets recorded on every driver-valid run), spec-surface validation in `validate_spec`, `save_structure_mismatch` -> PARSEK-FAIL(save-structure) reachable ONLY via the opt-in `gating = true` key, declared by ZERO committed specs AT THE TIME OF LANDING (`test_no_committed_spec_arms_gating`; S4.1 armed later the same day - see below - and the guard became an allowlist). `rewind` left `RESERVED_EXPECTATION_BLOCKS` (sole-owner rule, the M-B2 `world` precedent); `route`/`loop` stay reserved with zero declarers. **LIVE-PROVEN AND ARMED 2026-07-31** (branch `r9-arm-s41`): `S4.1-rewind-merge` is the first and only committed spec declaring `gating = true`, promoted through the three-run workflow the verifier shipped with - `2026-07-31_1628` report-only reading (PASS; `observed.rewind = {supersedeRows 0, tombstones 0, rewindPoints 0, rewindRetirements 0}`, every reading already inside the declared `max = 0` windows, so arming moved no verdict), `2026-07-31_1635` armed (PASS; `status=PASS gating=true armedBlocks=["rewind"]`), `2026-07-31_1637` NEGATIVE CONTROL (temporary `supersedeRows = { min = 1 }`, reverted) -> `PARSEK-FAIL(save-structure)`, `mismatches=["rewind.supersedeRows 0 < min 1"]`. `test_no_committed_spec_arms_gating` became an ALLOWLIST pinning exactly `{"S4.1-rewind-merge.toml"}` (a second spec arming still reds), and `test_s41_declares_the_rewind_block_armed` additionally asserts the windows are untouched. Fixed in the same pass: `--dry-run`'s `[VERIFY]` enumeration never listed this row, so an armed spec's plan hid its own gate; it now renders armed / report-only / facets-only, pinned by FIVE cells (the declared-but-unarmed state needs a SYNTHETIC spec - no committed spec can reach it while S4.1 is the sole declarer and armed - and that cell is also what makes `armed` and `declared` distinguishable to the suite). STILL REPORT-ONLY for every other spec; CL-2 stage B's windows are measured but unauthored |
+| M-C2 save-parse verifier (R9 harness half) | Structural save-content expectations: `saveParse` chain row parses the produced save's ParsekScenario surfaces (tree topology, terminal/merge states, branch points by type, supersede rows, tombstones, rewind retirements, RPs/slots) and evaluates `[expectations.rewind]` + `[expectations.recordings.structure]` + `[expectations.recordings.points]` | SHIPPED-REPORT-ONLY 2026-07-31 (branch `claude/r9-save-parse-verifier-tshhzv`): pure core `harness/lib/saveparse.py` (oracle-precedent sibling; ConfigNode text parser fail-loud on torn files, node shapes pinned against the C# writers, committed-fixture sweep pins all 12 fixtures + 3 quicksaves exactly), run.py `saveParse` row (SKIPPED on killed/driver-invalid, measured facets recorded on every driver-valid run), spec-surface validation in `validate_spec`, `save_structure_mismatch` -> PARSEK-FAIL(save-structure) reachable ONLY via the opt-in `gating = true` key, declared by ZERO committed specs AT THE TIME OF LANDING (`test_no_committed_spec_arms_gating`; S4.1 armed later the same day - see below - and the guard became an allowlist). `rewind` left `RESERVED_EXPECTATION_BLOCKS` (sole-owner rule, the M-B2 `world` precedent); `route`/`loop` stay reserved with zero declarers. **LIVE-PROVEN AND ARMED 2026-07-31** (branch `r9-arm-s41`): `S4.1-rewind-merge` is the first and only committed spec declaring `gating = true`, promoted through the three-run workflow the verifier shipped with - `2026-07-31_1628` report-only reading (PASS; `observed.rewind = {supersedeRows 0, tombstones 0, rewindPoints 0, rewindRetirements 0}`, every reading already inside the declared `max = 0` windows, so arming moved no verdict), `2026-07-31_1635` armed (PASS; `status=PASS gating=true armedBlocks=["rewind"]`), `2026-07-31_1637` NEGATIVE CONTROL (temporary `supersedeRows = { min = 1 }`, reverted) -> `PARSEK-FAIL(save-structure)`, `mismatches=["rewind.supersedeRows 0 < min 1"]`. `test_no_committed_spec_arms_gating` became an ALLOWLIST pinning exactly `{"S4.1-rewind-merge.toml"}` (a second spec arming still reds), and `test_s41_declares_the_rewind_block_armed` additionally asserts the windows are untouched. Fixed in the same pass: `--dry-run`'s `[VERIFY]` enumeration never listed this row, so an armed spec's plan hid its own gate; it now renders armed / report-only / facets-only, pinned by FIVE cells (the declared-but-unarmed state needed a SYNTHETIC spec while S4.1 was the sole declarer and armed - EVA-2's 2026-08-02 points block is now a COMMITTED spec in that state, so the synthetic cell is corroborated rather than sole; the cell is also what makes `armed` and `declared` distinguishable to the suite). STILL REPORT-ONLY for every other spec; CL-2 stage B's windows are measured but unauthored. **THIRD BLOCK ADDED 2026-08-02 (gate 12): `[expectations.recordings.points]`** - `total` / `largest` / `smallest` / `trivialRecordings` count windows over the per-recording `pointCount` the save itself carries (all deduped by recording id, since production writes the still-active tree twice), closing the "a recording is a FILE, and an empty recording is still a file" blindness that let an orbital EVA record nothing while `recordings.count = { min = 2, max = 2 }` stayed green. Deliberately a SIBLING of `recordings.structure`, not a key inside it: gating is per-block, so folding it in would have auto-armed every points window on any spec that had already armed structure. Source is `RecordingTreeRecordCodec`'s unconditional `pointCount` write, NOT the `FinalizeTreeRecordings: ... points=N` line (Verbose - it would go silent fail-open on any spec not pinning `verboseLogging`) and NOT a `.prec` binary decode (section-authoritative points would mean reimplementing the sidecar format). An absent/unparseable `pointCount` is a DEFINED mismatch, never a silent 0. `EVA-2-orbital-board` is the first declarer, UNARMED (`largest = { min = 2 }` + `trivialRecordings = { max = 1 }`, no `gating` key; `trivialRecordings` is the per-recording key - `largest` alone is an aggregate a partial recurrence walks straight through); the allowlist stays `{S4.1-rewind-merge}` and `test_eva2_declares_the_points_block_unarmed` pins the unarmed state, so arming is a deliberate three-file edit after a reading run |
 | V3 contact sheets | Unconditional per-run artifacts + human-scannable HTML: every attempt (PASS included) copies a BOUNDED KSP.log (whole file to 64 MiB, else head 8 MiB + tail 56 MiB with an explicit truncation marker; `hlib.plan_artifact_log_copy`) plus any run-window `Screenshots/` files (`hlib.select_run_screenshots`; fed by V4's capture verbs when they land) into `results/<runId>_shots/`, then `harness/tools/contact_sheet.py` renders `results/<runId>_contact.html` (captured images beside the run's key log lines - `BATCH_COMPLETE`, every `faithful-parity summary`, every `phase=Anomaly` raise with its +/-3 nearest `probe frame summary` lines - plus the verifier verdict rows) and a newest-first verdict-colored `results/index.html`. A green run finally leaves something a human can scan (design-testing-unified section 6 V3: numbers next to pictures) | SHIPPED 2026-07-31 (branch v3-contact-sheet). VERDICT-NEUTRAL BY CONTRACT: failure-isolated at both call sites (artifact or sheet trouble is a Warn, never a verdict change; BOTH halves pinned by injected-crash smoke cells), the only result-JSON change is the additive `artifacts` key, the verdict is written durably BEFORE the artifact copy (a kill mid-copy cannot cost a result), and the heavy non-PASS collect-logs snapshot is UNCHANGED. Cross-run growth bounded by a retention pass (`hlib.select_shots_dirs_to_prune`: newest 40 `*_shots` dirs / 2 GiB kept, current run always protected; contact pages embed the extracted lines as text so a pruned run stays scannable). Hardened by a 12-finding adversarial review (bounded tail copy under a mid-copy growing log, tmp+rename artifact writes, Infinity/NaN-poisoned result JSON tolerated, call-time-resolvable caps, no sys.path mutation, PID-suffixed index tmp). Pure extraction/formatting unit-tested over synthetic logs + a fake results dir (`lib/test_contact_sheet.py`) and driven end-to-end through the fake-KSP smoke (`AlwaysCollectAndContactSheetSmokeTests`). LIVE-PROVEN 2026-07-31 on the real stock-minimal instance, all three legs: (a) PASS `2026-07-31_1625_H23-tracking-station` - `results/<runId>_shots/KSP.log` byte-identical (sha256) to the instance log, untruncated at 1.59 MB, sheet carrying the REAL `BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=TrackingStation scene=TRACKSTATION` line verbatim plus all 10 verifier rows, green badge, `artifacts` block in the result JSON, `Artifacts`/`Sheet` Info lines and zero `FAILED` warns; (b) KILLED `2026-07-31_1633_ZZ-v3-kill-probe` (throwaway spec, unreachable 25 s wall budget) - the heavy non-PASS `collect-logs` snapshot ran exactly as before AND the shots dir + dark-red KILLED sheet (`subkind budget`, every skip reason spelled out) landed alongside it; (c) retention - 45 backdated dummy `*_shots` dirs + non-`_shots` decoys seeded, one rerun pruned exactly 8 (48 - 40) OLDEST-first with the naming log line, left exactly 40, and touched ZERO non-`*_shots` entries (a 90-day-old decoy `.json`, `_contact.html`, `.txt` and a decoy `_logs` DIRECTORY all survived byte-unchanged, as did both real runs' shots dirs). Windows-specific concerns the cloud session could not prove are closed: all three suites green on Windows (lib 964 / provision 203 / missions 1103), and the tmp+rename `os.replace` artifact writes work on NTFS. ONE defect found and fixed by the live proof: an attempt that ends BEFORE the verifier chain (a refused run-lock - a sibling worktree held the shared instance - writes a readable result JSON whose `verifiers` is `{}`) rendered "no verifier rows (result JSON missing or unreadable)" over a file that was present and readable, sending a reader after a nonexistent file problem; the empty state now distinguishes the two cases and names the real reason (`test_empty_verifiers_is_not_reported_as_a_missing_result_json`). Operational note for future live proofs: the automation instance is SHARED across worktrees and its run-lock is the arbiter - `run.py` refuses cleanly and classifies `INVALID subkind=instance-locked`, so a concurrent sibling session costs a retry, never a false product verdict |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings. DE-LISTED from live-proven 2026-07-25 (the first full sweep red'd it: the kerbal's canopy cut itself mid-descent and the kerbal died) and FIXED HEADLESSLY 2026-07-26 from the archived log + decompiled KerbalEVA, no new flight: (b) a >3.5 m/s collision fires `On_stumble` from `st_semi_deployed_parachute` into `st_ragdoll`, and leaving that state calls `evaChute.CutParachute()` - closed by a bounded OBSERVED pre-chute standoff on `EvaExit` (`minStandoffMeters`, EVA-4 sets 30, debounced 2 polls, TWO non-fatal bounds - 8 s wall clock AND `standoffFloorAltMeters` 500, the latter load-bearing because the kerbal is unchuted and free-falling for the stage); (a) the MISSION cannot see the kerbal at all (its terminal is the handoff and its process exits before the EVA), so the closure is the harness-side `missionOutcome` gate plus an mlib handoff declaration. RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers) with the closure verified STRUCTURALLY rather than by the green outcome - a live kerbal proves nothing about a dead one; see the runbook + residual in `todo-and-known-bugs.md` |
 
@@ -802,7 +873,7 @@ branch with the kerbal's own falling-vessel recording.
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
 | EVA-1-pad-flag | nightly - **`pending-operator` TAGGED 2026-08-01** (the promotion call this row's spec header names is still open; P1/P3/P6 are done and it is live-proven, so the cadence decision is the only thing left, and only a human makes it) | Foreground EVA branch (structural snapshot + EvaCrewName), FlagEvent capture into the foreground recorder, board merge back to the pod | First flight 2026-07-24: EvaExit (ladder release applied) + EvaBoard merge-back + StopRecording + CommitTree chain all green, analyzer save CLEAN. TWO gate/release defects FOUND + FIXED (both edge-triggered-FSM family): (1) PlantFlag gate read `Events["PlantFlag"].active`, an edge-triggered cache that latches stale-false when a kerbal lands and stands still on the pad; gate now reads live `CanPlantFlag()` + plantable-fsm-state. (2) Flight-2 (with the fixed gate + `blocked=` diag) NAMED the real blocker: `blocked=fsm=Ladder_Idle,no-ground-contact` for the full 180 s - EvaExit's `released=true` was a FALSE POSITIVE. The release fired `On_ladderLetGo` during the transitional `st_ladder_acquire` state (~0.2 s post-exit) where the event is not registered = a silent `RunEvent` no-op, so the kerbal hung on the hatch ladder forever. `ApplyLadderRelease` now fires ONLY from a receptive ladder state, VERIFIES the fsm left the ladder (synchronous RunEvent), bounded re-fire cap 3, and `released=true` means verified-left. (3) Flight-3 (both FSM fixes landed): the plant went in PHYSICALLY (`Kerbin/FlagPlant` milestone credited) but the recording-layer FlagEvent was never captured - `afterFlagPlanted` never fired. Decompiled `FlagSite`: the SiteRename popup that fires `afterFlagPlanted` (inside its button `afterDialog` callback) only spawns after the FULL plant-animation timer (`On_flagPlantComplete` KFSMTimedEvent) in `OnPlacementComplete`, but the seam's "edge case 10" fallback declared the dialog "answered-externally" as soon as the FlagSite vessel existed (created at `flagPlant_OnEnter`, ~110 ms in, before the animation), false-OK'd the plant, and `flushandquit` tore the scene down before the popup ever spawned. Fixed (seam side): the answered-externally inference is DELETED; the seam now waits for the real popup (`DecideSiteRenameDialogAction`) then invokes its dismiss button's own callback so `afterFlagPlanted` fires and Parsek captures the FlagEvent; honest `flag-timeout` if the popup never spawns. See todo-and-known-bugs.md. Re-flight pending to prove all three fixes + P6 flag-capture (`Flag planted: ... date stamped` + `Flag event captured`) end to end ; LIVE-PROVEN 2026-07-24 (flight 4 full PASS; 3 seam/fsm defects found+fixed: stale plant-gate cache, silent no-op ladder release, SiteRename dialog false-OK that skipped afterFlagPlanted) |
-| EVA-2-orbital-board | daily | Deferred auto-record-on-EVA path (D1 auto-record-eva) + re-board; the settleSeconds dwell beats the auto-record race (F7) | LIVE-PROVEN 2026-07-24: run `2026-07-24_1813_EVA-2-orbital-board`, wall 64 s; re-confirmed 2026-07-25 (`2026-07-25_0738`, wall 57 s) and 2026-08-01 on the `fix-orbital-eva-kepler` build (`2026-08-01_1626`, wall 61 s, EVA kerbal `points=5 maxDist=1888m`) - that last run is gate 12's live proof, and its caveats are recorded there, not here. Its blocker was the `eva2-lko-crewed` fixture, which FORGE-eva2-lko produced on 2026-07-24 (run `2026-07-24_1807`) and which was committed the same day as `d4380ef52`. The forged contract the spec relies on: orbital stage only, 2 named crew with Valentina as crew[0], ~100 km circular pe >= 75 km, throttle cut, nodes cleared, SAS+RCS held, zero Parsek state. Row corrected 2026-07-29 - it had read "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" for five days after the fixture landed. |
+| EVA-2-orbital-board | daily | Deferred auto-record-on-EVA path (D1 auto-record-eva) + re-board; the settleSeconds dwell beats the auto-record race (F7) | LIVE-PROVEN 2026-07-24: run `2026-07-24_1813_EVA-2-orbital-board`, wall 64 s; re-confirmed 2026-07-25 (`2026-07-25_0738`, wall 57 s) and 2026-08-01 on the `fix-orbital-eva-kepler` build (`2026-08-01_1626`, wall 61 s, EVA kerbal `points=5 maxDist=1888m`) - that last run is gate 12's live proof, and its caveats are recorded there, not here. Its blocker was the `eva2-lko-crewed` fixture, which FORGE-eva2-lko produced on 2026-07-24 (run `2026-07-24_1807`) and which was committed the same day as `d4380ef52`. The forged contract the spec relies on: orbital stage only, 2 named crew with Valentina as crew[0], ~100 km circular pe >= 75 km, throttle cut, nodes cleared, SAS+RCS held, zero Parsek state. Row corrected 2026-07-29 - it had read "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" for five days after the fixture landed. GATE-12 POINTS BLOCK ADDED 2026-08-02, REPORT-ONLY: this spec's exact `count = { min = 2, max = 2 }` window counts `.prec` FILES and is structurally incapable of noticing that neither recording recorded anything - the blind spot the "AN ORBITAL EVA RECORDS NOTHING" defect sat in. Stated precisely: NO EVA-2 run is on record having PASSED with empty recordings; the empty pair was measured on `2026-07-30_1532_S0.7-exit-auto-commit`, which flew this scenario's profile and finished PARSEK-FAIL with `recordings.count = 0`. It is the first declarer of `[expectations.recordings.points]`: `largest = { min = 2 }` + `trivialRecordings = { max = 1 }`, no `gating` key. The window is sized from the 2026-08-01 PR #1408 verification run `2026-08-01_1626_EVA-2-orbital-board` (kerbal `points=5 maxDist=1888m` over the 10.068 s dwell; pod `points=1`, correct - it lives 0.167 s against a 0.200 s sample interval), NOT from a run of the committed block, so it is a candidate window pending its own reading run. OPERATOR ITEM: one green flight, read `saveParse.observed.recordings.points`, then arm. |
 | EVA-3-multi-kerbal | nightly | Two sequential EVA branch points + two board merges in one tree; the F2 quiescence conjunct protects the second exit | Fixture `eva3-pad-3crew` COMMITTED (P2 done, forged 2026-07-24). First flight 2026-07-24: driverValidity PASS (all 4 EVA verbs OK, each exit->board cycle under 0.8 s wall), analyzer red=0, logValidate PASS, anomalySweep PASS; the only red was 2 missing logContract tokens (`detected boarding from EVA`, `Tree board merge completed`) for BOTH cycles. A PARSEK defect FOUND + FIXED: an EVA branch parks the kerbal's recording in BackgroundMap and only the post-switch first-modification watcher promotes it, so a `release=false` exit-then-board inside ~0.18 s left `recorder=null` at the board and BOTH the boarding detection and `HandleTreeBoardMerge` failed closed - the saved tree carried 2 EVA branch points and ZERO Board branch points, kerbal recordings terminal Destroyed instead of Boarded. `OnCrewBoardVessel` now rebinds a background-only EVA recording to the live recorder at the board (`DecideEvaBoardPromotion`, 11 xUnit cells); the seam was deliberately NOT changed (a wait-for-merge there would reclassify a dropped merge as driver INVALID instead of PARSEK-FAIL). Re-flight pending to pin the P3 count window and confirm 2 EVA branches + 2 boarding detections + 2 board merges. Batch autorun evaluated = NOT wired (batchComplete SKIPPED, see EVA-1 spec) ; LIVE-PROVEN 2026-07-24 (flight 2 full PASS after the board-merge data-loss fix; 2 promotions/2 merges/7 recordings) |
 | EVA-4-atmo-chute | nightly | Mid-flight ATMOSPHERIC EVA branch (every other EVA case exits on the ground or in orbit), atmospheric TrackSections on the KERBAL's own falling-vessel recording, the EVA chute captured as a two-phase part event on the kerbal (D7 chute-two-phase, previously unclaimed), and the DOWN terminal applied to a KERBAL recording with the kerbal ALIVE | FLIGHT 1 (2026-07-24) ASSERT-FAILED AS DESIGNED, re-tuned, re-fly pending. The machine, the named-failure design and the diagnostics all worked: `eva-window-missed: altitude 702m fell below the window floor 800m (vspeed -295.2m/s, situation FLYING, craftChute armed)`, phasesReached PRELAUNCH/ASCENT/COAST/DESCENT, apoapsisWindow met (19,879 m), no budget burn (107 s wall). MEASURED profile: peak altitude 11,965 m at ut 60.6; unchuted descent settles at TERMINAL -301 m/s by ~2,700 m; chute armed at 2,382 m / -301 m/s and 5.1 s later at 855 m the rate had moved 4.7 m/s. ROOT CAUSE (recording + decompile, not inference): the pod's `.prec` carries ZERO Parachute* part events, and decompiled `ModuleParachute.cs:1255-1290` gates ACTIVE->SEMIDEPLOYED on `automateSafeDeploy >= deploymentSafeState` while the fixture persists `automateSafeDeploy = 0` (only while SAFE) - which DeploySafe never reads at ~300 m/s in dense air. Arming low was INERT, not late; a craft at terminal velocity never slows on its own. THREE FIXES: (1) ARM WHILE SLOW - the machine now arms on the COAST->DESCENT transition frame itself (falling through into the descent body so there is no one-poll delay; measured entry rates -7.4/-16.9/-26.1/-35.5 m/s, bound 30), i.e. at the apoapsis crossing where DeploySafe is trivially SAFE and Kerbin is already ~0.2 atm; (2) RAISE the stock full-deploy altitude from the fixture's 1000 m to 2500 m via kRPC `Parachute.DeployAltitude` (a PAW tweakable) so the full canopy exists well above the EVA band - the Mk16 animation is ~8 s (`deploymentSpeed = 0.12`); (3) GATE ON OBSERVED STATE - new opt-in `craft_chute_state` telemetry channel (kRPC `ParachuteState`, "" unread = fail-closed) so the window requires the chute to READ Deployed, never the commanded latch that was true for the whole failed flight. Window re-tuned [800,2400]/60 -> [700,2100]/25; descent budget provisionally raised 240 -> 480 s and runtime 1560 -> 1920 s because the semi-deployed rate was not measured yet. A new `craftCanopyObserved` assertion row reports observed-vs-commanded in the result JSON. Same-evidence FINDING SPUN OFF: B1-pad-hop's chute never opens either (its 2026-07-20 recording has zero Parachute* events and ends at 65 m) - B1 passes because its DOWN terminal only checks the COMMANDED latch. NOTE on the failed attempt's artifacts: run.py USED TO drive the remaining seam steps regardless of the mission outcome, so flight 1 DID perform a terminal-velocity hatch EVA after the ASSERT-FAIL (EvaExit at ~356 m / -277 m/s, kerbal chute semi-deployed at 221 m, landed alive, tree committed) - no false PASS (the run classifies INVALID(mission) before the tail and the save is re-staged per attempt), but a window-missed run's collected save/log carried a spurious EVA branch + landing and could burn ~120 + 420 s of deferral budget. FIXED harness-side 2026-07-25 (see the M-A5 row): an UNMET mission step now drives the CLEANUP tail only (StopRecording + FlushAndQuit), so this scenario's EvaExit / EvaChuteDeploy / CommitTree are skipped on a window-missed attempt ; LIVE-PROVEN 2026-07-24 (flight 2 FULL PASS, all seven verifiers: canopy observed Deployed, handoff 1,606 m / -23.2 m/s, kerbal chuted descent steady -4.5 m/s, ParachuteCut at touchdown, down=true situation=LANDED alive=true. All four pins closed: P1 count PINNED 3, P2 `'kerbalEVA` token confirmed, P3 semi-deployed rate MEASURED at about -236 m/s peak with the whole DESCENT phase 61.6 s -> descentTimeoutSeconds trimmed 480 -> 240 (~3.9x margin; step/runtime budgets deliberately left at 900/1920 as wall-clock envelopes), P4 kerbal lands alive. Post-live hardenings: K=2 EVA-window debounce and the RAW-alive CompleteOk conjunct) ; DE-LISTED from live-proven 2026-07-25 by the first full sweep and FIXED HEADLESSLY 2026-07-26 (branch `eva4-failopen`), then RE-PROVEN 2026-07-26 (flight 4, PASS on attempt 1, wall 409 s, all seven verifiers: apoapsisWindow 19696.874, evaWindowReached 1592.752, evaWindowDescentRate -18.560, craftCanopyObserved 11964.692, missionOutcome PASS gating=2, expectations mismatches=0). FLIGHT 3 red'd `PARSEK-FAIL(expectations)` at 187 s wall: the kerbal's canopy went SemiDeployed at 1,650 m and Cut 200 ms later, and the kerbal accelerated -11 -> -109 m/s into the ground. TWO defects, both diagnosed from the archive with no new flight. (b) THE CUT: not a parachute decision at all - `On_stumble` is registered on `st_semi_deployed_parachute` (KerbalEVA.cs:8153) with `GoToStateOnEvent = st_ragdoll`, is fired only from the collision callback above `stumbleThreshold = 3.5` m/s (KerbalEVA.cs:12700), and `OnSemiDeployedParachuteModeLeft` calls `evaChute.CutParachute()` on every exit but a full-deploy transition (KerbalEVA.cs:11152-11169). The collected log's ONE `Event Stumble not assigned to state Ragdoll` line, 16 ms after the cut, is the second frame of that contact. The collider is MEASURED, not inferred (corrected in panel review): the kerbal's own `.prec` carries a pod-anchored `Relative` section whose anchor-local metres put it 0.82 m from the pod at `ParachuteSemiDeployed` and 1.50 m at the cut. ALSO CORRECTED: the first draft blamed the LENGTH of the semi-deployed window, but `OnFullyDeployedParachuteModeLeft` (KerbalEVA.cs:11219) cuts UNCONDITIONALLY and `On_stumble` is registered on the full-deploy state too, so a full canopy is equally exposed and the `deployAltitude` knob would NOT have fixed this - the operative variable is PROXIMITY AT CANOPY TIME. FIX: bounded OBSERVED standoff on `EvaExit` (`minStandoffMeters=30`, 2-poll debounce, and TWO non-fatal bounds - 8 s wall clock plus `standoffFloorAltMeters=500`; the wall-clock-only first draft was sized on a 6.2x-wrong altitude figure and would have flown a low handoff into the ground with the canopy never armed). (a) THE FAIL-OPEN: the mission returned MISSION-OK over the dead kerbal, and NO mission assertion could ever have caught it - the machine's terminal is the handoff and the subprocess exits before `EvaExit` creates the kerbal vessel. The observed channel that DID see it (`eva-chute-kerbal-lost`) was recorded as `driver.steps[6].verdict=ERROR` and consulted by nothing; `driverValidity` reported PASS beside `allExpectedMet: false`. FIX: `SEAM_VERB_POST_MISSION_ROLE` + the `missionOutcome` verifier row + `PARSEK-FAIL(mission-outcome)`, plus an mlib handoff declaration so MISSION-OK states what it did not verify) |
 
@@ -1031,7 +1102,9 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   `cd Source/Parsek.Tests && dotnet test`.
 - Per-run: the verifier chain (the R9 `saveParse` row joined report-only
   2026-07-31 and is ARMED on S4.1 alone from the same date - report-only
-  for every other spec; alongside driverValidity / batchComplete / analyzer /
+  for every other spec, including EVA-2's 2026-08-02 gate-12
+  `[expectations.recordings.points]` block; alongside driverValidity /
+  batchComplete / analyzer /
   logValidate / testResults / anomalySweep / unityExceptions / expectations /
   ledgerOracle, plus missionOutcome on autopilot runs) + collect-logs on
   every non-PASS.
@@ -1608,7 +1681,115 @@ six publish or compare numbers the runner already measured.
    a handful). Arming remains the operator's call and still wants a couple of
    confirmed-green post-#1377 runs per spec; nothing here is armed.
 
-12. ~~AN ORBITAL EVA RECORDS NOTHING~~: the per-physics-frame finalization-cache
+12. ~~AN ORBITAL EVA RECORDS NOTHING~~ - **BOTH HALVES NOW CLOSED.** The PRODUCT
+    defect was fixed 2026-08-01 and merged as `545e8099d` (PR #1408, branch
+    `fix-orbital-eva-kepler`); its full narrative and live proof are kept verbatim
+    below. The GATE half - the half this row stayed open for, "nothing in the
+    verifier chain asserts a recording has POINTS" - closed 2026-08-02:
+    `[expectations.recordings.points]` exists and EVA-2 declares it REPORT-ONLY.
+    Read the gate-half claim precisely, because it is narrower than "this defect
+    is now caught":
+
+    WHAT SHIPPED. A third M-C2 save-parse block, sibling to `[expectations.rewind]`
+    and `[expectations.recordings.structure]`, evaluated by the same `saveParse`
+    (R9) verifier row: `[expectations.recordings.points]` with `total` /
+    `largest` / `smallest` / `trivialRecordings` count windows over the
+    per-recording point distribution. SOURCE OF TRUTH is the produced save's own
+    `pointCount`, which `RecordingTreeRecordCodec` writes UNCONDITIONALLY on
+    every RECORDING node (`SaveRecordingInto` -> `SaveRecordingResourceAndState`
+    -> the private `SaveMutablePlaybackState`; the write is
+    `RecordingTreeRecordCodec.cs:344`) as
+    `rec.Points != null ? rec.Points.Count : 0` - note a NULL list serialises as
+    a real 0, the one low reading the parser cannot tell from a genuinely empty
+    one. The rejected alternative was the
+    `FinalizeTreeRecordings: ... points=N` log line, which reports the same
+    number but is `ParsekLog.Verbose`: it would go silent on any spec not pinning
+    `verboseLogging = true`, and it would do so FAIL-OPEN (an assertion that
+    quietly stops asserting). Decoding the `.prec` binary was also rejected -
+    points live inside track sections under the section-authoritative path, so
+    counting them means reimplementing the sidecar format in the harness.
+
+    IT TAKES TWO KEYS, and the second one is the point. MEASURED 2026-08-01 on
+    `stock-minimal` (PR #1408 verification). `2026-08-01_1626_EVA-2-orbital-board`:
+    the EVA kerbal recorded `points=5 maxDist=1888m` over its 10.068 s
+    `settleSeconds` dwell, while the POD recorded `points=1` - it lives only
+    0.167 s (EvaBoard -> StopRecording) against a 0.200 s minimum sample interval,
+    so one point is its CORRECT value. The broken measurement
+    `2026-07-30_1532_S0.7-exit-auto-commit` finalized BOTH recordings at
+    `points=1 maxDist=0m`. `smallest` is 1 in BOTH, so a per-recording FLOOR reds
+    the healthy run and discriminates nothing. But `largest` ALONE is an
+    AGGREGATE, and an aggregate leaves the PARTIAL recurrence open: one healthy
+    recording hides any number of empty siblings, so a tree reading (5, 1, 1, 1)
+    sails through a `largest` floor. `trivialRecordings` - how many recordings
+    finalized at <= 1 point - is the per-recording key that closes it, expressed
+    as a BUDGET (EVA-2 measures exactly 1, the pod, so `max = 1`) rather than a
+    floor of zero. EVA-2 declares BOTH: `largest` proves something recorded,
+    `trivialRecordings` proves nothing silently stopped.
+    `Gate12CalibrationTests` in `harness/lib/test_saveparse.py` encodes the
+    healthy, broken AND partial shapes, and reads EVA-2's OWN committed block
+    rather than a literal of its own - so loosening the shipped window until it
+    stops discriminating reds there instead of on a nightly.
+
+    THREE KNOWN LEGITIMATE LOWS, which is why `trivialRecordings` is a BUDGET and
+    `smallest` is the least safe key to pin. `pointCount` is the FLAT `rec.Points`
+    list, which is not the same thing as "how much flight this recording covers":
+    (1) `DebrisRelativeRecorderPolicy.TrimFlatPointsPastRenderableTail` EMPTIES
+    the list on parent-anchored debris with no renderable tail (its real coverage
+    lives in `TrackSection.frames` / `bodyFixedFrames`); (2) TIME WARP - the
+    recorder's `OnPhysicsFrame` early-returns on `isOnRails`, so a warped coast
+    samples NO flat points and `pointCount` measures off-rails frame time, not
+    coverage, which means the B5/B6/B7/B11/B12/B15/B16 family must size windows
+    from their OWN green runs and must not inherit EVA-2's 10 s un-warped
+    numbers; (3) an UNBOUND RE-FLY PROVISIONAL - found in the field, not
+    predicted: S4.1's produced save carries a `pointCount = 0` recording with
+    neither `isDebris` nor `parentAnchorRecordingId` (the R1-EMPTY-PROVISIONAL
+    observation), so S4.1 flips between `recordings=3` and `recordings=4` across
+    runs of one spec. A zero is therefore NOT exclusive to debris scenarios.
+    EVA-2 produces none of the three beyond its pod, so its budget of 1 is clear.
+    The section-authoritative sidecar path is NOT such a case: it changes what the
+    `.prec` stores while `rec.Points` stays populated in memory.
+
+    ALL FACETS DEDUPE BY RECORDING ID, because production writes one tree TWICE
+    (OnSave serializes the committed trees, then `SaveActiveTreeIfAny` writes the
+    still-active tree again as `isActive = True`). Measured across the 149 real
+    produced saves under `logs/`: 5 carry duplicate recording ids, and
+    `2026-07-28_1818_S4.1-rewind-merge` reads `total` 24 where the deduped truth
+    is 12 - while `2026-07-28_1939`, the SAME spec, reads 12. Without the dedupe a
+    summed facet would be a run-to-run coin-flip 2x, and a doubled trivial
+    recording would FALSE-RED a budget sized on a green run.
+
+    STILL REPORT-ONLY, DELIBERATELY. EVA-2 declares `largest = { min = 2 }` and
+    `trivialRecordings = { max = 1 }` with NO `gating` key, per the `saveParse` R9 arming discipline: land report-only,
+    take a reading run, then arm as an explicit per-scenario operator decision
+    citing the run ids. The 2026-08-01 numbers above come from a DIFFERENT
+    branch's verification run, not from a run of this committed block - they size
+    a candidate window, they do not authorize one. `ARMED_ALLOWLIST` in
+    `test_hlib.py` is still `{S4.1-rewind-merge}` and
+    `test_eva2_declares_the_points_block_unarmed` pins the unarmed state, so
+    arming needs a deliberate three-file edit. **OPERATOR ITEM: fly EVA-2 once,
+    read `saveParse.observed.recordings.points` off `results/<runId>.json` (or the
+    `verify saveParse ... pointsLargest=` console line), then arm.** Until that
+    happens this block moves no verdict.
+
+    WHAT THIS DOES NOT PROMISE, and the reason the gate is only PARTIALLY closed:
+    the underlying stock trigger is INTERMITTENT. Across three runs of the SAME
+    fixture during #1408, stock's own `dT is NaN` occurred 2196x, 6x and 0x.
+    A points assertion therefore reds only on a run where the trigger actually
+    fires.
+
+    THAT LIMIT IS MEASURED, NOT HYPOTHESISED, and the run that proves it is worth
+    naming: `2026-08-01_1634_EVA-2-orbital-board` was #1408's A/B CONTROL, flown
+    on a PRE-FIX DLL byte-verified to carry none of the fix's strings - and it
+    flew CLEAN (`dT is NaN` 0x), because stock's degenerate-conic window never
+    opened that run. A DEFECTIVE BUILD would therefore have SATISFIED the window
+    this block declares. That is the honest shape of the guarantee: it BOUNDS THE
+    BLAST RADIUS of the next recording-emptying defect - the class of vacuous
+    PASS where a spec's exact `.prec`-file count is satisfied by files with
+    nothing in them - rather than guaranteeing detection of this one. Do not read
+    a green EVA-2 as evidence the NaN path did not happen.
+
+    THE PRODUCT FIX AND ITS LIVE PROOF, unchanged from the #1408 entry: the
+    per-physics-frame finalization-cache
     refresh throws out of `BallisticExtrapolator`, every frame, for the whole EVA.
     **PRODUCT DEFECT FIXED 2026-08-01 (branch `fix-orbital-eva-kepler`); the GATE
     HALF OF THIS ROW STAYS OPEN.** The fix guards the element set at the solver
@@ -1661,15 +1842,17 @@ six publish or compare numbers the runner already measured.
     accept/reject decision changed, and the refused patch on those runs was
     `endUT=NaN`, which still refuses and still WARNs - so nothing in the delta can
     discriminate and no confirmatory re-fly was taken.
-    WHAT THE GATE IS ABOUT, and what is NOT fixed: nothing in the verifier chain
-    asserts a recording has POINTS. `EVA-2-orbital-board`'s `recordings.count = { min = 2,
-    max = 2 }` counts `.prec` FILES, and two empty recordings are still two files,
-    so the same vacuous PASS is available to any future defect that empties a
-    recording. ARMING: an `[expectations.recordings]` assertion on points - not an
-    unarmed capability but a facet the evaluator does not implement at all
-    (`hlib` currently declares `recordings.count` as the ONLY facet of that block), so
-    it has to be BUILT before it can be armed. Until it exists this row stays open even
-    though the 2026-07-30 defect behind it is closed.
+    WHAT THE GATE WAS ABOUT, and what closed it: nothing in the verifier chain
+    asserted a recording had POINTS. `EVA-2-orbital-board`'s
+    `recordings.count = { min = 2, max = 2 }` counts `.prec` FILES, and two empty
+    recordings are still two files, so the same vacuous PASS was available to any
+    future defect that empties a recording. That assertion is now BUILT
+    (2026-08-02): `[expectations.recordings.points]` is a third M-C2 save-parse
+    block read off the save's own `pointCount`, and `recordings.count` is no
+    longer hlib's only recordings facet. See the gate-half section at the top of
+    this entry for what it does and does not promise. It is declared REPORT-ONLY
+    on EVA-2 and still owes its arming run (operator item 8): the CAPABILITY now
+    exists where before it did not, and arming it is the remaining step.
     FOUND 2026-07-30 while authoring `S0.7-exit-auto-commit`, on a run that used
     EVA-2's profile purely as a dwell primitive. MEASURED, run
     `2026-07-30_1532_S0.7-exit-auto-commit` (collected at
@@ -1687,10 +1870,16 @@ six publish or compare numbers the runner already measured.
     of `PatchedConicSolver.Update` on the kerbal's own patched conic, so the NaN
     enters through the snapshot rather than being manufactured by the extrapolator.
     PRE-EXISTING, not an R12 regression: R12 touched only `TestCommands/`, docs,
-    tests and `harness/`. WHY NOBODY SAW IT: `EVA-2-orbital-board` is green and stays
-    green - its `recordings.count = 2` counts `.prec` FILES, and two empty recordings
-    are still two files - so this is the inventory doc's "fourth trap" (a vacuous PASS
-    the tally cannot see) in the recordings dimension rather than the batch one.
+    tests and `harness/`. WHY NOBODY SAW IT: `EVA-2-orbital-board` was green and
+    STAYED green - its `recordings.count = 2` counts `.prec` FILES, and two empty
+    recordings are still two files - so this was the inventory doc's "fourth trap"
+    (a vacuous PASS the tally cannot see) in the recordings dimension rather than
+    the batch one. STATED PRECISELY: the trap is the BLIND SPOT, not a specific
+    green run that exploited it. No EVA-2 run is on record having PASSED with
+    empty recordings - the empty pair was measured on the S0.7 run above, which
+    flew EVA-2's profile and finished PARSEK-FAIL with `recordings.count = 0`.
+    That blindness is what the points block above removes; the count window
+    itself is unchanged and still counts files.
     NOT REPRODUCED on the pad: `EVA-4-atmo-chute`'s archived log has zero occurrences
     of `SolveHyperbolicKepler` and recordings of 278 / 96 points, so the trigger looks
     specific to an orbital (or otherwise degenerate-conic) EVA. Forensics, the chosen
@@ -1800,6 +1989,27 @@ six publish or compare numbers the runner already measured.
    promotion is EARNED but deliberately NOT APPLIED (the spec still reads
    `tier = "operator"`); see the R1 row for why that is a human call. The runbook
    below is retained because it was executed verbatim and works.
+8. EVA-2 points-window reading run (arms gate 12's block) - OPEN, opened
+   2026-08-02. `EVA-2-orbital-board` declares `[expectations.recordings.points]`
+   `largest = { min = 2 }` + `trivialRecordings = { max = 1 }` REPORT-ONLY. The
+   window is sized from
+   `2026-08-01_1626_EVA-2-orbital-board` (kerbal 5 points, pod 1), but that run
+   was flown on a different branch during PR #1408 verification, so it is a
+   candidate, not a reading of the committed block. THE RUN: fly EVA-2 once on
+   `stock-minimal`, then read `saveParse.observed.recordings.points` out of
+   `results/<runId>.json` (or the `verify saveParse ... pointsLargest=` console
+   line, which now carries total / largest / smallest / trivial / unparsed).
+   CHECK `trivialRecordings` READS EXACTLY 1 on that run before arming: the
+   budget is sized on the pod being the ONLY trivial recording, so 0 (the pod
+   gained a sample) is fine and 2 is the defect. IF the reading matches the
+   declared window, arm in ONE commit that touches three places:
+   `gating = true` in the spec, `EVA-2-orbital-board.toml` added to
+   `ARMED_ALLOWLIST` in `test_hlib.py`, and
+   `test_eva2_declares_the_points_block_unarmed` flipped - citing the run id, as
+   S4.1's arming did. A negative control (temporarily `largest = { min = 99 }`,
+   reverted) is the cheap proof the gate reds when it should; S4.1's `_1637`
+   control is the precedent. Cost: one ~64 s run plus an optional second for the
+   control.
 
 ### R1-rewind-loop-flown: operator runbook [EXECUTED END-TO-END 2026-07-28, works verbatim]
 
