@@ -214,9 +214,34 @@ namespace Parsek.Patches
     /// buildVesselsList runs (from Start or event handlers), all Awakes have completed
     /// and MapView.fetch is guaranteed available.
     ///
-    /// The Finalizer remains as a safety net for the known ghost ProtoVessel
-    /// missing-orbitRenderer NRE only. Other stock failures are logged and left
-    /// visible so they are not hidden behind Parsek's ghost guard.
+    /// The Finalizer remains a safety net for ONE shape only: #195's
+    /// KnownGhostMissingRenderer, classified from the live vessel scan. Everything else is
+    /// logged and left visible so it is not hidden behind Parsek's ghost guard.
+    ///
+    /// WHY THERE IS NO SECOND, SCAN-BLIND CLASS (tried and withdrawn 2026-08-01). A
+    /// `GhostTeardownScanBlind` class was written to attribute the case where the context
+    /// scan ITSELF throws — classifying from an in-progress Parsek ghost teardown instead of
+    /// from counts the failed scan never populated. Flying it
+    /// (`2026-08-01_1628_H23-tracking-station`) showed the trade is bad:
+    ///   - The NRE that lane actually produces is a STOCK APPLICATION-SHUTDOWN race. It fires
+    ///     715 ms after Application.Quit from Vessel:OnDestroy() -> onVesselDestroy ->
+    ///     buildVesselsList, against a TS UI that UIApp/KbApp OnDestroy have already partly
+    ///     torn down. Parsek does not cause it and must not swallow it.
+    ///   - ParsekTrackingStation.OnDestroy calls GhostMapPresence.RemoveAllGhostVessels, so
+    ///     leaving the TS with any ghost still registered runs OUR Die() inside that same
+    ///     stock teardown window — which would have satisfied every conjunct and suppressed
+    ///     exactly the stock bug above.
+    ///   - The conjuncts were also weaker than they looked: RegisteredGhostMapVesselCount > 0
+    ///     is very nearly implied by a teardown being in progress (all four sites remove the
+    ///     pid only after EndGhostTeardown; the one gap is RemoveOverlapInstance, which raises
+    ///     the scope for a vessel whose persistentId may be 0), and the IL-offset check never
+    ///     rules anything out in production
+    ///     (Harmony's DynamicMethod frame carries no [0x..] offset — see the
+    ///     BUILDVESSELSLIST-IL-OFFSET-GATE-INERT entry in todo-and-known-bugs.md).
+    /// The hole it closed has never been observed; the over-suppression it enabled was
+    /// reachable. So the DIAGNOSTIC half is kept and the suppression is not: the warn line
+    /// carries ghostTeardownInProgress= and registeredGhostMapVessels=, which is what turned
+    /// that flight into a one-flight diagnosis instead of a mystery.
     /// </summary>
     [HarmonyPatch(typeof(SpaceTracking), "buildVesselsList")]
     internal static class GhostTrackingBuildVesselsListPatch
@@ -250,7 +275,9 @@ namespace Parsek.Patches
             bool firstMissingOrbitRendererIsGhost,
             int potentialEarlierStockNullCandidateCount = 0,
             string scanError = null,
-            string exceptionStackTrace = null)
+            string exceptionStackTrace = null,
+            int registeredGhostMapVessels = 0,
+            bool ghostTeardownInProgress = false)
         {
             return FinalizeBuildVesselsListException(
                 exception,
@@ -262,7 +289,9 @@ namespace Parsek.Patches
                     NonGhostMissingOrbitRendererCount = nonGhostMissingOrbitRendererCount,
                     FirstMissingOrbitRendererIsGhost = firstMissingOrbitRendererIsGhost,
                     PotentialEarlierStockNullCandidateCount = potentialEarlierStockNullCandidateCount,
-                    ScanError = scanError
+                    ScanError = scanError,
+                    RegisteredGhostMapVessels = registeredGhostMapVessels,
+                    GhostTeardownInProgress = ghostTeardownInProgress
                 },
                 exceptionStackTrace);
         }
@@ -275,7 +304,10 @@ namespace Parsek.Patches
             if (exception == null)
                 return null;
 
-            if (IsKnownGhostProtoVesselNre(exception, context, exceptionStackTrace))
+            BuildVesselsListNreClass classification =
+                ClassifyBuildVesselsListException(exception, context, exceptionStackTrace);
+
+            if (classification == BuildVesselsListNreClass.KnownGhostMissingRenderer)
             {
                 ParsekLog.VerboseRateLimited("GhostMap", "buildVesselsListGhostNRE",
                     string.Format(CultureInfo.InvariantCulture,
@@ -294,7 +326,8 @@ namespace Parsek.Patches
                     "SpaceTracking.buildVesselsList exception left visible: type={0} " +
                     "totalVessels={1} ghostVessels={2} ghostMissingOrbitRenderers={3} " +
                     "nonGhostMissingOrbitRenderers={4} firstMissingOrbitRenderer={5} " +
-                    "priorStockNullCandidates={6}{7} message=\"{8}\"",
+                    "priorStockNullCandidates={6} ghostTeardownInProgress={7} " +
+                    "registeredGhostMapVessels={8}{9} message=\"{10}\"",
                     exception.GetType().Name,
                     context.TotalVessels,
                     context.GhostVesselCount,
@@ -302,27 +335,77 @@ namespace Parsek.Patches
                     context.NonGhostMissingOrbitRendererCount,
                     context.FirstMissingOrbitRendererIsGhost ? "ghost" : "non-ghost-or-none",
                     context.PotentialEarlierStockNullCandidateCount,
+                    context.GhostTeardownInProgress ? 1 : 0,
+                    context.RegisteredGhostMapVessels,
                     FormatScanError(context.ScanError),
                     exception.Message ?? string.Empty));
             return exception;
         }
 
-        private static bool IsKnownGhostProtoVesselNre(
+        /// <summary>
+        /// How a <c>buildVesselsList</c> exception was attributed. ONE suppressing class, one
+        /// leave-visible default; the default is what a suppressor OWES an unattributable failure.
+        /// </summary>
+        private enum BuildVesselsListNreClass
+        {
+            /// <summary>Not attributable to Parsek — warn and return it to Harmony.</summary>
+            Unclassified = 0,
+
+            /// <summary>#195's shape: the live scan SAW a ghost with a null orbitRenderer failing first.</summary>
+            KnownGhostMissingRenderer = 1,
+        }
+
+        private static BuildVesselsListNreClass ClassifyBuildVesselsListException(
             Exception exception,
             BuildVesselsListExceptionContext context,
             string exceptionStackTrace)
         {
-            return exception is NullReferenceException
-                && context.GhostMissingOrbitRendererCount > 0
-                && context.FirstMissingOrbitRendererIsGhost
-                && context.PotentialEarlierStockNullCandidateCount == 0
-                && !StackTraceRulesOutKnownGhostRendererNre(exceptionStackTrace)
-                && string.IsNullOrEmpty(context.ScanError);
+            if (!(exception is NullReferenceException))
+                return BuildVesselsListNreClass.Unclassified;
+            if (StackTraceRulesOutKnownGhostRendererNre(exceptionStackTrace))
+                return BuildVesselsListNreClass.Unclassified;
+
+            // A scan that THREW is not classified from, and the exception stays visible.
+            //
+            // READ THE REASON CAREFULLY, because the obvious one is wrong. It is NOT that the
+            // counts are "zero because the scan never ran": `context` is a struct mutated IN
+            // PLACE inside the scan's try, and the catch only appends ScanError, so every count
+            // accumulated BEFORE the throw survives. A scan that walks three vessels, sets
+            // FirstMissingOrbitRendererIsGhost, increments GhostMissingOrbitRendererCount, and
+            // only then throws on a half-destroyed Unity object hands us a fully #195-shaped
+            // context WITH a ScanError. That state is reachable, and without this gate it
+            // suppresses.
+            //
+            // The real reason is that PARTIAL EVIDENCE IS NOT PROOF. The scan's counts mean
+            // "first missing renderer belongs to a ghost" only if the walk COMPLETED; a walk
+            // that died partway cannot rule out an earlier non-ghost candidate it never
+            // reached, which is exactly the discriminator `PotentialEarlierStockNullCandidateCount`
+            // exists to provide. So this gate is load-bearing on its own, not a shortcut past
+            // counts that happen to be zero.
+            //
+            // (The class that used to classify this case from teardown evidence instead was
+            // withdrawn — see the type comment. Its two context fields are KEPT and reported on
+            // the warn line below, as diagnostics, which is the job they actually did well.)
+            if (!string.IsNullOrEmpty(context.ScanError))
+                return BuildVesselsListNreClass.Unclassified;
+
+            // The scan RAN, so classify from what it saw — unchanged since #556.
+            return (context.GhostMissingOrbitRendererCount > 0
+                    && context.FirstMissingOrbitRendererIsGhost
+                    && context.PotentialEarlierStockNullCandidateCount == 0)
+                ? BuildVesselsListNreClass.KnownGhostMissingRenderer
+                : BuildVesselsListNreClass.Unclassified;
         }
 
         private static BuildVesselsListExceptionContext CreateBuildVesselsListExceptionContext()
         {
-            var context = new BuildVesselsListExceptionContext();
+            // Captured BEFORE the scan, and outside its try: these two reads cannot throw, and
+            // their whole value is that they survive a scan that does.
+            var context = new BuildVesselsListExceptionContext
+            {
+                RegisteredGhostMapVessels = GhostMapPresence.RegisteredGhostMapVesselCount,
+                GhostTeardownInProgress = GhostMapPresence.IsGhostTeardownInProgress
+            };
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -426,6 +509,8 @@ namespace Parsek.Patches
             public bool FirstMissingOrbitRendererIsGhost;
             public int PotentialEarlierStockNullCandidateCount;
             public string ScanError;
+            public int RegisteredGhostMapVessels;
+            public bool GhostTeardownInProgress;
         }
     }
 
