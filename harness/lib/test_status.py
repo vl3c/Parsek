@@ -17,10 +17,13 @@ import tempfile
 import time
 import unittest
 
-_HARNESS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _HARNESS_DIR not in sys.path:
-    sys.path.insert(0, _HARNESS_DIR)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_HARNESS_DIR = os.path.dirname(_HERE)
+for _p in (_HARNESS_DIR, _HERE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
+import hlib  # noqa: E402
 import status  # noqa: E402
 
 
@@ -148,7 +151,40 @@ class RunIdTests(unittest.TestCase):
     def test_unparseable_falls_back(self):
         parts = status.split_run_id("weird-name")
         self.assertEqual(parts["scenario"], "weird-name")
+        self.assertEqual(parts["run"], 1)
         self.assertEqual(parts["attempt"], 1)
+
+    def test_run_instance_ordinal_is_stripped_off_the_scenario(self):
+        # A run whose id collided (two runs of one scenario inside one minute)
+        # carries `_run<N>`. Without this the panel's scenario would be
+        # "B5-mun-flyby_run2", load_scenario_spec would miss the spec toml, and
+        # the live panel would silently lose its mission params + wall budget.
+        parts = status.split_run_id("2026-07-22_1210_B5-mun-flyby_run2")
+        self.assertEqual(parts["ts"], "2026-07-22_1210")
+        self.assertEqual(parts["scenario"], "B5-mun-flyby")
+        self.assertEqual(parts["run"], 2)
+        self.assertEqual(parts["attempt"], 1)
+
+    def test_a_collided_run_that_also_retried_splits_both_axes(self):
+        parts = status.split_run_id("2026-07-22_1210_B5-mun-flyby_run2_a2")
+        self.assertEqual(parts["scenario"], "B5-mun-flyby")
+        self.assertEqual(parts["run"], 2)
+        self.assertEqual(parts["attempt"], 2)
+        self.assertIsNotNone(status.run_start_epoch("2026-07-22_1210_B5-mun-flyby_run2_a2"))
+
+    def test_every_id_hlib_formats_round_trips_through_the_parse(self):
+        # Cross-module contract: hlib.format_run_id WRITES the id, this parser
+        # READS it. A change to either that the other does not follow shows up
+        # here rather than as a degraded status panel mid-flight.
+        for ordinal in (1, 2, 11):
+            for attempt in (1, 2):
+                run_id = hlib.format_run_id("2026-08-01_1628", "H23-tracking-station",
+                                            attempt=attempt, ordinal=ordinal)
+                parts = status.split_run_id(run_id)
+                self.assertEqual("2026-08-01_1628", parts["ts"], run_id)
+                self.assertEqual("H23-tracking-station", parts["scenario"], run_id)
+                self.assertEqual(ordinal, parts["run"], run_id)
+                self.assertEqual(attempt, parts["attempt"], run_id)
 
 
 class SummaryAndPhaseRowsTests(unittest.TestCase):

@@ -34,7 +34,7 @@ import sys
 import time
 import tomllib
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(HERE, "lib")
@@ -967,6 +967,14 @@ class DriveResult:
         # (both have an empty skipped list), and the opt-out would live only in the
         # harness log.
         self.tail_skip_opted_out = False
+        # HARNESS-MIDMISSION-COMMIT-BYPASS: what the mission subprocess wrote into the
+        # seam channel on its own account (route 1). REPORT-ONLY -- see hlib's section
+        # comment. None on every seam-only driver and on any run whose channel could not
+        # be read, so a normal result record is unchanged.
+        self.mid_mission_seam_writes: Optional[hlib.MidMissionSeamWrites] = None
+        # Set instead when the channel could not be read/parsed, so an unreadable channel
+        # records a GAP rather than being indistinguishable from "the mission wrote nothing".
+        self.mid_mission_seam_read_error: Optional[str] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -1182,6 +1190,23 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Budget", "kill complete pids=%s" % result.killed_pids)
             _forward_mission_stdout(stdout_path, logger)
+            # Read the channel BEFORE the early return -- this path used to skip the
+            # instrument entirely, losing its highest-value case (a world-mutating write
+            # with no verdict yet), and the mission's own stdout is block-buffered and
+            # routinely lost when the process is killed.
+            #
+            # DO NOT hardcode mission_met=False here, however obvious "a killed mission has
+            # no verdict" sounds. `poll_exit` is checked BEFORE the budget, so the live
+            # window is "result already written, process not yet reaped" - the ordinary
+            # shape for a long mission near its wall. The mission-budget branch immediately
+            # below exists for exactly that reason and does this same final read.
+            # Hardcoding False made the record claim `exposedAfterUnmetMission` and the log
+            # say "returned UNMET" over a mission that had already written MISSION-OK - and
+            # this path never sets result.mission_step, so nothing else in the record
+            # contradicts it.
+            killed_verdict = _read_mission_verdict(result_path)
+            killed_met, _ = hlib.classify_mission_step(killed_verdict)
+            _record_mid_mission_seam_writes(result, mission_ctx, step_id, killed_met, logger)
             return True
         if now - mission_start > mission_budget:
             logger.warn("Budget", "mission budget exceeded (%ds) elapsed=%.0f; killing mission subprocess"
@@ -1223,8 +1248,48 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
         logger.info("Mission", "mission wall=%.0fs (harness residue = run "
                                "wallSeconds - this: KSP boot + verifier chain)"
                     % result.mission_wall_seconds)
+    _record_mid_mission_seam_writes(result, mission_ctx, step_id, met, logger)
     _log_handoff_return(logger, step_index, verdict, met, subkind or "")
     return False
+
+
+def _record_mid_mission_seam_writes(result: "DriveResult", mission_ctx, reserved_id: str,
+                                    mission_met: bool, logger: HarnessLogger) -> None:
+    """HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): read the route-1 writes.
+
+    The mission subprocess writes into the SAME channel run.py drives, under the
+    reserved id handed to it at spawn -- so the channel file IS driver-side evidence
+    and no mission-side change is needed to read it.
+
+    Failure-isolated: an unreadable channel must never move a verdict. But it must
+    not be SILENT either. This instrument exists precisely because a mid-mission
+    write was invisible, and a bare `except OSError: pass` reproduced that
+    invisibility -- an unreadable channel used to leave a record byte-identical to
+    "the mission wrote nothing", intermittently and without a trace. So the failure
+    is warned AND recorded, and `Exception` is caught rather than `OSError` alone
+    (the read and the parse both live under it now; an instrument may not cost an
+    attempt its result).
+
+    Called from the normal exit path AND from the run-budget kill path: a mission
+    killed mid-flight is BY CONSTRUCTION a mission with no verdict at all, which is
+    the very shape this measures, and the early `return True` used to skip it.
+    """
+    try:
+        with open(os.path.join(mission_ctx.cwd, "parsek-test-commands.txt"),
+                  "r", encoding="utf-8", errors="replace") as fh:
+            channel_text = fh.read()
+        writes = hlib.parse_mid_mission_seam_writes(channel_text, reserved_id, mission_met)
+    except Exception as exc:                                   # noqa: BLE001 - instrument
+        result.mid_mission_seam_read_error = "%s: %s" % (type(exc).__name__, exc)
+        logger.warn("Mission", "mid-mission seam writes UNREADABLE (%s); this run's "
+                               "midMissionSeamWrites is a GAP, not a zero"
+                    % result.mid_mission_seam_read_error)
+        return
+    result.mid_mission_seam_writes = writes
+    if writes.exposed:
+        logger.warn("Mission", "mid-mission seam writes: %s" % writes.summary)
+    elif writes.total:
+        logger.info("Mission", "mid-mission seam writes: %s" % writes.summary)
 
 
 def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
@@ -2174,7 +2239,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 7b. Save-parse structural verifier (M-C2 / R9). Parses the produced save's
     # ParsekScenario SCENARIO surfaces (RECORDING_TREE topology, supersede rows,
     # tombstones, rewind points) and evaluates [expectations.rewind] +
-    # [expectations.recordings.structure]. REPORT-ONLY by default (VERDICT
+    # [expectations.recordings.structure] + [expectations.recordings.points].
+    # REPORT-ONLY by default (VERDICT
     # NEUTRALITY: S4.1 already declares a rewind block, so a gating default would
     # move a committed nightly's verdict with no live run to prove the readings);
     # a block opts in with gating = true - declared by exactly ONE committed
@@ -2209,14 +2275,24 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             "scenarioFound": sp.scenario_found,
         }
         rewind_obs = (sp.observed.get("rewind") or {})
+        # Gate 12: the recorded-POINTS distribution rides the SAME line. It is
+        # recorded unconditionally (no block needed), so an operator sizing a
+        # first window can read it straight off a green run's console output
+        # instead of digging the number out of results/<runId>.json.
+        points_obs = ((sp.observed.get("recordings") or {}).get("points") or {})
         logger.info("Verify", "verify saveParse status=%s gating=%s blocks=%s armed=%s "
                               "scenarioFound=%s supersedeRows=%s tombstones=%s "
-                              "rewindPoints=%s mismatches=%d"
+                              "rewindPoints=%s pointsTotal=%s pointsLargest=%s "
+                              "pointsSmallest=%s pointsUnparsed=%s mismatches=%d"
                     % (sp.status, sp.gating, list(sp.blocks) or "-",
                        list(sp.armed_blocks) or "-", sp.scenario_found,
                        rewind_obs.get("supersedeRows", "-"),
                        rewind_obs.get("tombstones", "-"),
-                       rewind_obs.get("rewindPoints", "-"), len(sp.mismatches)))
+                       rewind_obs.get("rewindPoints", "-"),
+                       points_obs.get("total", "-"),
+                       points_obs.get("largest", "-"),
+                       points_obs.get("smallest", "-"),
+                       points_obs.get("unparsed", "-"), len(sp.mismatches)))
         report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
         if report_only:
             logger.warn("Verify", "saveParse recorded %d report-only mismatch(es) "
@@ -2424,25 +2500,133 @@ def _run_log_validate_retrying(runtime, log_path, no_rec, logger):
 # ---------------------------------------------------------------------------
 
 
-def _make_run_id(scenario_id: str, attempt: int) -> str:
+def _run_id_stamp() -> str:
+    """The runId's UTC minute stamp. A seam: the smoke test pins it to drive two
+    runs into ONE minute and prove both keep their results."""
+    return datetime.now(timezone.utc).strftime(hlib.RUN_ID_TIMESTAMP_FORMAT)
+
+
+def _claimed_run_ids() -> Set[str]:
+    """Run ids results/ already holds an artifact for (I/O half of
+    ``hlib.claimed_run_ids``). Reads the ``.pending`` fallback dir too -- a
+    verdict that degraded to .pending is still a run's evidence."""
+    claimed: Set[str] = set()
+    for directory in (RESULTS_DIR, os.path.join(RESULTS_DIR, ".pending")):
+        try:
+            claimed |= hlib.claimed_run_ids(os.listdir(directory))
+        except OSError:
+            continue
+    return claimed
+
+
+def _resolve_run_id(scenario_id: str, attempt: int, run_ordinal: int,
+                    logger: Optional[HarnessLogger]) -> hlib.RunIdResolution:
+    """Resolve this attempt's runId against what results/ already holds, and SAY
+    SO when the base id was taken.
+
+    Two runs of one scenario started inside the same minute used to share an id,
+    and the second overwrote the first's result JSON, _shots dir (KSP.log
+    included) and contact sheet with nothing warning. The resolution never
+    overwrites; the Warn is what makes the collision impossible to miss in the
+    per-invocation harness log."""
+    res = hlib.resolve_run_id(_run_id_stamp(), scenario_id, _claimed_run_ids(),
+                              attempt=attempt, min_ordinal=run_ordinal)
+    if res.collided and logger is not None:
+        logger.warn("Result", "runId collision: %s is already claimed in results/; "
+                              "this run writes %s instead (%d id%s stepped over; the "
+                              "earlier run's result JSON, _shots artifacts and contact "
+                              "sheet are kept)"
+                    % (res.collided_with[0], res.run_id, len(res.collided_with),
+                       "" if len(res.collided_with) == 1 else "s"))
+    return res
+
+
+# Hang guard on the resolve-stake-re-resolve loop (see _make_run_id). Set far
+# above any real contention: staking loses a pass only to a genuinely concurrent
+# invocation, and the scan sees that id on the very next pass.
+_RUN_ID_CLAIM_ATTEMPTS = 100
+
+
+def _try_claim_run_id(run_id: str) -> bool:
+    """Stake ``results/<runId>.claim`` atomically. ``open(..., "x")`` is
+    O_CREAT|O_EXCL on both NTFS and POSIX -- the one primitive that closes the
+    window between RESOLVING an id and writing the first artifact under it.
+
+    That window is real: two concurrent run.py invocations of one scenario both
+    resolve before either writes anything, and the per-instance run lock does not
+    serialize them (the refused one writes its INVALID(instance-locked) record
+    immediately, while the winner is still flying).
+
+    The stake is never reaped. A claim left by a run that died is CORRECT: that
+    id was issued, and re-issuing it is exactly the overwrite this guards. The
+    files are empty-ish and results/ already keeps every result JSON forever.
+
+    Returns False ONLY when the id itself was already staked. An I/O failure
+    returns True -- a results dir that cannot be written to must not block a run
+    (design edge 10: never lose a verdict); the run then falls back to scan-only
+    resolution, which is still strictly better than the unguarded id.
+
+    The two failures are kept in SEPARATE try blocks deliberately: makedirs over
+    a path that exists as a FILE raises FileExistsError too, and folding that in
+    with the stake's would report "already staked" forever and spin the caller's
+    re-resolve loop."""
+    try:
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+    except OSError:
+        return True
+    path = os.path.join(RESULTS_DIR, "%s%s" % (run_id, hlib.RUN_ID_CLAIM_SUFFIX))
+    try:
+        with open(path, "x", encoding="utf-8", newline="\n") as fh:
+            fh.write(utcnow_iso() + "\n")
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return True
+
+
+def _make_run_id(scenario_id: str, attempt: int, run_ordinal: int = 1,
+                 logger: Optional[HarnessLogger] = None) -> str:
     """The per-attempt runId (design "Mission result": ATTEMPT-SUFFIXED so each
     retry writes its own <runId>_mission.json). Computed ONCE per attempt in
     run_attempt so the mission-result filename the handoff writes/reads matches the
     runId the durable result JSON records, even if the minute rolls over during a
-    long flight."""
-    run_id = "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), scenario_id)
-    if attempt > 1:
-        run_id += "_a%d" % attempt
-    return run_id
+    long flight.
+
+    Resolves against results/ and then STAKES the id, re-resolving from the next
+    ordinal if a concurrent invocation staked it first. Each pass starts strictly
+    above an ordinal now taken on disk, and the bounded loop is a HANG GUARD, not
+    a collision cap: a stake that reports "taken" for a reason unrelated to the
+    id (the makedirs-over-a-file shape `_try_claim_run_id` calls out) would
+    otherwise spin an unattended nightly forever. Exhausting it degrades to the
+    scan-only id -- loudly."""
+    ordinal = run_ordinal
+    res = None
+    for _ in range(_RUN_ID_CLAIM_ATTEMPTS):
+        res = _resolve_run_id(scenario_id, attempt, ordinal, logger)
+        if _try_claim_run_id(res.run_id):
+            return res.run_id
+        if logger is not None:
+            logger.warn("Result", "runId %s was claimed by a concurrent run between "
+                                  "resolving and staking it; re-resolving above "
+                                  "ordinal %d" % (res.run_id, res.ordinal))
+        ordinal = res.ordinal + 1
+    if logger is not None:
+        logger.error("Result", "runId staking failed %d times for scenario=%s; "
+                               "falling back to the scan-only id %s (results/ may be "
+                               "unwritable -- an artifact overwrite is possible)"
+                     % (_RUN_ID_CLAIM_ATTEMPTS, scenario_id, res.run_id))
+    return res.run_id
 
 
 def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runtime,
-                attempt: int, prior_boot_crashed: bool, logger: HarnessLogger) -> Dict:
+                attempt: int, prior_boot_crashed: bool, logger: HarnessLogger,
+                run_ordinal: int = 1) -> Dict:
     scenario_id = spec.get("id")
     profile = spec.get("instanceProfile")
     started = utcnow_iso()
     start_wall = runtime.now()
-    run_id = _make_run_id(scenario_id, attempt)
+    run_id = _make_run_id(scenario_id, attempt, run_ordinal, logger)
 
     # ---- ADMIT -----------------------------------------------------------
     manifest, incomplete = read_manifest(instance_dir)
@@ -2872,7 +3056,7 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     ended = utcnow_iso()
     wall = int(runtime.now() - start_wall)
     if run_id is None:
-        run_id = _make_run_id(scenario_id, attempt)
+        run_id = _make_run_id(scenario_id, attempt, logger=logger)
 
     steps_rec = []
     if drive is not None:
@@ -2906,6 +3090,29 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # that case, so a default-policy run's record is unchanged.
     if drive is not None and drive.tail_skip_opted_out:
         driver_rec[hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+    # HARNESS-MIDMISSION-COMMIT-BYPASS (report-only): the route-1 writes the tail gate
+    # never sees. Emitted only when the mission actually wrote some, so every existing
+    # run's record -- including every seam-only driver's -- is byte-identical.
+    if drive is not None and drive.mid_mission_seam_writes is not None \
+            and drive.mid_mission_seam_writes.total:
+        mm = drive.mid_mission_seam_writes
+        driver_rec["midMissionSeamWrites"] = {
+            # Counts WIRE WRITES, not executed commands: the seam skips a duplicate id, so a
+            # mission that retries its commit writes twice and executes once. Read these as
+            # "what the mission put on the wire", which is what the tail gate would have been
+            # judging too.
+            "total": mm.total,
+            "worldMutating": mm.world_mutating,
+            "verbs": list(mm.verbs),
+            # True = a world-mutating write was made and the mission did NOT come back met
+            # (unmet, or killed with no verdict at all). REPORT-ONLY: nothing reads this to
+            # move a verdict.
+            "exposedAfterUnmetMission": mm.exposed,
+        }
+    elif drive is not None and drive.mid_mission_seam_read_error:
+        # A GAP is not a zero. Recorded so a reader can tell "we looked and saw none" from
+        # "we could not look" -- the distinction this whole instrument exists to make.
+        driver_rec["midMissionSeamWrites"] = {"readError": drive.mid_mission_seam_read_error}
 
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}
@@ -3471,9 +3678,16 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
     prior_boot_crashed = False
     attempts_wall = 0.0
     attempts_run = 0
+    # ONE run-instance ordinal for the whole scenario run, resolved (and warned
+    # about) exactly once here, then carried into both attempts -- `..._run2` and
+    # `..._run2_a2` -- instead of each attempt disambiguating on its own and
+    # drifting onto different stems. Each attempt still re-stamps its own minute
+    # (a long flight rolls the clock over), so the ordinal is what is carried,
+    # not the whole id; `_a<N>` stays the terminal suffix either way.
+    run_ordinal = _resolve_run_id(spec.get("id"), 1, 1, logger).ordinal
     for attempt in (1, 2):
         result = run_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
-                             prior_boot_crashed, logger)
+                             prior_boot_crashed, logger, run_ordinal=run_ordinal)
         last_result = result
         attempts_run += 1
         wall = result.get("wallSeconds")
@@ -3561,7 +3775,7 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
     started = utcnow_iso()
     result = {
         "schema": hlib.SCHEMA_VERSION,
-        "runId": "%s_%s" % (datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M"), safe_id),
+        "runId": _make_run_id(safe_id, 1, logger=logger),
         "scenarioId": scenario_id,
         "tier": spec.get("tier"),
         "instanceProfile": spec.get("instanceProfile"),

@@ -37,6 +37,9 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - coverage + flake computation (``compute_coverage`` / ``compute_flake``)
   - result-record serialization + schema gate (``serialize_result`` /
     ``deserialize_result`` / ``check_schema``)
+  - run-id resolution (``format_run_id`` / ``claimed_run_ids`` /
+    ``resolve_run_id``): the id every results/ artifact is keyed by, resolved so
+    a second run can never overwrite a first run's evidence
 
 Design authority: docs/dev/design-autotest-harness-core.md (Module M-A5).
 Consumed contracts pinned against their public surfaces: the command seam
@@ -55,7 +58,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -2950,8 +2953,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
-    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind] and
-    # [expectations.recordings.structure]. Same rationale as the unityExceptions
+    # M-C2 (R9) save-parse verifier spec surfaces: [expectations.rewind],
+    # [expectations.recordings.structure] and (gate 12)
+    # [expectations.recordings.points]. Same rationale as the unityExceptions
     # block above - a malformed window (or a non-bool gating key) must be a
     # pre-launch rejection, never a block that silently evaluates as a no-op.
     if "rewind" in expectations:
@@ -2960,6 +2964,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.STRUCTURE_BLOCK in recordings_block:
         errors.extend(saveparse.validate_structure_expectations(
             recordings_block.get(saveparse.STRUCTURE_BLOCK)))
+    if isinstance(recordings_block, dict) and saveparse.POINTS_BLOCK in recordings_block:
+        errors.extend(saveparse.validate_points_expectations(
+            recordings_block.get(saveparse.POINTS_BLOCK)))
     # Declared-but-assertion-less UNARMED blocks degrade to an empty report row;
     # WARN like the unityExceptions precedent (armed-and-empty is a hard error
     # inside the validators above).
@@ -3366,7 +3373,8 @@ class ExpectationResult:
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
 # M-C2 (R9): ``rewind`` LEFT the tuple the same way -- the save-parse verifier
 # (saveparse.evaluate_save_structure, run as its own chain row) is its sole owner,
-# alongside the new ``[expectations.recordings.structure]`` sub-block. ``route`` and
+# alongside the ``[expectations.recordings.structure]`` and (gate 12)
+# ``[expectations.recordings.points]`` sub-blocks. ``route`` and
 # ``loop`` stay RESERVED: their consumers do not exist yet (no committed spec declares
 # either), and building an evaluator with zero declarers would be unused surface.
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "loop")
@@ -3386,12 +3394,21 @@ def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any
 
     Shape: mirrors the ``[expectations.*]`` spec surface, so a future measured
     facet slots in beside its spec counterpart without a format break
-    (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
-    ONLY facet the recordings block declares (hence the only one to observe);
-    the logContracts facets are regex predicates with no numeric counterpart
-    worth persisting, and route/loop stay RESERVED. The rewind / structure
-    facets are owned and observed by the M-C2 save-parse verifier
-    (saveparse.observed_structure_facets), not here - one owner per facet.
+    (``{"recordings": {"count": 7}}``). ``recordings.count`` is the only facet
+    THIS verifier owns: it is the one recordings facet derived from the
+    ``.prec`` FILE listing rather than from the save's content. The logContracts
+    facets are regex predicates with no numeric counterpart worth persisting,
+    and route/loop stay RESERVED. The rewind / structure / points facets are
+    owned and observed by the M-C2 save-parse verifier
+    (saveparse.observed_structure_facets), not here - one owner per facet, and a
+    facet read out of the SAVE belongs to the verifier that parses the save.
+
+    Gate 12 is exactly why that split matters: ``count`` counts FILES, so two
+    EMPTY recordings satisfy ``count = { min = 2, max = 2 }``. The claim "a
+    recording recorded something" needs the save's per-recording ``pointCount``
+    and therefore lives in ``[expectations.recordings.points]``, which also
+    gives it the report-only-then-arm discipline this verifier does not have
+    (a ``count`` mismatch is a hard FAIL the moment it is declared).
 
     Recording is UNCONDITIONAL on the spec: a scenario that declares no count
     window still gets its measured count recorded, which is how a NEW scenario
@@ -3417,9 +3434,14 @@ def evaluate_expectations(
     written now needs no format break then. ``world`` is NO LONGER reserved here
     (M-B2 gave verifier 8 sole ownership, design ~495), ``rewind`` is NO LONGER
     reserved here either (M-C2/R9 gave the save-parse verifier sole ownership,
-    alongside ``recordings.structure`` which this evaluator ignores), and
-    ``ledger`` is a tolerated-unknown block this evaluator ignores (verifier 8
-    owns it).
+    alongside ``recordings.structure`` and ``recordings.points`` which this
+    evaluator ignores), and ``ledger`` is a tolerated-unknown block this
+    evaluator ignores (verifier 8 owns it).
+
+    NOTE the deliberate blind spot this evaluator keeps: ``recordings.count`` is
+    a count of ``.prec`` FILES, so it cannot distinguish a recording that traced
+    a flight from one that finalized with a single point (gate 12). That claim
+    belongs to ``[expectations.recordings.points]`` on the save-parse verifier.
 
     The result also carries ``observed`` - the MEASURED facets
     (``observed_expectation_facets``) - so a green run's numbers survive into
@@ -4654,7 +4676,8 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # are the downstream symptoms.
     "mission-outcome",
     # M-C2 (R9): a GATING-armed [expectations.rewind] / [expectations.recordings.
-    # structure] mismatch (saveparse.evaluate_save_structure). Named separately
+    # structure] / [expectations.recordings.points] mismatch
+    # (saveparse.evaluate_save_structure). Named separately
     # from "expectation" for the same reason mission-outcome is: the structural
     # save assertion is its own failure class, and the flag is only reachable
     # for a scenario that armed gating = true. The verifier ships REPORT-ONLY;
@@ -5198,6 +5221,153 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
                          tuple(run_indices), tuple(skipped_indices), summary)
 
 
+# ---------------------------------------------------------------------------
+# ROUTE-1 MID-MISSION SEAM WRITES (HARNESS-MIDMISSION-COMMIT-BYPASS, found
+# 2026-07-28 by the retrospective review of PRs #1345-#1363).
+#
+# WHAT THE TAIL GATE ABOVE DOES NOT COVER. `plan_unmet_mission_tail` gates
+# `driver.steps` -- the steps run.py itself writes into the seam channel. The
+# route-1 bridge is a SECOND path to the same verbs: `mission_runner` writes
+# `id=<reserved> cmd=CommitTree` (and, through the generalized sibling,
+# `id=<reserved>.<tag> cmd=<verb> ...`) into the SAME channel from inside the
+# mission subprocess, mid-flight, BEFORE the mission's verdict exists. A mission
+# that commits mid-flight and THEN returns UNMET has therefore landed a
+# world-mutating write the tail gate never saw.
+#
+# WHAT THIS IS, AND DELIBERATELY IS NOT. REPORT-ONLY. It counts those writes and
+# classifies them through `seam_verb_tail_role` -- the same FUNCTION the tail gate
+# calls, not merely the table it reads, so the two paths share the unknown-verb
+# fallback as well as the rows and are genuinely measured on one scale. It moves NO
+# verdict and gates NOTHING -- the M-C2 save-parse discipline (measure report-only
+# first, arm from evidence later) applied to a hole nobody has yet fallen into.
+#
+# WHY REPORT-ONLY IS THE PROPORTIONATE ANSWER TODAY, stated so a future reader can
+# check the reasoning rather than inherit it:
+#   1. NO COMMITTED MISSION HAS BEEN OBSERVED TO HIT IT. The only emitters of a
+#      mid-mission CommitTree are the B-DOCK / orbit-commit machines, on their
+#      SUCCESS path. Note this is an observation, not a structural guarantee:
+#      `mission_runner._perform_seam_commit` appends the line and THEN polls, so a
+#      commit that times out (or any later assertion failure) leaves the write in
+#      the channel with an unmet mission -- exactly the `exposed` shape.
+#   2. THE STATE DOES NOT LEAK. `run.py::stage_fixture` rmtree's and re-copies the
+#      save template at the start of EVERY attempt, so a junk mid-mission commit
+#      dies with the run save. The exposure is within-run, not across runs.
+#   3. THE RUN IS ALREADY INVALID. An unmet mission is terminal driver-INVALID at
+#      `classify_verdict`'s "driver stage failed" branch, which precedes every
+#      save-reading verifier -- so a gate here would mostly rename an outcome that
+#      is already failing.
+# What was genuinely missing is that the fact was INVISIBLE: nothing in the result
+# record said a mid-mission world-mutating write had fired at all. That is what
+# this closes. If a future forge/mission ever does mid-commit and then fail, the
+# evidence for arming a real gate will be sitting in its result JSON.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MidMissionSeamWrites:
+    """What the mission subprocess wrote into the seam channel on its own account."""
+    total: int
+    world_mutating: int
+    verbs: Tuple[str, ...]          # distinct verbs, sorted; EMPTY if no line carried a
+                                    # NON-EMPTY cmd= (a bare `cmd=` counts as none)
+    exposed: bool                   # a world-mutating write + an UNMET mission
+    summary: str
+
+
+def parse_mid_mission_seam_writes(channel_text: str, reserved_id: str,
+                                  mission_met: bool) -> MidMissionSeamWrites:
+    """Count the route-1 writes in a seam command channel. Pure; text in, counts out.
+
+    A line is the MISSION's (not the driver's) exactly when its id is the reserved
+    id handed to the mission subprocess, or a `<reserved>.<tag>` sub-id of it. The
+    driver's own steps use index-derived ids (`step_id_for_index`), and the mission
+    step -- which consumes an index but writes nothing itself -- is what donates
+    the reserved id, so the two families cannot collide.
+
+    Unparseable and id-less lines are IGNORED rather than guessed at: this is a
+    report-only instrument, and a parser that invented attribution would be worse
+    than one that under-reports.
+
+    An UNKNOWN verb is classified through ``seam_verb_tail_role`` -- the same
+    FUNCTION the unmet tail gate calls, not a bare lookup in the table it reads.
+    That distinction is the whole point: the function FAILS SAFE to world-mutating,
+    and a bare ``.get()`` here failed OPEN, so the two paths disagreed about exactly
+    the case the "one scale" claim is meant to cover -- a verb nobody has reasoned
+    about. Failing open in a RISK instrument is the wrong direction: it would report
+    ``worldMutating=0, exposed=False`` for a write the tail gate would have refused
+    to drive. Latent today (every mission-emitted verb has an explicit row, and a
+    unit cell keeps the table total over IMPLEMENTED_SEAM_VERBS), but the mission
+    side takes an arbitrary verb string, so it is one new verb away from mattering.
+
+    ONE ACKNOWLEDGED DIVERGENCE, stated rather than glossed: for the EMPTY verb the two
+    paths differ on purpose. ``plan_unmet_mission_tail`` hands ``seam_verb_tail_role``
+    a declared step's ``cmd`` and gets world-mutating for ``""``, which is right there
+    -- a spec step with no verb is malformed and must not be driven. Here an empty
+    ``cmd`` is a LINE we could not parse, not a verb nobody has reasoned about, and
+    counting it as world-mutating would invent attribution rather than fail safe. Same
+    table, same function, deliberately different treatment of the one input that means
+    something different on each side.
+    """
+    reserved = str(reserved_id or "")
+    total = 0
+    world_mutating = 0
+    verbs: List[str] = []
+    world_mutating_verbs: List[str] = []
+    if reserved:
+        for raw in (channel_text or "").splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            fields = {}
+            for token in line.split():
+                key, sep, value = token.partition("=")
+                if sep and key not in fields:
+                    fields[key] = value
+            line_id = fields.get("id", "")
+            if line_id != reserved and not line_id.startswith(reserved + "."):
+                continue
+            total += 1
+            verb = fields.get("cmd", "")
+            if not verb:
+                # No verb: either no `cmd=` key, or a bare `cmd=` with an empty value.
+                # Both are lines we could not parse, so both land here. Counted in `total` (a line under the
+                # mission's id IS a mission write) but NOT claimed world-mutating -- that would
+                # be inventing attribution, which this parser deliberately refuses to do. The
+                # fail-safe below is for an unknown VERB, which is a different thing from an
+                # unparsed line: there, a name exists and we simply have no row for it.
+                continue
+            if verb not in verbs:
+                verbs.append(verb)
+            if seam_verb_tail_role(verb) == TAIL_ROLE_WORLD_MUTATING:
+                world_mutating += 1
+                if verb not in world_mutating_verbs:
+                    world_mutating_verbs.append(verb)
+
+    exposed = world_mutating > 0 and not mission_met
+    # "no cmd", not "unknown": an unrecognised verb now renders BY NAME (it fails safe
+    # and is listed), so this placeholder can only mean "no line carried a verb at all".
+    all_verbs = ", ".join(sorted(verbs)) or "no cmd"
+    if not total:
+        summary = "no route-1 mid-mission seam writes"
+    elif exposed:
+        # Name the WORLD-MUTATING verbs here, not every verb seen: this is the line an
+        # operator reads when deciding whether to arm a gate, and listing the cleanup /
+        # inert verbs alongside a world-mutating COUNT overstated the blast radius
+        # ("1 world-mutating ... [CommitTree, RecordingState, StopRecording]").
+        summary = ("REPORT-ONLY: %d world-mutating mid-mission seam write(s) [%s] fired "
+                   "BEFORE the mission returned UNMET; the unmet-mission tail gate covers "
+                   "driver.steps only and never saw them (all verbs: [%s])"
+                   % (world_mutating, ", ".join(sorted(world_mutating_verbs)) or "no cmd",
+                      all_verbs))
+    else:
+        # NOT necessarily "mission met": this branch is also every write whose verbs are all
+        # cleanup/inert on an UNMET mission (StopRecording and RecordingState are both real
+        # mission-emitted verbs). Saying "mission met" there put a false statement in the one
+        # operator-facing line the instrument exists to produce.
+        summary = ("%d route-1 mid-mission seam write(s) [%s], %d world-mutating; mission %s"
+                   % (total, all_verbs, world_mutating, "met" if mission_met else "UNMET"))
+    return MidMissionSeamWrites(total, world_mutating, tuple(sorted(verbs)), exposed, summary)
+
+
 def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple[bool, str]:
     """Admit (or refuse) the mission venv before any KSP launch (design edge 4).
 
@@ -5227,6 +5397,135 @@ def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple
         if str(stamp_pins.get(dist)) != str(want):
             return False, VENV_INVALID_SUBKIND
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Run id (design Result record). Pure.
+#
+# results/<runId>.json and EVERY sibling artifact -- <runId>_shots/ (holding the
+# collected KSP.log), <runId>_contact.html, <runId>_mission.json,
+# <runId>_mission.stdout.log, <runId>.manifest.json, <runId>.seed -- are keyed by
+# the run id ALONE, and the id stamps only the MINUTE. So two runs of one
+# scenario started inside the same minute used to land on one id, and the second
+# silently overwrote the first's evidence.
+#
+# Observed 2026-08-01: two H23-tracking-station flights 52 seconds apart left two
+# per-invocation harness logs (those ARE second-granular) but ONE result JSON and
+# ONE _shots dir. The first flight's clean verdict and its collected KSP.log were
+# gone, nothing warned, and a reader of results/ could not tell two runs happened
+# -- exactly the silent evidence loss the contact sheet exists to prevent.
+#
+# The id is now resolved against what results/ ALREADY holds: a claimed base id
+# takes a `_run<N>` run-instance suffix instead of overwriting. The suffix sits
+# BEFORE the `_a<N>` attempt suffix, so the attempts of one run stay grouped under
+# one stem and `_a<N>` stays TERMINAL (status.split_run_id parses it there).
+# `_run<N>` and `_a<N>` are different axes and must not be conflated: `_a<N>` is
+# the retry policy re-flying ONE run, `_run<N>` is a SEPARATE run that would have
+# collided.
+# ---------------------------------------------------------------------------
+
+# The runId's UTC timestamp granularity. Deliberately still the MINUTE: the
+# collision guard below, not a finer stamp, is what makes an overwrite
+# impossible, and the minute stamp is what status.py's run-id parse and every
+# committed doc example already read.
+RUN_ID_TIMESTAMP_FORMAT = "%Y-%m-%d_%H%M"
+
+# Every results/ filename shape a run claims, MOST-SPECIFIC FIRST -- ".json" must
+# be tried LAST or it would strip "<runId>_mission.json" to "<runId>_mission".
+# An entry matching none of these (summary.txt, index.html, *_harness.log,
+# .pending, *.tmp) belongs to no run and is ignored.
+RUN_ID_ARTIFACT_SUFFIXES: Tuple[str, ...] = (
+    "_mission.stdout.log",
+    "_mission.json",
+    ".manifest.json",
+    "_status.json",
+    "_contact.html",
+    "_shots",
+    ".claim",
+    ".seed",
+    ".json",
+)
+
+# The zero-cost stake a run drops the instant it resolves its id, closing the
+# window between resolving and writing the first real artifact (run.py's
+# `_try_claim_run_id`). Two CONCURRENT run.py invocations of one scenario both
+# resolve before either writes -- the per-instance run lock does not help, since
+# the refused one writes its INVALID(instance-locked) record immediately while
+# the winner is still flying -- so without an exclusive-create stake they would
+# both land on the same base id.
+RUN_ID_CLAIM_SUFFIX = ".claim"
+
+
+def format_run_id(stamp: str, scenario_id: str, attempt: int = 1,
+                  ordinal: int = 1) -> str:
+    """``<stamp>_<scenarioId>[_run<ordinal>][_a<attempt>]``.
+
+    Ordinal 1 / attempt 1 add nothing, so the ordinary run id is unchanged from
+    before the collision guard existed.
+    """
+    run_id = "%s_%s" % (stamp, scenario_id)
+    if ordinal > 1:
+        run_id += "_run%d" % ordinal
+    if attempt > 1:
+        run_id += "_a%d" % attempt
+    return run_id
+
+
+def claimed_run_ids(names: Iterable[str]) -> Set[str]:
+    """The run ids a results-dir listing already holds artifacts for.
+
+    Takes the raw directory entry names (files AND the ``_shots`` dirs) so the
+    caller does no stat-ing, and returns every id that owns at least one of
+    ``RUN_ID_ARTIFACT_SUFFIXES``. A run whose result JSON is missing but whose
+    ``_shots`` dir survived still counts as claimed -- the point is to never
+    write over ANY surviving artifact of an earlier run.
+    """
+    claimed: Set[str] = set()
+    for name in names or ():
+        for suffix in RUN_ID_ARTIFACT_SUFFIXES:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                claimed.add(name[:-len(suffix)])
+                break
+    return claimed
+
+
+@dataclass(frozen=True)
+class RunIdResolution:
+    run_id: str
+    # The run-instance ordinal that produced ``run_id`` (1 = no suffix).
+    ordinal: int
+    # The already-claimed ids this resolution stepped over, in the order tried.
+    # Non-empty means a collision happened and the caller must SAY SO.
+    collided_with: Tuple[str, ...]
+
+    @property
+    def collided(self) -> bool:
+        return bool(self.collided_with)
+
+
+def resolve_run_id(stamp: str, scenario_id: str, claimed: Iterable[str],
+                   attempt: int = 1, min_ordinal: int = 1) -> RunIdResolution:
+    """The first run id at or above ``min_ordinal`` that ``claimed`` does not
+    already hold, plus the claimed ids it stepped over.
+
+    ``min_ordinal`` carries a run-instance ordinal already resolved for attempt 1
+    into the later attempts of the SAME run, so those attempts share one stem
+    (``..._run2`` / ``..._run2_a2``) instead of drifting apart.
+
+    Terminates without an arbitrary cap: ``claimed`` is finite, so at most
+    ``len(claimed) + 1`` ordinals can be occupied. A cap would have to either
+    raise (losing a verdict, which the design forbids) or overwrite (the bug),
+    and neither is acceptable.
+    """
+    taken = frozenset(claimed or ())
+    collided: List[str] = []
+    ordinal = max(1, int(min_ordinal))
+    while True:
+        candidate = format_run_id(stamp, scenario_id, attempt, ordinal)
+        if candidate not in taken:
+            return RunIdResolution(candidate, ordinal, tuple(collided))
+        collided.append(candidate)
+        ordinal += 1
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,10 @@
 summary.txt
 *.log
 .pending/
+# Run-id stakes (exclusive-create, never reaped by design - see run.py
+# _try_claim_run_id). A COMMITTED stake would permanently burn that run id for
+# every clone, so this pattern is load-bearing, not tidiness.
+*.claim
 # V3 always-collect artifacts + contact sheets (generated per run; never committed).
 *_shots/
 *.html

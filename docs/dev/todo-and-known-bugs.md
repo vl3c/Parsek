@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## DEV-INSTANCE-UNLOCKED: three shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
+## DEV-INSTANCE-UNLOCKED: shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
 
 The machine lock (`<umbrella>/automation/.ksp-machine.lock`) serializes `run.py`
 and `provision.py`. It deliberately does NOT cover the DEV instance or routine dev
@@ -32,14 +32,24 @@ product verdict. Filing them so they stop being invisible:
    `SyntheticRecordingTests.InjectAllRecordings` targets the dev KSP install's
    `saves/test career` and calls `PurgeRecordingSidecars`. It DOES refuse when KSP
    is live (`ScenarioWriter.TryPurgeRecordingSidecarsForInject` probes `KSP.log`
-   with an exclusive open and raises `SkipException`), and it early-returns when the
-   target save is absent - so the residual hazard is test-vs-test, not test-vs-flight:
-   two sibling worktrees running `dotnet test` at once both purge and re-inject the
-   same save. It carries `[Trait("Category", "Manual")]`, which does not exclude it
-   from a bare `dotnet test`. Cheap fix if it ever bites: an env-var `Skip` gate.
+   with an exclusive open, and the test raises `SkipException`), and it early-returns
+   when the target save is absent - so the residual hazard is test-vs-test, not
+   test-vs-flight: two sibling worktrees running `dotnet test` at once both purge and
+   re-inject the same save. It carries `[Trait("Category", "Manual")]`, which does not
+   exclude it from a bare `dotnet test`. Cheap fix if it ever bites: an env-var
+   `Skip` gate.
 3. **`collect-logs.py` collides on minute-granularity folder names** in the shared
    `../logs/` sink and hard-exits, which loses a failing run's only evidence. A
-   `-pid<N>` suffix instead of `sys.exit(1)` would close it.
+   `-pid<N>` suffix instead of `sys.exit(1)` would close it. (Note the harness's own
+   `results/` half of this class was closed separately by HARNESS-RUNID-COLLISION
+   below; this is the `../logs/` sink, which still hard-exits.)
+4. **The lock key is the umbrella root, not truly the machine.** Runs given
+   different `--umbrella-root` values, or started from a checkout with a different
+   parent (a nested `.claude/worktrees/<name>` isolation worktree), resolve different
+   lockfiles while still sharing kRPC 50000/50001 and the GPU; `--instance-dir`
+   bypasses umbrella resolution altogether. Deliberate - a machine-global path would
+   serialize the unit suites against real runs - but it means "machine-wide" holds by
+   convention for the documented sibling layout, not by construction.
 
 Related coupling, recorded here because it is easy to miss: **the deferred
 residual R8 "`_ksp_running_against` coarseness"
@@ -49,32 +59,175 @@ coarse probe is a second, independent guard on kRPC port 50000 and the single
 GPU. Note this is NOT the R8 in `autotest-roadmap.md`, which is an unrelated
 scenario-coverage item.
 
-A fourth exposure, filed 2026-08-02 with the machine lock: **the lock key is the
-umbrella root, not truly the machine.** Runs given different `--umbrella-root`
-values, or started from a checkout with a different parent (a nested
-`.claude/worktrees/<name>` isolation worktree), resolve different lockfiles while
-still sharing kRPC 50000/50001 and the GPU; `--instance-dir` bypasses umbrella
-resolution altogether. Deliberate - a machine-global path would serialize the
-unit suites against real runs - but it means "machine-wide" holds by convention
-for the documented sibling layout, not by construction.
+---
+
+## ~~HARNESS-RUNID-COLLISION: two runs of one scenario in the same minute share a run id, and the second silently overwrites the first's evidence~~ [FOUND 2026-08-01 from the results dir of two back-to-back `H23-tracking-station` flights. FIXED 2026-08-01, branch `harness-runid-collision`]
+
+`run.py` built the run id at MINUTE granularity (`%Y-%m-%d_%H%M` + `_<scenarioId>`),
+and `results/<runId>.json`, `results/<runId>_shots/` (holding the copied KSP.log),
+`results/<runId>_contact.html`, `<runId>_mission.json`, `<runId>.manifest.json` and
+`<runId>.seed` are ALL keyed by that id alone. Two runs of one scenario started
+inside one minute therefore collided, and the second wrote straight over the
+first's.
+
+### The measurement
+
+Two `H23-tracking-station` flights launched at 19:28:02 and 19:28:54 produced TWO
+per-invocation harness logs (`results/2026-08-01_162803_harness.log` and
+`..._162854_harness.log`, which ARE second-granular) but ONE result JSON and ONE
+`_shots` dir. The first flight was clean (`unityExceptions.total=0`); the second
+was not (`total=2`), and it is the second's record that survived. Nothing warned,
+and a reader of `results/` could not tell two runs had happened at all.
+
+This is the harness's own evidence store losing a completed verdict and its
+collected KSP.log - the exact silent loss the V3 contact-sheet work exists to
+prevent.
+
+### Fix (branch `harness-runid-collision`)
+
+The id is resolved against what `results/` already holds instead of being assumed
+free. Pure core in `hlib`: `format_run_id` / `claimed_run_ids` / `resolve_run_id`
+(+ `RUN_ID_TIMESTAMP_FORMAT`, `RUN_ID_ARTIFACT_SUFFIXES`). A claimed base id takes
+a `_run<N>` run-instance suffix; ANY surviving artifact shape claims the id, not
+just the result JSON, so a `_shots` dir whose record never landed still cannot be
+written over. `run.py` logs a `Warn` naming both ids at the moment it happens, so
+the collision is in the harness log rather than inferable only from a missing file.
+
+Granularity was deliberately left at the minute: the guard, not a finer stamp, is
+what makes an overwrite impossible, and a second-granular stamp would still have a
+window. There is no ordinal cap - `claimed` is finite, so the scan is bounded, and
+a cap could only either raise (losing a verdict) or overwrite (the bug).
+
+The scan alone leaves a TOCTOU window, found by self-review before this landed: an
+id is resolved at the TOP of `run_attempt`, long before anything is written under
+it, so two CONCURRENT `run.py` invocations of one scenario both see an empty
+`results/` and both take the base id. The per-instance run lock does not serialize
+them - the refused one writes its `INVALID(instance-locked)` record straight away
+while the winner is still flying - so `run.py` now also STAKES the id the instant
+it resolves one (`results/<runId>.claim`, exclusive-create), re-resolving above
+the next ordinal if a concurrent invocation staked it first. Stakes are never
+reaped: a claim left by a run that died is correct, since that id WAS issued. An
+unwritable `results/` degrades to scan-only rather than blocking a run (design
+edge 10). Building that guard produced one defect the smoke cell caught before
+commit - `os.makedirs` over a path that exists as a FILE also raises
+`FileExistsError`, and one combined handler read that as "already staked",
+re-resolving forever and hanging the suite; the handlers are now separate, plus a
+bounded loop as a hang guard.
+
+Five independent reviews then raised 18 findings; 16 were refuted and 2 held, both
+fixed on the branch. (1) `harness/results/.gitignore` covered every sibling
+artifact shape but not `.claim`, so each run left a permanent untracked file in a
+tracked directory - and a COMMITTED stake would burn that run id for every clone,
+which makes the pattern load-bearing rather than tidiness. (2) The smoke cell
+asserting the ordinal threading flew BOTH runs with a retry, the one shape where
+threading is invisible (run 1 leaves `_a2` on disk, so the scan yields the same
+ids either way) - mutating the threading away left all three suites green. A
+sibling cell now flies run 1 clean and only run 2 retrying, where `_a2` is FREE:
+without threading, run 2's retry lands back on run 1's stem and is rendered as run
+1's attempt 2. Nothing is overwritten there (the id genuinely was free), so only
+an attribution assertion catches it.
+
+`_run<N>` sits BEFORE the `_a<N>` attempt suffix, which stays terminal:
+`_a<N>` is the `[retry] policy = "once"` path re-flying ONE run and is NOT a
+collision, `_run<N>` is a SEPARATE run that would have collided. One run's
+ordinal is resolved once in `_run_scenario_with_retry` and threaded through both
+attempts, so they share one stem (`..._run2`, `..._run2_a2`).
+`status.split_run_id` learned the new suffix and now returns `run` alongside
+`attempt` - without that the panel's scenario would have read
+`H23-tracking-station_run2`, missed the spec toml, and silently lost its mission
+params and wall budget mid-flight.
 
 ---
 
-## B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. TUNING TODO on the SHARED b5 capture machine - not picked up on the `v1-map-dwell` branch]
+## ~~B11-CAPTURE-APPROACH-WARP: increase warp from Mun SOI entry up to the circularization node~~ [OPERATOR NOTE 2026-07-30, watching a live V1-map-dwell-mun-orbit flight. MEASURED 2026-08-01, branch `small-fixes-batch`: BOTH NAMED KNOBS ARE INERT. NO MACHINE CHANGE, so no confirmation flight is owed]
 
-The stretch from Mun SOI entry to the capture (circularize-at-periapsis) node
-runs slower than it needs to. Today capture mode warps TARGET-FLYBY to
-`periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900 s) off the orbit's own
-periapsis clock, then PLAN-CAPTURE plans at `planWarpFactor` (2) and the
-executor autowarps the rest; the operator's observation is that the whole
-in-SOI approach up to the node should carry a higher warp so the pass reaches
-the burn faster. Constraints when picking this up: the machine is SHARED
-(B11/B12 fly it nightly, both LIVE-PROVEN, so a profile change owes a
-confirmation flight per the standing rule), the periapsis-clock bound exists
-because the B12 flight-3 rails stair sailed past the only capture point on the
-pass (never re-derive that the altitude-trend way), and MechJeb's own ~600 s 1x
-pre-ignition WARPALIGN hold is the executor's, not ours - the tunable stretch
-is the coast INTO the lead window plus the plan-phase warp, not the hold.
+### The measurement, and why it closes the note rather than implementing it
+
+The note names two tunables - the coast INTO the lead window, and the plan-phase
+warp. Neither can buy what it wanted, and the flown record already said so:
+
+- **B11 flight 1, from its own mission log** (`2026-07-24_2334_B11-mun-orbit_mission.stdout.log`):
+
+  ```
+  COAST-TO-TARGET -> TARGET-FLYBY   ut 16,419.836   <- SOI ENTRY
+  TARGET-FLYBY    -> PLAN-CAPTURE   ut 16,497.836   (+78.0 s)
+  PLAN-CAPTURE    -> CAPTURE-BURN   ut 16,518.635   (+98.8 s)  <- handoff to MechJeb
+  node                              ut 21,549.027
+  ```
+
+  SOI entry -> node = **5,129.2 game seconds**, of which the machine owns **98.8
+  (1.9%)** and MechJeb's NodeExecutor owns 5,030.4, its last 600 being the 1x
+  pre-ignition hold.
+- **B11 flight 3:** "TARGET-FLYBY collapsed from 8,213 game seconds to **27 game
+  seconds** on 2 warp commands."
+
+> **Correction (2026-08-02).** This entry first read the span as "SOI entry ut
+> 16,518.6 -> node ut 21,549.0 = 5,030 game seconds". **16,518.6 is the CAPTURE-BURN
+> phase entry, not SOI entry** - B11's spec pins it under `captureBurnTimeoutSeconds`
+> and never calls it SOI entry. The mistake started the denominator ~99 s late,
+> exactly inside the window the machine does own, and it was baked into
+> `CaptureApproachWarpOwnershipTests` as `SOI_ENTRY_UT` too. Both are fixed. The
+> conclusion is unchanged and if anything better supported: 1.9% is still a rounding
+> error against MechJeb's share.
+
+Driving the pure `b5_decide` headlessly over a B11-shaped arrival shows the OWNERSHIP
+(new `CaptureApproachWarpOwnershipTests` in `test_mlib.py`):
+
+```
+poll   phase          actions
+   0   TARGET-FLYBY   warp_to_ut = node_ut - 900   <- the capture bound
+   1   TARGET-FLYBY   -
+   2   PLAN-CAPTURE   cancel_warp, mj_plan_capture <- exactly ONE poll
+   3   CAPTURE-BURN   mj_execute_nodes             <- handoff
+  4+   CAPTURE-BURN   -                            <- zero warp actions, ever
+```
+
+> **What that walk does and does not prove.** It establishes the phase SEQUENCE, that
+> the capture warp is issued exactly once and aimed at `node_ut - lead`, that
+> PLAN-CAPTURE is one poll, and that CAPTURE-BURN never emits a warp. It does NOT
+> "reproduce the measurements" - an earlier draft of this entry said so, but the UTs
+> it printed were the walk's own inputs on a synthetic 9 s cadence, and the flown
+> cadence is nothing like it (flight 1's TARGET-FLYBY spanned 78 s; flight 3's
+> PLAN-CAPTURE was a single 0.583 s poll). The ownership arithmetic above is taken
+> from the flight log, not from the walk.
+
+So:
+
+1. **`CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS` (900) is a BOUND, not a stop-point.**
+   The native warp is aimed at `node_ut - 900` = ut 20,649.0 and is CANCELLED on
+   PLAN-CAPTURE entry at ut 16,497.8 - **4,151 game seconds short of its own
+   target**. It is never reached on a healthy capture, so changing it cannot move a
+   healthy flight by one second. It binds only when arming is DELAYED, which is
+   precisely the B12 flight-3 sail-past it was added for - and lowering it moves
+   toward that failure, against the deliberate asymmetry the constant documents
+   ("stopping later loses the pass outright").
+2. **`planWarpFactor` governs ONE poll.** PLAN-CAPTURE is entered at SOI entry
+   + 78.0 s and left at + 98.8 s - one poll of the approach. Raising its factor
+   saves a fraction of that.
+3. **The machine owns 98.8 of 5,129.2 game seconds (1.9%) and emits nothing after
+   that.** The remaining 5,030.4 s are MechJeb's NodeExecutor autowarp, whose final
+   600 game s are its 1x WARPALIGN hold - roughly 600 WALL seconds of B11's ~1,270 s
+   total.
+
+So the cost the operator watched is, to a first approximation, MechJeb's hold: the
+one thing the note itself rules out of scope ("the executor's, not ours"). It cannot
+be shortened from our side either - `StateWarpAlign` calls `MinimumWarp()` every
+frame inside that window by construction, so commanding warp there is a fight with
+the executor for the wheel, which is how B-DOCK flight 12 lost a burn.
+
+### What was done instead
+
+Nothing to the machine - so the shared-machine confirmation-flight debt does not
+arise. The finding is guarded by three cells that pin WHO OWNS THE COAST: the lead
+bound is unreachable, the handoff happens within one poll of arming, and CAPTURE-BURN
+emits zero warp actions. Anything that makes either knob matter has changed the
+ownership, and reds there first.
+
+### What would reopen this
+
+A flight whose TARGET-FLYBY spans a large fraction of the in-SOI coast (i.e. arming
+delayed, so the lead actually binds). At that point the knob is the lead - and it
+must move toward MORE lead, not less.
 
 ---
 
@@ -459,9 +612,57 @@ One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees
 
 ---
 
-## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)
+## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration) [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. STILL NOT FIXED - the calibration flight has not been flown]
 
-Found during the units audit, deliberately NOT fixed there because world-frame sign/swizzle conventions must be calibrated in-game, never re-derived on paper. With the units fixed, `TwoBodyOrbit` state vectors are well-defined: KSP Zup-swizzled body-relative (the `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` frame). Three extrapolator consumers do not honor that frame:
+### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two
+
+Each site was re-read against current `HEAD` and carries a `FRAME MISMATCH #n,
+PINNED NOT FIXED` comment naming its frame, its likely correction, and the fact that
+it ships with the other three - so nobody fixes one in isolation:
+
+| # | Site | Line |
+|---|------|------|
+| 1 | `IncompleteBallisticSceneExitFinalizer.ResolveBodyFixedSurfaceCoordinates` | `worldPos = body.position + position` |
+| 2 | `IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromVessel` | `getPositionAtUT` + `getOrbitalVelocityAtUT` |
+| 3 | `IncompleteBallisticSceneExitFinalizer` `ParentFrameState` resolver | `bodyOrbit.getPositionAtUT(ut)` |
+| 4 | `IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations` | `ComputeOrbitalFrameRotationFromState` |
+
+The split matters because it says which half is actually blocked on a flight:
+
+- **Sites 2 and 3 need NO in-game measurement to be called wrong.** Each builds ONE
+  state vector out of TWO frames: `Orbit.getPositionAtUT` returns ABSOLUTE Y-up
+  world (it is `getRelativePositionAtUT(ut).xzy + referenceBody.position`), while
+  `getOrbitalVelocityAtUT` returns Zup-swizzled body-relative. That is inconsistent
+  under EITHER swizzle convention, and it contradicts the extrapolator's own
+  in-file contract ("state vectors live in the same frame as
+  `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` (Zup-swizzled,
+  body-relative)"). The fix is still not free: site 2 is the destroyed-vessel
+  fallback and `SubSurfaceStart`'s destroyed-fingerprint classification keys on the
+  garbage state it produces, so it owes that path a re-verification.
+- **Sites 1 and 4 are the genuinely calibration-blocked half** - they turn on the
+  axis/sign mapping between the two frames, which is exactly what must be measured
+  in-game rather than derived.
+
+### The calibration this is waiting on
+
+One flight answers all four, because they share the frame:
+
+1. Fly a deliberate impact whose crash site is known (CL1's pod-impact lane is the
+   cheapest existing subject) and let the scene-exit finalizer author the terminal
+   tail.
+2. Compare the recording's terminal lat/lon against the ACTUAL crash site. An
+   axis-swap error shows up as a gross, structured offset, not jitter.
+3. Re-run with `position.xzy` at site 1 and confirm the offset collapses. That
+   single measurement fixes the convention for all four sites.
+4. Site 4 is cosmetic (predicted-segment ghost ATTITUDE, not position), so it is
+   verified by eye on the same flight once 1-3 agree.
+
+Until that flight happens, do not "fix" any of the four on paper - that is the
+instruction this entry has carried since the units audit, and it still stands.
+
+### The original finding
+
+Found during the units audit, deliberately NOT fixed there because world-frame sign/swizzle conventions must be calibrated in-game, never re-derived on paper. With the units fixed, `TwoBodyOrbit` state vectors are well-defined: KSP Zup-swizzled body-relative (the `Orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` frame). FOUR extrapolator consumers do not honor that frame (the count read "three" until the 2026-08-01 re-verification enumerated four; the list below has always had four items):
 
 1. `IncompleteBallisticSceneExitFinalizer.ResolveBodyFixedSurfaceCoordinates` computes `worldPos = body.position + position` with no `.xzy` unswizzle, so terrain-altitude sampling and the recorded terminal impact lat/lon interpret Zup vectors as Y-up world offsets (lat/lon wrong by an axis swap).
 2. `TryBuildStartStateFromVessel` seeds `position = vessel.orbit.getPositionAtUT(commitUT)` - ABSOLUTE world position (includes `referenceBody.position`), not body-relative - mixed with a Zup-relative velocity. In practice this is the destroyed-vessel fallback path (the garbage state is what `SubSurfaceStart` classifies on), but a live vessel reaching it would extrapolate from a nonsense frame. The likely-correct seed is `getRelativePositionAtUT(commitUT)` + `getOrbitalVelocityAtUT(commitUT)` (both Zup body-relative); note the `SubSurfaceStart` destroyed-fingerprint classification depends on the current behavior, so any change must re-verify that path.
@@ -472,11 +673,184 @@ Each is a behavioral change on live extrapolation paths; fix together with an in
 
 ---
 
-## AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame [FOUND 2026-07-30 by the R12 live-validation runs. NOT FIXED]
+## ~~AN ORBITAL EVA RECORDS NOTHING: `RefreshFinalizationCache` throws `ArithmeticException` out of `SolveHyperbolicKepler` on every physics frame~~ [FOUND 2026-07-30 by the R12 live-validation runs. FIXED 2026-08-01, branch `fix-orbital-eva-kepler`]
+
+### Fix
+
+NOT a residual of ORBITSEGMENT-ANGLE-UNITS, and NOT a clamp. The unit question is
+settled structurally: the only values that reach `SolveHyperbolicKepler` are
+`MeanAnomalyAtEpoch`, `Epoch`, `SemiMajorAxis`, `Eccentricity`, the gravitational
+parameter and the propagation UT. The unit-ambiguous angular elements
+(inc / LAN / argPe) are consumed AFTER the solve, in `RotateFromPerifocal`, so a
+degrees-vs-radians mismatch can only mis-ORIENT the answer - it cannot make
+`Math.Sign` throw, and a mis-scaled `mEp` would be a finite wrong angle, not NaN.
+`Math.Sign` throws for exactly one input: NaN. So the input class is NON-FINITE (or
+sign-inconsistent) elements, matching stock's own upstream `M: NaN`, not mis-scaled
+ones. Three layers, source outwards:
+
+1. **Source - `PatchedConicSnapshot.HasFinitePatchElements`.** A stock patch whose
+   seven elements or `StartUT` are not finite is refused instead of being copied into
+   an `OrbitSegment`, under a new `NonFinitePatchElements` failure reason with the
+   same partial-keep semantics as `MissingPatchBody` (patch 0 aborts, patch N>0
+   truncates and keeps the valid prefix). This is what keeps a NaN out of the
+   recording's persisted predicted segments and out of every downstream degrees
+   consumer. The UT bounds are checked WITH the elements: `ToOrbitSegment`'s
+   `patch.EndUT < startUT` clamp cannot catch a NaN `EndUT` (the comparison is false),
+   and `endUT` is the UT the finalizer propagates the terminal segment AT - which is
+   exactly the member of the class the live 2026-08-01 capture turned out to hit.
+   AN INFINITE `EndUT` IS DECLINED BUT NOT CALLED A DEGENERACY, and the distinction is
+   the whole of what review changed here. `+Infinity` is stock's own sentinel for "this
+   patch never ends" on a FULLY SOLVED open orbit - verified against decompiled
+   KSP 1.12.5 on two independent paths: `PatchedConicSolver.Update` seeds the root patch
+   with `patches[0].EndUT = patches[0].period` whenever `eccentricity >= 1.0` and `Orbit`
+   assigns `period = double.PositiveInfinity` for every open orbit; and
+   `PatchedConics._CalculatePatch` assigns `p.EndUT = double.PositiveInfinity` with
+   `patchEndTransition = FINAL` for a hyperbolic patch whose reference body has an
+   infinite sphere of influence (the Sun). So a solar-escape probe is a healthy patch,
+   not a broken one. ADMITTING IT WOULD NOT HELP, which is where the first attempt at
+   this correction went wrong: `endUT` is the UT
+   `IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment` propagates the
+   terminal segment AT, so an infinite bound yields a NaN state, fails that call's
+   `IsFinite` check and declines anyway - through a plain UN-rate-limited `Warn` that
+   then repeats on every periodic refresh for the whole coast. Declining at the snapshot
+   layer reaches the identical outcome with bounded logging. What the carve-out buys is
+   the LABEL: an open-orbit sentinel logs Verbose and change-keyed
+   (`is an open orbit with no end bound`), while a genuine degeneracy still WARNs.
+   Guarded by `Snapshot_OpenOrbitInfiniteEndUT_IsDeclinedQuietlyNotAsADegeneracy` and
+   `Snapshot_InfiniteEndUTWithADegenerateElement_StillWarnsAsADegeneracy`, so a NaN
+   cannot ride an escape trajectory into the quiet path.
+2. **Solver boundary - `TwoBodyOrbit.AreSegmentElementsPropagatable`.**
+   `TryCreateFromSegment` checked only `semiMajorAxis` for finiteness, so the other
+   six elements went through unvalidated; a NaN eccentricity then failed the
+   `< 1.0` elliptic test (every comparison against NaN is false) and was classified
+   HYPERBOLIC. It now declines four classes the propagation has no finite answer for:
+   any non-finite element, negative eccentricity, parabolic `e == 1` (`a` undefined,
+   `p = a(1-e^2) = 0`, so `sqrt(mu/p)` is infinite - `TryCreate` already refused the
+   same case from the state-vector side, so the two constructors now agree), and an
+   `a` whose SIGN disagrees with the conic class (elliptic needs `a > 0`, hyperbolic
+   `a < 0`, or `sqrt(mu / (-a)^3)` roots a negative and manufactures the NaN itself
+   with every element finite). `SolveHyperbolicKepler` is additionally made TOTAL:
+   a non-finite mean anomaly returns NaN, which the three `TryPropagate` consumers in
+   `IncompleteBallisticSceneExitFinalizer` already handle through their `IsFinite`
+   state checks. Do NOT read that as "every caller checks" - the in-extrapolator
+   `GetStateAtUT` sites (the horizon state written into
+   `terminalPosition`/`terminalVelocity`, `SampleOrbitWindow`, `GetAltitudeAtUT`,
+   `GetSurfaceDeltaAtUT`) consume the state unchecked, and a NaN there reads false out
+   of every comparison instead of announcing itself. Those sites are safe today only
+   because they reach the solver through validated elements at finite UTs; a new
+   caller that skips that validation needs its own check. Not a narrowing - a genuine
+   hyperbola in element form still builds and still matches closed form.
+3. **Caller - `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`.** The
+   finalization cache is an optimisation and must never cost a sample, so the default
+   finalizer call is wrapped: a throw fails loud once (grep-stable
+   `[Parsek][WARN][FinalizerCache] Refresh threw:` naming vessel pid, refresh reason,
+   UT, body, situation and exception, `WarnRateLimited` 30 s) and declines through the
+   existing `Fail(cache, "default-finalizer-threw")` path, so
+   `TryPreservePreviousCacheAfterFailedRefresh` keeps the last good cache. Retry cadence
+   follows that existing contract rather than a new one, and the two outcomes differ: no
+   preservable previous cache leaves the stored status Failed (which holds
+   `requiresPeriodicRefresh` true, so the periodic cadence retries), while a preserved
+   one is stored Stale (so a coasting vessel retries on a digest change instead). This
+   covers `BackgroundRecorder` as well as `FlightRecorder`, and is worth having
+   regardless of layer 1/2 - it is the half that makes the NEXT unforeseen extrapolator
+   failure cost a cache, not a recording.
+
+Guarded by new xUnit cells in `BallisticExtrapolatorKeplerTests` (the NaN-eccentricity
+segment declines instead of throwing; a valid hyperbola at a non-finite UT yields NaN
+instead of throwing; the sign-inconsistent conic; a per-element rejection table; and
+closed-form periapsis radius / vis-viva speed / `r.v = 0` proving the accepted set did
+not shrink), `PatchedConicSnapshotTests` (abort at patch 0, truncate at patch N>0, the
+NaN-`EndUT` case, and a per-field predicate table) and
+`RecordingFinalizationCacheProducerTests` (a throwing finalizer declines loudly, the
+previous cache stays preservable, and an ordinary decline keeps its own reason).
+
+STILL OPEN, unchanged by this fix (status owned by gate 12 in
+`docs/dev/autotest-status.md`; this is a pointer, not a second verdict): the
+harness-side companion below - an `expectations.recordings` assertion on POINTS rather
+than on `.prec` file count. It is what would have caught the 2026-07-30 run, and it is
+still what would catch the next recording that finalizes empty - though note the
+2026-08-01 A/B control measured the stock trigger as INTERMITTENT, so it reds only when
+that trigger actually fires.
+
+SCOPE FENCE, so layer 1 is not over-read: it screens patched-conic PATCHES, which is
+where the measured NaN came from. It does NOT screen the LIVE vessel orbit.
+`RecordingFinalizationCacheProducer.BuildOrbitSegmentFromVessel` copies the orbit view
+obtained from `vessel.TryGetOrbit` verbatim, and a NaN eccentricity there passes
+`ShouldExtrapolate`'s `eccentricity >= 1.0` test (false for NaN) into
+`PopulateStableOrbitCache`, which can stamp a `TerminalOrbit` carrying the NaN. Narrower
+than it reads, so the fence is not over-stated in the other direction: that route needs
+`situation == ORBITING` AND a finite periapsis altitude above the cutoff, because
+`ShouldExtrapolate` returns true early on a NaN periapsis and unconditionally for
+FLYING / SUB_ORBITAL / ESCAPING. Layer 2 means that can no longer throw or
+mis-propagate, but a non-finite element could still be PERSISTED by that path. Not
+fixed here: the measurement had NaN only in the patches, so guarding the live orbit
+would be speculative. Recorded so nobody assumes it is covered.
+
+NOTED WHILE FIXING, not fixed (different subsystem, no evidence it is reachable):
+`Math.Sign` throws on NaN, and `Source/Parsek/` has exactly three call sites. Two are
+the ones fixed here; the third is `ReputationModule.ApplyReputationCurve`'s
+`Math.Sign(nominal)` (`GameActions/ReputationModule.cs`), whose `nominal == 0f`
+early-out does not catch NaN. Reaching it needs a NaN reputation delta out of a
+recorded ledger action, i.e. a corrupt save rather than a stock-solver quirk, so it is
+recorded here rather than guarded speculatively.
 
 Sibling of the frame-mismatch entry above - same file family (`BallisticExtrapolator`
 / `IncompleteBallisticSceneExitFinalizer`), different failure: this one does not
 mis-orient the answer, it destroys the recording.
+
+### Live proof, and exactly how far it reaches
+
+Flown 2026-08-01 on `stock-minimal`, automation DLL sha256-verified against the branch
+build immediately before each launch (a sibling worktree clobbered it once mid-session,
+so this was checked rather than assumed - and the collected log independently carries
+`has non-finite elements` / `NonFinitePatchElements`, strings that exist only in this
+build).
+
+BUILD DELTA, stated rather than glossed: the flights were made on the build at commit
+`a5271f0f7`. The review pass that followed changed only the LOG LEVEL an infinite
+`EndUT` takes (Verbose open-orbit sentinel instead of a degeneracy WARN), the exception
+detail in the finalizer-cache WARN, and comments. The accept/reject decision for every
+input is unchanged, and the patch refused in the fixed-build run was `endUT=NaN` - still
+refused, still WARNed, since `DescribePatchElements` lists EVERY offending field and NaN
+was the only one. A confirmatory re-fly was not run because nothing in the delta can
+discriminate on those two runs.
+
+| run | build | stock `dT is NaN` | patch refused | `ArithmeticException` | EVA kerbal |
+| --- | --- | --- | --- | --- | --- |
+| `2026-07-30_1532_S0.7-exit-auto-commit` | pre-fix | 2196 | n/a | **501** | `points=1 maxDist=0m` |
+| `2026-08-01_1626_EVA-2-orbital-board` | FIXED | 6 | 1 (`endUT=NaN`) | 0 | `points=5 maxDist=1888m` |
+| `2026-08-01_1634_EVA-2-orbital-board` | pre-fix (A/B control) | 0 | n/a | 0 | `points=4` |
+
+PROVEN by the fixed-build run: the guard fires in flight on a REAL stock degenerate
+patch - stock produced one at `snapshotUT=422.15`, the same UT band as the 2026-07-30
+first exception (which followed that run's `ut=422.15` sample-skip by one physics
+frame), and layer 1 refused it with
+`has non-finite elements (endUT=NaN); aborting predicted snapshot capture`, after which
+the tail declined `NonFinitePatchElements` and the next snapshot 80 ms later was clean.
+The EVA then recorded 5 points with 1888 m of spatial extent across its 10.068 s dwell,
+with zero `ArithmeticException`, zero `SolveHyperbolicKepler` frames, zero
+`[FinalizerCache] Refresh threw` (layer 3 never fired) and zero `[Parsek][ERROR]`.
+`S0.7-exit-auto-commit` re-flew green the same day (`2026-08-01_1630`, PASS, 48 s), so
+there is no regression on the transition path.
+
+NOT PROVEN, and worth stating plainly because a green EVA-2 invites over-reading. The
+A/B control - same spec, same fixture, flown on a pre-fix DLL built from the merge base
+and byte-verified to carry NONE of the fix's strings - also flew clean, because stock's
+degenerate-conic window never opened that run at all. So the trigger is INTERMITTENT
+across runs of one fixture (2196 / 6 / 0 occurrences of stock's own `dT is NaN`), and
+the fixed-build run is NOT a controlled reproduction of the 501-exception crash: the
+absence of the exception there is CONSISTENT WITH the fix rather than solely
+attributable to it.
+
+One structural note the live capture settled. The NaN arrived in `endUT`, with the seven
+orbital elements finite - a DIFFERENT member of the degenerate class than the 2026-07-30
+forensics, where a NaN eccentricity misclassified the conic as hyperbolic. Layer 1
+checks the UT bounds WITH the elements precisely because `ToOrbitSegment`'s
+`patch.EndUT < startUT` clamp is blind to NaN, and that half is what caught this flight.
+It also means this particular patch could not have reproduced the original throw on the
+old build: within the extrapolator `Math.Sign` exists only in `SolveHyperbolicKepler`
+(the third mod-wide call site, `ReputationModule.ApplyReputationCurve`, is off this
+path entirely), and a finite near-zero eccentricity never routes there.
 
 ### The measurement
 
@@ -523,13 +897,34 @@ loop), so it takes the SAMPLING with it. Everything the recorder would have done
 frame - trajectory points, part events, the background pass - does not happen. The
 recording is not degraded, it is empty.
 
-### Why nothing caught it
+### Why nothing caught it [HARNESS HALF ADDRESSED 2026-08-02]
 
-`EVA-2-orbital-board` is green and stays green. Its numeric guard is
+`EVA-2-orbital-board` is green and stayed green. Its numeric guard is
 `recordings.count = { min = 2, max = 2 }`, which counts `.prec` FILES, and two empty
 recordings are still two files. This is the category inventory's "fourth trap" (a
 vacuous PASS the tally cannot see) reappearing in the RECORDINGS dimension instead of
-the batch-tally one. Nothing in the verifier chain asserts a recording has points.
+the batch-tally one. Stated precisely, because the loose version is false: the trap is
+the BLIND SPOT, not a green EVA-2 run that exploited it. No EVA-2 run is on record
+having PASSED with empty recordings - the empty pair was measured on
+`2026-07-30_1532_S0.7-exit-auto-commit`, which flew EVA-2's profile and finished
+PARSEK-FAIL with `recordings.count = 0`.
+
+"Nothing in the verifier chain asserts a recording has points" is NO LONGER TRUE as
+of 2026-08-02: `[expectations.recordings.points]` (autotest-status gate 12) asserts
+`total` / `largest` / `smallest` / `trivialRecordings` windows over the per-recording
+`pointCount` the save carries, evaluated by the R9 `saveParse` row. EVA-2 declares
+`largest = { min = 2 }` + `trivialRecordings = { max = 1 }`, REPORT-ONLY pending its
+arming run. Two honest limits on that:
+
+- It reds only when the trigger FIRES. The stock trigger is intermittent - `dT is
+  NaN` occurred 2196x / 6x / 0x across three runs of the same fixture during the
+  #1408 verification, and the A/B control `2026-08-01_1634` flew CLEAN on a
+  byte-verified PRE-FIX DLL (`points=4`), i.e. a DEFECTIVE build would have satisfied
+  this window. A green EVA-2 is NOT evidence the NaN path did not happen. The
+  assertion bounds the blast radius of the next recording-emptying defect; it does not
+  guarantee detection of this one.
+- It is a DETECTOR, not the fix. The product fix is the "Fix" section above (all three
+  directions below were taken); this only changes what the harness can SEE.
 
 ### Scope, as far as the evidence goes
 
@@ -542,58 +937,221 @@ the batch-tally one. Nothing in the verifier chain asserts a recording has point
   only non-EVA orbital recording measured here ran 133 ms and never got far enough to
   say.
 
-### Fix directions (not chosen)
+### Fix directions (all three taken - see Fix above)
 
 1. Guard the boundary: `TwoBodyOrbit.TryCreateFromSegment` / `GetStateAtUT` reject
    non-finite elements and return false instead of throwing, so a degenerate conic
    declines to extrapolate rather than killing the frame. Cheapest, and it matches
-   how the rest of the finalizer treats an unresolvable tail.
+   how the rest of the finalizer treats an unresolvable tail. TAKEN, and widened: the
+   audit that wrote this list assumed non-finiteness was the whole input class, but a
+   sign-inconsistent conic (`e > 1` with `a > 0`) reaches the same throw with every
+   element finite, so the guard is on the ELEMENT SET's propagability, not just on
+   finiteness.
 2. Guard the source: `PatchedConicSnapshot` drops a patch whose elements are not
-   finite, so the NaN never enters a recording's predicted segments either.
+   finite, so the NaN never enters a recording's predicted segments either. TAKEN,
+   and widened to the patch's UT BOUNDS: `endUT` is the UT the finalizer propagates
+   the terminal predicted segment at, and `ToOrbitSegment`'s `patch.EndUT < startUT`
+   clamp is blind to a NaN.
 3. Defensive: wrap `RefreshFinalizationCache`'s call in `OnPhysicsFrame` so a
    finalization-cache failure can never cost a sample. This one is worth doing
    REGARDLESS of the other two - the finalization cache is an optimisation, and it
-   should not be able to stop the recorder.
+   should not be able to stop the recorder. TAKEN, but placed one level DOWN from
+   what this line proposed: the guard sits inside
+   `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel`, around the default
+   finalizer call, so it covers `BackgroundRecorder`'s refresh path as well as
+   `FlightRecorder.OnPhysicsFrame` from a single site, and it degrades through the
+   producer's existing `Fail(...)` decline contract rather than inventing a second one.
 
-A harness-side companion is worth considering separately: an
+~~A harness-side companion is worth considering separately: an
 `expectations.recordings` assertion on POINTS, not only on file count, would have
-caught this on EVA-2's first flight.
+caught this on EVA-2's first flight.~~ DONE 2026-08-02 - see "Why nothing caught it"
+above. Landed as `[expectations.recordings.points]`, a third M-C2 save-parse block
+read off the save's own `pointCount` (the `FinalizeTreeRecordings: ... points=N` log
+line was rejected as a source: it is Verbose, so it would go silent fail-open on any
+spec not pinning `verboseLogging`). Note the claim is narrower than "would have
+caught this on EVA-2's first flight" - see the intermittency limit above.
 
 ---
 
-## Intermittent stock `SpaceTracking.buildVesselsList` NRE on TRACKSTATION ghost teardown is not classified by the ghost-NRE suppressor [FOUND 2026-07-30 by `H23-tracking-station`. NOT FIXED, low cost]
+## Intermittent stock `SpaceTracking.buildVesselsList` NRE on the `H23-tracking-station` lane [FOUND 2026-07-30 by `H23-tracking-station`. Suppressor gap CLOSED 2026-08-01, branch `small-fixes-batch`. The OBSERVED occurrence is a stock shutdown race and is NOT Parsek's to fix - see "What is actually happening"]
 
-Observed on the FIRST `H23-tracking-station` flight (2 raw Unity exceptions) and NOT
-on the second, identical, pinned flight (0) - so it is intermittent, which is why the
-spec deliberately does not arm `[expectations.unityExceptions] maxTotal`.
+### The correction that matters (2026-08-01, flown)
+
+This entry was written believing the NRE came from Parsek's synthetic-ghost teardown.
+**It does not.** Flying the fix (`2026-08-01_1628_H23-tracking-station`, PASS, 46 s,
+`unityExceptions.total=2`) caught the exception with the new diagnostic fields
+populated, and they read `ghostTeardownInProgress=0 registeredGhostMapVessels=0` -
+BOTH new conjuncts zero. The collected log says why: it fires **715 ms after
+`flushandquit: Application.Quit`**, from
+
+```
+Vessel:OnDestroy()  ->  EventData`1:Fire(Vessel)
+  ->  KSP.UI.Screens.SpaceTracking.onVesselDestroyed (Vessel v)
+    ->  SpaceTracking.buildVesselsList_Patch2
+```
+
+i.e. UNITY destroying `Vessel` GameObjects at application exit, against a stock TS UI
+that `UIApp`/`KbApp OnDestroy` have already partly torn down. All three
+`RemoveAllGhostVessels` calls on that flight logged `no ghost vessels to remove`, so
+no Parsek ghost `Die()` ran at all, and `ParsekTrackingStation destroyed` is 1.36 s
+earlier in the log. **Parsek neither causes it nor has anything to suppress**; the
+suppressor leaving it visible is correct, not a missing case.
+
+So the fix below is KEPT and is sound on its own terms - it closes a genuine
+scan-blind hole, and its two new fields are what turned this from a mystery into a
+one-flight diagnosis - but it does NOT close the occurrence this entry was opened
+for, and the header no longer claims it does.
+
+Also corrected: the "2 raw Unity exceptions" reading is ONE exception counted twice
+(`hlib.scan_unity_exceptions` matches both the `[ERR]` line and the `[EXC]` line under
+it). And the five-flight record is 2 / 0 / 0 / 0 / 2 (`2026-07-30_1520`, `_1522`,
+`2026-07-31_1625`, then both 2026-08-01 flights), a base rate near one in three - which
+is why "fly twice, if both read zero then arm" was never a sound test and has been
+replaced in gate 13.
+
+### What shipped: the diagnostics. And what did NOT: a second suppression class
+
+The open question this entry used to carry - should a scan that itself failed be
+classified from `scanError` plus the known call site? - was answered "yes", built as
+`GhostTeardownScanBlind`, and then answered **no** by the flight above plus review. The
+suppressor still carries exactly ONE suppressing class (`#556`'s
+`KnownGhostMissingRenderer`); a failed scan still leaves the exception visible.
+
+**Why the second class was withdrawn**, beyond "it did not cover the observed case":
+
+- It was **reachable in the wrong direction**. `ParsekTrackingStation.OnDestroy` calls
+  `GhostMapPresence.RemoveAllGhostVessels`, so leaving the TS with any ghost still
+  registered runs OUR `Die()` *inside stock's own UI teardown* - the same window that
+  produces the shutdown NRE. Every conjunct would have held, and the class would have
+  swallowed the stock bug this entry now documents. On the flight that caught it the
+  ghosts happened to be gone already; a user leaving the TS with ghosts visible is the
+  ordinary case.
+- **The conjuncts read stronger than they were.** `RegisteredGhostMapVesselCount > 0` is
+  *implied* by a teardown being in progress, because all four sites remove the pid only
+  after `EndGhostTeardown`. And the IL-offset check never rules anything out in
+  production - see `BUILDVESSELSLIST-IL-OFFSET-GATE-INERT`. So "five conjuncts" was
+  really two plus a causal one.
+
+Trading an over-suppression that is reachable for a hole no flight has ever shown is a
+bad trade for a suppressor, whose entire job is to not hide things.
+
+**What is kept, because it is the half that worked.** `GhostMapPresence` gained a
+nesting `ghostTeardownDepth`, raised around all four `vessel.Die()` sites
+(`RemoveGhostVessel`, `RemoveGhostVesselForRecording`, `RemoveAllGhostVessels`,
+`RemoveOverlapInstance`), each released in a `finally` so an exception cannot latch it,
+plus `RegisteredGhostMapVesselCount`. Both are read BEFORE the context scan and outside
+its `try` - reads that cannot throw, whose whole value is surviving one that does - and
+both are reported on the warn line as `ghostTeardownInProgress=` and
+`registeredGhostMapVessels=`. Those two fields reading `0 0` are what identified the
+real cause from a single flight instead of another round of guessing.
+
+The `#556` class is untouched: an empty `ScanError` routes to exactly the old predicate,
+so all seven pre-existing cells assert the same behaviour. The headless cells now pin
+the STANDING guarantee rather than the withdrawn one - including a regression cell using
+the withdrawn class's exact fixture (teardown running, ghosts registered, scan dead of
+the same NRE) asserting it must NOT suppress - plus the depth counter's nesting and
+floor-at-zero.
+
+CONSEQUENCE FOR THE HARNESS: the class itself is no longer what blocks a TRACKSTATION
+spec from arming `[expectations.unityExceptions] maxTotal` - but the SHUTDOWN race
+above still is, and it is a stock bug rather than one Parsek may swallow.
+`H23-tracking-station` therefore stays UNARMED; gate 13 in `autotest-status.md` now
+carries the decision that has to be made first.
+
+---
+
+## BUILDVESSELSLIST-IL-OFFSET-GATE-INERT: the stack-trace guard on the ghost-NRE suppressor never fires in the real game [FOUND 2026-08-02 by review of the flown H23 log. PRE-EXISTING since #556. NOT FIXED]
+
+### What is wrong
+
+`GhostTrackingStationPatch.StackTraceRulesOutKnownGhostRendererNre` is described - in
+its own comments, and in every doc that counts the suppressor's conjuncts - as a guard
+that rules out a suppression when the trace names a DIFFERENT stock IL offset. In
+production it rules out nothing, ever, because it can never find an offset to compare.
+
+Harmony replaces `SpaceTracking.buildVesselsList` with a `DynamicMethod`, and Mono emits
+no `[0x…]` offset for a wrapper frame. The real frame, from
+`2026-08-01_1628_H23-tracking-station_shots/KSP.log:12071`:
+
+```
+at (wrapper dynamic-method) KSP.UI.Screens.SpaceTracking.KSP.UI.Screens.SpaceTracking.buildVesselsList_Patch2(KSP.UI.Screens.SpaceTracking)
+```
+
+`TryFindBuildVesselsListIlOffset` matches the substring `SpaceTracking.buildVesselsList`
+on that line, finds no `[0x`, and **`return false` - it does not continue scanning later
+frames**. So the resolver always fails, `StackTraceRulesOutKnownGhostRendererNre` always
+returns `false`, and `BuildVesselsListOrbitRendererLoadOffset` (`0x00b4`) /
+`BuildVesselsListIconEventLoadOffset` (`0x00b9`) are dead constants.
+
+### Why it survived
+
+Every cell that exercises it feeds the hand-written fixture
+`"at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0"`
+- a format the game does not produce for this patched method. The gate is real against
+the fixture and inert against reality: the fixture-shaped guarantee this codebase warns
+about elsewhere.
+
+### What it costs, and what it does not
+
+Today: the `#556` `KnownGhostMissingRenderer` class fires on its three count conditions
+alone, one guard weaker than every description of it claims. That class's remaining
+conditions are positive evidence from a live scan, so this is a weakened guard rather
+than an open door - and no log anywhere in the repo shows `Suppressed known ghost
+ProtoVessel`, so it may never have fired at all.
+
+It is recorded here rather than fixed because the fix changes WHEN a shipped suppressor
+fires, which is a behavioural change owed its own change and its own flight - not a
+rider on a PR about something else.
+
+### Fix
+
+Make `TryFindBuildVesselsListIlOffset` keep scanning subsequent frames when a matching
+frame carries no offset (and decide explicitly what a wrapper-only trace should mean -
+"no evidence either way" is the honest reading, which is what it already does by
+accident). Then re-pin the cells against the REAL production frame format, keeping one
+fixture for the offset-bearing case. Cheap to do; needs a live TS flight afterwards to
+confirm the `#556` class still behaves.
+
+### What is actually happening
+
+An intermittent stock NRE at APPLICATION SHUTDOWN, on 2 of 6 flights so far (record
+2 / 0 / 0 / 0 / 2 / 0 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625`, both
+2026-08-01 flights, and `2026-08-02_1140` flown against the post-withdrawal HEAD). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
+signature; the two "raw Unity exceptions" the scan reports are that ONE exception
+counted twice, not two failures.
 
 ```
 [Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception left visible:
   type=NullReferenceException totalVessels=0 ghostVessels=0
   ghostMissingOrbitRenderers=0 nonGhostMissingOrbitRenderers=0
   firstMissingOrbitRenderer=non-ghost-or-none priorStockNullCandidates=0
+  ghostTeardownInProgress=0 registeredGhostMapVessels=0
   scanError="NullReferenceException: Object reference not set to an instance of an object"
 [ERR] Exception handling event onVesselDestroy in class SpaceTracking:
   System.NullReferenceException
+  at SpaceTracking.buildVesselsList_Patch2 / onVesselDestroyed (Vessel v)
+  at EventData`1[T].Fire (T data)  <- from Vessel:OnDestroy()
 ```
 
-It fires during the synthetic-ghost teardown the TS tests perform
-(`SyntheticTrackingStationRecordingScope` dispose ->
-`GhostMapPresence` ProtoVessel destroy -> stock `onVesselDestroy` ->
-`SpaceTracking.buildVesselsList`).
+`Vessel:OnDestroy()` is Unity reclaiming vessel GameObjects as the process exits: it
+lands 715 ms after `flushandquit: Application.Quit` and 1.36 s after
+`ParsekTrackingStation destroyed`, interleaved with `UIApp`/`KbApp OnDestroy`, so stock
+rebuilds a Tracking Station list whose UI is already partly gone. It is NOT the
+synthetic-ghost teardown this entry originally blamed - on the flight that caught it,
+every `RemoveAllGhostVessels` call logged `no ghost vessels to remove`.
 
-`GhostTrackingStationPatch.IsKnownGhostProtoVesselNre` declined to suppress it, and
-declined CORRECTLY on its own terms: the context scan it classifies from THREW too
-(hence `totalVessels=0 ghostVessels=0` and the populated `scanError`), so it saw a
-zero-ghost context and refused to swallow an exception it could not attribute. That
-is the right default - a suppressor that swallows on missing evidence is how a real
-defect goes quiet.
+`GhostTrackingStationPatch` declines to suppress it, and declines CORRECTLY: the
+context scan throws too (hence `totalVessels=0` and the populated `scanError`), AND
+both scan-independent conjuncts read zero, because there genuinely is no Parsek ghost
+teardown and no registered ghost. A suppressor that swallowed this would be swallowing
+a stock bug it had no part in.
 
-THE QUESTION, not the fix: should a scan that itself failed be classified from
-`scanError` plus the known call site, rather than from counts the failed scan never
-populated? Today the answer is "leave it visible", which costs nothing - the tests it
-interrupts still pass - but it does mean a TRACKSTATION spec cannot arm a Unity
-exception budget without absorbing this.
+WHAT IS LEFT TO DECIDE (not a Parsek code question): whether the harness should
+tolerate a stock shutdown-order NRE so `H23-tracking-station` can arm a Unity-exception
+budget at all. `maxTotal = 0` would red the nightly intermittently; any non-zero
+ceiling has to be justified as deliberately tolerating a stock bug, not sized off a
+green run. Until then the scan stays report-only on this spec, which costs nothing -
+the run is a full PASS with the exception present.
 
 ---
 
@@ -659,9 +1217,70 @@ Key risks carried in the doc: (1) input-lock leak when a gated window is force-c
 
 Separate UI improvements proposed in section 17 of the doc (each ships on its own): extract the window chrome duplicated across 10 files (explicitly NOT a prerequisite for this feature), group the flat 8-button main window, add a name filter to the Recordings table and Missions tab, first-run onboarding, toolbar-button state badge for broken routes, collapsible Settings sections, mission-level ghost-visibility toggle (17.8).
 
-## HARNESS-MIDMISSION-COMMIT-BYPASS: a mid-mission seam CommitTree bypasses the unmet-mission tail gate [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. LATENT, NOT CAUSING FAILURES. Decision wanted: gate it, or document it as intended]
+## ~~HARNESS-MIDMISSION-COMMIT-BYPASS: a mid-mission seam CommitTree bypasses the unmet-mission tail gate~~ [FOUND 2026-07-28 by the retrospective review of PRs #1345-#1363. RESOLVED 2026-08-01, branch `small-fixes-batch`: MADE VISIBLE, report-only]
 
-### What happens
+### The decision, and why it is neither of the two options as stated
+
+Neither "gate it" nor "document it as intended" - a THIRD reading the two options
+did not separate: the route-1 write is not currently doing damage, but it was
+INVISIBLE, and invisibility is what made the choice hard. So it is now measured and
+recorded, and gating is left to be armed later FROM EVIDENCE (the M-C2 save-parse
+discipline: report-only reading first, `gating = true` after).
+
+Three facts argue against gating it today, and each is checkable:
+
+1. **No committed mission has been OBSERVED to hit it** - an observation, not a
+   structural guarantee. `mission_runner._perform_seam_commit` appends the line and
+   THEN polls, so a commit that times out (or any later assertion failure) leaves the
+   write in the channel with an unmet mission: the `exposed` shape exactly. The only
+   emitters of a mid-mission CommitTree
+   are the B-DOCK / orbit-commit machines, all on their SUCCESS path.
+2. **The state does not leak.** `run.py::stage_fixture` rmtree's and re-copies the
+   save template at the start of EVERY attempt, so a junk mid-mission commit dies
+   with the run save. The exposure is within-run, not across runs.
+3. **The run is already INVALID.** An unmet mission is terminal driver-INVALID at
+   `classify_verdict`'s "driver stage failed" branch, which precedes every
+   save-reading verifier - so a gate here would mostly rename an outcome that is
+   already failing, and the new spec opt-in key it needs has no consumer.
+
+### What was implemented
+
+Pure core `hlib.parse_mid_mission_seam_writes` + a thin read in `run.py`. The
+mission subprocess writes its route-1 commands into the SAME channel file run.py
+owns, under the reserved id run.py hands it - so the channel IS driver-side
+evidence and NO mission-side change was needed. After the mission step resolves,
+run.py reads that channel, attributes the lines whose id is the reserved id (or a
+`<reserved>.<tag>` sub-id of it - the generalized bridge's shape), and classifies
+each verb through `seam_verb_tail_role` - the same FUNCTION the tail gate calls, not
+merely the table it reads, so the two share the unknown-verb fallback as well as the
+rows. A world-mutating write followed by an unmet mission logs a named WARN; the
+counts land in the result JSON as `driver.midMissionSeamWrites` (`total` /
+`worldMutating` / `verbs` / `exposedAfterUnmetMission`), or as a lone `readError`
+when the channel could not be read - a GAP is deliberately not recorded as a zero.
+The RUN-BUDGET KILL path reads the channel too, judging it against the verdict
+actually on disk (a killed mission may already have written one; `poll_exit` is
+checked before the budget).
+
+REPORT-ONLY, and pinned as such: the key is emitted ONLY when the mission actually
+wrote something, so every existing run's record - including every seam-only
+driver's - is byte-identical. The end-to-end smoke cell (`_fake_mission --mode
+midcommit`) asserts the whole shape at once: the mission's `id=0003 cmd=CommitTree`
+IS in the channel, the DRIVER's tail `CommitTree` was correctly skipped by the
+existing gate, the record carries `exposedAfterUnmetMission: true`, and the verdict
+is the same `INVALID(mission)` the unmet mission already earned. If that verdict
+assertion ever changes, the instrument has silently become a gate. An unreadable
+channel is failure-isolated AND warned. An unknown VERB fails SAFE to world-mutating,
+matching `seam_verb_tail_role`: failing open in a risk instrument would report
+`exposed=False` for a write the tail gate would have refused to drive. A line with no
+`cmd=` at all is different - it is counted but not classified, because there is no
+verb to reason about and inventing attribution is worse than under-reporting.
+
+Scope note unchanged: "PR #1349 closed the world-mutating-tail-after-UNMET hole"
+remains true for `driver.steps` ONLY. What is new is that route-1's writes are now
+in the record, so the evidence for arming a real gate will exist the first time a
+forge/mission does mid-commit and then fail.
+
+### What was happening
 
 PR #1349 added the unmet-mission tail gate in `harness/run.py` (`plan_unmet_mission_tail`, ~line 1137): after a mission returns UNMET, only `cleanup`-role seam verbs in the remaining `driver.steps` are driven, so a world-mutating tail (a CommitTree over a flight that never reached its envelope) can no longer fire. That gate covers the DRIVER-side tail only.
 

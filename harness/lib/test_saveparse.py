@@ -35,6 +35,7 @@ evaluator raises a named mismatch).
 """
 
 import os
+import tomllib
 import unittest
 
 import saveparse
@@ -42,11 +43,20 @@ import saveparse
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 HARNESS_ROOT = os.path.dirname(LIB_DIR)
 FIXTURE_SAVES_DIR = os.path.join(HARNESS_ROOT, "fixtures", "saves")
+SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
 
 
 def _read(path):
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         return fh.read()
+
+
+def load_spec(name):
+    """One committed scenario spec, so a cell can assert against the REAL
+    declared window rather than a literal of its own (which would stay green
+    when the committed spec drifts)."""
+    with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+        return tomllib.load(fh)
 
 
 # ---------------------------------------------------------------------------
@@ -899,6 +909,359 @@ class EvaluateSaveStructureTests(unittest.TestCase):
         # report lists carry the string ONCE, not once per declared block.
         self.assertEqual(1, len(r.mismatches))
         self.assertEqual(1, len(r.armed_mismatches))
+
+
+class PointsFacetTests(unittest.TestCase):
+    """Gate 12: the recorded-POINTS distribution parsed off `pointCount`.
+
+    `RecordingTreeRecordCodec` (`SaveRecordingInto` ->
+    `SaveRecordingResourceAndState` -> `SaveMutablePlaybackState`, the write at
+    `RecordingTreeRecordCodec.cs:344`) writes `pointCount` on EVERY
+    RECORDING node as `rec.Points.Count`, so the save itself carries the number
+    the `FinalizeTreeRecordings: ... points=N` Verbose line reports. Reading it
+    here (not from the log) is what makes the assertion independent of a
+    scenario's `verboseLogging` pin.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.snap = saveparse.parse_parsek_scenario(B9_MERGED_SFS)
+
+    def test_point_count_parses_off_every_recording(self):
+        counts = {r.recording_id: r.point_count for r in self.snap.recordings}
+        self.assertEqual({"b9-stack-root": 5, "b9-upper-b": 3,
+                          "b9-booster-a": 4, "b9-booster-refly": 9}, counts)
+
+    def test_observed_order_statistics(self):
+        f = saveparse.observed_points_facets(self.snap)
+        self.assertEqual({"total": 21, "largest": 9, "smallest": 3,
+                          "trivialRecordings": 0, "recordings": 4,
+                          "unparsed": 0}, f)
+        # ...and it rides the structure facets under recordings.points, so a
+        # run JSON records it whether or not the spec declares a block.
+        self.assertEqual(
+            f, saveparse.observed_structure_facets(self.snap)["recordings"]["points"])
+
+    def test_absent_point_count_is_unparsed_never_zero(self):
+        # A RECORDING with no pointCount key must NOT contribute a real 0 to
+        # the order statistics - that is the "never read a torn file as zero
+        # rows" rule applied one level down. `smallest` stays 3 (the smallest
+        # MEASURED count), and the gap is surfaced as `unparsed`.
+        text = B9_MERGED_SFS.replace("\t\t\t\tpointCount = 3\n", "")
+        snap = saveparse.parse_parsek_scenario(text)
+        f = saveparse.observed_points_facets(snap)
+        self.assertEqual({"total": 18, "largest": 9, "smallest": 4,
+                          "trivialRecordings": 0, "recordings": 3,
+                          "unparsed": 1}, f)
+        self.assertIsNone(
+            next(r for r in snap.recordings if r.recording_id == "b9-upper-b").point_count)
+
+    def test_unparsed_is_a_defined_mismatch_for_a_declared_block(self):
+        # The windows would otherwise be asserting over a distribution the save
+        # did not fully supply. Report-only by default, gating when armed.
+        text = B9_MERGED_SFS.replace("\t\t\t\tpointCount = 3\n", "")
+        snap = saveparse.parse_parsek_scenario(text)
+        exp = {"recordings": {"points": {"largest": {"min": 2}}}}
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_REPORT, r.status)
+        self.assertEqual(1, len(r.mismatches))
+        self.assertIn("no readable pointCount", r.mismatches[0])
+        exp["recordings"]["points"]["gating"] = True
+        self.assertEqual(saveparse.STATUS_FAIL,
+                         saveparse.evaluate_save_structure(exp, snap).status)
+
+    def test_a_negative_point_count_is_unparsed_not_a_real_count(self):
+        # Same rule as an absent key: a value that is not a real count must not
+        # deflate total/smallest (the fail-open direction for a `max` window).
+        text = B9_MERGED_SFS.replace("pointCount = 3", "pointCount = -3")
+        f = saveparse.observed_points_facets(saveparse.parse_parsek_scenario(text))
+        self.assertEqual(1, f["unparsed"])
+        self.assertEqual(18, f["total"])      # -3 excluded, not summed
+        self.assertEqual(4, f["smallest"])    # -3 excluded, not the minimum
+
+    def test_the_double_written_active_tree_is_deduped(self):
+        # Production writes one tree TWICE: OnSave serializes the committed
+        # trees, then SaveActiveTreeIfAny writes the still-active tree again as
+        # `isActive = True`. Measured across the 149 real produced saves under
+        # logs/: 5 carry duplicate recording ids, and 2026-07-28_1818_S4.1
+        # reads total 24 where the truth is 12 - while 2026-07-28_1939, the SAME
+        # spec, reads 12. Summed facets would be a run-to-run coin-flip 2x, and
+        # a doubled TRIVIAL recording would false-red the load-bearing budget.
+        one = saveparse.parse_parsek_scenario(B9_MERGED_SFS)
+        base = saveparse.observed_points_facets(one)
+        # Re-serialize the same tree a second time, marked active, exactly as
+        # SaveActiveTreeIfAny does.
+        tree_start = B9_MERGED_SFS.index("\t\tRECORDING_TREE")
+        tree_end = B9_MERGED_SFS.index("\t\tREWIND_POINTS")
+        dup = (B9_MERGED_SFS[:tree_end]
+               + B9_MERGED_SFS[tree_start:tree_end].replace(
+                   "treeFormatVersion = 0", "treeFormatVersion = 0\n\t\t\tisActive = True", 1)
+               + B9_MERGED_SFS[tree_end:])
+        snap = saveparse.parse_parsek_scenario(dup)
+        self.assertEqual(2, len(snap.trees), "fixture did not actually duplicate the tree")
+        self.assertEqual(8, len(snap.recordings), "raw rows should be doubled")
+        self.assertEqual(base, saveparse.observed_points_facets(snap),
+                         "the double-written active tree changed the measured "
+                         "distribution - facets must dedupe by recording id")
+
+    def test_zero_recordings_reads_zero_not_absent(self):
+        # A save that recorded NOTHING is the stronger form of the gate-12
+        # defect, so it must red the same window rather than vanish into an
+        # absent facet. All three statistics degrade to 0 over an empty set.
+        snap = saveparse.parse_parsek_scenario(
+            "GAME\n{\n\tSCENARIO\n\t{\n\t\tname = ParsekScenario\n\t}\n}\n")
+        self.assertEqual({"total": 0, "largest": 0, "smallest": 0,
+                          "trivialRecordings": 0, "recordings": 0,
+                          "unparsed": 0},
+                         saveparse.observed_points_facets(snap))
+        r = saveparse.evaluate_save_structure(
+            {"recordings": {"points": {"gating": True, "largest": {"min": 2}}}}, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.points.largest 0 < min 2",), r.armed_mismatches)
+
+
+class Gate12CalibrationTests(unittest.TestCase):
+    """The statement gate 12 needs, encoded against the MEASURED runs.
+
+    Calibration measured 2026-08-01 on `stock-minimal` during the PR #1408
+    verification:
+
+    - HEALTHY `2026-08-01_1626_EVA-2-orbital-board`: the EVA kerbal recorded 5
+      points over its ~10.068 s `settleSeconds` dwell (maxDist 1888 m); the pod
+      recorded 1, because it lives only 0.167 s (EvaBoard -> StopRecording)
+      against a 0.200 s minimum sample interval.
+    - BROKEN `2026-07-30_1532_S0.7-exit-auto-commit`: BOTH recordings finalized
+      at `points=1 maxDist=0m`.
+
+    So the discriminator MUST be `largest`, and no window may require every
+    recording to exceed one point - that would red the healthy run too. This
+    cell exists so a future "tighten the window" edit that reintroduces the
+    per-recording form fails here instead of on a nightly.
+    """
+
+    HEALTHY = (5, 1)   # EVA kerbal, pod
+    BROKEN = (1, 1)    # both empty
+
+    @staticmethod
+    def _sfs(point_counts):
+        recs = "".join(
+            "\t\t\tRECORDING\n\t\t\t{\n\t\t\t\trecordingId = r%d\n"
+            "\t\t\t\tvesselName = V%d\n\t\t\t\tpointCount = %d\n\t\t\t}\n"
+            % (i, i, n) for i, n in enumerate(point_counts))
+        return ("GAME\n{\n\tSCENARIO\n\t{\n\t\tname = ParsekScenario\n"
+                "\t\tRECORDING_TREE\n\t\t{\n\t\t\tid = t\n%s\t\t}\n\t}\n}\n" % recs)
+
+    def _evaluate(self, point_counts, block):
+        snap = saveparse.parse_parsek_scenario(self._sfs(point_counts))
+        return saveparse.evaluate_save_structure(
+            {"recordings": {"points": block}}, snap)
+
+    def test_largest_window_separates_healthy_from_broken(self):
+        block = {"gating": True, "largest": {"min": 2}}
+        self.assertEqual(saveparse.STATUS_PASS,
+                         self._evaluate(self.HEALTHY, block).status)
+        broken = self._evaluate(self.BROKEN, block)
+        self.assertEqual(saveparse.STATUS_FAIL, broken.status)
+        self.assertEqual(("recordings.points.largest 1 < min 2",),
+                         broken.armed_mismatches)
+
+    def test_recordings_count_alone_cannot_separate_them(self):
+        # The whole reason gate 12 existed: `recordings.count = {min=2,max=2}`
+        # counts .prec FILES, and both the healthy and the broken tree hold
+        # exactly two recordings, so no count window can tell them apart.
+        #
+        # SCOPE, stated because the cell is weaker than it looks: this is a
+        # PROXY. The real `recordings.count` is a .prec FILE listing
+        # (run.py::count_recordings), which this cell does not call - it asserts
+        # the equivalent structural fact on the parsed save (same node count
+        # either way). That is enough to show the new facet is not redundant
+        # surface; it is not a test of verifier 7.
+        for counts in (self.HEALTHY, self.BROKEN):
+            snap = saveparse.parse_parsek_scenario(self._sfs(counts))
+            self.assertEqual(2, len(snap.recordings))
+
+    def test_a_per_recording_floor_would_red_the_healthy_run(self):
+        # `smallest` is a LEGAL key, but pinning it >= 2 on an EVA-2-shaped
+        # tree reds the GOOD run (the pod's single point is expected). Kept as
+        # an executable warning against "just require every recording to have
+        # points" - the obvious tightening that does not hold here.
+        block = {"gating": True, "smallest": {"min": 2}}
+        self.assertEqual(saveparse.STATUS_FAIL,
+                         self._evaluate(self.HEALTHY, block).status)
+
+    def test_the_committed_eva2_window_actually_separates_the_two(self):
+        """THE GUARD ON THE WINDOW ITSELF, not on the code.
+
+        Every other cell here builds its OWN literal block, so all of them stay
+        green if the COMMITTED window is loosened. Rewriting EVA-2's block to
+        `largest = { min = 1 }` left the entire suite green - and `min = 1` is
+        exactly the broken baseline's reading, i.e. the one edit that silently
+        reproduces the defect gate 12 exists to close. "This window is flaky,
+        loosen it" is the most likely future edit, and a PASS is silent.
+
+        So this cell reads the REAL committed spec and asserts the PROPERTY
+        rather than the literal: evaluated against the calibrated distributions,
+        EVA-2's own block must PASS the healthy shape and FAIL the broken one.
+        A window that stops discriminating reds here no matter which key or
+        bound was weakened, and legitimate re-pinning (a tighter bound, an added
+        key, a new facet) stays green as long as it still separates them.
+        """
+        block = dict(load_spec("EVA-2-orbital-board.toml")
+                     ["expectations"]["recordings"]["points"])
+        # Evaluate as if ARMED so the verdict is PASS/FAIL, not REPORT. This
+        # cell asserts the window's DISCRIMINATING POWER; whether it is armed is
+        # a separate operator decision pinned by
+        # test_eva2_declares_the_points_block_unarmed in test_hlib.py.
+        block["gating"] = True
+        healthy = self._evaluate(self.HEALTHY, block)
+        self.assertEqual(saveparse.STATUS_PASS, healthy.status,
+                         "EVA-2's committed points window reds the HEALTHY calibrated "
+                         "run (kerbal 5 points, pod 1): %s" % (healthy.armed_mismatches,))
+        broken = self._evaluate(self.BROKEN, block)
+        self.assertEqual(saveparse.STATUS_FAIL, broken.status,
+                         "EVA-2's committed points window PASSES the BROKEN calibrated "
+                         "run (both recordings 1 point) - it no longer discriminates, "
+                         "which is the defect gate 12 exists to close")
+        # ...and it must also catch a PARTIAL recurrence: one healthy recording
+        # with empty siblings is the shape an aggregate-only window waves through.
+        partial = self._evaluate((5, 1, 1, 1), block)
+        self.assertEqual(saveparse.STATUS_FAIL, partial.status,
+                         "EVA-2's committed window passes a tree where one recording is "
+                         "healthy and three recorded nothing - an aggregate-only window")
+
+    def test_a_legitimate_zero_is_absorbed_by_the_budget_not_by_luck(self):
+        # `pointCount` is the FLAT rec.Points list, and there are THREE known
+        # paths to a low/zero count on a tree nobody would call broken: the
+        # parent-anchored debris trim, time warp (OnPhysicsFrame early-returns
+        # on isOnRails, so a warped coast samples no flat points), and an
+        # unbound Re-Fly provisional observed in the field on S4.1. This is what
+        # makes `trivialRecordings` a BUDGET rather than a floor of zero, and
+        # `smallest` unsafe to pin.
+        healthy_with_debris = (300, 0)
+        # The budget absorbs the known-legit zero...
+        self.assertEqual(saveparse.STATUS_PASS,
+                         self._evaluate(healthy_with_debris,
+                                        {"gating": True, "largest": {"min": 2},
+                                         "trivialRecordings": {"max": 1}}).status)
+        # ...but it is a BUDGET, not a blanket pass: a SECOND empty recording
+        # still reds. This is the property that separates "absorbed a known
+        # legitimate zero" from "stopped asserting".
+        self.assertEqual(saveparse.STATUS_FAIL,
+                         self._evaluate((300, 0, 0),
+                                        {"gating": True, "largest": {"min": 2},
+                                         "trivialRecordings": {"max": 1}}).status)
+        # A per-recording FLOOR, by contrast, reds the healthy shape outright -
+        # which is why `smallest` is documented as the least safe key to pin.
+        self.assertEqual(saveparse.STATUS_FAIL,
+                         self._evaluate(healthy_with_debris,
+                                        {"gating": True, "smallest": {"min": 1}}).status)
+
+    def test_total_is_a_coarser_second_signal(self):
+        # total 6 vs 2 also separates them, and is the facet to pin when a
+        # scenario's per-recording split is not stable enough to bound.
+        self.assertEqual(saveparse.STATUS_PASS,
+                         self._evaluate(self.HEALTHY,
+                                        {"gating": True, "total": {"min": 4}}).status)
+        self.assertEqual(saveparse.STATUS_FAIL,
+                         self._evaluate(self.BROKEN,
+                                        {"gating": True, "total": {"min": 4}}).status)
+
+
+class PointsBlockSpecSurfaceTests(unittest.TestCase):
+    """`[expectations.recordings.points]` validation + per-block independence."""
+
+    def test_good_shapes_validate(self):
+        self.assertEqual([], saveparse.validate_points_expectations(None))
+        self.assertEqual([], saveparse.validate_points_expectations(
+            {"largest": {"min": 2}}))
+        self.assertEqual([], saveparse.validate_points_expectations(
+            {"gating": True, "total": 21, "largest": {"min": 1, "max": 9},
+             "smallest": {"min": 1}}))
+
+    def test_unknown_keys_and_bad_windows_rejected(self):
+        errs = saveparse.validate_points_expectations({"biggest": {"min": 2}})
+        self.assertTrue(any("unknown key" in e for e in errs))
+        for bad in (-1, "x", True, {}, {"min": -1}, {"min": 2, "max": 1},
+                    {"min": 1.5}, {"lo": 1}):
+            with self.subTest(window=bad):
+                self.assertTrue(
+                    saveparse.validate_points_expectations({"largest": bad}), bad)
+        self.assertTrue(saveparse.validate_points_expectations("nope"))
+
+    def test_non_bool_gating_and_armed_empty_rejected(self):
+        self.assertTrue(any("gating" in e for e in
+                            saveparse.validate_points_expectations({"gating": "true"})))
+        self.assertTrue(any("gates nothing" in e for e in
+                            saveparse.validate_points_expectations({"gating": True})))
+        self.assertEqual([], saveparse.validate_points_expectations({"gating": False}))
+
+    def test_armed_window_that_cannot_red_is_rejected(self):
+        # Third notch of the same rule _validate_window and _validate_armed_empty
+        # enforce: an ARMED window whose only bound is `min = 0` can never fail
+        # (counts are never negative), so it is a gate the author believes is on.
+        # This is the shape a "loosen the flaky gate" edit converges on, and it
+        # fails SILENTLY - a gate that cannot red looks exactly like one passing.
+        for block in ({"gating": True, "largest": {"min": 0}},
+                      {"gating": True, "trivialRecordings": {"min": 0}}):
+            with self.subTest(block=block):
+                errs = saveparse.validate_points_expectations(block)
+                self.assertTrue(any("can never red" in e for e in errs), block)
+        # A max beside it CAN red, so it is accepted...
+        self.assertEqual([], saveparse.validate_points_expectations(
+            {"gating": True, "largest": {"min": 0, "max": 9}}))
+        # ...and UNARMED `min = 0` is merely uninformative, not a lie.
+        self.assertEqual([], saveparse.validate_points_expectations(
+            {"largest": {"min": 0}}))
+        # Applies to the two older blocks too (zero committed specs use one).
+        self.assertTrue(any("can never red" in e for e in
+                            saveparse.validate_rewind_expectations(
+                                {"gating": True, "supersedeRows": {"min": 0}})))
+        self.assertTrue(any("can never red" in e for e in
+                            saveparse.validate_structure_expectations(
+                                {"gating": True, "trees": {"min": 0}})))
+
+    def test_declared_empty_block_warns(self):
+        warns = saveparse.save_structure_expectation_warnings(
+            {"recordings": {"points": {"gating": False}}})
+        self.assertEqual(1, len(warns))
+        self.assertIn("expectations.recordings.points", warns[0])
+        self.assertEqual([], saveparse.save_structure_expectation_warnings(
+            {"recordings": {"points": {"largest": {"min": 2}}}}))
+
+    def test_block_is_declared_and_armed_independently(self):
+        # The reason points is a SIBLING of structure rather than a key inside
+        # it: a spec that armed `structure` must not auto-arm a points window
+        # added later (gating is per-block, adversarial-review finding 3).
+        exp = {"recordings": {"structure": {"gating": True, "trees": 1},
+                              "points": {"largest": {"min": 2}}}}
+        self.assertEqual(("recordings.structure", "recordings.points"),
+                         saveparse.declared_structure_blocks(exp))
+        self.assertEqual(("recordings.structure",),
+                         saveparse.armed_structure_blocks(exp))
+
+        snap = saveparse.parse_parsek_scenario(B9_MERGED_SFS)
+        exp["recordings"]["points"]["largest"] = {"min": 99}
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_PASS, r.status)  # structure passes
+        self.assertEqual(("recordings.points.largest 9 < min 99",), r.mismatches)
+        self.assertEqual((), r.armed_mismatches)  # points is report-only
+        # Arming points alone gates points alone.
+        exp["recordings"]["structure"].pop("gating")
+        exp["recordings"]["points"]["gating"] = True
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.points",), r.armed_blocks)
+
+    def test_all_three_blocks_coexist(self):
+        exp = {"rewind": {"supersedeRows": {"max": 9}},
+               "recordings": {"structure": {"trees": 1},
+                              "points": {"largest": {"min": 1}}}}
+        r = saveparse.evaluate_save_structure(
+            exp, saveparse.parse_parsek_scenario(B9_MERGED_SFS))
+        self.assertEqual(("rewind", "recordings.structure", "recordings.points"),
+                         r.blocks)
+        self.assertEqual((), r.mismatches)
+        self.assertFalse(saveparse.gating_armed(exp))
 
 
 if __name__ == "__main__":  # pragma: no cover

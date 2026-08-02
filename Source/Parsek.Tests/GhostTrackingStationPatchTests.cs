@@ -187,6 +187,251 @@ namespace Parsek.Tests
                 && line.Contains("priorStockNullCandidates=1"));
         }
 
+        // ---- Teardown shape: the context scan itself threw (H23-tracking-station) ----
+        //
+        // Every case below passes scanError, so the #556 count-based class cannot fire: the
+        // counts are zero because the scan never ran.
+        //
+        // WHAT CHANGED 2026-08-01. A `GhostTeardownScanBlind` class used to SUPPRESS the first
+        // case below, attributing it from an in-progress Parsek ghost teardown. Flying it
+        // (`2026-08-01_1628_H23-tracking-station`) showed the NRE this lane actually produces is
+        // a stock APPLICATION-SHUTDOWN race — it fires 715 ms after Application.Quit from
+        // Vessel:OnDestroy() -> onVesselDestroy -> buildVesselsList — and that
+        // ParsekTrackingStation.OnDestroy -> RemoveAllGhostVessels puts OUR Die() inside that
+        // same stock teardown window. The class could therefore have swallowed exactly the stock
+        // bug that must stay visible, to close a hole no flight has ever shown. It was withdrawn.
+        //
+        // These cells pin the STANDING guarantee: a scan that failed is NEVER enough to suppress,
+        // however suggestive the surrounding state — AND the two diagnostic fields ride every one
+        // of those warn lines, which is what made that flight a one-flight diagnosis.
+        //
+        // CAUTION for anyone adding cells here. `FinalizeTeardownShape` zeroes every count, so on
+        // its fixtures the #556 count check ALSO declines and the ScanError gate is not what
+        // decides the outcome. The cell that actually pins that gate is
+        // ...ScanThrewAfterSeeingAGhostMissingRenderer... below, and it deliberately does NOT use
+        // this helper. Mutation-tested: without that cell, deleting the ScanError early-out from
+        // the classifier leaves every cell in this file green.
+
+        private const string TeardownScanError =
+            "NullReferenceException: Object reference not set to an instance of an object";
+
+        // Zeroed counts, populated scanError, no usable stack. NOTE the defaults describe the
+        // shape the WITHDRAWN class would have suppressed (teardown running, ghosts registered),
+        // not the shape the 2026-08-01 flight actually logged — that one read
+        // ghostTeardownInProgress=0 registeredGhostMapVessels=0 and is covered by
+        // ...ScanFailedOutsideGhostTeardown... below.
+        private static Exception FinalizeTeardownShape(
+            Exception exception,
+            string scanError = TeardownScanError,
+            int registeredGhostMapVessels = 2,
+            bool ghostTeardownInProgress = true,
+            string exceptionStackTrace = null)
+        {
+            return GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 0,
+                ghostVesselCount: 0,
+                ghostMissingOrbitRendererCount: 0,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: false,
+                potentialEarlierStockNullCandidateCount: 0,
+                scanError: scanError,
+                exceptionStackTrace: exceptionStackTrace,
+                registeredGhostMapVessels: registeredGhostMapVessels,
+                ghostTeardownInProgress: ghostTeardownInProgress);
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanThrewAfterSeeingAGhostMissingRenderer_ReturnsOriginal()
+        {
+            // THE CELL THAT PINS THE ScanError GATE, and the only one that does.
+            //
+            // The scan mutates its context struct IN PLACE and its catch only appends ScanError,
+            // so counts accumulated before the throw SURVIVE. This is that state: a fully
+            // #195-shaped context (a ghost's missing renderer seen first, no earlier stock
+            // candidate) that ALSO carries a ScanError because the walk died partway through.
+            // Every other conjunct of the #556 class is satisfied, so the ScanError gate is the
+            // only thing preventing a suppression here.
+            //
+            // Why it must not suppress: those counts mean "the first missing renderer belongs to
+            // a ghost" only if the walk COMPLETED. A walk that died cannot rule out an earlier
+            // non-ghost candidate it never reached. Partial evidence, not proof.
+            //
+            // Deliberately NOT built from FinalizeTeardownShape, which hardcodes zeroed counts -
+            // on those fixtures the count check declines too and this gate is never exercised.
+            var exception = new NullReferenceException("stock NRE, scan died mid-walk");
+
+            Exception result = GhostTrackingBuildVesselsListPatch.FinalizeBuildVesselsListExceptionForTesting(
+                exception,
+                totalVessels: 4,
+                ghostVesselCount: 1,
+                ghostMissingOrbitRendererCount: 1,
+                nonGhostMissingOrbitRendererCount: 0,
+                firstMissingOrbitRendererIsGhost: true,
+                potentialEarlierStockNullCandidateCount: 0,
+                scanError: TeardownScanError,
+                exceptionStackTrace: "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x000b9] in <filename unknown>:0",
+                registeredGhostMapVessels: 1,
+                ghostTeardownInProgress: true);
+
+            Assert.Same(exception, result);
+            Assert.DoesNotContain(logLines, line => line.Contains("Suppressed"));
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ghostMissingOrbitRenderers=1")
+                && line.Contains("scanError="));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedDuringGhostTeardown_StillReturnsOriginal()
+        {
+            // THE REGRESSION GUARD for the withdrawn class. This is its exact fixture — a
+            // teardown in progress, ghosts registered, the scan dead of the same NRE — and it
+            // must NOT suppress. Reachable in production: leaving the TS with a ghost still
+            // registered runs RemoveAllGhostVessels (and so Die(), and so onVesselDestroy)
+            // inside stock's own UI teardown, which is where the stock shutdown NRE lives.
+            var exception = new NullReferenceException("stock list rebuild inside onVesselDestroy");
+
+            Exception result = FinalizeTeardownShape(exception);
+
+            Assert.Same(exception, result);
+            Assert.DoesNotContain(logLines, line => line.Contains("Suppressed"));
+            // The diagnostics are the half that was KEPT, so the warn must carry both fields:
+            // this is the line that identified the real cause from a single flight.
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ghostTeardownInProgress=1")
+                && line.Contains("registeredGhostMapVessels=2")
+                && line.Contains("scanError="));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedOutsideGhostTeardown_ReturnsOriginalAndWarns()
+        {
+            // The shape actually observed in flight: no teardown running, no ghosts registered,
+            // the scan dead of the same NRE as the exception. Stock's shutdown race.
+            var exception = new NullReferenceException("stock NRE, no Parsek teardown running");
+
+            Exception result = FinalizeTeardownShape(exception, ghostTeardownInProgress: false);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("ghostTeardownInProgress=0")
+                && line.Contains("scanError="));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedWithNoRegisteredGhosts_ReturnsOriginalAndWarns()
+        {
+            // NEARLY not an independent case in production: all four teardown sites remove the pid
+            // only AFTER EndGhostTeardown, so a teardown in progress almost always implies a
+            // registered ghost. Not quite always - RemoveOverlapInstance raises the scope for a
+            // vessel whose persistentId may be 0, and its ghostMapVesselPids removal sits behind
+            // an `if (ghostPid != 0)` guard - but close enough that the pair was far weaker
+            // evidence than the withdrawn class's five-conjunct framing suggested. Kept as a pin
+            // that the count is REPORTED whatever it reads.
+            var exception = new NullReferenceException("stock NRE with no ghosts to blame");
+
+            Exception result = FinalizeTeardownShape(exception, registeredGhostMapVessels: 0);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("registeredGhostMapVessels=0"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedSomeOtherWay_ReturnsOriginalAndWarns()
+        {
+            // A scan that died of something else is a DIFFERENT fault. NOTE this cell no longer
+            // DISCRIMINATES on that: since the withdrawal, ANY non-empty ScanError declines, so
+            // the scan's own exception type stops mattering to the outcome. Kept because the
+            // type must still be REPORTED verbatim on the warn line, which is what it asserts.
+            var exception = new NullReferenceException("stock NRE");
+
+            Exception result = FinalizeTeardownShape(
+                exception,
+                scanError: "InvalidOperationException: Collection was modified");
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("InvalidOperationException: Collection was modified"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_ScanFailedDuringTeardownAtDifferentOffset_ReturnsOriginalAndWarns()
+        {
+            // TWO CAVEATS, both worth stating so this cell is not mistaken for a guard it is not.
+            // (1) It does NOT pin the IL-offset gate: the ScanError early-out declines first, so
+            //     deleting the offset check entirely leaves this cell green. The cells that pin
+            //     that gate are ..._NreAtDifferentStockOffset_... and ..._KnownGhost...NRE_...,
+            //     which pass an EMPTY scanError and so actually reach it.
+            // (2) The trace format here is one the game does not produce for this method anyway.
+            //     Harmony replaces buildVesselsList with a DynamicMethod and the real frame is
+            //     `(wrapper dynamic-method) ...buildVesselsList_Patch2(...)` with no [0x..] offset,
+            //     so in production the IL check never rules anything out - see
+            //     BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.
+            var exception = new NullReferenceException("unrelated stock NRE during teardown");
+
+            Exception result = FinalizeTeardownShape(
+                exception,
+                exceptionStackTrace:
+                    "at KSP.UI.Screens.SpaceTracking.buildVesselsList () [0x00063] in <filename unknown>:0");
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("unrelated stock NRE during teardown"));
+        }
+
+        [Fact]
+        public void BuildVesselsListFinalizer_NonNreDuringGhostTeardown_ReturnsOriginalAndWarns()
+        {
+            var exception = new InvalidOperationException("stock list build failed during teardown");
+
+            Exception result = FinalizeTeardownShape(exception);
+
+            Assert.Same(exception, result);
+            Assert.Contains(logLines, line =>
+                line.Contains("[WARN][GhostMap]")
+                && line.Contains("exception left visible")
+                && line.Contains("InvalidOperationException"));
+        }
+
+        [Fact]
+        public void GhostTeardownScope_Nests_AndFloorsAtZero()
+        {
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+
+            GhostMapPresence.BeginGhostTeardown();
+            GhostMapPresence.BeginGhostTeardown();
+            Assert.True(GhostMapPresence.IsGhostTeardownInProgress);
+
+            GhostMapPresence.EndGhostTeardown();
+            // RemoveAllGhostVessels wraps a loop that the per-ghost removers can also enter, so
+            // the flag must stay raised until the OUTERMOST scope leaves.
+            Assert.True(GhostMapPresence.IsGhostTeardownInProgress);
+
+            GhostMapPresence.EndGhostTeardown();
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+
+            // An unbalanced decrement must not latch the flag inverted for the session.
+            GhostMapPresence.EndGhostTeardown();
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+            GhostMapPresence.BeginGhostTeardown();
+            Assert.True(GhostMapPresence.IsGhostTeardownInProgress);
+            GhostMapPresence.EndGhostTeardown();
+            Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
+        }
+
         [Fact]
         public void TryClearSelectedVessel_WithPrivateSelection_ClearsAndReturnsPrevious()
         {

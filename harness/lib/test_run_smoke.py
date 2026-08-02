@@ -50,6 +50,7 @@ for _p in (HARNESS_ROOT, HERE):
 import hlib  # noqa: E402
 import oracle  # noqa: E402
 import run  # noqa: E402
+import status  # noqa: E402
 
 FAKE_KSP = os.path.join(HERE, "_fake_ksp.py")
 FAKE_MISSION = os.path.join(HERE, "_fake_mission.py")
@@ -147,11 +148,20 @@ class FakeRuntime(run.Runtime):
         # Extract the --result path run.py chose and drive the fake mission with the
         # test-injected mode. The venv python / mission_py are ignored (no real venv).
         result_path = list(args)[list(args).index("--result") + 1]
+        # Route-1 seam bridge: forward run.py's OWN channel path + reserved id so the
+        # `midcommit` mode writes exactly where a real mission would, and the
+        # mid-mission-write reader is exercised against the id run.py actually chose
+        # (not one the test picked).
+        argv = list(args)
+        seam = []
+        for flag in ("--seam-commands", "--seam-commit-id"):
+            if flag in argv:
+                seam += [flag, argv[argv.index(flag) + 1]]
         out = open(stdout_path, "w", encoding="utf-8")
         try:
             return subprocess.Popen(
                 [sys.executable, FAKE_MISSION, "--result", result_path,
-                 "--mode", self.mission_mode],
+                 "--mode", self.mission_mode] + seam,
                 cwd=cwd, stdout=out, stderr=subprocess.STDOUT)
         finally:
             out.close()
@@ -1290,6 +1300,84 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
                          [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
 
+    # ---- HARNESS-MIDMISSION-COMMIT-BYPASS, end to end ------------------------
+    # The gap the tail gate above does NOT close, driven over the fake KSP + fake
+    # mission: a route-1 mid-mission CommitTree that lands BEFORE the verdict
+    # exists. REPORT-ONLY, so these assert on the RECORD, never on the verdict.
+
+    def test_mid_mission_commit_before_unmet_is_recorded_but_moves_no_verdict(self):
+        result, lines = self._run("midcommit")
+
+        # (1) The bypass is real: the mission's CommitTree IS in the channel, while the
+        #     DRIVER's own tail CommitTree was correctly skipped by the tail gate. Both
+        #     facts at once are the whole point of the entry.
+        # id 0003 = the mission step's own index-derived id, which run.py donates to
+        # the mission as its reserved id (the mission step writes nothing itself).
+        self.assertIn("id=0003 cmd=CommitTree", lines)
+        self.assertIn("CommitTree", [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+
+        # (2) It is now VISIBLE in the durable record, which is what was missing.
+        mm = result["driver"]["midMissionSeamWrites"]
+        self.assertEqual(1, mm["total"])
+        self.assertEqual(1, mm["worldMutating"])
+        self.assertEqual(["CommitTree"], mm["verbs"])
+        self.assertTrue(mm["exposedAfterUnmetMission"])
+
+        # (3) REPORT-ONLY: the verdict is the same INVALID(mission) the unmet mission
+        #     already earned. If this ever changes, the instrument has become a gate.
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_a_mission_that_writes_nothing_leaves_the_record_unchanged(self):
+        """Every committed non-B-DOCK mission ignores the seam args entirely. Their
+        result record must be byte-identical to what it was before this instrument."""
+        result, _ = self._run("assertfail")
+        self.assertNotIn("midMissionSeamWrites", result["driver"])
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_an_unreadable_channel_records_a_GAP_not_a_silent_zero(self):
+        """Failure-isolated must not mean SILENT.
+
+        The read was `except OSError: pass`, which left a run whose channel could not be
+        read byte-identical to one where the mission wrote nothing - reproducing exactly
+        the invisibility this instrument exists to end, intermittently and with no trace
+        (a Windows PermissionError while the KSP addon holds the file is the live route).
+        It must say so, record a GAP rather than a zero, and still move no verdict."""
+        import builtins
+        real_open = builtins.open
+        target = os.path.abspath(
+            os.path.join(self.instance, "parsek-test-commands.txt"))
+        fired = []
+
+        def exploding_open(path, mode="r", *a, **kw):
+            # ONE-SHOT, and only for a READ of the command channel: run.py's own append of
+            # driver commands must still work, and so must this class's `_commands()`
+            # helper, which reads the very same file once the run has returned.
+            if ("r" in mode and not fired
+                    and os.path.abspath(str(path)) == target):
+                fired.append(True)
+                raise PermissionError("channel held by another process")
+            return real_open(path, mode, *a, **kw)
+
+        builtins.open = exploding_open
+        try:
+            result, _ = self._run("midcommit")
+        finally:
+            builtins.open = real_open
+        self.assertTrue(fired, "the instrument never read the channel; gate is vacuous")
+
+        mm = result["driver"]["midMissionSeamWrites"]
+        self.assertIn("PermissionError", mm["readError"])
+        # A GAP is not a zero: the count keys are ABSENT rather than reading 0, so nobody
+        # can mistake "we could not look" for "we looked and saw none".
+        self.assertNotIn("total", mm)
+        self.assertNotIn("exposedAfterUnmetMission", mm)
+        # Still report-only: the verdict is the one the unmet mission already earned.
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+
 
 class MissionSpecAdmissionTests(unittest.TestCase):
     """M-B1 deliverable 1 (run.py spec admission): resolve_mission_schemas reads the
@@ -1436,11 +1524,14 @@ class ScenarioCostAccountingTests(unittest.TestCase):
         orig = run.run_attempt
 
         def fake_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
-                         prior_boot_crashed, logger):
+                         prior_boot_crashed, logger, run_ordinal=1):
             i = calls["n"]
             calls["n"] += 1
             return {"schema": hlib.SCHEMA_VERSION,
-                    "runId": "2026-07-25_0100_S1%s" % ("_a2" if attempt == 2 else ""),
+                    # Built the way production does, so the stub keeps mirroring
+                    # run_attempt's id (ordinal before the terminal attempt suffix).
+                    "runId": hlib.format_run_id("2026-07-25_0100", "S1", attempt,
+                                                run_ordinal),
                     "scenarioId": "S1", "endedUtc": "2026-07-25T01:00:00Z",
                     "verdict": verdicts[i],
                     # A RETRYABLE subkind so attempt 1 actually retries (the
@@ -1595,6 +1686,66 @@ class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
         self.assertEqual("MISSION-OK", result.mission_step["missionVerdict"])
         self.assertTrue(result.mission_step["met"])
         self.assertNotIn("reason", result.mission_step)  # not the fabricated row
+
+    def _drive_run_budget_kill(self, rt):
+        """Drive the RUN-budget branch (not the mission-budget one) with a
+        world-mutating mid-mission write already in the channel."""
+        with open(os.path.join(self.tmp, "parsek-test-commands.txt"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("id=0003 cmd=CommitTree\n")
+        result = run.DriveResult()
+        ctx = run.MissionContext("m", "vpy", "m.py", {}, self.tmp,
+                                 "stamp.json", {"krpc": "0.5.4"})
+        step = {"phase": "mission", "expect": "MISSION-OK", "budget": 10_000}
+        proc = type("P", (), {"pid": 12345})()
+        killed = run._drive_mission_step(result, step, "0003", 2, proc, rt, self.logger,
+                                         run_budget=1.0, run_start=0.0,
+                                         mission_ctx=ctx, run_id="testrun",
+                                         preceding_load_ok=True)
+        return result, killed
+
+    def test_run_budget_kill_reads_the_channel_and_judges_the_REAL_verdict(self):
+        """The run-budget kill must record mid-mission seam writes, and must judge them
+        against the verdict actually on disk - NOT against a hardcoded "killed means
+        unmet".
+
+        NOT HYPOTHETICAL: `poll_exit` is checked BEFORE the budget, so the live window is
+        "result already written, process not yet reaped" - the ordinary shape for a long
+        mission near its wall, and the same window the NIT 7 cells above exist for. A
+        first version of this fix hardcoded `mission_met=False`; over a mission that had
+        written MISSION-OK it recorded `exposedAfterUnmetMission: true` and logged
+        "returned UNMET", and since this path never sets `result.mission_step`, nothing
+        in the record contradicted it.
+
+        Replaces a source-grep gate that only asserted a call EXISTED - it could not see
+        wrong arguments, which is exactly why it missed that defect."""
+        result, killed = self._drive_run_budget_kill(
+            _MiniMissionRuntime(write_result_verdict="MISSION-OK"))
+
+        self.assertTrue(killed, "expected the RUN-budget branch, not the mission-budget one")
+        self.assertEqual("run", result.kill_scope)
+        # (a) it read the channel at all - the regression the fix was for
+        mm = result.mid_mission_seam_writes
+        self.assertIsNotNone(mm)
+        self.assertEqual(1, mm.total)
+        self.assertEqual(1, mm.world_mutating)
+        # (b) and judged it against the REAL verdict: the mission MET, so this is not the
+        #     exposed shape and the summary must not claim it returned UNMET
+        self.assertFalse(mm.exposed)
+        self.assertNotIn("UNMET", mm.summary)
+        self.assertIn("; mission met", mm.summary)
+
+    def test_run_budget_kill_with_no_verdict_IS_the_exposed_shape(self):
+        """The other half: killed with nothing written is genuinely unmet, and a
+        world-mutating write there is precisely what this instrument exists to surface.
+        Without this cell, reading the real verdict could regress to always-met."""
+        result, _ = self._drive_run_budget_kill(
+            _MiniMissionRuntime(write_result_verdict=None))
+
+        mm = result.mid_mission_seam_writes
+        self.assertIsNotNone(mm)
+        self.assertTrue(mm.exposed)
+        self.assertIn("UNMET", mm.summary)
 
     def test_no_result_at_expiry_is_distinguishable_flake(self):
         # No result was written; the fabricated FLAKE row is tagged so it never
@@ -3314,6 +3465,202 @@ class MachineLockPathAgreementTests(unittest.TestCase):
 def provlib_lease():
     import provlib
     return provlib.DEFAULT_LEASE_SECONDS
+class RunIdCollisionSmokeTests(unittest.TestCase):
+    """Two SEPARATE runs of one scenario started inside the SAME minute must both
+    keep their evidence, driven end to end over the fake KSP.
+
+    The run id stamps only the minute, and results/<runId>.json,
+    <runId>_shots/ (the collected KSP.log) and <runId>_contact.html are keyed by
+    it alone -- so the second run used to write straight over the first's, with
+    nothing warning. Observed live on 2026-08-01: two H23-tracking-station
+    flights 52 seconds apart left TWO per-invocation harness logs but ONE result
+    JSON and ONE _shots dir; the first flight's clean verdict was gone.
+
+    The minute stamp is PINNED here rather than raced. The collision path is the
+    subject; an unpinned pair of runs would exercise it only when they happened
+    not to straddle a minute boundary.
+    """
+
+    STAMP = "2026-08-01_1628"
+    SCENARIO = "H23-tracking-station"
+    BASE = "2026-08-01_1628_H23-tracking-station"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-runid-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "runid_harness.log"))
+        # Both runs land in ONE minute, deterministically.
+        self._orig_stamp = run._run_id_stamp
+        run._run_id_stamp = lambda: self.STAMP
+
+    def tearDown(self):
+        run._run_id_stamp = self._orig_stamp
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = self.SCENARIO
+        return spec
+
+    def _fly(self, mode="pass"):
+        return run.run_attempt(self._spec(), self.instance, self.tmp,
+                               FakeRuntime(mode), attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def _results_path(self, *parts):
+        return os.path.join(run.RESULTS_DIR, *parts)
+
+    def test_two_runs_in_one_minute_both_keep_their_results(self):
+        first = self._fly()
+        self.assertEqual(self.BASE, first["runId"],
+                         "the FIRST run must keep the plain, unsuffixed id")
+        first_shots = self._results_path(self.BASE + "_shots")
+        self.assertTrue(os.path.isfile(self._results_path(self.BASE + ".json")))
+        self.assertTrue(os.path.isfile(os.path.join(first_shots, "KSP.log")),
+                        "the collected KSP.log is the evidence at stake")
+        # A sentinel INSIDE the first run's artifact dir: if the second run reuses
+        # the dir this is what silently disappears.
+        sentinel = os.path.join(first_shots, "first-run-evidence.txt")
+        with open(sentinel, "w", encoding="utf-8") as fh:
+            fh.write("19:28:02\n")
+
+        second = self._fly()
+        self.assertEqual(self.BASE + "_run2", second["runId"],
+                         "the second run must take a fresh id, not the first's")
+
+        # Both runs' evidence survives, in full.
+        self.assertTrue(os.path.isfile(sentinel),
+                        "the first run's _shots dir was clobbered by the second")
+        self.assertTrue(os.path.isdir(self._results_path(self.BASE + "_run2_shots")))
+        for run_id in (first["runId"], second["runId"]):
+            with open(self._results_path("%s.json" % run_id), "r", encoding="utf-8") as fh:
+                persisted = json.load(fh)
+            self.assertEqual(run_id, persisted["runId"])
+            self.assertEqual(hlib.VERDICT_PASS, persisted["verdict"])
+            self.assertTrue(os.path.isfile(self._results_path("%s_contact.html" % run_id)),
+                            "%s lost its contact sheet" % run_id)
+
+    def test_two_resolutions_before_either_writes_do_not_share_an_id(self):
+        """The TOCTOU half. An id is resolved at the TOP of run_attempt, long
+        before anything is written under it, so two concurrent run.py invocations
+        of one scenario both see an empty results/ and would both take the base
+        id. The per-instance run lock does not serialize them: the refused one
+        writes its INVALID(instance-locked) record straight away, while the
+        winner is still flying and has written nothing.
+
+        Scan-only resolution cannot see that - only the exclusive-create stake
+        can. Two resolutions with no run in between is exactly that shape."""
+        first = run._make_run_id(self.SCENARIO, 1, logger=self.logger)
+        second = run._make_run_id(self.SCENARIO, 1, logger=self.logger)
+        self.assertEqual(self.BASE, first)
+        self.assertEqual(self.BASE + "_run2", second,
+                         "an unstaked id lets a concurrent invocation reuse it")
+        for run_id in (first, second):
+            self.assertTrue(os.path.isfile(self._results_path(run_id + ".claim")),
+                            "%s was issued without being staked" % run_id)
+
+    def test_a_stake_that_cannot_be_written_never_blocks_the_run(self):
+        """Design edge 10: never lose a verdict. A results dir that refuses the
+        stake degrades to scan-only resolution -- still better than the unguarded
+        id -- rather than failing the run."""
+        orig = run.RESULTS_DIR
+        try:
+            # An existing FILE where the results dir should be stands in for any
+            # unwritable results dir. This shape is also the one that caught the
+            # first cut: makedirs over a file raises FileExistsError, which a
+            # single combined handler read as "already staked" -- and the caller
+            # re-resolved forever, hanging the whole suite.
+            blocker = os.path.join(self.tmp, "not-a-dir")
+            with open(blocker, "w", encoding="utf-8") as fh:
+                fh.write("x")
+            run.RESULTS_DIR = blocker
+            self.assertTrue(run._try_claim_run_id(self.BASE),
+                            "an unstakeable dir must degrade open, not report "
+                            "the id taken (that spins the re-resolve loop)")
+            self.assertEqual(self.BASE, run._make_run_id(self.SCENARIO, 1,
+                                                         logger=self.logger))
+        finally:
+            run.RESULTS_DIR = orig
+
+    def test_the_collision_is_announced_not_swallowed(self):
+        """A silently-renamed run is only half the fix: nothing in results/ told a
+        reader two runs had happened, so the Warn is the other half."""
+        self._fly()
+        self._fly()
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("[Harness][Warn][Result] runId collision", body)
+        self.assertIn(self.BASE + "_run2", body)
+
+    def test_the_run_index_lists_both_runs(self):
+        """The reader-facing half: results/index.html is where an operator sees
+        what ran. Two flights used to produce ONE row."""
+        self._fly()
+        self._fly()
+        with open(self._results_path("index.html"), "r", encoding="utf-8") as fh:
+            index = fh.read()
+        for run_id in (self.BASE, self.BASE + "_run2"):
+            self.assertIn('"%s_contact.html"' % run_id, index,
+                          "%s is missing from the run index" % run_id)
+
+    def test_a_retried_second_run_keeps_its_attempts_on_one_stem(self):
+        """The `[retry] policy = "once"` path through the production entry point.
+        Attempt 2 belongs to ONE run and is distinguished by `_a2`; the SECOND
+        run's two attempts must both carry its `_run2` stem rather than one of
+        them drifting back onto a first-run id."""
+        first = run._run_scenario_with_retry(self._spec(), self.instance, self.tmp,
+                                             FakeRuntime("bootcrash"), self.logger)
+        second = run._run_scenario_with_retry(self._spec(), self.instance, self.tmp,
+                                              FakeRuntime("bootcrash"), self.logger)
+        # Both runs retried (boot-crash is retryable), so four attempt records exist.
+        self.assertEqual(self.BASE + "_a2", first["runId"])
+        self.assertEqual(self.BASE + "_run2_a2", second["runId"])
+        for run_id in (self.BASE, self.BASE + "_a2",
+                       self.BASE + "_run2", self.BASE + "_run2_a2"):
+            self.assertTrue(os.path.isfile(self._results_path("%s.json" % run_id)),
+                            "attempt record %s.json is missing" % run_id)
+        # ... and the attempt suffix stays terminal, so status.py still reads it.
+        self.assertEqual(2, status.split_run_id(second["runId"])["attempt"])
+        self.assertEqual(2, status.split_run_id(second["runId"])["run"])
+        self.assertEqual(self.SCENARIO, status.split_run_id(second["runId"])["scenario"])
+
+    def test_only_the_second_run_retrying_still_keeps_it_off_run_1s_stem(self):
+        """The shape that DISCRIMINATES the ordinal threading, and the reason the
+        cell above is not enough on its own: when both runs retry, run 1 leaves
+        `..._a2` on disk and the plain results/ scan produces the same four ids
+        whether or not `_run_scenario_with_retry` threads its ordinal.
+
+        Here run 1 flies clean and never retries, so `..._a2` is FREE. Without
+        the threading, run 2's attempt 2 resolves straight back onto run 1's stem
+        and its record is filed - and rendered in the status panel and the run
+        index - as run 1's attempt 2. Nothing is overwritten (that id really was
+        free), so only an attribution assertion catches it."""
+        first = run._run_scenario_with_retry(self._spec(), self.instance, self.tmp,
+                                             FakeRuntime("pass"), self.logger)
+        self.assertEqual(self.BASE, first["runId"], "run 1 must not have retried")
+
+        second = run._run_scenario_with_retry(self._spec(), self.instance, self.tmp,
+                                              FakeRuntime("bootcrash"), self.logger)
+        self.assertEqual(self.BASE + "_run2_a2", second["runId"])
+        parts = status.split_run_id(second["runId"])
+        self.assertEqual(2, parts["run"], "run 2's retry must read as run 2")
+        self.assertEqual(2, parts["attempt"])
+        # The negative is the load-bearing half: these are the paths run 2's
+        # attempt 2 lands on when the ordinal is NOT carried forward.
+        for stray in (self.BASE + "_a2.json", self.BASE + "_a2_shots",
+                      self.BASE + "_a2.claim"):
+            self.assertFalse(os.path.exists(self._results_path(stray)),
+                             "run 2's retry was filed on run 1's stem as %s" % stray)
 
 
 if __name__ == "__main__":

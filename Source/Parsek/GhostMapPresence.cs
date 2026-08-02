@@ -471,6 +471,49 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostMapVesselPids = new HashSet<uint>();
 
         /// <summary>
+        /// How many Parsek ghost ProtoVessel <c>Die()</c> calls are on the stack right now.
+        /// Nested because <see cref="RemoveAllGhostVessels"/> wraps a whole loop while the
+        /// single-ghost removers wrap one call each.
+        ///
+        /// WHY IT EXISTS: <c>Vessel.Die()</c> fires stock <c>onVesselDestroy</c> SYNCHRONOUSLY,
+        /// and <c>SpaceTracking</c> handles that event by rebuilding its vessel list. When that
+        /// rebuild throws, <see cref="Parsek.Patches.GhostTrackingBuildVesselsListPatch"/> has to
+        /// decide whether the failure is attributable to our ghosts — and its live
+        /// <c>FlightGlobals.Vessels</c> scan can itself throw during teardown, leaving the
+        /// classifier with zeroed counts and no evidence. This flag is the scan-INDEPENDENT
+        /// attribution signal: it is set only while OUR teardown is running.
+        /// </summary>
+        private static int ghostTeardownDepth;
+
+        /// <summary>Enter a Parsek ghost-teardown scope. Pair with <see cref="EndGhostTeardown"/>
+        /// in a <c>finally</c> — never let an exception leave the depth raised.</summary>
+        internal static void BeginGhostTeardown()
+        {
+            ghostTeardownDepth++;
+        }
+
+        /// <summary>Leave a Parsek ghost-teardown scope. Floors at zero so an unbalanced
+        /// decrement can never latch the flag inverted for the rest of the session.</summary>
+        internal static void EndGhostTeardown()
+        {
+            if (ghostTeardownDepth > 0)
+                ghostTeardownDepth--;
+        }
+
+        /// <summary>True while a Parsek ghost ProtoVessel <c>Die()</c> is on the stack.</summary>
+        internal static bool IsGhostTeardownInProgress
+        {
+            get { return ghostTeardownDepth > 0; }
+        }
+
+        /// <summary>Live count of registered ghost map ProtoVessels. Read by the
+        /// buildVesselsList finalizer as evidence that survives a failed context scan.</summary>
+        internal static int RegisteredGhostMapVesselCount
+        {
+            get { return ghostMapVesselPids.Count; }
+        }
+
+        /// <summary>
         /// Ghost ProtoVessels whose native icon is currently suppressed by
         /// GhostOrbitLinePatch (below atmosphere). DrawMapMarkers checks this
         /// to draw our custom icon at the ghost mesh position instead.
@@ -2308,6 +2351,7 @@ namespace Parsek
             uint ghostPid = vessel.persistentId;
             bool hadLastKnown = lastKnownByChainPid.TryGetValue(chainPid, out LastKnownGhostFrame last);
 
+            BeginGhostTeardown();
             try
             {
                 vessel.Die();
@@ -2318,6 +2362,10 @@ namespace Parsek
                     string.Format(ic,
                         "RemoveGhostVessel: Die() threw for chain pid={0}: {1}",
                         chainPid, ex.Message));
+            }
+            finally
+            {
+                EndGhostTeardown();
             }
 
             ghostMapVesselPids.Remove(ghostPid);
@@ -3379,19 +3427,27 @@ namespace Parsek
             vessels.AddRange(vesselsByRecordingIndex.Values);
             vessels.AddRange(overlapInstanceVessels.Values);
 
-            foreach (var vessel in vessels)
+            BeginGhostTeardown();
+            try
             {
-                try
+                foreach (var vessel in vessels)
                 {
-                    vessel.Die();
+                    try
+                    {
+                        vessel.Die();
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "RemoveAllGhostVessels: Die() threw for '{0}': {1}",
+                                vessel.vesselName, ex.Message));
+                    }
                 }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "RemoveAllGhostVessels: Die() threw for '{0}': {1}",
-                            vessel.vesselName, ex.Message));
-                }
+            }
+            finally
+            {
+                EndGhostTeardown();
             }
 
             ghostMapVesselPids.Clear();
@@ -3818,6 +3874,7 @@ namespace Parsek
             // Snapshot last-known frame before Die() destroys the vessel.
             bool hadLastKnown = TryGetLastKnownFrame(recordingIndex, out LastKnownGhostFrame last);
 
+            BeginGhostTeardown();
             try { vessel.Die(); }
             catch (Exception ex)
             {
@@ -3825,6 +3882,10 @@ namespace Parsek
                     string.Format(ic,
                         "RemoveGhostVesselForRecording: Die() threw for index={0}: {1}",
                         recordingIndex, ex.Message));
+            }
+            finally
+            {
+                EndGhostTeardown();
             }
 
             ghostMapVesselPids.Remove(ghostPid);
@@ -9952,6 +10013,7 @@ namespace Parsek
             CurrentUTNow = GetCurrentUTSafe;
             FindBodyByNameForTesting = null;
             OrbitSeedResolver.ResetForTesting();
+            ghostTeardownDepth = 0;
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
@@ -11571,6 +11633,7 @@ namespace Parsek
 
             if (vessel != null)
             {
+                BeginGhostTeardown();
                 try { vessel.Die(); }
                 catch (Exception ex)
                 {
@@ -11578,6 +11641,10 @@ namespace Parsek
                         string.Format(ic,
                             "RemoveOverlapInstance: Die() threw for rec=#{0} cycle={1}: {2}",
                             recIdx, cycle, ex.Message));
+                }
+                finally
+                {
+                    EndGhostTeardown();
                 }
             }
 
