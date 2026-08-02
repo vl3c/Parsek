@@ -1068,39 +1068,59 @@ way.** Reading it as "not the known offset" would veto every real trace and sile
 delete the `#556` class; reading it as "is the known offset" would invent proof. So it
 abstains and the live scan's counts decide alone.
 
-STATE PLAINLY WHAT DID NOT CHANGE: against the shipped game this guard still never
-vetoes. Mono prints no `[0x…]` for a `DynamicMethod` frame and Harmony inlines the
-original body, so no production trace carries an offset for this method at all - the fix
-removes the bug and the overclaiming, not the inertness. Do NOT re-count the IL offset as
-a working conjunct of the `#556` class.
+STATE PLAINLY WHAT DID NOT CHANGE: against the shipped game this guard is still not
+expected to veto, and must NOT be re-counted as a working conjunct of the `#556` class.
+The fix removes the bug and the overclaiming, not the inertness.
 
-What IS newly observable: both the warn and the suppress line now carry
-`ilOffset=<0xnnnnn|none>`. The reason this defect survived from `#556` to 2026-08-02 is
-that nothing in the log ever said which way the gate read, so an offset the resolver
-could never find looked exactly like one it found and accepted.
+SIZE THAT CLAIM HONESTLY, though, because it is a mechanism plus a sample of one. The
+mechanism: a `DynamicMethod` carries no sequence points, so Mono has no offset to print
+for the wrapper frame. The sample: exactly one production trace of this method existed
+anywhere in the collected logs when the fix was written, and the 2026-08-02 re-fly added
+a second. Both read `ilOffset=none`. If a third shape exists, a flight will now say so.
+
+What IS newly observable, and is what makes that falsifiable: both the warn and the
+suppress line carry `ilOffset=<0xnnnnn|none>`. The reason this defect survived from `#556`
+to 2026-08-02 is that nothing in the log ever said which way the gate read, so an offset
+the resolver could never find looked exactly like one it found and accepted. MEASURED on
+the 2026-08-02 `_1436` flight, which caught the intermittent stock NRE:
+`… ghostTeardownInProgress=0 registeredGhostMapVessels=0 ilOffset=none scanError="…"`.
 
 Cells re-pinned in `Source/Parsek.Tests/GhostTrackingStationPatchTests.cs` against the
-REAL frame (`ProductionWrapperStackTrace`, copied verbatim from
+REAL frame (`ProductionWrapperStackTrace`, copied character-for-character from
 `2026-08-01_1628_H23-tracking-station_shots/KSP.log:12071-12073`), which deliberately
 keeps the two neighbouring offset-bearing frames so the resolver cannot pass by reading
-`onVesselDestroyed`'s `[0x000f8]`. Exactly two synthetic offset-bearing fixtures are
-retained, one per branch of the gate's arithmetic (accept / veto). Three-way
-mutation-tested, each mutation applied and reverted against the real suite:
+`onVesselDestroyed`'s `[0x000f8]`. That constant is the trace as KSP.log RENDERS it, i.e.
+post-unwind; the Finalizer reads `__exception.StackTrace` inside the wrapper, so the two
+outer frames are probably not present yet at the call under test - which makes the fixture
+a strictly HARDER input than production rather than a weaker one.
+
+Six-way mutation-tested, each mutation applied and reverted against the real suite. The
+last three were added after review found them green:
 
 | mutation | cells that red |
 | --- | --- |
 | `continue` -> `return false` on an offsetless frame (the original defect) | 1 - `..._OffsetBearingFrameBelowTheHarmonyWrapper_VetoesAndWarns` |
 | delete the `StackTraceRulesOutKnownGhostRendererNre` call | 3 - `..._NreAtDifferentStockOffset_...` + the two continue-scan cells |
-| drop the `SpaceTracking.buildVesselsList` frame filter (neighbour theft) | 2 - both production-trace suppress cells |
+| delete the `SpaceTracking.buildVesselsList` frame filter (neighbour theft) | 2 - both production-trace suppress cells |
+| drop the `0x00b4` conjunct, or change the constant | 1 - `..._NreAtTheOrbitRendererLoadOffset_Suppresses` |
+| `marker + 3` -> `marker + 4` (the index past `[0x`) | 1 - `..._OffsetWithoutMonoZeroPadding_ParsesTheWholePayload` |
+| LOOSEN the frame filter to the bare `buildVesselsList` | 1 - `..._SameMethodNameOnAnotherType_IsNotReadAsThisMethodsOffset` |
+
+The last three are the review's real finding, and the first of them is the same
+fixture-shaped hole this entry is about: `0x00b4` was pinned by NOTHING, so it could be
+changed to any value - or dropped from the accept-list entirely - with every cell green.
+The gate's arithmetic is a two-value ACCEPT-LIST, not a two-way branch, so it takes three
+offset fixtures and not two.
 
 ### Established while fixing it: the `#556` class has never fired in production
 
 `Suppressed known ghost ProtoVessel` occurs in **zero** `.log` files anywhere under the
 umbrella root: 4121 logs carry `[Parsek][`, and 2231 of those have Verbose enabled (the
 line is `VerboseRateLimited`, so only those could have printed it). The positive control
-- `buildVesselsList exception left visible` - matches exactly ONE file, the flown
-`2026-08-01_1628` H23 log, so `buildVesselsList` reaching the Finalizer at all is rare
-and every occurrence on record was DECLINED.
+- `buildVesselsList exception left visible` - matched exactly ONE file at the time of the
+sweep, the flown `2026-08-01_1628` H23 log; the 2026-08-02 `_1436` re-fly added a second.
+So `buildVesselsList` reaching the Finalizer at all is rare, and every occurrence on
+record was DECLINED.
 
 The likely reason is the Prefix, not the classifier: `EnsureGhostOrbitRenderers()` runs
 before stock's loop and fixes the null `orbitRenderer` that #195 was about, so the shape
@@ -1111,18 +1131,24 @@ tightening its conjuncts.
 
 ### What is actually happening
 
-An intermittent stock NRE at APPLICATION SHUTDOWN, on 2 of 6 flights so far (record
-2 / 0 / 0 / 0 / 2 / 0 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625`, both
-2026-08-01 flights, and `2026-08-02_1140` flown against the post-withdrawal HEAD). The `[Parsek][WARN]` line and the `[ERR]` line under it are the
-signature; the two "raw Unity exceptions" the scan reports are that ONE exception
-counted twice, not two failures.
+An intermittent stock NRE at APPLICATION SHUTDOWN, on 3 of 9 flights so far (record
+2 / 0 / 0 / 0 / 2 / 0 / 0 / 2 / 0 across `2026-07-30_1520`, `_1522`, `2026-07-31_1625`,
+both 2026-08-01 flights, `2026-08-02_1140` flown against the post-withdrawal HEAD, and
+the three 2026-08-02 `_1434` / `_1436` / `_1437` flights of the IL-offset fix). The
+`[Parsek][WARN]` line and the `[ERR]` line under it are the signature; the two "raw
+Unity exceptions" the scan reports are that ONE exception counted twice, not two
+failures.
+
+Line-wrapped from `2026-08-02_1436_H23-tracking-station_shots/KSP.log:10759`, the
+post-fix capture (the `ilOffset=none` field is new; everything else reads as it did on
+2026-08-01):
 
 ```
 [Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList exception left visible:
   type=NullReferenceException totalVessels=0 ghostVessels=0
   ghostMissingOrbitRenderers=0 nonGhostMissingOrbitRenderers=0
   firstMissingOrbitRenderer=non-ghost-or-none priorStockNullCandidates=0
-  ghostTeardownInProgress=0 registeredGhostMapVessels=0
+  ghostTeardownInProgress=0 registeredGhostMapVessels=0 ilOffset=none
   scanError="NullReferenceException: Object reference not set to an instance of an object"
 [ERR] Exception handling event onVesselDestroy in class SpaceTracking:
   System.NullReferenceException

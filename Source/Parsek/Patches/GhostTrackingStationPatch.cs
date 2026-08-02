@@ -481,13 +481,19 @@ namespace Parsek.Patches
         /// invent proof the trace does not carry. So it abstains and lets the live vessel scan's
         /// counts decide alone.
         ///
-        /// CONSEQUENCE, STATED PLAINLY: against the shipped game this guard never fires. Every
-        /// production frame for this method is the offsetless wrapper, so the veto branch below is
-        /// reachable only from a trace shape KSP 1.12.5 + Harmony do not currently produce. It is
-        /// kept because it is correct and cheap, NOT because it is load-bearing — do not count it
-        /// as one of the #556 class's working conjuncts. (Before 2026-08-02 the resolver ALSO
-        /// aborted on the first offsetless match, which is the same inertness arrived at by a bug:
-        /// see BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.)
+        /// CONSEQUENCE, STATED PLAINLY: against the shipped game this guard is not expected to
+        /// fire, so do NOT count it as one of the #556 class's working conjuncts. It is kept
+        /// because it is correct and cheap, not because it is load-bearing. (Before 2026-08-02 the
+        /// resolver ALSO aborted on the first offsetless match, which is the same inertness arrived
+        /// at by a bug: see BUILDVESSELSLIST-IL-OFFSET-GATE-INERT in todo-and-known-bugs.md.)
+        ///
+        /// THE EVIDENCE FOR THAT, SIZED HONESTLY, because it is a mechanism plus a sample of ONE.
+        /// The mechanism: a DynamicMethod carries no sequence points, so Mono has no offset to
+        /// print for the wrapper frame. The sample: exactly one production trace of this method
+        /// exists anywhere in the repo's collected logs (2026-08-01_1628 H23), plus the
+        /// 2026-08-02 re-fly of this fix, and both read ilOffset=none. That is why the reading is
+        /// now ON the log line — a second shape, if one exists, will say so in a flight rather
+        /// than in a comment.
         /// </summary>
         private static bool StackTraceRulesOutKnownGhostRendererNre(bool haveIlOffset, int ilOffset)
         {
@@ -510,7 +516,20 @@ namespace Parsek.Patches
         /// The offset must come off a <c>buildVesselsList</c> frame and no other. Neighbouring
         /// frames DO carry offsets in the real trace (<c>onVesselDestroyed (Vessel v) [0x000f8]</c>
         /// sits directly under the wrapper), and reading one of those would hand the veto an offset
-        /// from a different method entirely.
+        /// from a different method entirely. The name match is deliberately the QUALIFIED
+        /// <c>SpaceTracking.buildVesselsList</c>, not the bare method name, so a frame for some
+        /// other type's same-named method cannot supply the offset either.
+        ///
+        /// ONE SAME-NAME FRAME IS ADMITTED ON PURPOSE, and it is worth naming because the rule
+        /// above would otherwise seem to exclude it: Harmony's own
+        /// <c>…buildVesselsList_Patch2</c> wrapper matches the substring, and its IL is the PATCHED
+        /// method's, not <c>Assembly-CSharp</c>'s — the prologue Harmony prepends shifts every
+        /// offset away from the stock constants this resolver's caller compares against. It is
+        /// admitted because it is the frame that represents this call, and it is harmless because
+        /// Mono prints no offset for it. If a future Mono/Harmony ever did print one, the result
+        /// would be a spurious VETO — the suppressor declining to suppress, which is the safe
+        /// direction for a suppressor — and the <c>ilOffset=</c> field on the log line is what
+        /// would show it happening.
         /// </summary>
         private static bool TryFindBuildVesselsListIlOffset(string stackTrace, out int offset)
         {
