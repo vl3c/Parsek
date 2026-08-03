@@ -4525,7 +4525,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # `gating = true` still reds here and still needs an explicit edit plus the run
     # ids to justify it - where relaxing to "any spec may arm" would have thrown
     # the guarantee away entirely on the day it first got used.
-    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml"}
+    # CL-3 joined 2026-08-03, by the same route S4.1 took: a REPORT-ONLY reading
+    # run first (`2026-08-03_1834`, PASS attempt 1) which MEASURED
+    # `supersedeRows=1 tombstones=1`, then arming those two as `min = 1` FLOORS.
+    # So arming again made an observed behaviour load-bearing rather than
+    # asserting an unobserved one - the precondition this allowlist exists to
+    # enforce. It is the first spec in the suite to gate on a TOMBSTONE, and the
+    # floors are what separate "the merge ran" from "the merge retired
+    # something": a refused batch writes `Added 0 supersede relations`.
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

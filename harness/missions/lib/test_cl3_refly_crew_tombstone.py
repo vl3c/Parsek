@@ -1593,45 +1593,67 @@ class Cl3SpecStepListTests(unittest.TestCase):
             self.assertNotIn(cmd, _cmds(self.spec))
 
 
-class Cl3SpecUnarmedTests(unittest.TestCase):
-    """THE ARMING GUARD, and the reason this group exists as its own class: this
-    spec has NEVER FLOWN, so every gating window it could declare would be a
-    number nobody has measured. The house rule is land report-only, read the
-    facets off a real run, arm in a separate deliberate commit (the workflow
-    `S4.1-rewind-merge` was promoted through).
+class Cl3SpecArmedTests(unittest.TestCase):
+    """THE ARMING GUARD, now on the far side of it.
 
-    Each cell below reds on the arming commit, ON PURPOSE: arming must cost an
-    edit here with the run ids written down, exactly as it costs an edit to
-    `test_hlib.py::SaveStructureVerifierWiringTests.ARMED_ALLOWLIST`."""
+    This class shipped asserting the spec was UNARMED and said each cell would
+    red on the arming commit ON PURPOSE. They did. Arming happened 2026-08-03
+    off the measurement flight `2026-08-03_1834` (PASS attempt 1), which read
+    `supersedeRows=1 tombstones=1` REPORT-ONLY - so the windows below make a
+    MEASURED behaviour load-bearing rather than asserting an unmeasured one,
+    which is the precondition the guard exists to force.
+
+    The cells now pin the ARMED state, so DISARMING is what costs an edit."""
 
     @classmethod
     def setUpClass(cls):
         cls.spec = _read_spec()
         cls.exp = cls.spec["expectations"]
 
-    def test_no_save_structure_block_is_declared_at_all(self):
-        # The M-C2 verifier RECORDS its measured facets on every driver-valid run
-        # whether or not a block is declared, so the first flight still produces
-        # the reading a later arming needs. Declaring a window today would be
-        # pinning a number derived from a call site rather than measured.
-        self.assertEqual((), saveparse.declared_structure_blocks(self.exp))
-        self.assertEqual((), saveparse.armed_structure_blocks(self.exp))
-        self.assertNotIn("rewind", self.exp)
-        self.assertNotIn("structure", self.exp.get("recordings", {}))
+    def test_the_rewind_block_is_armed_on_measured_floors(self):
+        # FLOORS, not pins: `min = 1` separates "the merge ran" from "the merge
+        # actually retired something". A refused batch writes `Added 0 supersede
+        # relations` and tombstones nothing - the silent pass this lane exists to
+        # make impossible. No ceilings: the counts depend on how much the re-fly
+        # leg recorded, which one flight cannot pin honestly.
+        self.assertIn("rewind", self.exp)
+        self.assertIn("rewind", saveparse.armed_structure_blocks(self.exp))
+        self.assertEqual({"min": 1}, self.exp["rewind"]["supersedeRows"])
+        self.assertEqual({"min": 1}, self.exp["rewind"]["tombstones"])
+        # rewindPoints stays UNDECLARED: the measurement read 0 because the merge
+        # journal REAPS the RP, so asserting its presence post-merge would assert
+        # the opposite of correct behaviour.
+        self.assertNotIn("rewindPoints", self.exp["rewind"])
+
+    def test_the_structure_block_is_declared_but_left_report_only(self):
+        # Gating is PER BLOCK, so structure is recorded without being gated. Its
+        # terminal-state mix depends on where the relaunch leg ends, and a single
+        # sample is not a contract - only the counts are.
+        struct = self.exp["recordings"]["structure"]
+        self.assertNotIn("gating", struct)
+        self.assertNotIn("structure", saveparse.armed_structure_blocks(self.exp))
+        self.assertEqual({"min": 4}, struct["recordings"])
+        self.assertNotIn("terminalStates", struct)
         self.assertNotIn("points", self.exp.get("recordings", {}))
 
-    def test_nothing_anywhere_in_the_file_arms_gating(self):
-        self.assertFalse(saveparse.gating_armed(self.exp))
+    def test_exactly_one_block_arms_gating_and_it_is_rewind(self):
+        # Anti-over-arming: a later author adding `gating = true` to structure or
+        # points must do it deliberately, with its own measurement.
+        self.assertTrue(saveparse.gating_armed(self.exp))
+        self.assertEqual(("rewind",), saveparse.armed_structure_blocks(self.exp))
         # ...and not in a block shape this test does not model either: the raw
         # text carries no `gating` key at all, so a future author cannot arm one
         # by declaring a surface these asserts do not enumerate.
+        gating_lines = []
         for line in _spec_text().split("\n"):
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            self.assertNotIn("gating", stripped,
-                             "a `gating` key appeared outside a comment: arming is "
-                             "a separate, measured, allowlisted commit")
+            if "gating" in stripped:
+                gating_lines.append(stripped)
+        # EXACTLY ONE non-comment `gating` line in the whole file, so a second
+        # armed block cannot appear without this cell noticing.
+        self.assertEqual(["gating       = true"], gating_lines)
 
     def test_it_is_not_on_the_save_structure_armed_allowlist(self):
         # THE CROSS-FILE HALF, read out of the guard's own source rather than
@@ -1646,7 +1668,9 @@ class Cl3SpecUnarmedTests(unittest.TestCase):
         self.assertIsNotNone(m, "test_hlib.py no longer defines ARMED_ALLOWLIST - "
                                 "the save-structure arming guard moved or was removed")
         allowlist = set(re.findall(r'"([^"]+)"', m.group(1)))
-        self.assertNotIn(os.path.basename(SPEC_PATH), allowlist)
+        # Flipped by the arming commit: BOTH sides had to change, which is the
+        # deliberateness the allowlist exists to force.
+        self.assertIn(os.path.basename(SPEC_PATH), allowlist)
         # ...and the allowlist is not empty, or this cell would pass vacuously
         # against a guard that had quietly stopped guarding.
         self.assertTrue(allowlist)
@@ -1911,6 +1935,11 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
             # without the journal (R1's precedent, same tokens).
             "supersede-relation": "supersede relations",
             "merge-journal": "supersede relations",
+            # ADDED by the arming commit. Gated TWICE: this token, whose
+            # `Kerbal=[1-9]` term is what makes it a KERBAL tombstone rather than
+            # any tombstone, AND `[expectations.rewind] tombstones = { min = 1 }`
+            # armed off the measurement run.
+            "tombstones": "Tombstoned",
         }
         self.assertEqual(sorted(proof), sorted(self.claimed["D9"]))
         for value, needle in proof.items():
@@ -1925,18 +1954,32 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         self.assertIn("Mode = CAREER", _fixture_save_lines(self.spec))
 
     def test_the_scope_fenced_cells_stay_unclaimed(self):
-        # THE SCOPE FENCE, and the inversion of
-        # `test_cl2_crew_loss_ledger.py::test_the_scope_fenced_re_fly_cells_stay_
-        # unclaimed`, whose docstring says "stage B is what closes them". This
-        # spec is stage B and it still does NOT close them - because the registry
-        # pins `dead-crew-strip` as a TWO-part definition: the non-zero `Kerbal=`
-        # term (gated here) AND `tombstones >= 1` in the M-C2 save parse (NOT
-        # gated here - the block is unarmed until the measurement flight), plus a
-        # second half about the ELS recompute leaving no reservation or stand-in,
-        # which no token in this file pins at all. Half a definition is not the
-        # definition. THE ARMING COMMIT is what may claim D9 `tombstones`; D12
-        # `dead-crew-strip` additionally needs a gate on that second half.
-        self.assertNotIn("tombstones", self.claimed.get("D9", []))
+        # THE SCOPE FENCE, one cell closed and one MEASURED SHUT.
+        #
+        # D9 `tombstones` IS now claimed - the arming commit earned it, and the
+        # cell above pins both of its gates.
+        #
+        # D12 `dead-crew-strip` is STILL NOT claimed, and this is no longer a
+        # "not yet measured" - the measurement flight `2026-08-03_1834` measured
+        # the second half of the registry definition FAILING. The registry pins
+        # the cell as (i) the death action is tombstoned AND (ii) the ELS
+        # recompute leaves NO surviving reservation or stand-in. (i) held:
+        # `Tombstoned 1 career actions (... Kerbal=1 ...)`. (ii) did NOT:
+        #     Recomputed after tombstones: 1 reservations remain.
+        #     Stand-in generated: 'Philsted Kerman' (Pilot) for slot 'Jebediah Kerman'
+        #     Reservation: 'Jebediah Kerman' endUT=Infinity (Unknown),
+        #                  recording 'cl-stack-root'
+        # The surviving reservation is sourced from `cl-stack-root`, which is
+        # OUTSIDE the supersede subtree (`subtreeCount=1`, rooted at `cl-pod-a`),
+        # so no tombstone of the pod could ever release it. Cause is the FIXTURE,
+        # not the product: RewindCrewLossFixture gives the root a crewed snapshot
+        # carrying the SAME kerbal and no terminal state, so the root holds an
+        # independent indefinite `(Unknown)` reservation on him.
+        #
+        # So the cell stays unclaimed until a fixture whose only crew source in
+        # the subtree is the pod - see todo-and-known-bugs.md. Claiming it off
+        # half a definition is exactly what the registry note forbids.
+        self.assertIn("tombstones", self.claimed.get("D9", []))
         self.assertNotIn("tombstones", self.claimed.get("D8", []))
         for value in ("dead-crew-strip", "tombstone-rep-penalty"):
             self.assertNotIn(value, self.claimed.get("D12", []))

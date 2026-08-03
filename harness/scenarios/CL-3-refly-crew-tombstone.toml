@@ -371,7 +371,17 @@ D1  = ["auto-record-launch"]
 #                                            so the `Added ...` token cannot fire without
 #                                            it (R1's precedent, same tokens).
 D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
-       "supersede-relation", "merge-journal"]
+       "supersede-relation", "merge-journal",
+       # ADDED after the arming flight (2026-08-03_1834, PASS attempt 1). Gated
+       # twice over: the `Tombstoned [1-9]... Kerbal=[1-9]` logContract AND
+       # `[expectations.rewind] tombstones = { min = 1 }` armed below. The run
+       # MEASURED `Tombstoned 1 career actions (... Kerbal=1 ...)` against
+       # `Added 1 supersede relations for subtree rooted at cl-pod-a`, off a
+       # KerbalAssignment+Dead row Parsek DERIVED itself
+       # (`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew
+       # source ... terminalState=Destroyed` -> `PopulateCrewEndStates: ...
+       # crew=1 aboard=0 dead=1`). First time the suite has reached it.
+       "tombstones"]
 # D14 `kerbin` / `scene-flight` <- the re-fly milestones can only be emitted from FLIGHT
 # on Kerbin; `career` <- the committed template's `Mode = CAREER`, which a cell asserts
 # against the fixture itself rather than against prose.
@@ -490,6 +500,35 @@ required  = ["Recording started",
 # (`TryCommitReFlySupersede: orchestrator threw ...`, the NotCommitted AppendRelations
 # invariant). A merge that throws must red.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# ARMED 2026-08-03 from the measurement flight `2026-08-03_1834` (PASS attempt 1),
+# per the one-flight-then-arm rule. That run was REPORT-ONLY and read
+# `supersedeRows=1 tombstones=1 rewindPoints=0 rewindRetirements=0`, so arming makes
+# an existing behaviour load-bearing rather than asserting a new one.
+#
+# FLOORS, NOT PINS. `min = 1` is the difference between "the merge ran" and "the
+# merge actually retired something" - a refused batch writes `Added 0 supersede
+# relations` and tombstones nothing, which is precisely the silent-pass this lane
+# exists to make impossible. No ceilings: the exact counts depend on how much the
+# re-fly leg recorded, which is not a number one flight can pin honestly.
+#
+# `rewindPoints` is deliberately absent. The measurement read 0 - the RP is REAPED
+# by the merge journal, so asserting its presence post-merge would assert the
+# opposite of correct behaviour.
+[expectations.rewind]
+gating       = true
+supersedeRows = { min = 1 }
+tombstones    = { min = 1 }
+
+# REPORT-ONLY (no `gating` key): these are the measurement run's structural facets,
+# recorded so a later regression is legible, not gated. `recordings` is a FLOOR of 4
+# (the 3 injected + at least one the re-fly produced); the terminal-state mix is
+# left undeclared because it depends on where the relaunch leg happens to end, and
+# a single sample is not a contract.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 4 }
 
 [runtime]
 # Budget arithmetic (M-A5 S8), sized so the WORST DEFER path surfaces a clean per-step

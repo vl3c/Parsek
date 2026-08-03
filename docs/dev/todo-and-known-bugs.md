@@ -663,6 +663,62 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
+## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
+
+The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
+action in the supersede subtree is tombstoned, AND (ii) the ELS recompute that follows
+leaves NO surviving reservation or stand-in for that kerbal.
+
+`CL-3-refly-crew-tombstone`'s first green flight measured **(i) holding and (ii)
+failing**, so the cell stays unclaimed - claiming it off half a definition is what the
+registry note exists to forbid.
+
+### The measurement
+
+```
+21:35:20.866  Added 1 supersede relations for subtree rooted at cl-pod-a
+              (origin=cl-pod-a subtreeCount=1 ...)
+21:35:20.867  Tombstoned 1 career actions (... Kerbal=1, Other=0); 0 excluded
+21:35:20.871  Recomputed after tombstones: 1 reservations remain.
+21:35:20.871  Stand-in generated: 'Philsted Kerman' (Pilot) for slot 'Jebediah Kerman'
+21:35:20.872  Reservation: 'Jebediah Kerman' endUT=Infinity (Unknown),
+              recording 'cl-stack-root'
+```
+
+Half (i) is unambiguous: the death row Parsek DERIVED for `cl-pod-a`
+(`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew source ...
+terminalState=Destroyed` -> `PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`) was
+tombstoned, and the tally's `Kerbal=1` term proves it was the KERBAL row rather than
+some other career action.
+
+### Why (ii) failed, and why it is NOT a product defect
+
+The surviving reservation is sourced from **`cl-stack-root`**, and the supersede subtree
+is `subtreeCount=1` rooted at `cl-pod-a`. The root is not in the subtree, so no tombstone
+of the pod could ever release its reservation. `RecomputeAfterTombstones` behaved
+correctly; it was handed a ledger that still legitimately reserves Jebediah.
+
+The cause is the FIXTURE. `RewindCrewLossFixture.BuildRoot` gives the root recording a
+crewed `FleaRocket` snapshot carrying the SAME kerbal and sets **no terminal state**, so
+`InferCrewEndState` returns `Unknown` and the root holds an indefinite reservation on him
+independently of the pod. (B9's root is also terminal-state-less, but B9 is crewless
+throughout, so the question never arose there.)
+
+### Fix, for whoever picks this up
+
+Make the pod the ONLY crew source inside the tree, so the pod's tombstone is the only
+thing reserving that kerbal. Cheapest version: give `BuildRoot` a crewless
+`ProbeShip` snapshot (the root models the stack, and the crew rides the pod). Then
+re-fly; if (ii) then holds, D12 `dead-crew-strip` becomes claimable with a gate on the
+recompute half - candidate: `forbidden = ["Stand-in generated"]` plus a
+`Recomputed after tombstones: 0 reservations remain` required token.
+
+Do NOT instead relax the registry definition to just half (i). The tombstone half is
+already claimed as D9 `tombstones`; a `dead-crew-strip` that means the same thing is a
+second name for one fact, which is how a coverage report starts overstating itself.
+
+---
+
 ## ~~`dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable~~ [FOUND 2026-07-30 during the CL-2 scope fence. **DEFINITION PINNED 2026-08-02**, branch `cl2-stage-b`]
 
 ### What it now means

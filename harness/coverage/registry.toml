@@ -154,6 +154,16 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # corroboration; it is the weaker of its two invariants and must not be the sole gate.
 # Details in docs/dev/todo-and-known-bugs.md.
 #
+# MEASURED SHUT 2026-08-03, so this is no longer a "nobody has tried": CL-3's first
+# green flight (`2026-08-03_1834`) measured half (i) HOLDING (`Tombstoned 1 career
+# actions (... Kerbal=1 ...)`) and half (ii) FAILING (`Recomputed after tombstones:
+# 1 reservations remain.` + `Stand-in generated: 'Philsted Kerman' ... for slot
+# 'Jebediah Kerman'`). The surviving reservation comes from `cl-stack-root`, OUTSIDE
+# the supersede subtree, so no tombstone of the pod could release it - a FIXTURE
+# artifact (the crew-loss fixture's root carries the same kerbal with no terminal
+# state), not a product defect. The cell therefore stays UNCLAIMED; `CL-3` claims D9
+# `tombstones` only. Fix + re-fly recipe in docs/dev/todo-and-known-bugs.md.
+#
 # `tombstone-rep-penalty` IS UNREACHABLE BY ANY FLIGHT, not merely uncovered
 # (2026-08-02, CL stage B; mechanical, re-check by grep before ever claiming it).
 # The cell needs a `GameActionType.ReputationPenalty` action in the supersede subtree.
