@@ -4229,6 +4229,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # machine-checked below; the rest are human judgements recorded here.
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
+        # Landed 2026-08-03 with the CL stage-B re-fly lane, UNFLOWN. Two live debts,
+        # both derived in the spec header rather than discovered by a flight.
+        "CL-3-refly-crew-tombstone.toml":
+                                       "tier=operator AND two open operator calls. (1) THE "
+                                       "OPEN GATE: the mission's `vesselStateChanged` "
+                                       "corroboration row cannot fire on a flightless "
+                                       "pad-to-pad rewind - BuildRewindPointQuicksave clones "
+                                       "the host save's OWN vessel and StampVesselIdentity "
+                                       "touches no coordinate, so the pre- and post-rewind "
+                                       "readings are the same craft, same pad, same "
+                                       "situation - and a human picks between the "
+                                       "mission-side and fixture-side remedies the header "
+                                       "derives. (2) THE ARMING FOLLOW-UP: it ships with no "
+                                       "[expectations.rewind] and no recordings.structure "
+                                       "block, so the supersede-row / tombstone save-parse "
+                                       "windows are declared only after a measurement flight "
+                                       "reads them (the S4.1 workflow, which itself names "
+                                       "this spec as the second reading its rewindPoints "
+                                       "window is waiting on).",
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "

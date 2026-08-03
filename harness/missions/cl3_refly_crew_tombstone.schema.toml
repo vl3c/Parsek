@@ -1,0 +1,141 @@
+# Declared param schema for mission cl3_refly_crew_tombstone (the re-fly
+# crew-tombstone lane).
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <n?>, "max": <n?>}}}
+# with <t> in {float, int, number, window, list, string, bool}.
+#
+# THIS IS r1_rewind_loop.schema.toml MINUS THE LEGS CL-3 DOES NOT HAVE. The ten
+# `# ---- ascent leg ----` keys are gone (this lane flies no ascent: it rewinds a
+# tree that is ALREADY COMMITTED on disk, injected by the `rewind-crew-loss`
+# preset) and so is `commitFrames` (there is no CommitTree phase to bound). Every
+# key that survives keeps R1's exact spelling, type and bounds, because it bounds
+# the same phase with the same semantics - a value tuned on one lane means the
+# same thing on the other.
+#
+# Every value is a target / tolerance / budget, never a golden trajectory.
+
+# ---- the rewind target ----
+
+# REQUIRED: ParsekTestCommandAddon.InvokeRewindImpl matches RewindPoint.RewindPointId
+# EXACTLY and answers REJECTED unknown-rp otherwise, so an absent id can only ever
+# produce a rejected verb. mlib's Cl3Params carries "" / -1 UNREAD sentinels so the
+# machine ALSO fails closed on its first frame (`rewind target unresolved`) if a
+# future caller bypasses this schema.
+[params.rewindPointId]
+required = true
+type = "string"
+
+# The slot INSIDE that RewindPoint. For the crew-tombstone lane this is the CREWED
+# pod's slot: rewinding onto the crewless probe would produce a perfectly healthy
+# merge that tombstones nothing, which is a green run proving the wrong thing.
+[params.rewindSlot]
+required = true
+type = "int"
+min = 0
+
+# ---- FRAME budgets ----
+#
+# Frames, NOT game seconds: past the rewind the game clock runs BACKWARD, so a
+# `ut - phase_entry_ut` budget can never expire and the phase would hang with no
+# named give-up until the whole mission budget killed it.
+
+# STOP (seam StopRecording) and RECORDER-IDLE (seam RecordingState polling until
+# the reply READS recording=false). Both exist because `TestCommandDispatcher`
+# REJECTS InvokeRewind with `recording-active` while a recorder is live - and this
+# lane runs with autoRecordOnLaunch ON (that setting is what records the RE-FLY leg
+# so LOOP-POINTS can read a non-zero count), so a recorder may well be live the
+# moment the save finishes loading. idleFrames bounds the poll; each frame either
+# issues a probe or reads its reply, so it is ~half that many probes.
+[params.stopFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.idleFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.rewindFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+[params.verifyFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# ---- the OBSERVED rewind gate ----
+
+# Seconds the game clock must have run BACKWARD before the rewind counts as having
+# happened. Any positive value proves an earlier state was loaded; the floor keeps
+# float noise or a sub-second read from qualifying. The seam's own verdict=OK is a
+# COMMANDED reading and never satisfies this.
+[params.minUtRegressionSeconds]
+required = false
+type = "number"
+min = 0.001
+
+# NO `minAltitudeChangeMeters` KEY, deliberately - the one place this schema is
+# NOT "R1 minus the ascent legs". R1 declares that knob to threshold its
+# `vesselStateChanged` row; this lane does not carry the row at all, because on a
+# flightless pad-to-pad rewind the pre- and post-readings are the same cloned node
+# and the row is constant-False regardless of what Parsek did (the authority is the
+# long note in `mlib.evaluate_cl3_assertions`). A key that reads nothing is how a
+# future author comes to believe they tightened a gate that does not exist.
+#
+# HONEST LIMIT, measured not assumed: dropping a key from this file does NOT make
+# setting it an error. `hlib._validate_mission_params` iterates the DECLARED params
+# only, so an UNDECLARED key in a spec is silently IGNORED - no reject, no warning.
+# The guard against re-adding it is therefore a CELL, not this schema:
+# `test_cl3_refly_crew_tombstone.py::Cl3SchemaTests::
+# test_the_dead_altitude_knob_is_undeclared_and_this_cell_is_the_only_guard`.
+
+# ---- the RE-FLY (what makes the merge worth making) ----
+#
+# A rewind that is never flown again leaves the re-fly's provisional recording
+# EMPTY, and SupersedeCommit.ValidateSupersedeTarget then refuses to write any
+# supersede rows (`reason=empty Points`). A merge that writes no supersede rows
+# tombstones nothing, so the whole point of this lane would be lost on a green
+# run. R1 flight 2 (2026-07-26) rewound perfectly and still red on exactly that.
+# These four drive the re-fly and gate it on two OBSERVED facts: the craft
+# CLIMBED, and the climb was RECORDED.
+
+[params.relaunchThrottle]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# A FLOOR, not a target altitude: metres gained over the post-rewind reading before
+# the relaunch counts as powered flight. A craft sitting on the pad with a dead
+# engine can never cross it, which is the whole point - "we sent throttle" is a
+# commanded reading, climbing is an observed one.
+[params.relaunchMinAltitudeGainMeters]
+required = false
+type = "number"
+min = 1.0
+
+[params.relaunchFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# Bound on the post-rewind RecordingState poll (`points > 0`).
+[params.loopPointsFrames]
+required = false
+type = "int"
+min = 1
+max = 10000

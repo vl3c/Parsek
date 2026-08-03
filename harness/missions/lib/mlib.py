@@ -5973,6 +5973,751 @@ def evaluate_v1_map_dwell_assertions(
 
 
 # ---------------------------------------------------------------------------
+# CL-3 re-fly crew-tombstone machine (mission cl3_refly_crew_tombstone). Pure.
+#
+# THE R1 REWIND LOOP WITH THE FLIGHT AND THE COMMIT CUT OFF THE FRONT. R1 flies a
+# B2 ascent and commits it so there is a committed tree to rewind FROM; CL-3's
+# tree is ALREADY COMMITTED ON DISK before the game starts (the injected
+# `rewind-crew-loss` corpus: `cl-stack-root` with the crewless probe `cl-probe-b`
+# in slot 0 and the CREWED, terminally-Destroyed pod `cl-pod-a` in slot 1). There
+# is nothing to fly up and nothing to commit, so the machine's FIRST act is the
+# StopRecording that opens the dispatcher's gate:
+#
+#     STOP (seam StopRecording)  ->  RECORDER-IDLE (seam RecordingState)
+#       ->  REWIND (seam InvokeRewind)  ->  VERIFY  ->  REWOUND
+#       ->  RELAUNCH  ->  LOOP-POINTS (seam RecordingState)
+#       ->  LOOP-CLOSED (terminal)
+#
+# Every one of those eight phases keeps R1's semantics exactly; only the names
+# and the entry point differ. The precedent for this cut is already committed:
+# `v1_map_dwell` lifts STOP / RECORDER-IDLE / REWIND / VERIFY from `r1_decide`
+# verbatim in semantics. CL-3 differs from V1 in the one place that matters --
+# V1 deliberately NEVER re-flies (and must therefore answer the merge dialog
+# `discard`), while CL-3 must re-fly, because a merge is the whole point.
+#
+# WHAT THE MISSION IS FOR. Rewinding to slot 1 puts the CREWED pod back, and
+# merging the re-fly afterwards drives `SupersedeCommit.CommitTombstones` over
+# the `KerbalAssignment` + `KerbalEndState.Dead` ledger row Parsek DERIVES at
+# load from that terminally-Destroyed crewed recording. That merge is a
+# POST-mission seam step, not a mission action: `AnswerMergeDialog`'s completion
+# contract (`TestCommandMergeAnswer.DecideAnswerCompletion`) requires the scene
+# to LEAVE FLIGHT, which ends the mission's own kRPC telemetry (the R1 / EVA-4
+# rule). The mission's job is to hand that step a merge that is WORTH making.
+#
+# WHICH IS WHY THE RE-FLY MUST MEASURABLY FLY. `SupersedeCommit`'s
+# `ValidateSupersedeTarget` REFUSES to write supersede rows over a provisional
+# with no Points (`AppendRelations outcome=refused-unflown-provisional ...
+# reason=empty Points`), and a merge that writes zero supersede rows tombstones
+# nothing. R1 flight 2 (2026-07-26) rewound perfectly, tore down without
+# re-flying, and red the run on exactly that. So RELAUNCH requires the rewound
+# craft to have physically CLIMBED (a dead engine cannot produce altitude gain)
+# and LOOP-POINTS requires a RecordingState reply to read `points > 0`.
+#
+# WHY STOP + RECORDER-IDLE EXIST HERE, WITH NO COMMIT IN FRONT OF THEM.
+# `TestCommandDispatcher.DecideDispatch` REFUSES InvokeRewind whenever a recorder
+# is live (`reason=recording-active`), deliberately: a re-fly reloads the scene
+# and would silently discard a live recording. CL-3 flies with
+# `autoRecordOnLaunch` ON (it has to -- that setting is what records the RE-FLY
+# leg so LOOP-POINTS can read a non-zero count), so a recorder may well be live
+# the moment the save finishes loading. Ordering alone is an ASSUMPTION; the
+# machine carries the dispatcher's gate as an OBSERVED PRECONDITION and polls
+# `RecordingState` until a reply actually READS `recording=false`. That reading
+# fails CLOSED: `RecordingState`'s `recording` is a SUPERSET of the dispatcher's
+# own predicate, so `false` GUARANTEES the gate is open while a spurious `true`
+# only ever costs another probe. R1 flight 1 red exactly here.
+#
+# WHY THE STOP COMMAND IS ARMED BY THE MACHINE'S OWN FIRST FRAME. In R1 the
+# StopRecording action rides the COMMIT->STOP transition. CL-3 has no phase in
+# front of STOP, so the command is emitted on the first frame the machine ever
+# sees, latched by `stop_command_emitted` so it can be emitted EXACTLY ONCE: a
+# second issue would reuse the wire id, and the C# seam SKIPS DUPLICATE IDS --
+# the repeat would be a silent no-op whose poll then expires as a TIMEOUT that
+# looks like a wedged addon.
+#
+# WHY VERIFY EXISTS (R1's most important paragraph, and it is unchanged). "We
+# wrote InvokeRewind to the channel and the seam answered verdict=OK" is a
+# COMMANDED reading: it says the actor believes it acted. The ADVANCE is instead
+# an OBSERVATION that only a rewind could have produced -- THE GAME CLOCK RAN
+# BACKWARD. A Rewind-to-Separation loads an earlier RewindPoint quicksave, so
+# kRPC's `space_center.ut` reads LOWER after the cycle than the value stamped
+# before it. Nothing in normal flight can do that.
+#
+# GAME-TIME BUDGETS ARE UNUSABLE PAST THE REWIND. `snapshot.ut - phase_entry_ut`
+# is NEGATIVE after a rewind and only grows less positive, so a game-time budget
+# in any post-rewind phase could NEVER expire: the phase would hang until the
+# whole mission budget killed it, with no named give-up. Every phase here is
+# bounded by a FRAME count, and every give-up is distinctly NAMED so an operator
+# reads which one died.
+#
+# WHAT LOOP-POINTS CANNOT SEE (R1's honest limit, inherited verbatim).
+# `RecordingState.points` is the LIVE recorder's buffered count for whatever
+# recording happens to be live -- NOT the re-fly provisional's. R1 flight 3 read
+# `points=24 tree=820de77e` while the merge simultaneously refused
+# `provisional=rec_5b0697a6... reason=empty Points`. No seam verb exposes the
+# re-fly marker's provisional id, so "the points landed in the PROVISIONAL" is
+# not observable here. The gate proves the post-rewind flight was recorded
+# SOMEWHERE and nothing stronger; the reply's `tree` field is carried as row
+# evidence so that divergence lands in the result JSON instead of only in
+# KSP.log. The thing that actually proves the tombstone is the SCENARIO's
+# `Tombstoned N career actions (... Kerbal=K ...)` log contract and the M-C2
+# save parse, neither of which is the mission's to assert.
+# ---------------------------------------------------------------------------
+
+CL3_STOP = "STOP"
+CL3_RECORDER_IDLE = "RECORDER-IDLE"
+CL3_REWIND = "REWIND"
+CL3_VERIFY = "VERIFY"
+CL3_REWOUND = "REWOUND"
+CL3_RELAUNCH = "RELAUNCH"
+CL3_LOOP_POINTS = "LOOP-POINTS"
+CL3_LOOP_CLOSED = "LOOP-CLOSED"
+CL3_PHASES: Tuple[str, ...] = (CL3_STOP, CL3_RECORDER_IDLE, CL3_REWIND,
+                               CL3_VERIFY, CL3_REWOUND, CL3_RELAUNCH,
+                               CL3_LOOP_POINTS, CL3_LOOP_CLOSED)
+
+# Per-command tags (the R1 discipline: distinct by construction so the wire ids
+# can never collide -- the C# seam SKIPS duplicate ids, which would make the
+# later command a SILENT no-op whose poll then expires as a bogus TIMEOUT). The
+# repeated probes reuse R1's two tag FAMILIES (`state0..`, `loop0..`) exactly as
+# V1 reuses `r1_state_probe_tag`: they are already per-probe, and they are
+# already separate families, so a LOOP-POINTS probe can never collide with a
+# RECORDER-IDLE probe at the same index.
+CL3_TAG_STOP = "stop"
+CL3_TAG_REWIND = "rewind"
+
+
+@dataclass(frozen=True)
+class Cl3Params:
+    """CL-3 re-fly tuning. Every key is R1's, with R1's spelling and R1's
+    default, because every phase here is R1's phase; the ASCENT block and
+    ``commit_frames`` are gone with the legs they bounded.
+
+    ``rewind_point_id`` / ``rewind_slot`` carry fail-closed UNREAD sentinels
+    ("" / -1): a mission launched without a resolvable rewind target must name
+    that on the FIRST frame rather than drive a whole cycle toward a verb that
+    could only ever be REJECTED unknown-rp."""
+    # The InvokeRewind target. "" / -1 = UNREAD -> the first frame fails closed
+    # with the `rewind-target-unresolved` give-up.
+    rewind_point_id: str = ""
+    rewind_slot: int = -1
+    # FRAME budgets (see the section header: a game-time budget cannot bound a
+    # phase whose clock runs backward). The seam bridge BLOCKS inside perform()
+    # for the whole poll window, so a terminal token normally lands on the very
+    # next frame; these bounds exist for the case where the action never
+    # executed at all (no seam configured -> an immediate ERROR token) or the
+    # result never rides a snapshot.
+    stop_frames: int = 40
+    # RECORDER-IDLE's bound. Each frame in the phase either issues one
+    # RecordingState probe or reads its reply, so this is ~half that many probes.
+    idle_frames: int = 40
+    rewind_frames: int = 40
+    verify_frames: int = 40
+    # THE OBSERVED GATE: how many seconds the game clock must have run BACKWARD
+    # across the cycle before the rewind counts as having happened. Any positive
+    # value proves a load of an earlier state; the floor keeps a float-noise or
+    # sub-second read from qualifying.
+    min_ut_regression: float = 1.0
+    # NO `min_altitude_change` HERE, and its absence is deliberate (see
+    # `evaluate_cl3_assertions`). R1 carries that knob to threshold its
+    # `vesselStateChanged` row; this lane does not carry the row, so carrying the
+    # knob would advertise a gate that reads nothing - a future author raising it
+    # would believe they had tightened a lane it cannot touch. (An undeclared
+    # mission param is silently ignored by hlib rather than rejected, so the
+    # guard against it coming back is a CELL in
+    # test_cl3_refly_crew_tombstone.py, not the schema.) The pre/post altitude
+    # and situation are still MEASURED and still reach the result JSON, as
+    # non-gating evidence on `clockRewound`.
+    # ---- THE RE-FLY (what makes the merge worth making) ----
+    relaunch_throttle: float = 1.0
+    # Metres of altitude gained over the post-rewind reading before the relaunch
+    # counts as powered flight. Not a target altitude - a floor a craft sitting
+    # on the pad with a dead engine can never cross.
+    relaunch_min_altitude_gain: float = 100.0
+    relaunch_frames: int = 240
+    # Bound on the post-rewind RecordingState poll (points > 0).
+    loop_points_frames: int = 40
+
+
+def cl3_params_from_dict(params: Dict) -> Cl3Params:
+    """Build ``Cl3Params`` from a spec ``missionParams`` dict. Key spellings and
+    defaults are R1's verbatim for every shared knob, so a value tuned on one
+    lane means the same thing on the other."""
+    params = params or {}
+    return Cl3Params(
+        rewind_point_id=str(params.get("rewindPointId", "") or ""),
+        rewind_slot=int(params.get("rewindSlot", -1)),
+        stop_frames=int(params.get("stopFrames", 40)),
+        idle_frames=int(params.get("idleFrames", 40)),
+        rewind_frames=int(params.get("rewindFrames", 40)),
+        verify_frames=int(params.get("verifyFrames", 40)),
+        min_ut_regression=float(params.get("minUtRegressionSeconds", 1.0)),
+        relaunch_throttle=float(params.get("relaunchThrottle", 1.0)),
+        relaunch_min_altitude_gain=float(
+            params.get("relaunchMinAltitudeGainMeters", 100.0)),
+        relaunch_frames=int(params.get("relaunchFrames", 240)),
+        loop_points_frames=int(params.get("loopPointsFrames", 40)),
+    )
+
+
+@dataclass(frozen=True)
+class Cl3State:
+    """CL-3 machine state. The machine STARTS in STOP (nothing precedes it), and
+    ``done`` fires at CL3_LOOP_CLOSED (verdict None -- the assertions judge the
+    carried evidence) or on a named give-up.
+
+    Sentinel discipline is load-bearing: "" / -1 / NaN all mean UNREAD and can
+    never satisfy a gate."""
+    params: Cl3Params
+    phase: str = CL3_STOP
+    phase_entry_ut: float = 0.0
+    # Frames spent in the CURRENT phase (the ONLY bound; see the header).
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (CL3_STOP,)
+    # Latches the one-and-only StopRecording issue. R1 emits that command on its
+    # COMMIT->STOP transition; CL-3 has no phase in front of STOP, so the
+    # machine arms it itself -- exactly once, because a repeated wire id is one
+    # the C# seam SKIPS (a silent no-op whose poll expires as a bogus TIMEOUT).
+    stop_command_emitted: bool = False
+    # Terminal seam tokens, per command. Carried evidence for the assertions.
+    stop_result: str = ""
+    rewind_result: str = ""
+    # PARSEK's OWN refusal reason for a non-OK rewind, decoded off the response
+    # `msg` payload ("recording-active", "refly-gate <reason>", "unknown-rp").
+    # "" = none read. R1 flight 1 red with reason=recording-active while the
+    # give-up text speculated about the RewindPoint; this field is what stops
+    # that recurring.
+    rewind_reject_reason: str = ""
+    # RECORDER-IDLE evidence. `state_probe` is the NEXT probe index (each probe
+    # gets its own tag / wire id); `recorder_idle_reading` is the last
+    # `recording` payload value actually read ("" = never read, the fail-closed
+    # sentinel); `recorder_idle_observed` latches only on a read of "false".
+    state_probe: int = 0
+    recorder_idle_reading: str = ""
+    recorder_idle_observed: bool = False
+    # OBSERVED pre-rewind stamp, taken on the frame InvokeRewind is emitted.
+    pre_rewind_ut: float = float("nan")
+    pre_rewind_altitude: float = float("nan")
+    pre_rewind_situation: str = ""
+    pre_rewind_body: str = ""
+    # OBSERVED post-rewind readings, taken on the frame the gate opened.
+    post_rewind_ut: float = float("nan")
+    post_rewind_altitude: float = float("nan")
+    post_rewind_situation: str = ""
+    post_rewind_body: str = ""
+    # pre_rewind_ut - post_rewind_ut. POSITIVE = the clock ran backward = the
+    # rewind is OBSERVED. NaN = never measured.
+    ut_regression: float = float("nan")
+    # ---- RE-FLY evidence ----
+    # Peak altitude gain observed over post_rewind_altitude during RELAUNCH. NaN
+    # = never measured (fail-closed: an unread channel grants no flight).
+    relaunch_altitude_gain: float = float("nan")
+    relaunch_situation: str = ""
+    # The `points` value READ back off a post-rewind RecordingState reply. -1 =
+    # never read (the fail-closed sentinel): a mission that could not read the
+    # count must never satisfy a points gate with a fabricated 0-or-more.
+    loop_probe: int = 0
+    loop_points_read: int = -1
+    # The tree id the post-rewind RecordingState reply named. "" = never read.
+    # Evidence only - the mission cannot compare it to the marker's provisional
+    # (no seam verb exposes that id), but carrying it puts an R1-flight-3-shaped
+    # divergence in the result JSON instead of only in KSP.log.
+    loop_recorded_tree: str = ""
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    done: bool = False
+    loss_reason: Optional[str] = None
+
+
+def cl3_initial_state(params: Cl3Params) -> Cl3State:
+    """Fresh CL-3 machine at STOP, with the StopRecording command not yet armed
+    (the first ``cl3_decide`` frame arms it)."""
+    return Cl3State(params=params)
+
+
+def _cl3_enter(state: Cl3State, new_phase: str, ut: float) -> Cl3State:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        phase_frames=0,
+        phases_reached=state.phases_reached + (new_phase,),
+        # LOOP-CLOSED, not REWOUND. A rewind that is never flown again leaves the
+        # re-fly provisional EMPTY, and `SupersedeCommit.ValidateSupersedeTarget`
+        # refuses to write supersede rows over an empty provisional -- so the
+        # merge this mission exists to feed would tombstone nothing.
+        done=(new_phase == CL3_LOOP_CLOSED),
+    )
+
+
+def _cl3_flake(state: Cl3State, reason: str) -> Cl3State:
+    """Terminate with MISSION-FLAKE and a DISTINCTLY NAMED reason. Every give-up
+    in this machine routes through here: a bare 'phase X timed out' would not
+    tell an operator which of the ways the cycle can stall actually fired."""
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _cl3_stop_action() -> Action:
+    # StopRecording is idempotent-OK by construction: the executor gates on the
+    # SAME `HasLiveRecorderForTagging()` predicate the InvokeRewind dispatch
+    # guard reads, and answers OK with `stopped=<wasLive> idle=<!wasLive>` either
+    # way (ParsekTestCommandAddon.StopRecordingImpl), so issuing it
+    # unconditionally is safe whether or not the loaded save left a recorder
+    # running.
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="StopRecording",
+                  seam_args=(), seam_tag=CL3_TAG_STOP)
+
+
+def _cl3_state_action(probe: int) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
+                  seam_args=(), seam_tag=r1_state_probe_tag(probe))
+
+
+def _cl3_loop_action(probe: int) -> Action:
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
+                  seam_args=(), seam_tag=r1_loop_probe_tag(probe))
+
+
+def _cl3_rewind_action(params: Cl3Params) -> Action:
+    return Action(
+        ACTION_PARSEK_SEAM_COMMAND, seam_verb="InvokeRewind",
+        seam_args=(("rp", str(params.rewind_point_id)),
+                   ("slot", str(int(params.rewind_slot)))),
+        seam_tag=CL3_TAG_REWIND)
+
+
+def cl3_decide(state: Cl3State,
+               snapshot: TelemetrySnapshot) -> Tuple[Cl3State, List[Action]]:
+    """Advance the CL-3 re-fly machine one frame; return (new_state, actions).
+
+    STOP arms itself on the machine's first frame and then advances ONLY on its
+    own tagged terminal token; RECORDER-IDLE advances only on a RecordingState
+    reply that READ ``recording=false``; REWIND advances only on its own tagged
+    terminal token; VERIFY advances only on the OBSERVED backward clock; RELAUNCH
+    advances only on MEASURED altitude gain; LOOP-POINTS advances only on a
+    non-zero point read. Every give-up is distinctly named:
+    ``rewind-target-unresolved`` (pre-flight), ``stop-seam-<token>`` /
+    ``stop-seam-silent``, the recorder-never-idle and unreadable-``recording``
+    flakes, ``rewind-seam-<token>`` / ``rewind-seam-silent``,
+    ``rewind-not-observed``, the never-climbed flake, and the points-stayed-zero
+    and unreadable-``points`` flakes."""
+    if state.done:
+        return state, []
+
+    # PRE-FLIGHT FAIL-CLOSED, re-anchored from R1's ASCENT to THIS machine's
+    # entry phase. A mission whose rewind target cannot resolve must say so on
+    # frame 1 rather than stop a recorder, poll it idle and drive a whole cycle
+    # toward a verb that could only ever be REJECTED unknown-rp / unknown-slot.
+    if state.phase == CL3_STOP and state.phase_frames == 0:
+        if not state.params.rewind_point_id or state.params.rewind_slot < 0:
+            return _cl3_flake(
+                state,
+                "phase %s: rewind target unresolved before the cycle "
+                "(rewindPointId=%r rewindSlot=%d); InvokeRewind matches the "
+                "RewindPoint id EXACTLY, so an unset target can only ever be "
+                "REJECTED unknown-rp / unknown-slot"
+                % (CL3_STOP, state.params.rewind_point_id,
+                   state.params.rewind_slot)), []
+
+    state = replace(state, phase_frames=state.phase_frames + 1)
+
+    # Runner-signaled vessel loss. SUPPRESSED in REWIND only: InvokeRewind
+    # straddles a KSP scene reload, during which the active vessel legitimately
+    # ceases to exist. It stays LIVE in VERIFY and everywhere else, so a craft
+    # that really was destroyed still terminates (the suppression is one phase
+    # wide, not a blanket fail-open).
+    if snapshot.vessel_lost and state.phase != CL3_REWIND:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost (unreadable after repeated telemetry "
+                         "failures) in phase %s" % state.phase)), []
+
+    if state.phase == CL3_STOP:
+        # ARM THE CYCLE. Nothing precedes STOP on this lane, so the machine
+        # issues its own opening command -- once, and only once (a reused wire
+        # id is one the C# seam skips).
+        if not state.stop_command_emitted:
+            return replace(state, stop_command_emitted=True), [_cl3_stop_action()]
+        result = _r1_seam_result(snapshot, CL3_TAG_STOP)
+        if result == "OK":
+            # StopRecording answering OK is a COMMANDED reading. Do not take it
+            # as proof: go and OBSERVE the recorder state.
+            return (_cl3_enter(replace(state, stop_result="OK", state_probe=0),
+                               CL3_RECORDER_IDLE, snapshot.ut),
+                    [_cl3_state_action(0)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _cl3_flake(
+                replace(state, stop_result=result),
+                "phase %s: the StopRecording seam command returned %s (%s); the "
+                "recorder cannot be confirmed stopped, and InvokeRewind is "
+                "refused `recording-active` while one is live"
+                % (CL3_STOP, result,
+                   _r1_because(_r1_reject_reason(snapshot, CL3_TAG_STOP)))), []
+        if state.phase_frames > state.params.stop_frames:
+            return _cl3_flake(
+                state,
+                "phase %s: the StopRecording seam command never answered within "
+                "%d frames (no terminal token rode a snapshot; the seam bridge "
+                "may not be configured for this mission)"
+                % (CL3_STOP, state.params.stop_frames)), []
+        return state, []
+
+    if state.phase == CL3_RECORDER_IDLE:
+        # THE DISPATCHER GATE, CARRIED AS AN OBSERVED PRECONDITION. Never command
+        # InvokeRewind until a RecordingState reply has actually READ
+        # `recording=false`. Ordering alone is an assumption; this is a reading.
+        tag = r1_state_probe_tag(state.state_probe)
+        result = _r1_seam_result(snapshot, tag)
+        if result == "OK":
+            reading = _r1_seam_payload(snapshot, tag, "recording")
+            if reading == "false":
+                st = replace(state, recorder_idle_reading=reading,
+                             recorder_idle_observed=True,
+                             # STAMP THE PRE-REWIND OBSERVATION on the same frame
+                             # the rewind is commanded, so VERIFY compares against
+                             # the tightest possible "before".
+                             pre_rewind_ut=snapshot.ut,
+                             pre_rewind_altitude=snapshot.altitude,
+                             pre_rewind_situation=snapshot.situation or "",
+                             pre_rewind_body=snapshot.body or "")
+                return (_cl3_enter(st, CL3_REWIND, snapshot.ut),
+                        [_cl3_rewind_action(state.params)])
+            if reading == "true":
+                # Still recording. Probe again under the frame bound, with a FRESH
+                # tag (a reused tag is a reused wire id the seam would skip).
+                st = replace(state, recorder_idle_reading=reading,
+                             state_probe=state.state_probe + 1)
+                if st.phase_frames > st.params.idle_frames:
+                    return _cl3_flake(
+                        st,
+                        "phase %s: StopRecording reported OK but RecordingState "
+                        "still read recording=true after %d frames (%d probe(s)); "
+                        "InvokeRewind would be REJECTED `recording-active`. "
+                        "Something re-started a recorder after the stop -- with "
+                        "autoRecordOnLaunch ON, any scene event that counts as a "
+                        "launch will do it"
+                        % (CL3_RECORDER_IDLE, st.params.idle_frames,
+                           st.state_probe)), []
+                return st, [_cl3_state_action(st.state_probe)]
+            # OK with no readable `recording` field: FAIL CLOSED. An unreadable
+            # recorder state is not permission to command an irreversible rewind.
+            return _cl3_flake(
+                replace(state, recorder_idle_reading=reading),
+                "phase %s: the RecordingState reply carried no readable "
+                "`recording` field (read %r), so the recorder cannot be confirmed "
+                "idle; refusing to command InvokeRewind on an unverified gate"
+                % (CL3_RECORDER_IDLE, reading)), []
+        if result in ("ERROR", "TIMEOUT"):
+            return _cl3_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); the "
+                "recorder-idle precondition could not be observed"
+                % (CL3_RECORDER_IDLE, result,
+                   _r1_because(_r1_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > state.params.idle_frames:
+            return _cl3_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within "
+                "%d frames" % (CL3_RECORDER_IDLE, state.params.idle_frames)), []
+        return state, []
+
+    if state.phase == CL3_REWIND:
+        result = _r1_seam_result(snapshot, CL3_TAG_REWIND)
+        if result == "OK":
+            return _cl3_enter(replace(state, rewind_result="OK"),
+                              CL3_VERIFY, snapshot.ut), []
+        if result in ("ERROR", "TIMEOUT"):
+            # Surface PARSEK's OWN reason verbatim. R1 flight 1 red with
+            # `recording-active` sitting in the response while a speculative
+            # give-up sent the operator hunting the RewindPoint.
+            reason = _r1_reject_reason(snapshot, CL3_TAG_REWIND)
+            return _cl3_flake(
+                replace(state, rewind_result=result, rewind_reject_reason=reason),
+                "phase %s: the InvokeRewind seam command returned %s for "
+                "rp=%s slot=%d; %s"
+                % (CL3_REWIND, result, state.params.rewind_point_id,
+                   state.params.rewind_slot, _r1_because(reason))), []
+        if state.phase_frames > state.params.rewind_frames:
+            return _cl3_flake(
+                state,
+                "phase %s: the InvokeRewind seam command never answered within "
+                "%d frames" % (CL3_REWIND, state.params.rewind_frames)), []
+        return state, []
+
+    if state.phase == CL3_VERIFY:
+        # THE OBSERVED GATE. Not "did the verb return OK" (it already did, that
+        # is how we got here) but "did the game clock actually run backward".
+        regression = float("nan")
+        if _is_finite(state.pre_rewind_ut) and _is_finite(snapshot.ut):
+            regression = state.pre_rewind_ut - snapshot.ut
+        if _is_finite(regression) and regression >= state.params.min_ut_regression:
+            st = replace(state,
+                         post_rewind_ut=snapshot.ut,
+                         post_rewind_altitude=snapshot.altitude,
+                         post_rewind_situation=snapshot.situation or "",
+                         post_rewind_body=snapshot.body or "",
+                         ut_regression=regression)
+            # REWOUND is a one-frame WAYPOINT, not the terminal: it commands the
+            # re-fly. Throttle up + activate the stage, exactly as a player
+            # pressing space would (the same pair B1/B2's PRELAUNCH uses), which
+            # is also what arms auto-record-on-launch again.
+            return (_cl3_enter(st, CL3_REWOUND, snapshot.ut),
+                    [Action(ACTION_SET_THROTTLE, state.params.relaunch_throttle),
+                     Action(ACTION_ACTIVATE_STAGE)])
+        if state.phase_frames > state.params.verify_frames:
+            return _cl3_flake(
+                replace(state, ut_regression=regression),
+                "phase %s: InvokeRewind reported OK but the OBSERVED game clock "
+                "never ran backward within %d frames (preUT=%s postUT=%s "
+                "regression=%s s, required >= %.1f s). A rewind that did not "
+                "move the clock did not happen -- the seam's OK is a COMMANDED "
+                "reading and is never on its own evidence that it did"
+                % (CL3_VERIFY, state.params.verify_frames,
+                   _obs_fmt(state.pre_rewind_ut), _obs_fmt(snapshot.ut),
+                   _obs_fmt(regression), state.params.min_ut_regression)), []
+        return state, []
+
+    if state.phase == CL3_REWOUND:
+        # One-frame waypoint: the relaunch was commanded on entry. Hand straight
+        # over to RELAUNCH, which does the OBSERVING.
+        return _cl3_enter(state, CL3_RELAUNCH, snapshot.ut), []
+
+    if state.phase == CL3_RELAUNCH:
+        # OBSERVED: the rewound craft actually LEFT THE GROUND under power.
+        # "We sent throttle + stage" is a commanded reading; altitude gained over
+        # the post-rewind reading is not something a dead engine can produce.
+        gain = float("nan")
+        if _is_finite(state.post_rewind_altitude) and _is_finite(snapshot.altitude):
+            gain = snapshot.altitude - state.post_rewind_altitude
+        best = gain
+        if _is_finite(state.relaunch_altitude_gain) and _is_finite(gain):
+            best = max(state.relaunch_altitude_gain, gain)
+        elif not _is_finite(best):
+            best = state.relaunch_altitude_gain
+        st = replace(state, relaunch_altitude_gain=best,
+                     relaunch_situation=snapshot.situation or state.relaunch_situation)
+        if _is_finite(best) and best >= state.params.relaunch_min_altitude_gain:
+            return (_cl3_enter(replace(st, loop_probe=0), CL3_LOOP_POINTS, snapshot.ut),
+                    [_cl3_loop_action(0)])
+        if st.phase_frames > st.params.relaunch_frames:
+            return _cl3_flake(
+                st,
+                "phase %s: the rewound craft never climbed %.0f m within %d "
+                "frames (best gain=%s m, situation=%s). The rewind put the craft "
+                "back but the re-fly never happened, so the provisional would "
+                "carry no trajectory - and SupersedeCommit refuses to write "
+                "supersede rows over an empty provisional, which means the merge "
+                "would tombstone nothing"
+                % (CL3_RELAUNCH, st.params.relaunch_min_altitude_gain,
+                   st.params.relaunch_frames, _obs_fmt(best),
+                   st.relaunch_situation or "?")), []
+        return st, []
+
+    if state.phase == CL3_LOOP_POINTS:
+        # OBSERVED: the re-fly was actually RECORDED. Flying is not the same as
+        # being recorded, and it is the RECORDING that has to be non-empty for
+        # the merge to write supersede rows.
+        tag = r1_loop_probe_tag(state.loop_probe)
+        result = _r1_seam_result(snapshot, tag)
+        if result == "OK":
+            raw = _r1_seam_payload(snapshot, tag, "points")
+            points = _r1_parse_int(raw)
+            if points is None:
+                return _cl3_flake(
+                    state,
+                    "phase %s: the RecordingState reply carried no readable "
+                    "`points` field (read %r), so no post-rewind recording can be "
+                    "confirmed non-empty"
+                    % (CL3_LOOP_POINTS, raw)), []
+            st = replace(state, loop_points_read=points,
+                         # The reply's OWN tree id. NOT compared to the marker's
+                         # provisional (no seam verb exposes that), but carried so
+                         # a divergence lands in the result JSON.
+                         loop_recorded_tree=_r1_seam_payload(snapshot, tag, "tree"))
+            if points > 0:
+                return _cl3_enter(st, CL3_LOOP_CLOSED, snapshot.ut), []
+            st = replace(st, loop_probe=st.loop_probe + 1)
+            if st.phase_frames > st.params.loop_points_frames:
+                return _cl3_flake(
+                    st,
+                    "phase %s: the craft flew after the rewind but RecordingState "
+                    "still read points=0 after %d frames (%d probe(s)), so NO "
+                    "recording received the re-fly. NOTE this gate reads the LIVE "
+                    "recorder's buffered count, not the re-fly provisional's: a "
+                    "non-zero read here proves only that SOME recording got the "
+                    "flight (R1 flight 3, 2026-07-26, showed those can differ). "
+                    "An empty provisional is what makes the merge refuse "
+                    "supersede rows (SupersedeCommit.ValidateSupersedeTarget: "
+                    "`empty Points`), and a merge that writes no supersede rows "
+                    "tombstones nothing"
+                    % (CL3_LOOP_POINTS, st.params.loop_points_frames,
+                       st.loop_probe)), []
+            return st, [_cl3_loop_action(st.loop_probe)]
+        if result in ("ERROR", "TIMEOUT"):
+            return _cl3_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s); the "
+                "post-rewind point count could not be observed"
+                % (CL3_LOOP_POINTS, result,
+                   _r1_because(_r1_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > state.params.loop_points_frames:
+            return _cl3_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within "
+                "%d frames" % (CL3_LOOP_POINTS, state.params.loop_points_frames)), []
+        return state, []
+
+    return _cl3_flake(state, "phase %s: unreachable machine phase" % state.phase), []
+
+
+def evaluate_cl3_assertions(frames, params: Cl3Params,
+                            state: Optional[Cl3State] = None) -> List["AssertionOutcome"]:
+    """CL-3's assertion rows. Every row is machine-CARRIED evidence sampled on the
+    frame that produced it, so ``frames`` is unused (the B5/B6/R1 pattern).
+
+    FIVE rows. Three of R1's are GONE with the legs or the evidence they judged,
+    and none is replaced by a stand-in -- claiming evidence the run does not
+    produce is the failure this whole assertion set exists against:
+    ``reachedOrbitBeforeRewind`` and ``treeCommittedBeforeRewind`` (this lane
+    flies no ascent and commits no tree -- the tree is already committed on
+    disk), and ``vesselStateChanged`` (constant-False on a flightless pad-to-pad
+    rewind; the long note in the body is the authority on why, and on why the
+    0.0-threshold "fix" is worse than the removal).
+
+    Four of the five are OBSERVATIONS the rewind cannot fake;
+    ``rewindSeamAccepted`` is the COMMANDED corroboration and is deliberately
+    listed LAST and never alone -- ``all_assertions_met`` requires every row, so
+    the commanded row can only ever make the mission stricter, never substitute
+    for the observed ones."""
+    st = state
+    phases = tuple(getattr(st, "phases_reached", ()) or ())
+
+    # The dispatcher's `recording-active` gate, as an assertion row. OBSERVED: the
+    # value is the `recording` field READ off a RecordingState reply, not the
+    # StopRecording verb's own OK (which is carried separately in `detail` so a
+    # reader can see both).
+    idle_reading = str(getattr(st, "recorder_idle_reading", "") or "")
+    idle_met = (bool(getattr(st, "recorder_idle_observed", False))
+                and idle_reading == "false"
+                and CL3_REWIND in phases)
+    recorder_idle = AssertionOutcome(
+        "recorderIdleBeforeRewind", idle_met, (idle_reading or None),
+        {"required": CL3_REWIND, "seamVerb": "RecordingState",
+         "stopSeamResult": str(getattr(st, "stop_result", "") or "") or None,
+         "probes": int(getattr(st, "state_probe", 0)) + 1,
+         "channel": "observed"})
+
+    # R1's `vesselStateChanged` row is DELIBERATELY ABSENT, and this is the one
+    # place that decision is recorded in code.
+    #
+    # That row asks the world state, not just the clock, to differ across the
+    # rewind: `abs(preAlt - postAlt) >= minAltitudeChange` OR
+    # `preSituation != postSituation`. R1 and V1 EARN it - they fly to orbit and
+    # rewind back to the pad, so the contrast is real evidence. This lane flies
+    # nothing before the rewind, and the two readings are the SAME NODE by
+    # construction: `ScenarioWriter.BuildRewindPointQuicksave` builds every RP
+    # slot by `CreateCopy()`ing the host save's own active vessel, and
+    # `StampVesselIdentity` rewrites only pid / persistentId / name / root-part
+    # persistentId - it touches NO coordinate and NO situation. So pre and post
+    # are the same craft, on the same pad, in the same situation, and BOTH
+    # disjuncts are false no matter how well or badly Parsek performed the
+    # rewind.
+    #
+    # A row whose value is constant-False independent of product behaviour is not
+    # a gate; it is a permanent red. Keeping it would not have made this lane
+    # stricter - it would have made the lane unable to certify at all, and
+    # because `AnswerMergeDialog` is world-mutating and the default
+    # `skipTailOnUnmetMission` drops it on an unmet mission, the merge would
+    # never have been driven and `SupersedeCommit.CommitTombstones` - the entire
+    # reason this scenario exists - would never have run.
+    #
+    # DO NOT "restore" the row by setting `minAltitudeChangeMeters = 0.0`:
+    # `abs(x) >= 0.0` is TRUE for identical readings, which swaps a permanent red
+    # for a permanently-green vacuous row - strictly worse, because it reads as
+    # evidence. If a real world-state contrast is ever wanted here, it has to
+    # come from the FIXTURE (stamp the RP slot vessels at the recorded separation
+    # state rather than the donor's pad coordinates), and the relaunch leg then
+    # needs re-deriving because `postRewindFlightObserved` gates on altitude GAIN.
+    #
+    # The measurements themselves are NOT lost: they ride `clockRewound`'s detail
+    # as explicitly non-gating evidence, so a reader (and the arming follow-up)
+    # still sees the pre/post pair in the result JSON.
+    pre_alt = getattr(st, "pre_rewind_altitude", float("nan"))
+    post_alt = getattr(st, "post_rewind_altitude", float("nan"))
+    pre_sit = str(getattr(st, "pre_rewind_situation", "") or "")
+    post_sit = str(getattr(st, "post_rewind_situation", "") or "")
+
+    regression = getattr(st, "ut_regression", float("nan"))
+    rewound_met = (_is_finite(regression)
+                   and regression >= params.min_ut_regression)
+    rewound = AssertionOutcome(
+        "clockRewound", rewound_met, regression,
+        {"required": CL3_REWOUND,
+         "minRegressionSeconds": params.min_ut_regression,
+         "preUt": _json_safe(getattr(st, "pre_rewind_ut", float("nan"))),
+         "postUt": _json_safe(getattr(st, "post_rewind_ut", float("nan"))),
+         # EVIDENCE ONLY - nothing above reads these. See the note above for why
+         # this lane cannot gate on them.
+         "preAltitude": _json_safe(pre_alt), "postAltitude": _json_safe(post_alt),
+         "preSituation": pre_sit or None, "postSituation": post_sit or None,
+         "worldStateEvidenceIsNotGated":
+             "pre/post are the same cloned node on the same pad; a world-state "
+             "contrast does not exist on a flightless pad-to-pad rewind",
+         "channel": "observed"})
+
+    # ---- THE RE-FLY HALF. A rewind that is never re-flown leaves the provisional
+    # empty, the merge writes zero supersede rows, and the tombstone this whole
+    # lane exists for never happens. Both rows are OBSERVED: one that the craft
+    # physically climbed after the rewind, one that the climb was RECORDED.
+    gain = getattr(st, "relaunch_altitude_gain", float("nan"))
+    flew_met = (_is_finite(gain)
+                and gain >= params.relaunch_min_altitude_gain
+                and CL3_LOOP_POINTS in phases)
+    reflew = AssertionOutcome(
+        "postRewindFlightObserved", flew_met, gain,
+        {"required": CL3_LOOP_POINTS,
+         "minAltitudeGainMeters": params.relaunch_min_altitude_gain,
+         "situation": str(getattr(st, "relaunch_situation", "") or "") or None,
+         "channel": "observed"})
+
+    # HONEST NAME + HONEST SCOPE (R1's, inherited verbatim). This row does NOT
+    # observe that the re-fly's PROVISIONAL received the flight -
+    # `RecordingState.points` is the LIVE recorder's buffered count for whatever
+    # recording is live. It observes that the post-rewind flight was recorded
+    # SOMEWHERE. `recordedTree` carries the tree the reply named so that
+    # divergence is visible in the result JSON; the comparison itself is
+    # impossible through the seam today, so it is evidence for a human, not a
+    # gate. The tombstone itself is the SCENARIO's to prove.
+    points_read = int(getattr(st, "loop_points_read", -1))
+    points_met = points_read > 0 and CL3_LOOP_CLOSED in phases
+    recorded = AssertionOutcome(
+        "postRewindFlightRecordedSomewhere", points_met, points_read,
+        {"required": CL3_LOOP_CLOSED, "seamVerb": "RecordingState",
+         "probes": int(getattr(st, "loop_probe", 0)) + 1,
+         "recordedTree": str(getattr(st, "loop_recorded_tree", "") or "") or None,
+         # -1 is the UNREAD sentinel, kept raw: the sentinel IS the diagnosis
+         # when a run never managed to read the count.
+         "channel": "observed",
+         "doesNotProve": "that the re-fly provisional received these points"})
+
+    rewind_result = str(getattr(st, "rewind_result", "") or "")
+    seam_met = rewind_result == "OK"
+    seam = AssertionOutcome(
+        "rewindSeamAccepted", seam_met, (rewind_result or None),
+        {"required": CL3_VERIFY, "seamVerb": "InvokeRewind",
+         "rewindPointId": params.rewind_point_id or None,
+         "rewindSlot": params.rewind_slot,
+         # Parsek's OWN refusal reason when it declined, so the result JSON names
+         # the cause instead of leaving it to the log.
+         "rejectReason": str(getattr(st, "rewind_reject_reason", "") or "") or None,
+         "channel": "commanded"})
+
+    return [recorder_idle, rewound, reflew, recorded, seam]
+
+
+# ---------------------------------------------------------------------------
 # B4 phase state machine (mission b4_reentry). Pure. The ascent half reuses the
 # B2 semantics VERBATIM (PRELAUNCH staged launch, the ascent-complete latch AND
 # apoapsis window, the guarded circularize); ORBIT is a waypoint, not a terminal.

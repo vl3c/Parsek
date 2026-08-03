@@ -1,0 +1,523 @@
+schema = 1
+id = "CL-3-refly-crew-tombstone"
+# =====================================================================================
+# THE CREW-LOSS ATOM'S RE-FLY HALF. Stage B of the CL-1 extension, and the first
+# scenario in the suite that drives `SupersedeCommit.CommitTombstones` over a kerbal
+# death.
+#
+# CL-1 proves what Parsek RECORDS when a kerbal dies. CL-2 proves what the pending-tree
+# AUTO-COMMIT then writes into the ledger, and its own scope fence says the rest is
+# stage B's: "`SupersedeCommit` is the ONLY producer of a `LedgerTombstone` and
+# `CommitTombstones` runs strictly inside the RE-FLY merge tail, which no auto-commit
+# reaches." This spec is that re-fly.
+#
+# WHAT IT DRIVES, end to end:
+#   1. the injected `rewind-crew-loss` corpus is already committed on disk when the
+#      game starts (root `cl-stack-root` -> crewless probe `cl-probe-b` in slot 0 +
+#      CREWED, terminally-Destroyed pod `cl-pod-a` in slot 1, plus RewindPoint
+#      `rp_cl_root` at the split);
+#   2. Parsek DERIVES the death row at load - the pod carries a ghost-visual crew
+#      source and deliberately NO vessel snapshot, so
+#      `LedgerOrchestrator.NeedsCrewEndStatePopulation` admits it through the
+#      destroyed-vessel branch, `KerbalsModule.InferCrewEndState` maps
+#      `TerminalState.Destroyed` -> `KerbalEndState.Dead`, and
+#      `MigrateKerbalAssignments` writes the `KerbalAssignment` row. THE FIXTURE
+#      AUTHORS NO LEDGER ACTION; that is what makes the tombstone claim worth
+#      anything;
+#   3. the mission stops the recorder, OBSERVES it idle, invokes Rewind-to-Separation
+#      on SLOT 1 (the crewed pod - rewinding onto the crewless probe would merge
+#      cleanly while tombstoning nothing), and judges the rewind by the OBSERVED
+#      backward game clock rather than the verb's own OK;
+#   4. it RE-FLIES the rewound craft (throttle + one stage activation) and gates on
+#      MEASURED altitude gain plus a `points > 0` read, because a re-fly that never
+#      flew leaves the provisional empty and `SupersedeCommit.ValidateSupersedeTarget`
+#      then REFUSES to write supersede rows (`outcome=refused-unflown-provisional`) -
+#      and a merge that writes zero supersede rows tombstones nothing. That is R1
+#      flight 2's lesson, paid for once already;
+#   5. the post-mission `AnswerMergeDialog merge` runs the merge tail, which appends
+#      the supersede relations and then runs `CommitTombstones` over the death row.
+#
+# THE TWO TOKENS THAT ARE THE POINT are in `[expectations.logContracts]` below:
+# `Added [0-9]* supersede relations` (non-zero ON PURPOSE - `Added 0` is exactly
+# what a refused batch emits) and `Tombstoned [1-9][0-9]* career actions (... Kerbal=[1-9]`
+# (non-zero on the KERBAL term specifically - the whole line also exists in a
+# `Tombstoned 0 ... Kerbal=0` empty-subtree form).
+#
+# -------------------------------------------------------------------------------------
+# UNARMED ON PURPOSE. THIS SPEC HAS NEVER FLOWN.
+#
+# It ships with NO `[expectations.rewind]` block, NO `[expectations.recordings.structure]`
+# block, and NO `[expectations.ledger]` block of any kind - so it arms NOTHING in the
+# M-C2 save-parse verifier and nothing in the M-B2 ledger oracle. That is the house
+# one-flight-then-arm rule, the same workflow `S4.1-rewind-merge` documents and was
+# promoted through: land report-only, read the facets off a real run, arm only on
+# readings that match the declared windows. The `saveParse` verifier RECORDS its
+# measured facets on every driver-valid run whether or not a block is declared, so the
+# first flight produces the reading a later arming needs WITHOUT this spec declaring
+# anything today.
+#
+# ARMING IS THE OPERATOR FOLLOW-UP, and it is a separate, deliberate commit:
+#   - fly this spec once and read `observed.rewind` off the result JSON
+#     (`supersedeRows`, `tombstones`, `rewindPoints`, `rewindRetirements`);
+#   - declare `[expectations.rewind]` with windows that MATCH those readings - the
+#     inverse of S4.1's, i.e. `supersedeRows = { min = 1 }` and
+#     `tombstones = { min = 1 }`, because S4.1 flies nothing and correctly writes ZERO
+#     of each while this spec flies the re-flight and must write both;
+#   - S4.1's own arming comment names THIS scenario as the second reading its
+#     `rewindPoints` window is waiting on ("one observation is not a window, and a reap
+#     count is exactly the kind of reading that wants a second scenario (CL-2 stage B)
+#     before it gates");
+#   - arming additionally requires an explicit edit of
+#     `test_hlib.py::SaveStructureVerifierWiringTests.ARMED_ALLOWLIST` citing the run
+#     ids. A spec that quietly grows a `gating = true` reds there, by design.
+#
+# `[expectations.ledger]` IS NOT MERELY UNARMED HERE, IT IS ILLEGAL.
+# `hlib.validate_spec` hard-errors when `InvokeRewind` or `AnswerMergeDialog` pairs with
+# it ("a rewind/merge rewrites the career pools the seed+manifest contract cannot model;
+# the rewound-career ledger oracle is DEFERRED to L4"). CL-2 stage A carries the ledger
+# block and cannot carry the rewind; this spec carries the rewind and cannot carry the
+# ledger. That incompatibility is the second reason the two stages are separate specs
+# rather than one, and it is pinned from both sides
+# (`test_cl2_crew_loss_ledger.py::test_no_rewind_or_merge_dialog_step_pairs_with_the_ledger_block`
+# and this file's own cells).
+#
+# -------------------------------------------------------------------------------------
+# DERIVED FEASIBILITY, BEFORE FLYING. The derivation found one row this fixture could
+# never satisfy; THAT GATE IS NOW CLOSED (remedy (a), below) and the row is gone.
+#
+# CL-2's header established the convention of deriving a scenario's feasibility from the
+# product's own pure functions before spending a flight on it. Doing that here cleared
+# five of the mission's original six assertion rows and found ONE that this fixture
+# cannot satisfy at any honest threshold. Rather than fly into it, the row was REMOVED
+# from `mlib.evaluate_cl3_assertions` and the mission now carries five:
+#
+#   recorderIdleBeforeRewind   OK. `StopRecordingImpl` is idempotent and answers OK
+#                              whether or not a recorder was live (`stopped=false
+#                              idle=true` when none), and RecordingState then reads
+#                              `recording=false`. The dispatcher's `recording-active`
+#                              refusal of InvokeRewind is thus carried as an OBSERVED
+#                              precondition, which is what R1 flight 1 cost to learn.
+#   clockRewound               OK, but the MARGIN IS SMALL AND IS WHY THE FLOOR IS 1.0 s
+#                              (see minUtRegressionSeconds below). `ScenarioWriter.
+#                              BuildRewindPointQuicksave` COPIES the host save and never
+#                              re-stamps `UT`, so the post-rewind clock is the TEMPLATE's
+#                              UT (career-pad-craft: 9.06) and the regression is exactly
+#                              the in-flight game time elapsed since the load - single-
+#                              digit seconds, not R1's minutes.
+#   vesselStateChanged         *** REMOVED. IT COULD NEVER FIRE ON THIS FIXTURE. ***
+#                              The row needed `abs(preAlt - postAlt) >= minAltitudeChange`
+#                              OR `preSituation != postSituation`. Pre-rewind the active
+#                              vessel is career-pad-craft's own pad craft
+#                              (sit = PRELAUNCH, alt = 74.58). Post-rewind it is the RP
+#                              quicksave's slot-1 vessel - which `BuildRewindPointQuicksave`
+#                              builds by `CreateCopy()`ing that SAME vessel node and
+#                              stamping only pid / persistentId / name / root-part pid
+#                              (`StampVesselIdentity` touches no coordinate). So both
+#                              readings are the same craft, same pad, same situation, and
+#                              BOTH disjuncts were false by construction. No committed
+#                              template escapes this: in every two-vessel fixture the
+#                              other VESSEL is a SpaceObject, which `SelectDonorVessel`
+#                              skips, so the donor is always the active craft itself.
+#                              R1 and V1 satisfy this row only because they FLY to orbit
+#                              first and rewind back to the pad (R1 flight 2 measured
+#                              `vesselStateChanged value=PRE_LAUNCH` against an ORBITING
+#                              pre-reading); a lane with no pre-rewind flight has no such
+#                              contrast to observe.
+#                              WHY REMOVAL AND NOT A LOWER THRESHOLD. The row's value was
+#                              constant-False INDEPENDENT of what Parsek did, so it was
+#                              not a gate but a permanent red - and because
+#                              `AnswerMergeDialog` is world-mutating and the default
+#                              `skipTailOnUnmetMission` drops the tail on an unmet
+#                              mission, keeping it meant the merge would NEVER be driven
+#                              and `CommitTombstones` - the whole point of this spec -
+#                              would never run. Removal took remedy (a): the row is gone
+#                              from `mlib.evaluate_cl3_assertions`, `minAltitudeChangeMeters`
+#                              is gone from the mission schema AND from this spec, and the
+#                              pre/post altitude + situation are still MEASURED and still
+#                              reach the result JSON as non-gating evidence on
+#                              `clockRewound`. The lane's observed evidence is now
+#                              `clockRewound` plus the two re-fly rows, none of which a
+#                              rewind can fake. Setting minAltitudeChangeMeters = 0.0 was
+#                              REJECTED as a "fix": `abs(x) >= 0.0` is true for identical
+#                              readings, so it swaps a permanent red for a permanently-
+#                              green VACUOUS row, which is strictly worse because it reads
+#                              as evidence.
+#                              REMEDY (b), NOT TAKEN, if a real world-state contrast is
+#                              ever wanted: stamp the RP slot vessels at the RECORDED
+#                              separation state (`cl-pod-a`'s first point is 41 km)
+#                              instead of the donor's pad coordinates. More
+#                              production-shaped - a real RewindPoint is a mid-flight
+#                              `GamePersistence.SaveGame` - but it puts the re-fly craft
+#                              in a ballistic fall, and `postRewindFlightObserved` gates
+#                              on altitude GAIN, so the relaunch leg would need
+#                              re-deriving. That is a fixture change, not a threshold one.
+#   postRewindFlightObserved   OK. The RP quicksave's donor is career-pad-craft's stock
+#                              "Jumping Flea" (mk1pod.v2 + parachuteSingle + 2x
+#                              GooExperiment + solidBooster.sm.v2 + fins), PRELAUNCH with
+#                              the booster at istg 1 and the chute at istg 0 - so ONE
+#                              stage activation ignites the SRB and leaves the chute
+#                              stowed, which is exactly the (throttle, stage) pair the
+#                              REWOUND waypoint emits. A Flea clears the 100 m floor by
+#                              two orders of magnitude (B1 measures a ~12 km hop on this
+#                              craft). A vessel-less template would force
+#                              `BuildSyntheticVessel`'s bare pod, which has NO ENGINE and
+#                              could never satisfy this row.
+#   postRewindFlightRecordedSomewhere
+#                              OK, with `autoRecordOnLaunch = true` set before the flight
+#                              (the stage activation re-arms auto-record, and the
+#                              RecordingState reply then reads points > 0). HONEST LIMIT,
+#                              inherited verbatim from R1 and named in the row itself:
+#                              `RecordingState.points` is the LIVE recorder's buffered
+#                              count, NOT the re-fly provisional's. The
+#                              `Added [1-9][0-9]* supersede relations` logContract is what
+#                              actually closes that gap.
+#   rewindSeamAccepted         OK. `rp_cl_root` exists on disk before KSP boots -
+#                              run.py's inject postcondition fail-closes on
+#                              `Parsek/RewindPoints/rp_cl_root.sfs`
+#                              (RP_SIDECAR_BY_PRESET), and `InvokeRewindImpl` matches
+#                              `RewindPointId` exactly.
+#
+# -------------------------------------------------------------------------------------
+# ONE FIXTURE ODDITY, NAMED SO IT IS NOT MISTAKEN FOR A BUG. The RP quicksave on disk
+# holds TWO clones of the same crewed pod (one per controllable slot), both carrying
+# `crew = Jebediah Kerman` and identical part `uid` / `cid` / `mid` - `StampVesselIdentity`
+# rewrites only pid / persistentId / name / root-part persistentId. It is benign at run
+# time: `RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly` rewrites the temp copy to
+# keep ONLY the selected slot's vessel before KSP loads it, and refuses to load an
+# unscrubbed quicksave at all.
+tier = "operator"
+# tier = "operator", reason (b) EXPENSIVE AND NOT YET GREEN (hlib TIERS docstring). It is
+# NOT reason (a): `LoadGame` IS a flight-entry verb (FlightCameraReloadPin.Arm +
+# StartAndFocusVessel when `activeVesselIdx` names a focusable vessel), and this spec's
+# template carries one, so the RequiresFlight verbs EXECUTE rather than defer - the
+# correction R1's FLIGHT-ENTRY note works through at length.
+# PROMOTE TO: nightly, after one green run. Its happy
+# path is short (no ascent: the tree it rewinds is already on disk), so once green it
+# costs about what S4.1 costs, not what R1 costs.
+description = "Crew-loss re-fly half: Rewind-to-Separation onto the CREWED destroyed pod, re-fly it so the provisional is worth merging, and merge - driving SupersedeCommit over the derived KerbalAssignment/Dead row."
+instanceProfile = "stock-minimal"
+# `pending-flight` is literal: this spec has NEVER flown, so `flown` would be a lie and
+# `--tag flown` is a real selector. `pending-operator` is carried for the operator debt
+# the header states - the arming follow-up, once a reading run measures the facets
+# (the `vesselStateChanged` debt is CLOSED: the row was removed) - and is recorded in
+# `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` with those reasons. The tag
+# itself is non-gating; the tier is what governs cadence.
+tags = ["rewind", "refly", "merge", "tombstone", "crew-loss", "CL3", "D9", "D12",
+        "pending-flight", "pending-operator"]
+
+[fixture]
+# `career-pad-craft`, the fixture CL-1 and CL-2 already share, chosen for six reasons
+# and not for convenience:
+#   1. IT IS THE ONLY COMMITTED CAREER TEMPLATE WITH A VESSEL (`activeVessel = 0` over
+#      one VESSEL). `fresh-career` has `activeVessel = -1`, so `LoadGame` would take the
+#      NO-VESSEL SPACECENTER fallback and every RequiresFlight verb - InvokeRewind
+#      included - would DEFER to a TIMEOUT.
+#   2. CAREER is what makes the kerbal-death row a career action at all; the fixtures
+#      README's rule is that "a SANDBOX death cannot exercise the ledger".
+#   3. Its roster already contains `Jebediah Kerman` (type Crew, trait Pilot), which is
+#      the name `RewindCrewLossFixture.DeadCrewName` bakes into the pod, so the derived
+#      assignment row resolves a REAL kerbal rather than a synthesized one.
+#   4. Its "Jumping Flea" is the donor `BuildRewindPointQuicksave` clones per slot, and
+#      it is the one craft shape that can actually satisfy the relaunch row (see the
+#      feasibility derivation above).
+#   5. It carries the inert `SCENARIO{name=ParsekScenario}` node, which is load-bearing
+#      and cost a flight to learn: on the FLIGHT focus route `LoadGameImpl` does not
+#      re-save after `UpdateScenarioModules`, and CL-1's first flight produced ZERO
+#      recordings because `OnSave` never ran against a save with no Parsek footprint.
+#   6. It is the best-guarded fixture in the tree (`build_career_pad_craft.py --check`,
+#      `FixtureDriftTests`, `SpecFixtureSyncTests`).
+#
+# `rewind-crew-loss` is injected ON TOP. run.py's inject step targets the staged RUN
+# save, not the template, so the preset composes with any saveTemplate; run.py fail-closes
+# the stage when `Parsek/RewindPoints/rp_cl_root.sfs` is missing afterwards. The inject
+# runs WITHOUT `-CleanStart`, so the template's own vessel survives into the run save
+# (and into the RP quicksave built from it).
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "rewind-crew-loss"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# The CL-3 machine: R1's rewind loop with its ASCENT and COMMIT halves cut off the
+# front, because the tree this lane rewinds is already committed on disk. STOP ->
+# RECORDER-IDLE -> REWIND -> VERIFY -> REWOUND -> RELAUNCH -> LOOP-POINTS ->
+# LOOP-CLOSED, all budgets in FRAMES (past the rewind the game clock runs BACKWARD, so
+# a game-time budget can never expire and a phase would hang with no named give-up).
+mission = "cl3_refly_crew_tombstone"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key written after the sub-table header is TOML-scoped to driver.missionParams.steps
+# and the spec validates as having ZERO steps).
+#
+# `autoRecordOnLaunch = true` is MANDATORY here and is the opposite of S4.1's setting,
+# for a reason that is the difference between the two specs: S4.1 flies nothing and
+# turns recording OFF to pin determinism, while this lane's whole point is that the
+# RE-FLY LEG IS RECORDED - without it the provisional carries no Points, the merge
+# refuses the supersede batch, and the tombstone never happens.
+#
+# `AnswerMergeDialog` is deliberately NOT a mission action: its completion contract
+# (`TestCommandMergeAnswer.DecideAnswerCompletion`) requires the scene to LEAVE FLIGHT,
+# which ends the mission's own kRPC telemetry - so it is a POST-mission seam step, the
+# same split R1 and EVA-4 use. `choice = "merge"` and not V1's `discard`: merge is what
+# drives `CommitSupersede` -> `AppendRelations` -> `CommitTombstones`. It is
+# world-mutating, so on an UNMET mission the default skipTailOnUnmetMission drops it and
+# only FlushAndQuit runs. THAT COUPLING IS WHY THE REMOVED `vesselStateChanged` ROW WAS
+# FATAL RATHER THAN COSMETIC: a permanently-unmet mission does not merely mis-report,
+# it SKIPS this step, so the merge never runs and the tombstone this spec exists to
+# drive never happens. An assertion row that cannot be met is not a strict lane; it is
+# a lane that cannot reach its own subject.
+#
+# There is deliberately NO separate scene-changing conclusion step between the mission
+# and AnswerMergeDialog: a blocking conclusion would starve the very AnswerMergeDialog
+# that unblocks it (the AnswerMergeDialog FIFO-starvation deadlock, design finding A-B1).
+#
+# `RecordingState` after the merge is an INERT read-only audit probe. Nothing gates on
+# it, and the merge is deliberately NOT proven by it - its `points` field is the LIVE
+# recorder's buffered count, and R1 records a row gated on it that "was met while the
+# fact a reader would infer from it was false".
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                 expect = "OK" },
+]
+
+[driver.missionParams]
+# THE REWIND TARGET. `rp_cl_root` / slot 1 are the identifiers `RewindCrewLossFixture`
+# bakes (`RewindPointId` / `PodSlotIndex`), and slot 1 is the CREWED pod on purpose:
+# slot 0 is the crewless probe `cl-probe-b`, and rewinding onto it would produce a
+# perfectly healthy merge that tombstones nothing - a green run proving the wrong thing.
+rewindPointId             = "rp_cl_root"
+rewindSlot                = 1
+
+# FRAME budgets, not game seconds (see the [driver] note). The seam bridge blocks inside
+# perform() for the whole poll window, so a terminal token normally lands on the very
+# next frame; 40 frames (~20 s at the 0.5 s poll cadence) is slack, not an expected wait.
+# stopFrames / idleFrames bound the STOP + RECORDER-IDLE pair that carries the
+# dispatcher's `recording-active` gate as an OBSERVED precondition; the idle poll needs
+# only ONE probe on the happy path, because StopRecording gates on the same predicate
+# the dispatcher reads.
+stopFrames                = 40
+idleFrames                = 40
+rewindFrames              = 40
+verifyFrames              = 40
+
+# THE OBSERVED REWIND GATE, and the one number on this lane that is NOT R1's.
+# R1 uses 5.0 s because it rewinds from a flown LKO ascent, so its regression is
+# MINUTES. This lane flies nothing first, and the arithmetic is exact:
+# `BuildRewindPointQuicksave` copies the host save and never re-stamps `UT`, so the
+# post-rewind clock is the TEMPLATE's UT (9.06) and the regression is precisely the
+# in-flight game time elapsed between the load and the RECORDER-IDLE stamp. Game time
+# runs 1:1 with wall clock on the pad (no warp), and the nearest measurement of that
+# interval on this very fixture is CL-2's arming flight logging
+# `phase PRELAUNCH -> FLIGHT ut=11.020` against a fixture UT of 9.06 - about 2 s to
+# flight-ready, plus this lane's StopRecording and RecordingState round trips. So the
+# expected regression is a few seconds and a 5.0 floor would red a CORRECT rewind.
+# 1.0 s is the machine's own default and is a FLOOR against float noise and a
+# sub-second read, never a tuned target: any positive regression proves an earlier
+# state was loaded, and the seam's own verdict=OK never satisfies this row.
+# RE-PIN CONTRACT: the first flight reports the measured `clockRewound` value; re-pin
+# to it and cite the run id if it lands materially away from this estimate. Do not
+# raise it to look strict - the quantity being measured is harness dwell, not physics.
+minUtRegressionSeconds    = 1.0
+# NO `minAltitudeChangeMeters` HERE. R1 sets it to threshold its `vesselStateChanged`
+# row; this lane does not carry that row (see the DERIVED FEASIBILITY section), and the
+# mission schema no longer declares the key. DO NOT RE-ADD IT: an undeclared mission
+# param is silently IGNORED by `hlib._validate_mission_params` (which iterates declared
+# params only), so re-adding it would NOT error - it would sit here reading as a
+# threshold that nothing honours. The guard is a cell, not the validator
+# (`test_cl3_refly_crew_tombstone.py::Cl3SchemaTests`).
+
+# THE RE-FLY. A rewind that is never re-flown leaves the provisional EMPTY and
+# `SupersedeCommit.ValidateSupersedeTarget` refuses the supersede batch
+# (`outcome=refused-unflown-provisional`), which is the one outcome that would make a
+# green run of this scenario meaningless. The floor is on MEASURED altitude gain: 100 m
+# is unreachable for a craft sitting on the pad with a dead engine and trivial for one
+# under thrust, which is what makes "we sent throttle" (commanded) and "it climbed"
+# (observed) different assertions. The rewound craft is PRELAUNCH on the pad, so a
+# full-throttle stage activation is all the leg needs - this is a LOOP test, not an
+# ascent.
+relaunchThrottle              = 1.0
+relaunchMinAltitudeGainMeters = 100.0
+relaunchFrames                = 240
+loopPointsFrames              = 40
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE, applied strictly: every value below is backed by a required token
+# in THIS spec's own logContracts, or by a mechanically-checkable property of the
+# committed fixture. The cells in
+# `harness/missions/lib/test_cl3_refly_crew_tombstone.py` enforce both directions.
+#
+# D1 `auto-record-launch` <- "Recording started", emitted by the RE-FLY leg's stage
+# activation under the pinned `autoRecordOnLaunch = true`.
+D1  = ["auto-record-launch"]
+# D9, the rewind cycle:
+#   `rewind-to-separation` / `refly-gate` <- "Re-Fly (Rewind-to-Separation) StartInvoke"
+#                                            + "Invocation complete" (both firing is what
+#                                            distinguishes a real end-to-end re-fly from a
+#                                            verb that merely returned).
+#   `reconciliation-bundle`               <- "ConsumePostLoad: restoring bundle with
+#                                            route-retire cutoffUT=".
+#   `read-back-guard`                     <- "Restored: recs=.* pendingScience=".
+#   `supersede-relation`                  <- "Added [1-9][0-9]* supersede relations for
+#                                            subtree rooted at". R1 owns this cell too and
+#                                            proved it live; this spec is the SECOND
+#                                            scenario able to reach it, and the only one
+#                                            that reaches it over a CREWED subtree.
+#   `merge-journal`                       <- the same merge tail: the supersede rows are
+#                                            written from inside the journal-driven merge,
+#                                            so the `Added ...` token cannot fire without
+#                                            it (R1's precedent, same tokens).
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
+       "supersede-relation", "merge-journal"]
+# D14 `kerbin` / `scene-flight` <- the re-fly milestones can only be emitted from FLIGHT
+# on Kerbin; `career` <- the committed template's `Mode = CAREER`, which a cell asserts
+# against the fixture itself rather than against prose.
+D14 = ["kerbin", "career", "scene-flight"]
+#
+# DELIBERATELY NOT CLAIMED, and each absence is pinned by its own cell so a future author
+# does not add the claim without the gate:
+#
+#   D9 `tombstones` and D12 `dead-crew-strip`. THESE ARE WHAT THE ARMING FLIGHT BUYS,
+#   and they are exactly the two cells CL-2's scope fence says stage B is for. The
+#   registry PINS `dead-crew-strip` (2026-08-02) as a TWO-part definition: (i) the death
+#   action is tombstoned - "observable as a non-zero `Kerbal=` term in
+#   `CommitTombstones`'s `Tombstoned N career actions (... Kerbal=K ...)` line AND as
+#   `tombstones >= 1` in the M-C2 save parse" - and (ii) the ELS recompute that follows
+#   leaves no surviving reservation or stand-in for the dead kerbal. This spec gates the
+#   LOG half of (i) today and NOTHING of the save-parse half, because the save-parse
+#   block is unarmed until the measurement flight. Half a pinned definition is not the
+#   definition, so neither cell is claimed. After the arming commit declares
+#   `tombstones = { min = 1 }` and the run reads it, D9 `tombstones` becomes claimable
+#   here; D12 `dead-crew-strip` additionally needs a gate on half (ii)
+#   (`CrewReservationManager.RecomputeAfterTombstones`), which no token in this file
+#   pins.
+#
+#   D12 `tombstone-rep-penalty` WILL NEVER BE CLAIMED HERE, and not because the flight is
+#   pending: the registry records it as UNREACHABLE BY ANY FLIGHT (2026-08-02, mechanical).
+#   The cell needs a `GameActionType.ReputationPenalty` action inside the supersede
+#   subtree, and `Source/Parsek/` has exactly ONE construction site for that type -
+#   `GameStateEventConverter.cs`'s Bail-Out Grant, which hardcodes
+#   `ReputationPenaltySource.Strategy`. No code path ever constructs a
+#   `ReputationPenaltySource.KerbalDeath` action, so a crew death produces no Parsek rep
+#   row at all: stock applies the hit directly and the ledger absorbs it through the
+#   generic captured-award path, which is not a `GameAction` and cannot be tombstoned.
+#   Unblocking it is a PRODUCT change (with its own oracle re-pin of CL-2's armed
+#   totals), not a flight.
+#
+#   D8 anything. The merge does recalc the ledger, but no token in this file names a
+#   ledger module or the recalc engine, and this spec cannot carry the oracle facets
+#   that back CL-2's D8 claims (the ledger block is illegal alongside InvokeRewind). An
+#   unbacked D8 claim would be the exact claim-is-not-gate error S0.7 had to correct.
+#
+#   D9 `head-tip-split` and `terminal-kind-classify`. `head-tip-split` fires only when
+#   the closure-root recording SPANS the rewind UT, and `cl-pod-a` BEGINS at the split
+#   the RewindPoint marks - the same shape argument that moved the cell off S4.1 to
+#   NOBODY. `terminal-kind-classify` is S4.1's.
+#
+#   D4 anything. The re-fly hop is atmospheric, but nothing here asserts an environment
+#   classification, and the recording it produces is a means to the merge rather than
+#   the subject of an assertion.
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form), so
+# this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# FLOOR ONLY, and deliberately no ceiling. The injected `rewind-crew-loss` corpus is
+# three recordings on disk before the game boots, the re-fly adds its provisional, and
+# the merge adds the fork - a population the headless path does not pin, and a window
+# wide enough to absorb it is not a guard. What the floor DOES catch is the failure that
+# matters: a re-fly that lost the committed corpus sinks below 1.
+# DO NOT copy CL-2's `{min = 1, max = 1}` here: that pin belongs to a one-flight,
+# no-injection profile.
+# RE-PIN CONTRACT: the first flight measures the real count; if a window is wanted later,
+# pin it to the MEASURED value and cite the run id.
+count = { min = 1 }
+
+[expectations.logContracts]
+# THREE GROUPS.
+#
+# GROUP 1 - THE RE-FLY MILESTONES R1 PINS, verbatim. `StartInvoke` proves the pre-load
+# phase was entered and `Invocation complete` proves the post-load ConsumePostLoad
+# finished; both firing is what distinguishes a real end-to-end re-fly from a verb that
+# returned. The cutoff-carrying restore line and the unconditional `pendingScience=`
+# count fire on every successful invoke. `Recording started` proves the RE-FLY LEG was
+# recorded at all - the precondition for everything below it.
+#
+# GROUP 2 - THE SUPERSEDE ROW, count pinned NON-ZERO on purpose. `Added 0 supersede
+# relations` is exactly what a REFUSED batch emits (`ValidateSupersedeTarget` declining
+# an unflown provisional), so `[1-9][0-9]*` is the difference between "the merge ran"
+# and "the merge actually wrote the relation". This spec must NOT match S4.1's
+# `AppendRelations outcome=refused-unflown-provisional`: that token is S4.1's POSITIVE
+# assertion (it flies nothing, so its provisional legitimately has no trajectory), and
+# its presence HERE would mean the re-fly leg never flew - the one silent failure the
+# RELAUNCH and LOOP-POINTS gates exist to prevent.
+#
+# GROUP 3 - THE TOMBSTONE, which is the entire reason this spec exists. The emitting
+# line is `SupersedeCommit.CommitTombstones`'s `LedgerSwap`-tagged tally:
+#   Tombstoned 1 career actions (Contract=0, Milestone=0, Facility=0, Strategy=0,
+#   ScienceSpending=0, Science=0, Funds=0, Reputation=0, Kerbal=1, Other=0);
+#   0 excluded (Seed=0, Rollout=0, Other=0)
+# BOTH numeric guards are load-bearing, because logContract matching is presence-only
+# `re.search`:
+#   - `Tombstoned [1-9][0-9]*` rejects the EMPTY-SUBTREE early return, which emits a
+#     literal `Tombstoned 0 career actions (...)` (distinguishable also by its excluded
+#     parenthetical having no `Other=` term);
+#   - `Kerbal=[1-9]` is what makes the claim about a KERBAL action rather than about any
+#     tombstone: a merge that tombstoned two milestones and no crew row would satisfy a
+#     bare `Tombstoned [1-9]` and prove nothing this spec is about.
+# `.*` between them spans the eight intervening type counters, whose values are not
+# pinned: the crewless probe and the root contribute no career rows, so `Kerbal=1` is
+# the expected shape, but pinning the whole tuple would red on an unrelated counter
+# moving. DERIVED FROM THE CALL SITE, NOT YET MEASURED - the first flight is what
+# confirms the rendered text, and CL-2's `PopulateCrewEndStates` finding is the standing
+# reminder that a derived token can be one the product never emits on the path taken.
+required  = ["Recording started",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience=",
+             "Added [1-9][0-9]* supersede relations for subtree rooted at",
+             "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]"]
+# The standard contract, unrelaxed. It has earned its keep twice on this lane: it is what
+# caught R1-EMPTY-PROVISIONAL (`AppendRelations invariant violation ... reason=empty
+# Points`), and the merge tail this spec drives adds new throwing surfaces of its own
+# (`TryCommitReFlySupersede: orchestrator threw ...`, the NotCommitted AppendRelations
+# invariant). A merge that throws must red.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8), sized so the WORST DEFER path surfaces a clean per-step
+# TIMEOUT rather than a run-budget KILL. run.py waits max(step_budget, 600) + 60 for a
+# DEFERRED verb (LoadGame) and out-waits each other verb's own C# dispatch deferral
+# budget:
+#   LoadGame           max(240,600)+60 = 660
+#   SetSetting         (default)       =  60
+#   mission            (step budget)   = 600
+#   AnswerMergeDialog  (budget; C# DeferralBudget is 120) = 240
+#   RecordingState     (default)       =  60
+#   FlushAndQuit       (default)       =  60   -> sum 1680; +120 margin = 1800.
+# THE MISSION BUDGET IS 600, NOT R1's 1200, because this lane flies no ascent. Its worst
+# path is the kRPC connect (<=30) + the STOP/IDLE round trips (~10) + InvokeRewind's KSP
+# scene reload (its C# DeferralBudget is 300) + VERIFY (~10) + RELAUNCH's 240 frames
+# (~120 at the 0.5 s poll cadence) + the LOOP-POINTS probe (~10) => ~480, and 600 is the
+# slack over that. On the happy path the real wall clock is a KSP boot plus ~2 minutes.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately. An `expectedFail` key here would demote EVERY failure of its
+# subkind under one bug id - including a genuine Parsek regression in the merge tail -
+# which is the active-masking failure mode S4.1's own removed keys document at length.
+# NOTE the precedent: the derived `vesselStateChanged` blocker was a DRIVER-side defect
+# in this lane's own assertion set, and it was FIXED rather than masked. A mask would
+# have carried the run to a green-looking verdict while the merge step stayed skipped
+# and the tombstone never ran - masking a driver defect hides the subject, not the noise.
+bugId = ""
