@@ -501,6 +501,7 @@ class KrpcMissionControl(MissionControl):
         # channel: enough to name it, rate-limited by construction so a
         # permanently dark channel cannot spam a multi-thousand-poll flight.
         self._warned_node_executor_read = False
+        self._warned_nodes_read = False
         self._warned_periapsis_read = False
         # Same latch for the landing channel: its -1 / NaN sentinels stand the
         # descent supervisor and the settled gate DOWN silently, so a drifted
@@ -627,7 +628,9 @@ class KrpcMissionControl(MissionControl):
                 ap_error = float(v.auto_pilot.error)
             except Exception:
                 ap_error = float("nan")
-            nodes = control_handle.nodes
+            # Maneuver-node list, via a helper so the guard is testable (the
+            # _read_angular_velocity / _read_docking_ap_status precedent).
+            nodes = self._read_nodes(control_handle)
             # Patched-conic arrival evidence (finding 16): the NEXT orbit's
             # body + periapsis, read only while an SOI change is predicted.
             # Own try/except: a conic repatch mid-read must degrade to the
@@ -2726,6 +2729,39 @@ class KrpcMissionControl(MissionControl):
             return mlib.normalize_roster_status(getattr(kerbal.roster_status, "name", ""))
         except Exception:
             return ""
+
+    def _read_nodes(self, control_handle):
+        """The maneuver-node list, or the EMPTY-LIST sentinel when kRPC refuses.
+
+        kRPC RAISES rather than returning empty when nodes are unusable:
+        "Maneuver node editing is not available" fires for a CAREER save whose
+        Tracking Station is not upgraded AND for any vessel sitting PRELAUNCH.
+        Both are ordinary states for a pad-start career lane, so the previously
+        UNGUARDED read made three consecutive polls on the pad indistinguishable
+        from a genuinely lost vessel - CL-3 died vessel-lost 1.2 s in, without
+        ever leaving its first phase (run 2026-08-03_1826, INVALID(mission)).
+
+        The empty list is the SAME value a vessel with no pending node yields, so
+        node_count=0 / node_dv=NaN / node_ut=NaN keep exactly the fail-closed
+        meaning every node-gating machine already relies on. Like every other
+        guarded channel here, a fault NEVER counts toward the vessel-lost streak.
+        Warned once per run so a permanently dark channel names itself without
+        spamming a multi-thousand-poll flight.
+        """
+        try:
+            return control_handle.nodes
+        except Exception as exc:
+            if not self._warned_nodes_read:
+                self._warned_nodes_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Telemetry",
+                    "maneuver-node list UNREADABLE (%s: %s); degrades to the "
+                    "EMPTY-LIST sentinel (node_count=0 / node_dv=NaN / "
+                    "node_ut=NaN), the same fail-closed reading a vessel with "
+                    "no pending node produces. Normal on the pad and for an "
+                    "un-upgraded Tracking Station. Logged once per run."
+                    % (type(exc).__name__, str(exc)[:160])))
+            return []
 
     def _read_angular_velocity(self, v) -> float:
         """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --

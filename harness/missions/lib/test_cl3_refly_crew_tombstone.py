@@ -2092,3 +2092,63 @@ class Cl3SpecFeasibilityDerivationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManeuverNodeReadGuardTests(unittest.TestCase):
+    """The read that killed CL-3's first flight.
+
+    Run 2026-08-03_1826 died INVALID(mission) 1.2 s in, phasesReached=[STOP],
+    because `control.nodes` RAISES ("Maneuver node editing is not available")
+    for a career craft sitting PRELAUNCH, and the read was the one unguarded
+    channel in read_telemetry. Three consecutive polls on the pad then looked
+    exactly like a lost vessel. CL-1 escapes it only because it launches at
+    once; this lane polls on the pad while it stops the recorder, so it cannot.
+    """
+
+    class _Raises:
+        def __init__(self, exc):
+            self._exc = exc
+
+        @property
+        def nodes(self):
+            raise self._exc
+
+    class _Returns:
+        def __init__(self, nodes):
+            self.nodes = nodes
+
+    def _control(self):
+        return mission_runner.KrpcMissionControl(client_name="test")
+
+    def test_a_refusing_node_read_degrades_to_the_empty_list(self):
+        # The exact kRPC message the flight hit.
+        handle = self._Raises(RuntimeError(
+            "Maneuver node editing is not available. Either the vessel is in a "
+            "situation where maneuver nodes cannot be used, or the tracking "
+            "station has not been upgraded to a sufficient level."))
+        self.assertEqual([], self._control()._read_nodes(handle))
+
+    def test_a_readable_node_list_is_passed_through_untouched(self):
+        # Anti-vacuity: the guard must not swallow real readings, or every
+        # node-gating machine would silently believe nothing is pending.
+        sentinel = ["node-0", "node-1"]
+        handle = self._Returns(sentinel)
+        self.assertIs(sentinel, self._control()._read_nodes(handle))
+
+    def test_the_warning_is_latched_to_once_per_run(self):
+        # A permanently dark channel must name itself without spamming a
+        # multi-thousand-poll flight.
+        control = self._control()
+        handle = self._Raises(RuntimeError("nope"))
+        self.assertFalse(control._warned_nodes_read)
+        control._read_nodes(handle)
+        self.assertTrue(control._warned_nodes_read)
+        for _ in range(5):
+            self.assertEqual([], control._read_nodes(handle))
+        self.assertTrue(control._warned_nodes_read)
+
+    def test_any_exception_type_degrades_not_just_runtimeerror(self):
+        # The guard exists to keep a read fault off the vessel-lost streak; the
+        # streak does not care which exception type kRPC chose.
+        for exc in (ValueError("v"), AttributeError("a"), Exception("e")):
+            self.assertEqual([], self._control()._read_nodes(self._Raises(exc)))
