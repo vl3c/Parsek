@@ -1,0 +1,177 @@
+schema = 1
+id = "R7b-rewind-session-live"
+tier = "nightly"
+# ROADMAP R7, SPEC 2 OF 3 - the OTHER half of the bimodal precondition space R7a's
+# header sets out. Twelve Rewind members gate on
+# `scenario.ActiveReFlySessionMarker != null` and skip without a live re-fly
+# session; this spec arms one and runs the batch inside it.
+#
+# THE MARKER IS PRODUCT-CREATED, NOT FIXTURE-AUTHORED, and that is the property
+# that makes the resulting execution worth anything. NO injection preset writes a
+# REFLY_SESSION_MARKER node - grepping the node name across the tree hits only
+# Source/Parsek/ReFlySessionMarker.cs and its unit tests, and
+# Source/Parsek.Tests/Generators/ never emits one - so a fixture COULD NOT arm this
+# family even if we wanted it to. The only producer is
+# RewindInvoker.AtomicMarkerWrite, reached from the seam's `InvokeRewind` verb. So
+# the driver invokes a REAL Rewind-to-Separation on the crew-loss fixture's crewed
+# slot and then runs the batch against the live session that produces.
+#
+# AND THE MERGE DIALOG IS DELIBERATELY NOT ANSWERED. S4.1 and CL-3 both follow
+# InvokeRewind with `AnswerMergeDialog merge`; this spec must NOT, for two reasons:
+# answering clears the marker (disarming the twelve), and
+# MergeInterruptionRecovery guards on `provisional.MergeState != NotCommitted` ->
+# Skip, i.e. it must run BEFORE any merge dialog. Leaving the session open is the
+# whole point of the spec.
+description = "Run the in-game Rewind category unattended INSIDE a live re-fly session armed by a real InvokeRewind on the crew-loss fixture: the marker-dependent merge, ghost-suppression, journal-finisher and kerbal-recovery cells that skip in every other configuration."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "rewind", "refly-session", "R7", "R7b"]
+
+[fixture]
+# career-pad-craft + rewind-crew-loss is CL-3's exact pairing, flown green twice on
+# 2026-08-03, and it is reused rather than re-derived for the same reason CL-3
+# reused B9's shape: an unproven fixture makes a divergence read as a product
+# defect.
+#
+# WHY THE CREW-LOSS PRESET RATHER THAN rewind-b9. Both author a committed tree with
+# a RewindPoint at a two-sibling split, and either would arm the marker. The
+# difference is one cell: KerbalRecoveryOnSupersede's third guard is
+# `if (deathActionIds.Count == 0) -> Skip("No kerbal-death actions in supersede
+# subtree")`, and the status doc records that this test has AUTO-SKIPPED SINCE IT
+# WAS WRITTEN because no subtree had ever contained a kerbal death. rewind-crew-loss
+# is the one committed fixture whose re-fly target is a CREWED, terminally-Destroyed
+# pod, and CL-3 MEASURED Parsek deriving the death row from it
+# (`PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`). b9's slot-1 target is a
+# crewless ProbeShip booster and would leave the guard firing.
+#
+# The preset composes with any saveTemplate (it writes into the staged run save, not
+# the template), and run.py fail-closes if Parsek/RewindPoints/rp_cl_root.sfs is
+# absent after injection.
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "rewind-crew-loss"
+craft = []
+
+[driver]
+kind = "seam"
+# ORDINARY batch path, NOT isolated, and this is a deliberate narrowing rather than
+# an oversight. The isolated arg would admit six more declarations, but FIVE of the
+# six cannot execute in THIS configuration anyway: CaptureRPOnStaging /
+# SavePathRootThenMove / WarpZeroedDuringSave need a two-command-pod active vessel
+# no committed fixture has, and both OnFlightReady_* cells guard on
+# `ActiveReFlySessionMarker != null || RewindInvokeContext.Pending` -> Skip, which is
+# exactly the state this spec creates. The sixth,
+# PartPersistentIdStableAcrossSaveLoad, needs no session at all and is executed by
+# R7a on the isolated path. Adding `isolated = "true"` here would therefore buy zero
+# additional executed cells while making every one of this batch's tests pay a real
+# quickload restore - and a restore mid-batch would reload the pre-rewind baseline
+# and DISARM the very session the spec exists to hold open.
+#
+# InvokeRewind targets rp_cl_root slot 1 - the crewed pod - matching CL-3.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "rp_cl_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "RunTests",     args = { category = "Rewind" },                      expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST. The rewind itself is a real Rewind-to-Separation, so `rewind-to-separation`
+# and `refly-gate` are executed rather than decided (RewindInvoker's five-precondition
+# CanInvoke gate runs, and the seam REJECTS with refly-gate if it declines).
+# `reconciliation-bundle` is claimed because RewindInvoker captures it pre-load on
+# this path.
+# NOT claimed and worth stating: `supersede-relation`, `merge-journal`,
+# `head-tip-split`, `terminal-kind-classify` and `tombstones` are what the Merge*
+# cells would drive, and this spec deliberately never answers the merge dialog, so
+# the ones that execute assert PRE-merge state only. S4.1 (armed) and CL-3 own the
+# flown-merge claims for those; nothing here duplicates them.
+# D12 stays entirely unclaimed - KerbalRecoveryOnSupersede executing is a step toward
+# `dead-crew-strip`, but that cell's half (ii) was MEASURED SHUT by CL-3 and this
+# spec does not re-open it.
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Non-zero: the crew-loss corpus is injected and the run must still carry it at
+# teardown. `min = 1` matches CL-3 and S4.1 rather than pinning an exact count,
+# because the re-fly writes a provisional recording of its own and the total is a
+# function of how far the session got.
+count = { min = 1 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - and this is the LEAST
+# certain of R7's three pins, deliberately flown anyway because the uncertainty is
+# exactly what the flight settles. Eleven of the sixteen tokens below are
+# attribute-derived or follow from R7a's reading; the other five are predictions
+# about what a live session's provisional actually looks like a few seconds after
+# InvokeRewind, which no static analysis can settle. Replace with MEASURED + run id
+# on the first green flight; if the split differs, read the skip messages and
+# correct the derivation rather than widening the pattern.
+#
+# WHAT EACH TOKEN RESTS ON:
+#  - total=37 is ATTRIBUTE-EXACT (see R7a). Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=20 = 11 ATTRIBUTE-FORCED + 9 RUN-TIME.
+#      11 attribute-forced on the ORDINARY path at FLIGHT: 5 scene-ineligible
+#      (the SPACECENTER five, R7c's payload) + 6 AllowBatchExecution=false
+#      (CaptureRPOnStaging, both OnFlightReady_*, PartPersistentIdStableAcrossSaveLoad,
+#      SavePathRootThenMove, WarpZeroedDuringSave).
+#      9 run-time, and each is a SPECIFIC second guard that a bare post-InvokeRewind
+#      session does not satisfy:
+#        Gate_DoesNotClobber... and Gate_ForcesFlagTrue... - both skip WITH a live
+#          marker ("would clobber ownership tracking"). They are R7a's payload.
+#        MergeCrashedReFlyCreatesCPSupersede (needs TerminalKind Crashed),
+#          MergeLandedReFlyCreatesImmutableSupersede (Landed),
+#          MergeReFlyToSubOrbitalKeepsSlotOpen (SubOrbital) - MUTUALLY EXCLUSIVE by
+#          construction: the provisional has exactly one terminal kind, and a
+#          re-fly that has not flown has none, so all three skip.
+#        MergeReFlyStructuralMutationAutoSeals (needs a decouple/stage/undock in the
+#          session - the driver performs none).
+#        MergeNonFocusReFlyToOrbitImmutable (needs rp.FocusSlotIndex >= 0).
+#        ContractTombstonesAcrossSupersede (needs contract ledger actions in the
+#          subtree; the crew-loss fixture authors none).
+#        InvokeRPStripAndActivate (guards on the marker being NULL - the inverse of
+#          this spec, and it skips in R7a too, for the mergeState reason given there).
+#  - failed=0 is the ASSERTION.
+#  - passed=17: the 11 session-independent cells R7a also executes minus its three
+#    isolated-only and two marker-null ones, plus the SIX marker-dependent cells a
+#    bare live session is predicted to satisfy - GhostSuppressionDuringReFly
+#    (non-empty suppressed subtree), JournalFinisherMarkerPresentVariant (marker
+#    only, its single guard), KerbalDualResidenceCarveOut (active vessel IS the
+#    re-fly vessel after InvokeRewind), KerbalRecoveryOnSupersede (the crew-loss
+#    death row), MergeAndSealReFlyClosesSlot (resolvable RP/slot, non-permanent
+#    outcome) and MergeInterruptionRecovery (provisional still NotCommitted).
+#    THOSE SIX ARE THE PREDICTION. If the flight returns fewer, the log names which
+#    guard fired and the derivation is corrected here.
+#  - scene=FLIGHT: InvokeRewind loads the RP quicksave and activates the re-fly
+#    vessel in FLIGHT, so the batch still emits at FLIGHT.
+#
+# The two non-tally tokens both prove the session was REAL rather than assumed:
+# `invokerewind start rp=rp_cl_root slot=1` is emitted by the seam on the exact step
+# this driver sends, and the marker-armed line proves RewindInvoker got past its
+# five-precondition gate. Without them a spec whose InvokeRewind was REJECTED would
+# still print a plausible-looking tally - it would just be R7a's tally with a
+# different fixture.
+required  = [
+  "BATCH_COMPLETE v1 total=37 passed=17 failed=0 skipped=20 category=Rewind scene=FLIGHT",
+  "invokerewind start rp=rp_cl_root slot=1",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 660 (LoadGame) + 660 (InvokeRewind) + 660 (RunTests) = 1980 worst case under
+# run.py's max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS) rule. 2100 clears it.
+# This spec has one more deferred step than R7a and InvokeRewind is a real
+# quicksave load, so the headroom is not padding.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -663,6 +663,47 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
+## R7-FIXTURE-GAPS: five `Rewind` in-game tests can never execute on any committed fixture [FOUND 2026-08-04 by roadmap R7's per-test skip-precondition read. NOT FIXED - both are fixture-GENERATOR changes, not spec changes]
+
+R7 wired the `Rewind` category (37 declarations, the largest previously undriven
+one) as three specs. Reading every body's skip guards to size those specs turned
+up two gaps that no choice of committed fixture, injection preset or driver step
+can close. Recorded so the next wave does not re-derive them, and so the R7 pins'
+`skipped=` values are legible rather than mysterious.
+
+**Gap 1 - no committed fixture has a two-command-pod craft (3 tests).**
+`CaptureRPOnStaging`, `SavePathRootThenMove` and `WarpZeroedDuringSave` each need
+an ACTIVE vessel carrying >= 2 parts with a `ModuleCommand` whose NEXT STAGE
+decouples a second CONTROLLABLE vessel - that is the shape Rewind-to-Separation
+captures an RP at. Measured across the committed templates: `career-pad-craft`
+18 parts / 1 `ModuleCommand`, `b2-lko-craft` 81 parts / 1, `gloops-airshow` 9
+parts / 1. Every one of them has exactly ONE command pod, so all three tests skip
+on all three, and they skip in R7a and R7b alike.
+Fix: author a two-pod stack craft (pod + decoupler + probe core, both
+controllable) as a new fixture template. That is the same work `bdock-station-*`
+did for docking and it would close all three at once.
+
+**Gap 2 - `ScenarioWriter` emits no `mergeState`, so nothing can be an Unfinished
+Flight (2 tests).**
+`UnfinishedFlightsRenderingAndNoHide` (SPACECENTER) and `InvokeRPStripAndActivate`
+(FLIGHT) both need at least one recording satisfying
+`EffectiveState.IsUnfinishedFlight`, which requires `MergeState` to be `Immutable`
+or `CommittedProvisional`. Grepping `Source/Parsek.Tests/Generators/` for
+`MergeState` / `mergeState` / `CommittedProvisional` returns ZERO hits, so every
+injected recording deserialises to the default and NO preset - `all-synthetic`,
+`rewind-b9` or `rewind-crew-loss` - can satisfy the predicate. This is why R7c
+injects nothing: injecting would add a fixture dependency and still leave the cell
+skipped.
+Fix: teach `ScenarioWriter` to author `mergeState`, then re-fly R7c and re-pin.
+Note this is the same SHAPE as the `CrewReservationLive` blocker in the inventory
+doc's bucket B1 (a generator that cannot author the state a category gates on),
+and both are one generator change away.
+
+Neither gap is a product defect: the tests are correct and the production code
+they exercise is reachable in a real game. What is missing is fixture material.
+
+---
+
 ## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
 
 ### Correcting the first version of this entry

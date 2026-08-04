@@ -2538,13 +2538,36 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
                     "below is vacuous" % name)
                 ordinary = hlib.batch_tally_pin_mismatches(
                     pin, self.decls, isolated=False)
-                self.assertNotEqual(
-                    ordinary, [],
-                    "%s declares isolated = \"true\" but its pinned tally is ALSO "
-                    "satisfiable on the ordinary batch path, so the isolated arg is "
-                    "doing no work. Either the category is batch-allowed (drop the "
-                    "arg) or the pin is too loose to tell the two paths apart."
-                    % name)
+                if ordinary:
+                    continue
+                # THE TALLY COULD NOT DISCRIMINATE. That is not automatically a
+                # defect, and R7a is the case that showed why: for a category only
+                # PARTLY batch-disabled, the isolated and ordinary paths differ in
+                # the ATTRIBUTE FLOOR (Rewind: 5 vs 11) but a measured pin sits above
+                # both floors, and `batch_tally_pin_mismatches` treats the floor as a
+                # floor -- so `skipped=21` is arithmetically consistent with either
+                # path and no tally comparison can separate them.
+                #
+                # What CAN separate them is the seam's own echo. The runner logs the
+                # literal `isolated=true` on the RunTests step only when the arg is
+                # present (ParsekTestCommandAddon.RunTestsImpl), so a run that lost,
+                # ignored or misspelled the arg cannot print it, and
+                # evaluate_expectations requires every `required` pattern to match.
+                # So the spec must pin that token instead. This keeps the cell's
+                # thesis intact -- a run that silently lost the arg still reds -- and
+                # only changes WHICH pinned evidence carries it.
+                selector = [s for _n, _s, s in self.specs if _n == name]
+                category = (selector[0] or "").strip() if selector else ""
+                req = ((spec.get("expectations", {}) or {})
+                       .get("logContracts", {}) or {}).get("required", []) or []
+                echo = "runtests start category=%s isolated=true" % category
+                self.assertIn(
+                    echo, req,
+                    "%s declares isolated = \"true\" and its pinned tally is ALSO "
+                    "satisfiable on the ordinary batch path, so the tally alone "
+                    "cannot prove the isolated route ran. Either the category is "
+                    "wholly batch-allowed (drop the arg), or the spec must pin the "
+                    "seam's echo %r as the discriminator." % (name, echo))
 
     def test_the_spec_selector_matches_the_pinned_category(self):
         # A RunTests selector and the category= it pins are two independent copies
@@ -2904,6 +2927,38 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # trusted; the table exists so a rename reds HERE with both names named.
     GROUP = {
         "H21-scene-exit-merge-isolated": ("SceneExitMerge", 2),
+        "R7a-rewind-session-absent": ("Rewind", 37),
+    }
+
+    # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
+    # would execute SOME of it. THE WHOLE CLASS WAS WRITTEN AGAINST H21, whose
+    # category is WHOLLY batch-disabled, and three cells below silently encoded that
+    # coincidence as a group invariant. R7a is the first member where it does not
+    # hold, and the generalisations are marked GENERALISED-BY-R7A where they occur.
+    #
+    # For a member listed here the isolated arg earns its place by admitting
+    # STRICTLY MORE than the ordinary filter rather than by being the only way to
+    # run anything; the strict "ordinary executes zero" property is still asserted
+    # for every member NOT listed here, so H21 does not lose a check.
+    PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent"}
+
+    # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
+    # push the split above the attribute-derived floor. The attributes give a FLOOR
+    # only (hlib.batch_tally_pin_mismatches states it: "Run-time InGameAssert.Skip
+    # guards can only push skipped HIGHER, never lower"), and H21 sits exactly ON its
+    # floor because neither SceneExitMerge cell carries a self-skip. 24 of the 37
+    # Rewind declarations do.
+    #
+    # A member listed here must still pin its tally WHOLE - the value is checked for
+    # equality, so any drift in the measured split reds locally exactly as an
+    # attribute change does. What the entry buys is the ability to state a split the
+    # attributes cannot derive; what it costs is that the number is MEASURED, so it
+    # must be re-measured (not re-guessed) whenever the fixture or the guards move.
+    MEASURED_SKIPPED = {
+        # R7a: 5 attribute-forced (the SPACECENTER-scoped five scene-skip at FLIGHT)
+        # + 16 run-time, the marker-dependent family plus the two-command-pod staging
+        # trio plus InvokeRPStripAndActivate. Derivation in the spec's own comment.
+        "R7a-rewind-session-absent": 21,
     }
 
     @classmethod
@@ -3009,10 +3064,21 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 self.assertIsInstance(args.get("isolated"), str)
 
     def test_the_ordinary_path_could_not_run_this_category(self):
-        # THE THESIS CELL. An isolated spec earns its arg only if the ordinary
-        # admission filter would execute ZERO of its category's tests -- otherwise
-        # the arg is decoration and the spec proves nothing about R5. Derived from
-        # the attributes both ways and compared.
+        # THE THESIS CELL. An isolated spec earns its arg only if the arg actually
+        # changes what the batch executes -- otherwise it is decoration and the spec
+        # proves nothing about R5. Derived from the attributes both ways and
+        # compared.
+        #
+        # GENERALISED-BY-R7A. The thesis used to be spelled `ordinary.executable ==
+        # 0`, which is the STRONGEST form of "the arg does work" and is true of
+        # SceneExitMerge, whose every declaration is AllowBatchExecution = false. It
+        # is NOT the thesis itself. `Rewind` is 37 declarations of which 6 are
+        # batch-disabled, so the ordinary path executes 26 and the isolated path 32:
+        # the arg buys six real cells and is plainly doing work, but the old spelling
+        # would have rejected it. The general property is that the isolated filter
+        # admits STRICTLY MORE, and the strict form is still required of every member
+        # not declared PARTLY_BATCH_DISABLED -- so H21 keeps the stronger check and a
+        # member cannot quietly weaken into the general one.
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 category, _ = self.GROUP[sid]
@@ -3022,12 +3088,22 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 ordinary = hlib.derive_batch_tally(self.decls, category, scene)
                 isolated = hlib.derive_batch_tally(self.decls, category, scene,
                                                    isolated=True)
-                self.assertEqual(
-                    0, ordinary.executable,
-                    "%s drives %s with isolated = \"true\", but %d of its tests are "
-                    "batch-eligible on the ORDINARY path too. The arg is not doing "
-                    "any work here; drop it, or drive a category that needs it."
-                    % (sid, category, ordinary.executable))
+                if sid not in self.PARTLY_BATCH_DISABLED_IDS:
+                    self.assertEqual(
+                        0, ordinary.executable,
+                        "%s drives %s with isolated = \"true\", but %d of its tests "
+                        "are batch-eligible on the ORDINARY path too. The arg is not "
+                        "doing any work here; drop it, drive a category that needs "
+                        "it, or -- if the arg genuinely buys additional cells -- "
+                        "declare the id in PARTLY_BATCH_DISABLED_IDS with the "
+                        "reason." % (sid, category, ordinary.executable))
+                self.assertGreater(
+                    isolated.executable, ordinary.executable,
+                    "%s drives %s with isolated = \"true\" but the isolated filter "
+                    "admits no more than the ordinary one at scene=%s (%d vs %d), so "
+                    "the arg cannot change a single test's outcome."
+                    % (sid, category, scene, isolated.executable,
+                       ordinary.executable))
                 self.assertGreater(
                     isolated.executable, 0,
                     "%s drives %s isolated but NO test is admitted even by the "
@@ -3055,8 +3131,30 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 # Whole-tally pin, never the `passed=[1-9][0-9]*` interim form: R5's
                 # proof IS the passed/skipped split, so leaving either unpinned would
                 # accept the very tally the change exists to move.
-                self.assertEqual((pin.passed, pin.failed, pin.skipped),
-                                 (derived.total, 0, 0), sid)
+                self.assertIsNotNone(pin.passed, sid)
+                self.assertIsNotNone(pin.skipped, sid)
+                # GENERALISED-BY-R7A. This used to read `(derived.total, 0, 0)`,
+                # which bakes in TWO H21 coincidences: that nothing scene-skips (so
+                # the attribute floor is 0) and that no member carries a run-time
+                # InGameAssert.Skip. The general contract is the attribute floor,
+                # plus a DECLARED measured value for the run-time guards the
+                # attributes cannot see. Equality is kept in both branches, so this
+                # is not a loosening: an undeclared member is still held to the
+                # floor exactly as before, and a declared one is held to its
+                # measured number.
+                expected_skipped = self.MEASURED_SKIPPED.get(
+                    sid, derived.attribute_skipped)
+                self.assertGreaterEqual(
+                    expected_skipped, derived.attribute_skipped,
+                    "%s declares MEASURED_SKIPPED=%d below the attribute floor of "
+                    "%d at scene=%s; run-time guards can only push skipped HIGHER"
+                    % (sid, expected_skipped, derived.attribute_skipped, pin.scene))
+                self.assertEqual(
+                    (pin.passed, pin.failed, pin.skipped),
+                    (derived.total - expected_skipped, 0, expected_skipped),
+                    "%s: pinned tally disagrees with the isolated derivation at "
+                    "scene=%s (attribute floor %d, expected skipped %d)"
+                    % (sid, pin.scene, derived.attribute_skipped, expected_skipped))
 
     def test_each_pin_rejects_both_the_vacuous_and_the_non_isolated_line(self):
         # END-TO-END round trip. Three lines are synthesized from the derivation and
@@ -3090,9 +3188,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                             "skipped=%d category=%s scene=%s"
                             % (total, passed, failed, skipped, category, scene))
 
-                real = line(iso.total, iso.total - iso.attribute_skipped, 0,
-                            iso.attribute_skipped)
+                # GENERALISED-BY-R7A, same reason as the tally cell above: the line
+                # the runner ACTUALLY prints carries the measured split, which sits
+                # at the attribute floor only when no member self-skips.
+                iso_skipped = self.MEASURED_SKIPPED.get(sid, iso.attribute_skipped)
+                real = line(iso.total, iso.total - iso_skipped, 0, iso_skipped)
                 vacuous = line(iso.total, 0, 0, iso.total)
+                # The ordinary-path contrast keeps its ATTRIBUTE-derived split. It is
+                # a synthetic "what would a run that lost the arg print" line, and
+                # the measured isolated split is not a prediction about that run.
                 non_isolated = line(ord_.total,
                                     ord_.total - ord_.attribute_skipped, 0,
                                     ord_.attribute_skipped)
@@ -3150,17 +3254,41 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # is satisfied by a batch that admitted a different population.
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
-                _, total = self.GROUP[sid]
+                category, total = self.GROUP[sid]
                 req = ((spec.get("expectations", {}) or {})
                        .get("logContracts", {}) or {}).get("required", []) or []
                 slot = [r for r in req if "batch baseline slot" in r]
                 self.assertEqual(1, len(slot),
                                  "%s must pin the baseline-slot line - it is the only "
                                  "token that proves the ISOLATED entry point ran" % sid)
-                self.assertIn("for %d restore-after-run" % total, slot[0],
-                              "%s must pin the restore count as a LITERAL (%d), not a "
-                              "class: a class accepts a batch that admitted a "
-                              "different population" % (sid, total))
+                # GENERALISED-BY-R7A. This used to pin `total`, which is right only
+                # when EVERY admitted test carries the restore flag - true of
+                # SceneExitMerge (2 of 2) and false of Rewind (6 of 37). The number
+                # the runner actually prints is
+                # `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)`
+                # over the ADMITTED batch (InGameTestRunner.PrepareBatchFlightRestore-
+                # Execution), so derive it. Pinning `total` for R7a would have
+                # demanded the literal 37 against a line that says 6, i.e. red on a
+                # correct spec.
+                scene = hlib.resolve_batch_tally_pin(req).scene
+                admitted = hlib.derive_batch_tally(self.decls, category, scene,
+                                                   isolated=True)
+                restore_count = sum(
+                    1 for d in self.decls
+                    if d.category == category and d.restore_baseline
+                    and d.origin not in admitted.scene_skipped_members)
+                self.assertGreater(
+                    restore_count, 0,
+                    "%s: no admitted %s declaration carries "
+                    "RestoreBatchFlightBaselineAfterExecution, so "
+                    "PrepareBatchFlightRestoreExecution returns before logging the "
+                    "slot line at all and this token can never match" % (sid, category))
+                self.assertIn("for %d restore-after-run" % restore_count, slot[0],
+                              "%s must pin the restore count as a LITERAL (%d - the "
+                              "restore-flagged declarations admitted at scene=%s), "
+                              "not a class and not the category total: a class "
+                              "accepts a batch that admitted a different population"
+                              % (sid, restore_count, scene))
 
     def test_each_pins_the_seam_isolated_arg_echo(self):
         # The canary for the provisioning trap: the harness flies a DIFFERENT KSP

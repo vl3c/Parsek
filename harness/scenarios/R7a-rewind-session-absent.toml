@@ -1,0 +1,210 @@
+schema = 1
+id = "R7a-rewind-session-absent"
+tier = "nightly"
+# ROADMAP R7, SPEC 1 OF 3. The `Rewind` category is the largest undriven asset in
+# the tree - 37 declarations, more than any other category nothing drives - and it
+# is the one the inventory doc's bucket B4 names first: "most members carrying
+# self-skips ... wiring them now produces green-looking specs that execute nothing."
+#
+# THE STRUCTURAL FACT THAT DECIDES THE WHOLE SHAPE, and it is why R7 is three specs
+# rather than one. Reading all 37 bodies (plus every helper they reach) turns up a
+# BIMODAL precondition space that no single boot can satisfy:
+#
+#   * TWELVE members gate on `scenario.ActiveReFlySessionMarker != null` - a LIVE
+#     re-fly session. They skip without one.
+#   * FOUR members gate on the marker being NULL and skip WITH one:
+#     Gate_DoesNotClobber_LegitimateFlagTrue_WhenInactive and
+#     Gate_ForcesFlagTrue_WhenMarkerActive_AndRestoresOnClear ("Cannot exercise
+#     gate while a live Re-Fly session is active - would clobber ownership
+#     tracking"), plus both OnFlightReady_* cells ("requires no active Re-Fly
+#     session (would corrupt live RenderSessionState)").
+#
+# The two sets are DISJOINT AND MUTUALLY EXCLUSIVE. One batch maximising either
+# necessarily minimises the other, so R7 flies both modes:
+#   R7a (this spec) - session ABSENT. Owns the marker-null half.
+#   R7b            - session LIVE, armed by a real InvokeRewind. Owns the other.
+#   R7c            - the five SPACECENTER-scoped members, which no FLIGHT boot can
+#                    reach at all.
+# Union across the three is what makes the category genuinely driven; neither
+# FLIGHT spec is redundant with the other, and each pins its own measured split.
+description = "Run the in-game Rewind category unattended with NO live re-fly session: the revert-dialog gate pair, both Prelaunch/Launch discard-dispatch cells, the OnFlightReady merge-dialog guard pair, the F5 mid-re-fly resume sweep, RP reap, fork-phase tagging, tree-discard tombstone cleanup, and the CAREER-only rewind read-back guard."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "rewind", "R7", "R7a"]
+
+[fixture]
+# career-pad-craft, and BOTH of its properties are load-bearing - this is not the
+# H-series' gloops-airshow host and the substitution is deliberate on two counts.
+#
+# 1. CAREER. `RewindReadbackGuard_WarnsOnDivergence_LeavesLiveUnchanged` opens with
+#    `if (Funding.Instance == null || ResearchAndDevelopment.Instance == null ||
+#    Reputation.Instance == null)` -> Skip. On any SANDBOX host (gloops-airshow,
+#    b2-lko-craft) that cell can never execute. career-pad-craft is the CAREER
+#    FLIGHT fixture R11 landed, already flown green by CL-2 / CL-3.
+# 2. 18 PARTS. `PartPersistentIdStableAcrossSaveLoad` guards on
+#    `vessel.parts.Count < 3`. gloops-airshow's active vessel is a 9-part pod stack
+#    and would pass that, but see the engine note below.
+#
+# It also satisfies IsolatedBatchWiringGroupTests' static fixture predicate
+# (`sit = PRELAUNCH` + >= 1 ModuleEngines on the ACTIVE vessel): measured 18 parts,
+# 1 ModuleEngines, 1 ModuleCommand, PRELAUNCH, activeVessel = 0 of 1 VESSEL node.
+#
+# WHAT THE SINGLE ModuleCommand COSTS, stated so it is not rediscovered: three
+# members (CaptureRPOnStaging, SavePathRootThenMove, WarpZeroedDuringSave) need an
+# active vessel carrying >= 2 ModuleCommand parts whose NEXT STAGE decouples a
+# second controllable vessel. NO committed fixture has that shape - b2-lko-craft is
+# 81 parts and still carries exactly one command pod - so those three skip here and
+# in R7b, and closing them needs a new two-pod craft fixture, not a spec change.
+# Filed in docs/dev/todo-and-known-bugs.md rather than silently absorbed.
+#
+# injectedRecordings = "none" is a MEASURED choice, not a default. The obvious
+# candidate for injection is `InvokeRPStripAndActivate`, which needs an Unfinished
+# Flight with an on-disk quicksave - but it still skips under ALL THREE presets,
+# because `EffectiveState.IsUnfinishedFlight` requires MergeState Immutable or
+# CommittedProvisional and `ScenarioWriter` emits no `mergeState` key at all
+# (zero hits for MergeState / CommittedProvisional across
+# Source/Parsek.Tests/Generators/). Injecting would add store noise and buy nothing.
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# isolated = "true" is doing REAL work here and is worth three of the sixteen
+# executed cells: OnFlightReady_ActiveReFlySession_SkipsMergeDialog,
+# OnFlightReady_NoReFlySession_ShowsMergeDialog and
+# PartPersistentIdStableAcrossSaveLoad all carry AllowBatchExecution = false +
+# RestoreBatchFlightBaselineAfterExecution = true, so the ordinary filter skips all
+# three and the isolated filter admits them.
+#
+# NOTE this spec is NOT the H21 shape, and the difference matters to the group
+# tests: Rewind is only PARTLY batch-disabled (26 of 37 are batch-eligible on the
+# ordinary path too), where SceneExitMerge is wholly so. The isolated arg therefore
+# earns its place by executing STRICTLY MORE (32 admitted vs 26), not by being the
+# only way to run anything. IsolatedBatchWiringGroupTests was generalised in the
+# same commit to state that property; see its test_the_ordinary_path_could_not_run_
+# this_category comment.
+#
+# NO InvokeRewind step, and that is the spec's defining choice: any rewind would arm
+# the marker and skip the four marker-null cells this spec exists to execute. R7b
+# drives the rewind instead.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Rewind", isolated = "true" },   expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST, and narrower than the category name suggests. What EXECUTES here is the
+# decision layer around a re-fly, not a re-fly: the revert-button gate both ways,
+# the revert dialog's block/allow branches in Launch and Prelaunch contexts, the
+# Discard handler's scene dispatch, the OnFlightReady merge-dialog guard, the
+# load-time sweep's mid-session resume, RP reaping on a last Immutable slot, and
+# the read-back guard's divergence warning.
+#
+# D9 `revert-during-refly-dialog` is claimed because four cells drive
+# RevertInterceptor.Prefix directly and assert the dialog is shown / stock revert is
+# allowed. `read-back-guard` is claimed off the CAREER-only cell. `rp-disk-reaper`
+# is claimed off RPReapOnLastSlotImmutable.
+# NOT claimed: `supersede-relation`, `merge-journal`, `head-tip-split`,
+# `terminal-kind-classify`, `tombstones`, `seal-stash-fly` - every cell that would
+# execute those skips here for want of a live session. R7b claims what it measures
+# of them; S4.1 / CL-3 own the flown-merge versions.
+D9  = ["revert-during-refly-dialog", "read-back-guard", "rp-disk-reaper"]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): a bare key after an [expectations.<sub>]
+# header is TOML-scoped to that sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, doubling as the CAMPAIGN-ISOLATION assertion exactly as H21's does. Several
+# cells build real trees mid-run (F5MidReFlyResume pushes one through
+# RecordingStore.AddCommittedTreeForTesting; TreeDiscardRemovesSupersedesAndTombstones
+# builds and discards one) and the isolated path's per-test baseline restore plus the
+# batch teardown revert from the pre-batch .bak must leave the produced save clean.
+# A non-zero count here is not "a test leaked" - it is the restore contract failing,
+# which is the property the isolated path rests on, and it should red loudly.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED. This pin is a PREDICTION
+# and the first flight is expected to correct it. Every one of the 37 bodies was
+# read, with every helper it calls followed, but 24 of them carry run-time
+# InGameAssert.Skip guards and no static analysis settles those - which is the
+# entire reason this category was left undriven through two prior waves. Replace
+# this paragraph with MEASURED + the run id on the first green flight, and if the
+# split differs do NOT widen the pattern: read the skip messages out of the log and
+# correct the derivation below.
+#
+# WHAT EACH TOKEN RESTS ON:
+#  - total=37 is ATTRIBUTE-EXACT and the only statically certain token: 37
+#    [InGameTest(Category = "Rewind")] declarations across 29 files. BATCH_COMPLETE's
+#    total is allTests.Count(Status != NotRun) over the single batch, so it counts
+#    filtered tests too. Kept in sync by CommittedBatchTallySourceSyncTests.
+#  - skipped=21 = 5 ATTRIBUTE-FORCED + 16 RUN-TIME.
+#      The 5 attribute-forced are scene-ineligible at FLIGHT (all SPACECENTER-scoped,
+#      and all five are R7c's payload): ReFlyFromSpannedRecording_PreservesLaunchRow-
+#      AndTombstonesPostRewindCrew, StableLeafGroupSealAndLastSlotReap,
+#      SealPopupCancelClearsLockWithoutSealing, SealPopupConfirmSealsSlotAndClearsLock,
+#      UnfinishedFlightsRenderingAndNoHide. On the ISOLATED path nothing is
+#      batch-skipped - the filter is AllowBatchExecution ||
+#      RestoreBatchFlightBaselineAfterExecution and all 6 batch-disabled Rewind
+#      declarations carry the restore flag.
+#      The 16 run-time skips are the whole marker-dependent family (12: the seven
+#      Merge*, GhostSuppressionDuringReFly, JournalFinisherMarkerPresentVariant,
+#      KerbalDualResidenceCarveOut, KerbalRecoveryOnSupersede,
+#      ContractTombstonesAcrossSupersede - all on "No active re-fly session"), the
+#      three two-pod staging cells (CaptureRPOnStaging, SavePathRootThenMove,
+#      WarpZeroedDuringSave - see the fixture note), and InvokeRPStripAndActivate
+#      ("No Unfinished Flight in current save", per the mergeState gap above).
+#  - failed=0 is the ASSERTION.
+#  - passed=16 follows, and is the list this spec exists to execute:
+#      DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter,
+#      DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility, F5MidReFlyResume,
+#      Gate_DoesNotClobber_LegitimateFlagTrue_WhenInactive,
+#      Gate_ForcesFlagTrue_WhenMarkerActive_AndRestoresOnClear,
+#      OnFlightReady_ActiveReFlySession_SkipsMergeDialog,
+#      OnFlightReady_NoReFlySession_ShowsMergeDialog,
+#      PartPersistentIdStableAcrossSaveLoad, RPReapOnLastSlotImmutable,
+#      ReFlyRevertDialog_BlocksStockRevert_AndShowsDialog,
+#      ReFlyRevertDialog_NoSession_AllowsStockRevert,
+#      ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog,
+#      ReFlyRevertDialog_Prelaunch_NoSession_AllowsStockRevert,
+#      RewindReadbackGuard_WarnsOnDivergence_LeavesLiveUnchanged,
+#      TagForkInitialSegmentPhase_FromLiveActiveVessel_ProducesPhaseAndBody,
+#      TreeDiscardRemovesSupersedesAndTombstones.
+#  - scene=FLIGHT is the career-pad-craft Focusable route, MEASURED by CL-2 / CL-3
+#    on this exact template, and LOAD-BEARING: at SPACECENTER the split inverts.
+#
+# The baseline-slot line pins the literal 6, which is
+# `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)` over the ADMITTED
+# batch - the six restore-flagged Rewind declarations, all Scene = FLIGHT, so all
+# six survive scene eligibility. It is emitted ONLY by
+# PrepareBatchFlightRestoreExecution, which RunCategory never calls, so it is proof
+# of the isolated entry point INDEPENDENT of the tally. Note the contrast with the
+# tally: 6 is the restore-flagged count, NOT total - H21's 2 coincided with its
+# total and that coincidence was baked into the group test until this commit.
+required  = [
+  "BATCH_COMPLETE v1 total=37 passed=16 failed=0 skipped=21 category=Rewind scene=FLIGHT",
+  "runtests start category=Rewind isolated=true",
+  "Using batch baseline slot .* for 6 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Same arithmetic as H21: run.py gives every deferred seam step
+# max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600) + 60, so the worst case is
+# 660 (LoadGame) + 660 (RunTests) = 1320. 1400 clears it. The isolated path makes a
+# slow or wedged quickload the plausible failure and a KILLED run prints NO tally at
+# all, so the headroom is the point; it costs nothing on a healthy run.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
