@@ -620,6 +620,10 @@ namespace Parsek
             }
 
             BallisticStateVector startState;
+            // Set only on the live-vessel-orbit fallback branch below (no predicted tail to
+            // propagate from). It is one half of the no-solver destroyed fingerprint - see
+            // IsNoSolverDestroyedFallback.
+            bool usedLiveOrbitFallback = false;
             if (appendedSegments.Count > 0
                 && BallisticExtrapolator.TryFindAtmosphericReentryClip(
                     (IReadOnlyList<OrbitSegment>)appendedSegments,
@@ -687,10 +691,59 @@ namespace Parsek
                     $"TryFinalizeRecording: failed to sample live vessel orbit for '{recordingId}'");
                 return false;
             }
+            else
+            {
+                usedLiveOrbitFallback = true;
+            }
 
             ExtrapolationResult extrapolated = extrapolate != null
                 ? extrapolate(startState, bodies)
                 : BallisticExtrapolator.Extrapolate(startState, bodies);
+
+            // COMPENSATING CLASSIFICATION for the site-2 frame fix (calibration run
+            // 2026-08-04_2142). Before it, this fallback's absolute-world seed collapsed to
+            // |r| ~ 0 under KSP's vessel-centred floating origin, so every no-solver
+            // fallback reached `SubSurfaceStart` and every one of them was classified
+            // Destroyed (subject to the recorded-point suppression below). With the seed in
+            // the extrapolator's own frame that accident is gone, and the same population
+            // must keep its verdict on the honest signal - otherwise `ParsekFlight`'s
+            // fallback `DetermineTerminalState(v.situation, v)` silently overwrites it with
+            // SUB_ORBITAL (see `ShouldApplyExtrapolatorResult`'s docstring). Overriding
+            // BEFORE the segment append keeps the pre-fix shape exactly: no appended
+            // segments, terminal at the fallback's own UT, and the same
+            // populate -> suppress -> recover machinery downstream.
+            if (IsNoSolverDestroyedFallback(
+                    snapshot.FailureReason,
+                    usedLiveOrbitFallback,
+                    extrapolated.failureReason))
+            {
+                extrapolated = BuildNoSolverDestroyedResult(startState);
+                string noSolverMessage = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TryFinalizeRecording: no-solver live-orbit fallback for '{0}' classifies Destroyed " +
+                    "(snapshotFailure={1}, body={2}, startUT={3:F3}, startAlt={4:F1}); " +
+                    "predicted tail discarded",
+                    recordingId,
+                    snapshot.FailureReason,
+                    startState.bodyName ?? "(null)",
+                    startState.ut,
+                    ResolveStartAltitude(startState, bodies));
+                if (warnOnSubSurfaceStart)
+                {
+                    ParsekLog.WarnRateLimited("Extrapolator",
+                        "no-solver-destroyed-fallback." + recordingId,
+                        noSolverMessage,
+                        minIntervalSeconds: 30.0);
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited("Extrapolator",
+                        "no-solver-destroyed-fallback." + recordingId,
+                        noSolverMessage,
+                        minIntervalSeconds: 30.0);
+                }
+            }
+
             if (extrapolated.segments != null)
             {
                 for (int i = 0; i < extrapolated.segments.Count; i++)
@@ -708,7 +761,7 @@ namespace Parsek
             result.terminalState = extrapolated.terminalState;
             result.terminalUT = extrapolated.terminalUT;
             result.extrapolationFailureReason = extrapolated.failureReason;
-            if (extrapolated.failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+            if (IsDestroyedVesselStartFingerprint(extrapolated.failureReason))
             {
                 PopulateSubSurfaceDestroyedDetails(
                     startState,
@@ -921,6 +974,80 @@ namespace Parsek
             return applied;
         }
 
+        /// <summary>
+        /// The destroyed-vessel start fingerprint, in either of its two forms:
+        /// <see cref="ExtrapolationFailureReason.SubSurfaceStart"/> (the live orbit's own
+        /// state really is below the surface) and
+        /// <see cref="ExtrapolationFailureReason.NoSolverStart"/> (KSP had torn the
+        /// patched-conic solver down and there was no predicted tail). Both classify
+        /// Destroyed at the start UT with no appended segments, and both must therefore
+        /// force-apply past <see cref="ShouldApplyExtrapolatorResult"/>'s
+        /// "did it advance anything?" test and be offered to the recorded-point
+        /// suppression / recovery path.
+        /// </summary>
+        internal static bool IsDestroyedVesselStartFingerprint(ExtrapolationFailureReason failureReason)
+        {
+            return failureReason == ExtrapolationFailureReason.SubSurfaceStart
+                || failureReason == ExtrapolationFailureReason.NoSolverStart;
+        }
+
+        /// <summary>
+        /// True when the finalizer fell back to the LIVE vessel orbit because KSP had torn
+        /// the vessel's patched-conic solver down and no predicted tail existed — the
+        /// destroyed-vessel fingerprint, stated on the signal that carries it rather than on
+        /// the origin-collapsed coordinates the pre-calibration site-2 seed manufactured
+        /// (measurement run <c>2026-08-04_2142</c>).
+        /// <para>
+        /// Deliberately yields to <see cref="ExtrapolationFailureReason.SubSurfaceStart"/>:
+        /// when the live orbit is genuinely collapsed the extrapolator's own guard still
+        /// fires first and owns the verdict, keeping that path (and every test pinned on it)
+        /// byte-for-byte unchanged.
+        /// </para>
+        /// </summary>
+        internal static bool IsNoSolverDestroyedFallback(
+            PatchedConicSnapshotFailureReason snapshotFailureReason,
+            bool usedLiveOrbitFallback,
+            ExtrapolationFailureReason extrapolationFailureReason)
+        {
+            return usedLiveOrbitFallback
+                && snapshotFailureReason == PatchedConicSnapshotFailureReason.NullSolver
+                && extrapolationFailureReason != ExtrapolationFailureReason.SubSurfaceStart;
+        }
+
+        /// <summary>
+        /// The Destroyed-at-the-start-UT result shape the pre-calibration sub-surface
+        /// accident produced for the no-solver live-orbit fallback: no segments, terminal at
+        /// the seed's own UT and body, carrying <see cref="ExtrapolationFailureReason.NoSolverStart"/>.
+        /// </summary>
+        internal static ExtrapolationResult BuildNoSolverDestroyedResult(BallisticStateVector startState)
+        {
+            return new ExtrapolationResult
+            {
+                terminalState = TerminalState.Destroyed,
+                terminalUT = startState.ut,
+                terminalBodyName = startState.bodyName,
+                terminalPosition = startState.position,
+                terminalVelocity = startState.velocity,
+                segments = new List<OrbitSegment>(),
+                failureReason = ExtrapolationFailureReason.NoSolverStart
+            };
+        }
+
+        private static double ResolveStartAltitude(
+            BallisticStateVector startState,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies)
+        {
+            if (string.IsNullOrEmpty(startState.bodyName)
+                || bodies == null
+                || !bodies.TryGetValue(startState.bodyName, out ExtrapolationBody body)
+                || body == null)
+            {
+                return double.NaN;
+            }
+
+            return Magnitude(startState.position) - body.Radius;
+        }
+
         private static bool ShouldSuppressSubSurfaceDestroyedFromRecordedPoint(
             Recording recording,
             PatchedConicSnapshotResult snapshot,
@@ -941,13 +1068,23 @@ namespace Parsek
                 return false;
             if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.NullSolver)
                 return false;
-            if (result.extrapolationFailureReason != ExtrapolationFailureReason.SubSurfaceStart)
+            if (!IsDestroyedVesselStartFingerprint(result.extrapolationFailureReason))
                 return false;
             if (!IsFinite(startState.ut))
                 return false;
-            if (!IsFinite(result.subSurfaceDestroyedAltitude)
-                || result.subSurfaceDestroyedAltitude > result.subSurfaceDestroyedThreshold)
+            // The altitude check is the SUB-SURFACE route's own proof that the live-orbit
+            // start really is the origin-collapse fingerprint. The NoSolverStart route makes
+            // no altitude claim at all - its fingerprint is the torn-down solver (see
+            // IsNoSolverDestroyedFallback), and after the site-2 frame calibration
+            // (2026-08-04_2142) its start altitude is the vessel's REAL altitude, which
+            // would fail this gate and take away the recorded-point protection this
+            // population (EVA children, decoupled debris) has always had.
+            if (result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart
+                && (!IsFinite(result.subSurfaceDestroyedAltitude)
+                    || result.subSurfaceDestroyedAltitude > result.subSurfaceDestroyedThreshold))
+            {
                 return false;
+            }
 
             recordingStartUT = recording.StartUT;
             string bodyName = !string.IsNullOrEmpty(result.subSurfaceDestroyedBodyName)
@@ -1006,13 +1143,17 @@ namespace Parsek
         /// <para>
         /// For a non-parent-anchored recording the live-orbit altitude is trustworthy,
         /// so only the tight "fresh split" window admits the contradiction. For a
-        /// parent-anchored recording the live vessel orbit ALTITUDE/POSITION is the
-        /// origin-collapse NullSolver fingerprint (alt ~= -bodyRadius) and cannot be
+        /// parent-anchored recording the live vessel orbit ALTITUDE/POSITION cannot be
         /// trusted, even though the live-orbit UT (commitUT) is fine: the body-fixed
         /// surface is authoritative and acceptance widens to the recording's own
-        /// authored coverage span. This is the mechanism fix for parent-anchored debris
-        /// being classified Destroyed off a -bodyRadius live-orbit read instead of its
-        /// genuine body-fixed altitude.
+        /// authored coverage span. (Before the 2026-08-04_2142 frame calibration the
+        /// untrustworthy read was literally the origin-collapse fingerprint,
+        /// alt ~= -bodyRadius; on the post-calibration
+        /// <see cref="ExtrapolationFailureReason.NoSolverStart"/> route it is a REAL
+        /// altitude read off an orbit whose solver KSP had already torn down, which is
+        /// no more authoritative — the widening stands either way.) This is the mechanism
+        /// fix for parent-anchored debris being classified Destroyed off a -bodyRadius
+        /// live-orbit read instead of its genuine body-fixed altitude.
         /// </para>
         /// </summary>
         internal static bool IsRecordedSurfaceContradictionAccepted(
@@ -1875,21 +2016,21 @@ namespace Parsek
                             return false;
                         }
                     },
-                    // FRAME MISMATCH #3, PINNED NOT FIXED - see todo-and-known-bugs.md
-                    // "BallisticExtrapolator frame mismatches". This pair is INTERNALLY
-                    // INCONSISTENT, and that half needs no in-game measurement to see:
-                    // `getPositionAtUT` returns ABSOLUTE Y-up world (it is
-                    // `getRelativePositionAtUT(ut).xzy + referenceBody.position`), while
-                    // `getOrbitalVelocityAtUT` returns Zup-swizzled body-relative - so one
-                    // state carries two frames, wrong under EITHER swizzle convention. The
-                    // SOI entry/exit logic that consumes it compares against Zup
-                    // parent-relative vessel states, so the likely fix is
-                    // `getRelativePositionAtUT(ut)`. Left as-is deliberately: it ships with
-                    // the other three sites, behind the one in-game calibration.
+                    // FRAME SITE #3, FIXED (calibration run 2026-08-04_2142) - see
+                    // todo-and-known-bugs.md "BallisticExtrapolator frame mismatches".
+                    // CONTRACT: both halves are Zup-swizzled PARENT-relative, matching the
+                    // extrapolator's own state-vector frame. `getPositionAtUT` would return
+                    // ABSOLUTE Y-up world (it is
+                    // `getRelativePositionAtUT(ut).xzy + referenceBody.position`) while
+                    // `getOrbitalVelocityAtUT` is already Zup parent-relative, so the old
+                    // pair carried two frames inside one state. The consumers are the SOI
+                    // reframes in BallisticExtrapolator (`currentState.position ± bodyPosition`
+                    // at the ParentExit / ChildEntry branches), where the vessel side is Zup
+                    // body-relative.
                     ParentFrameState = bodyOrbit != null
                         ? (ParentFrameStateResolver)((double ut, out Vector3d position, out Vector3d velocity) =>
                         {
-                            position = bodyOrbit.getPositionAtUT(ut);
+                            position = bodyOrbit.getRelativePositionAtUT(ut);
                             velocity = bodyOrbit.getOrbitalVelocityAtUT(ut);
                         })
                         : null
@@ -1949,6 +2090,24 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The CALIBRATED axis map between the extrapolator's Zup-swizzled body-relative
+        /// frame and KSP's Y-up world frame (measurement run <c>2026-08-04_2142</c>; see
+        /// docs/dev/todo-and-known-bugs.md "BallisticExtrapolator frame mismatches").
+        /// The swap of the y and z slots is its own inverse, so the same call converts in
+        /// either direction — the same relationship <see cref="OrbitReseed"/> documents
+        /// for state-vector reseeding.
+        /// <para>
+        /// <c>internal</c> rather than <c>private</c> so the headless frame tests can pin
+        /// the map itself instead of a reimplementation of it (the production call sites
+        /// need a live <see cref="CelestialBody"/> and cannot run headless).
+        /// </para>
+        /// </summary>
+        internal static Vector3d SwizzleZupBodyRelativeToWorld(Vector3d zupBodyRelative)
+        {
+            return zupBodyRelative.xzy;
+        }
+
         private static void ResolveBodyFixedSurfaceCoordinates(
             CelestialBody body,
             double referenceUT,
@@ -1959,17 +2118,16 @@ namespace Parsek
         {
             try
             {
-                // FRAME MISMATCH #1, PINNED NOT FIXED - see todo-and-known-bugs.md
-                // "BallisticExtrapolator frame mismatches". `position` arrives in the
-                // extrapolator's Zup-swizzled body-relative frame (BallisticExtrapolator's
-                // TwoBodyOrbit contract comment), while `body.position` is Y-up world - so
-                // this sum reads a Zup vector as a Y-up offset and the derived lat/lon are
-                // wrong by an axis swap. The likely correction is `position.xzy`, but the
-                // swizzle/sign convention must be CALIBRATED IN-GAME (a known-impact descent
-                // whose recorded terminal lat/lon is compared against the actual crash site),
-                // never re-derived on paper - and it must land together with the other three
-                // sites the entry lists, since they share this frame.
-                Vector3d worldPos = body.position + position;
+                // FRAME SITE #1, FIXED (calibration run 2026-08-04_2142) - see
+                // todo-and-known-bugs.md "BallisticExtrapolator frame mismatches".
+                // CONTRACT: `position` arrives in the extrapolator's Zup-swizzled
+                // body-relative frame (BallisticExtrapolator's TwoBodyOrbit contract
+                // comment); `body.position` is Y-up world, so the offset added to it must be
+                // unswizzled first. The convention was MEASURED, not derived: the site-1
+                // in-game probe read lat=34.204133 for a vessel at lat=-0.097208, and
+                // asin(zup.y / |zup|) = 34.21 deg reproduces that reading exactly while the
+                // z-polar (i.e. `.xzy`) reading reproduces the vessel's true latitude.
+                Vector3d worldPos = body.position + SwizzleZupBodyRelativeToWorld(position);
                 latitude = body.GetLatitude(worldPos);
                 longitude = body.GetLongitude(worldPos);
 
@@ -2060,18 +2218,26 @@ namespace Parsek
                     && IsFinite(startPosition)
                     && IsFinite(startVelocity))
                 {
-                    // FRAME MISMATCH #4, PINNED NOT FIXED - see todo-and-known-bugs.md
-                    // "BallisticExtrapolator frame mismatches". These vectors are the
-                    // extrapolator's Zup-swizzled body-relative ones, but playback resolves
-                    // this rotation against `ParsekFlight.ComputeOrbitalRotation`, which
-                    // builds its frame from `orbit.getPositionAtUT` WORLD positions - so a
-                    // predicted segment's ghost attitude is off by exactly the frame
-                    // difference. COSMETIC (attitude only, not position), which is why it is
-                    // last in the entry's list; it still ships with the other three, behind
-                    // the same in-game calibration.
+                    // FRAME SITE #4, FIXED (calibration run 2026-08-04_2142) - see
+                    // todo-and-known-bugs.md "BallisticExtrapolator frame mismatches".
+                    // CONTRACT: the orbital frame is built RADIAL-FROM-WORLD +
+                    // VELOCITY-IN-ZUP, matching the consumer this rotation is resolved
+                    // against verbatim. `ParsekFlight.ComputeOrbitalRotation` builds
+                    // `radialOut = (worldPos - bodyPosition).normalized` from
+                    // `orbit.getPositionAtUT` (Y-up world) while its `velocity` argument
+                    // comes from `orbit.getOrbitalVelocityAtUT` (Zup body-relative), so the
+                    // producer unswizzles ONLY the position and passes the propagated
+                    // velocity through untouched. Producer and consumer are then mutually
+                    // consistent and the round trip cancels - measured at 133.123 deg of
+                    // error before this change (site-4 probe, same run).
+                    // NOT FIXED HERE, deliberately: the consumer's own internal mix of a
+                    // Zup velocity with a world radial is a FIFTH, wider mismatch shared
+                    // with recorder-authored orbital-frame rotations across ~6 call sites.
+                    // See the "ComputeOrbitalRotation mixes a Zup velocity with a world
+                    // radial" entry in todo-and-known-bugs.md.
                     segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                         currentWorldRotation,
-                        startPosition,
+                        SwizzleZupBodyRelativeToWorld(startPosition),
                         startVelocity);
                     segments[i] = segment;
                     hasOrbitalFrameRotation = true;
@@ -2091,9 +2257,13 @@ namespace Parsek
                     continue;
                 }
 
+                // Same calibrated contract as the seeding call above: the stored rotation is
+                // relative to a world radial + Zup velocity frame, so the decode that
+                // carries the attitude across to the next segment unswizzles the position
+                // and leaves the velocity alone.
                 currentWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                     segment.orbitalFrameRotation,
-                    endPosition,
+                    SwizzleZupBodyRelativeToWorld(endPosition),
                     endVelocity);
             }
 
@@ -2119,11 +2289,14 @@ namespace Parsek
         /// Decides whether the extrapolator's result should be committed to the
         /// recording. A normal ballistic extrapolation applies when it produced
         /// new segments or advanced the terminal UT past the recording's last
-        /// known endpoint. A <see cref="ExtrapolationFailureReason.SubSurfaceStart"/>
-        /// result is a terminal classification (Destroyed): the extrapolator
-        /// intentionally skips segment emission and UT advancement because the
-        /// vessel's live orbit state is already nonsense, so the committed
-        /// verdict must survive even without segments. Without this carve-out,
+        /// known endpoint. A destroyed-vessel start fingerprint —
+        /// <see cref="ExtrapolationFailureReason.SubSurfaceStart"/> or
+        /// <see cref="ExtrapolationFailureReason.NoSolverStart"/>, see
+        /// <see cref="IsDestroyedVesselStartFingerprint"/> — is a terminal
+        /// classification (Destroyed): segment emission and UT advancement are
+        /// intentionally skipped because the vessel's live orbit state is
+        /// unusable, so the committed verdict must survive even without
+        /// segments. Without this carve-out,
         /// <see cref="ParsekFlight"/>'s fallback
         /// (<c>DetermineTerminalState(v.situation, v)</c>) overwrites the
         /// Destroyed verdict with KSP's last known situation — typically
@@ -2135,7 +2308,7 @@ namespace Parsek
             double recordingEndUT,
             ExtrapolationFailureReason failureReason)
         {
-            if (failureReason == ExtrapolationFailureReason.SubSurfaceStart)
+            if (IsDestroyedVesselStartFingerprint(failureReason))
                 return true;
             if (appendedSegmentCount > 0)
                 return true;
@@ -2153,17 +2326,22 @@ namespace Parsek
             if (vessel?.orbit == null || vessel.orbit.referenceBody == null)
                 return false;
 
-            // FRAME MISMATCH #2, PINNED NOT FIXED - see todo-and-known-bugs.md
-            // "BallisticExtrapolator frame mismatches". Same internal inconsistency as the
-            // ParentFrameState resolver above: `getPositionAtUT` is ABSOLUTE Y-up world
-            // (it includes `referenceBody.position`) and `getOrbitalVelocityAtUT` is
-            // Zup-swizzled body-relative, so this state carries two frames at once. The
-            // likely seed is `getRelativePositionAtUT(commitUT)` + the same velocity.
-            // WHY IT IS NOT JUST CHANGED: in practice this is the DESTROYED-VESSEL fallback
-            // path, and `SubSurfaceStart`'s destroyed-fingerprint classification keys on the
-            // garbage state this produces - so the fix owes that path a re-verification, on
-            // top of the shared in-game calibration.
-            Vector3d position = vessel.orbit.getPositionAtUT(commitUT);
+            // FRAME SITE #2, FIXED (calibration run 2026-08-04_2142) - see
+            // todo-and-known-bugs.md "BallisticExtrapolator frame mismatches".
+            // CONTRACT: both halves Zup-swizzled body-relative, the extrapolator's own
+            // state-vector frame. `getPositionAtUT` would be ABSOLUTE Y-up world (it
+            // includes `referenceBody.position`) against a Zup body-relative velocity.
+            //
+            // THE DESTROYED-VESSEL CLASSIFICATION MOVED WITH THIS SEED. Under KSP's
+            // vessel-centred floating origin the old absolute-world read collapsed to
+            // |r| ~ 0 for anything near the active vessel, manufacturing alt ~ -Radius -
+            // which is what `SubSurfaceStart` classified destroyed `NullSolver` vessels on
+            // (see the early-ascent note in TryCompleteFinalizationFromPatchedSnapshot,
+            // which documents the same accident misfiring on healthy ascending rockets).
+            // A genuinely collapsed live orbit still trips `SubSurfaceStart` honestly from
+            // this seed; the rest of that population is carried by
+            // `IsNoSolverDestroyedFallback` + `ExtrapolationFailureReason.NoSolverStart`.
+            Vector3d position = vessel.orbit.getRelativePositionAtUT(commitUT);
             Vector3d velocity = vessel.orbit.getOrbitalVelocityAtUT(commitUT);
             if (!IsFinite(position) || !IsFinite(velocity))
                 return false;
@@ -2174,9 +2352,10 @@ namespace Parsek
                 bodyName = vessel.orbit.referenceBody.name,
                 position = position,
                 velocity = velocity,
+                // World radial + Zup velocity, the site-4 calibrated contract.
                 orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                     vessel.transform.rotation,
-                    position,
+                    SwizzleZupBodyRelativeToWorld(position),
                     velocity)
             };
             return true;
@@ -2347,7 +2526,15 @@ namespace Parsek
             return Math.Sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
         }
 
-        private static void GetApproximateLatitudeLongitude(
+        /// <summary>
+        /// The catch-path fallback for <see cref="ResolveBodyFixedSurfaceCoordinates"/>, and
+        /// a second copy of <see cref="BallisticExtrapolator"/>'s resolver of the same name:
+        /// geodetic coordinates read straight off a Zup-swizzled body-relative position
+        /// (z polar, longitude <c>atan2(y, x)</c>). After the 2026-08-04_2142 frame
+        /// calibration the two copies and the calibrated site-1 path all agree on the same
+        /// vector. <c>internal</c> for the headless agreement test.
+        /// </summary>
+        internal static void GetApproximateLatitudeLongitude(
             Vector3d position,
             out double latitude,
             out double longitude)

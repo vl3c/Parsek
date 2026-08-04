@@ -1447,9 +1447,88 @@ One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees
 
 ---
 
-## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration) [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. MEASUREMENT INSTRUMENT LANDED 2026-08-05, branch `small-fixes-2` - see "The measurement instrument now exists" below. STILL NOT FIXED - the calibration has not been read off a flight yet]
+## ~~BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)~~ [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. MEASUREMENT INSTRUMENT LANDED 2026-08-05, branch `small-fixes-2`. **CALIBRATION MEASURED on H9 run `2026-08-04_2142` and ALL FOUR SITES FIXED 2026-08-05, branch `small-fixes-2`** - see the next section. Confirm re-fly of H9 still pending]
 
-### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two
+### The calibration was measured, and all four sites are fixed (phase 2)
+
+The instrument described further down took its reading on H9 run `2026-08-04_2142`
+(`PARSEK-FAIL failed=2`, BY DESIGN - the two probe cells):
+
+```
+Site1FrameProbe: measured lat=34.204133 lon=-40.235958 vesselLat=-0.097208 vesselLon=-74.557683 dLat=34.301341 dLon=34.321726 tolDeg=0.010000 body=Kerbin ut=21.720 zup=(-496283.195,337326.756,-1018.081)
+Site4AttitudeRoundTrip: angleError=133.123 tolDeg=5.000
+```
+
+**The site-1 offset is arithmetically exact for the axis swap**, which is what makes the
+convention MEASURED rather than derived: reading `zup.y` as the polar axis gives
+`asin(337326.756 / 600072.818) = 34.2041330 deg` - the measured wrong latitude to six
+decimals - while the z-polar (i.e. `.xzy`) reading gives `-0.0972078`, the vessel's own
+latitude to six decimals. `.xzy` it is. Site 4's 133.123 deg confirms the
+producer/consumer frame disagreement it was written to measure. Both readings are
+reproduced closed form by
+`BallisticExtrapolatorFrameTests.Site1_TheInGameProbeReadingIsReproducedByTheTwoPolarAxisReadings`.
+
+What shipped, per site (each `FRAME MISMATCH #n, PINNED NOT FIXED` banner replaced by a
+`FRAME SITE #n, FIXED` contract statement citing the run id):
+
+| # | Site | Change |
+|---|------|--------|
+| 1 | `ResolveBodyFixedSurfaceCoordinates` | `body.position + position` -> `body.position + SwizzleZupBodyRelativeToWorld(position)` |
+| 2 | `TryBuildStartStateFromVessel` | `getPositionAtUT` -> `getRelativePositionAtUT`; the orbital-frame seed takes `position.xzy` |
+| 3 | `ParentFrameState` resolver | `bodyOrbit.getPositionAtUT` -> `getRelativePositionAtUT` |
+| 4 | `SeedPredictedSegmentOrbitalFrameRotations` + its `ResolveWorldRotation` decode | pass `position.xzy` (world radial); velocity untouched (Zup) |
+
+`IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld` is the one named
+home of the convention (the y/z swap is its own inverse, so it converts either way).
+
+**Site 4 is Option A: the PRODUCER was moved to match today's CONSUMER.**
+`ParsekFlight.ComputeOrbitalRotation` builds its frame from a WORLD radial and a Zup
+velocity, so the finalizer now encodes against exactly that and the round trip cancels.
+The consumer is untouched. Its own internal mix is a separate, wider finding - see
+"`ComputeOrbitalRotation` mixes a Zup velocity with a world radial" below.
+
+**Site 2 owed the destroyed-vessel path a re-verification, and it needed a compensating
+change.** The old absolute-world seed collapsed to `|r| ~ 0` under KSP's vessel-centred
+floating origin, manufacturing `alt ~ -Radius` - which is what `SubSurfaceStart`
+classified destroyed `NullSolver` vessels on (and, per the early-ascent note already in
+that file, what misfired on healthy ascending rockets). Fixing the seed removes that
+accident, so the same population is now carried by an explicitly named route:
+`ExtrapolationFailureReason.NoSolverStart`, raised by
+`IncompleteBallisticSceneExitFinalizer.IsNoSolverDestroyedFallback` when the LIVE-ORBIT
+FALLBACK was taken with a `NullSolver` snapshot and the extrapolator's own sub-surface
+guard did not already fire. It reproduces the pre-fix shape exactly - Destroyed at the
+fallback's own UT, no appended segments, predicted tail discarded - and flows through the
+SAME `PopulateSubSurfaceDestroyedDetails` -> recorded-point suppression -> recovery
+machinery, so EVA children and decoupled debris keep the protection they have always had
+(the suppression's altitude gate applies to the sub-surface route only, since the
+no-solver route makes no altitude claim). `ShouldApplyExtrapolatorResult`'s carve-out now
+covers both fingerprints via `IsDestroyedVesselStartFingerprint`; without that the verdict
+would be silently rewritten `SUB_ORBITAL` by `DetermineTerminalState(v.situation, v)`,
+which is exactly what that carve-out's docstring warns about.
+
+**Headless coverage added:** the site-1 swizzle identity, the measured-reading
+reproduction, and the two `GetApproximateLatitudeLongitude` copies agreeing
+(`BallisticExtrapolatorFrameTests`); site 3's parent-relative-vs-absolute handover driven
+through the real escape path
+(`BallisticExtrapolatorTests.ParentFrameState_MustBeParentRelative_AbsoluteWorldDisplacesTheSoiHandover`);
+site 4's producer/consumer round trip with a pre-fix anti-vacuity half, and the site-2
+`NoSolverStart` classification / suppression / anti-over-reach cells
+(`SceneExitFinalizationIntegrationTests`). Writing the agreement test turned up that the
+two `GetApproximateLatitudeLongitude` copies disagreed by ~1e-5 deg (about a metre of
+ground track) because one converted through the FLOAT `Mathf.Rad2Deg`; that copy now uses
+the file's double `RadToDeg`.
+
+**Known consequence, deliberately not migrated:** predicted `OrbitSegment`s already
+written to disk by earlier versions carry the OLD orbital-frame convention and will render
+with the frame difference, exactly as ORBITSEGMENT-ANGLE-UNITS decided for its own
+radian-valued legacy segments. Position is unaffected; this is attitude only.
+
+**STILL PENDING: the confirm re-fly.** `harness/scenarios/H9-incomplete-ballistic.toml` is
+UNCHANGED and still pinned `total=10 passed=10 failed=0 skipped=0`; it was RED BY DESIGN
+and is now expected to actually pass. Its prose, and `docs/dev/autotest-status.md`, are
+updated after that flight - not here.
+
+### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two [HISTORY - all four are fixed as of 2026-08-05; the banners now read `FRAME SITE #n, FIXED`]
 
 Each site was re-read against current `HEAD` and carries a `FRAME MISMATCH #n,
 PINNED NOT FIXED` comment naming its frame, its likely correction, and the fact that
@@ -1478,7 +1557,7 @@ The split matters because it says which half is actually blocked on a flight:
   axis/sign mapping between the two frames, which is exactly what must be measured
   in-game rather than derived.
 
-### The calibration this is waiting on
+### The calibration this is waiting on [HISTORY - TAKEN 2026-08-04, H9 run `2026-08-04_2142`; the instrument below replaced steps 1-2 and read the answer]
 
 One flight answers all four, because they share the frame:
 
@@ -1494,8 +1573,11 @@ One flight answers all four, because they share the frame:
 
 Until that flight happens, do not "fix" any of the four on paper - that is the
 instruction this entry has carried since the units audit, and it still stands.
+[DISCHARGED 2026-08-04: the flight happened, the numbers are at the top of this entry,
+and the fix landed ON those numbers. The instruction is retained verbatim because it is
+the reason the fix is trustworthy - nothing here was derived on paper.]
 
-### The measurement instrument now exists (2026-08-05, phase 1 - MEASURES, does not fix)
+### The measurement instrument now exists (2026-08-05, phase 1 - MEASURES, does not fix) [phase 2 FIXED all four; the two cells are now REGRESSION GUARDS and are expected to PASS]
 
 The step above that says "compare against the ACTUAL crash site" no longer needs a
 bespoke flight to be readable: the calibration is now an INSTRUMENT that any
@@ -1516,6 +1598,9 @@ FLIGHT-scene in-game batch reports. Two `IncompleteBallistic` cells in
   (`ParsekFlight.ComputeOrbitalRotation`) at the same UT and measures the round-trip
   attitude error against `vessel.transform.rotation`. Tolerance 5 deg.
 
+[SUPERSEDED 2026-08-05: the fix landed, so both cells are now expected to PASS and a
+failure is a genuine frame regression. Everything else in this paragraph still holds -
+the failure text and the Info lines re-take the reading automatically.]
 BOTH ARE EXPECTED TO FAIL until the fix lands, and that is the design: each failure
 message prints both sides of the comparison and the delta with InvariantCulture, and
 each also emits a grep-stable Info line so the numbers survive in KSP.log alone:
@@ -1531,8 +1616,13 @@ until the four sites are corrected. That red is the instrument reporting, not a
 regression. Do NOT clear it by loosening the probes' tolerances or by trying to pin
 `failed=2` (the harness derives `passed = total - attribute_skipped` with
 `failed=0` and rejects the latter).
+[2026-08-05: the sites ARE corrected, so the pin is expected to be met on the next
+flight. The spec file itself is deliberately unchanged - the pin was always the right
+one; only the reason it red'd is gone. Its prose is refreshed by the confirm flight.]
 
-The headless half is `Source/Parsek.Tests/BallisticExtrapolatorFrameTests.cs`:
+The headless half is `Source/Parsek.Tests/BallisticExtrapolatorFrameTests.cs` [and since
+phase 2 that file ALSO carries the site-1 cells, which DO encode the swizzle convention -
+it is measured now, not assumed]:
 closed-form pins on `TwoBodyOrbit.GetStateAtUT`'s element-to-inertial map (inc = 0
 => z is exactly 0 in position and velocity and the normal is exactly +z;
 inc = 90 => the normal lies in the xy-plane along `(sin LAN, -cos LAN, 0)` and the
@@ -1549,7 +1639,54 @@ Found during the units audit, deliberately NOT fixed there because world-frame s
 3. The `ParentFrameState` resolver in `TryBuildExtrapolationBodies` returns `bodyOrbit.getPositionAtUT(ut)` (absolute world) where SOI entry/exit logic compares against Zup parent-relative vessel states; should likely be `getRelativePositionAtUT(ut)`.
 4. `SeedPredictedSegmentOrbitalFrameRotations` computes `orbitalFrameRotation` from `TryPropagate`'s Zup-frame vectors, while playback's `ParsekFlight.ComputeOrbitalRotation` resolves that rotation against `orbit.getPositionAtUT` world-frame positions - predicted-segment ghost attitude is off by the frame difference (cosmetic; found by the PR #1386 review).
 
-Each is a behavioral change on live extrapolation paths; fix together with an in-game proof (a known-impact descent whose recorded terminal lat/lon can be compared against the actual crash site).
+Each is a behavioral change on live extrapolation paths; fix together with an in-game proof (a known-impact descent whose recorded terminal lat/lon can be compared against the actual crash site). [DONE 2026-08-05: all four fixed together, on the in-game proof taken by the phase-1 instrument on H9 run `2026-08-04_2142`. See the top of this entry.]
+
+---
+
+## `ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world radial (the FIFTH frame mismatch; deferred, needs its own PR) [FOUND 2026-08-05 while fixing the four sites above, branch `small-fixes-2`]
+
+### What it is
+
+`ParsekFlight.ComputeOrbitalRotation` (`Source/Parsek/ParsekFlight.cs`, the `hasOfr`
+branch) builds the orbital frame as
+`LookRotation(velocity, (worldPos - bodyPosition).normalized)`. Its callers pass
+`velocity` from `orbit.getOrbitalVelocityAtUT` - **Zup-swizzled body-relative** - while
+`worldPos` comes from `orbit.getPositionAtUT` and `bodyPosition` from `body.position`, so
+the radial is **Y-up world**. The two arguments of one frame are in two different frames.
+The `spinning` branch above it does the same thing with `velAtStart` / `posAtStart`.
+
+The RECORDER authors its orbital-frame rotations in a consistent world/world frame -
+`FlightRecorder.CreateOrbitSegmentWithRotation` (~:9640) and the SOI-change capture
+(~:9766) both use `orbVel = v.obt_velocity` (world) with
+`radialOut = (v.CoMD - v.mainBody.position).normalized` (world). So every recorder-authored
+`orbitalFrameRotation` is decoded on playback against a frame whose forward axis is in a
+different frame from the one it was encoded with.
+
+### Why it was NOT fixed with the other four
+
+- **Five call sites share the consumer**, not one: `ParsekFlight.cs` (~:18816, ~:21822,
+  ~:22649), `FlightRecorder.cs` (~:8379), `BackgroundRecorder.cs` (~:5776),
+  `RecordedRelativeAnchorPoseResolver.cs` (~:352),
+  `Rendering/ProductionAnchorWorldFrameResolver.cs` (~:592) - every one of them feeds the
+  same Zup velocity + world radial pair, so a fix is a single decision applied in six
+  places, each with its own fixture.
+- **It reaches EVERY EXISTING RECORDING's orbit-only ghost attitude**, not just predicted
+  tails: recorder-authored segments are the bulk of the population. Changing the decode
+  changes how already-recorded flights replay.
+- Whichever side moves, the answer has to be proven the way the four above were - measured
+  in-game against a live vessel's attitude, not derived - so it owns its own proof burden
+  and its own PR.
+
+### Where it stands
+
+Site 4 of the entry above deliberately made the PRODUCER match this CONSUMER (Option A)
+rather than touching it, so predicted-tail attitude round-trips today. That leaves exactly
+one convention question open, in one function, with the recorder on the same side as the
+predicted tails. One further consumer is in the same family and is NOT covered by site 4:
+`BallisticExtrapolator.ReframeOrbitalFrameRotation`, used at the two SOI branches of
+`Extrapolate`, still decodes and re-encodes against a RAW Zup radial. Exposure is small
+(attitude only, and only for an extrapolation that both seeds an orbital-frame rotation
+and crosses an SOI), but it belongs to this entry's fix, not to the four above.
 
 ---
 

@@ -254,27 +254,31 @@ namespace Parsek.InGameTests
         }
 
         // ================================================================
-        // BallisticExtrapolator FRAME-CALIBRATION INSTRUMENT (phase 1).
+        // BallisticExtrapolator FRAME CALIBRATION - phase 1 MEASURED it,
+        // phase 2 FIXED it. These two cells are now REGRESSION GUARDS.
         //
-        // The two cells below MEASURE the frame mismatch that
+        // They drive the same production seams they always did, against the
+        // four sites in IncompleteBallisticSceneExitFinalizer that
         // docs/dev/todo-and-known-bugs.md ("BallisticExtrapolator frame
-        // mismatches") pins at four sites in
-        // IncompleteBallisticSceneExitFinalizer. They FIX nothing - the four
-        // `FRAME MISMATCH #n, PINNED NOT FIXED` sites are untouched - because
-        // that entry's standing instruction is that the axis/sign convention
-        // must be CALIBRATED IN-GAME, never re-derived on paper.
+        // mismatches") pinned. THE READING THEY TOOK (run 2026-08-04_2142):
         //
-        // Sites 1 and 4 are the calibration-blocked half of the entry (the half
-        // whose correction turns on the axis/sign mapping between the
-        // extrapolator's Zup body-relative frame and KSP's Y-up world). Sites 2
-        // and 3 carry two frames inside one state vector and so are wrong under
-        // EITHER convention; they need no measurement and are not probed here.
+        //   Site1FrameProbe: measured lat=34.204133 ... vesselLat=-0.097208
+        //                    zup=(-496283.195,337326.756,-1018.081)
+        //   Site4AttitudeRoundTrip: angleError=133.123 tolDeg=5.000
         //
-        // BOTH CELLS ARE EXPECTED TO FAIL until that calibration lands, and the
-        // failure text is the deliverable: each prints both sides of the
-        // comparison and the delta. Each also emits a grep-stable
-        // `[Parsek][INFO][IncompleteBallistic] Site<n>...` line so the
-        // measurement survives in KSP.log alone, without a results file.
+        // Site 1's offset is arithmetically exact for the axis swap - reading
+        // zup.y as the polar axis gives asin(337327/600073) = 34.204 deg, the
+        // measured wrong latitude, while the z-polar (`.xzy`) reading gives
+        // -0.0972, the vessel's own latitude. That measurement is what the
+        // `.xzy` convention now shipping at all four sites rests on; it was
+        // never derived on paper, per that entry's standing instruction.
+        //
+        // BOTH CELLS ARE NOW EXPECTED TO PASS. A failure here is a genuine
+        // frame regression, not a pending measurement - and the failure text
+        // still prints both sides and the delta, so the reading is re-taken
+        // automatically. Each also emits a grep-stable
+        // `[Parsek][INFO][IncompleteBallistic] Site<n>...` line so the numbers
+        // survive in KSP.log alone, without a results file.
         // ================================================================
 
         /// <summary>Recording-id labels the two frame probes pass to the production seams.</summary>
@@ -374,12 +378,14 @@ namespace Parsek.InGameTests
                 && System.Math.Abs(deltaLongitude) < FrameProbeLatLonToleranceDegrees,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "SITE-1 FRAME MISMATCH (calibration measurement, not a regression): "
+                    "SITE-1 FRAME REGRESSION: "
                     + "ResolveBodyFixedSurfaceCoordinates returned lat={0:F6} lon={1:F6} for a live "
                     + "vessel at lat={2:F6} lon={3:F6} on {4} at ut={5:F3} — dLat={6:F6} dLon={7:F6}, "
                     + "tolerance {8:F6} deg. Zup contract-frame position=({9:F3},{10:F3},{11:F3}). "
-                    + "See docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' "
-                    + "site 1 — these numbers ARE the calibration that entry is waiting on.",
+                    + "The calibrated contract (run 2026-08-04_2142) is that the Zup body-relative "
+                    + "offset is unswizzled (.xzy) before being added to body.position; a dLat near "
+                    + "34 deg on an equatorial vessel means that unswizzle is gone. See "
+                    + "docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' site 1.",
                     measuredLatitude,
                     measuredLongitude,
                     vessel.latitude,
@@ -497,15 +503,15 @@ namespace Parsek.InGameTests
                 angleError < FrameProbeAttitudeToleranceDegrees,
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "SITE-4 FRAME MISMATCH (calibration measurement, not a regression): seeding a "
-                    + "predicted segment's orbitalFrameRotation from the extrapolator's Zup "
-                    + "body-relative state and resolving it back through "
-                    + "ParsekFlight.ComputeOrbitalRotation's world-frame radial gives "
+                    "SITE-4 FRAME REGRESSION: seeding a predicted segment's orbitalFrameRotation "
+                    + "and resolving it back through ParsekFlight.ComputeOrbitalRotation gives "
                     + "angleError={0:F3} deg against the live vessel attitude, tolerance {1:F3} deg. "
                     + "resolved=({2:F5},{3:F5},{4:F5},{5:F5}) vessel=({6:F5},{7:F5},{8:F5},{9:F5}) "
                     + "on {10} at ut={11:F3}. "
-                    + "See docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' "
-                    + "site 4 — this angle IS the calibration that entry is waiting on.",
+                    + "The calibrated contract (run 2026-08-04_2142, which measured 133.123 deg here) "
+                    + "is that the producer encodes against the SAME world radial + Zup velocity the "
+                    + "consumer decodes with, so the round trip cancels. See "
+                    + "docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' site 4.",
                     angleError,
                     FrameProbeAttitudeToleranceDegrees,
                     ghostRotation.x,

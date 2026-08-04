@@ -1189,6 +1189,113 @@ namespace Parsek.Tests
             Assert.InRange(produced.argumentOfPeriapsis, 0.0, 360.0);
         }
 
+        /// <summary>
+        /// SITE 3 (frame calibration, run 2026-08-04_2142): the <c>ParentFrameState</c>
+        /// resolver must report the body's state RELATIVE TO ITS PARENT, in the same frame
+        /// as the craft's own state — because the SOI reframes consume it as a plain vector
+        /// sum (<c>chosen.Position ± bodyPosition</c>). The production resolver now returns
+        /// <c>bodyOrbit.getRelativePositionAtUT</c>; before the fix it returned
+        /// <c>getPositionAtUT</c>, which is that same value plus the grandparent-frame
+        /// world offset of the reference body.
+        /// <para>
+        /// This cell drives BOTH resolvers through the real escape path and shows the
+        /// difference is not subtle: the absolute-world variant displaces the post-SOI
+        /// parent-frame state by exactly the injected world offset, i.e. it puts the craft
+        /// somewhere else entirely. The closed form is the relative resolver's own sum,
+        /// which the FIXED variant reproduces to within a metre.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void ParentFrameState_MustBeParentRelative_AbsoluteWorldDisplacesTheSoiHandover()
+        {
+            var parentRelativePosition = new Vector3d(200000000.0, 0.0, 0.0);
+            var parentRelativeVelocity = new Vector3d(0.0, 200.0, 0.0);
+            // What `getPositionAtUT` would have added: the reference body's own position in
+            // the frame above. Large and off-axis so no accidental cancellation can hide it.
+            var worldOriginOffset = new Vector3d(-7.5e10, 3.1e10, 1.2e10);
+
+            Vector3d relativeHandoverPosition = RunHomeEscapeAndReadParentFrameHandover(
+                FixedState(parentRelativePosition, parentRelativeVelocity),
+                out Vector3d childBoundaryPosition);
+            Vector3d absoluteHandoverPosition = RunHomeEscapeAndReadParentFrameHandover(
+                FixedState(parentRelativePosition + worldOriginOffset, parentRelativeVelocity),
+                out Vector3d absoluteChildBoundaryPosition);
+
+            // The escape itself is identical either way: the resolver only enters at the
+            // handover, so the child-frame boundary state must be untouched. Without this
+            // the comparison below could be measuring two different trajectories.
+            Assert.True(Distance(childBoundaryPosition, absoluteChildBoundaryPosition) < 1.0,
+                "the two runs did not fly the same child-frame trajectory; the comparison "
+                + $"below would be meaningless (delta={Distance(childBoundaryPosition, absoluteChildBoundaryPosition):F3} m)");
+
+            // CLOSED FORM: parent-frame position is the child-frame boundary position plus
+            // the body's parent-relative position, and nothing else.
+            Assert.True(Distance(relativeHandoverPosition, childBoundaryPosition + parentRelativePosition) < 1.0,
+                "the parent-relative resolver did not reproduce the closed-form handover: "
+                + $"delta={Distance(relativeHandoverPosition, childBoundaryPosition + parentRelativePosition):F3} m");
+
+            // ...and the absolute-world variant misses it by exactly the injected offset.
+            double displacement = Distance(absoluteHandoverPosition, relativeHandoverPosition);
+            double expectedDisplacement = Math.Sqrt(
+                (worldOriginOffset.x * worldOriginOffset.x)
+                + (worldOriginOffset.y * worldOriginOffset.y)
+                + (worldOriginOffset.z * worldOriginOffset.z));
+            Assert.True(Math.Abs(displacement - expectedDisplacement) < 1.0,
+                "an absolute-world ParentFrameState should displace the handover by exactly "
+                + $"the world offset: displacement={displacement:F1} expected={expectedDisplacement:F1}");
+        }
+
+        /// <summary>
+        /// Flies the shared Home-escape fixture with the given parent-frame resolver and
+        /// returns the parent ("Star") segment's own start position, plus the child ("Home")
+        /// segment's boundary position for the closed-form comparison.
+        /// </summary>
+        private static Vector3d RunHomeEscapeAndReadParentFrameHandover(
+            ParentFrameStateResolver parentFrameState,
+            out Vector3d childBoundaryPosition)
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Star"] = MakeBody("Star", StarGravParameter, StarRadius),
+                ["Home"] = MakeBody(
+                    "Home",
+                    KerbinGravParameter,
+                    KerbinRadius,
+                    atmosphereDepth: KerbinAtmosphereDepth,
+                    sphereOfInfluence: KerbinSoi,
+                    parentBodyName: "Star",
+                    parentFrameState: parentFrameState)
+            };
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                MakeTangentialState("Home", KerbinRadius, altitude: 100000.0, tangentialSpeed: 3600.0),
+                bodies,
+                new ExtrapolationLimits
+                {
+                    maxHorizonYears = 0.0005,
+                    maxSoiTransitions = 4,
+                    soiSampleStep = 60.0
+                });
+
+            Assert.Equal(2, result.segments.Count);
+            OrbitSegment homeSegment = result.segments[0];
+            OrbitSegment starSegment = result.segments[1];
+
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                homeSegment,
+                KerbinGravParameter,
+                homeSegment.endUT,
+                out childBoundaryPosition,
+                out _));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                starSegment,
+                StarGravParameter,
+                starSegment.startUT,
+                out Vector3d starStartPosition,
+                out _));
+            return starStartPosition;
+        }
+
         private static BallisticStateVector MakeTangentialState(
             string bodyName,
             double bodyRadius,

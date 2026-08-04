@@ -54,6 +54,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldApplyExtrapolatorResult_NoSolverStart_AppliesEvenWithNoSegments()
+        {
+            // The site-2 frame fix (calibration run 2026-08-04_2142) moved half of the
+            // destroyed-vessel population off SubSurfaceStart and onto NoSolverStart. The
+            // carve-out has to cover BOTH, or that half loses its Destroyed verdict to
+            // DetermineTerminalState(v.situation, v)'s SUB_ORBITAL - the exact regression
+            // the two cells above exist to prevent.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 375.9,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.NoSolverStart));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
+                appendedSegmentCount: 0,
+                terminalUT: 200.0,
+                recordingEndUT: 375.9,
+                failureReason: ExtrapolationFailureReason.NoSolverStart));
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                ExtrapolationFailureReason.NoSolverStart));
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                ExtrapolationFailureReason.SubSurfaceStart));
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                ExtrapolationFailureReason.DegenerateStateVector));
+        }
+
+        [Fact]
         public void ShouldApplyExtrapolatorResult_SegmentsAppended_Applies()
         {
             Assert.True(IncompleteBallisticSceneExitFinalizer.ShouldApplyExtrapolatorResult(
@@ -1414,6 +1441,247 @@ namespace Parsek.Tests
             Assert.True(built);
             Assert.True(liveStateSampled);
             Assert.Equal(TerminalState.Destroyed, result.terminalState);
+        }
+
+        // ==================================================================
+        // SITE-2 FRAME FIX (calibration run 2026-08-04_2142): the destroyed-vessel
+        // verdict must survive the seed correction.
+        //
+        // The old seed read an ABSOLUTE Y-up world position, which under KSP's
+        // vessel-centred floating origin collapsed to |r| ~ 0 and manufactured
+        // alt ~ -Radius - so EVERY no-solver fallback reached SubSurfaceStart. With
+        // the seed in the extrapolator's own frame a live orbit that still has usable
+        // elements no longer trips that guard, and without a compensating
+        // classification ParsekFlight's DetermineTerminalState(v.situation, v)
+        // fallback would silently rewrite the Destroyed verdict as SUB_ORBITAL.
+        // ==================================================================
+
+        /// <summary>
+        /// The regression cell for the compensating classification: a NullSolver snapshot
+        /// whose live-orbit fallback now yields a perfectly HEALTHY state still classifies
+        /// Destroyed, via <see cref="ExtrapolationFailureReason.NoSolverStart"/>, and still
+        /// force-applies with no segments. The stubbed extrapolation deliberately SUCCEEDS
+        /// (Orbiting, one segment) so the cell proves the no-solver route wins over a
+        /// genuine forward prediction rather than merely filling a gap where none existed.
+        /// </summary>
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_HealthyLiveOrbitStillClassifiesDestroyed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-healthy-live-orbit",
+                ExplicitStartUT = 400.0,
+                ExplicitEndUT = 500.0
+            };
+
+            bool extrapolated = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    // 100 km circular: exactly what the FIXED site-2 seed produces for a
+                    // vessel KSP has torn the solver off. Nothing sub-surface about it.
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(700000.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 2246.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolated = true;
+                    return new ExtrapolationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = startState.ut + 100000.0,
+                        terminalBodyName = startState.bodyName,
+                        terminalPosition = startState.position,
+                        terminalVelocity = startState.velocity,
+                        segments = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                bodyName = "Kerbin",
+                                startUT = startState.ut,
+                                endUT = startState.ut + 100000.0,
+                                semiMajorAxis = 700000.0,
+                                eccentricity = 0.0,
+                                epoch = startState.ut
+                            }
+                        },
+                        failureReason = ExtrapolationFailureReason.None
+                    };
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(extrapolated);
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.NoSolverStart, result.extrapolationFailureReason);
+            // Pre-fix shape preserved: terminal at the fallback's own UT, predicted tail
+            // discarded, nothing appended to the recording.
+            Assert.Equal(500.0, result.terminalUT);
+            Assert.Null(result.appendedOrbitSegments);
+            Assert.Equal(0, result.extrapolatedSegmentCount);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("no-solver live-orbit fallback")
+                && l.Contains("scene-exit-null-solver-healthy-live-orbit")
+                && l.Contains("snapshotFailure=NullSolver")
+                && l.Contains("startAlt=100000.0"));
+        }
+
+        /// <summary>
+        /// The other half of the same guarantee: the no-solver route is offered to the SAME
+        /// recorded-point suppression the sub-surface route has always had, so the
+        /// populations that route was written for (EVA children, decoupled debris whose
+        /// recording still carries a fresh above-ground body-fixed sample) keep their
+        /// protection after the frame fix instead of being newly declared Destroyed.
+        /// </summary>
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_HealthyLiveOrbitDestroyedIsStillSuppressedByAFreshRecordedPoint()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-healthy-suppressed",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 500.0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 57251.87
+            });
+
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = new BallisticStateVector
+                    {
+                        ut = 500.0,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(700000.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 2246.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) => new ExtrapolationResult
+                {
+                    terminalState = TerminalState.Orbiting,
+                    terminalUT = startState.ut,
+                    terminalBodyName = startState.bodyName,
+                    terminalPosition = startState.position,
+                    terminalVelocity = startState.velocity,
+                    segments = new List<OrbitSegment>(),
+                    failureReason = ExtrapolationFailureReason.None
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(ExtrapolationFailureReason.NoSolverStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Extrapolator]")
+                && l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("scene-exit-null-solver-healthy-suppressed"));
+        }
+
+        /// <summary>
+        /// Anti-over-reach: the no-solver route is the LIVE-ORBIT FALLBACK's fingerprint. A
+        /// NullSolver snapshot that nonetheless captured a predicted tail propagates from
+        /// that tail, never touches the fallback, and must keep the extrapolation's own
+        /// verdict.
+        /// </summary>
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_WithPredictedTail_KeepsTheExtrapolatedVerdict()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-null-solver-with-tail",
+                ExplicitStartUT = 400.0,
+                ExplicitEndUT = 500.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.NullSolver,
+                Segments = new List<OrbitSegment>
+                {
+                    new OrbitSegment
+                    {
+                        bodyName = "Kerbin",
+                        startUT = 500.0,
+                        endUT = 600.0,
+                        semiMajorAxis = 700000.0,
+                        eccentricity = 0.0,
+                        epoch = 500.0,
+                        isPredicted = true
+                    }
+                }
+            };
+
+            bool liveStateSampled = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    liveStateSampled = true;
+                    startState = default(BallisticStateVector);
+                    return false;
+                },
+                (startState, extrapolationBodies) => new ExtrapolationResult
+                {
+                    terminalState = TerminalState.Orbiting,
+                    terminalUT = 900.0,
+                    terminalBodyName = "Kerbin",
+                    terminalPosition = startState.position,
+                    terminalVelocity = startState.velocity,
+                    segments = new List<OrbitSegment>(),
+                    failureReason = ExtrapolationFailureReason.None
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.False(liveStateSampled);
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.Equal(ExtrapolationFailureReason.None, result.extrapolationFailureReason);
+        }
+
+        [Theory]
+        // usedLiveOrbitFallback, snapshot failure, extrapolation failure, expected
+        [InlineData(true, (int)PatchedConicSnapshotFailureReason.NullSolver, (int)ExtrapolationFailureReason.None, true)]
+        [InlineData(true, (int)PatchedConicSnapshotFailureReason.NullSolver, (int)ExtrapolationFailureReason.DegenerateStateVector, true)]
+        // The extrapolator's own sub-surface guard still owns the genuinely collapsed case.
+        [InlineData(true, (int)PatchedConicSnapshotFailureReason.NullSolver, (int)ExtrapolationFailureReason.SubSurfaceStart, false)]
+        // Propagated from a predicted tail, not from the live orbit.
+        [InlineData(false, (int)PatchedConicSnapshotFailureReason.NullSolver, (int)ExtrapolationFailureReason.None, false)]
+        // A healthy snapshot that simply produced no patches is not a destroyed vessel.
+        [InlineData(true, (int)PatchedConicSnapshotFailureReason.None, (int)ExtrapolationFailureReason.None, false)]
+        public void IsNoSolverDestroyedFallback_RequiresTheLiveFallbackAndANullSolverSnapshot(
+            bool usedLiveOrbitFallback,
+            int snapshotFailureReason,
+            int extrapolationFailureReason,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                IncompleteBallisticSceneExitFinalizer.IsNoSolverDestroyedFallback(
+                    (PatchedConicSnapshotFailureReason)snapshotFailureReason,
+                    usedLiveOrbitFallback,
+                    (ExtrapolationFailureReason)extrapolationFailureReason));
         }
 
         [Fact]
@@ -3300,21 +3568,139 @@ namespace Parsek.Tests
                 out Vector3d secondStartPosition,
                 out Vector3d secondStartVelocity));
 
+            // Decoded in the producer's own calibrated frame (run 2026-08-04_2142): the
+            // seeded rotation is relative to a WORLD radial + Zup velocity, so the position
+            // is unswizzled and the velocity passes through - exactly what
+            // SeedPredictedSegmentOrbitalFrameRotations does internally, and what the
+            // playback consumer (ParsekFlight.ComputeOrbitalRotation) does. Decoding with a
+            // raw Zup radial reads the rotation in a frame nothing writes it in.
             var startWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[0].orbitalFrameRotation,
-                startPosition,
+                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(startPosition),
                 startVelocity);
             var firstBoundaryWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[0].orbitalFrameRotation,
-                firstBoundaryPosition,
+                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(firstBoundaryPosition),
                 firstBoundaryVelocity);
             var secondStartWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[1].orbitalFrameRotation,
-                secondStartPosition,
+                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(secondStartPosition),
                 secondStartVelocity);
 
             AssertQuaternionEquivalent(frozenWorldRotation, startWorldRotation);
             AssertQuaternionEquivalent(firstBoundaryWorldRotation, secondStartWorldRotation);
+        }
+
+        /// <summary>
+        /// SITE 4 (frame calibration, run 2026-08-04_2142), headless half of the in-game
+        /// <c>FrameCalibration_Site4_*</c> probe: the attitude the finalizer seeds onto a
+        /// predicted segment must come back out of the PLAYBACK consumer unchanged.
+        /// <para>
+        /// The consumer is modelled rather than called: <c>ParsekFlight.ComputeOrbitalRotation</c>
+        /// needs a live KSP <c>Orbit</c> and goes through <c>Quaternion.LookRotation</c>, so
+        /// this cell reproduces its <c>hasOfr</c> branch exactly -
+        /// <c>orbFrame = LookRotation(velocity, (worldPos - bodyPos).normalized)</c> then
+        /// <c>orbFrame * segment.orbitalFrameRotation</c> - using the pure-math
+        /// <see cref="TrajectoryMath.PureLookRotation"/> the production frame builder itself
+        /// uses. <c>worldPos - bodyPos</c> IS the unswizzled propagated position, which is
+        /// the whole content of the calibration. The live cell keeps the end-to-end claim;
+        /// this one keeps it from silently regressing between flights.
+        /// </para>
+        /// <para>
+        /// The anti-vacuity half re-seeds with a RAW Zup radial (the pre-fix producer) and
+        /// requires the round trip to break by tens of degrees - the shape of the 133.123 deg
+        /// the in-game probe measured.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void SeedPredictedSegmentOrbitalFrameRotations_RoundTripsThroughThePlaybackConsumerFrame()
+        {
+            var frozenWorldRotation = new UnityEngine.Quaternion(0.2f, -0.4f, 0.3f, 0.8f);
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0
+                }
+            };
+            var segments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    bodyName = "Kerbin",
+                    startUT = 100.0,
+                    endUT = 200.0,
+                    semiMajorAxis = 700000.0,
+                    eccentricity = 0.01,
+                    inclination = 35.0,
+                    longitudeOfAscendingNode = 128.0,
+                    argumentOfPeriapsis = 77.0,
+                    meanAnomalyAtEpoch = 0.4,
+                    epoch = 100.0
+                }
+            };
+
+            IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations(
+                "scene-exit-site4-round-trip",
+                segments,
+                frozenWorldRotation,
+                bodies);
+
+            Assert.True(BallisticExtrapolator.HasOrbitalFrameRotation(segments[0].orbitalFrameRotation));
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segments[0],
+                bodies["Kerbin"].GravitationalParameter,
+                segments[0].startUT,
+                out Vector3d startPosition,
+                out Vector3d startVelocity));
+
+            AssertQuaternionEquivalent(
+                frozenWorldRotation,
+                ResolveThroughPlaybackConsumerFrame(
+                    segments[0].orbitalFrameRotation,
+                    IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(startPosition),
+                    startVelocity));
+
+            // Anti-vacuity: the pre-fix producer (raw Zup radial) against the same consumer.
+            Quaternion preFixOrbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                frozenWorldRotation,
+                startPosition,
+                startVelocity);
+            Quaternion preFixResolved = ResolveThroughPlaybackConsumerFrame(
+                preFixOrbitalFrameRotation,
+                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(startPosition),
+                startVelocity);
+            Quaternion expected = NormalizeAndCanonicalizeQuaternion(frozenWorldRotation);
+            Quaternion actual = NormalizeAndCanonicalizeQuaternion(preFixResolved);
+            float dot = Mathf.Abs(
+                (expected.x * actual.x)
+                + (expected.y * actual.y)
+                + (expected.z * actual.z)
+                + (expected.w * actual.w));
+            Assert.True(dot < 0.99f,
+                $"the pre-fix producer frame still round-trips (dot={dot}); this fixture no "
+                + "longer discriminates the frame the calibration measured");
+        }
+
+        /// <summary>
+        /// The <c>hasOfr</c> branch of <c>ParsekFlight.ComputeOrbitalRotation</c>, verbatim:
+        /// build the orbital frame from the world radial and the Zup velocity, then apply the
+        /// stored orbital-frame-relative rotation.
+        /// </summary>
+        private static Quaternion ResolveThroughPlaybackConsumerFrame(
+            Quaternion orbitalFrameRotation,
+            Vector3d worldRadialOffset,
+            Vector3d velocity)
+        {
+            Vector3 velocityNormalized = ((Vector3)velocity).normalized;
+            Vector3 radialOut = ((Vector3)worldRadialOffset).normalized;
+            Assert.True(Mathf.Abs(Vector3.Dot(velocityNormalized, radialOut)) <= 0.99f,
+                "fixture drove the consumer into its near-parallel LookRotation fallback; "
+                + "the round trip would not be measuring the orbital frame");
+            Quaternion orbFrame = TrajectoryMath.PureLookRotation(velocityNormalized, radialOut);
+            return TrajectoryMath.PureMultiply(orbFrame, orbitalFrameRotation);
         }
 
         [Fact]

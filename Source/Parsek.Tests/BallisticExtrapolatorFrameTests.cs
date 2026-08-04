@@ -27,8 +27,15 @@ namespace Parsek.Tests
     /// <see cref="BallisticExtrapolatorKeplerTests"/>.
     /// </para>
     /// <para>
-    /// No shared static state is touched (the Kepler core neither logs nor reads statics),
-    /// so these tests deliberately carry no <c>[Collection("Sequential")]</c>.
+    /// SINCE THE 2026-08-04_2142 CALIBRATION the file also carries the SITE-1 cells at the
+    /// bottom, which DO encode the swizzle convention - it is measured now, not assumed, and
+    /// one of them reproduces the in-game probe's own numbers closed form. Everything above
+    /// them is unchanged and still convention-free.
+    /// </para>
+    /// <para>
+    /// No shared static state is touched (neither the Kepler core nor the pure axis map
+    /// logs or reads statics), so these tests deliberately carry no
+    /// <c>[Collection("Sequential")]</c>.
     /// </para>
     /// </summary>
     public class BallisticExtrapolatorFrameTests
@@ -199,6 +206,148 @@ namespace Parsek.Tests
             Assert.True(minZ < -0.25 * maxRadius,
                 $"polar orbit never dropped below the equator: minZ={Format(minZ)} "
                 + $"vs maxRadius={Format(maxRadius)}");
+        }
+
+        // ------------------------------------------------------------------
+        // SITE 1: the CALIBRATED Zup <-> KSP-world axis map
+        //
+        // These cells arrived with the fix (measurement run 2026-08-04_2142) and, unlike
+        // everything above, they DO encode the swizzle convention - because it is now
+        // measured rather than assumed. They are pure: the production call site
+        // (ResolveBodyFixedSurfaceCoordinates) needs a live CelestialBody, so the seam
+        // pinned here is the map itself plus the two GetApproximateLatitudeLongitude
+        // copies that read the same frame.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The map: y and z swap, x is untouched — and, being a transposition, it is its own
+        /// inverse, which is why one helper serves both directions.
+        /// </summary>
+        [Theory]
+        [InlineData(1.0, 2.0, 3.0)]
+        [InlineData(-496283.195, 337326.756, -1018.081)]
+        [InlineData(0.0, 700000.0, 0.0)]
+        public void SwizzleZupBodyRelativeToWorld_SwapsYAndZAndIsItsOwnInverse(
+            double x, double y, double z)
+        {
+            var zup = new Vector3d(x, y, z);
+
+            Vector3d world = IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(zup);
+
+            Assert.Equal(zup.x, world.x);
+            Assert.Equal(zup.z, world.y);
+            Assert.Equal(zup.y, world.z);
+
+            Vector3d roundTrip = IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(world);
+            Assert.Equal(zup.x, roundTrip.x);
+            Assert.Equal(zup.y, roundTrip.y);
+            Assert.Equal(zup.z, roundTrip.z);
+        }
+
+        /// <summary>
+        /// The identity the site-1 fix rests on: reading the SWIZZLED vector with the world
+        /// frame's polar axis (y) gives the same geodetic latitude as reading the raw Zup
+        /// vector with the extrapolator's polar axis (z) — i.e. after the unswizzle,
+        /// <c>CelestialBody.GetLatitude</c> and the extrapolator's own
+        /// <c>GetApproximateLatitudeLongitude</c> are asking the same question.
+        /// <para>
+        /// The longitude half is asserted as the SWIZZLE's own identity
+        /// (<c>atan2(world.z, world.x) == atan2(zup.y, zup.x)</c>), NOT as a claim about
+        /// <c>CelestialBody.GetLongitude</c>, whose zero meridian and per-UT body rotation
+        /// the finalizer de-rotates separately.
+        /// </para>
+        /// </summary>
+        [Theory]
+        [InlineData(-496283.195, 337326.756, -1018.081)]
+        [InlineData(700000.0, 0.0, 0.0)]
+        [InlineData(120000.0, -350000.0, 480000.0)]
+        [InlineData(-30000.0, 20000.0, -690000.0)]
+        public void Site1_WorldFrameLatitudeOfTheSwizzledVectorEqualsTheZupLatitude(
+            double x, double y, double z)
+        {
+            var zup = new Vector3d(x, y, z);
+            Vector3d world = IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(zup);
+
+            BallisticExtrapolator.GetApproximateLatitudeLongitude(
+                zup, out double zupLatitude, out double zupLongitude);
+
+            double radius = Mag(world);
+            double worldLatitude = Math.Asin(world.y / radius) * (180.0 / Math.PI);
+            double worldLongitude = Math.Atan2(world.z, world.x) * (180.0 / Math.PI);
+
+            Assert.True(Math.Abs(worldLatitude - zupLatitude) <= 1e-12,
+                $"world-frame latitude {Format(worldLatitude)} != Zup latitude {Format(zupLatitude)}");
+            Assert.True(Math.Abs(worldLongitude - zupLongitude) <= 1e-12,
+                $"world-frame longitude {Format(worldLongitude)} != Zup longitude {Format(zupLongitude)}");
+        }
+
+        /// <summary>
+        /// The two <c>GetApproximateLatitudeLongitude</c> copies — one in
+        /// <see cref="BallisticExtrapolator"/>, one in
+        /// <see cref="IncompleteBallisticSceneExitFinalizer"/> (the catch-path fallback of
+        /// the fixed site-1 resolver) — must agree with each other, and therefore with the
+        /// calibrated site-1 reading pinned above. They are separate literal copies, so
+        /// nothing but a test keeps them in step.
+        /// </summary>
+        [Theory]
+        [InlineData(-496283.195, 337326.756, -1018.081)]
+        [InlineData(700000.0, 0.0, 0.0)]
+        [InlineData(120000.0, -350000.0, 480000.0)]
+        [InlineData(-30000.0, 20000.0, -690000.0)]
+        public void TheTwoApproximateLatLonResolversAgreeOnTheSameVector(
+            double x, double y, double z)
+        {
+            var zup = new Vector3d(x, y, z);
+
+            BallisticExtrapolator.GetApproximateLatitudeLongitude(
+                zup, out double extrapolatorLatitude, out double extrapolatorLongitude);
+            IncompleteBallisticSceneExitFinalizer.GetApproximateLatitudeLongitude(
+                zup, out double finalizerLatitude, out double finalizerLongitude);
+
+            Assert.True(Math.Abs(extrapolatorLatitude - finalizerLatitude) <= 1e-12,
+                $"latitude copies disagree: {Format(extrapolatorLatitude)} vs {Format(finalizerLatitude)}");
+            Assert.True(Math.Abs(extrapolatorLongitude - finalizerLongitude) <= 1e-12,
+                $"longitude copies disagree: {Format(extrapolatorLongitude)} vs {Format(finalizerLongitude)}");
+        }
+
+        /// <summary>
+        /// THE MEASUREMENT ITSELF, reproduced closed form. The in-game site-1 probe (run
+        /// <c>2026-08-04_2142</c>) reported, for a live vessel whose true latitude was
+        /// <c>-0.097208</c>:
+        /// <code>
+        /// Site1FrameProbe: measured lat=34.204133 ... vesselLat=-0.097208 ... zup=(-496283.195,337326.756,-1018.081)
+        /// </code>
+        /// Both numbers fall out of the same vector read on two different polar axes: the
+        /// y-polar (unswizzled, i.e. the DEFECT) reading is the 34.204133 that was measured,
+        /// and the z-polar (calibrated) reading is the vessel's own latitude. That is the
+        /// whole calibration, and it is why <c>.xzy</c> is not a guess. A future change that
+        /// flips the convention back makes this cell print the two readings side by side.
+        /// </summary>
+        [Fact]
+        public void Site1_TheInGameProbeReadingIsReproducedByTheTwoPolarAxisReadings()
+        {
+            var measuredZup = new Vector3d(-496283.195, 337326.756, -1018.081);
+            const double measuredWrongLatitude = 34.204133;
+            const double measuredVesselLatitude = -0.097208;
+
+            double radius = Mag(measuredZup);
+            double yPolarLatitude = Math.Asin(measuredZup.y / radius) * (180.0 / Math.PI);
+
+            BallisticExtrapolator.GetApproximateLatitudeLongitude(
+                measuredZup, out double zPolarLatitude, out _);
+
+            Assert.True(Math.Abs(yPolarLatitude - measuredWrongLatitude) < 1e-4,
+                $"the y-polar (pre-fix) reading no longer reproduces the measured probe latitude: "
+                + $"{Format(yPolarLatitude)} vs measured {Format(measuredWrongLatitude)}");
+            Assert.True(Math.Abs(zPolarLatitude - measuredVesselLatitude) < 1e-4,
+                $"the z-polar (calibrated) reading no longer reproduces the vessel's true latitude: "
+                + $"{Format(zPolarLatitude)} vs measured {Format(measuredVesselLatitude)}");
+
+            // Anti-vacuity: the two readings are the axis swap, not two ways of saying the
+            // same thing. 34 degrees of latitude error is what shipped before the fix.
+            Assert.True(Math.Abs(yPolarLatitude - zPolarLatitude) > 30.0,
+                "the two polar-axis readings collapsed together; this fixture no longer "
+                + "discriminates the axis swap it exists to pin");
         }
 
         // ------------------------------------------------------------------

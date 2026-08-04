@@ -23,7 +23,27 @@ namespace Parsek
         // `NullSolver`. Classify the recording as Destroyed immediately rather
         // than running the extrapolator against nonsense coordinates (which
         // silently horizon-caps to Orbiting).
-        SubSurfaceStart
+        SubSurfaceStart,
+        // NOT produced by `Extrapolate`. Set by
+        // `IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshot`
+        // for the same destroyed-vessel population `SubSurfaceStart` was written for,
+        // stated on the signal that actually carries it: the live-orbit fallback was
+        // taken because KSP had torn the vessel's patched-conic solver down
+        // (`PatchedConicSnapshotFailureReason.NullSolver`) and no predicted tail
+        // existed.
+        //
+        // WHY IT EXISTS. Before the frame calibration (measurement run
+        // `2026-08-04_2142`), the site-2 fallback seeded the extrapolator with an
+        // ABSOLUTE Y-up world position. KSP's floating origin sits on the active
+        // vessel, so any vessel within ~1 body radius of it read |r| ~ 0 and the
+        // start altitude collapsed to ~-Radius — every such fallback tripped
+        // `SubSurfaceStart` regardless of whether the vessel was destroyed. Seeding
+        // the fallback in the extrapolator's own Zup body-relative frame removes
+        // that accident; a genuinely collapsed orbit still trips `SubSurfaceStart`
+        // honestly, and this reason carries the rest of the population so the
+        // Destroyed verdict is not silently replaced by
+        // `DetermineTerminalState(v.situation, v)`'s `SUB_ORBITAL`.
+        NoSolverStart
     }
 
     internal struct ExtrapolationLimits
@@ -1245,14 +1265,28 @@ namespace Parsek
             velocity = Vector3d.zero;
         }
 
-        private static void GetApproximateLatitudeLongitude(
+        /// <summary>
+        /// Geodetic coordinates read straight off a Zup-swizzled body-relative position:
+        /// z is the polar axis, longitude is <c>atan2(y, x)</c>. This is the extrapolator's
+        /// OWN frame convention, and after the 2026-08-04_2142 frame calibration it agrees
+        /// with the finalizer's <c>ResolveBodyFixedSurfaceCoordinates</c>, whose
+        /// <c>.xzy</c> unswizzle moves exactly this z into KSP's world polar slot.
+        /// <c>internal</c> for the headless agreement test.
+        /// <para>
+        /// Converts with the file's own <c>RadToDeg</c> DOUBLE constant, not
+        /// <c>Mathf.Rad2Deg</c>: that is a float (~7 significant digits), which made this
+        /// copy and the finalizer's otherwise-identical copy disagree by ~1e-5 deg — about a
+        /// metre of ground track — for no reason anyone had chosen.
+        /// </para>
+        /// </summary>
+        internal static void GetApproximateLatitudeLongitude(
             Vector3d position,
             out double latitude,
             out double longitude)
         {
             double radius = Math.Max(StateVectorEpsilon, Magnitude(position));
-            latitude = Math.Asin(Clamp(position.z / radius, -1.0, 1.0)) * Mathf.Rad2Deg;
-            longitude = Math.Atan2(position.y, position.x) * Mathf.Rad2Deg;
+            latitude = Math.Asin(Clamp(position.z / radius, -1.0, 1.0)) * RadToDeg;
+            longitude = Math.Atan2(position.y, position.x) * RadToDeg;
         }
 
         private static bool TryGetNextPeriapsisUT(
