@@ -672,9 +672,15 @@ exceeds 20% over the week (plan section 10).
 entirely.** An attempt whose INVALID subkind is in
 `hlib.FLAKE_EXEMPT_INVALID_SUBKINDS` (`tooling-venv`, `instance-locked`,
 `instance-busy`) is dropped from BOTH numerator and denominator. Each is an
-environment or concurrency fault decided before any KSP boot and identical for
-whatever scenario happened to be selected, so it is not an observation about the
-scenario. It leaves the DENOMINATOR too because keeping it there dilutes a genuine
+environment or concurrency fault — a property of the MACHINE at that moment,
+identical for whatever scenario happened to be selected, so it is never evidence
+about the scenario. (Scenario-agnostic is the property that earns the exemption;
+"costs nothing" is NOT, and would be false: `instance-locked` / `instance-busy`
+are pre-boot preflight, but `tooling-venv` has two paths — the load-bearing
+pre-launch ADMIT gate AND run.py's in-flight backstop, which re-reads the stamp
+at the mission step and so can trip after a boot on a venv mutated post-ADMIT,
+after boot + stage + mission-budget time is already spent. Do not restate this
+set as "pre-boot only".) It leaves the DENOMINATOR too because keeping it there dilutes a genuine
 rate — under-quarantining is the worse error, quarantine being the signal a human
 acts on. MEASURED: `CL-3-refly-crew-tombstone` reached `rate=0.50
 quarantined=true` off ONE `tooling-venv` INVALID in a fresh worktree whose

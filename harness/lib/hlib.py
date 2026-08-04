@@ -5792,17 +5792,24 @@ FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 # INVALID subkinds that carry NO information about the scenario and are therefore
 # dropped from the flake ledger entirely -- neither numerator NOR denominator.
 #
-# Every subkind here is an ENVIRONMENT or CONCURRENCY fault decided BEFORE any KSP
-# boot, identical for whatever scenario happened to be selected at that moment:
+# Every subkind here is an ENVIRONMENT or CONCURRENCY fault: a property of the
+# MACHINE at that moment, identical for whatever scenario happened to be selected,
+# and never evidence about the scenario itself.
 #
-#   tooling-venv    the mission venv is missing or drifted. classify_mission_step's
-#                   own comment calls it "a provisioning fault a retry cannot fix,
-#                   caught at pre-launch ADMIT before any KSP boot".
-#   instance-locked a live sibling holds the machine lock.
-#   instance-busy   a live KSP is already bound to the instance.
+#   tooling-venv    the mission venv is missing or drifted -- "a provisioning fault
+#                   a retry cannot fix" (classify_mission_step). TWO paths reach it:
+#                   the load-bearing pre-launch ADMIT gate (no KSP boot), and
+#                   run.py's in-flight backstop, which re-reads the stamp at the
+#                   mission step and so CAN trip after a boot, on a venv mutated
+#                   post-ADMIT. Do NOT restate this set as "pre-boot only": the
+#                   backstop path burns boot + stage + mission-budget time before
+#                   it fires. Scenario-agnostic is the property that earns the
+#                   exemption; costing nothing is not, and is not true here.
+#   instance-locked a live sibling holds the machine lock (pre-boot preflight).
+#   instance-busy   a live KSP is already bound to the instance (pre-boot preflight).
 #
-# WHY DROP RATHER THAN JUST NOT COUNT: an attempt that never booted never tested
-# the scenario, so it is not an observation about it. Leaving it in the denominator
+# WHY DROP RATHER THAN JUST NOT COUNT: the attempt never got a verdict ON THE
+# SCENARIO, so it is not an observation about it. Leaving it in the denominator
 # would DILUTE a genuine flake rate (a scenario that really fails 1-in-4 reads as
 # healthier the more venv/lock noise sits beside it) -- under-quarantining is the
 # worse error here, since quarantine is the signal a human acts on.
@@ -6179,8 +6186,8 @@ def compute_flake(
 
     Entries matching :func:`flake_entry_is_exempt` are dropped from BOTH total and
     numerator: a scenario-agnostic environment fault (venv drift, machine lock,
-    busy instance) never booted KSP and so is not an observation about this
-    scenario at all. Counting one in the denominator would dilute a genuine rate;
+    busy instance) is a property of the machine, not a verdict on this scenario.
+    Counting one in the denominator would dilute a genuine rate;
     counting it in the numerator permanently quarantines a healthy scenario,
     because quarantine is sticky. See FLAKE_EXEMPT_INVALID_SUBKINDS.
     """

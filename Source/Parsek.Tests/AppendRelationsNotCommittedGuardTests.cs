@@ -304,6 +304,100 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EnqueuePidPeerSiblings_SkipsOptimizerSplitTailOfTheLiveSessionsFork()
+        {
+            // Pins the SECOND disjunct of IsActiveSessionProvisional
+            // (CreatingSessionId == marker.SessionId) on the population that is
+            // the only reason it exists.
+            //
+            // RecordingStore.Optimization's CopySplitIdentityFields gives the
+            // second half of a split a FRESH RecordingId (Guid.NewGuid) while
+            // copying CreatingSessionId, ProvisionalForRpId AND
+            // VesselPersistentId from the original. Split a session-tagged
+            // provisional and the tail therefore reaches this guard with the
+            // fork's pid but an id that is NOT marker.ActiveReFlyRecordingId —
+            // so the id disjunct misses it and only the session disjunct spares
+            // it. MergeJournalOrchestrator documents the same population for the
+            // same reason ("sweep every recording tagged with this session, not
+            // just the ActiveReFlyRecordingId").
+            //
+            // Without this test, deleting the session disjunct leaves the whole
+            // suite green while every optimizer-split re-fly resumes emitting the
+            // false-positive "investigate" Warn this fix exists to close.
+            const uint pid = 42u;
+            var origin = Rec("rec_origin", "tree_1",
+                vesselPid: pid, startUT: 0.0, terminal: TerminalState.Destroyed);
+            // The split tail: same session, same pid, DIFFERENT recording id.
+            var splitTail = Rec("rec_split_tail", "tree_1",
+                state: MergeState.NotCommitted, vesselPid: pid, startUT: 120.0,
+                terminal: TerminalState.Destroyed,
+                sessionId: "sess_live",
+                supersedeTargetId: "rec_origin");
+            InstallTree("tree_1", new List<Recording> { origin, splitTail });
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_live",
+                TreeId = "tree_1",
+                OriginChildRecordingId = "rec_origin",
+                SupersedeTargetId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_provisional",
+                InvokedUT = 100.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted, vesselPid: pid, startUT: 100.0,
+                terminal: TerminalState.Destroyed,
+                sessionId: "sess_live",
+                supersedeTargetId: "rec_origin");
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            // The tail is NOT an orphan: no reap-leak Warn may name it.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Supersede]") &&
+                l.Contains("EnqueuePidPeerSiblings: skipped NotCommitted peer") &&
+                l.Contains("rec=rec_split_tail"));
+            // It was reached and spared by the session disjunct specifically —
+            // this line cannot appear via the ActiveReFlyRecordingId disjunct,
+            // because rec_split_tail is not that id.
+            Assert.Contains(logLines, l =>
+                l.Contains("EnqueuePidPeerSiblings: skipped active-session provisional") &&
+                l.Contains("rec=rec_split_tail"));
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_split_tail");
+        }
+
+        [Fact]
+        public void IsActiveSessionProvisional_SessionDisjunctIsIndependentOfTheIdDisjunct()
+        {
+            // Direct unit cover on the predicate, so the two disjuncts cannot both
+            // be satisfied by one fixture and mask each other's removal.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_live",
+                ActiveReFlyRecordingId = "rec_provisional",
+            };
+            // id matches, session does NOT
+            Assert.True(EffectiveState.IsActiveSessionProvisional(
+                Rec("rec_provisional", "tree_1", sessionId: "sess_other"), marker));
+            // session matches, id does NOT (the optimizer-split tail)
+            Assert.True(EffectiveState.IsActiveSessionProvisional(
+                Rec("rec_split_tail", "tree_1", sessionId: "sess_live"), marker));
+            // neither matches -> a genuine foreign-session orphan
+            Assert.False(EffectiveState.IsActiveSessionProvisional(
+                Rec("rec_zombie", "tree_1", sessionId: "sess_abandoned"), marker));
+            // an untagged recording is never spared by the session disjunct
+            Assert.False(EffectiveState.IsActiveSessionProvisional(
+                Rec("rec_untagged", "tree_1"), marker));
+            // a marker with no session id must not spare every untagged recording
+            Assert.False(EffectiveState.IsActiveSessionProvisional(
+                Rec("rec_untagged", "tree_1"),
+                new ReFlySessionMarker { SessionId = null, ActiveReFlyRecordingId = "x" }));
+        }
+
+        [Fact]
         public void EnqueuePidPeerSiblings_StillWarnsForForeignSessionOrphan()
         {
             // The §Bug1 signal must survive the false-positive fix: a genuine
