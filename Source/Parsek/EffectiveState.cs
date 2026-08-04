@@ -1500,7 +1500,8 @@ namespace Parsek
                     // chain expansion on every dequeued member, BEFORE the
                     // null-`ChildBranchPointId` early-return, so a HEAD with
                     // no BP descendants still propagates to its siblings.
-                    EnqueueChainSiblings(currentRec, recById, queue, result, ref siblingsAdded);
+                    EnqueueChainSiblings(
+                        currentRec, recById, queue, result, marker, ref siblingsAdded);
 
                     // Cross-chain same-PID peer expansion: in-place re-fly that
                     // crosses staging spawns sibling chains for the SAME physical
@@ -1647,6 +1648,71 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when <paramref name="cand"/> is the LIVE Re-Fly session's own
+        /// provisional — the fork this session is recording into, i.e. the
+        /// supersede DESTINATION, not a candidate supersede source.
+        ///
+        /// <para>
+        /// This is the discriminator the two NotCommitted guards below need in
+        /// order to keep their Warn honest. Both guards were written for the
+        /// §Bug1 shape, where the NotCommitted candidate is an orphan left by a
+        /// DIFFERENT, abandoned session that the primary reap should have
+        /// removed. The live session's own fork is also NotCommitted (it only
+        /// flips to Immutable / CommittedProvisional at merge), so it matches
+        /// the same <c>MergeState</c> test while being the exact opposite
+        /// situation: it is supposed to be there, and neither reap may touch
+        /// it — <see cref="RewindInvoker.ReapPriorProvisionalsForRp"/>
+        /// deliberately skips same-session victims, and
+        /// <see cref="LoadTimeSweep"/> keeps any provisional whose session
+        /// still has a live marker.
+        /// </para>
+        ///
+        /// <para>
+        /// The in-place-continuation shape reaches the guards on every run:
+        /// <c>RewindInvoker.CopyInheritedIdentityForFork</c> copies the origin's
+        /// <see cref="Recording.VesselPersistentId"/> onto the fork (it IS the
+        /// same physical vessel continued), and the fork's StartUT is at the
+        /// rewind UT, so the fork satisfies every gate in
+        /// <see cref="EnqueuePidPeerSiblings"/> when the walk dequeues the
+        /// origin. Excluding it here — silently, since this is the expected
+        /// steady state — leaves the Warn armed for genuine foreign-session
+        /// orphans, which is the only case that indicates a reap leak.
+        /// (Evidence: every CL-3 harness flight logged exactly one such Warn
+        /// naming that run's OWN provisional and session.)
+        /// </para>
+        ///
+        /// <para>
+        /// Two disjuncts, both meaning "belongs to the live session": the
+        /// marker's <see cref="ReFlySessionMarker.ActiveReFlyRecordingId"/>
+        /// (the primary identity) and a <see cref="Recording.CreatingSessionId"/>
+        /// match on <see cref="ReFlySessionMarker.SessionId"/> (covers any
+        /// additional provisional the same session created — e.g. a staging
+        /// continuation — which is equally not an orphan).
+        /// </para>
+        /// </summary>
+        internal static bool IsActiveSessionProvisional(
+            Recording cand, ReFlySessionMarker marker)
+        {
+            if (cand == null || marker == null) return false;
+            if (string.IsNullOrEmpty(cand.RecordingId)) return false;
+
+            if (!string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                && string.Equals(
+                    cand.RecordingId,
+                    marker.ActiveReFlyRecordingId,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            return !string.IsNullOrEmpty(marker.SessionId)
+                && string.Equals(
+                    cand.CreatingSessionId,
+                    marker.SessionId,
+                    StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Adds every committed recording sharing <c>TreeId</c>,
         /// <c>ChainId</c>, AND <c>ChainBranch</c> with <paramref name="rec"/>
         /// to <paramref name="result"/> and enqueues them for further BP
@@ -1683,6 +1749,7 @@ namespace Parsek
             Dictionary<string, Recording> recById,
             Queue<string> queue,
             HashSet<string> result,
+            ReFlySessionMarker marker,
             ref int siblingsAdded)
         {
             if (rec == null || string.IsNullOrEmpty(rec.ChainId)) return;
@@ -1712,6 +1779,21 @@ namespace Parsek
                 // write an invalid row.
                 if (cand.MergeState == MergeState.NotCommitted)
                 {
+                    // The live session's own fork is NotCommitted by contract
+                    // and is the supersede destination — expected, not a leak.
+                    // Skip silently (Verbose) so the Warn below stays a true
+                    // signal that a foreign-session orphan survived the reap.
+                    if (IsActiveSessionProvisional(cand, marker))
+                    {
+                        ParsekLog.Verbose("Supersede",
+                            $"EnqueueChainSiblings: skipped active-session provisional " +
+                            $"rec={cand.RecordingId} chain={cand.ChainId} " +
+                            $"tree={cand.TreeId} sess={marker.SessionId ?? "<none>"} " +
+                            "(expected: this session's own fork is the supersede " +
+                            "destination, never a source)");
+                        continue;
+                    }
+
                     ParsekLog.Warn("Supersede",
                         $"EnqueueChainSiblings: skipped NotCommitted peer " +
                         $"rec={cand.RecordingId} chain={cand.ChainId} " +
@@ -1794,6 +1876,21 @@ namespace Parsek
                 // ERS, but the Warn surfaces the underlying leak.
                 if (cand.MergeState == MergeState.NotCommitted)
                 {
+                    // In-place continuation reaches here on EVERY re-fly: the
+                    // fork inherits the origin's pid, so it matches this walk's
+                    // (pid, tree, StartUT) gates when the origin is dequeued.
+                    // Expected — skip silently, keep the Warn for real orphans.
+                    if (IsActiveSessionProvisional(cand, marker))
+                    {
+                        ParsekLog.Verbose("Supersede",
+                            $"EnqueuePidPeerSiblings: skipped active-session provisional " +
+                            $"rec={cand.RecordingId} pid={cand.VesselPersistentId} " +
+                            $"tree={cand.TreeId} sess={marker.SessionId ?? "<none>"} " +
+                            "(expected: this session's own fork is the supersede " +
+                            "destination, never a source)");
+                        continue;
+                    }
+
                     ParsekLog.Warn("Supersede",
                         $"EnqueuePidPeerSiblings: skipped NotCommitted peer " +
                         $"rec={cand.RecordingId} pid={cand.VesselPersistentId} " +
