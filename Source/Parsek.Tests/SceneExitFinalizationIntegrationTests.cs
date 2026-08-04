@@ -3611,6 +3611,16 @@ namespace Parsek.Tests
         /// requires the round trip to break by tens of degrees - the shape of the 133.123 deg
         /// the in-game probe measured.
         /// </para>
+        /// <para>
+        /// WHAT THIS CELL CANNOT SEE, stated so it is not read as more than it is: it reaches the
+        /// segment's state through the SAME <c>TwoBodyOrbit</c> propagation the producer uses, so
+        /// any disagreement between that propagation and stock <c>Orbit</c>'s cancels inside the
+        /// fixture. That is exactly how the <c>Planetarium.Zup</c> polar rotation stayed invisible
+        /// here while the in-game probe kept measuring it (131.066 deg in run 2026-08-04_2224).
+        /// The claim that the producer cancels through a STOCK-frame consumer lives in
+        /// <c>StockOrbitFrameSeamTests</c>, which installs a real non-identity
+        /// <c>Planetarium.Zup</c> and models the consumer off stock's own element-to-state chain.
+        /// </para>
         /// </summary>
         [Fact]
         public void SeedPredictedSegmentOrbitalFrameRotations_RoundTripsThroughThePlaybackConsumerFrame()

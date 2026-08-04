@@ -18,6 +18,21 @@ tier = "nightly"
 # confirming the pinned axis-swap arithmetically). The four finalizer sites are
 # now FIXED to the calibrated convention, and both cells are permanent FRAME
 # REGRESSION guards expected to PASS.
+#
+# CONFIRM RUN `2026-08-04_2224` SPLIT THEM. Site 1 came back EXACT (dLat=0.000000
+# dLon=-0.000001) - fixed, and now a live guard. Site 4 stayed red at
+# angleError=131.066 deg. That residual was DIAGNOSED HEADLESSLY rather than by a
+# third measurement flight: decomposing the two runs' logged quaternions showed the
+# producer's whole state rotated 230.01 deg about the POLAR AXIS from the
+# consumer's, which a transcription of stock's own element-to-state chain
+# (Parsek.Tests StockOrbitElementFrameParityTests) reduced to one call stock makes
+# and the extrapolator's element-seeded propagator does not -
+# `Planetarium.Zup.WorldToLocal`. Fixed as SITE 5 (ELEMENT FRAME) 2026-08-05, and
+# proven headlessly end to end by StockOrbitFrameSeamTests, which installs a real
+# non-identity `Planetarium.Zup` and drives the production producer through it.
+# BOTH CELLS REMAIN PERMANENT GUARDS EXPECTED TO PASS; the next run is the SECOND
+# confirm re-fly and the site-4 cell should now read well under its 5 deg
+# tolerance (closed form says ~0, down from 131.066).
 description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, the extrapolated-segment map line, and the two live-vessel frame-calibration probes."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ballistic", "extrapolation", "scene-exit", "H9"]
@@ -85,15 +100,19 @@ count = { min = 0, max = 0 }
 #    propagatable), so skipped=0 is a claim about the gloops-airshow FIXTURE - the
 #    same standing H20 and H22 carry, and the same reading rule: a skip there is a
 #    fixture question, not an extrapolator regression.
-#  - failed=0 is the ASSERTION. The two frame-calibration probes flew ONCE as
-#    deliberate-red measurement cells (run `2026-08-04_2142`, failed=2, the failure
+#  - failed=0 is the ASSERTION. The two frame-calibration probes flew as
+#    deliberate-red measurement cells on run `2026-08-04_2142` (failed=2, the failure
 #    text and the `Site1FrameProbe:` / `Site4AttitudeRoundTrip:` Info lines carrying
-#    the readings that calibrated the fix); with the four finalizer sites corrected
+#    the readings that calibrated the fix) and again on the confirm run
+#    `2026-08-04_2224` (failed=1: site 1 exact, site 4 still 131.066 deg - the
+#    residual now fixed as SITE 5, see the header); with all five sites corrected
 #    they are permanent frame-regression guards and failed=0 is a live assertion
 #    again. A future red on either probe is a FRAME REGRESSION, not noise: read the
 #    printed deltas before touching anything, and never clear it by loosening the
-#    probes' tolerances (0.01 deg / 5 deg) - the measured defect signature was
-#    dLat=34.3 deg / angleError=133 deg, four orders of magnitude above tolerance.
+#    probes' tolerances (0.01 deg / 5 deg) - the measured defect signatures were
+#    dLat=34.3 deg and angleError=133 / 131 deg, orders of magnitude above tolerance.
+#    Site 4 in particular has now red TWICE, so a third red there says the closed
+#    form is incomplete and wants reading, not a relaxed cell.
 #  - passed=10 follows.
 #  - scene=FLIGHT is INFERRED from the fixture (Focusable route, as H5/S1.4
 #    MEASURED on it) and is LOAD-BEARING: at any other scene all 10 scene-skip.
