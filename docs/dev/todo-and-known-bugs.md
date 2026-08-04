@@ -818,9 +818,13 @@ over:
    ONLY from `SupersedeCommit.IsWorldStateChangingRecordingAction`, the autoseal /
    retry-blocking classifier.
 2. **Its input never exists.** The cell needs a `GameActionType.ReputationPenalty`
-   action in the subtree. `Source/Parsek/` has exactly ONE construction site for that
-   type - `GameActions/GameStateEventConverter.cs` (Bail-Out Grant) - and it hardcodes
-   `RepPenaltySource = ReputationPenaltySource.Strategy`. Nothing ever constructs a
+   action in the subtree. `Source/Parsek/` has exactly ONE PRODUCTION construction site
+   for that type - `GameActions/GameStateEventConverter.cs` (Bail-Out Grant) - and it
+   hardcodes `RepPenaltySource = ReputationPenaltySource.Strategy`. (An earlier draft
+   said "exactly ONE construction site", which a grep refutes: `InGameTests/RuntimeTests.cs`
+   builds one too, with `RepPenaltySource = Other`. It is a synthetic in-game-test
+   fixture, not a flight path, so the conclusion is unchanged - but the claim as written
+   failed the registry's own "mechanical, re-check by grep" instruction.) Nothing ever constructs a
    `ReputationPenaltySource.KerbalDeath` action, so a crew death yields no Parsek rep
    row at all: stock applies the hit (`Added -9.999828 (-10) reputation: 'VesselLoss'.`,
    measured by both CL-1 and CL-2) and the ledger absorbs it through the generic

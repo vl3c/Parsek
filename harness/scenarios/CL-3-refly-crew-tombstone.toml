@@ -188,12 +188,18 @@ id = "CL-3-refly-crew-tombstone"
 # keep ONLY the selected slot's vessel before KSP loads it, and refuses to load an
 # unscrubbed quicksave at all.
 tier = "operator"
-# tier = "operator", reason (b) EXPENSIVE AND NOT YET GREEN (hlib TIERS docstring). It is
-# NOT reason (a): `LoadGame` IS a flight-entry verb (FlightCameraReloadPin.Arm +
-# StartAndFocusVessel when `activeVesselIdx` names a focusable vessel), and this spec's
-# template carries one, so the RequiresFlight verbs EXECUTE rather than defer - the
-# correction R1's FLIGHT-ENTRY note works through at length.
-# PROMOTE TO: nightly, after one green run. Its happy
+# tier = "operator". NOT reason (b) EXPENSIVE AND UNFLOWN any more - that was true when
+# this landed and is false at HEAD: the lane flew green 2026-08-03 (two PASS + a negative
+# control) and again 2026-08-04, and `coverage/duration.json` carries its samples at ~64-70 s,
+# which is S4.1-class, not expensive. It is NOT reason (a) either: `LoadGame` IS a
+# flight-entry verb (FlightCameraReloadPin.Arm + StartAndFocusVessel when `activeVesselIdx`
+# names a focusable vessel), and this spec's template carries one, so the RequiresFlight
+# verbs EXECUTE rather than defer - the correction R1's FLIGHT-ENTRY note works through.
+# WHY IT IS STILL operator: a HUMAN promotion call is outstanding, recorded in
+# `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` - the D12 `dead-crew-strip`
+# decision (fixture change + re-fly) is the open debt, and R1/B16 set the precedent that
+# flipping a tier is a scheduling change a human makes, not one a green run makes.
+# PROMOTE TO: nightly, once that call is taken. Its happy
 # path is short (no ascent: the tree it rewinds is already on disk), so once green it
 # costs about what S4.1 costs, not what R1 costs.
 description = "Crew-loss re-fly half: Rewind-to-Separation onto the CREWED destroyed pod, re-fly it so the provisional is worth merging, and merge - driving SupersedeCommit over the derived KerbalAssignment/Dead row."
@@ -401,19 +407,18 @@ D14 = ["kerbin", "career", "scene-flight"]
 #   action is tombstoned - "observable as a non-zero `Kerbal=` term in
 #   `CommitTombstones`'s `Tombstoned N career actions (... Kerbal=K ...)` line AND as
 #   `tombstones >= 1` in the M-C2 save parse" - and (ii) the ELS recompute that follows
-#   leaves no surviving reservation or stand-in for the dead kerbal. This spec gates the
-#   LOG half of (i) today and NOTHING of the save-parse half, because the save-parse
-#   block is unarmed until the measurement flight. Half a pinned definition is not the
-#   definition, so D9 `tombstones` IS claimed since the 2026-08-03 arming (see the D9 array above and the ARMED block); the D12 cell below is not. After the arming commit declares
-#   `tombstones = { min = 1 }` and the run reads it, D9 `tombstones` becomes claimable
-#   here; D12 `dead-crew-strip` additionally needs a gate on half (ii)
+#   leaves no surviving reservation or stand-in for the dead kerbal. Since the 2026-08-03
+#   arming this spec gates BOTH halves of (i): the LOG half (the `Kerbal=[1-9]` token) and
+#   the SAVE-PARSE half (`[expectations.rewind] tombstones = { min = 1 }`, armed - see the
+#   ARMED block). D9 `tombstones` is therefore CLAIMED, in the D9 array above.
+#   D12 `dead-crew-strip` is NOT, and stays out: it additionally needs a gate on half (ii)
 #   (`CrewReservationManager.RecomputeAfterTombstones`), which no token in this file
 #   pins.
 #
 #   D12 `tombstone-rep-penalty` WILL NEVER BE CLAIMED HERE, and not because the flight is
 #   pending: the registry records it as UNREACHABLE BY ANY FLIGHT (2026-08-02, mechanical).
 #   The cell needs a `GameActionType.ReputationPenalty` action inside the supersede
-#   subtree, and `Source/Parsek/` has exactly ONE construction site for that type -
+#   subtree, and `Source/Parsek/` has exactly ONE PRODUCTION construction site for that type (the only other occurrence in the tree is a synthetic in-game-test fixture, `InGameTests/RuntimeTests.cs`, which builds one with `RepPenaltySource = Other` and is not a flight path) -
 #   `GameStateEventConverter.cs`'s Bail-Out Grant, which hardcodes
 #   `ReputationPenaltySource.Strategy`. No code path ever constructs a
 #   `ReputationPenaltySource.KerbalDeath` action, so a crew death produces no Parsek rep

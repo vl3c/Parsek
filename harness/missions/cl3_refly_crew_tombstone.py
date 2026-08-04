@@ -35,7 +35,12 @@ on an observed non-zero point count.
 
 WHAT THE MISSION ASSERTS, AND WHY IT IS NOT THE SEAM'S OWN OK. The rewind is
 judged by an OBSERVATION nothing else in a flight can produce: the game clock
-RUNNING BACKWARD, corroborated by the vessel's own situation / altitude changing.
+RUNNING BACKWARD. It is NOT corroborated by the vessel's situation / altitude, and
+saying so would be borrowing R1's evidence: on a flightless pad-to-pad rewind the
+pre- and post-rewind vessel is the same cloned node on the same pad, so that
+contrast DOES NOT EXIST here (the `vesselStateChanged` row was removed for exactly
+that reason, and `evaluate_cl3_assertions` stamps the readings as
+`worldStateEvidenceIsNotGated`).
 `InvokeRewind` answering `verdict=OK` is a COMMANDED reading -- it says the actor
 believes it acted -- and it only opens the door to VERIFY; it rides one extra,
 strictly-additional assertion row, never as the evidence.

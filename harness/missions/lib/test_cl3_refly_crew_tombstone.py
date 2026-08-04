@@ -1482,9 +1482,11 @@ class Cl3SpecValidationTests(unittest.TestCase):
         self.assertEqual("operator", self.spec["tier"])
         self.assertIn("operator", hlib.TIERS)
 
-    def test_the_tags_say_pending_flight_and_never_claim_flown(self):
-        # `--tag` is a REAL selector, so `flown` on a spec that has never flown
-        # would put an unproven scenario into a sweep that means "these work".
+    def test_the_tags_say_flown_and_no_longer_claim_pending_flight(self):
+        # `--tag` is a REAL selector, so the tag has to track the record in BOTH
+        # directions: `flown` on an unproven spec would put it in a sweep that
+        # means "these work", and `pending-flight` on a spec that HAS flown green
+        # excludes it from that same sweep. It has flown, so it carries `flown`.
         tags = self.spec["tags"]
         self.assertIn("flown", tags)
         self.assertNotIn("pending-flight", tags)
@@ -1558,8 +1560,9 @@ class Cl3SpecStepListTests(unittest.TestCase):
     def test_the_merge_dialog_is_world_mutating_so_an_unmet_mission_skips_it(self):
         # ORTHOGONALITY. `hlib.plan_unmet_mission_tail` runs CLEANUP steps only,
         # so a mission that did not fly never merges a junk provisional into the
-        # committed corpus. That matters more here than usual while this lane's
-        # OPEN GATE (see the spec header) still reds the mission.
+        # committed corpus. (An earlier revision added "...while this lane's OPEN
+        # GATE still reds the mission" - that gate is CLOSED, the row was removed,
+        # and this file's own cell forbids exactly that stale prose in the spec.)
         self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                          hlib.SEAM_VERB_TAIL_ROLE["AnswerMergeDialog"])
 

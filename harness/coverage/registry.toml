@@ -169,7 +169,7 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # `tombstone-rep-penalty` IS UNREACHABLE BY ANY FLIGHT, not merely uncovered
 # (2026-08-02, CL stage B; mechanical, re-check by grep before ever claiming it).
 # The cell needs a `GameActionType.ReputationPenalty` action in the supersede subtree.
-# `Source/Parsek/` has exactly ONE construction site for that type -
+# `Source/Parsek/` has exactly ONE PRODUCTION construction site for that type (the only other occurrence in the tree is a synthetic in-game-test fixture, `InGameTests/RuntimeTests.cs`, which builds one with `RepPenaltySource = Other` and is not a flight path) -
 # `GameActions/GameStateEventConverter.cs` (the Bail-Out Grant), which hardcodes
 # `RepPenaltySource = ReputationPenaltySource.Strategy`. No code path ever constructs
 # a `ReputationPenaltySource.KerbalDeath` action, so a crew death produces NO Parsek
