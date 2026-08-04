@@ -428,6 +428,7 @@ class KrpcMissionControl(MissionControl):
                  read_docking: bool = False, read_crew: bool = False,
                  read_chute: bool = False,
                  read_node_executor: bool = False,
+                 tolerate_unreadable_nodes: bool = False,
                  read_periapsis: bool = False,
                  read_landing: bool = False,
                  read_camera: bool = False) -> None:
@@ -457,6 +458,10 @@ class KrpcMissionControl(MissionControl):
         # engaged rather than trust that it commanded one (B11 flight-1 lesson,
         # the same commanded-vs-observed gap as the B-DOCK docking AP).
         self._read_node_executor = bool(read_node_executor)
+        # OPT-IN, and default False is load-bearing: see _read_nodes. Turning
+        # this on CHANGES WHAT A FRAME MEANS to the machine reading it, so it is
+        # per-mission rather than global.
+        self._tolerate_unreadable_nodes = bool(tolerate_unreadable_nodes)
         # OPT-IN periapsis-clock telemetry (B11/B12 ORBIT lane). OFF everywhere
         # else so every other mission's read_snapshot stays byte-identical
         # (time_to_periapsis keeps its NaN UNREAD sentinel, which disables the
@@ -501,6 +506,7 @@ class KrpcMissionControl(MissionControl):
         # channel: enough to name it, rate-limited by construction so a
         # permanently dark channel cannot spam a multi-thousand-poll flight.
         self._warned_node_executor_read = False
+        self._warned_nodes_read = False
         self._warned_periapsis_read = False
         # Same latch for the landing channel: its -1 / NaN sentinels stand the
         # descent supervisor and the settled gate DOWN silently, so a drifted
@@ -627,7 +633,9 @@ class KrpcMissionControl(MissionControl):
                 ap_error = float(v.auto_pilot.error)
             except Exception:
                 ap_error = float("nan")
-            nodes = control_handle.nodes
+            # Maneuver-node list, via a helper so the guard is testable (the
+            # _read_angular_velocity / _read_docking_ap_status precedent).
+            nodes = self._read_nodes(control_handle)
             # Patched-conic arrival evidence (finding 16): the NEXT orbit's
             # body + periapsis, read only while an SOI change is predicted.
             # Own try/except: a conic repatch mid-read must degrade to the
@@ -2726,6 +2734,62 @@ class KrpcMissionControl(MissionControl):
             return mlib.normalize_roster_status(getattr(kerbal.roster_status, "name", ""))
         except Exception:
             return ""
+
+    def _read_nodes(self, control_handle):
+        """The maneuver-node list, or the EMPTY-LIST sentinel when kRPC refuses.
+
+        kRPC RAISES rather than returning empty when nodes are unusable:
+        "Maneuver node editing is not available" fires for a CAREER save whose
+        Tracking Station is not upgraded AND for any vessel sitting PRELAUNCH.
+        Both are ordinary states for a pad-start career lane, so the UNGUARDED
+        read made three consecutive polls on the pad indistinguishable from a
+        genuinely lost vessel - CL-3 died vessel-lost 1.2 s in without ever
+        leaving its first phase (run 2026-08-03_1826, INVALID(mission)).
+
+        OPT-IN, DEFAULT OFF, and that default is the whole design. Tolerating the
+        refusal is NOT a free widening: before it, ONE field's exception aborted
+        the WHOLE telemetry read, so the frame arrived BLIND (vessel_lost,
+        roster=UNREAD) and a machine could correctly treat it as proving nothing.
+        Degrading the field instead makes the frame COMPLETE AND TRUSTED - which
+        is right for a machine that ignores nodes, and WRONG for one whose
+        terminal reads the very fields the blind frame used to withhold.
+
+        MEASURED, not theorised. Flipping this on globally broke CL-1-pod-impact,
+        a live-proven nightly: with the tolerance its `crew-survived-impact`
+        terminal fires 1.9 s in on a craft still SITTING ON THE PAD (situation
+        LANDED, roster Assigned, altitude 27 m), because the pad frames it used
+        to discard as blind are now believable. Same build, tolerance off:
+        `2026-08-04_0538` PASS, 158 s. Tolerance on: `_0535` / `_0536` / `_0541`
+        all INVALID. So this is per-mission, and only CL-3 asks for it.
+
+        (CL-1 also has a LATENT defect the masking hid - a craft that never
+        launched satisfies "landed with crew alive" trivially, so that terminal
+        wants a has-flown precondition. Filed in todo-and-known-bugs.md; NOT
+        fixed here, because fixing it is not what makes CL-3 work and this branch
+        should not be the one to change CL-1's verdict logic.)
+
+        When tolerated, the empty list is the SAME value a vessel with no pending
+        node yields, so node_count=0 / node_dv=NaN / node_ut=NaN keep the
+        fail-closed meaning node-gating machines rely on, and the fault never
+        counts toward the vessel-lost streak. Warned once per run.
+        """
+        if not self._tolerate_unreadable_nodes:
+            # DEFAULT PATH: propagate, exactly as before this helper existed.
+            return control_handle.nodes
+        try:
+            return control_handle.nodes
+        except Exception as exc:
+            if not self._warned_nodes_read:
+                self._warned_nodes_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Telemetry",
+                    "maneuver-node list UNREADABLE (%s: %s); degrades to the "
+                    "EMPTY-LIST sentinel (node_count=0 / node_dv=NaN / "
+                    "node_ut=NaN), the same fail-closed reading a vessel with "
+                    "no pending node produces. Normal on the pad and for an "
+                    "un-upgraded Tracking Station. Logged once per run."
+                    % (type(exc).__name__, str(exc)[:160])))
+            return []
 
     def _read_angular_velocity(self, v) -> float:
         """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --

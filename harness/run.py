@@ -102,6 +102,22 @@ LOGVALIDATE_TIMEOUT_SECONDS = 600
 COLLECT_LOGS_TIMEOUT_SECONDS = 600
 INJECT_TIMEOUT_SECONDS = 600
 
+# Fixture-injection presets run.py will drive, and the RP quicksave sidecar each one
+# MUST leave on disk (the fail-closed postcondition; a preset with no RP maps to None).
+# Keep in step with scripts/inject-recordings.ps1's $injectFilterByPreset.
+# HONEST LIMIT (an earlier draft of this comment claimed the opposite):
+# hlib.validate_spec checks a spec against hlib's OWN INJECTED_RECORDINGS tuple, NOT
+# against this table. A preset added there but missed here would validate clean,
+# stage with NO injection and NO postcondition check, and the run would boot against
+# an un-injected save - the HARNESS-INJECT-FAILS-OPEN shape. The sync is manual; a
+# cell asserting the two sets are equal is the fix, and is not yet written.
+RP_SIDECAR_BY_PRESET = {
+    "all-synthetic": None,
+    "rewind-b9": "rp_b9_root",
+    "rewind-crew-loss": "rp_cl_root",
+}
+INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
+
 # Per-step wait default when a step names no budget (a non-deferred verb resolves
 # fast; the run budget is the real ceiling).
 DEFAULT_STEP_BUDGET_SECONDS = 60
@@ -778,9 +794,11 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
     + both V1-map-dwell flights). The check is mechanism-independent - whatever the
     injection subprocess returned, either the fixture exists on disk or it does not.
 
-    - ``all-synthetic`` -> a non-empty ``Parsek/Recordings/``.
-    - ``rewind-b9``     -> the same, plus ``Parsek/RewindPoints/rp_b9_root.sfs``
-      (the RP every rewind-b9 consumer's ``InvokeRewind rp=rp_b9_root`` needs)."""
+    - ``all-synthetic``    -> a non-empty ``Parsek/Recordings/``.
+    - ``rewind-b9``        -> the same, plus ``Parsek/RewindPoints/rp_b9_root.sfs``
+      (the RP every rewind-b9 consumer's ``InvokeRewind rp=rp_b9_root`` needs).
+    - ``rewind-crew-loss`` -> the same, plus ``Parsek/RewindPoints/rp_cl_root.sfs``
+      (CL stage B's crewed re-fly target)."""
     missing: List[str] = []
     rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
     try:
@@ -789,10 +807,11 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
         has_recordings = False
     if not has_recordings:
         missing.append("non-empty Parsek/Recordings/")
-    if preset == "rewind-b9":
-        rp = os.path.join(save_dir, "Parsek", "RewindPoints", "rp_b9_root.sfs")
+    rp_id = RP_SIDECAR_BY_PRESET.get(preset)
+    if rp_id:
+        rp = os.path.join(save_dir, "Parsek", "RewindPoints", rp_id + ".sfs")
         if not os.path.isfile(rp):
-            missing.append("Parsek/RewindPoints/rp_b9_root.sfs")
+            missing.append("Parsek/RewindPoints/%s.sfs" % rp_id)
     return missing
 
 
@@ -861,7 +880,7 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # NOT in RETRYABLE_INVALID_SUBKINDS on purpose - the miss is deterministic (same
     # worktree, same result), so a retry burns the `once` budget to learn nothing.
     inj = fixture.get("injectedRecordings", "none")
-    if inj in ("all-synthetic", "rewind-b9"):
+    if inj in INJECTION_PRESETS:
         res = runtime.run_inject(instance_dir, run_save_name, INJECT_TIMEOUT_SECONDS, preset=inj)
         if not res.ok:
             logger.warn("Stage", "inject-recordings failed preset=%s exit=%s"

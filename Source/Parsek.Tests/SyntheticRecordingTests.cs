@@ -6118,6 +6118,103 @@ namespace Parsek.Tests
                 $"B9 RP quicksave sidecar missing: {rpSidecar}");
         }
 
+        /// <summary>
+        /// Injects the CREW-LOSS rewindable-tree fixture (CL stage B) into the target
+        /// save: a committed tree whose re-fly target slot is a CREWED pod destroyed
+        /// with its kerbal aboard, plus the split RewindPoint. Harness-callable via
+        /// <c>dotnet test --filter InjectRewindCrewLoss</c> (the
+        /// <c>rewind-crew-loss</c> injection preset).
+        ///
+        /// <para>
+        /// Sibling of <see cref="InjectRewindB9"/> and deliberately identical to it
+        /// except for the fixture populated and the slot-name prefix; see
+        /// <see cref="RewindCrewLossFixture"/> for why the pod carries a ghost-visual
+        /// snapshot and no vessel snapshot. Same env contract
+        /// (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START).
+        /// </para>
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectRewindCrewLoss()
+        {
+            // Distinct default save name so a bare `dotnet test` full-suite run
+            // no-ops here rather than purging another fixture's corpus.
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "rewind-crew-loss-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            // Same guarded purge as InjectAllRecordings: refuse when KSP.log is
+            // locked by a live session so the inject never races the game.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double baseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            // Distinct sidecar slot names so a CL log is never mistaken for a B9 one.
+            writer.RewindSlotVesselNamePrefix = "CL Slot ";
+            RewindCrewLossFixture.PopulateWriter(writer, baseUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = CL Stack", content);
+                    Assert.Contains("vesselName = CL Probe B", content);
+                    Assert.Contains("vesselName = CL Pod A", content);
+                    Assert.Contains("REWIND_POINTS", content);
+                    Assert.Contains("rewindPointId = " + RewindCrewLossFixture.RewindPointId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+
+            // The RP quicksave sidecar must exist on disk or CanInvoke declines.
+            string rpSidecar = Path.Combine(
+                saveDir, "Parsek", "RewindPoints", RewindCrewLossFixture.RewindPointId + ".sfs");
+            Assert.True(File.Exists(rpSidecar),
+                $"Crew-loss RP quicksave sidecar missing: {rpSidecar}");
+        }
+
         [Trait("Category", "Manual")]
         [Fact]
         public void InjectAllRecordings()

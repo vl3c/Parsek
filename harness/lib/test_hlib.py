@@ -4229,6 +4229,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # machine-checked below; the rest are human judgements recorded here.
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
+        # Landed 2026-08-03 with the CL stage-B re-fly lane. FLOWN since: three runs
+        # (two PASS + a deliberate negative control) on 2026-08-03, armed the same
+        # day. The two debts this entry originally listed are BOTH DISCHARGED - the
+        # `vesselStateChanged` row was removed (it was constant-False on this lane),
+        # and the arming follow-up was done. What is recorded below is the ONE debt
+        # that is actually open, and it was discovered BY a flight rather than
+        # derived from the header.
+        "CL-3-refly-crew-tombstone.toml":
+                                       "tier=operator AND one open operator call: the "
+                                       "D12 `dead-crew-strip` cell. The 2026-08-03_1834 "
+                                       "flight measured half (i) of the registry's "
+                                       "two-part definition HOLDING (Tombstoned 1 ... "
+                                       "Kerbal=1) and half (ii) FAILING (Recomputed "
+                                       "after tombstones: 1 reservations remain, plus a "
+                                       "Stand-in generated for the same kerbal). The "
+                                       "surviving reservation is sourced from "
+                                       "cl-stack-root, OUTSIDE the supersede subtree, "
+                                       "so the fixture's crewed terminal-state-less "
+                                       "root is SUFFICIENT to explain it - but that is "
+                                       "NOT discriminated against a product defect, "
+                                       "because the crewless-root re-fly that would "
+                                       "settle it has not been run. A human decides "
+                                       "whether to spend that fixture change plus "
+                                       "flight, and the cell stays unclaimed until "
+                                       "someone does.",
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "
@@ -4506,7 +4531,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # `gating = true` still reds here and still needs an explicit edit plus the run
     # ids to justify it - where relaxing to "any spec may arm" would have thrown
     # the guarantee away entirely on the day it first got used.
-    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml"}
+    # CL-3 joined 2026-08-03, by the same route S4.1 took: a REPORT-ONLY reading
+    # run first (`2026-08-03_1834`, PASS attempt 1) which MEASURED
+    # `supersedeRows=1 tombstones=1`, then arming those two as `min = 1` FLOORS.
+    # So arming again made an observed behaviour load-bearing rather than
+    # asserting an unobserved one - the precondition this allowlist exists to
+    # enforce. It is the first spec in the suite to gate on a TOMBSTONE, and the
+    # floors are what separate "the merge ran" from "the merge retired
+    # something": a refused batch writes `Added 0 supersede relations`.
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

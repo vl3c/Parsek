@@ -663,27 +663,177 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
-## `dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable [FOUND 2026-07-30 during the CL-2 scope fence. NOT RESOLVED]
+## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
 
-`harness/coverage/registry.toml` carries no per-cell definitions beyond the D12 block
-comment, which asserts that `dead-crew-strip` and `tombstone-rep-penalty` are "a RE-FLY
-consequence of a death that already happened". For `tombstone-rep-penalty` that is
-checkable - `SupersedeCommit.TryPairBundledRepPenalty` is the named producer. For
-`dead-crew-strip` it is not: the only code in the repo actually NAMED for stripping
-dead crew is SPAWN-time, not re-fly-time (`VesselSpawner.cs` "Individual dead crew are
-already removed by `RespawnVessel.RemoveDeadCrewFromSnapshot`", and
-`ShouldBlockSpawnForDeadCrew`), while the re-fly `Strip` is `PostLoadStripper.Strip`
-(`RewindInvoker.cs`), which strips VESSELS, not crew. The nearest re-fly-time CREW
-behaviour is `CrewReservationManager.RecomputeAfterTombstones()` plus the
-tombstoned-roster cleanup in `SupersedeCommit.CommitTombstones`.
+### Correcting the first version of this entry
 
-So whoever builds stage B must PIN what the cell means before claiming it, or the claim
-is unfalsifiable. The strongest available definition is the one the in-game test that
-owns the behaviour states: `InGameTests/KerbalRecoveryOnSupersedeTest` asserts that
-after the merge, every eligible kerbal-death action in the supersede subtree is
-tombstoned AND each previously-Dead kerbal is back in the roster as `Available` or
-`Assigned`. Writing that into the registry comment (or splitting the cell) is a
-registry-authoring task, not a flight.
+An earlier revision of this entry claimed CL-1 was already red and that "the branch did
+not cause it". **That was wrong, and it was wrong because I read warning lines instead of
+a verdict.** The pre-guard control run logged four `vessel-lost: telemetry read failed N
+consecutive samples` warnings, I concluded from those that it had died, and never checked
+the run's own result. It had PASSED. The contradiction was caught by
+`harness/coverage/duration.json` - a PASS-only ledger - carrying a CL-1 sample the same
+branch's prose said could not exist.
+
+Measured, same build, the only variable being whether the maneuver-node read is tolerated:
+
+| `tolerate_unreadable_nodes` | CL-1 |
+|---|---|
+| OFF (`2026-08-04_0538`) | **PASS**, 158 s, MISSION-OK |
+| ON (`_0535`, `_0536`, `_0541`) | INVALID, `crew-survived-impact`, 1.9 s |
+
+So the CL stage B branch DID cause CL-1's failure, by globally tolerating a read that
+used to abort the whole frame. That is fixed: the tolerance is now an OPT-IN constructor
+flag (`KrpcMissionControl(tolerate_unreadable_nodes=...)`), default OFF, and only CL-3's
+shell sets it. CL-1 and CL-3 both PASS on the same build (`CL-1` 179 s / 262 points,
+`CL-3` 64 s armed).
+
+### The latent defect that remains
+
+Tolerating the read did not invent CL-1's failure, it UNMASKED one. The mechanism is
+worth stating because it generalises:
+
+- Before, ONE field's exception aborted the WHOLE telemetry read, so the frame arrived
+  BLIND (`vessel_lost`, `roster=UNREAD`). CL-1's machine correctly treats a blind frame
+  as proving nothing and keeps waiting.
+- Tolerating that field makes the frame COMPLETE AND TRUSTED. On the pad it then reads
+  situation LANDED, roster Assigned, altitude 27 m - and `crew-survived-impact` fires on
+  two consecutive such frames, 1.9 s in, `phasesReached=['PRELAUNCH','FLIGHT']`.
+
+**A craft that has not launched satisfies "landed with crew alive" trivially.** That
+terminal's three conjuncts (live frame, roster not not-alive, roster not unread) do not
+include any evidence that the flight HAPPENED. The pad frames were never evaluated only
+because they used to be blind - which is masking, not a guard.
+
+### Fix, for whoever picks it up
+
+Add a fourth conjunct: the craft must have left the ground at least once before
+`crew-survived-impact` may conclude - a has-flown latch (a non-landed situation observed,
+or altitude gain over the launch reading). Then the terminal states what it claims to
+state, and it no longer depends on a read failure to be correct.
+
+NOT fixed on the CL stage B branch: it is a different scenario's verdict logic, the
+opt-in flag already removes the branch's effect on it, and both scenarios are green.
+
+## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
+
+The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
+action in the supersede subtree is tombstoned, AND (ii) the ELS recompute that follows
+leaves NO surviving reservation or stand-in for that kerbal.
+
+`CL-3-refly-crew-tombstone`'s first green flight measured **(i) holding and (ii)
+failing**, so the cell stays unclaimed - claiming it off half a definition is what the
+registry note exists to forbid.
+
+### The measurement
+
+```
+21:35:20.866  Added 1 supersede relations for subtree rooted at cl-pod-a
+              (origin=cl-pod-a subtreeCount=1 ...)
+21:35:20.867  Tombstoned 1 career actions (... Kerbal=1, Other=0); 0 excluded
+21:35:20.871  Recomputed after tombstones: 1 reservations remain.
+21:35:20.871  Stand-in generated: 'Philsted Kerman' (Pilot) for slot 'Jebediah Kerman'
+21:35:20.872  Reservation: 'Jebediah Kerman' endUT=Infinity (Unknown),
+              recording 'cl-stack-root'
+```
+
+Half (i) is unambiguous: the death row Parsek DERIVED for `cl-pod-a`
+(`NeedsCrewEndStatePopulation: ... admitted via ghost-visual-only crew source ...
+terminalState=Destroyed` -> `PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`) was
+tombstoned, and the tally's `Kerbal=1` term proves it was the KERBAL row rather than
+some other career action.
+
+### Why (ii) failed. WHETHER it is a product defect is NOT established
+
+The surviving reservation is sourced from **`cl-stack-root`**, and the supersede subtree
+is `subtreeCount=1` rooted at `cl-pod-a`. The root is not in the subtree, so no tombstone
+of the pod could ever release its reservation. `RecomputeAfterTombstones` behaved
+correctly; it was handed a ledger that still legitimately reserves Jebediah.
+
+The fixture is SUFFICIENT to explain it: `RewindCrewLossFixture.BuildRoot` gives the root
+recording a crewed `FleaRocket` snapshot carrying the SAME kerbal and no terminal state, so
+`InferCrewEndState` returns `Unknown` and the root holds an indefinite reservation on him
+independently of the pod.
+
+**But sufficient is not the same as sole, and this has NOT been discriminated.** The
+experiment that would settle it has not been run: rebuild the fixture with a crewless root
+and re-fly. If (ii) then holds, the fixture explanation is confirmed. If it still fails,
+the defect is in the product and the fixture was a red herring. Until that run exists,
+"fixture artifact, not a product defect" is a HYPOTHESIS consistent with the evidence, not
+a finding - and it should not be cited as one. (B9's root is also terminal-state-less, but B9 is crewless
+throughout, so the question never arose there.)
+
+### Fix, for whoever picks this up
+
+Make the pod the ONLY crew source inside the tree, so the pod's tombstone is the only
+thing reserving that kerbal. Cheapest version: give `BuildRoot` a crewless
+`ProbeShip` snapshot (the root models the stack, and the crew rides the pod). Then
+re-fly; if (ii) then holds, D12 `dead-crew-strip` becomes claimable with a gate on the
+recompute half - candidate: `forbidden = ["Stand-in generated"]` plus a
+`Recomputed after tombstones: 0 reservations remain` required token.
+
+Do NOT instead relax the registry definition to just half (i). The tombstone half is
+already claimed as D9 `tombstones`; a `dead-crew-strip` that means the same thing is a
+second name for one fact, which is how a coverage report starts overstating itself.
+
+---
+
+## ~~`dead-crew-strip` has no pinned definition, so the coverage cell is unfalsifiable~~ [FOUND 2026-07-30 during the CL-2 scope fence. **DEFINITION PINNED 2026-08-02**, branch `cl2-stage-b`]
+
+### What it now means
+
+Pinned into the D12 block comment of `harness/coverage/registry.toml`, because a cell
+you cannot falsify must not be claimed:
+
+> After a re-fly merge whose supersede subtree contains a `KerbalAssignment` action
+> carrying `KerbalEndState.Dead`, (i) that action is TOMBSTONED - observable as a
+> non-zero `Kerbal=` term in `CommitTombstones`'s `Tombstoned N career actions
+> (... Kerbal=K ...)` line and as `tombstones >= 1` in the M-C2 save parse - and
+> (ii) the ELS recompute that follows leaves NO surviving reservation or stand-in for
+> the dead kerbal.
+
+### The correction the old draft needed
+
+The earlier draft proposed borrowing `InGameTests/KerbalRecoveryOnSupersedeTest`'s pair
+of invariants verbatim, including "each previously-Dead kerbal is back in the roster as
+`Available` or `Assigned`". That second half is a MISLEADING gate, and the reason is
+mechanical: **nothing in Parsek flips a `Dead` roster status back.**
+`CrewReservationManager.RescueOrphanedCrew` skips Dead crew by explicit comment ("Dead
+crew are skipped") and only promotes `Assigned`; `RescueReservedCrewAfterEvaRemoval`
+only rescues `Missing`. The kerbal is alive after a re-fly because the **rewind
+quicksave predates the death** and KSP reloads the roster from it. Asserting the roster
+status therefore proves the quicksave loaded - it does not prove the tombstone did
+anything. The in-game test keeps that assertion as corroboration; it must not be a
+sole gate, and the registry says so.
+
+### The other cell in the same scope fence: `tombstone-rep-penalty` is UNREACHABLE
+
+Not "uncovered" - unreachable by any flight, and the old note pointing at
+`SupersedeCommit.TryPairBundledRepPenalty` as "the named producer" was wrong twice
+over:
+
+1. **It produces no tombstone.** `CommitTombstones` gates on
+   `TombstoneEligibility.IsSupersedeTombstoneEligible`, which admits `KerbalAssignment`
+   of ANY end state. `IsEligible` (death-only) and `TryPairBundledRepPenalty` are called
+   ONLY from `SupersedeCommit.IsWorldStateChangingRecordingAction`, the autoseal /
+   retry-blocking classifier.
+2. **Its input never exists.** The cell needs a `GameActionType.ReputationPenalty`
+   action in the subtree. `Source/Parsek/` has exactly ONE PRODUCTION construction site
+   for that type - `GameActions/GameStateEventConverter.cs` (Bail-Out Grant) - and it
+   hardcodes `RepPenaltySource = ReputationPenaltySource.Strategy`. (An earlier draft
+   said "exactly ONE construction site", which a grep refutes: `InGameTests/RuntimeTests.cs`
+   builds one too, with `RepPenaltySource = Other`. It is a synthetic in-game-test
+   fixture, not a flight path, so the conclusion is unchanged - but the claim as written
+   failed the registry's own "mechanical, re-check by grep" instruction.) Nothing ever constructs a
+   `ReputationPenaltySource.KerbalDeath` action, so a crew death yields no Parsek rep
+   row at all: stock applies the hit (`Added -9.999828 (-10) reputation: 'VesselLoss'.`,
+   measured by both CL-1 and CL-2) and the ledger absorbs it through the generic
+   captured-award path, which is not a `GameAction` and cannot be tombstoned.
+
+Unblocking it is a PRODUCT change, not a flight - Parsek would have to construct a
+KerbalDeath rep penalty on crew death, which moves CL-2's armed ledger totals and so
+belongs in its own PR with its own oracle re-pin. Recorded in the registry so the
+coverage report stops implying a flight could close it.
 
 `CL-2-pod-impact-ledger` claims NEITHER cell, and
 `test_cl2_crew_loss_ledger.py::test_the_scope_fenced_re_fly_cells_stay_unclaimed` keeps
