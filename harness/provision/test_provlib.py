@@ -52,6 +52,25 @@ class RealProfileFileTests(unittest.TestCase):
         for entry in p.get("optionalMods", []):
             self.assertNotIn("stackComponents", entry)
 
+    # Keys every unattended automation instance must pin identically. The audio
+    # zeros exist so an unattended run is silent (operator request 2026-07-19);
+    # modded-compat initially shipped without them and the gap was only caught
+    # by inspection after the first live provision (2026-08-04).
+    UNATTENDED_SETTINGS = {
+        "MASTER_VOLUME": "0", "SHIP_VOLUME": "0", "AMBIENCE_VOLUME": "0",
+        "MUSIC_VOLUME": "0", "UI_VOLUME": "0", "VOICE_VOLUME": "0",
+        "SIMULATE_IN_BACKGROUND": "True", "FULLSCREEN": "False",
+        "CHECK_FOR_UPDATES": "False",
+    }
+
+    def test_both_profiles_pin_the_unattended_settings(self):
+        for name in ("stock-minimal.toml", "modded-compat.toml"):
+            settings = self._load(name).get("settings", {})
+            for key, want in self.UNATTENDED_SETTINGS.items():
+                self.assertEqual(
+                    settings.get(key), want,
+                    "%s must pin %s=%s for unattended runs" % (name, key, want))
+
 
 class PhaseInstallEmptyStackTests(unittest.TestCase):
     """Guards reviewer 14 (the mask that hid BLOCKER 1): phase_install must WARN

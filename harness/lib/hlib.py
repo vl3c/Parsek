@@ -31,6 +31,10 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
     block read (``parse_career_save_block``), and the leg-A stock-award capture
     (``parse_stock_award_lines`` / ``dedupe_captured_awards`` /
     ``unmatched_captured_awards``); the oracle MATH is the sibling ``oracle.py``
+  - the modded-compat ghost-FX A/B: capture of the ``[FxFingerprint]`` producer
+    lines from a produced KSP.log (``parse_fx_fingerprint_lines``) and the pure
+    set-diff + report render of two captures (``diff_fx_fingerprints`` /
+    ``format_fx_fingerprint_diff``)
   - log-validation profile selection (``select_logvalidate_profile``)
   - budget arithmetic (``step_wait_ok`` / ``required_step_wait``)
   - instance admission reuse over provlib (``admit_instance`` / ``build_expected_admission``)
@@ -4638,6 +4642,239 @@ def _entry_identities(contract_guid: str, subject_ids: Sequence[str]) -> List[st
         if s and s not in ids:
             ids.append(s)
     return ids or [""]
+
+
+# ---------------------------------------------------------------------------
+# Ghost FX fingerprint capture + A/B set-diff (modded-compat lane). Pure.
+# ---------------------------------------------------------------------------
+
+# The producer is Source/Parsek/GhostFxFingerprint.cs, which logs ONE canonical
+# line per built ghost engine/RCS module in BOTH stock and Waterfall/ReStock
+# installs. Its whole reason to exist is a MECHANICAL A/B: two runs of the same
+# save (config pack off vs on) must produce the same fingerprint set per part,
+# and any key that only one side carries -- or that both carry with different
+# payloads -- is a visual divergence finding. This is the harness half of that:
+# capture the set from a produced KSP.log, then set-diff two captures.
+#
+# On-disk line shape (ParsekLog.Write prefix + the producer's message):
+#   [Parsek][VERBOSE][FxFingerprint] part='<partName>' kind=<engine|rcs> midx=<n>
+#     systems=<n> nullSystems=<n> curves=em<N>/sp<M> fp=[<entry>|<entry>|...]
+#
+# Five properties of that shape drive the parse, each of them a trap:
+#   1. `part=` is SINGLE-QUOTED and the value carries dots (KSP's runtime part
+#      names are dot-form: `solidBooster.v2`), so the part is read out of the
+#      quotes, never off a dot- or whitespace-split.
+#   2. The `fp=[...]` payload contains SPACES and PARENTHESES (`pos=(0.00,1.20,
+#      0.00)`) and its entries are '|'-JOINED, so neither a whitespace split nor
+#      a '|' split can recover it. The producer sorts the entries Ordinal
+#      (GhostFxFingerprint.BuildFingerprint), which is exactly what makes the
+#      bracketed payload comparable BYTE-FOR-BYTE: order is already canonical, so
+#      equality is string equality and the harness does no re-normalization.
+#   3. ParsekLog's rate limiter appends " | suppressed=<N>" AFTER the closing
+#      "]" on the next interval-passing emission for the same key (whether or
+#      not the payload changed). The payload is therefore cut at the
+#      LAST "]" of the line, never the first -- a first-bracket split would slice
+#      the fp open on any line whose entries contain a bracket, and a naive
+#      "strip everything after the first ' | '" would decapitate every multi-entry
+#      fingerprint (the entries are '|'-joined).
+#   4. `fp=[(none)]` is the legitimate no-systems payload, not a parse failure.
+#      A part that legitimately built zero systems on BOTH sides must MATCH, and a
+#      part that built systems on one side and `(none)` on the other is the single
+#      most interesting finding this diff can report -- so `(none)` is carried as
+#      an ordinary payload value rather than filtered out.
+#   5. A collected KSP.log carries a timestamp/prefix before "[Parsek]", so the
+#      match is ANCHORED ON THE SUBSTRING, never on line start.
+#
+# The rate limiter also means the SAME (part, kind, midx) key can be logged more
+# than once in one run (5 s interval). A fingerprint is supposed to be STABLE for
+# a built module, so repeats normally collapse to one value; when they DISAGREE
+# that is itself a reportable fact about the run (an FX rebuild changed the
+# geometry), so every distinct payload per key is retained and the diff reports
+# the key as UNSTABLE on that side. Collapsing silently would let a divergence
+# hide inside one run.
+FX_FINGERPRINT_ANCHOR = "[Parsek][VERBOSE][FxFingerprint]"
+
+# Fixed-order token grammar, matched against the anchored body already cut at its
+# LAST "]". Every token is required; a line missing any of them is malformed.
+_FX_FINGERPRINT_RE = re.compile(
+    r"^\s*part='(?P<part>[^']*)'\s+"
+    r"kind=(?P<kind>\S+)\s+"
+    r"midx=(?P<midx>-?\d+)\s+"
+    r"systems=(?P<systems>\S+)\s+"
+    r"nullSystems=(?P<null_systems>\S+)\s+"
+    r"curves=(?P<curves>\S+)\s+"
+    r"fp=\[(?P<fp>.*)\]\s*$",
+    re.DOTALL)
+
+
+@dataclass(frozen=True)
+class FxFingerprintParse:
+    """One produced log's ghost-FX fingerprint capture (pure).
+
+    ``entries`` maps ``(part, kind, midx)`` -> the SORTED tuple of DISTINCT
+    canonical payloads seen for that key (normally length 1; length > 1 is the
+    unstable case above). ``malformed`` counts ANCHORED lines the grammar
+    rejected -- lines that carry the FxFingerprint tag but not the token set, so
+    a producer-side format drift shows up as a number instead of silently
+    shrinking the captured set. Lines without the anchor are not FX lines at all
+    and are neither captured nor counted."""
+    entries: Dict[Tuple[str, str, int], Tuple[str, ...]]
+    malformed: int
+
+
+def parse_fx_fingerprint_lines(lines: Iterable[str]) -> FxFingerprintParse:
+    """Capture the ghost-FX fingerprint set from produced KSP.log lines (pure).
+
+    ``lines`` is any iterable of log lines (a file handle, ``splitlines()``, a
+    generator). Only lines containing ``FX_FINGERPRINT_ANCHOR`` are considered;
+    for each, the body after the anchor is cut at its LAST "]" (dropping any
+    rate-limiter " | suppressed=N" tail) and parsed against the fixed-order
+    grammar. The captured value is the CANONICAL payload rebuilt from the parsed
+    fields -- ``systems=... nullSystems=... curves=... fp=[...]`` -- so incidental
+    whitespace differences between two runs can never read as a divergence, while
+    the fp payload itself is carried through byte-for-byte (the producer already
+    sorted it).
+
+    ``midx`` is an int in the key so keys sort numerically rather than
+    lexically (midx 10 after midx 2), which is what makes the report readable
+    when a part carries more than nine engine modules."""
+    entries: Dict[Tuple[str, str, int], List[str]] = {}
+    malformed = 0
+    for raw in lines or ():
+        line = raw if isinstance(raw, str) else str(raw)
+        anchor_at = line.find(FX_FINGERPRINT_ANCHOR)
+        if anchor_at < 0:
+            continue
+        body = line[anchor_at + len(FX_FINGERPRINT_ANCHOR):]
+        close_at = body.rfind("]")
+        if close_at < 0:
+            malformed += 1
+            continue
+        m = _FX_FINGERPRINT_RE.match(body[:close_at + 1])
+        if m is None:
+            malformed += 1
+            continue
+        try:
+            midx = int(m.group("midx"))
+        except (TypeError, ValueError):  # pragma: no cover - regex pins the digits
+            malformed += 1
+            continue
+        key = (m.group("part"), m.group("kind"), midx)
+        payload = ("systems=%s nullSystems=%s curves=%s fp=[%s]"
+                   % (m.group("systems"), m.group("null_systems"),
+                      m.group("curves"), m.group("fp")))
+        seen = entries.setdefault(key, [])
+        if payload not in seen:
+            seen.append(payload)
+    return FxFingerprintParse({k: tuple(sorted(v)) for k, v in entries.items()},
+                              malformed)
+
+
+@dataclass(frozen=True)
+class FxFingerprintDiff:
+    """The A/B set-diff of two ``parse_fx_fingerprint_lines`` captures (pure).
+
+    ``keys_only_in_a`` / ``keys_only_in_b`` are the COVERAGE halves: a module one
+    install builds and the other does not (the Waterfall config pack deleting a
+    stock particle definition shows up here). ``changed`` is the geometry half:
+    both sides built the module and the canonical payloads differ. ``unstable_a``
+    / ``unstable_b`` flag keys whose OWN run disagreed with itself -- reported
+    separately because such a key's ``changed`` verdict is not trustworthy
+    evidence about the two installs. ``match_count`` is the number of shared keys
+    whose value tuples are identical, i.e. the size of the proven-equivalent set,
+    which is what makes a clean diff readable as coverage rather than as silence.
+    Every list is sorted, so a report built from this is byte-stable."""
+    keys_only_in_a: List[Tuple[str, str, int]]
+    keys_only_in_b: List[Tuple[str, str, int]]
+    changed: List[Tuple[Tuple[str, str, int], Tuple[str, ...], Tuple[str, ...]]]
+    unstable_a: List[Tuple[str, str, int]]
+    unstable_b: List[Tuple[str, str, int]]
+    match_count: int
+
+
+def diff_fx_fingerprints(a_entries: Dict[Tuple[str, str, int], Tuple[str, ...]],
+                         b_entries: Dict[Tuple[str, str, int], Tuple[str, ...]]
+                         ) -> FxFingerprintDiff:
+    """Set-diff two fingerprint captures (pure; no I/O, no ordering assumptions).
+
+    Takes the ``entries`` mappings (not the parse results) so a caller can diff
+    a filtered or merged capture. A key present on both sides with EQUAL value
+    tuples counts toward ``match_count``; unequal tuples land in ``changed``,
+    INCLUDING the case where the inequality is only that one side saw two
+    distinct payloads -- an unstable key still reports its disagreement rather
+    than being excused from the diff, and the ``unstable_*`` lists say why.
+
+    Each side's value tuple is SORTED before the compare (the parser already
+    returns them sorted; this only defends a hand-built or merged capture), so
+    two captures that saw the same payloads in a different order can never read
+    as a divergence."""
+    a_map = dict(a_entries or {})
+    b_map = dict(b_entries or {})
+    a_keys = set(a_map)
+    b_keys = set(b_map)
+    changed: List[Tuple[Tuple[str, str, int], Tuple[str, ...], Tuple[str, ...]]] = []
+    matches = 0
+    for key in sorted(a_keys & b_keys):
+        av = tuple(sorted(a_map[key]))
+        bv = tuple(sorted(b_map[key]))
+        if av == bv:
+            matches += 1
+        else:
+            changed.append((key, av, bv))
+    return FxFingerprintDiff(
+        keys_only_in_a=sorted(a_keys - b_keys),
+        keys_only_in_b=sorted(b_keys - a_keys),
+        changed=changed,
+        unstable_a=sorted(k for k, v in a_map.items() if len(v) > 1),
+        unstable_b=sorted(k for k, v in b_map.items() if len(v) > 1),
+        match_count=matches,
+    )
+
+
+def _fx_key_text(key: Tuple[str, str, int]) -> str:
+    """The key rendered in the producer's own field spelling, so a report line can
+    be pasted straight back into a KSP.log grep."""
+    part, kind, midx = key
+    return "part='%s' kind=%s midx=%d" % (part, kind, midx)
+
+
+def _fx_values_text(values: Sequence[str]) -> str:
+    """Distinct payloads for one key on one side, joined with a separator that
+    cannot occur inside a payload (the producer joins fp entries with a bare
+    '|')."""
+    return " ;; ".join(values)
+
+
+def format_fx_fingerprint_diff(diff: FxFingerprintDiff,
+                               a_label: str, b_label: str) -> List[str]:
+    """Render an ``FxFingerprintDiff`` as report lines (pure, deterministic).
+
+    One summary header plus ONE line per finding, in a fixed section order
+    (only-in-a, only-in-b, changed, unstable-a, unstable-b) over already-sorted
+    lists, so the same two captures always render byte-identically -- a report
+    that reordered between runs could not be diffed itself. The leading token of
+    every line is a stable grep key; the labels are payload, not structure, so a
+    label containing spaces cannot break the token."""
+    lines: List[str] = [
+        "fx-fingerprint-diff a=%s b=%s match=%d changed=%d only-in-a=%d "
+        "only-in-b=%d unstable-a=%d unstable-b=%d"
+        % (a_label, b_label, diff.match_count, len(diff.changed),
+           len(diff.keys_only_in_a), len(diff.keys_only_in_b),
+           len(diff.unstable_a), len(diff.unstable_b))
+    ]
+    for key in diff.keys_only_in_a:
+        lines.append("only-in-a side=%s %s" % (a_label, _fx_key_text(key)))
+    for key in diff.keys_only_in_b:
+        lines.append("only-in-b side=%s %s" % (b_label, _fx_key_text(key)))
+    for key, a_values, b_values in diff.changed:
+        lines.append("changed %s :: %s -> %s :: %s -> %s"
+                     % (_fx_key_text(key), a_label, _fx_values_text(a_values),
+                        b_label, _fx_values_text(b_values)))
+    for key in diff.unstable_a:
+        lines.append("unstable-a side=%s %s" % (a_label, _fx_key_text(key)))
+    for key in diff.unstable_b:
+        lines.append("unstable-b side=%s %s" % (b_label, _fx_key_text(key)))
+    return lines
 
 
 # ---------------------------------------------------------------------------
