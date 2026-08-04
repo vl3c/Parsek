@@ -2638,6 +2638,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H20-eva-spawn-position":    ("EvaSpawnPosition", 2, "FLIGHT"),
         "H22-ui-complexity-mode":    ("UiComplexityMode", 4, "FLIGHT"),
         "H23-tracking-station":      ("TrackingStation", 10, "TRACKSTATION"),
+        "H24-ksp-api-sanity":        ("KspApiSanity", 5, "FLIGHT"),
+        "H25-serialization":         ("Serialization", 4, "FLIGHT"),
     }
 
     # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
@@ -2713,8 +2715,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(16, len(self.GROUP),
-                         "the H7-H20 + H22 + H23 group is 16 specs; if it genuinely changed "
+        self.assertEqual(18, len(self.GROUP),
+                         "the H7-H20 + H22-H25 group is 18 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")

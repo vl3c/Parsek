@@ -82,6 +82,34 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            // The merge can only tombstone THROUGH a supersede, and SupersedeCommit
+            // deliberately REFUSES to supersede an unflown provisional:
+            // `AppendRelations outcome=refused-unflown-provisional ... reason=empty
+            // Points -- the re-fly attempt has no playable trajectory, so it cannot
+            // replace the origin; writing 0 supersede rows and completing the merge
+            // (origin stays effective)`. With zero supersede rows there is no
+            // in-scope action for CommitTombstones to retire, so the §7.16 assertion
+            // below has an UNMET PRECONDITION and would red against CORRECT product
+            // behaviour.
+            //
+            // FOUND 2026-08-04 by the R7b spec, which arms a real session with
+            // InvokeRewind but never flies the re-fly: the merge logged that refusal
+            // and `Tombstoned 0 career actions (... Kerbal=0 ...)`, and this test red
+            // on "must be tombstoned after merge". Skipping NAMES the missing context
+            // per the house rule instead of asserting against an assumed one. On a
+            // flown re-fly - CL-3's shape, which measures `Tombstoned 1 career
+            // actions (... Kerbal=1 ...)` - this guard is false and every assertion
+            // below runs unchanged, so nothing is weakened.
+            if (provisional.Points == null || provisional.Points.Count == 0)
+            {
+                InGameAssert.Skip(
+                    "Provisional '" + (provisional.RecordingId ?? "<no-id>") +
+                    "' has no recorded trajectory (unflown re-fly), so SupersedeCommit " +
+                    "refuses to supersede the origin and no tombstone can be written. " +
+                    "Fly the re-fly before running this test.");
+                return;
+            }
+
             ParsekLog.Info("RewindTest",
                 $"KerbalRecoveryOnSupersede: found {deathActionIds.Count} kerbal-death action(s) " +
                 $"covering {deadKerbalNames.Count} kerbal(s) in subtree of size {subtreeBefore.Count}");

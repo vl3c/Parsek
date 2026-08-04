@@ -507,6 +507,16 @@
         "2026-07-28T15:14:06Z": 304.0
       }
     },
+    "R7a-rewind-session-absent": {
+      "last": 68.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 68.0,
+      "p95": 68.0,
+      "samples": {
+        "2026-08-04T13:33:46Z": 68.0
+      }
+    },
     "S0.5-live-record-discard": {
       "last": 46.0,
       "lastVsP50": 1.0,

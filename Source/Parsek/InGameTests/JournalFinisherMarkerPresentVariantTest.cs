@@ -43,35 +43,59 @@ namespace Parsek.InGameTests
             // in-flight recovery state.
             var priorJournal = scenario.ActiveMergeJournal;
 
-            scenario.ActiveMergeJournal = new MergeJournal
+            // AND the marker, which this test CONSUMES. Running the finisher on a
+            // post-Durable1 journal clears the live session marker - that is the
+            // behaviour asserted below, not a side effect - so without a restore
+            // this test permanently ends whatever Re-Fly session it borrowed.
+            //
+            // FOUND 2026-08-04 by the R7b spec, which arms a real session with
+            // InvokeRewind and then runs this whole category inside it. This test
+            // ate the session and NINE later marker-dependent members - the Merge*
+            // family, KerbalRecoveryOnSupersede, KerbalDualResidenceCarveOut - then
+            // skipped on "No active re-fly session", having been reachable a moment
+            // earlier (ContractTombstonesAcrossSupersede and InvokeRPStripAndActivate
+            // both ran ahead of it and saw the marker). Every sibling in this family
+            // already save-and-restores its scenario state in a finally; this one
+            // had no try/finally at all.
+            //
+            // The restore runs AFTER the assertions, so nothing here is weakened:
+            // the finisher still has to clear the marker for this test to pass.
+            var priorMarker = marker;
+            try
             {
-                JournalId = "mj_intest_" + System.Guid.NewGuid().ToString("N"),
-                SessionId = marker.SessionId,
-                TreeId = marker.TreeId,
-                Phase = MergeJournal.Phases.Durable1Done,
-                StartedUT = Planetarium.GetUniversalTime(),
-                StartedRealTime = System.DateTime.UtcNow.ToString("o"),
-            };
+                scenario.ActiveMergeJournal = new MergeJournal
+                {
+                    JournalId = "mj_intest_" + System.Guid.NewGuid().ToString("N"),
+                    SessionId = marker.SessionId,
+                    TreeId = marker.TreeId,
+                    Phase = MergeJournal.Phases.Durable1Done,
+                    StartedUT = Planetarium.GetUniversalTime(),
+                    StartedRealTime = System.DateTime.UtcNow.ToString("o"),
+                };
 
-            ParsekLog.Info("RewindTest",
-                $"JournalFinisherMarkerPresentVariant: synthesized journal " +
-                $"sess={marker.SessionId ?? "<no-id>"} phase=Durable1Done; invoking finisher");
+                ParsekLog.Info("RewindTest",
+                    $"JournalFinisherMarkerPresentVariant: synthesized journal " +
+                    $"sess={marker.SessionId ?? "<no-id>"} phase=Durable1Done; invoking finisher");
 
-            bool finisherRan = MergeJournalOrchestrator.RunFinisher();
-            InGameAssert.IsTrue(finisherRan, "Finisher did not run despite a synthesized journal");
+                bool finisherRan = MergeJournalOrchestrator.RunFinisher();
+                InGameAssert.IsTrue(finisherRan, "Finisher did not run despite a synthesized journal");
 
-            InGameAssert.IsNull(scenario.ActiveMergeJournal,
-                "After finisher completion the journal should be cleared");
-            InGameAssert.IsNull(scenario.ActiveReFlySessionMarker,
-                "After finisher completion the marker should be cleared (post-Durable1 phase drives marker clear)");
+                InGameAssert.IsNull(scenario.ActiveMergeJournal,
+                    "After finisher completion the journal should be cleared");
+                InGameAssert.IsNull(scenario.ActiveReFlySessionMarker,
+                    "After finisher completion the marker should be cleared (post-Durable1 phase drives marker clear)");
 
-            // Restore any real journal we preempted — caller may want to
-            // re-run this test in a follow-up scenario.
-            if (priorJournal != null)
-                scenario.ActiveMergeJournal = priorJournal;
-
-            ParsekLog.Info("RewindTest",
-                $"JournalFinisherMarkerPresentVariant: finisher cleared marker + journal as expected");
+                ParsekLog.Info("RewindTest",
+                    $"JournalFinisherMarkerPresentVariant: finisher cleared marker + journal as expected");
+            }
+            finally
+            {
+                // Restore any real journal we preempted — caller may want to
+                // re-run this test in a follow-up scenario.
+                if (priorJournal != null)
+                    scenario.ActiveMergeJournal = priorJournal;
+                scenario.ActiveReFlySessionMarker = priorMarker;
+            }
         }
     }
 }

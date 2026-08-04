@@ -1,0 +1,86 @@
+schema = 1
+id = "H25-serialization"
+tier = "nightly"
+# BATCH-ONLY scenario, exact H7-H20 shape. Roadmap R8 / inventory bucket B6.
+#
+# WHAT IT COVERS: the serialization contracts every other subsystem's persistence
+# rests on - ConfigNode round-tripping, the InvariantCulture float rule (a
+# comma-locale machine writes `1,5` and every downstream parse breaks silently),
+# RecordingPaths' path-traversal / invalid-filename rejection, and vessel-snapshot
+# rehydration from a `.pcrf` sidecar.
+#
+# The locale cell is the one worth having unattended in particular: it is the class
+# of defect that never reproduces on the developer's machine and corrupts every
+# recording written on someone else's.
+description = "Run the in-game Serialization category unattended: ConfigNode round-trip, InvariantCulture float formatting, RecordingPaths id validation (path traversal and invalid filename chars), and vessel-snapshot rehydration from a sidecar."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "serialization", "storage", "R8", "H25"]
+
+[fixture]
+# gloops-airshow, the family host, and here the choice is genuinely free: this
+# category is entirely fixture-INDEPENDENT. All four declarations execute on all
+# five candidate fixtures - two are pure BCL work touching no KSP state at all, one
+# is pure static string/char validation, and the fourth's only Skip guard requires
+# an UNLOADED game (MAIN_MENU), which no committed fixture produces. Sharing the
+# family's boot is the only tiebreak.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Serialization" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST. The rehydration cell reads a `.pcrf` ghost-geometry sidecar back into a
+# VesselSnapshot, which is D16 `sidecar-pcrf` executed rather than decided.
+# NOT claimed: the other three sidecar cells (`sidecar-prec`, `sidecar-craft`,
+# `sidecar-pann`) - no cell in this category writes or reads those - and no D1
+# recording-lifecycle token, since the batch records nothing.
+D16 = ["sidecar-pcrf"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED. Replace with MEASURED +
+# the run id on the first green flight.
+#  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
+#    [InGameTest(Category = "Serialization")] methods. That file hosts many other
+#    categories and DOES contain InGameAssert.Skip call sites, so a per-file grep
+#    would mislead; the derivation is per-method-body. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED: all four are scene-agnostic or FLIGHT (so nothing
+#    scene-skips on the Focusable route), none is AllowBatchExecution=false, and the
+#    single reachable in-body Skip - VesselSnapshotRehydratesFromSidecar's
+#    unloaded-game guard - cannot fire in a loaded FLIGHT game.
+#  - failed=0 is the ASSERTION.
+#  - passed=4 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route. Note this category would
+#    ALSO derive 4/4 at SPACECENTER (all four are scene-agnostic), so unlike most of
+#    the family this spec's scene token is a statement about the fixture rather than
+#    a load-bearing gate on the split. It is still pinned, because a wrong scene
+#    means the run did not do what the spec says it did.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Serialization scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

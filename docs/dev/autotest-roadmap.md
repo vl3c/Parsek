@@ -725,15 +725,49 @@ scenario's produced save, but it fires only on VIOLATIONS. It cannot prove the
 surface was produced. Presence still needs a token or a batch tally.
 Flight? No.
 
-**R7. Drive the D9 Rewind block.** One or two specs (split FLIGHT / SPACECENTER).
+**R7. Drive the D9 Rewind block.** ~~One or two specs (split FLIGHT / SPACECENTER).~~
+**PARTLY SHIPPED 2026-08-04, branch `wire-rewind-block`. Two specs committed, a
+third attempted and abandoned with its findings recorded.**
 
-31 of 37 `Rewind` tests are batch-allowed today; the other 6 need R5. Closes
-`seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`,
-`revert-during-refly-dialog`, `tombstones`, and hardens `merge-journal`,
-`terminal-kind-classify`, `read-back-guard` beyond R3's single live cycle.
-Deliberately after R3: a live re-fly proof plus a 31-test decision batch is a
-genuinely defended dimension; the batch alone is not.
-Flight? No.
+The pre-flight framing below was right that the split is FLIGHT / SPACECENTER and
+wrong about why. Reading all 37 bodies (plus every helper they reach) found the
+category is **BIMODAL on the re-fly session**, which no attribute or scene
+analysis shows: TWELVE members gate on
+`scenario.ActiveReFlySessionMarker != null`, and FOUR gate on it being NULL and
+skip when one exists. The two sets are DISJOINT, so no single boot can execute
+both, and the split that matters is by PRECONDITION MODE, not only by scene.
+
+What shipped:
+
+- **`R7a-rewind-session-absent`** (ISOLATED, FLIGHT, `career-pad-craft`).
+  LIVE-PROVEN, PASS attempt 1, 68 s, `total=37 passed=16 failed=0 skipped=21`.
+  The pin was DERIVED before the flight and matched token for token. Claims D9
+  `revert-during-refly-dialog`, `read-back-guard`, `rp-disk-reaper`. The isolated
+  arg is worth 3 of the 16 (the `OnFlightReady_*` pair plus
+  `PartPersistentIdStableAcrossSaveLoad`), and this is the first isolated spec
+  whose category is only PARTLY batch-disabled - which required generalising
+  three `IsolatedBatchWiringGroupTests` cells that had baked in H21 coincidences.
+- **`R7c-rewind-spacecenter`** (SPACECENTER, `fresh-career`). FLOWN, tally
+  MEASURED exactly as derived (`passed=4 failed=0 skipped=33`), batch green, but
+  RED BY FINDING on the `forbidden` ERROR contract - see R7C-SITE-B1-ERROR in
+  `todo-and-known-bugs.md`. Claims D9 `seal-stash-fly`, `rp-disk-reaper`.
+- **The session-live spec was ABANDONED** after four flights. Arming a real
+  session with `InvokeRewind` does unblock the twelve, but roughly a third of the
+  category is written as "install synthetic session state, drive a global
+  handler, assert" and is only correct when it is the only session in the
+  process. Three genuine test-isolation defects were found and FIXED
+  (`F5MidReFlyResume` twice, `JournalFinisherMarkerPresentVariant` eating the
+  marker for nine later members); four more were found and recorded. Full
+  four-flight record, per-defect diagnosis and the recipe for a future attempt:
+  R7-SESSION-BATCH-ISOLATION in `todo-and-known-bugs.md`.
+
+What R7 did NOT close, and why: `unfinished-flights-stash` (the only cell that
+would carry it skips - `ScenarioWriter` emits no `mergeState`, so nothing can
+satisfy `IsUnfinishedFlight`); `tombstones`, `merge-journal`,
+`terminal-kind-classify` (these need a FLOWN re-fly, which is CL-3's shape, not a
+seam-only spec). Two permanent fixture gaps blocking five of the 37 are filed as
+R7-FIXTURE-GAPS.
+Flight? Yes - five flown (three R7 + two re-confirmations), 53-68 s each.
 
 **R8. Drive D13, D6 and the D8 stragglers.** Roughly 15 specs, mostly free.
 

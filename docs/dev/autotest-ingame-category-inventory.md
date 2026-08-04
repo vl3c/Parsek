@@ -115,7 +115,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | - | B |
 | `IncompleteBallistic` | 8 | 8 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
-| `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | - | B |
+| `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
 | `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | - | B |
@@ -152,14 +152,14 @@ Two limits of this table, stated so nobody over-reads it:
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `Rewind` | 37 | 26 | 5 | 0 | 6 | 24 | - | B |
+| `Rewind` | 37 | 26 | 5 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | - | B |
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | - | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
-| `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
+| `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
@@ -188,11 +188,19 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **98 categories / 543 declarations**. Buckets **A 17 categories
-(92 declarations)**, **B 81 categories (451 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **25 of 98 categories**, up from 8.
-Measured against declarations rather than categories, that is 217 of 543 inside a
-driven category (was 125) of which 194 actually execute (was 103).
+Totals, re-derived: **98 categories / 543 declarations**. Buckets **A 20 categories
+(138 declarations)**, **B 78 categories (405 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **28 of 98 categories**, up from 8.
+Measured against declarations rather than categories, that is 263 of 543 inside a
+driven category (was 125).
+
+The 2026-08-04 wave (`wire-rewind-block`, roadmap R7 + two R8 stragglers) added
+three: `Rewind` (37 declarations - the largest undriven category in the tree, and
+the one two earlier waves skipped because 24 of its 37 carry run-time self-skips),
+`KspApiSanity` (5) and `Serialization` (4). `Rewind` is driven by TWO specs, and
+the reason is a property of the category rather than of the fixture: it is bimodal
+on the live re-fly session, so no single boot can execute both halves. See bucket
+B4 below, which is where it used to sit.
 
 **BUCKET C IS EMPTY as of 2026-07-30.** Its last and only remaining member was
 `TrackingStation`, held there by sub-reason C2 ("the scene is unreachable from the
@@ -236,7 +244,7 @@ one wired category costs one KSP boot per cadence. Wiring all 74 undriven catego
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (16 categories, 81 declarations)
+### Bucket A - wired now (20 categories, 138 declarations)
 
 Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
 spec would end up pinned against the wrong derivation.
