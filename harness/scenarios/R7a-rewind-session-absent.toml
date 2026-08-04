@@ -131,14 +131,23 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED. This pin is a PREDICTION
-# and the first flight is expected to correct it. Every one of the 37 bodies was
-# read, with every helper it calls followed, but 24 of them carry run-time
-# InGameAssert.Skip guards and no static analysis settles those - which is the
-# entire reason this category was left undriven through two prior waves. Replace
-# this paragraph with MEASURED + the run id on the first green flight, and if the
-# split differs do NOT widen the pattern: read the skip messages out of the log and
-# correct the derivation below.
+# EVIDENCE STANDING: MEASURED, TWICE. Flown 2026-08-04 (run
+# `2026-08-04_1332_R7a-rewind-session-absent`: PASS on attempt 1, 68 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0), and re-confirmed after the
+# three in-game test fixes this branch also lands (run `2026-08-04_1451`, PASS
+# attempt 1, 67 s) - the re-confirmation matters because one of those fixes adds a
+# skip guard to F5MidReFlyResume, which is a member of THIS batch, and the second
+# run proves the guard does not fire here (no session is active, so it executes and
+# the tally is unmoved).
+#
+# The pin is a LITERAL pattern and evaluate_expectations requires it to match, so a
+# PASS means the runner printed this line TOKEN FOR TOKEN. THE WHOLE PRE-FLIGHT
+# DERIVATION HELD, which is worth recording: 24 of the 37 bodies carry run-time
+# InGameAssert.Skip guards that no static analysis settles - the entire reason this
+# category was left undriven through two prior waves - and reading every one of them
+# plus the helpers they call predicted the passed/skipped split exactly. If a future
+# run reds with a different split do NOT widen the pattern: read the skip messages
+# out of the log and correct the derivation below.
 #
 # WHAT EACH TOKEN RESTS ON:
 #  - total=37 is ATTRIBUTE-EXACT and the only statically certain token: 37

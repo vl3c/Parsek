@@ -55,8 +55,11 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED. Replace with MEASURED +
-# the run id on the first green flight.
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_1450_H25-serialization`: PASS on attempt 1, 49 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). LITERAL pattern, so the
+# PASS means the line matched token for token; the derivation below predicted
+# every token correctly.
 #  - total=4 is ATTRIBUTE-EXACT: RuntimeTests declares exactly 4
 #    [InGameTest(Category = "Serialization")] methods. That file hosts many other
 #    categories and DOES contain InGameAssert.Skip call sites, so a per-file grep

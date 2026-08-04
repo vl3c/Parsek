@@ -58,8 +58,13 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED. Replace with MEASURED +
-# the run id on the first green flight.
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_1449_H24-ksp-api-sanity`: PASS on attempt 1, 49 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN. The pre-flight derivation below
+# predicted every token correctly, including the skipped=0 that the inventory
+# table's "3 members with a self-skip" made look doubtful.
 #  - total=5 is ATTRIBUTE-EXACT: ExtendedRuntimeTests declares exactly 5
 #    [InGameTest(Category = "KspApiSanity")] methods. Kept in sync by
 #    CommittedBatchTallySourceSyncTests.
