@@ -1126,9 +1126,162 @@ file already carried the false positive silently - its own `rec_provisional` is
 NotCommitted with the zombie's pid and StartUT - which is why the bug survived
 unit cover until the harness surfaced it.
 
-## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. FIXTURE FIXED BY CONSTRUCTION 2026-08-05, branch `small-fixes-2` - measurement re-fly pending]
+## A re-fly fork latches every crew member at `KerbalEndState.Unknown` for the life of the recording [FOUND 2026-08-05, branch `small-fixes-2`, from the CL-3 forensic run `2026-08-04_2136`. FILED, NOT FIXED HERE]
 
-### Fixture fix (2026-08-05): the root is now crewless, and the "crewless" gates were vacuous
+Secondary finding from the `dead-crew-strip` investigation. Benign today; NOT benign for
+a fork that ends `Recovered`, where it turns into a permanent crew leak.
+
+### The latch
+
+Three code facts compose into it:
+
+1. `RewindInvoker.TryRefreshForkSnapshotsFromLiveVessel` (~:390) sets the provisional's
+   `VesselSnapshot` (and `GhostVisualSnapshot`) AT REWIND TIME - correctly, so the fork
+   models the live craft. At that moment `TerminalStateValue` is still `null`: the fork
+   has not ended.
+2. `LedgerOrchestrator.NeedsCrewEndStatePopulation` (~:1248) admits on
+   `rec.VesselSnapshot != null` alone, with no terminal-state condition on that branch.
+   So the very next recalc admits the fork.
+3. `KerbalsModule.InferCrewEndState` returns `Unknown` for a null terminal state, and
+   `PopulateCrewEndStates` then sets `rec.CrewEndStatesResolved = true` (~:707).
+   That flag is SERIALIZED (`RecordingTreeRecordCodec` writes/reads
+   `crewEndStatesResolved`) and `NeedsCrewEndStatePopulation`'s first line treats it -
+   along with a non-null `CrewEndStates` - as a PERMANENT skip.
+
+Net: the fork's crew end states are decided during the rewind, before the fork has an
+outcome, and are never revisited.
+
+### Measured
+
+Run `2026-08-04_2136`: the fork was stamped `terminal=Landed` at `00:37:06.750`, yet the
+committed `KerbalAssignment` reads `Unknown` - inherited from the `00:37:01.680`
+inference, five seconds and one terminal state earlier.
+
+### Why it is benign now and not later
+
+`Unknown` and `Aboard` produce byte-identical reservations
+(`permanent = (endState == Dead)`, `endUT = +inf` for both), so a fork that ends
+`Landed`/`Aboard` behaves correctly by coincidence.
+
+A fork that ends **`Recovered`** does not. `Recovered` is the ONLY end state that sets a
+finite `endUT` (`meta.EndUT`), and it is the state the latch can never reach. So a
+re-flown-and-recovered kerbal keeps `endUT = +inf` and is **reserved forever** - the D12
+`missed-endut-auto-free` surface, arrived at from a new direction.
+
+### Affected paths
+
+- `Source/Parsek/RewindInvoker.cs:365-398`
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs:1243-1290`
+- `Source/Parsek/KerbalsModule.cs:634-708`
+
+### Fix shape (not taken here)
+
+Either do not latch `CrewEndStatesResolved` when `TerminalStateValue == null`, or clear
+it when a terminal state is later stamped. The second is likelier the right one - the
+first leaves genuinely still-active recordings re-inferring on every recalc - but either
+way the change touches the one-shot contract `NeedsCrewEndStatePopulation` was written
+around, so it wants its own branch, its own unit cells over the `Recovered` case, and a
+re-fly that ends in Recovery to prove it.
+
+---
+
+## ~~`dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal~~ [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. **RESOLVED 2026-08-05**, branch `small-fixes-2`, off the discriminating re-fly `2026-08-04_2136` - fixture hypothesis CONFIRMED, half (ii) RE-PINNED, cell CLAIMED. Same-PR confirm fly pending on the new token's shape]
+
+### Outcome, measured
+
+The crewless-root re-fly (`2026-08-04_2136`, PASS; the run this entry called for)
+settled every open question in it.
+
+**The fixture hypothesis is CONFIRMED.** With the root made crewless, the
+`cl-stack-root`-sourced reservation is GONE from the log entirely - the thing this
+entry was filed about.
+
+**The death-sourced reservation IS released.** Pre-tombstone the log carries
+`Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead), recording 'cl-pod-a'`; after
+the tombstone no `(Dead)` / `INDEFINITE` reservation line ever appears again. Half (i)
+held as before (`Tombstoned 1 career actions (... Kerbal=1 ...)`).
+
+**And `1 reservations remain` STILL.** The survivor is
+`endUT=Infinity (Unknown), recording 'rec_c5b16ffb9e7c41b5bfac5f132a00399e'` - the
+re-fly session's OWN live fork, with Jebediah alive and aboard the active vessel - and
+it generates `Stand-in generated: 'Tilan Kerman' (Pilot) for slot 'Jebediah Kerman'`.
+
+**That survivor is correct by design**, and both alternate hypotheses were ruled out
+with code plus log evidence before anything was re-pinned:
+
+- *Not the `Unknown` end state.* `KerbalsModule` sets
+  `permanent = (endState == KerbalEndState.Dead)`, so `Aboard` and `Unknown` produce
+  byte-identical non-permanent reservations (`endUT = +inf` both ways). The
+  `aboard=0/unknown=1` split is a red herring for this outcome.
+- *Not a failed identity resolution.* The fork's pid equals the live vessel's,
+  `CopyInheritedIdentityForFork` copies both pid and guid, and nothing in the
+  reservation path consults vessel identity at all.
+- *Not the fixture, this time.* `RewindInvoker` refreshed the fork snapshots FROM THE
+  LIVE VESSEL (`liveParts=8`), replacing the fixture-inherited surfaces - the identical
+  path a production re-fly runs.
+
+`0 reservations remain` is **structurally unreachable on any same-crew re-fly**:
+`CrewReservationManager` rebuilds from the ELS, `ProcessAction` adds an entry for every
+non-Tourist `KerbalAssignment` with resolvable meta, and the fork always carries the
+kerbal.
+
+### THE INVERSION: the candidate gate this entry proposed was backwards
+
+The old "Fix, for whoever picks this up" section below proposed
+`forbidden = ["Stand-in generated"]`. That gate is **inverted**, and the run proved it.
+
+Pre-tombstone, the pod's Dead row MERGES into the reservation entry and sets
+`IsPermanent = true`, and `PostWalk` `continue`s permanent reservations BEFORE slot
+creation - so a corpse gets no slot and no stand-in. Removing the Dead row (the strip
+WORKING) demotes the entry to temporary, which creates the slot, which generates the
+stand-in. Measured: pre-tombstone `reservations=1 permanent=1 temporary=0 slots=0`;
+post-tombstone `reservations=1 permanent=0 temporary=1 slots=1` + `Tilan`.
+
+So `forbidden = ["Stand-in generated"]` would have passed **exactly when the tombstone
+did nothing** and failed because it worked. Cheap to have shipped, expensive to have
+trusted.
+
+### The re-pin, and why it is not definition-bending
+
+Half (ii) is re-pinned DEATH-SCOPED (registry `[D12]` block, 2026-08-05): after the
+tombstone the recompute leaves **no PERMANENT (death-derived) reservation** for the
+kerbal - observable as `permanent=0` in the `Recomputed after tombstones:` line - while
+reservations sourced from live or committed recordings OUTSIDE the supersede write-set
+(the re-flown continuation itself) legitimately survive as temporary, and the stand-in
+that demotion triggers is the strip WORKING, not a leak.
+
+This is an EXPLICIT re-pin, made with the measurement cited, not a silent
+reinterpretation. It is warranted by the registry's own rationale sentence, which was
+already death-scoped: the tombstone's job is *"stopping the Effective Ledger Set from
+re-deriving a reservation and a stand-in for a corpse the merged timeline says never
+died."* The operative (ii) SENTENCE was name-scoped and fails on this shape; the
+rationale is about the corpse's derivation, not about the name never appearing again.
+
+**It is not the relaxation the section below forbids.** That warning stands: half (i)
+alone is already D9 `tombstones`, and a `dead-crew-strip` meaning the same thing is a
+second name for one fact. `permanent=0` is a separate observation of the ELS recompute
+and it is falsifiable in the right direction - a tombstone that fails to strip the Dead
+row leaves `permanent=1` and REDS the spec.
+
+### What landed
+
+- `CrewReservationManager.RecomputeFromEffectiveLedger` now emits
+  `Recomputed {reason}: N reservations remain (permanent=P temporary=T){detail}.` The
+  bare count could not discriminate a working strip from a no-op; the split can.
+- CL-3 requires `Recomputed after tombstones: [0-9]+ reservations remain \(permanent=0 `
+  and claims `D12 = ["dead-crew-strip"]`.
+- Registry D12 block carries the re-pin and its evidence.
+
+**PENDING:** the `permanent=`/`temporary=` terms first ship with this branch's DLL, so
+the token's exact SHAPE is derived from the call site, not yet flight-observed. The
+same-PR confirm fly is the live proof.
+
+### The trail below: the fixture fix, and the reasoning as it stood BEFORE the run
+
+Kept unedited except where a passage would now read as a live instruction. The wrong
+predictions in it are the point - they are what the run corrected.
+
+#### Fixture fix (2026-08-05): the root is now crewless, and the "crewless" gates were vacuous
 
 `RewindCrewLossFixture.BuildRoot` now authors a crewless `ProbeShip` snapshot in
 place of the crewed `FleaRocket` (pid `210001`, name `CL Stack`, points, group and
@@ -1150,14 +1303,10 @@ stamping one and quietly leaving a second crew source. The RP quicksave needs no
 matching change - its slot VESSELs are cloned from the host save's donor VESSEL, and
 no fixture recording snapshot reaches the RP sidecar (verified empirically).
 
-REMAINING: the measurement re-fly (this worktree's `Parsek.Tests.dll` must be
-rebuilt first - the injector runs `--no-build`). Read it for: half (i) still holding
-(`Tombstoned 1 career actions (... Kerbal=1 ...)`), and the (ii) decision -
-`Recomputed after tombstones: 0 reservations remain.` with NO `Stand-in generated`
-and NO surviving `Reservation: 'Jebediah Kerman'`. Only then does D12 become
-claimable, with the candidate gate recorded below. If (ii) STILL fails on a crewless
-root, the defect is in the product and the fixture was a red herring - file it, do
-not bend the definition.
+~~REMAINING: the measurement re-fly~~ **DONE - `2026-08-04_2136`.** The read it asked
+for was written wrong in two places, and both are worth keeping visible: it expected
+`0 reservations remain` (structurally unreachable) and NO `Stand-in generated` (the
+inverted signal). See "Outcome, measured" above for what the run actually said.
 
 The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
 action in the supersede subtree is tombstoned, AND (ii) the ELS recompute that follows
@@ -1167,7 +1316,7 @@ leaves NO surviving reservation or stand-in for that kerbal.
 failing**, so the cell stays unclaimed - claiming it off half a definition is what the
 registry note exists to forbid.
 
-### The measurement
+#### The measurement (`2026-08-03_1834`, the CREWED-root run)
 
 ```
 21:35:20.866  Added 1 supersede relations for subtree rooted at cl-pod-a
@@ -1185,7 +1334,10 @@ terminalState=Destroyed` -> `PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`)
 tombstoned, and the tally's `Kerbal=1` term proves it was the KERBAL row rather than
 some other career action.
 
-### Why (ii) failed. WHETHER it is a product defect is NOT established
+#### Why (ii) failed. WHETHER it is a product defect is NOT established
+
+> DISCRIMINATED 2026-08-05: it WAS the fixture, and the crewless-root run additionally
+> revealed that (ii) itself was mis-stated. See the re-pin above.
 
 The surviving reservation is sourced from **`cl-stack-root`**, and the supersede subtree
 is `subtreeCount=1` rooted at `cl-pod-a`. The root is not in the subtree, so no tombstone
@@ -1205,14 +1357,16 @@ the defect is in the product and the fixture was a red herring. Until that run e
 a finding - and it should not be cited as one. (B9's root is also terminal-state-less, but B9 is crewless
 throughout, so the question never arose there.)
 
-### Fix, for whoever picks this up
+#### ~~Fix, for whoever picks this up~~ (DONE 2026-08-05; the candidate gate it proposed was WRONG)
 
 Make the pod the ONLY crew source inside the tree, so the pod's tombstone is the only
 thing reserving that kerbal. Cheapest version: give `BuildRoot` a crewless
 `ProbeShip` snapshot (the root models the stack, and the crew rides the pod). Then
 re-fly; if (ii) then holds, D12 `dead-crew-strip` becomes claimable with a gate on the
-recompute half - candidate: `forbidden = ["Stand-in generated"]` plus a
-`Recomputed after tombstones: 0 reservations remain` required token.
+recompute half - ~~candidate: `forbidden = ["Stand-in generated"]` plus a
+`Recomputed after tombstones: 0 reservations remain` required token.~~ **Both halves of
+that candidate are wrong** - the count is structurally unreachable and the stand-in
+signal is inverted. The gate that shipped is `permanent=0`; see THE INVERSION above.
 
 Do NOT instead relax the registry definition to just half (i). The tombstone half is
 already claimed as D9 `tombstones`; a `dead-crew-strip` that means the same thing is a

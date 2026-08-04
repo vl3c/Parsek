@@ -143,13 +143,18 @@ namespace Parsek.Tests
         public void TheRootStaysCrewlessSoThePodIsTheOnlyCrewSourceInTheTree()
         {
             // THE HALF-(ii) GUARD. The registry pins `dead-crew-strip` as (i) the death
-            // action tombstoned AND (ii) the ELS recompute leaving NO surviving
-            // reservation or stand-in for the kerbal. (ii) is observable only when the
-            // pod is the tree's ONLY crew source: a crewed root carries no terminal
-            // state, so InferCrewEndState returns Unknown and the root holds an
-            // indefinite reservation from OUTSIDE the supersede subtree - which is
-            // exactly what CL-3's 2026-08-03_1834 flight measured (`Recomputed after
-            // tombstones: 1 reservations remain`, sourced from 'cl-stack-root').
+            // action tombstoned AND (ii) the ELS recompute leaving no PERMANENT
+            // (death-derived) reservation for the kerbal - `permanent=0` in the
+            // `Recomputed after tombstones:` line, RE-PINNED 2026-08-05 off the
+            // discriminating re-fly this fixture change bought (see the registry's D12
+            // block; the older name-scoped wording was unsatisfiable by any same-crew
+            // re-fly). (ii) is CLEANLY observable only when the pod is the tree's ONLY
+            // crew source: a crewed root carries no terminal state, so InferCrewEndState
+            // returns Unknown and the root holds an indefinite reservation from OUTSIDE
+            // the supersede subtree, which is a second confound on top of the re-flown
+            // fork's own legitimate one - exactly what CL-3's 2026-08-03_1834 flight
+            // measured (`Recomputed after tombstones: 1 reservations remain`, sourced
+            // from 'cl-stack-root'), and what 2026-08-04_2136 confirmed gone.
             // Asserted against the SIDECAR the game reads, existence-checked first so
             // the cell cannot pass vacuously against a fixture that stopped writing a
             // root snapshot at all.

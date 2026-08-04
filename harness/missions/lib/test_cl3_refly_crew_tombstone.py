@@ -1956,36 +1956,68 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         self.assertIn("career", self.claimed["D14"])
         self.assertIn("Mode = CAREER", _fixture_save_lines(self.spec))
 
+    def test_every_claimed_d12_value_has_a_proving_token(self):
+        # `dead-crew-strip` CLAIMED 2026-08-05, and this is the claim-is-not-gate
+        # half: the claim is legal only while the spec still REQUIRES the token
+        # that gates the registry's re-pinned half (ii).
+        self.assertEqual(["dead-crew-strip"], self.claimed.get("D12", []))
+        self.assertTrue(self._has("Recomputed after tombstones:"),
+                        "D12 dead-crew-strip is claimed with no recompute token")
+        # `permanent=0` IS the assertion, and the TRAILING SPACE is load-bearing
+        # (without it the term would also match a `permanent=01`+ rendering). A
+        # token pinning the COUNT instead would be wrong in a way no flight
+        # catches: a same-crew re-fly always leaves the fork's own live
+        # reservation, so `0 reservations remain` is structurally unreachable.
+        self.assertTrue(self._has("(permanent=0 "),
+                        "the D12 token must pin `permanent=0 `, not the bare count")
+
+    def test_the_dead_crew_strip_claim_does_not_ride_an_inverted_stand_in_gate(self):
+        # THE INVERSION, pinned so nobody re-adds the candidate that was wrong.
+        # A pre-tombstone Dead row MERGES into the reservation entry and sets
+        # `IsPermanent`; `PostWalk` `continue`s permanent reservations BEFORE slot
+        # creation, so a corpse never gets a slot or a stand-in. STRIPPING the row
+        # demotes the entry to temporary -> slot -> stand-in. So a
+        # `forbidden = ["Stand-in generated"]` row would pass EXACTLY WHEN THE
+        # TOMBSTONE DID NOTHING and fail because it worked. Measured in
+        # `2026-08-04_2136`: permanent 1 -> 0 with `Stand-in generated: 'Tilan
+        # Kerman' (Pilot) for slot 'Jebediah Kerman'` as the RESULT of the strip.
+        forbidden = self.spec["expectations"]["logContracts"].get("forbidden", [])
+        self.assertFalse(any("Stand-in generated" in p for p in forbidden),
+                         "a Stand-in-generated forbidden row is INVERTED on this lane")
+        # ...and the same reasoning forbids requiring the strip to zero the count.
+        self.assertFalse(any("0 reservations remain" in p for p in self.required))
+
     def test_the_scope_fenced_cells_stay_unclaimed(self):
-        # THE SCOPE FENCE, one cell closed and one MEASURED SHUT.
+        # THE SCOPE FENCE, with the fence line MOVED once and recorded as moved.
         #
-        # D9 `tombstones` IS now claimed - the arming commit earned it, and the
-        # cell above pins both of its gates.
+        # D9 `tombstones` was claimed at the 2026-08-03 arming; the cell above
+        # pins both of its gates.
         #
-        # D12 `dead-crew-strip` is STILL NOT claimed, and this is no longer a
-        # "not yet measured" - the measurement flight `2026-08-03_1834` measured
-        # the second half of the registry definition FAILING. The registry pins
-        # the cell as (i) the death action is tombstoned AND (ii) the ELS
-        # recompute leaves NO surviving reservation or stand-in. (i) held:
-        # `Tombstoned 1 career actions (... Kerbal=1 ...)`. (ii) did NOT:
-        #     Recomputed after tombstones: 1 reservations remain.
-        #     Stand-in generated: 'Philsted Kerman' (Pilot) for slot 'Jebediah Kerman'
-        #     Reservation: 'Jebediah Kerman' endUT=Infinity (Unknown),
-        #                  recording 'cl-stack-root'
-        # The surviving reservation is sourced from `cl-stack-root`, which is
-        # OUTSIDE the supersede subtree (`subtreeCount=1`, rooted at `cl-pod-a`),
-        # so no tombstone of the pod could ever release it. Cause is the FIXTURE,
-        # not the product: RewindCrewLossFixture gives the root a crewed snapshot
-        # carrying the SAME kerbal and no terminal state, so the root holds an
-        # independent indefinite `(Unknown)` reservation on him.
+        # D12 `dead-crew-strip` was claimed on 2026-08-05, and NOT by relaxing the
+        # definition - by RE-PINNING the half of it that no flight could satisfy.
+        # The 2026-08-02 pin read (ii) NAME-SCOPED ("no surviving reservation or
+        # stand-in for the dead kerbal"). `2026-08-03_1834` measured that failing
+        # on a crewed fixture root; `2026-08-04_2136` re-ran it with the root made
+        # crewless and settled the discrimination: the root-sourced reservation is
+        # GONE and the death-sourced one IS released (`Reservation: 'Jebediah
+        # Kerman' endUT=INDEFINITE (Dead), recording 'cl-pod-a'` never reappears
+        # after the tombstone), yet `1 reservations remain` again - the survivor
+        # being `endUT=Infinity (Unknown), recording 'rec_c5b16ffb…'`, the re-fly
+        # session's OWN live fork, with the kerbal alive aboard the active vessel.
+        # That is correct by design and structurally unavoidable: the recompute
+        # rebuilds from ELS and `ProcessAction` adds an entry for every surviving
+        # `KerbalAssignment`. The re-pinned (ii) is `permanent=0` - death-scoped,
+        # which is the reading the registry's own rationale sentence already
+        # warranted ("a reservation and a stand-in for a CORPSE the merged
+        # timeline says never died") - and it is falsifiable in the right
+        # direction: a no-op tombstone leaves `permanent=1` and reds. The two
+        # cells above are its gate.
         #
-        # So the cell stays unclaimed until a fixture whose only crew source in
-        # the subtree is the pod - see todo-and-known-bugs.md. Claiming it off
-        # half a definition is exactly what the registry note forbids.
+        # `tombstone-rep-penalty` stays unclaimed for a DIFFERENT reason - see the
+        # cell below: a product change, not a flight.
         self.assertIn("tombstones", self.claimed.get("D9", []))
         self.assertNotIn("tombstones", self.claimed.get("D8", []))
-        for value in ("dead-crew-strip", "tombstone-rep-penalty"):
-            self.assertNotIn(value, self.claimed.get("D12", []))
+        self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
         # D8 is not claimed AT ALL: the merge does recalc the ledger, but no token
         # here names a module or the recalc engine, and this spec cannot carry the
         # oracle facets that back CL-2's D8 claims (the ledger block is illegal
@@ -2000,9 +2032,11 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         # produces no Parsek rep row to tombstone. If the registry ever stops saying
         # so, this spec's "will never be claimed here" comment has gone stale.
         self.assertIn("UNREACHABLE BY ANY FLIGHT", self.registry_text)
-        # This spec claims no D12 value at all, so the cell cannot arrive by an
-        # edit that only touches a list...
-        self.assertEqual([], self.claimed.get("D12", []))
+        # This used to assert `claimed["D12"] == []`, which stopped being the
+        # honest check on 2026-08-05 when `dead-crew-strip` was claimed. The
+        # guarantee it was really buying is narrower and survives the change:
+        # THIS value cannot arrive by an edit that only touches a list...
+        self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
         # ...and the spec carries the REASON, not merely the omission, so the
         # next author does not re-derive it from the product.
         self.assertIn("UNREACHABLE", _spec_text())

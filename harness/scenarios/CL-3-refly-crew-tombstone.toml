@@ -37,11 +37,16 @@ id = "CL-3-refly-crew-tombstone"
 #   5. the post-mission `AnswerMergeDialog merge` runs the merge tail, which appends
 #      the supersede relations and then runs `CommitTombstones` over the death row.
 #
-# THE TWO TOKENS THAT ARE THE POINT are in `[expectations.logContracts]` below:
+# THE THREE TOKENS THAT ARE THE POINT are in `[expectations.logContracts]` below:
 # `Added [0-9]* supersede relations` (non-zero ON PURPOSE - `Added 0` is exactly
-# what a refused batch emits) and `Tombstoned [1-9][0-9]* career actions (... Kerbal=[1-9]`
+# what a refused batch emits); `Tombstoned [1-9][0-9]* career actions (... Kerbal=[1-9]`
 # (non-zero on the KERBAL term specifically - the whole line also exists in a
-# `Tombstoned 0 ... Kerbal=0` empty-subtree form).
+# `Tombstoned 0 ... Kerbal=0` empty-subtree form); and, since 2026-08-05,
+# `Recomputed after tombstones: N reservations remain (permanent=0 ` - the ELS
+# recompute deriving NO death-sourced reservation once the row is gone, which is the
+# re-pinned half (ii) of D12 `dead-crew-strip`. The COUNT in that third token is
+# deliberately unpinned: the re-flown fork's own live reservation legitimately
+# survives, so only the `permanent=` term discriminates.
 #
 # -------------------------------------------------------------------------------------
 # ARMED 2026-08-03, AFTER THREE FLIGHTS. (This block used to say "UNARMED ON PURPOSE.
@@ -196,9 +201,13 @@ tier = "operator"
 # names a focusable vessel), and this spec's template carries one, so the RequiresFlight
 # verbs EXECUTE rather than defer - the correction R1's FLIGHT-ENTRY note works through.
 # WHY IT IS STILL operator: a HUMAN promotion call is outstanding, recorded in
-# `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` - the D12 `dead-crew-strip`
-# decision (fixture change + re-fly) is the open debt, and R1/B16 set the precedent that
-# flipping a tier is a scheduling change a human makes, not one a green run makes.
+# `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS`. The `dead-crew-strip` debt
+# that used to sit here (fixture change + re-fly) IS DISCHARGED - the crewless root
+# landed 2026-08-05 and the discriminating re-fly ran 2026-08-04_2136 - and what
+# replaced it is narrower: the `permanent=`/`temporary=` terms on the recompute line
+# ship first with this branch's DLL, so the same-PR CONFIRM FLY is the one thing that
+# proves the new required token's exact shape. R1/B16 set the precedent that flipping a
+# tier is a scheduling change a human makes, not one a green run makes.
 # PROMOTE TO: nightly, once that call is taken. Its happy
 # path is short (no ascent: the tree it rewinds is already on disk), so once green it
 # costs about what S4.1 costs, not what R1 costs.
@@ -208,9 +217,11 @@ instanceProfile = "stock-minimal"
 # (two PASS + a deliberate negative control), so `pending-flight` had stopped describing
 # the record, and `--tag flown` is a REAL selector that was excluding it.
 # `pending-operator` STAYS, and now names the ONE debt that is actually open: the
-# `dead-crew-strip` cell needs a fixture change (crewless root) plus a re-fly before it
-# can be claimed or its fixture explanation confirmed. The other two debts are
-# DISCHARGED - `vesselStateChanged` (the row was removed) and the arming follow-up (done
+# CONFIRM FLY of the `permanent=0` token this spec started requiring on 2026-08-05. The
+# `dead-crew-strip` debt it used to name (fixture change + re-fly) is DISCHARGED: the
+# crewless root landed and `2026-08-04_2136` measured the discrimination, so the cell is
+# CLAIMED in `[dimensionsCovered]`. The other two debts are DISCHARGED too -
+# `vesselStateChanged` (the row was removed) and the arming follow-up (done
 # 2026-08-03) - and `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` records that.
 # The tag is non-gating; the tier governs cadence.
 tags = ["rewind", "refly", "merge", "tombstone", "crew-loss", "CL3", "D9", "D12",
@@ -393,6 +404,24 @@ D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back
        # source ... terminalState=Destroyed` -> `PopulateCrewEndStates: ...
        # crew=1 aboard=0 dead=1`). First time the suite has reached it.
        "tombstones"]
+# D12, the crew consequence of the tombstone:
+#   `dead-crew-strip` <- "Recomputed after tombstones: [0-9]+ reservations remain
+#                        \(permanent=0 ", the ELS recompute's permanent/temporary split.
+# ADDED 2026-08-05 with the registry's RE-PIN of half (ii) (the registry's D12 block
+# carries the full re-pin record). The 2026-08-02 pin read (ii) NAME-SCOPED - "no
+# surviving reservation or stand-in for the dead kerbal" - which the 2026-08-04_2136
+# crewless-root re-fly proved unsatisfiable by ANY same-crew re-fly: the recompute
+# rebuilds from ELS and `ProcessAction` adds an entry for every surviving
+# `KerbalAssignment`, and the re-flown fork always carries the kerbal ALIVE. That run
+# also showed the old candidate gate was INVERTED: a Dead row makes the merged
+# reservation PERMANENT and `PostWalk` skips permanents BEFORE slot creation, so a
+# `forbidden = ["Stand-in generated"]` gate would have passed exactly when the tombstone
+# did NOTHING. Measured: the death-sourced reservation IS released (`Reservation:
+# 'Jebediah Kerman' endUT=INDEFINITE (Dead), recording 'cl-pod-a'` never reappears after
+# the tombstone), permanent goes 1 -> 0, and the stand-in `Tilan Kerman` is CREATED BY
+# that release. The re-pinned (ii) is `permanent=0`, falsifiable in the right direction:
+# a tombstone that fails to strip the Dead row leaves `permanent=1` and REDS this spec.
+D12 = ["dead-crew-strip"]
 # D14 `kerbin` / `scene-flight` <- the re-fly milestones can only be emitted from FLIGHT
 # on Kerbin; `career` <- the committed template's `Mode = CAREER`, which a cell asserts
 # against the fixture itself rather than against prose.
@@ -401,19 +430,15 @@ D14 = ["kerbin", "career", "scene-flight"]
 # DELIBERATELY NOT CLAIMED, and each absence is pinned by its own cell so a future author
 # does not add the claim without the gate:
 #
-#   D9 `tombstones` and D12 `dead-crew-strip`. THESE ARE WHAT THE ARMING FLIGHT BUYS,
-#   and they are exactly the two cells CL-2's scope fence says stage B is for. The
-#   registry PINS `dead-crew-strip` (2026-08-02) as a TWO-part definition: (i) the death
-#   action is tombstoned - "observable as a non-zero `Kerbal=` term in
-#   `CommitTombstones`'s `Tombstoned N career actions (... Kerbal=K ...)` line AND as
-#   `tombstones >= 1` in the M-C2 save parse" - and (ii) the ELS recompute that follows
-#   leaves no surviving reservation or stand-in for the dead kerbal. Since the 2026-08-03
-#   arming this spec gates BOTH halves of (i): the LOG half (the `Kerbal=[1-9]` token) and
-#   the SAVE-PARSE half (`[expectations.rewind] tombstones = { min = 1 }`, armed - see the
-#   ARMED block). D9 `tombstones` is therefore CLAIMED, in the D9 array above.
-#   D12 `dead-crew-strip` is NOT, and stays out: it additionally needs a gate on half (ii)
-#   (`CrewReservationManager.RecomputeAfterTombstones`), which no token in this file
-#   pins.
+#   (D9 `tombstones` and D12 `dead-crew-strip` USED TO SIT HERE, as the two cells CL-2's
+#   scope fence says stage B is for. BOTH ARE NOW CLAIMED, and the arrays above say so.
+#   `tombstones` was claimed at the 2026-08-03 arming, which gates BOTH halves of (i):
+#   the LOG half (the `Kerbal=[1-9]` token) and the SAVE-PARSE half
+#   (`[expectations.rewind] tombstones = { min = 1 }` - see the ARMED block).
+#   `dead-crew-strip` followed on 2026-08-05, once half (ii) had BOTH a re-pinned,
+#   flight-satisfiable definition and a token in this file that gates it - the
+#   `permanent=0` term. The entry is kept rather than deleted because the shape of the
+#   omission is the useful part: a claim waited on a GATE, not on an opinion.)
 #
 #   D12 `tombstone-rep-penalty` WILL NEVER BE CLAIMED HERE, and not because the flight is
 #   pending: the registry records it as UNREACHABLE BY ANY FLIGHT (2026-08-02, mechanical).
@@ -461,7 +486,7 @@ allowedAnomalies = []
 count = { min = 1 }
 
 [expectations.logContracts]
-# THREE GROUPS.
+# FOUR GROUPS.
 #
 # GROUP 1 - THE RE-FLY MILESTONES R1 PINS, verbatim. `StartInvoke` proves the pre-load
 # phase was entered and `Invocation complete` proves the post-load ConsumePostLoad
@@ -498,12 +523,41 @@ count = { min = 1 }
 # moving. DERIVED FROM THE CALL SITE, NOT YET MEASURED - the first flight is what
 # confirms the rendered text, and CL-2's `PopulateCrewEndStates` finding is the standing
 # reminder that a derived token can be one the product never emits on the path taken.
+#
+# GROUP 4 - THE CREW STRIP, added 2026-08-05 with the registry's re-pin of D12
+# `dead-crew-strip` half (ii). The emitting line is
+# `CrewReservationManager.RecomputeFromEffectiveLedger`'s summary:
+#   Recomputed after tombstones: 1 reservations remain (permanent=0 temporary=1).
+# `permanent=0` IS THE WHOLE ASSERTION. It says the ELS recompute derives no DEATH-
+# sourced reservation for anyone once the Dead row is tombstoned; the `[0-9]+` count is
+# deliberately NOT pinned, because a same-crew re-fly always leaves the fork's own live
+# reservation standing and `0 reservations remain` is structurally unreachable there
+# (`ProcessAction` adds an entry for every surviving `KerbalAssignment`).
+# THE TRAILING SPACE IN THE REGEX IS LOAD-BEARING: without it `permanent=0` would also
+# match a hypothetical `permanent=01`+ rendering; with it the term must END there.
+# WHAT NOT TO GATE INSTEAD, because it is inverted and cost a wrong reading once: a
+# `forbidden = ["Stand-in generated"]` row passes exactly when the tombstone does
+# NOTHING. A Dead row merges into the reservation and sets `IsPermanent`; `PostWalk`
+# `continue`s permanent reservations BEFORE slot creation, so a corpse never gets a
+# slot or a stand-in. STRIPPING the row demotes the entry to temporary -> slot ->
+# stand-in. Run `2026-08-04_2136` measured exactly that: `permanent` 1 -> 0 with
+# `Stand-in generated: 'Tilan Kerman' (Pilot) for slot 'Jebediah Kerman'` as the RESULT
+# of the strip.
+# EVIDENCE STANDING FOR THIS TOKEN: the SEMANTICS are measured (`2026-08-03_1834` and
+# `2026-08-04_2136` both read the recompute line, and `_2136` measured the release of
+# the Dead reservation and the permanent 1 -> 0 transition through `PostWalk summary:
+# reservations=1 permanent=... temporary=...`). The `permanent=`/`temporary=` terms on
+# the RECOMPUTE line itself are NEW - they first ship with this branch's DLL - so the
+# token's exact SHAPE is derived from the call site, not yet observed in a flight. The
+# same-PR confirm fly is the live proof, and until it lands this token carries the same
+# standing as the `Tombstoned ...` token did before 2026-08-03.
 required  = ["Recording started",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
              "Added [1-9][0-9]* supersede relations for subtree rooted at",
-             "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]"]
+             "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+             "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 "]
 # The standard contract, unrelaxed. It has earned its keep twice on this lane: it is what
 # caught R1-EMPTY-PROVISIONAL (`AppendRelations invariant violation ... reason=empty
 # Points`), and the merge tail this spec drives adds new throwing surfaces of its own
