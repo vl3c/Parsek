@@ -205,6 +205,155 @@ namespace Parsek.Tests
                 l.Contains("sess=sess_abandoned"));
         }
 
+        // ---------------------------------------------------------------
+        // CL-3 false-positive regression (harness runs 2026-08-03_2147 /
+        // 2026-08-04_1327 / _1447, all three logging exactly one warn whose
+        // rec= and sess= equalled the run's OWN `ReFlySession Started`
+        // provisional= and sess=). The in-place-continuation fork inherits the
+        // origin's pid via RewindInvoker.CopyInheritedIdentityForFork, so it
+        // satisfies every EnqueuePidPeerSiblings gate when the walk dequeues
+        // the origin, and was reported as a reap leak on every single re-fly.
+        // It is not one: ReapPriorProvisionalsForRp deliberately skips
+        // same-session victims and LoadTimeSweep keeps live-marker sessions.
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void EnqueuePidPeerSiblings_SkipsActiveSessionProvisional_WithoutWarn()
+        {
+            // Exactly the CL-3 shape: ONE session, no abandoned predecessor.
+            // The provisional shares the origin's pid (in-place continuation)
+            // and starts at the rewind UT, so it reaches the NotCommitted
+            // guard — but it is this session's own fork, so no Warn may fire.
+            const uint pid = 1917208454u;
+            var origin = Rec("rec_origin", "tree_1",
+                vesselPid: pid, startUT: 0.0, terminal: TerminalState.Destroyed);
+            InstallTree("tree_1", new List<Recording> { origin });
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_live",
+                TreeId = "tree_1",
+                OriginChildRecordingId = "rec_origin",
+                SupersedeTargetId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_provisional",
+                InvokedUT = 100.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted, vesselPid: pid, startUT: 100.0,
+                terminal: TerminalState.Destroyed,
+                sessionId: "sess_live",
+                supersedeTargetId: "rec_origin");
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            // The false-positive Warn must be gone entirely.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Supersede]") &&
+                l.Contains("EnqueuePidPeerSiblings: skipped NotCommitted peer"));
+            // The expected-case skip is still observable at Verbose.
+            Assert.Contains(logLines, l =>
+                l.Contains("EnqueuePidPeerSiblings: skipped active-session provisional") &&
+                l.Contains("rec=rec_provisional"));
+            // And the fork never becomes a supersede source (no self-row).
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_provisional");
+        }
+
+        [Fact]
+        public void EnqueueChainSiblings_SkipsActiveSessionProvisional_WithoutWarn()
+        {
+            // Chain-walk symmetry: a same-session provisional that shares the
+            // origin's ChainId must also skip silently rather than reporting a
+            // reap leak. (The current in-place fork does not inherit ChainId,
+            // but chain promotion during the re-fly can give it one.)
+            const string chain = "chain_a";
+            var origin = Rec("rec_origin", "tree_1",
+                chainId: chain, chainIndex: 0, terminal: TerminalState.Destroyed);
+            InstallTree("tree_1", new List<Recording> { origin });
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_live",
+                TreeId = "tree_1",
+                OriginChildRecordingId = "rec_origin",
+                SupersedeTargetId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_provisional",
+                InvokedUT = 0.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted,
+                chainId: chain, chainIndex: 1,
+                terminal: TerminalState.Destroyed,
+                sessionId: "sess_live",
+                supersedeTargetId: "rec_origin");
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Supersede]") &&
+                l.Contains("EnqueueChainSiblings: skipped NotCommitted peer"));
+            Assert.Contains(logLines, l =>
+                l.Contains("EnqueueChainSiblings: skipped active-session provisional") &&
+                l.Contains("rec=rec_provisional"));
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_provisional");
+        }
+
+        [Fact]
+        public void EnqueuePidPeerSiblings_StillWarnsForForeignSessionOrphan()
+        {
+            // The §Bug1 signal must survive the false-positive fix: a genuine
+            // orphan from an ABANDONED session (different CreatingSessionId,
+            // not the marker's ActiveReFlyRecordingId) still warns, and the
+            // live session's own fork alongside it still does not.
+            const uint pid = 42u;
+            var origin = Rec("rec_origin", "tree_1",
+                vesselPid: pid, startUT: 0.0, terminal: TerminalState.Destroyed);
+            var zombie = Rec("rec_zombie", "tree_1",
+                state: MergeState.NotCommitted, vesselPid: pid, startUT: 100.0,
+                terminal: TerminalState.Destroyed,
+                sessionId: "sess_abandoned",
+                supersedeTargetId: "rec_origin");
+            InstallTree("tree_1", new List<Recording> { origin, zombie });
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_live",
+                TreeId = "tree_1",
+                OriginChildRecordingId = "rec_origin",
+                SupersedeTargetId = "rec_origin",
+                ActiveReFlyRecordingId = "rec_provisional",
+                InvokedUT = 100.0,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+            var provisional = Rec("rec_provisional", "tree_1",
+                state: MergeState.NotCommitted, vesselPid: pid, startUT: 100.0,
+                terminal: TerminalState.Destroyed,
+                sessionId: "sess_live",
+                supersedeTargetId: "rec_origin");
+            RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
+
+            SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            // Genuine orphan: warn fires, naming the abandoned session.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][WARN][Supersede]") &&
+                l.Contains("EnqueuePidPeerSiblings: skipped NotCommitted peer") &&
+                l.Contains("rec=rec_zombie") &&
+                l.Contains("sess=sess_abandoned"));
+            // Live fork: no warn names it.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Parsek][WARN][Supersede]") &&
+                l.Contains("EnqueuePidPeerSiblings: skipped NotCommitted peer") &&
+                l.Contains("rec=rec_provisional"));
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "rec_zombie");
+        }
+
         [Fact]
         public void AppendRelations_RefusesRowWriteWhenOldIsNotCommitted()
         {

@@ -715,10 +715,10 @@ state, and it no longer depends on a read failure to be correct.
 NOT fixed on the CL stage B branch: it is a different scenario's verdict logic, the
 opt-in flag already removes the branch's effect on it, and both scenarios are green.
 
-## CL-3's re-fly merge leans on the SECONDARY defense every run: `EnqueuePidPeerSiblings` skips a NotCommitted peer the primary reap should have removed [OBSERVED 2026-08-03/04 on every CL-3 flight, green ones included. NOT INVESTIGATED - filed by the arming-sweep verification pass]
+## ~~CL-3's re-fly merge leans on the SECONDARY defense every run: `EnqueuePidPeerSiblings` skips a NotCommitted peer the primary reap should have removed~~ [OBSERVED 2026-08-03/04 on every CL-3 flight, green ones included. INVESTIGATED + FIXED 2026-08-04 - it was a FALSE POSITIVE in the warn, not a reap leak]
 
 Every `CL-3-refly-crew-tombstone` flight - the red `2026-08-03_2147` AND the green
-`2026-08-04_1327` (verdict PASS, armed rewind gate green) - logs exactly one:
+`2026-08-04_1327` / `_1447` - logged exactly one:
 
 ```
 [Parsek][WARN] EnqueuePidPeerSiblings: skipped NotCommitted peer rec=rec_<id>
@@ -727,19 +727,52 @@ Every `CL-3-refly-crew-tombstone` flight - the red `2026-08-03_2147` AND the gre
    or by LoadTimeSweep - investigate)
 ```
 
-That skip is the SECONDARY defense from `fix-refly-abandon-and-fork-persist.md`
-(closure walk refuses NotCommitted candidates), and it is doing load-bearing work
-deterministically in the CL-3 shape: the PRIMARY reap
-(`AtomicMarkerWrite.ReapPriorProvisionalsForRp` / `LoadTimeSweep`) misses this
-provisional on every run. The merge outcome is correct (the guard holds -
-supersedes=1, tombstones=1, saveParse armed green), so this is not a verdict
-defect; it is the line's own instruction: the primary reap has a gap the CL-3
-fixture reproduces on demand. Reproduce: `cd harness && python run.py --id
-CL-3-refly-crew-tombstone`, grep the collected/artifact KSP.log for
-`EnqueuePidPeerSiblings: skipped NotCommitted`. To determine: whether the reap's
-session/tree gate is too narrow, or the provisional is created after the reap
-point. Fix belongs in `Source/Parsek/` (EffectiveState / MergeJournal /
-LoadTimeSweep lane), not in the harness.
+**Neither of the two filed hypotheses was right** (the reap's gate is not too
+narrow, and the provisional is not created after the reap point). The decisive
+evidence is in the log lines themselves: in all three runs the warn's `rec=` and
+`sess=` are character-identical to that same run's own
+`[ReFlySession] Started ... provisional= ... sess=`. The "leaked orphan" IS the
+live session's own provisional fork. Corroborating: each CL-3 log contains
+exactly ONE `StartInvoke` (no retry, so no abandoned predecessor session can
+exist) and ZERO `Zombie discarded` lines.
+
+Both reaps were behaving correctly by deliberate design, and MUST not act here:
+`ReapPriorProvisionalsForRp` explicitly skips same-session victims
+(`RewindInvoker.cs`, `CreatingSessionId == newSessionId` -> continue), and
+`LoadTimeSweep` keeps any provisional whose session still has a live marker.
+Reaping the active session's own fork would destroy the re-fly in progress.
+
+Why CL-3 reproduced it on demand: it is an in-place continuation, so
+`RewindInvoker.CopyInheritedIdentityForFork` copies the origin's
+`VesselPersistentId` onto the fork (same physical vessel continued) and the
+fork's StartUT sits at the rewind UT. The fork therefore satisfies every
+`EnqueuePidPeerSiblings` gate - same pid, same tree, `StartUT >= InvokedUT - eps`
+- the moment the closure walk dequeues the origin, and the only thing rejecting
+it was the NotCommitted guard, which raises the orphan-leak Warn. The §Bug1 shape
+the guard was written for is a TWO-session one (plan evidence:
+`old=rec_675a9193` from `sess_b3992b50` -> `new=rec_3993fbe2` from
+`sess_ef82c3b2`); CL-3 has one session, so the guard was reporting the exact
+opposite situation from the one it detects.
+
+The merge outcome was always correct (`SuppressedSubtree=[1 ids: cl-pod-a]`, the
+fork correctly excluded, supersedes=1, tombstones=1), so no verdict ever moved.
+The defect was the false alarm itself: a Warn that fires on every single
+in-place re-fly trains operators to ignore the one signal that means a real reap
+leak.
+
+Fix (this PR): `EffectiveState.IsActiveSessionProvisional` recognises the live
+session's own fork - by `marker.ActiveReFlyRecordingId`, or by
+`CreatingSessionId == marker.SessionId` - and both NotCommitted guards
+(`EnqueuePidPeerSiblings` and `EnqueueChainSiblings`, the latter now taking the
+marker for symmetry) skip it silently at Verbose instead of warning. The Warn
+stays armed, unchanged, for genuine foreign-session orphans. Regression cover in
+`AppendRelationsNotCommittedGuardTests`: two tests pin "no Warn for the live
+session's fork, Verbose line present" and one pins "foreign-session orphan still
+Warns while the live fork does not"; all three fail against the pre-fix
+`EffectiveState.cs` and pass after. Note the pre-existing test fixture in that
+file already carried the false positive silently - its own `rec_provisional` is
+NotCommitted with the zombie's pid and StartUT - which is why the bug survived
+unit cover until the harness surfaced it.
 
 ## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
 
