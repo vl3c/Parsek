@@ -281,11 +281,16 @@ feature, tier `daily`, over the same fixture. The admission test each had to pas
    / `FlightGlobals.Bodies` unavailable / a live orbit whose elements are not
    propagatable), so `H9`'s `skipped=0` is now a fixture claim for those two cells
    in exactly the way `H20`'s and `H22`'s are, while staying a derivation for the
-   original eight. Those two probes are also the one place in bucket A where
-   `failed=0` is EXPECTED TO BE VIOLATED: they measure the frame mismatch
-   `docs/dev/todo-and-known-bugs.md` pins at sites 1 and 4, which ship unfixed
-   pending an in-game calibration, so `H9` reds by design until that lands. `H9`
-   documents it at length.
+   original eight. Those two probes were also, briefly, the one place in bucket A
+   where `failed=0` was EXPECTED TO BE VIOLATED: they were built to MEASURE the
+   frame mismatch `docs/dev/todo-and-known-bugs.md` pins at sites 1 and 4, and
+   `H9` red by design on runs `2026-08-04_2142` (`failed=2`) and `2026-08-04_2224`
+   (`failed=1`) while that calibration was taken. The calibration landed on those
+   numbers and the residual it exposed was fixed the same day, so as of confirm
+   run `2026-08-04_2323` (PASS, both probes at 0.000) `H9` meets `failed=0` as a
+   MEASUREMENT and the two cells are permanent frame-regression guards. What
+   survives from this note is the `skipped=0` point above - that half is still a
+   fixture claim, not a derivation. `H9` documents the arc at length.
 3. The fixture already exists and its route is known.
 
 That is what let 13 of the 14 pin their tally WHOLE (`total=N passed=N failed=0
@@ -311,7 +316,7 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 |---|---|---|---|
 | `H8-spawn-rotation` | SpawnRotation | 10 | The two-rotation-convention contract `.claude/CLAUDE.md` singles out as the easiest thing here to get silently wrong, resolved against live Kerbin AND Mun transforms |
 | `H7-trajectory-math` | TrajectoryMath | 8 | Sampling predicate + quaternion helpers against live Unity arithmetic, and `ShouldRecordPoint` against the density preset the running game loaded |
-| `H9-incomplete-ballistic` | IncompleteBallistic | 10 | Scene-exit tail extrapolation through atmosphere / terrain / SOI, patched-conic snapshot integration, extrapolated-segment map line, and the two live-vessel frame-calibration probes (expected-failing measurement cells, see (c) above) |
+| `H9-incomplete-ballistic` | IncompleteBallistic | 10 | Scene-exit tail extrapolation through atmosphere / terrain / SOI, patched-conic snapshot integration, extrapolated-segment map line, and the two live-vessel frame-calibration probes (measurement cells that took their reading and now PASS as regression guards, see (c) above) |
 | `H10-finalize-backfill` | FinalizeBackfill | 7 | Terminal-orbit backfill, including the four stale-cached-tuple cases that otherwise park a ghost on last flight's orbit |
 | `H11-pipeline-anchor` | Pipeline-Anchor | 7 | Anchor epsilon vs recorded geometric offset across all seven anchor situations, through live body transforms |
 | `H12-switch-segment` | SwitchSegment | 6 | The Map Switch-To arming gate - a Harmony prefix, so only a running game exercises it |

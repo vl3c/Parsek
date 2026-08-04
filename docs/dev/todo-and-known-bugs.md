@@ -969,7 +969,7 @@ they exercise is reachable in a real game. What is missing is fixture material.
 
 ---
 
-## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. FIXED 2026-08-05, branch `small-fixes-2` - the has-flown latch below; regression fly pending]
+## ~~CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive"~~ [FOUND 2026-08-04 while regression-flying CL stage B. **FIXED + REGRESSION-FLOWN 2026-08-05**, branch `small-fixes-2` - the has-flown latch below; regression run `2026-08-04_2139`, PASS attempt 1, 158 s]
 
 ### Fix (2026-08-05): the fourth conjunct, in the mlib predicate only
 
@@ -1013,9 +1013,24 @@ the pad shape (situation LANDED, roster Assigned, altitude 27 m) never concludes
 ends as the NAMED flake, and the end-to-end shell pad-sit returns
 `MISSION-ASSERT-FAIL crew-survived-impact` pre-fix, exactly the measured failure.
 
-REMAINING: one CL-1 regression fly, expected indistinguishable from the prior PASS
-(~158-179 s, MISSION-OK, `phasesReached ["PRELAUNCH","FLIGHT","CREW-LOST"]`); read
-the new facets off the run JSON.
+**REGRESSION FLOWN (`2026-08-04_2139`, PASS attempt 1, 158 s, MISSION-OK,
+`phasesReached ["PRELAUNCH","FLIGHT","CREW-LOST"]`)** - indistinguishable from the
+prior PASS, which is the point: the latch changed no verdict. The new facets read off
+the run's `_mission.json` are exactly what the paragraph above predicts:
+
+| facet | reading |
+|---|---|
+| `hasFlownObserved` | `false` |
+| `hasFlownEvidence` | `null` |
+| `launchAltitude` | `null` |
+| `peakAltitude` | `0.0` |
+
+All four are the all-blind signature - no live frame ever arrived, so nothing seeded
+`launch_altitude` and nothing advanced the latch - and the MISSION-OK was carried by
+the roster channel alone (`crewLostObserved` value `Dead`, `crewLossUt` 120.52). That
+is the measured proof that CL-1 certifies on the roster channel, and the measured
+reason the certify side is deliberately ungated: had the fourth conjunct gated
+certification, this run would have red.
 
 ### Correcting the first version of this entry
 
@@ -1185,7 +1200,7 @@ re-fly that ends in Recovery to prove it.
 
 ---
 
-## ~~`dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal~~ [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. **RESOLVED 2026-08-05**, branch `small-fixes-2`, off the discriminating re-fly `2026-08-04_2136` - fixture hypothesis CONFIRMED, half (ii) RE-PINNED, cell CLAIMED. Same-PR confirm fly pending on the new token's shape]
+## ~~`dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal~~ [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. **RESOLVED 2026-08-05**, branch `small-fixes-2`, off the discriminating re-fly `2026-08-04_2136` - fixture hypothesis CONFIRMED, half (ii) RE-PINNED, cell CLAIMED. **GATE-ARMED CONFIRM FLY `2026-08-04_2324`, PASS attempt 1, 64 s - the new required token matched live**]
 
 ### Outcome, measured
 
@@ -1272,9 +1287,21 @@ row leaves `permanent=1` and REDS the spec.
   and claims `D12 = ["dead-crew-strip"]`.
 - Registry D12 block carries the re-pin and its evidence.
 
-**PENDING:** the `permanent=`/`temporary=` terms first ship with this branch's DLL, so
-the token's exact SHAPE is derived from the call site, not yet flight-observed. The
-same-PR confirm fly is the live proof.
+**CONFIRMED IN FLIGHT (`2026-08-04_2324`, PASS attempt 1, 64 s).** The
+`permanent=`/`temporary=` terms first shipped with this branch's DLL, so the token's
+exact SHAPE was derived from the call site rather than flight-observed; the gate-armed
+confirm fly settled it. The line the armed `logContract` matched, as flown:
+
+```
+[Parsek][INFO][CrewReservations] Recomputed after tombstones: 1 reservations remain
+  (permanent=0 temporary=1).
+```
+
+`saveParse status=PASS gating=True armed=['rewind'] mismatches=0` with observed
+`supersedeRows=1 tombstones=1`, and the demotion's stand-in appeared exactly as THE
+INVERSION predicts (`Stand-in generated: 'Macuki Kerman' (Pilot) for slot
+'Jebediah Kerman'` - a different stand-in name than the measurement run's, which is why
+no gate anywhere keys on the name). D12 `dead-crew-strip` is claimed on this reading.
 
 ### The trail below: the fixture fix, and the reasoning as it stood BEFORE the run
 
@@ -1601,7 +1628,31 @@ One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees
 
 ---
 
-## ~~BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)~~ [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. MEASUREMENT INSTRUMENT LANDED 2026-08-05, branch `small-fixes-2`. **CALIBRATION MEASURED on H9 run `2026-08-04_2142` and ALL FOUR SITES FIXED 2026-08-05, branch `small-fixes-2`**. **CONFIRM RUN `2026-08-04_2224` CONFIRMED SITE 1 AND RED'D SITE 4 AT 131.066 deg; the residual was DIAGNOSED HEADLESSLY and FIXED as SITE 5, 2026-08-05, same branch** - see the next section. Second confirm re-fly of H9 still pending]
+## ~~BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)~~ [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. MEASUREMENT INSTRUMENT LANDED 2026-08-05, branch `small-fixes-2`. **CALIBRATION MEASURED on H9 run `2026-08-04_2142` and ALL FOUR SITES FIXED 2026-08-05, branch `small-fixes-2`**. **CONFIRM RUN `2026-08-04_2224` CONFIRMED SITE 1 AND RED'D SITE 4 AT 131.066 deg; the residual was DIAGNOSED HEADLESSLY and FIXED as SITE 5, 2026-08-05, same branch**. **FULLY RESOLVED: second confirm run `2026-08-04_2323`, PASS attempt 1, 49 s, BOTH PROBES AT 0.000**]
+
+### The arc, end to end (all five sites closed)
+
+| Run | Verdict | Site 1 (`Site1FrameProbe`) | Site 4 (`Site4AttitudeRoundTrip`) |
+|---|---|---|---|
+| `2026-08-04_2142` (measurement) | `PARSEK-FAIL failed=2`, by design | `dLat=34.301341 dLon=34.321726` | `angleError=133.123` |
+| `2026-08-04_2224` (confirm #1) | `PARSEK-FAIL failed=1` | `dLat=0.000000 dLon=-0.000001` - EXACT | `angleError=131.066` - residual |
+| `2026-08-04_2323` (confirm #2) | **PASS attempt 1, 49 s** | `dLat=0.000000 dLon=-0.000001` | **`angleError=0.000`** |
+
+Sites 1-4 were fixed on the `_2142` reading; confirm #1 proved site 1 and isolated the
+site-4 residual, which was diagnosed HEADLESSLY off the two logged runs (no third
+flight) as the `Planetarium.Zup` polar rotation and fixed as SITE 5 (ELEMENT FRAME);
+confirm #2 closed it. On confirm #2 the site-4 `resolved` quaternion is BIT-IDENTICAL
+to the vessel's own - the round trip does not merely land inside the 5 deg tolerance,
+it cancels exactly, which is what the closed form predicts and what a tolerance alone
+would not have told us. `harness/scenarios/H9-incomplete-ballistic.toml` met its
+unchanged `total=10 passed=10 failed=0 skipped=0` pin; both probes are now PERMANENT
+frame-regression guards.
+
+Two findings the site-5 cross-check turned up remain OPEN and are deliberately not
+fixed here - each is wider than the seam that was red and wants its own in-game proof:
+"`TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame" (findings
+A and B) and "`ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world
+radial", both below.
 
 ### The site-4 residual: diagnosed, and fixed as site 5 (phase 3)
 
@@ -1697,12 +1748,14 @@ encoding, never the frame. Its docstring now says so and points at the new cell.
 and get their own entry: see "TwoBodyOrbit's element-seeded propagation works in KSP's raw
 element frame" below.
 
-**STILL PENDING: a second confirm re-fly.** `harness/scenarios/H9-incomplete-ballistic.toml`
-stays pinned `total=10 passed=10 failed=0 skipped=0` and both probes stay permanent
-frame-regression guards; the site-4 cell is expected to go from 131.066 deg to under 5 deg
-(closed form says ~0). If it does not, the next thing to read is the `seededOfr` /
-`resolved` pair in the `Site4AttitudeRoundTrip:` line against the decomposition table
-above - do NOT loosen the 5 deg tolerance.
+**CONFIRMED IN FLIGHT (`2026-08-04_2323`, PASS attempt 1, 49 s).** The prediction this
+section made - site 4 from 131.066 deg to under 5 deg, closed form says ~0 - measured
+`angleError=0.000`, with `resolved` bit-identical to `vessel`. Site 1 held at
+`dLat=0.000000 dLon=-0.000001`. `harness/scenarios/H9-incomplete-ballistic.toml` met its
+unchanged `total=10 passed=10 failed=0 skipped=0` pin and both probes are now permanent
+frame-regression guards. If either ever moves again, read the `seededOfr` / `resolved`
+pair in the `Site4AttitudeRoundTrip:` line against the decomposition table above - do NOT
+loosen the 5 deg tolerance.
 
 ### The calibration was measured, and all four sites are fixed (phase 2)
 
@@ -1778,13 +1831,15 @@ written to disk by earlier versions carry the OLD orbital-frame convention and w
 with the frame difference, exactly as ORBITSEGMENT-ANGLE-UNITS decided for its own
 radian-valued legacy segments. Position is unaffected; this is attitude only.
 
-**STILL PENDING: the confirm re-fly.** `harness/scenarios/H9-incomplete-ballistic.toml` is
-UNCHANGED and still pinned `total=10 passed=10 failed=0 skipped=0`; it was RED BY DESIGN
-and is now expected to actually pass. Its prose, and `docs/dev/autotest-status.md`, are
-updated after that flight - not here. [SUPERSEDED by phase 3 above: the confirm run flew
-as `2026-08-04_2224`, confirmed site 1 exactly, and left site 4 at 131.066 deg. Phase 3
-diagnosed that residual as site 5 and fixed it; a SECOND confirm re-fly is what is now
-pending.]
+**[HISTORY - the confirm re-fly this paragraph called for.]**
+`harness/scenarios/H9-incomplete-ballistic.toml` is UNCHANGED and still pinned
+`total=10 passed=10 failed=0 skipped=0`; it was RED BY DESIGN and is now expected to
+actually pass. Its prose, and `docs/dev/autotest-status.md`, are updated after that
+flight - not here. [SUPERSEDED by phase 3 above: the confirm run flew as
+`2026-08-04_2224`, confirmed site 1 exactly, and left site 4 at 131.066 deg. Phase 3
+diagnosed that residual as site 5 and fixed it, and the SECOND confirm re-fly flew as
+`2026-08-04_2323` - PASS, both probes at 0.000. Nothing here is pending; the spec's
+prose and the status doc are updated as of 2026-08-05.]
 
 ### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two [HISTORY - all four are fixed as of 2026-08-05; the banners now read `FRAME SITE #n, FIXED`]
 
@@ -1835,7 +1890,7 @@ instruction this entry has carried since the units audit, and it still stands.
 and the fix landed ON those numbers. The instruction is retained verbatim because it is
 the reason the fix is trustworthy - nothing here was derived on paper.]
 
-### The measurement instrument now exists (2026-08-05, phase 1 - MEASURES, does not fix) [phase 2 FIXED all four; the two cells are now REGRESSION GUARDS and are expected to PASS]
+### The measurement instrument now exists (2026-08-05, phase 1 - MEASURES, does not fix) [phase 2 FIXED all four, phase 3 fixed site 5; the two cells are now REGRESSION GUARDS and PASSED on `2026-08-04_2323`]
 
 The step above that says "compare against the ACTUAL crash site" no longer needs a
 bespoke flight to be readable: the calibration is now an INSTRUMENT that any
@@ -1856,9 +1911,10 @@ FLIGHT-scene in-game batch reports. Two `IncompleteBallistic` cells in
   (`ParsekFlight.ComputeOrbitalRotation`) at the same UT and measures the round-trip
   attitude error against `vessel.transform.rotation`. Tolerance 5 deg.
 
-[SUPERSEDED 2026-08-05: the fix landed, so both cells are now expected to PASS and a
-failure is a genuine frame regression. Everything else in this paragraph still holds -
-the failure text and the Info lines re-take the reading automatically.]
+[SUPERSEDED 2026-08-05: the fix landed and both cells PASSED on confirm run
+`2026-08-04_2323`, so a failure from here on is a genuine frame regression. Everything
+else in this paragraph still holds - the failure text and the Info lines re-take the
+reading automatically.]
 BOTH ARE EXPECTED TO FAIL until the fix lands, and that is the design: each failure
 message prints both sides of the comparison and the delta with InvariantCulture, and
 each also emits a grep-stable Info line so the numbers survive in KSP.log alone:
@@ -1874,9 +1930,10 @@ until the four sites are corrected. That red is the instrument reporting, not a
 regression. Do NOT clear it by loosening the probes' tolerances or by trying to pin
 `failed=2` (the harness derives `passed = total - attribute_skipped` with
 `failed=0` and rejects the latter).
-[2026-08-05: the sites ARE corrected, so the pin is expected to be met on the next
-flight. The spec file itself is deliberately unchanged - the pin was always the right
-one; only the reason it red'd is gone. Its prose is refreshed by the confirm flight.]
+[2026-08-05: the sites ARE corrected and the pin WAS MET, on confirm run
+`2026-08-04_2323` (PASS attempt 1, 49 s, `failed=0`). The spec file itself is
+deliberately unchanged - the pin was always the right one; only the reason it red'd is
+gone.]
 
 The headless half is `Source/Parsek.Tests/BallisticExtrapolatorFrameTests.cs` [and since
 phase 2 that file ALSO carries the site-1 cells, which DO encode the swizzle convention -
