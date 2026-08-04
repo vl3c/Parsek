@@ -52,8 +52,8 @@ count = { min = 0, max = 0 }
 # additionally gate on per-part ModuleWaterfallFX presence.
 #
 # EVIDENCE STANDING: MEASURED. Flown 2026-08-04, run
-# 2026-08-04_2011_MC-2-restock-compat: PASS on attempt 1, every verifier
-# PASS/SKIPPED, zero Unity exception lines. Pin below is the measured line
+# 2026-08-04_2011_MC-2-restock-compat: PASS on attempt 1, every gating
+# verifier PASS/SKIPPED, zero Unity exception lines. Pin below is the measured line
 # TOKEN FOR TOKEN.
 #  - skipped=1 is exactly ReStockAloneNormalScanNonEmpty's inverse gate
 #    ("Waterfall installed; the ReStock-alone contract is N/A here") - the

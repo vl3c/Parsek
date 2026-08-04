@@ -4671,7 +4671,8 @@ def _entry_identities(contract_guid: str, subject_ids: Sequence[str]) -> List[st
 #      bracketed payload comparable BYTE-FOR-BYTE: order is already canonical, so
 #      equality is string equality and the harness does no re-normalization.
 #   3. ParsekLog's rate limiter appends " | suppressed=<N>" AFTER the closing
-#      "]" on the next emission that changes. The payload is therefore cut at the
+#      "]" on the next interval-passing emission for the same key (whether or
+#      not the payload changed). The payload is therefore cut at the
 #      LAST "]" of the line, never the first -- a first-bracket split would slice
 #      the fp open on any line whose entries contain a bracket, and a naive
 #      "strip everything after the first ' | '" would decapitate every multi-entry

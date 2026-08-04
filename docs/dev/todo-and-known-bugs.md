@@ -3330,8 +3330,8 @@ item and must not be counted as one:
   `persistent-rotation` and `remotetech-commnet` stay source-blocked (GT-8 /
   not in the profile); `better-time-warp` and `making-history` have the
   instance but no committed spec; the FX-fingerprint A/B diff ran REPORT-ONLY
-  and surfaced a corpus limitation filed as its own bullet in the automation
-  section (the synthetic corpus is trajectory-only for all but a handful of
+  and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
+  (the synthetic corpus is trajectory-only for all but a handful of
   recordings, so a save-based A/B exercises ~1 engine key; a dedicated
   engine-showcase fixture with real vessel snapshots is the follow-up).
 
