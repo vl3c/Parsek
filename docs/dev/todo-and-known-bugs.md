@@ -663,6 +663,54 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
+## `CL-1-pod-impact` is RED in the current environment, and was red BEFORE this branch [FOUND 2026-08-04 by a regression sweep flown for CL stage B. NOT RESOLVED - pre-existing, not caused by the branch that found it]
+
+CL-1 is tiered `nightly` and its row records LIVE-PROVEN 2026-07-28. It does not pass
+today. Found while regression-flying the shared `_read_nodes` guard against specs the CL
+stage B branch did not touch - which is exactly what that sweep was for.
+
+### Measured, both ways
+
+| mission_runner | CL-1 outcome |
+|---|---|
+| WITHOUT the guard (i.e. `origin/main`'s code) | `vessel-lost`: "telemetry read failed 3 consecutive samples", then 4, 5, 6 -> `MISSION-ASSERT-FAIL` -> INVALID |
+| WITH the guard | gets past the read, then `MISSION-ASSERT-FAIL reason=crew-survived-impact ... last altitude 27m, lastRoster=Assigned, phasesReached=['PRELAUNCH','FLIGHT'] wall=1.857s` -> INVALID |
+
+Both attempts, both configurations. **So the branch that found this did not cause it**:
+remove its only shared-code change and CL-1 still fails, just with the earlier symptom.
+The guard is a strict improvement (it removes the false vessel-lost) and it UNMASKED a
+second, independent defect that the vessel-lost death had been hiding.
+
+### The second defect, stated precisely
+
+CL-1 terminates in 1.9 s having reached only `PRELAUNCH` -> `FLIGHT` at 27 m - pad
+height. Its `crew-survived-impact` terminal fires while the craft is still ON THE PAD:
+the machine sees a LANDED situation on two consecutive frames with the crew alive and
+concludes the flight ended with the subject surviving. A craft that has not launched
+satisfies "landed with crew alive" trivially, so the terminal needs a precondition that
+the craft actually left the pad (an altitude gain, a non-PRELAUNCH streak, or a launch
+latch) before the landed-with-crew reading may conclude anything.
+
+### Why it passed on 2026-07-28 and does not now
+
+`control_handle.nodes` has been in `read_telemetry` since 2026-07-22 (commit
+`4802d904d`), i.e. BEFORE CL-1's green run - so the refusing read is not new. kRPC
+refuses it both for an un-upgraded Tracking Station AND for a vessel in a situation where
+nodes cannot be used, and PRELAUNCH is such a situation. On 2026-07-28 CL-1 evidently got
+off the pad inside the 3-consecutive-failure budget; today it does not launch at all
+within 1.9 s. WHAT CHANGED IS NOT ESTABLISHED and should not be guessed - candidates
+worth checking first are the staged craft's staging state and anything that would delay
+or suppress the initial stage activation.
+
+### Scope note
+
+Fixing CL-1 is NOT in scope for the CL stage B branch: it is a different scenario, the
+failure predates the branch, and the branch's own lane (CL-3) is green three ways. Filed
+here so a nightly that silently stopped passing is visible rather than discovered later
+as a "regression" from whatever touches it next.
+
+---
+
 ## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
 
 The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
