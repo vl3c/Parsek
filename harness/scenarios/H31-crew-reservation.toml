@@ -96,9 +96,13 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# EVIDENCE STANDING: MEASURED, TWICE. Flown 2026-08-04 (run
 # `2026-08-04_2212_H31-crew-reservation`: PASS on attempt 1, 49 s wall, every
-# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# verifier PASS or SKIPPED, expectations mismatches=0), and re-confirmed the
+# same day (run `2026-08-04_2239`, PASS attempt 1, 52 s) after the review pass
+# wrapped the three cells' finally-restore roster flips in
+# SuppressionGuard.Crew() - members of THIS batch, so the re-fly proves the
+# wraps move nothing in the tally. The pin is a LITERAL
 # pattern and evaluate_expectations requires it to match, so the PASS means the
 # runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
 # below held.
@@ -118,11 +122,15 @@ count = { min = 0, max = 0 }
 #    ERS-absence guard by the empty store, and ReservedCrewNotAssigned's guard
 #    by ParsekScenario's unconditional LedgerOrchestrator.Initialize().
 #  - failed=0 is the ASSERTION.
-#  - passed=14 follows. FOUR of the 14 are honest vacuous passes (two silent
-#    returns, two loops over the empty replacements dict) - the tally proves
-#    they RAN, not that they measured anything; converting them to Skips is
+#  - passed=14 follows. THREE of the 14 are honest vacuous passes, all on the
+#    empty CrewReplacements dict (ReplacementsAreValid bare-returns on it;
+#    NoSelfReplacements and NoCircularReplacements loop over it zero times) -
+#    the tally proves they RAN, not that they measured anything. RosterAccessible
+#    shares the bare-return-instead-of-Skip PATTERN but its guard
+#    (CurrentGame == null) is unreachable in a driven batch, so here it executes
+#    its real assertions and is NOT vacuous. Converting the three to Skips is
 #    product work filed in the wave notes, and doing it will move this pin to
-#    passed=12 skipped=3 DELIBERATELY when it lands.
+#    passed=11 skipped=4 DELIBERATELY when it lands.
 #  - scene=FLIGHT is the b2-lko-craft Focusable route, MEASURED by the eleven
 #    committed flight specs that fly this template.
 required  = ["BATCH_COMPLETE v1 total=15 passed=14 failed=0 skipped=1 category=CrewReservation scene=FLIGHT"]

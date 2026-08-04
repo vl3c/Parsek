@@ -2742,6 +2742,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
+        # A RUNTIME_SKIPS key for a non-member is silently inert (both floor
+        # cells read it via .get(sid, 0) over GROUP members only), so a stale
+        # entry for a removed/renamed spec would linger forever. Fail loud here.
+        self.assertLessEqual(
+            set(self.RUNTIME_SKIPS), set(self.GROUP),
+            "RUNTIME_SKIPS names spec ids that are not GROUP members: %s"
+            % sorted(set(self.RUNTIME_SKIPS) - set(self.GROUP)))
         self.assertEqual(len(self.GROUP), len(self.specs),
                          "GROUP names %d specs but only %d were loaded from %s - the "
                          "rest of this class would assert over the missing ones' "

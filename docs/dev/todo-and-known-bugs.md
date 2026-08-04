@@ -1004,7 +1004,7 @@ reading it as a product defect.
 
 ---
 
-## W2-VACUOUS-CELLS: the wave-2 per-test read catalogued ELEVEN cells that report PASSED having asserted nothing, across four of its six categories [FOUND 2026-08-05, wire-wave-2. RECORDED, deliberately not fixed here - every conversion moves a committed pin and deserves its own pass. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names]
+## W2-VACUOUS-CELLS: the wave-2 per-test read catalogued TEN cells that report PASSED having asserted nothing (or cannot assert what they claim), across four of its six categories [FOUND 2026-08-05, wire-wave-2. RECORDED, deliberately not fixed here - every conversion moves a committed pin and deserves its own pass. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names. COUNT CORRECTED from eleven by the wave's Fable review: the first draft double-counted ReplacementsAreValid across two shapes and mis-filed RosterAccessible, whose guard is unreachable in a driven batch so the cell actually executes there - it carries the bare-return PATTERN, not a vacuous pass]
 
 The inventory doc's fourth trap (a test that RUNS, PASSES and asserts over
 nothing, invisible to every tally gate) predicted "around a dozen more" across
@@ -1012,14 +1012,17 @@ the tree. The wave-2 read found eleven in its six categories alone, in three
 distinct shapes. Names recorded so the eventual fix pass does not re-derive
 them:
 
-**Shape 1 - silent `return` / bare guard instead of `InGameAssert.Skip` (4):**
-`MapPresence.GhostPidsResolveToProtoVessels` and `.NoPidCollisionWithRealVessels`
-(both bail on an empty `ghostMapVesselPids`; H28 de-vacuates them by injecting
-the corpus so live ghosts exist - the batch-start cleanup empties the set and
-"none" never repopulates it), `CrewReservation.RosterAccessible`
-(`HighLogic.CurrentGame == null` -> bare return; unreachable in a driven batch)
-and `.ReplacementsAreValid` (`replacements.Count == 0` -> bare return; fires on
-EVERY committed fixture, see shape 3).
+**Shape 1 - silent `return` / bare guard instead of `InGameAssert.Skip` (3
+vacuous + 1 pattern-only):** `MapPresence.GhostPidsResolveToProtoVessels` and
+`.NoPidCollisionWithRealVessels` (both bail on an empty `ghostMapVesselPids`;
+H28 de-vacuates them by injecting the corpus so live ghosts exist - the
+batch-start cleanup empties the set and "none" never repopulates it), and
+`CrewReservation.ReplacementsAreValid` (`replacements.Count == 0` -> bare
+return; fires on EVERY committed fixture, see shape 3).
+`CrewReservation.RosterAccessible` carries the same bare-return PATTERN
+(`HighLogic.CurrentGame == null`) but that guard is unreachable in a driven
+batch, so the cell executes its real assertions in H31 - it belongs to the
+convert-to-Skip cleanup for consistency, not to the vacuous census.
 
 **Shape 2 - assertion-gated on state the fixture may not have (2):**
 `LogContracts.ResourceValuesValid` runs its three assertion blocks only under
@@ -1035,7 +1038,8 @@ it means extracting a shared `FormatSessionStartMessage` the way
 `FormatMarkMessage` / `FormatBatchCompleteLine` already work (both of which the
 sibling cells DO call - the pattern exists in the same file).
 
-**Shape 3 - loops over state no committed asset can produce (5):**
+**Shape 3 - loops over state no committed asset can produce (4, one of them
+`ReplacementsAreValid` already named in shape 1):**
 `CrewReservation.NoSelfReplacements` / `.NoCircularReplacements` /
 `.ReplacementsAreValid` all walk `CrewReservationManager.CrewReplacements`,
 which is EMPTY under every committed fixture x preset: `ScenarioWriter
@@ -1055,8 +1059,9 @@ in H27 rather than listed as defects.)
 
 WHY NOT FIXED HERE: converting shape-1/shape-3 cells to `InGameAssert.Skip`
 moves H28's pin (5/5/0/0 -> passed 3 skipped 2 under "none"; unchanged under
-the corpus H28 actually injects) and H31's pin (14 passed -> 12 passed 3
-skipped), and H31's spec says so in its derivation comment. The conversions
+the corpus H28 actually injects) and H31's pin (the three replacement-dict
+cells: passed 14 -> 11, skipped 1 -> 4), and H31's spec says so in its
+derivation comment. The conversions
 are one mechanical pass + two re-pins + two re-flights, best done together
 with the `ScenarioWriter.AddCrewReplacement` caller that would make the
 replacement-walking cells REAL instead of merely honest.

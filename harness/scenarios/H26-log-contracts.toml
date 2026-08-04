@@ -88,9 +88,13 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# EVIDENCE STANDING: MEASURED, TWICE. Flown 2026-08-04 (run
 # `2026-08-04_2209_H26-log-contracts`: PASS on attempt 1, 49 s wall, every
-# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# verifier PASS or SKIPPED, expectations mismatches=0), and re-confirmed the
+# same day (run `2026-08-04_2238`, PASS attempt 1, 54 s) after the review pass
+# ANCHORED the forbidden lookahead's alternatives to end-of-line - so the
+# tightened pattern is itself live-proven against a real log carrying all
+# three deliberate ERROR lines. The pin is a LITERAL
 # pattern and evaluate_expectations requires it to match, so the PASS means the
 # runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
 # below held.
@@ -129,7 +133,12 @@ required  = [
   "\\[Parsek\\]\\[ERROR\\]\\[Test\\] msg",
   "\\[Parsek\\]\\[ERROR\\]\\[TestSub\\] deliberate test error",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\](?!\\[TestSub\\] test error message|\\[Test\\] msg|\\[TestSub\\] deliberate test error)"]
+# The lookahead alternatives are ANCHORED to end-of-line: an unanchored form
+# would exclude any ERROR that merely STARTS with one of the three literals
+# (e.g. "[Test] msgX ..." or the test message with an appended exception), per
+# the Fable review of this wave. hlib applies forbidden patterns with re.search
+# over the whole log body, so the anchor must be the line terminator, not $-only.
+forbidden = ["\\[Parsek\\]\\[ERROR\\](?!(?:\\[TestSub\\] test error message|\\[Test\\] msg|\\[TestSub\\] deliberate test error)(?:\\r?\\n|$))"]
 
 [runtime]
 budgetSeconds = 720

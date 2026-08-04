@@ -8635,7 +8635,11 @@ namespace Parsek.InGameTests
                 CrewReservationManager.ClearReplacementsInternal();
                 foreach (var kvp in savedReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                victim.rosterStatus = savedVictimStatus;
+                // Suppressed for the same reason as the staging flip: on a
+                // failure path this restore is a real Missing->Available flip
+                // whose pair never closes (Fable review of the W2 wave).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = savedVictimStatus;
                 if (victimWasRescuePlaced)
                     CrewReservationManager.MarkRescuePlaced(victim.name, savedVictimMarkerPid);
                 else
@@ -9456,7 +9460,11 @@ namespace Parsek.InGameTests
                 CrewReservationManager.ClearReplacementsInternal();
                 foreach (var kvp in savedReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                victim.rosterStatus = savedVictimStatus;
+                // Suppressed for the same reason as the staging flip: on a
+                // failure path this restore is a real Missing->Available flip
+                // whose pair never closes (Fable review of the W2 wave).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = savedVictimStatus;
 
                 InGameAssert.AreEqual(savedReplacements.Count,
                     CrewReservationManager.CrewReplacements.Count,
@@ -9597,7 +9605,11 @@ namespace Parsek.InGameTests
                 CrewReservationManager.ClearReplacementsInternal();
                 foreach (var kvp in savedReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                victim.rosterStatus = savedVictimStatus;
+                // Suppressed for the same reason as the staging flip: on a
+                // failure path this restore is a real Missing->Available flip
+                // whose pair never closes (Fable review of the W2 wave).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = savedVictimStatus;
 
                 InGameAssert.AreEqual(savedReplacements.Count,
                     CrewReservationManager.CrewReplacements.Count,
