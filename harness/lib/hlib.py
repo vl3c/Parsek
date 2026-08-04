@@ -5789,6 +5789,56 @@ FLAKE_WINDOW_DAYS = 7
 # that keeps going INVALID.
 FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
 
+# INVALID subkinds that carry NO information about the scenario and are therefore
+# dropped from the flake ledger entirely -- neither numerator NOR denominator.
+#
+# Every subkind here is an ENVIRONMENT or CONCURRENCY fault decided BEFORE any KSP
+# boot, identical for whatever scenario happened to be selected at that moment:
+#
+#   tooling-venv    the mission venv is missing or drifted. classify_mission_step's
+#                   own comment calls it "a provisioning fault a retry cannot fix,
+#                   caught at pre-launch ADMIT before any KSP boot".
+#   instance-locked a live sibling holds the machine lock.
+#   instance-busy   a live KSP is already bound to the instance.
+#
+# WHY DROP RATHER THAN JUST NOT COUNT: an attempt that never booted never tested
+# the scenario, so it is not an observation about it. Leaving it in the denominator
+# would DILUTE a genuine flake rate (a scenario that really fails 1-in-4 reads as
+# healthier the more venv/lock noise sits beside it) -- under-quarantining is the
+# worse error here, since quarantine is the signal a human acts on.
+#
+# THE PATHOLOGY THIS FIXES: quarantine is STICKY and human-only (see compute_flake),
+# so a single environment fault permanently quarantines whatever scenario it landed
+# on and no amount of subsequent green runs heals it. These faults arrive in BATCHES
+# -- run.py's own lock comment notes a sibling taking the instance mid-nightly left
+# "every remaining scenario died non-retryable INVALID(instance-locked)", i.e. one
+# sibling could permanently quarantine the rest of the suite. Measured instance:
+# CL-3-refly-crew-tombstone hit rate=0.50 quarantined=True off ONE tooling-venv in a
+# fresh worktree whose gitignored missions/.venv had never been bootstrapped.
+#
+# DELIBERATELY NOT EXEMPT: `spec-invalid` (that scenario's OWN spec failed
+# validation -- genuinely scenario-attributable), and `admission` (its subkind is
+# caller-supplied via driver["admission_subkind"] and can carry scenario-relevant
+# detail; it stays visible until there is evidence it misattributes). Every
+# retryable subkind -- boot-crash, driver-stage, seam-timeout, the mission
+# subkinds -- keeps counting: those ARE the scenario being unstable, which is
+# exactly what quarantine exists to catch.
+FLAKE_EXEMPT_INVALID_SUBKINDS: Tuple[str, ...] = (
+    VENV_INVALID_SUBKIND, "instance-locked", "instance-busy",
+)
+
+
+def flake_entry_is_exempt(attempt: Dict) -> bool:
+    """True when one flake-ledger entry is a scenario-agnostic environment fault.
+
+    Only INVALID entries can be exempt (a KILLED is a real budget overrun of THIS
+    scenario). An entry with no ``subkind`` key -- every entry written before the
+    field shipped -- is never exempt, so an existing ledger keeps its old arithmetic.
+    """
+    if (attempt or {}).get("outcome") != VERDICT_INVALID:
+        return False
+    return (attempt or {}).get("subkind") in FLAKE_EXEMPT_INVALID_SUBKINDS
+
 
 @dataclass(frozen=True)
 class FlakeResult:
@@ -6117,7 +6167,8 @@ def compute_flake(
 ) -> FlakeResult:
     """Compute the rolling flake rate + quarantine for one (scenario, stage).
 
-    ``attempts`` are per-attempt records ``{"utc": iso, "outcome": verdict}``.
+    ``attempts`` are per-attempt records
+    ``{"utc": iso, "outcome": verdict, "subkind": str}``.
     rate = (INVALID + KILLED) / attempts over the trailing ``window_days``
     (KILLED counts, N4). ``> 0.20`` sets ``quarantined = True``. Quarantine is
     STICKY and human-only: ``prior_quarantined`` carries forward regardless of a
@@ -6125,6 +6176,13 @@ def compute_flake(
     cannot self-heal; only a human spec edit unquarantines it). A flakedThenPassed
     PASS still contributes its attempt-1 INVALID to the numerator (the caller
     records both attempts).
+
+    Entries matching :func:`flake_entry_is_exempt` are dropped from BOTH total and
+    numerator: a scenario-agnostic environment fault (venv drift, machine lock,
+    busy instance) never booted KSP and so is not an observation about this
+    scenario at all. Counting one in the denominator would dilute a genuine rate;
+    counting it in the numerator permanently quarantines a healthy scenario,
+    because quarantine is sticky. See FLAKE_EXEMPT_INVALID_SUBKINDS.
     """
     cutoff: Optional[datetime] = None
     now_dt = _parse_iso(now) if now else None
@@ -6138,6 +6196,10 @@ def compute_flake(
             adt = _parse_iso(str(a.get("utc", "")))
             if adt is not None and adt < cutoff:
                 continue
+        # Scenario-agnostic environment fault: not an observation about this
+        # scenario, so it leaves neither the numerator nor the denominator.
+        if flake_entry_is_exempt(a):
+            continue
         total += 1
         if a.get("outcome") in FLAKE_NUMERATOR_VERDICTS:
             numerator += 1
@@ -6198,12 +6260,18 @@ def flake_attempt_entries(result: Dict) -> List[Dict]:
     already accrues, and a non-recovered whole-attempt retry writes its own INVALID JSON
     -- either way a synthetic would double-count. The caller extends the scenario's
     attempt list with the returned entries.
+
+    The result's own ``subkind`` rides along on its entry so ``compute_flake`` can
+    drop scenario-agnostic environment faults (FLAKE_EXEMPT_INVALID_SUBKINDS). The
+    SYNTHETIC entry deliberately carries no subkind: a recovered subprocess retry is
+    a real tooling flake of THIS scenario's run and must keep accruing.
     """
     utc = (result or {}).get("endedUtc", "")
     verdict = (result or {}).get("verdict")
-    entries: List[Dict] = [{"utc": utc, "outcome": verdict}]
+    entries: List[Dict] = [{"utc": utc, "outcome": verdict,
+                            "subkind": (result or {}).get("subkind", "")}]
     if verdict not in FLAKE_NUMERATOR_VERDICTS and recovered_subprocess_retries(result):
-        entries.append({"utc": utc, "outcome": VERDICT_INVALID})
+        entries.append({"utc": utc, "outcome": VERDICT_INVALID, "subkind": ""})
     return entries
 
 

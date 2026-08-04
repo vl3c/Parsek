@@ -668,6 +668,29 @@ grep-friendly, one line per value:
 outcomes and the computed flake rate, with a `quarantined` bool set when the rate
 exceeds 20% over the week (plan section 10).
 
+**AMENDED 2026-08-04: scenario-agnostic environment INVALIDs leave the ledger
+entirely.** An attempt whose INVALID subkind is in
+`hlib.FLAKE_EXEMPT_INVALID_SUBKINDS` (`tooling-venv`, `instance-locked`,
+`instance-busy`) is dropped from BOTH numerator and denominator. Each is an
+environment or concurrency fault decided before any KSP boot and identical for
+whatever scenario happened to be selected, so it is not an observation about the
+scenario. It leaves the DENOMINATOR too because keeping it there dilutes a genuine
+rate — under-quarantining is the worse error, quarantine being the signal a human
+acts on. MEASURED: `CL-3-refly-crew-tombstone` reached `rate=0.50
+quarantined=true` off ONE `tooling-venv` INVALID in a fresh worktree whose
+gitignored `missions/.venv` had never been bootstrapped. Because quarantine is
+STICKY and human-only, that misattribution was permanent, and these faults arrive
+in batches — run.py's own lock comment records a sibling taking the instance
+mid-nightly leaving "every remaining scenario died non-retryable
+INVALID(instance-locked)", i.e. one sibling could permanently quarantine the rest
+of the suite. `spec-invalid` (that scenario's own spec) and `admission` (its
+subkind is caller-supplied and can carry scenario-relevant detail) deliberately
+still count, as does every retryable subkind and every KILLED — those ARE the
+scenario being unstable, which is what quarantine exists to catch. Ledger entries
+written before the `subkind` field shipped keep their old arithmetic. The
+exemption cannot release an existing quarantine; unquarantining stays human-only.
+Guarded by `FlakeEnvironmentExemptionTests` in `harness/lib/test_hlib.py`.
+
 **ADDED 2026-07-25 (telemetry audit): `harness/coverage/duration.json`, and it is
 COMMITTED.** Per scenario, `{n, p50, p95, last, lastVsP50, samples}` over PASS
 results only (an INVALID that died on a budget or a KILLED reaped at the wall

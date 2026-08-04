@@ -5797,6 +5797,89 @@ class SubprocessRecoveredFlakeAccrualTests(unittest.TestCase):
             {"verdict": "PASS", "endedUtc": ""})], ["PASS"])
 
 
+class FlakeEnvironmentExemptionTests(unittest.TestCase):
+    """A scenario-agnostic environment INVALID must not quarantine a scenario.
+
+    Quarantine is STICKY and human-only, so one venv/lock fault permanently
+    benched whatever scenario it landed on. Measured: CL-3-refly-crew-tombstone
+    went rate=0.50 quarantined=True off ONE tooling-venv INVALID in a fresh
+    worktree whose gitignored missions/.venv had never been bootstrapped -- a
+    fault that never booted KSP and would have hit any scenario selected.
+    """
+
+    @staticmethod
+    def _entry(outcome, subkind="", utc="2026-08-04T12:00:00Z"):
+        return {"utc": utc, "outcome": outcome, "subkind": subkind}
+
+    def test_the_measured_cl3_pair_no_longer_quarantines(self):
+        # The exact shape from the incident: one tooling-venv INVALID, then a PASS.
+        fr = hlib.compute_flake([self._entry("INVALID", "tooling-venv"),
+                                 self._entry("PASS")])
+        self.assertEqual(fr.total, 1, "the venv fault leaves the DENOMINATOR too")
+        self.assertEqual(fr.numerator, 0)
+        self.assertEqual(fr.rate, 0.0)
+        self.assertFalse(fr.quarantined)
+
+    def test_every_exempt_subkind_is_dropped(self):
+        for subkind in hlib.FLAKE_EXEMPT_INVALID_SUBKINDS:
+            with self.subTest(subkind=subkind):
+                fr = hlib.compute_flake([self._entry("INVALID", subkind)])
+                self.assertEqual((fr.total, fr.numerator), (0, 0))
+                self.assertFalse(fr.quarantined)
+
+    def test_scenario_attributable_invalids_still_count(self):
+        # spec-invalid is that scenario's OWN spec; the retryable subkinds ARE the
+        # scenario being unstable. Quarantine must still catch every one of them.
+        for subkind in ("spec-invalid", "boot-crash", "driver-stage",
+                        "seam-timeout", "mission", "tooling-krpc",
+                        "autopilot-flake", "admission"):
+            with self.subTest(subkind=subkind):
+                fr = hlib.compute_flake([self._entry("INVALID", subkind),
+                                         self._entry("PASS")])
+                self.assertEqual((fr.total, fr.numerator), (2, 1))
+                self.assertTrue(fr.quarantined, "rate 0.50 > 0.20")
+
+    def test_killed_is_never_exempt(self):
+        # A KILLED is a real budget overrun of THIS scenario, whatever the subkind.
+        for subkind in hlib.FLAKE_EXEMPT_INVALID_SUBKINDS:
+            with self.subTest(subkind=subkind):
+                self.assertFalse(hlib.flake_entry_is_exempt(
+                    self._entry("KILLED", subkind)))
+
+    def test_legacy_entries_without_subkind_keep_old_arithmetic(self):
+        # Ledger entries written before the field shipped must not change meaning.
+        fr = hlib.compute_flake([{"utc": "2026-08-04T12:00:00Z", "outcome": "INVALID"},
+                                 {"utc": "2026-08-04T12:00:00Z", "outcome": "PASS"}])
+        self.assertEqual((fr.total, fr.numerator), (2, 1))
+        self.assertTrue(fr.quarantined)
+
+    def test_entries_carry_subkind_from_the_result(self):
+        entries = hlib.flake_attempt_entries(
+            {"verdict": "INVALID", "subkind": "tooling-venv", "endedUtc": "x"})
+        self.assertEqual(entries[0]["subkind"], "tooling-venv")
+
+    def test_recovered_subprocess_synthetic_is_never_exempt(self):
+        # The synthetic INVALID stands for a real tooling flake of THIS run, so it
+        # must keep accruing even when the result itself carries an exempt subkind.
+        synthetic = {"utc": "x", "outcome": "INVALID", "subkind": ""}
+        self.assertFalse(hlib.flake_entry_is_exempt(synthetic))
+
+    def test_an_all_environment_window_is_not_quarantined(self):
+        # A worktree whose venv is broken runs nothing but tooling-venv: total
+        # collapses to 0 and nothing is quarantined (no information, no verdict).
+        fr = hlib.compute_flake([self._entry("INVALID", "tooling-venv")
+                                 for _ in range(5)])
+        self.assertEqual((fr.total, fr.numerator, fr.rate), (0, 0, 0.0))
+        self.assertFalse(fr.quarantined)
+
+    def test_exemption_cannot_unstick_an_existing_quarantine(self):
+        # Sticky-and-human-only is unchanged: this fix stops a scenario BECOMING
+        # quarantined by misattribution, it does not silently release one.
+        fr = hlib.compute_flake([self._entry("INVALID", "tooling-venv")],
+                                prior_quarantined=True)
+        self.assertTrue(fr.quarantined)
+
+
 # ---------------------------------------------------------------------------
 # Log-line format (log-assertion support).
 # ---------------------------------------------------------------------------
