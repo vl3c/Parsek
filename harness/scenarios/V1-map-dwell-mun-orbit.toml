@@ -60,12 +60,16 @@
 #  - REQUIRED tokens make an empty dwell impossible: the probe summary with
 #    NONZERO ghosts and the faithful-parity summary with NONZERO sampled (see
 #    the logContracts block for line provenance + the measurement protocol).
-#  - NO anomaly count budget is armed and parity overTolerance is NOT gated:
-#    the green-run frequency of icon-teleport / icon-off-orbit / parity drift
-#    on REAL geometry is exactly the unknown this scenario exists to measure.
-#    The run's `anomalySweep.unlistedReasons` + `hitCounts` (report-only
-#    channels) are the calibration output; they go into autotest-status.md and
-#    are what the later arming pass sizes budgets from.
+#  - NO anomaly count budget is armed and parity overTolerance is NOT gated.
+#    The unknown this clause originally existed to measure - the green-run
+#    frequency of icon-teleport / icon-off-orbit / the other Tier-C reasons on
+#    REAL geometry - WAS measured: five dwells (2026-07-30 x2, 2026-08-02 x2,
+#    2026-08-04_1250_a2; ~130 nonzero-ghost probe frames each) raised none of
+#    them, and the 2026-08-04 calibration sweep promoted the seven silent
+#    defect-signal reasons into the gated hlib.ANOMALY_TOKENS set - so a raise
+#    of any gated token now reds this spec via allowedAnomalies = []. The
+#    `anomalySweep.unlistedReasons` + `hitCounts` channels remain the
+#    calibration output for the two report-only instruments.
 #  - claim-is-not-gate: only D6 recorded-vs-rendered-parity and D14 scene-map
 #    are claimed, and each is named to the required token / observed assertion
 #    that actually gates it on a green run.
@@ -251,15 +255,15 @@ D14 = ["scene-map"]
 # a bare key after an `[expectations.<sub>]` header is TOML-scoped to that
 # sub-table (hlib.validate_spec REJECTS the misplaced form).
 #
-# EMPTY ON PURPOSE, and NOT the S1.6/S1.7 "zero tolerated anomalies" claim:
-# with no budget armed, every Tier-C raise on this run lands in the REPORT-ONLY
-# `anomalySweep.hitCounts` / `unlistedReasons` channels (shipped 2026-07-29)
-# instead of moving the verdict. That is the point of the first flights: the
-# green-run frequency of icon-teleport / icon-off-orbit on real geometry is
-# the unknown this scenario measures, and known-gate 0 in autotest-status.md
-# says budgets are sized from a green run's hitCounts, never guessed. Arming
-# any maxCount here before that data exists would convert an unexercised path
-# into a gate that reds the first time it works.
+# EMPTY ON PURPOSE: no tolerated anomalies and no maxCount budget. A raise of
+# any GATED token (all thirteen since the 2026-08-04 promotion, sized off this
+# scenario's own five silent real-geometry dwells) reds this spec - which is
+# how line-blink gave V1 its first honest PARSEK-FAIL(anomaly) on 2026-07-30,
+# and why the fix was a sharper raise predicate rather than a `maxCount = 2`
+# tolerance here (see todo V1-REPLAY-LINE-BLINK: a budget cannot tell a benign
+# handoff from a real dark frame at the same count). The two report-only
+# instruments (unaccounted-drawn-recording, factory-parity) still land in
+# `anomalySweep.unlistedReasons` without moving the verdict.
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -348,6 +352,13 @@ required  = ["Recording started",
 # flights must cross to red the run. No anomaly tokens, no overTolerance
 # forbid -- see the gating-discipline header.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO on
+# EIGHT driver-valid readings, all 0: five collected logs in the failure
+# population, two green result JSONs, and the fresh `2026-08-04_1250_a2` run.
+# A flown Mun lane with a rewind and a map dwell still emits none.
+[expectations.unityExceptions]
+maxTotal = 0
 
 [runtime]
 # See the step-level budget arithmetic above the steps table.

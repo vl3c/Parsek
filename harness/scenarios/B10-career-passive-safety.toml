@@ -135,6 +135,14 @@ rec3CarveOut = false        # no route residual in a passive-safety scenario.
 # Declared career effects go under [[expectations.ledger.manifest]]; B10 declares
 # NONE (empty manifest = zero expected delta).
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. Every
+# driver-valid reading of this spec measured 0: both collected logs in the failure
+# population, plus the fresh 2026-08-04 daily run. A clean boot on this lane emits
+# no un-caught Unity exception, so 0 is the measurement, not a hopeful floor.
+# Full baseline table: the arming-sweep PR, not repeated in every spec.
+[expectations.unityExceptions]
+maxTotal = 0
+
 [runtime]
 budgetSeconds = 600
 

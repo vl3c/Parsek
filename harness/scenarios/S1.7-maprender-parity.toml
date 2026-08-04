@@ -80,8 +80,8 @@ tier = "daily"
 # runs in THIS batch) drives MapRenderTrace.EmitAnomaly with FOUR real reasons -
 # icon-off-orbit, decision-vs-truth, parity-drift and polyline-orbit-overlap
 # (MapRenderTracerCoverageInGameTest.cs:199, :202, :206, :231, all inside
-# DriveAllSurfaces, called at :78) - and THREE of those four are gated tokens
-# (icon-off-orbit is one of the ungated nine). They stay out of KSP.log only
+# DriveAllSurfaces, called at :78) - and since the 2026-08-04 promotion ALL FOUR
+# are gated tokens (icon-off-orbit was the last ungated one). They stay out of KSP.log only
 # because the whole matrix runs between the sink install at :72 and its restore at
 # :145. Narrow or remove that sink and S1.7 reds `PARSEK-FAIL(anomaly)` on a
 # deliberate instrumentation raise, not a defect. If that test is ever refactored,

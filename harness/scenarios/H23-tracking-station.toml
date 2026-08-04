@@ -94,6 +94,18 @@ required  = [
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), armed with a small
+# CEILING rather than 0: n=29 driver-valid readings read 25x0 plus 2, 2, 2 and 4
+# (fresh 2026-08-04 run: 0), the observed max being 4. Those raises are the
+# gate-13 stock `SpaceTracking.buildVesselsList` SHUTDOWN race, each counted twice
+# (`[ERR]` + `[EXC]`). The ceiling is gate 13's own MECHANISM bound, not the
+# observed max: one raise per vessel Unity reclaims in the shutdown window, twice
+# each, on a 3-vessel fixture = 6 reachable on a healthy run (observed 2 and 4 =
+# one and two reclaims). 5 would red the legal third reclaim; the storm this gate
+# exists to catch is hundreds. Re-pin from the run, never widen on a hunch.
+[expectations.unityExceptions]
+maxTotal = 6
+
 [runtime]
 # Budget arithmetic (M-A5 S8, mirrors H5/H22): 720 >= 300 LoadGame + 540 RunTests
 # ceiling headroom.

@@ -3104,6 +3104,30 @@ class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
                    if "saveParse(" not in self._plan(s["id"])]
         self.assertEqual([], missing, "dry-run plan omitted the saveParse row")
 
+    # -- unityExceptions (row 6b): the SAME staleness class as the saveParse row
+    # above, found the day it mattered. The [VERIFY] line hard-coded
+    # "unityExceptions(report-only)" as part of its hand-maintained literal, so on
+    # 2026-08-04 - the day 14 specs armed maxTotal - the plan advertised every one
+    # of them as unarmed. Same fix, same pinning.
+
+    def test_an_armed_unity_budget_names_the_gate_and_its_subkind(self):
+        line = self._plan("H23-tracking-station")
+        self.assertIn("unityExceptions(armed: maxTotal=6", line)
+        self.assertIn("PARSEK-FAIL(unity-exception)", line)
+
+    def test_an_unarmed_spec_renders_unity_report_only(self):
+        # B1-pad-hop declares no unityExceptions block (it is in the noisy
+        # warp-family remainder the calibration sweep deliberately left unarmed).
+        line = self._plan("B1-pad-hop")
+        self.assertIn("unityExceptions(report-only)", line)
+        self.assertNotIn("PARSEK-FAIL(unity-exception)", line)
+
+    def test_every_scenario_plan_names_unity_exceptions(self):
+        """The scan runs on every driver-valid run, so no spec's plan may omit it."""
+        missing = [s["id"] for s in self._all_specs()
+                   if "unityExceptions(" not in self._plan(s["id"])]
+        self.assertEqual([], missing, "dry-run plan omitted the unityExceptions row")
+
 
 class _LockRuntime(run.Runtime):
     """Clock + liveness under test control. Nothing else is stubbed: the lockfile

@@ -88,6 +88,13 @@ rec3CarveOut = false
   reputation = 0.0
   provenance = "seam-declared"
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. Every
+# driver-valid reading measured 0: the collected log in the failure population,
+# plus the fresh 2026-08-04 daily run - and the whole six-spec L1 family reads 0
+# across 14+ readings. Full baseline table in the arming-sweep PR.
+[expectations.unityExceptions]
+maxTotal = 0
+
 [runtime]
 # Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. (Used to add
 # "Pending-fixture -> never scheduled unattended"; false since 2026-07-23.)
