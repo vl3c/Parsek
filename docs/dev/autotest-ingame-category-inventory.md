@@ -401,16 +401,46 @@ or heavily self-skip-guarded (`StockUiOverlay` has a self-skip in all 6 members,
 multi-category batch contract is ever designed; not worth eight boots now.
 
 **B4 - self-skip guards whose preconditions the committed fixtures do not obviously
-meet.** The large categories live here: `Rewind` (37 declarations, 26 batch-eligible
-at FLIGHT, most members carrying self-skips), `Logistics` (47 declarations, of which
+meet.** The large categories live here: `Logistics` (47 declarations, of which
 38 are `AllowBatchExecution = false` and one more is scene-ineligible, leaving 8
 executable at FLIGHT; nearly every member carries a self-skip),
 `GhostLifecycle` (17, every member self-skip-guarded), `CrewReservation` (15, 12
 guarded), `TerrainClearance` (6, all 6), `PartEventFX` (6, all 6). These are exactly
 where the "specs that all Skip" warning bites: wiring them now produces green-looking
 specs that execute nothing. Each needs its guard preconditions read and a fixture
-chosen to satisfy them - real work, one category at a time - and the payoff is high
-for `Rewind` and `GhostLifecycle` in particular.
+chosen to satisfy them - real work, one category at a time.
+
+An earlier revision of this paragraph opened the list with `Rewind` (37) and closed
+"the payoff is high for `Rewind` and `GhostLifecycle` in particular". Half of that
+resolved as predicted and half was measured WRONG, and the correction is the load-
+bearing part:
+
+- `Rewind` was wired 2026-08-04 (roadmap R7: `R7a` + `R7c`, 21 of 37 executing
+  across the two, both live-proven) and left B4. The per-test read that sized it,
+  the four flights of the abandoned session-live third spec, and the four test
+  defects that surfaced are recorded in `todo-and-known-bugs.md`
+  (R7-SESSION-BATCH-ISOLATION, R7-FIXTURE-GAPS).
+- **`GhostLifecycle` is NOT the high-payoff target the old sentence claimed, and
+  should not be wired next.** A full-body read of all 17 members (2026-08-04, the
+  same wave) measured ~11 of 17 UNREACHABLE on ANY committed fixture, for reasons
+  no fixture choice moves: (a) no committed asset can produce an OVERLAP
+  recording - the injector's `.WithLoopPlayback()` default derives the written
+  loop period as the recording's full point span, so `intervalSeconds >= duration`
+  always and `GhostPlaybackLogic.IsOverlapLoop` is false BY CONSTRUCTION, which
+  kills the five boundary-overlap cells; (b) no committed asset authors a MISSION
+  node with `LoopPlayback = true`, so `MissionLoopUnitBuilder.Build` returns empty
+  and the mission-loop cells are dead; (c) `loopPhaseOffsets` has exactly one
+  writer, reached only on watch-mode entry, which no unattended batch performs;
+  (d) the batch-start `PerformBetweenRunCleanup` destroys all ghosts in the same
+  frame the first cell runs, so the first cell in discovery order self-skips on an
+  empty ghost set. Realistic yield is ~4 of 17 on `gloops-airshow` +
+  `all-synthetic`. Unblocking the rest is generator/product work (an overlap-
+  capable `WithLoopPlayback` interval, a mission-node author), not spec authoring.
+
+The honest next wave is therefore bucket B6 below (`LogContracts` 10,
+`GhostAudio` 9, `Diagnostics` 6, `MapPresence` 5, `LocalizedName` 3 - all
+read 2026-08-04 with high predicted execution on committed fixtures), plus
+`CrewReservation` from this bucket, ahead of anything else in B4.
 
 **B5 - too small to justify a dedicated boot.** The long tail: `Bug289` (2),
 `ContinuationIntegrity` (2), `MissionPhasing` (2), `PartEventTiming` (2),
