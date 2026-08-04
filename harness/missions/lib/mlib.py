@@ -3702,8 +3702,13 @@ class Cl1State:
     launch_altitude: Optional[float] = None
     # STICKY OBSERVED latch: the craft has been seen OFF THE GROUND on
     # CL1_HAS_FLOWN_DEBOUNCE_K consecutive live frames. The fourth conjunct of
-    # `crew-survived-impact` and of the `crewLostObserved` assertion, so neither
-    # can conclude about a craft that never launched. See the CL1_* block.
+    # the CONDEMNING `crew-survived-impact` terminal, so it cannot conclude
+    # about a craft that never launched. On the certifying `crewLostObserved`
+    # side it is REPORT-ONLY, deliberately: CL-1's live-proven runs fly 100%
+    # blind on the craft channel (measured `2026-08-04_0538` / `_2139`) and
+    # certify on the roster alone, so gating certification on a craft-channel
+    # latch would red the proven nightly. Do NOT "fix" evaluate_cl1_assertions
+    # to gate on it. See the CL1_* block.
     has_flown: bool = False
     # WHICH leg closed the latch ("situation=FLYING" / "altGain=1200m"), carried
     # into every reason string and into the result JSON so a reader can tell a

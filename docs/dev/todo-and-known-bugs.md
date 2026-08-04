@@ -1969,8 +1969,13 @@ site 5 corrects the ONE seam that was red, and each of these is wider than that 
 elements and propagates without stock's `Planetarium.Zup.WorldToLocal`, so EVERY
 element-seeded state it produces is stock's rotated about the polar axis by
 `Planetarium.inverseRotAngle` (MEASURED at 230.01 deg in H9 run `2026-08-04_2224`). Two
-consequences, both LONGITUDE-only (a polar rotation preserves radius, altitude and
-latitude, which is why nothing altitude-driven ever looked wrong):
+consequences, MOSTLY longitude-shaped (a polar rotation preserves radius, altitude and
+latitude, which is why nothing altitude-driven ever looked wrong) - but NOT strictly
+longitude-only on a multi-body tail: the vessel state stays in the raw element frame
+while the SOI ephemerides (`ParentFrameState`, site-3-corrected to stock's frame) do
+not, and vessel-to-child-body distance is not invariant when only one of the two is
+rotated, so a segment-seeded tail's child-encounter geometry can shift beyond a pure
+longitude offset:
 
 - `TryBuildStartStateFromSegment` seeds the extrapolation loop with a raw-frame state;
   `TwoBodyOrbit.TryCreate` then re-derives elements from it and the whole tail stays in the

@@ -4433,12 +4433,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "the reservation permanent and PostWalk skips "
                                        "permanents before slot creation, so the old "
                                        "`forbidden=[Stand-in generated]` candidate was "
-                                       "INVERTED). What is NOT yet flight-observed is "
-                                       "the new token's exact SHAPE: the "
-                                       "`permanent=`/`temporary=` terms first ship "
-                                       "with the small-fixes-2 DLL. A human schedules "
-                                       "that confirm fly, and the promotion call rides "
-                                       "on it.",
+                                       "INVERTED). The gate-armed confirm fly is "
+                                       "DONE: 2026-08-04_2324, PASS attempt 1, the "
+                                       "`permanent=0` token matched live. What the "
+                                       "tag still names is the human tier-promotion "
+                                       "call, nothing else.",
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "

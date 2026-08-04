@@ -30,9 +30,9 @@ tier = "nightly"
 # `Planetarium.Zup.WorldToLocal`. Fixed as SITE 5 (ELEMENT FRAME) 2026-08-05, and
 # proven headlessly end to end by StockOrbitFrameSeamTests, which installs a real
 # non-identity `Planetarium.Zup` and drives the production producer through it.
-# BOTH CELLS REMAIN PERMANENT GUARDS EXPECTED TO PASS; the next run is the SECOND
-# confirm re-fly and the site-4 cell should now read well under its 5 deg
-# tolerance (closed form says ~0, down from 131.066).
+# BOTH CELLS ARE PERMANENT GUARDS, and the SECOND confirm re-fly PROVED them:
+# run `2026-08-04_2323` PASS attempt 1, Site1 dLat=0.000000 and Site4
+# angleError=0.000 with the resolved quaternion bit-identical to the vessel's.
 description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, the extrapolated-segment map line, and the two live-vessel frame-calibration probes."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ballistic", "extrapolation", "scene-exit", "H9"]

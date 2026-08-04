@@ -216,11 +216,11 @@ instanceProfile = "stock-minimal"
 # `flown` replaced `pending-flight` on 2026-08-03: the spec has flown green three times
 # (two PASS + a deliberate negative control), so `pending-flight` had stopped describing
 # the record, and `--tag flown` is a REAL selector that was excluding it.
-# `pending-operator` STAYS, and now names the ONE debt that is actually open: the
-# CONFIRM FLY of the `permanent=0` token this spec started requiring on 2026-08-05. The
-# `dead-crew-strip` debt it used to name (fixture change + re-fly) is DISCHARGED: the
-# crewless root landed and `2026-08-04_2136` measured the discrimination, so the cell is
-# CLAIMED in `[dimensionsCovered]`. The other two debts are DISCHARGED too -
+# `pending-operator` STAYS, and now names ONLY the human tier-promotion call. The
+# CONFIRM FLY of the `permanent=0` token is DONE: `2026-08-04_2324`, PASS attempt 1,
+# the armed token matched live. The `dead-crew-strip` debt it used to name (fixture
+# change + re-fly) is DISCHARGED: the crewless root landed and `2026-08-04_2136`
+# measured the discrimination, so the cell is CLAIMED in `[dimensionsCovered]`. The other two debts are DISCHARGED too -
 # `vesselStateChanged` (the row was removed) and the arming follow-up (done
 # 2026-08-03) - and `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` records that.
 # The tag is non-gating; the tier governs cadence.
@@ -547,10 +547,11 @@ count = { min = 1 }
 # `2026-08-04_2136` both read the recompute line, and `_2136` measured the release of
 # the Dead reservation and the permanent 1 -> 0 transition through `PostWalk summary:
 # reservations=1 permanent=... temporary=...`). The `permanent=`/`temporary=` terms on
-# the RECOMPUTE line itself are NEW - they first ship with this branch's DLL - so the
-# token's exact SHAPE is derived from the call site, not yet observed in a flight. The
-# same-PR confirm fly is the live proof, and until it lands this token carries the same
-# standing as the `Tombstoned ...` token did before 2026-08-03.
+# the RECOMPUTE line itself first shipped with this branch's DLL; the same-PR
+# gate-armed confirm fly `2026-08-04_2324` then observed the exact shape live
+# (`Recomputed after tombstones: 1 reservations remain (permanent=0 temporary=1).`,
+# PASS attempt 1), so the token is MEASURED - the same standing the
+# `Tombstoned ...` token has carried since 2026-08-03.
 required  = ["Recording started",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
