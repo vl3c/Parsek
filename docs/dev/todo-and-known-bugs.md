@@ -969,7 +969,53 @@ they exercise is reachable in a real game. What is missing is fixture material.
 
 ---
 
-## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
+## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. FIXED 2026-08-05, branch `small-fixes-2` - the has-flown latch below; regression fly pending]
+
+### Fix (2026-08-05): the fourth conjunct, in the mlib predicate only
+
+The defect lived in exactly one layer - `mlib.cl1_decide`'s `crew-survived-impact`
+predicate (the spec asserts nothing a pad craft can satisfy, and the schema is
+params-only). The `landed` conjunction gained `state.has_flown`, an OBSERVED-state
+latch with two legs and no commanded input anywhere (the commanded-latch rule):
+
+- **Situation leg:** a non-empty observed situation that is neither a spec
+  `landedSituations` value nor `PRE_LAUNCH` (explicitly ground - it is in no spec's
+  landed set, so a naive "not landed" test would latch on the pad and re-open the
+  defect). Debounced at 2 consecutive airborne frames.
+- **Altitude leg:** `altitude - launch_altitude >= 100 m`, where `launch_altitude`
+  is the first finite altitude on a LIVE frame (the craft's own pad reading, 27 m
+  measured) - per-run, per-craft, so a craft that has not moved can never show it.
+
+Sticky once closed (a craft that flew and came back down has still flown - the
+terminal fires precisely when it is back down). Blind frames (`vessel_lost`, empty
+situation) classify `CL1_FRAME_BLIND` and neither advance nor reset the latch, and
+never seed `launch_altitude` (a `vessel_lost` snapshot's 0.0 default would invent a
+gain). The FLIGHT-budget flake gains a named `flight-never-left-the-ground` reason,
+gated on a sticky `ground_seen` set only by an OBSERVED ground frame - an all-blind
+timeout keeps the plain unnamed flake.
+
+**The certifying (MISSION-OK) side deliberately does NOT gate on the latch.** In the
+live-proven PASS `2026-08-04_0538_CL-1-pod-impact` every telemetry read raised
+`Maneuver node editing is not available` (career fixture, un-upgraded Tracking
+Station): all 431 frames arrived blind, `sit=?` on all window lines,
+`peakAltitude: 0.0`, and the MISSION-OK was carried by the roster channel alone.
+Gating certification on a craft-channel latch would red that proven nightly. The
+latch is REPORTED there instead (`hasFlownObserved` / `hasFlownEvidence` /
+`launchAltitude` facets); on the current fixture those read `false / null / null`,
+which is itself the proof CL-1 certifies purely on the roster channel. Corollary:
+the condemn-side conjunct is behaviour-neutral for CL-1 as currently configured (a
+blind frame never satisfied `landed` anyway) - it closes the hole for the
+tolerance-ON / upgraded-fixture case where frames are live.
+
+Cover: 28 new cells in `test_cl1_crew_loss.py` (`Cl1HasFlownLatchTests` + additions),
+including three that reproduce the measured defect with only the conjunct removed -
+the pad shape (situation LANDED, roster Assigned, altitude 27 m) never concludes,
+ends as the NAMED flake, and the end-to-end shell pad-sit returns
+`MISSION-ASSERT-FAIL crew-survived-impact` pre-fix, exactly the measured failure.
+
+REMAINING: one CL-1 regression fly, expected indistinguishable from the prior PASS
+(~158-179 s, MISSION-OK, `phasesReached ["PRELAUNCH","FLIGHT","CREW-LOST"]`); read
+the new facets off the run JSON.
 
 ### Correcting the first version of this entry
 
@@ -1080,7 +1126,38 @@ file already carried the false positive silently - its own `rec_provisional` is
 NotCommitted with the zombie's pid and StartUT - which is why the bug survived
 unit cover until the harness surfaced it.
 
-## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
+## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. FIXTURE FIXED BY CONSTRUCTION 2026-08-05, branch `small-fixes-2` - measurement re-fly pending]
+
+### Fixture fix (2026-08-05): the root is now crewless, and the "crewless" gates were vacuous
+
+`RewindCrewLossFixture.BuildRoot` now authors a crewless `ProbeShip` snapshot in
+place of the crewed `FleaRocket` (pid `210001`, name `CL Stack`, points, group and
+the absent terminal state all unchanged, so every id the spec and the harness sync
+cells read is untouched). The pod is now the tree's only crew source, which is
+exactly the discrimination experiment this entry calls for.
+
+Found while doing it: the pre-existing crewless assertions could NEVER have failed -
+snapshot sidecars are DEFLATE-compressed binary, and
+`Assert.DoesNotContain(DeadCrewName, File.ReadAllText(...))` over compressed bytes is
+vacuously true. Both cells (probe + new root cell
+`TheRootStaysCrewlessSoThePodIsTheOnlyCrewSourceInTheTree`) now decode through
+`SnapshotSidecarCodec.TryLoad` and carry an anti-vacuity anchor (the decoded text
+must CONTAIN the vessel name before the crew-absence assertion runs). Proven by
+negative control: reverting `BuildRoot` to the crewed snapshot reds exactly the new
+cell; the crewless build greens all 11. The root cell also pins that the root still
+carries NO terminal state, so a future author cannot "fix" a surviving reservation by
+stamping one and quietly leaving a second crew source. The RP quicksave needs no
+matching change - its slot VESSELs are cloned from the host save's donor VESSEL, and
+no fixture recording snapshot reaches the RP sidecar (verified empirically).
+
+REMAINING: the measurement re-fly (this worktree's `Parsek.Tests.dll` must be
+rebuilt first - the injector runs `--no-build`). Read it for: half (i) still holding
+(`Tombstoned 1 career actions (... Kerbal=1 ...)`), and the (ii) decision -
+`Recomputed after tombstones: 0 reservations remain.` with NO `Stand-in generated`
+and NO surviving `Reservation: 'Jebediah Kerman'`. Only then does D12 become
+claimable, with the candidate gate recorded below. If (ii) STILL fails on a crewless
+root, the defect is in the product and the fixture was a red herring - file it, do
+not bend the definition.
 
 The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
 action in the supersede subtree is tombstoned, AND (ii) the ELS recompute that follows
@@ -1370,7 +1447,7 @@ One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees
 
 ---
 
-## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration) [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. STILL NOT FIXED - the calibration flight has not been flown]
+## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration) [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. MEASUREMENT INSTRUMENT LANDED 2026-08-05, branch `small-fixes-2` - see "The measurement instrument now exists" below. STILL NOT FIXED - the calibration has not been read off a flight yet]
 
 ### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two
 
@@ -1417,6 +1494,51 @@ One flight answers all four, because they share the frame:
 
 Until that flight happens, do not "fix" any of the four on paper - that is the
 instruction this entry has carried since the units audit, and it still stands.
+
+### The measurement instrument now exists (2026-08-05, phase 1 - MEASURES, does not fix)
+
+The step above that says "compare against the ACTUAL crash site" no longer needs a
+bespoke flight to be readable: the calibration is now an INSTRUMENT that any
+FLIGHT-scene in-game batch reports. Two `IncompleteBallistic` cells in
+`Source/Parsek/InGameTests/IncompleteBallisticRuntimeTests.cs`:
+
+- `FrameCalibration_Site1_SurfaceCoordinatesReproduceLiveVesselLatLon` drives the
+  PRODUCTION site-1 path - `TryBuildExtrapolationBodies` (visibility bumped
+  private -> internal, the only change to the finalizer) then that body's
+  `SurfaceCoordinates`, i.e. `ResolveBodyFixedSurfaceCoordinates` - with the
+  extrapolator's contract-frame position (`orbit.getRelativePositionAtUT`) and
+  compares the result against the live `Vessel.latitude` / `longitude`. It probes at
+  `ut == referenceUT` so the de-rotation term is exactly zero and the POSITION frame
+  is the only thing measured. Tolerance 0.01 deg, longitude wrap-safe.
+- `FrameCalibration_Site4_PredictedSegmentAttitudeRoundTripsThroughPlayback` runs the
+  real producer (`FlightRecorder.CreateOrbitSegmentFromVessel` ->
+  `SeedPredictedSegmentOrbitalFrameRotations`) against the real consumer
+  (`ParsekFlight.ComputeOrbitalRotation`) at the same UT and measures the round-trip
+  attitude error against `vessel.transform.rotation`. Tolerance 5 deg.
+
+BOTH ARE EXPECTED TO FAIL until the fix lands, and that is the design: each failure
+message prints both sides of the comparison and the delta with InvariantCulture, and
+each also emits a grep-stable Info line so the numbers survive in KSP.log alone:
+
+```
+[Parsek][INFO][IncompleteBallistic] Site1FrameProbe: measured lat=... lon=... vesselLat=... vesselLon=... dLat=... dLon=... tolDeg=... body=... ut=... zup=(...)
+[Parsek][INFO][IncompleteBallistic] Site4AttitudeRoundTrip: angleError=... tolDeg=... seededOfr=(...) resolved=(...) vessel=(...) body=... ut=...
+```
+
+Consequence to read correctly: `harness/scenarios/H9-incomplete-ballistic.toml` is
+re-pinned to `total=10 passed=10 failed=0 skipped=0` and therefore REDS BY DESIGN
+until the four sites are corrected. That red is the instrument reporting, not a
+regression. Do NOT clear it by loosening the probes' tolerances or by trying to pin
+`failed=2` (the harness derives `passed = total - attribute_skipped` with
+`failed=0` and rejects the latter).
+
+The headless half is `Source/Parsek.Tests/BallisticExtrapolatorFrameTests.cs`:
+closed-form pins on `TwoBodyOrbit.GetStateAtUT`'s element-to-inertial map (inc = 0
+=> z is exactly 0 in position and velocity and the normal is exactly +z;
+inc = 90 => the normal lies in the xy-plane along `(sin LAN, -cos LAN, 0)` and the
+position sweeps the full z extent). Those pin the CONTRACT, pass NOW, and must keep
+passing after the fix - none of them asserts the current wrong behaviour of any
+consumer site, and none encodes the swizzle convention the probes exist to measure.
 
 ### The original finding
 

@@ -1829,7 +1829,10 @@ namespace Parsek
             return Math.Max(commitUT, currentEndUT);
         }
 
-        private static bool TryBuildExtrapolationBodies(
+        // internal rather than private so the IncompleteBallistic FRAME PROBE in-game
+        // cell can measure the SITE-1 resolver through the production builder instead
+        // of a reimplementation of it.
+        internal static bool TryBuildExtrapolationBodies(
             string recordingId,
             double referenceUT,
             out Dictionary<string, ExtrapolationBody> bodies)

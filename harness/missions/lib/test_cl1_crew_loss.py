@@ -453,6 +453,325 @@ class Cl1NamedFailureTerminalTests(unittest.TestCase):
         self.assertIn("last altitude", state.loss_reason)
 
 
+def pad_frame(ut, status="Assigned", altitude=27.0):
+    """ONE frame of the MEASURED pad shape (`2026-08-04_0535` / `_0536` / `_0541`,
+    the runs that unmasked the latent defect): the pod still SITTING ON THE PAD,
+    reading situation LANDED with the crew Assigned at 27 m. Every conjunct
+    `crew-survived-impact` had before the has-flown latch is satisfied by this
+    frame, which is the whole defect."""
+    return snap(ut=ut, altitude=altitude, situation="LANDED",
+                crew_roster_status=status)
+
+
+def pad_run(state, count, ut=1.0, status="Assigned"):
+    for i in range(count):
+        state, _ = mlib.cl1_decide(state, pad_frame(ut + i, status))
+    return state
+
+
+def on_the_pad(**over):
+    """A machine that has taken its PRELAUNCH frame ON THE PAD, so the launch
+    reading is the pad altitude (27 m) rather than `fresh()`'s bare default."""
+    state = mlib.cl1_initial_state(mlib.cl1_params_from_dict(params(**over)))
+    state, _ = mlib.cl1_decide(state, snap(ut=0.0, altitude=27.0,
+                                           situation="PRE_LAUNCH"))
+    return state
+
+
+class Cl1HasFlownLatchTests(unittest.TestCase):
+    """THE FOURTH CONJUNCT (2026-08-05). `crew-survived-impact` used to state
+    "the craft came to rest with the crew alive" out of three conjuncts none of
+    which said the flight had HAPPENED - so a pod that never launched satisfied
+    it trivially, and the terminal fired 1.9 s into a run with
+    `phasesReached=['PRELAUNCH','FLIGHT']`.
+
+    It had been MASKED rather than guarded: those pad frames used to arrive BLIND
+    (one field's read fault aborted the whole telemetry read) and a blind frame
+    proves nothing. Tolerating that field made them complete and trusted and the
+    hole opened - i.e. the terminal's correctness depended on a read FAILURE.
+
+    Every cell here reads OBSERVED telemetry (situation / altitude), never a
+    commanded latch: "we sent the launch command" is exactly the evidence class
+    B1's inert chute proved worthless."""
+
+    # --- the defect itself ------------------------------------------------
+
+    def test_the_measured_pad_shape_never_concludes_anything(self):
+        # THE REGRESSION CELL, in the exact measured shape. Pre-fix this condemns
+        # on the SECOND pad frame with `crew-survived-impact`; post-fix the
+        # machine is still running twenty frames later with nothing concluded.
+        state = pad_run(on_the_pad(), 20)
+        self.assertFalse(state.done)
+        self.assertIsNone(state.loss_reason)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(0, state.landed_alive_streak)
+        self.assertFalse(state.has_flown)
+        # The measured phase list, unchanged: the craft never left FLIGHT.
+        self.assertEqual((mlib.CL1_PRELAUNCH, mlib.CL1_FLIGHT), state.phases_reached)
+        # And the pad frames DID satisfy every OTHER conjunct - which is why the
+        # missing one was the whole defect.
+        self.assertTrue(state.crew_alive_aboard_seen)
+        self.assertEqual("Assigned", state.last_roster_status)
+        self.assertEqual(27.0, state.last_finite_altitude)
+
+    def test_a_real_flight_that_lands_with_its_crew_alive_still_condemns(self):
+        # The terminal must keep doing its job: the latch narrows it, it does not
+        # disable it. Ascent OBSERVED, then a landing with the kerbal alive.
+        state = drive(on_the_pad(), "Assigned", "Assigned")      # FLYING @1000 m
+        self.assertTrue(state.has_flown)
+        state = drive(state, "Assigned", "Assigned", situation="LANDED", ut=10.0)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("crew-survived-impact", state.loss_reason)
+
+    def test_a_real_fatal_flight_still_reaches_the_success_terminal(self):
+        # `drive` flies at 1000 m, so BOTH legs hold; the evidence names whichever
+        # decided, and the cell pins that one of them did.
+        state = drive(on_the_pad(), "Assigned", "Assigned", "Dead", "Dead")
+        self.assertEqual(mlib.CL1_CREW_LOST, state.phase)
+        self.assertIsNone(state.loss_reason)
+        self.assertTrue(state.has_flown)
+        self.assertTrue(state.has_flown_evidence)
+
+    # --- how the latch reads OBSERVED state -------------------------------
+
+    def test_the_latch_needs_two_agreeing_airborne_frames(self):
+        state = drive(on_the_pad(), "Assigned")                  # one FLYING frame
+        self.assertFalse(state.has_flown)
+        self.assertEqual(1, state.airborne_streak)
+        state = drive(state, "Assigned", ut=2.0)
+        self.assertTrue(state.has_flown)
+
+    def test_the_situation_leg_closes_the_latch_with_no_altitude_gain_at_all(self):
+        # The legs are independent: a craft READING a flight situation at the pad
+        # altitude has still been observed off the ground.
+        state = on_the_pad()
+        for i in range(mlib.CL1_HAS_FLOWN_DEBOUNCE_K):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=1.0 + i, altitude=27.0, situation="FLYING",
+                            crew_roster_status="Assigned"))
+        self.assertTrue(state.has_flown)
+        self.assertEqual("situation=FLYING", state.has_flown_evidence)
+
+    def test_a_ground_frame_resets_the_run(self):
+        # FLYING, back on the ground, FLYING: two airborne frames, never two
+        # CONSECUTIVE ones, so the latch stays open. Flown at the PAD altitude so
+        # the situation leg is the only one in play (a 1000 m frame would satisfy
+        # the altitude leg on its own and prove nothing about the reset).
+        def frame(ut, situation):
+            return snap(ut=ut, altitude=27.0, situation=situation,
+                        crew_roster_status="Assigned")
+        state = on_the_pad()
+        state, _ = mlib.cl1_decide(state, frame(1.0, "FLYING"))
+        self.assertEqual(1, state.airborne_streak)
+        state, _ = mlib.cl1_decide(state, frame(2.0, "LANDED"))
+        self.assertEqual(0, state.airborne_streak)
+        state, _ = mlib.cl1_decide(state, frame(3.0, "FLYING"))
+        self.assertFalse(state.has_flown)
+
+    def test_a_landing_ABOVE_the_launch_reading_still_counts_as_flight(self):
+        # PINNED ORDERING DECISION: the altitude leg is tested BEFORE the
+        # situation leg, so a craft reading LANDED a hundred metres above where it
+        # launched is airborne-observed. That is correct rather than incidental -
+        # it got up there somehow - and the baseline is the craft's OWN launch
+        # reading, so a craft that never moved can never show the gain no matter
+        # what altitude the pad sits at.
+        p = mlib.cl1_params_from_dict(PARAMS)
+        kind, evidence = mlib.classify_cl1_ground_frame(
+            snap(situation="LANDED",
+                 altitude=27.0 + mlib.CL1_HAS_FLOWN_ALT_GAIN_METERS), p, 27.0)
+        self.assertEqual(mlib.CL1_FRAME_AIRBORNE, kind)
+        self.assertTrue(evidence.startswith("altGain="))
+
+    def test_pre_launch_is_a_ground_reading_not_an_airborne_one(self):
+        # The trap in the obvious implementation: PRE_LAUNCH is not in any spec's
+        # landedSituations (it is not where a flight ENDS), so "not landed" alone
+        # would latch on the pad frames and re-open the whole defect.
+        state = on_the_pad()
+        for i in range(6):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=1.0 + i, altitude=27.0, situation="PRE_LAUNCH",
+                            crew_roster_status="Assigned"))
+        self.assertFalse(state.has_flown)
+        self.assertEqual(0, state.airborne_streak)
+
+    def test_the_latch_is_sticky_across_the_descent(self):
+        # A craft that flew and came back down has still flown - and the terminal
+        # the latch gates fires precisely when it is back down.
+        state = drive(on_the_pad(), "Assigned", "Assigned")
+        evidence = state.has_flown_evidence
+        state, _ = mlib.cl1_decide(state, pad_frame(20.0))
+        self.assertTrue(state.has_flown)
+        self.assertEqual(evidence, state.has_flown_evidence,
+                         "the latch must not be re-decided by the landing frames")
+
+    # --- the altitude leg -------------------------------------------------
+
+    def test_altitude_gain_alone_closes_the_latch_when_the_situation_is_dark(self):
+        # The second leg: a live frame whose situation read is empty still proves
+        # flight if the craft is CL1_HAS_FLOWN_ALT_GAIN_METERS above the launch
+        # reading. Nothing about it is commanded - both numbers are OBSERVED.
+        state = on_the_pad()
+        for i in range(mlib.CL1_HAS_FLOWN_DEBOUNCE_K):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=1.0 + i,
+                            altitude=27.0 + mlib.CL1_HAS_FLOWN_ALT_GAIN_METERS,
+                            situation="", crew_roster_status="Assigned"))
+        self.assertTrue(state.has_flown)
+        self.assertTrue(state.has_flown_evidence.startswith("altGain="))
+
+    def test_a_gain_under_the_floor_does_not_close_it(self):
+        state = on_the_pad()
+        for i in range(6):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=1.0 + i,
+                            altitude=27.0 + mlib.CL1_HAS_FLOWN_ALT_GAIN_METERS - 1.0,
+                            situation="", crew_roster_status="Assigned"))
+        self.assertFalse(state.has_flown)
+
+    def test_the_launch_reading_is_the_first_live_finite_altitude(self):
+        state = on_the_pad()
+        self.assertEqual(27.0, state.launch_altitude)
+        state = drive(state, "Assigned", altitude=9000.0)
+        self.assertEqual(27.0, state.launch_altitude,
+                         "the baseline must not follow the craft up")
+
+    def test_a_blind_frame_never_becomes_the_launch_reading(self):
+        # Every field but the roster is a benign default on a vessel_lost
+        # snapshot, so adopting its altitude 0.0 as the baseline would invent a
+        # gain out of a read fault.
+        state = mlib.cl1_initial_state(mlib.cl1_params_from_dict(PARAMS))
+        state, _ = mlib.cl1_decide(state, snap(ut=0.0, altitude=27.0,
+                                               vessel_lost=True))
+        self.assertIsNone(state.launch_altitude)
+
+    # --- blind frames prove nothing, in BOTH directions -------------------
+
+    def test_blind_frames_alone_never_close_the_latch(self):
+        state = on_the_pad()
+        for i in range(30):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=1.0 + i, altitude=99999.0, situation="FLYING",
+                            vessel_lost=True, crew_roster_status="Assigned"))
+        self.assertFalse(state.has_flown)
+        self.assertEqual(0, state.airborne_streak)
+
+    def test_a_blind_frame_does_not_break_a_run_of_observed_airborne_frames(self):
+        # The other direction of the same rule: a read fault must not ERASE
+        # evidence the machine actually observed. AIRBORNE, blind, AIRBORNE is
+        # two OBSERVED airborne frames with nothing observed between them.
+        state = drive(on_the_pad(), "Assigned")
+        self.assertEqual(1, state.airborne_streak)
+        state, _ = mlib.cl1_decide(state, snap(ut=2.0, vessel_lost=True,
+                                               crew_roster_status="Assigned"))
+        self.assertEqual(1, state.airborne_streak)
+        self.assertFalse(state.has_flown)
+        state = drive(state, "Assigned", ut=3.0)
+        self.assertTrue(state.has_flown)
+
+    def test_a_live_frame_with_no_situation_reading_is_blind_too(self):
+        # "" is the UNREAD sentinel for this channel, and it must not count as
+        # "not landed" - the same fail-closed rule the roster gates state.
+        state = on_the_pad()
+        for i in range(6):
+            state, _ = mlib.cl1_decide(
+                state, snap(ut=1.0 + i, altitude=27.0, situation="",
+                            crew_roster_status="Assigned"))
+        self.assertFalse(state.has_flown)
+        self.assertEqual(0, state.airborne_streak)
+
+    # --- the pure classifier ----------------------------------------------
+
+    def test_the_classifier_maps_every_reading_to_its_class(self):
+        p = mlib.cl1_params_from_dict(PARAMS)
+        cases = [
+            (snap(situation="FLYING", altitude=27.0), mlib.CL1_FRAME_AIRBORNE),
+            (snap(situation="SUB_ORBITAL", altitude=27.0), mlib.CL1_FRAME_AIRBORNE),
+            (snap(situation="ORBITING", altitude=27.0), mlib.CL1_FRAME_AIRBORNE),
+            (snap(situation="LANDED", altitude=27.0), mlib.CL1_FRAME_GROUND),
+            (snap(situation="SPLASHED", altitude=27.0), mlib.CL1_FRAME_GROUND),
+            (snap(situation="PRE_LAUNCH", altitude=27.0), mlib.CL1_FRAME_GROUND),
+            (snap(situation="", altitude=27.0), mlib.CL1_FRAME_BLIND),
+            (snap(situation="FLYING", altitude=27.0, vessel_lost=True),
+             mlib.CL1_FRAME_BLIND),
+        ]
+        for snapshot, want in cases:
+            kind, _evidence = mlib.classify_cl1_ground_frame(snapshot, p, 27.0)
+            self.assertEqual(want, kind, snapshot.situation or "(unread)")
+
+    def test_the_classifier_normalizes_case_and_whitespace(self):
+        p = mlib.cl1_params_from_dict(PARAMS)
+        for raw in ("landed", " LANDED ", "Landed"):
+            self.assertEqual(mlib.CL1_FRAME_GROUND,
+                             mlib.classify_cl1_ground_frame(
+                                 snap(situation=raw, altitude=27.0), p, 27.0)[0])
+        self.assertEqual(mlib.CL1_FRAME_AIRBORNE,
+                         mlib.classify_cl1_ground_frame(
+                             snap(situation="flying", altitude=27.0), p, 27.0)[0])
+
+    def test_the_classifier_needs_no_baseline_to_read_a_situation(self):
+        # A run whose first live frames were blind has no launch reading yet; the
+        # situation leg must still work (and the altitude leg must not blow up).
+        p = mlib.cl1_params_from_dict(PARAMS)
+        self.assertEqual(mlib.CL1_FRAME_AIRBORNE,
+                         mlib.classify_cl1_ground_frame(
+                             snap(situation="FLYING", altitude=5000.0), p, None)[0])
+        self.assertEqual(mlib.CL1_FRAME_GROUND,
+                         mlib.classify_cl1_ground_frame(
+                             snap(situation="LANDED", altitude=5000.0), p, None)[0])
+
+    def test_a_non_finite_altitude_never_fabricates_a_gain(self):
+        p = mlib.cl1_params_from_dict(PARAMS)
+        kind, _ = mlib.classify_cl1_ground_frame(
+            snap(situation="LANDED", altitude=float("nan")), p, 27.0)
+        self.assertEqual(mlib.CL1_FRAME_GROUND, kind)
+
+    # --- what a pad-sit ends as, and how it is named ----------------------
+
+    def test_a_pad_sit_ends_as_a_NAMED_flake_not_an_unnamed_timeout(self):
+        # The latch declines to condemn, so the FLIGHT budget owns the outcome -
+        # and a deterministic outcome must not land in the flake bucket unnamed
+        # (the B1 chute-arm-window-missed lesson this module keeps restating).
+        state = pad_run(on_the_pad(flightTimeoutSeconds=30.0), 5)
+        state, _ = mlib.cl1_decide(state, pad_frame(1000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertEqual(mlib.CL1_FLIGHT, state.flake_phase)
+        self.assertIn("flight-never-left-the-ground", state.flake_reason)
+        self.assertIn("hasFlownObserved=no", state.flake_reason)
+        self.assertIn("27m", state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(mlib.MISSION_FLAKE, verdict)
+        self.assertIn("flight-never-left-the-ground", reason)
+
+    def test_an_all_blind_timeout_keeps_the_plain_budget_flake(self):
+        # "Never left the ground" is a claim about a channel, so it may only be
+        # made when that channel was READ. The measured CL-1 run reads it on ZERO
+        # frames; naming a pad-sit there would be the same unfounded statement
+        # this whole fix exists to remove, pointed the other way.
+        state = fresh(flightTimeoutSeconds=30.0)
+        state = drive(state, "Assigned", "Assigned", vessel_lost=True)
+        self.assertFalse(state.ground_seen)
+        state, _ = mlib.cl1_decide(state, snap(ut=1000.0, vessel_lost=True,
+                                               crew_roster_status="Assigned"))
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIsNone(state.flake_reason)
+
+    def test_a_flight_that_flew_keeps_the_plain_budget_flake(self):
+        state = drive(on_the_pad(flightTimeoutSeconds=30.0), "Assigned", "Assigned")
+        state, _ = mlib.cl1_decide(state, pad_frame(1000.0))
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertIsNone(state.flake_reason)
+
+    def test_every_condemning_reason_names_the_latch(self):
+        # A condemnation that does not say WHY it believes the flight happened is
+        # one an operator has to re-derive from a 2 MB log.
+        state = drive(on_the_pad(), "Assigned", "Assigned")
+        state = drive(state, "Assigned", "Assigned", situation="LANDED", ut=10.0)
+        self.assertIn("hasFlownObserved=yes", state.loss_reason)
+        self.assertIn(state.has_flown_evidence, state.loss_reason)
+
+
 class Cl1VesselLostTests(unittest.TestCase):
     """`vessel_lost` is a TERMINAL everywhere else in mlib and deliberately is not
     one here: the pod being destroyed is the expected midpoint of this flight, and
@@ -548,6 +867,43 @@ class Cl1AssertionTests(unittest.TestCase):
         self.assertTrue(rows["crewAliveAboardObserved"].met)
         self.assertFalse(rows["crewLostObserved"].met)
 
+    def test_the_certifying_row_does_NOT_require_the_craft_channel(self):
+        # THE CELL THAT STOPS THE FIX OVERREACHING, and it is measured rather than
+        # argued. The obvious symmetry - "gate crewLostObserved on the has-flown
+        # latch too" - would red the live-proven nightly: in the passing run
+        # `2026-08-04_0538_CL-1-pod-impact` EVERY telemetry read raised `Maneuver
+        # node editing is not available` (career save, un-upgraded Tracking
+        # Station), so all 431 frames arrived BLIND (`sit=?` on all 4110 window
+        # lines, `peakAltitude 0.0`) and the whole MISSION-OK was carried by the
+        # roster channel alone. That is the channel independence this scenario was
+        # designed around, not a fault. A gate must read what IS observed.
+        state = drive(fresh(), "Assigned", "Assigned", vessel_lost=True)
+        state = drive(state, "Dead", "Dead", vessel_lost=True, ut=10.0)
+        self.assertEqual(mlib.CL1_CREW_LOST, state.phase)
+        self.assertFalse(state.has_flown, "an all-blind run observes no flight")
+        rows = {o.name: o for o in mlib.evaluate_cl1_assertions(
+            [], mlib.cl1_params_from_dict(PARAMS), state)}
+        self.assertTrue(rows["crewAliveAboardObserved"].met)
+        self.assertTrue(rows["crewLostObserved"].met)
+        verdict, _reason = mlib.resolve_flight_verdict(state, list(rows.values()))
+        self.assertEqual(mlib.MISSION_OK, verdict)
+        # REPORTED though, on both rows, so the result says which channels the run
+        # actually saw instead of leaving a reader to infer it.
+        self.assertFalse(rows["crewLostObserved"].to_dict()["hasFlownObserved"])
+        self.assertIsNone(rows["crewAliveAboardObserved"].to_dict()["hasFlownEvidence"])
+
+    def test_the_rows_report_the_has_flown_evidence_on_a_real_flight(self):
+        # The facets a reader checks to see the run passed FOR THE RIGHT REASON.
+        state = drive(on_the_pad(), "Assigned", "Assigned", "Dead", "Dead")
+        rows = {o.name: o for o in mlib.evaluate_cl1_assertions(
+            [], mlib.cl1_params_from_dict(PARAMS), state)}
+        detail = rows["crewAliveAboardObserved"].to_dict()
+        self.assertTrue(detail["hasFlownObserved"])
+        self.assertTrue(detail["hasFlownEvidence"])
+        self.assertEqual(27.0, detail["launchAltitude"])
+        self.assertTrue(rows["crewLostObserved"].to_dict()["hasFlownObserved"])
+        self.assertTrue(rows["crewLostObserved"].met)
+
     def test_the_accepted_set_is_reported_on_the_row(self):
         state = drive(fresh(), "Assigned", "Assigned", "Dead", "Dead")
         rows = {o.name: o for o in mlib.evaluate_cl1_assertions(
@@ -637,6 +993,33 @@ class Cl1ShellTests(unittest.TestCase):
         self.assertNotEqual(0, code)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, result["verdict"])
         self.assertIn("crew-survived-impact", result["reason"])
+
+    def test_a_craft_that_never_launched_is_never_called_a_survival(self):
+        # THE DEFECT, end to end through the shell, in the shape three measured
+        # runs produced (`2026-08-04_0535` / `_0536` / `_0541`): a pod on the pad,
+        # reading LANDED with the crew Assigned, and NOTHING else. Pre-fix this
+        # returns MISSION-ASSERT-FAIL `crew-survived-impact` within two frames.
+        # Post-fix the machine declines to conclude and the FLIGHT budget owns the
+        # outcome as the NAMED, retryable `flight-never-left-the-ground` flake.
+        pad = [snap(ut=0.0, altitude=27.0, situation="PRE_LAUNCH")]
+        pad += [pad_frame(1.0 + i) for i in range(60)]
+        code, result = run(cl1_pod_impact.SPEC, params(flightTimeoutSeconds=30.0),
+                           FakeMissionControl(pad))
+        self.assertNotEqual(0, code)
+        self.assertEqual(mlib.MISSION_FLAKE, result["verdict"])
+        self.assertNotIn("crew-survived-impact", result["reason"])
+        self.assertIn("flight-never-left-the-ground", result["reason"])
+
+    def test_a_passing_run_reports_the_has_flown_facets(self):
+        tail = [snap(ut=120.0 + i, altitude=200.0, situation="FLYING",
+                     crew_roster_status="Dead") for i in range(3)]
+        code, result = run(cl1_pod_impact.SPEC, PARAMS,
+                           FakeMissionControl(flight_frames(tail)))
+        self.assertEqual(0, code)
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(rows["crewAliveAboardObserved"]["hasFlownObserved"])
+        self.assertTrue(rows["crewAliveAboardObserved"]["hasFlownEvidence"])
+        self.assertTrue(rows["crewLostObserved"]["hasFlownObserved"])
 
     def test_the_mission_declares_no_handoff_contract(self):
         # CL-1 terminates ON the outcome it certifies (unlike EVA-4, whose process

@@ -253,6 +253,288 @@ namespace Parsek.InGameTests
                 "foreign-SOI segments should not render through a gap in the v1 selector");
         }
 
+        // ================================================================
+        // BallisticExtrapolator FRAME-CALIBRATION INSTRUMENT (phase 1).
+        //
+        // The two cells below MEASURE the frame mismatch that
+        // docs/dev/todo-and-known-bugs.md ("BallisticExtrapolator frame
+        // mismatches") pins at four sites in
+        // IncompleteBallisticSceneExitFinalizer. They FIX nothing - the four
+        // `FRAME MISMATCH #n, PINNED NOT FIXED` sites are untouched - because
+        // that entry's standing instruction is that the axis/sign convention
+        // must be CALIBRATED IN-GAME, never re-derived on paper.
+        //
+        // Sites 1 and 4 are the calibration-blocked half of the entry (the half
+        // whose correction turns on the axis/sign mapping between the
+        // extrapolator's Zup body-relative frame and KSP's Y-up world). Sites 2
+        // and 3 carry two frames inside one state vector and so are wrong under
+        // EITHER convention; they need no measurement and are not probed here.
+        //
+        // BOTH CELLS ARE EXPECTED TO FAIL until that calibration lands, and the
+        // failure text is the deliverable: each prints both sides of the
+        // comparison and the delta. Each also emits a grep-stable
+        // `[Parsek][INFO][IncompleteBallistic] Site<n>...` line so the
+        // measurement survives in KSP.log alone, without a results file.
+        // ================================================================
+
+        /// <summary>Recording-id labels the two frame probes pass to the production seams.</summary>
+        private const string Site1ProbeRecordingId = "site1-frame-probe";
+        private const string Site4ProbeRecordingId = "site4-attitude-roundtrip";
+
+        /// <summary>
+        /// Tight enough that an axis swap reads as a gross structured offset rather than
+        /// as jitter, loose enough to absorb the float grid of a live
+        /// <c>Vessel.latitude</c> / <c>longitude</c> read.
+        /// </summary>
+        private const double FrameProbeLatLonToleranceDegrees = 0.01;
+
+        /// <summary>
+        /// A live vessel's attitude is never perfectly still (SAS dither, physics wobble)
+        /// and the producer and consumer reach the same orbit through two different
+        /// propagators, so a few degrees is the honest bar. The frame error under
+        /// measurement is a whole-axis swap, which is tens of degrees.
+        /// </summary>
+        private const float FrameProbeAttitudeToleranceDegrees = 5f;
+
+        private const double PredictedProbeSegmentSeconds = 60.0;
+        private const long Site4ProbeOrbitCacheKey = -4104L;
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "SITE-1 FRAME PROBE: the finalizer's body-fixed surface-coordinate resolver reproduces the live vessel's lat/lon")]
+        public void FrameCalibration_Site1_SurfaceCoordinatesReproduceLiveVesselLatLon()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null || vessel.orbit == null || vessel.mainBody == null)
+            {
+                InGameAssert.Skip(
+                    "SITE-1 FRAME PROBE needs a live active vessel carrying an orbit and a main "
+                    + "body; got "
+                    + (vessel == null
+                        ? "no active vessel"
+                        : vessel.orbit == null
+                            ? "an active vessel with no orbit"
+                            : "an active vessel with no main body"));
+                return;
+            }
+
+            double now = Planetarium.GetUniversalTime();
+            CelestialBody body = vessel.mainBody;
+
+            // The extrapolator's contract frame: TwoBodyOrbit state vectors live in the
+            // same frame as Orbit.getRelativePositionAtUT (Zup-swizzled, body-relative),
+            // which is exactly what the production SurfaceCoordinates resolver is handed.
+            Vector3d contractFramePosition = vessel.orbit.getRelativePositionAtUT(now);
+
+            if (!IncompleteBallisticSceneExitFinalizer.TryBuildExtrapolationBodies(
+                    Site1ProbeRecordingId, now, out Dictionary<string, ExtrapolationBody> bodies)
+                || !bodies.TryGetValue(body.name ?? string.Empty, out ExtrapolationBody probeBody)
+                || probeBody == null
+                || probeBody.SurfaceCoordinates == null)
+            {
+                InGameAssert.Skip(
+                    "SITE-1 FRAME PROBE needs the production ExtrapolationBody for '"
+                    + (body.name ?? "(null)")
+                    + "'; TryBuildExtrapolationBodies produced none this frame");
+                return;
+            }
+
+            // referenceUT == ut ON PURPOSE. ResolveBodyFixedSurfaceCoordinates subtracts
+            // ((ut - referenceUT) * 360 / rotationPeriod) from the longitude, so probing at
+            // the resolver's own reference UT zeroes that de-rotation term and leaves the
+            // POSITION frame as the only thing under measurement.
+            probeBody.SurfaceCoordinates(
+                now,
+                contractFramePosition,
+                out double measuredLatitude,
+                out double measuredLongitude);
+
+            double deltaLatitude = measuredLatitude - vessel.latitude;
+            double deltaLongitude = SignedLongitudeDeltaDegrees(measuredLongitude, vessel.longitude);
+
+            ParsekLog.Info("IncompleteBallistic", string.Format(
+                CultureInfo.InvariantCulture,
+                "Site1FrameProbe: measured lat={0:F6} lon={1:F6} vesselLat={2:F6} vesselLon={3:F6} "
+                + "dLat={4:F6} dLon={5:F6} tolDeg={6:F6} body={7} ut={8:F3} "
+                + "zup=({9:F3},{10:F3},{11:F3})",
+                measuredLatitude,
+                measuredLongitude,
+                vessel.latitude,
+                vessel.longitude,
+                deltaLatitude,
+                deltaLongitude,
+                FrameProbeLatLonToleranceDegrees,
+                body.name ?? "(null)",
+                now,
+                contractFramePosition.x,
+                contractFramePosition.y,
+                contractFramePosition.z));
+
+            InGameAssert.IsTrue(
+                System.Math.Abs(deltaLatitude) < FrameProbeLatLonToleranceDegrees
+                && System.Math.Abs(deltaLongitude) < FrameProbeLatLonToleranceDegrees,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "SITE-1 FRAME MISMATCH (calibration measurement, not a regression): "
+                    + "ResolveBodyFixedSurfaceCoordinates returned lat={0:F6} lon={1:F6} for a live "
+                    + "vessel at lat={2:F6} lon={3:F6} on {4} at ut={5:F3} — dLat={6:F6} dLon={7:F6}, "
+                    + "tolerance {8:F6} deg. Zup contract-frame position=({9:F3},{10:F3},{11:F3}). "
+                    + "See docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' "
+                    + "site 1 — these numbers ARE the calibration that entry is waiting on.",
+                    measuredLatitude,
+                    measuredLongitude,
+                    vessel.latitude,
+                    vessel.longitude,
+                    body.name ?? "(null)",
+                    now,
+                    deltaLatitude,
+                    deltaLongitude,
+                    FrameProbeLatLonToleranceDegrees,
+                    contractFramePosition.x,
+                    contractFramePosition.y,
+                    contractFramePosition.z));
+        }
+
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "SITE-4 ATTITUDE ROUND-TRIP: seeding a predicted segment's orbital-frame rotation and resolving it back through playback reproduces the vessel's attitude")]
+        public void FrameCalibration_Site4_PredictedSegmentAttitudeRoundTripsThroughPlayback()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null || vessel.orbit == null || vessel.mainBody == null)
+            {
+                InGameAssert.Skip(
+                    "SITE-4 ATTITUDE ROUND-TRIP needs a live active vessel carrying an orbit and "
+                    + "a main body; got "
+                    + (vessel == null
+                        ? "no active vessel"
+                        : vessel.orbit == null
+                            ? "an active vessel with no orbit"
+                            : "an active vessel with no main body"));
+                return;
+            }
+
+            double now = Planetarium.GetUniversalTime();
+            CelestialBody body = vessel.mainBody;
+
+            if (!IncompleteBallisticSceneExitFinalizer.TryBuildExtrapolationBodies(
+                    Site4ProbeRecordingId, now, out Dictionary<string, ExtrapolationBody> bodies))
+            {
+                InGameAssert.Skip(
+                    "SITE-4 ATTITUDE ROUND-TRIP needs the production extrapolation-body map; "
+                    + "TryBuildExtrapolationBodies declined this frame");
+                return;
+            }
+
+            // PRODUCER, through the shipping seams: the recorder's own OrbitSegment builder,
+            // then the finalizer's seeding pass with the live world rotation as the frozen
+            // attitude — the same two calls a scene-exit predicted tail goes through.
+            OrbitSegment segment = FlightRecorder.CreateOrbitSegmentFromVessel(vessel, now);
+            segment.endUT = now + PredictedProbeSegmentSeconds;
+            segment.isPredicted = true;
+
+            var segments = new List<OrbitSegment> { segment };
+            IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations(
+                Site4ProbeRecordingId, segments, vessel.transform.rotation, bodies);
+
+            OrbitSegment seeded = segments[0];
+            if (!TrajectoryMath.HasOrbitalFrameRotation(seeded))
+            {
+                InGameAssert.Skip(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "SITE-4 ATTITUDE ROUND-TRIP needs the producer to seed an orbital-frame "
+                    + "rotation; SeedPredictedSegmentOrbitalFrameRotations declined the live orbit "
+                    + "(body={0} sma={1:F1} ecc={2:F6}) as non-propagatable",
+                    segment.bodyName ?? "(null)",
+                    segment.semiMajorAxis,
+                    segment.eccentricity));
+                return;
+            }
+
+            // CONSUMER, through the shipping seam playback uses: world position and
+            // Zup body-relative velocity read straight off the live orbit, with the body's
+            // world position as the radial origin — the exact argument shape
+            // PositionGhostFromOrbit builds. Probed at the segment's own startUT, which is
+            // the UT the producer seeded at, so nothing but the frame differs.
+            Vector3d worldPosition = vessel.orbit.getPositionAtUT(now);
+            Vector3d velocity = vessel.orbit.getOrbitalVelocityAtUT(now);
+            var (ghostRotation, _) = ParsekFlight.ComputeOrbitalRotation(
+                seeded,
+                vessel.orbit,
+                now,
+                velocity,
+                worldPosition,
+                body.position,
+                Quaternion.identity,
+                Site4ProbeOrbitCacheKey,
+                TrajectoryMath.HasOrbitalFrameRotation(seeded),
+                TrajectoryMath.IsSpinning(seeded));
+
+            Quaternion vesselRotation = vessel.transform.rotation;
+            float angleError = Quaternion.Angle(ghostRotation, vesselRotation);
+
+            ParsekLog.Info("IncompleteBallistic", string.Format(
+                CultureInfo.InvariantCulture,
+                "Site4AttitudeRoundTrip: angleError={0:F3} tolDeg={1:F3} "
+                + "seededOfr=({2:F5},{3:F5},{4:F5},{5:F5}) resolved=({6:F5},{7:F5},{8:F5},{9:F5}) "
+                + "vessel=({10:F5},{11:F5},{12:F5},{13:F5}) body={14} ut={15:F3}",
+                angleError,
+                FrameProbeAttitudeToleranceDegrees,
+                seeded.orbitalFrameRotation.x,
+                seeded.orbitalFrameRotation.y,
+                seeded.orbitalFrameRotation.z,
+                seeded.orbitalFrameRotation.w,
+                ghostRotation.x,
+                ghostRotation.y,
+                ghostRotation.z,
+                ghostRotation.w,
+                vesselRotation.x,
+                vesselRotation.y,
+                vesselRotation.z,
+                vesselRotation.w,
+                body.name ?? "(null)",
+                now));
+
+            InGameAssert.IsTrue(
+                angleError < FrameProbeAttitudeToleranceDegrees,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "SITE-4 FRAME MISMATCH (calibration measurement, not a regression): seeding a "
+                    + "predicted segment's orbitalFrameRotation from the extrapolator's Zup "
+                    + "body-relative state and resolving it back through "
+                    + "ParsekFlight.ComputeOrbitalRotation's world-frame radial gives "
+                    + "angleError={0:F3} deg against the live vessel attitude, tolerance {1:F3} deg. "
+                    + "resolved=({2:F5},{3:F5},{4:F5},{5:F5}) vessel=({6:F5},{7:F5},{8:F5},{9:F5}) "
+                    + "on {10} at ut={11:F3}. "
+                    + "See docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' "
+                    + "site 4 — this angle IS the calibration that entry is waiting on.",
+                    angleError,
+                    FrameProbeAttitudeToleranceDegrees,
+                    ghostRotation.x,
+                    ghostRotation.y,
+                    ghostRotation.z,
+                    ghostRotation.w,
+                    vesselRotation.x,
+                    vesselRotation.y,
+                    vesselRotation.z,
+                    vesselRotation.w,
+                    body.name ?? "(null)",
+                    now));
+        }
+
+        /// <summary>
+        /// Signed shortest angular distance from <paramref name="other"/> to
+        /// <paramref name="longitude"/> in degrees, wrapped into [-180, 180) so a probe
+        /// reading 179.99 against a vessel at -179.99 measures 0.02, not 359.98.
+        /// </summary>
+        private static double SignedLongitudeDeltaDegrees(double longitude, double other)
+        {
+            double delta = (longitude - other) % 360.0;
+            if (delta >= 180.0)
+                delta -= 360.0;
+            else if (delta < -180.0)
+                delta += 360.0;
+            return delta;
+        }
+
         /// <summary>
         /// Bug-repro acceptance test for the split-at-rewind-UT fix
         /// (plan §7d / docs/dev/plans/fix-supersede-identity-scope.md).

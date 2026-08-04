@@ -2624,7 +2624,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     GROUP = {
         "H7-trajectory-math":        ("TrajectoryMath", 8, "FLIGHT"),
         "H8-spawn-rotation":         ("SpawnRotation", 10, "FLIGHT"),
-        "H9-incomplete-ballistic":   ("IncompleteBallistic", 8, "FLIGHT"),
+        "H9-incomplete-ballistic":   ("IncompleteBallistic", 10, "FLIGHT"),
         "H10-finalize-backfill":     ("FinalizeBackfill", 7, "FLIGHT"),
         "H11-pipeline-anchor":       ("Pipeline-Anchor", 7, "FLIGHT"),
         "H12-switch-segment":        ("SwitchSegment", 6, "FLIGHT"),

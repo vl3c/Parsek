@@ -130,13 +130,56 @@ namespace Parsek.Tests
                     Path.GetDirectoryName(path), "Parsek", "Recordings");
                 bool found = Directory
                     .GetFiles(recordings, RewindCrewLossFixture.PodRecordingId + "*")
-                    .Any(f => File.ReadAllText(f)
+                    .Any(f => DecodedSidecarText(f)
                         .Contains(RewindCrewLossFixture.DeadCrewName));
                 Assert.True(found,
                     "the crew-loss pod's sidecar set must carry "
                     + RewindCrewLossFixture.DeadCrewName);
                 return 0;
             });
+        }
+
+        [Fact]
+        public void TheRootStaysCrewlessSoThePodIsTheOnlyCrewSourceInTheTree()
+        {
+            // THE HALF-(ii) GUARD. The registry pins `dead-crew-strip` as (i) the death
+            // action tombstoned AND (ii) the ELS recompute leaving NO surviving
+            // reservation or stand-in for the kerbal. (ii) is observable only when the
+            // pod is the tree's ONLY crew source: a crewed root carries no terminal
+            // state, so InferCrewEndState returns Unknown and the root holds an
+            // indefinite reservation from OUTSIDE the supersede subtree - which is
+            // exactly what CL-3's 2026-08-03_1834 flight measured (`Recomputed after
+            // tombstones: 1 reservations remain`, sourced from 'cl-stack-root').
+            // Asserted against the SIDECAR the game reads, existence-checked first so
+            // the cell cannot pass vacuously against a fixture that stopped writing a
+            // root snapshot at all.
+            WithInjectedSave(path =>
+            {
+                string vessel = Path.Combine(
+                    Path.GetDirectoryName(path), "Parsek", "Recordings",
+                    RewindCrewLossFixture.RootRecordingId + "_vessel.craft");
+                Assert.True(File.Exists(vessel),
+                    "the crew-loss root must still carry a vessel snapshot: crewless "
+                    + "is the point, snapshot-less would be a different fixture");
+
+                string text = DecodedSidecarText(vessel);
+                // ANTI-VACUITY ANCHOR, and it is not decoration: the sidecar the game
+                // reads is DEFLATE-compressed binary, so a raw ReadAllText scan over it
+                // can neither find a name that IS there nor honestly miss one - the
+                // absence assertion below is worthless unless the decode produced the
+                // real node first.
+                Assert.Contains("CL Stack", text);
+                Assert.DoesNotContain(RewindCrewLossFixture.DeadCrewName, text);
+                return 0;
+            });
+
+            // ...and the root still carries NO terminal state, which is the other half
+            // of why a crewed root reserved indefinitely. Pinned so a future author
+            // cannot "fix" a surviving reservation by stamping a terminal state on the
+            // root instead of keeping it crewless - that would leave a second crew
+            // source in the tree and make the recompute half unreadable again.
+            Assert.Null(RecordingNode(RewindCrewLossFixture.RootRecordingId)
+                .GetValue("terminalState"));
         }
 
         [Fact]
@@ -152,8 +195,12 @@ namespace Parsek.Tests
                 string vessel = Path.Combine(
                     Path.GetDirectoryName(path), "Parsek", "Recordings",
                     RewindCrewLossFixture.ProbeRecordingId + "_vessel.craft");
-                Assert.DoesNotContain(RewindCrewLossFixture.DeadCrewName,
-                    File.ReadAllText(vessel));
+                // Decoded, with the same anti-vacuity anchor as the root cell: this
+                // assertion used to run over the RAW compressed bytes and could not
+                // have caught a crewed probe.
+                string text = DecodedSidecarText(vessel);
+                Assert.Contains("CL Probe B", text);
+                Assert.DoesNotContain(RewindCrewLossFixture.DeadCrewName, text);
                 return 0;
             });
         }
@@ -251,6 +298,24 @@ namespace Parsek.Tests
         }
 
         // ---- helpers -------------------------------------------------------
+
+        // Snapshot sidecars are DEFLATE-compressed binary (SnapshotSidecarCodec), so a
+        // raw File.ReadAllText scan over one proves nothing in either direction: a
+        // crew-name assertion passes vacuously against a crewed snapshot and an
+        // absence assertion passes vacuously against anything. Decode through the
+        // product's own codec, and fall back to plain text only for the sidecars that
+        // genuinely are text (.prec, and the settings-gated .txt mirrors - which are a
+        // DEBUG artifact and must never be the surface a gate depends on).
+        private static string DecodedSidecarText(string path)
+        {
+            if (SnapshotSidecarCodec.HasBinaryMagic(path)
+                && SnapshotSidecarCodec.TryLoad(path, out ConfigNode node, out _)
+                && node != null)
+            {
+                return node.ToString();
+            }
+            return File.ReadAllText(path);
+        }
 
         // Injects the fixture into a throwaway save and hands the caller the result.
         // Takes a callback rather than returning a path so the temp dir is always

@@ -277,6 +277,57 @@ CL1_ROSTER_DEBOUNCE_K = 2
 # deterministic outcome must not be filed in the flake bucket unnamed).
 CL1_ROSTER_UNREAD_GIVEUP_FRAMES = 6
 
+# --- THE HAS-FLOWN LATCH (2026-08-05) --------------------------------------
+# `crew-survived-impact` used to state "the craft came to rest with the crew
+# alive" out of three conjuncts NONE of which said the flight had happened: a
+# frame reading situation LANDED with roster Assigned satisfies all three, and a
+# craft SITTING ON THE PAD reads exactly that. Measured, `2026-08-04_0535`: the
+# terminal fired 1.9 s in, `phasesReached=['PRELAUNCH','FLIGHT']`, on a pod that
+# had not moved (situation LANDED, roster Assigned, altitude 27 m). It had been
+# masked, not guarded: those pad frames used to arrive BLIND (one field's read
+# fault aborted the whole telemetry read), and a blind frame proves nothing, so
+# the streak never advanced. Tolerating that one field made the same frames
+# COMPLETE AND TRUSTED and the hole opened - i.e. the terminal's correctness
+# depended on a read FAILURE.
+#
+# The fourth conjunct is a HAS-FLOWN LATCH, and like every other gate in this
+# machine it reads OBSERVED telemetry only (situation / altitude), never the
+# machine's own "we sent the launch command" latch - the commanded-vs-observed
+# defect class B1's inert chute cost four months of green nightlies to (see
+# `_b1_down_eligible`). It is STICKY: a craft that flew and came back down has
+# still flown.
+#
+# Situations that mean "this craft has NOT left the ground yet", on top of the
+# spec's own `landedSituations`. PRE_LAUNCH is here and in no spec's landed set,
+# because the two answer different questions: `landedSituations` is "did it come
+# to REST" (where a flight ENDS), this is "has it not left yet".
+CL1_GROUND_SITUATIONS: Tuple[str, ...] = ("PRE_LAUNCH",)
+
+# Metres gained over the LAUNCH READING (the first altitude OBSERVED on a live
+# frame) before the altitude leg alone satisfies the latch. The situation leg
+# carries the ordinary flight on its own; this leg exists for the frames where
+# the situation channel is silent or a craft never leaves LANDED while climbing
+# a slope. 100 m against the fixture's 27 m pad reading is two orders of
+# magnitude above pad jitter and an order below the measured 11,965 m apex, so
+# it cannot be reached by a craft that has not moved and cannot be missed by one
+# that has.
+CL1_HAS_FLOWN_ALT_GAIN_METERS = 100.0
+
+# Consecutive OBSERVED off-the-ground frames before the latch closes. Same K as
+# the roster debounce and for the same reason, but its OWN constant because it
+# debounces a different channel (the CRAFT, not the roster) and a future change
+# to one must not silently move the other.
+CL1_HAS_FLOWN_DEBOUNCE_K = 2
+
+# What one frame says about the craft being off the ground. THREE values, not a
+# bool, because "proves nothing" is a distinct answer from "proves it is on the
+# ground": a BLIND frame must neither close the latch nor break a run of
+# observed airborne frames (the fail-closed rule the never-aboard streak states,
+# applied in both directions).
+CL1_FRAME_AIRBORNE = "AIRBORNE"
+CL1_FRAME_GROUND = "GROUND"
+CL1_FRAME_BLIND = "BLIND"
+
 # B2 phase names (design "Mission B2: LKO-ascent").
 B2_PRELAUNCH = "PRELAUNCH"
 B2_MJ_ASCENT = "MJ-ASCENT"
@@ -3644,6 +3695,30 @@ class Cl1State:
     # can never pass instantly and green.
     crew_alive_aboard_seen: bool = False
     alive_aboard_streak: int = 0
+    # THE LAUNCH READING: the first FINITE altitude OBSERVED on a live frame
+    # (the craft still on the pad, 27 m on this fixture). Baseline for the
+    # altitude leg of the has-flown latch; None until a live frame carries one,
+    # which fails that leg CLOSED (the situation leg still runs).
+    launch_altitude: Optional[float] = None
+    # STICKY OBSERVED latch: the craft has been seen OFF THE GROUND on
+    # CL1_HAS_FLOWN_DEBOUNCE_K consecutive live frames. The fourth conjunct of
+    # `crew-survived-impact` and of the `crewLostObserved` assertion, so neither
+    # can conclude about a craft that never launched. See the CL1_* block.
+    has_flown: bool = False
+    # WHICH leg closed the latch ("situation=FLYING" / "altGain=1200m"), carried
+    # into every reason string and into the result JSON so a reader can tell a
+    # run that flew from one that merely was not contradicted.
+    has_flown_evidence: str = ""
+    # Consecutive OBSERVED airborne frames. A GROUND frame resets it; a BLIND
+    # frame leaves it ALONE (a read fault must not erase observed evidence, and
+    # must not manufacture it either).
+    airborne_streak: int = 0
+    # STICKY: the craft channel was readable AND read as still down at least
+    # once. It separates "OBSERVED not to have flown" from "never observed at
+    # all", which the measured CL-1 run is: with the fixture's un-upgraded
+    # Tracking Station every telemetry read raises and all 431 frames arrive
+    # blind. Only the first of those two may be NAMED a pad-sit.
+    ground_seen: bool = False
     # Consecutive not-alive / never-aboard / landed-while-alive / unread runs
     # behind the debounced terminals. Each resets to 0 on any disagreeing frame
     # (fail-closed: the run of agreement must be unbroken).
@@ -3694,15 +3769,79 @@ def _cl1_evidence(state: Cl1State) -> str:
     parts.append("lastRoster=%s" % (state.last_roster_status or "UNREAD"))
     parts.append("aliveAboardObserved=%s"
                  % ("yes" if state.crew_alive_aboard_seen else "no"))
+    parts.append("hasFlownObserved=%s"
+                 % ("yes (%s)" % (state.has_flown_evidence or "unrecorded")
+                    if state.has_flown else "no"))
     parts.append("vesselLostSeen=%s" % ("yes" if state.vessel_lost_seen else "no"))
     return ", ".join(parts)
+
+
+def classify_cl1_ground_frame(snapshot: TelemetrySnapshot, params: Cl1Params,
+                              launch_altitude: Optional[float]) -> Tuple[str, str]:
+    """Classify ONE frame for the has-flown latch. PURE and injectable: the only
+    inputs are the frame, the spec's landed vocabulary and the launch reading.
+
+    Returns ``(CL1_FRAME_*, evidence)``:
+      - ``CL1_FRAME_AIRBORNE`` + the leg that decided it, when the frame OBSERVES
+        the craft off the ground: it gained CL1_HAS_FLOWN_ALT_GAIN_METERS over
+        the launch reading, or its situation is a real reading that is neither a
+        spec landed situation nor PRE_LAUNCH;
+      - ``CL1_FRAME_GROUND`` when the frame OBSERVES it still down;
+      - ``CL1_FRAME_BLIND`` when the frame says nothing about it - a
+        ``vessel_lost`` snapshot (every field but the roster is a benign default
+        there, and its situation is "") or a live frame whose situation read is
+        empty. BLIND neither closes the latch nor breaks a run: counting it as
+        airborne would let a dead channel manufacture a flight, counting it as
+        ground would let one erase a flight that was observed.
+
+    The altitude leg is tested FIRST so a craft that gained a kilometre is
+    airborne even if its situation channel is dark.
+    """
+    if snapshot.vessel_lost:
+        return CL1_FRAME_BLIND, ""
+    if (launch_altitude is not None and _is_finite(launch_altitude)
+            and _is_finite(snapshot.altitude)):
+        gain = snapshot.altitude - launch_altitude
+        if gain >= CL1_HAS_FLOWN_ALT_GAIN_METERS:
+            return CL1_FRAME_AIRBORNE, "altGain=%.0fm" % gain
+    situation = (snapshot.situation or "").strip().upper()
+    if not situation:
+        return CL1_FRAME_BLIND, ""
+    grounded = tuple(str(s).upper() for s in params.landed_situations) \
+        + CL1_GROUND_SITUATIONS
+    if situation in grounded:
+        return CL1_FRAME_GROUND, ""
+    return CL1_FRAME_AIRBORNE, "situation=%s" % situation
+
+
+def _cl1_advance_has_flown(state: Cl1State, snapshot: TelemetrySnapshot) -> Cl1State:
+    """Capture the launch reading and advance the STICKY has-flown latch from
+    THIS frame. Never un-latches: a craft that flew and came back down has still
+    flown, and the terminal the latch gates fires precisely when it is back down.
+    """
+    if (state.launch_altitude is None and not snapshot.vessel_lost
+            and _is_finite(snapshot.altitude)):
+        state = replace(state, launch_altitude=snapshot.altitude)
+    kind, evidence = classify_cl1_ground_frame(snapshot, state.params,
+                                               state.launch_altitude)
+    if kind == CL1_FRAME_GROUND:
+        return replace(state, airborne_streak=0, ground_seen=True)
+    if kind != CL1_FRAME_AIRBORNE:      # BLIND: leave the run and the latch alone
+        return state
+    streak = state.airborne_streak + 1
+    state = replace(state, airborne_streak=streak)
+    if not state.has_flown and streak >= CL1_HAS_FLOWN_DEBOUNCE_K:
+        state = replace(state, has_flown=True, has_flown_evidence=evidence)
+    return state
 
 
 def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, List[Action]]:
     """Advance the CL-1 crew-loss machine one frame; return (new_state, actions).
 
     Ordering inside a frame is load-bearing and is stated once here:
-      1. carry the evidence (peak / last altitude / last roster reading);
+      1. carry the evidence (peak / last altitude / last roster reading), and
+         advance the OBSERVED has-flown latch - before the PRELAUNCH branch, so
+         the pad frame's altitude is captured as the launch reading;
       2. advance the roster streaks from THIS frame's reading;
       3. the UNREAD give-up, so a dead channel is named before anything is
          concluded from its silence;
@@ -3727,6 +3866,11 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
     status = snapshot.crew_roster_status or ROSTER_STATUS_UNREAD
     if status:
         state = replace(state, last_roster_status=status)
+
+    # The has-flown latch, from OBSERVED situation / altitude only. Runs on
+    # EVERY frame including the PRELAUNCH one (which is where the launch
+    # reading comes from) and is sticky once closed.
+    state = _cl1_advance_has_flown(state, snapshot)
 
     # --- PRELAUNCH: arm the watch, ignite, and enter FLIGHT ----------------
     # Emitted BEFORE the roster gates are evaluated, because on the very first
@@ -3858,7 +4002,15 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
     #     AFTER a single Dead reading re-created the self-contradicting reason
     #     line ("with the crew still alive; ... lastRoster=Dead") the not-alive
     #     conjunct exists to prevent.
+    #   - AND the craft must have been OBSERVED OFF THE GROUND at least once
+    #     (the has-flown latch, 2026-08-05). The other three conjuncts contain no
+    #     evidence that the flight HAPPENED, so a pod still sitting on the pad -
+    #     situation LANDED, roster Assigned - satisfied all of them 1.9 s into a
+    #     run and condemned a flight that had not started. See the CL1_* latch
+    #     block for the measurement and for why the old behaviour was masking (a
+    #     read fault) rather than a guard.
     landed = (not snapshot.vessel_lost and not unread and not not_alive
+              and state.has_flown
               and snapshot.situation in state.params.landed_situations)
     state = replace(state,
                     landed_alive_streak=(state.landed_alive_streak + 1) if landed else 0)
@@ -3871,7 +4023,34 @@ def cl1_decide(state: Cl1State, snapshot: TelemetrySnapshot) -> Tuple[Cl1State, 
                             _cl1_evidence(state)))), []
 
     # --- 7. the phase budget ----------------------------------------------
+    # A craft that never left the ground now runs the FLIGHT budget out instead
+    # of being condemned by step 6 on its pad frames, so the budget flake NAMES
+    # that case: it is the deterministic outcome the has-flown latch declines to
+    # call a survival, and an unnamed "phase FLIGHT timed out" is exactly the
+    # bucket this module keeps refusing to file deterministic outcomes in. It
+    # stays a FLAKE (not an assert-fail): a craft that ignites and does not move
+    # is a driver / staging fault, which is retryable, not a Parsek defect.
+    #
+    # `ground_seen` is what makes the NAME true rather than merely available: the
+    # measured CL-1 run reads the craft channel on ZERO frames (every read raises
+    # on the fixture's un-upgraded Tracking Station), and on such a run "never
+    # left the ground" would be a claim about a channel nobody read. Unobserved
+    # keeps the plain timeout.
     if _cl1_over_budget(state, snapshot):
+        if state.ground_seen and not state.has_flown:
+            return replace(
+                state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                flake_reason=("flight-never-left-the-ground: FLIGHT ran its full "
+                              "%.0f s budget and the craft was NEVER OBSERVED off "
+                              "the ground (no non-landed situation, no %.0fm gain "
+                              "over the launch reading %s), so nothing about a "
+                              "landing or an impact could be concluded; %s"
+                              % (state.params.flight_timeout,
+                                 CL1_HAS_FLOWN_ALT_GAIN_METERS,
+                                 ("%.0fm" % state.launch_altitude
+                                  if state.launch_altitude is not None
+                                  and _is_finite(state.launch_altitude) else "UNREAD"),
+                                 _cl1_evidence(state)))), []
         return replace(state, done=True, verdict=MISSION_FLAKE,
                        flake_phase=state.phase), []
     return state, []
@@ -3897,6 +4076,21 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
       records WHICH not-alive reading this fixture's difficulty flags produced
       rather than merely that one of them did.
 
+    THE HAS-FLOWN LATCH IS REPORTED HERE AND DELIBERATELY DOES NOT GATE (2026-08-05).
+    Gating the CONDEMNING terminal on it is right (`cl1_decide` step 6); gating
+    this CERTIFYING row on it would red the live-proven nightly, and the
+    measurement says so unambiguously. In the passing run
+    `2026-08-04_0538_CL-1-pod-impact` EVERY telemetry read raised
+    ``Maneuver node editing is not available`` (a career save whose Tracking
+    Station is not upgraded), so all 431 frames arrived BLIND: zero situation
+    readings (`sit=?` on all 4110 window lines), `peakAltitude 0.0`, and the
+    whole MISSION-OK carried by the roster channel alone - which is exactly the
+    channel-independence this scenario was designed around. Requiring the craft
+    channel here would demand evidence the run structurally cannot produce, which
+    is the mirror image of the defect being fixed: a gate must read what IS
+    observed, not what we wish were. Reported instead, so the run's own result
+    says which channels it actually saw.
+
     Machine-carried rather than re-derived from ``frames`` on purpose: the
     alive-aboard latch is STICKY (a kerbal who was aboard and is now dead must
     not have that erased by the frames that follow), and the frames after the
@@ -3905,6 +4099,7 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
     peak = _peak_finite(list(frames or []), lambda f: f.altitude)
     alive_seen = bool(getattr(state, "crew_alive_aboard_seen", False))
     reached = getattr(state, "phase", None) == CL1_CREW_LOST
+    has_flown = bool(getattr(state, "has_flown", False))
     terminal_status = str(getattr(state, "crew_loss_status", "") or "")
     loss_ut = getattr(state, "crew_loss_ut", None)
     return [
@@ -3913,12 +4108,26 @@ def evaluate_cl1_assertions(frames, params: Cl1Params,
                          (getattr(state, "last_roster_status", "") or None),
                          {"debounceK": CL1_ROSTER_DEBOUNCE_K,
                           "crewName": params.crew_name,
-                          "peakAltitude": peak}),
+                          "peakAltitude": peak,
+                          # The has-flown latch, REPORTED on every run so a
+                          # reader can tell a flight that happened from one that
+                          # merely was not contradicted. `hasFlownEvidence` names
+                          # the leg that closed it (situation or altitude gain).
+                          "hasFlownObserved": has_flown,
+                          "hasFlownEvidence":
+                              (getattr(state, "has_flown_evidence", "") or None),
+                          "launchAltitude": getattr(state, "launch_altitude", None)}),
         AssertionOutcome("crewLostObserved", bool(reached and alive_seen),
                          terminal_status or None,
                          {"accepted": list(ROSTER_STATUS_NOT_ALIVE),
                           "debounceK": CL1_ROSTER_DEBOUNCE_K,
                           "crewLossUt": loss_ut,
+                          # Repeated here (REPORT-ONLY, see the docstring)
+                          # because this is the row a reader checks when the
+                          # verdict is OK: false means the craft channel was
+                          # never readable, so the death was certified by the
+                          # roster alone.
+                          "hasFlownObserved": has_flown,
                           "lastRosterStatus":
                               getattr(state, "last_roster_status", "") or None}),
     ]

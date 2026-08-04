@@ -113,7 +113,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | - | B |
-| `IncompleteBallistic` | 8 | 8 | 0 | 0 | 0 | 0 | H9 | A |
+| `IncompleteBallistic` | 10 | 10 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
@@ -188,10 +188,10 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **98 categories / 543 declarations**. Buckets **A 20 categories
-(138 declarations)**, **B 78 categories (405 declarations)**, **C 0 categories (0
+Totals, re-derived: **98 categories / 545 declarations**. Buckets **A 20 categories
+(140 declarations)**, **B 78 categories (405 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **28 of 98 categories**, up from 8.
-Measured against declarations rather than categories, that is 263 of 543 inside a
+Measured against declarations rather than categories, that is 265 of 545 inside a
 driven category (was 125).
 
 The 2026-08-04 wave (`wire-rewind-block`, roadmap R7 + two R8 stragglers) added
@@ -244,12 +244,12 @@ one wired category costs one KSP boot per cadence. Wiring all 74 undriven catego
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (20 categories, 138 declarations)
+### Bucket A - wired now (20 categories, 140 declarations)
 
 Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
 spec would end up pinned against the wrong derivation.
 
-**A1 - the ordinary batch path (15 categories, 79 declarations).** Fourteen shipped
+**A1 - the ordinary batch path (15 categories, 81 declarations).** Fourteen shipped
 as one wave, `H7`-`H20`, tier `nightly`, over the committed `gloops-airshow`
 fixture; `H22-ui-complexity-mode` joined afterward with the Basic/Advanced UI-mode
 feature, tier `daily`, over the same fixture. The admission test each had to pass:
@@ -261,8 +261,8 @@ feature, tier `daily`, over the same fixture. The admission test each had to pas
    (`IncompleteBallisticRuntimeTests.cs` does contain `InGameAssert.Skip` calls - 4
    in `Ledger` members, 1 in `RouteLiveAnchor`, 1 in `TestRunnerIsolation` - so a
    per-file answer would have been wrong for both `IncompleteBallistic` and
-   `SwitchSegment`, neither of which has any).
-   TWO MEMBERS OF BUCKET A DO NOT SATISFY THIS CRITERION AS WRITTEN, and saying so
+   `SwitchSegment`, neither of which had any at the time the wave shipped).
+   THREE MEMBERS OF BUCKET A DO NOT SATISFY THIS CRITERION AS WRITTEN, and saying so
    is cheaper than a footnote nobody reads. (a) `Pipeline-Smoothing`'s
    `Pipeline_Smoothing_StructuralEvent_HandlersRegistered` reaches an
    `InGameAssert.Skip` through its private `AssertHandlerRegistered` helper. That
@@ -275,6 +275,17 @@ feature, tier `daily`, over the same fixture. The admission test each had to pas
    guards, so `H22` is admitted on the same ground as `H20` rather than on this
    criterion: its `skipped=0` is a claim about `gloops-airshow` that a live run
    settles, and the 2026-07-28 flight settled it.
+   (c) `IncompleteBallistic` STOPPED satisfying it on 2026-08-05, when the two
+   `FrameCalibration_Site1_*` / `FrameCalibration_Site4_*` probes joined it. Both
+   read the LIVE vessel and guard on it (no active vessel / no orbit / no main body
+   / `FlightGlobals.Bodies` unavailable / a live orbit whose elements are not
+   propagatable), so `H9`'s `skipped=0` is now a fixture claim for those two cells
+   in exactly the way `H20`'s and `H22`'s are, while staying a derivation for the
+   original eight. Those two probes are also the one place in bucket A where
+   `failed=0` is EXPECTED TO BE VIOLATED: they measure the frame mismatch
+   `docs/dev/todo-and-known-bugs.md` pins at sites 1 and 4, which ship unfixed
+   pending an in-game calibration, so `H9` reds by design until that lands. `H9`
+   documents it at length.
 3. The fixture already exists and its route is known.
 
 That is what let 13 of the 14 pin their tally WHOLE (`total=N passed=N failed=0
@@ -300,7 +311,7 @@ of its cells carry run-time Skip guards that only the fixture rules out.
 |---|---|---|---|
 | `H8-spawn-rotation` | SpawnRotation | 10 | The two-rotation-convention contract `.claude/CLAUDE.md` singles out as the easiest thing here to get silently wrong, resolved against live Kerbin AND Mun transforms |
 | `H7-trajectory-math` | TrajectoryMath | 8 | Sampling predicate + quaternion helpers against live Unity arithmetic, and `ShouldRecordPoint` against the density preset the running game loaded |
-| `H9-incomplete-ballistic` | IncompleteBallistic | 8 | Scene-exit tail extrapolation through atmosphere / terrain / SOI, patched-conic snapshot integration, extrapolated-segment map line |
+| `H9-incomplete-ballistic` | IncompleteBallistic | 10 | Scene-exit tail extrapolation through atmosphere / terrain / SOI, patched-conic snapshot integration, extrapolated-segment map line, and the two live-vessel frame-calibration probes (expected-failing measurement cells, see (c) above) |
 | `H10-finalize-backfill` | FinalizeBackfill | 7 | Terminal-orbit backfill, including the four stale-cached-tuple cases that otherwise park a ghost on last flight's orbit |
 | `H11-pipeline-anchor` | Pipeline-Anchor | 7 | Anchor epsilon vs recorded geometric offset across all seven anchor situations, through live body transforms |
 | `H12-switch-segment` | SwitchSegment | 6 | The Map Switch-To arming gate - a Harmony prefix, so only a running game exercises it |
