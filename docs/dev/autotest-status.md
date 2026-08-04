@@ -851,7 +851,7 @@ category, FlushAndQuit.
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
 | H24-ksp-api-sanity | nightly | The stock-API assumptions Parsek's own math rests on and that a KSP point release could move underneath it: body-transform rotation stability across a frame, Planetarium UT monotonicity, PartLoader instance identity (Parsek caches on it), finite Krakensbane frame velocity, floating-origin NaN drift. Every one is a silent-corruption source rather than a crash | D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_1449`, PASS attempt 1, 49 s, mismatches=0). Tally MEASURED whole: `total=5 passed=5 failed=0 skipped=0 category=KspApiSanity scene=FLIGHT`. Distinct from H13 (`KSP`), which is the stock-API SMOKE set |
-| H25-serialization | nightly | ConfigNode round-trip, the InvariantCulture float rule (a comma-locale machine writes `1,5` and every downstream parse breaks silently), RecordingPaths id validation against path traversal and invalid filename chars, vessel-snapshot rehydration from a `.pcrf` sidecar | D16 sidecar-pcrf; D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_1450`, PASS attempt 1, 49 s, mismatches=0). Tally MEASURED whole: `total=4 passed=4 failed=0 skipped=0 category=Serialization scene=FLIGHT` |
+| H25-serialization | nightly | ConfigNode round-trip, the InvariantCulture float rule (a comma-locale machine writes `1,5` and every downstream parse breaks silently), RecordingPaths id validation against path traversal and invalid filename chars, vessel-snapshot rehydration from a `_vessel.craft` sidecar | D16 sidecar-craft; D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_1450`, PASS attempt 1, 49 s, mismatches=0). Tally MEASURED whole: `total=4 passed=4 failed=0 skipped=0 category=Serialization scene=FLIGHT` |
 
 ### In-game Rewind block, R7 (2)
 
@@ -864,7 +864,9 @@ guards, so a spec that boots and skips 30 of them is legal and worthless.
 bodies plus every helper they reach: twelve members gate on
 `scenario.ActiveReFlySessionMarker != null`, and four gate on it being NULL and
 skip when one exists ("would clobber ownership tracking" / "would corrupt live
-RenderSessionState"). The two sets are disjoint, so no single boot executes both.
+RenderSessionState") - four as written, and five once this branch's
+`F5MidReFlyResume` foreign-session skip guard is counted. The two sets are
+disjoint, so no single boot executes both.
 A third group is SPACECENTER-scoped and unreachable from any FLIGHT batch. Hence
 a spec per precondition mode rather than one spec per category.
 

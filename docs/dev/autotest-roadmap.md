@@ -734,7 +734,9 @@ wrong about why. Reading all 37 bodies (plus every helper they reach) found the
 category is **BIMODAL on the re-fly session**, which no attribute or scene
 analysis shows: TWELVE members gate on
 `scenario.ActiveReFlySessionMarker != null`, and FOUR gate on it being NULL and
-skip when one exists. The two sets are DISJOINT, so no single boot can execute
+skip when one exists - FOUR as written, FIVE once this branch's
+`F5MidReFlyResume` foreign-session skip guard is counted. The two sets are
+DISJOINT, so no single boot can execute
 both, and the split that matters is by PRECONDITION MODE, not only by scene.
 
 What shipped:
@@ -755,9 +757,11 @@ What shipped:
   session with `InvokeRewind` does unblock the twelve, but roughly a third of the
   category is written as "install synthetic session state, drive a global
   handler, assert" and is only correct when it is the only session in the
-  process. Three genuine test-isolation defects were found and FIXED
-  (`F5MidReFlyResume` twice, `JournalFinisherMarkerPresentVariant` eating the
-  marker for nine later members); four more were found and recorded. Full
+  process. Four genuine test-isolation defect-items were found and FIXED across
+  three tests (`F5MidReFlyResume` twice - a settled-count assertion and a
+  foreign-session skip guard; `JournalFinisherMarkerPresentVariant` eating the
+  marker for nine later members; `KerbalRecoveryOnSupersede` asserting against an
+  unflown provisional); four more failing tests were found and recorded. Full
   four-flight record, per-defect diagnosis and the recipe for a future attempt:
   R7-SESSION-BATCH-ISOLATION in `todo-and-known-bugs.md`.
 

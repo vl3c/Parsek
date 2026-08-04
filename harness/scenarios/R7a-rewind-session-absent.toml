@@ -18,6 +18,11 @@ tier = "nightly"
 #     gate while a live Re-Fly session is active - would clobber ownership
 #     tracking"), plus both OnFlightReady_* cells ("requires no active Re-Fly
 #     session (would corrupt live RenderSessionState)").
+#     FOUR is the figure as WRITTEN when this spec shipped; the R7 branch's new
+#     F5MidReFlyResume foreign-session skip guard makes it FIVE. That fifth one
+#     does NOT move this spec's numbers: R7a boots with NO session, so
+#     F5MidReFlyResume's guard is false and the cell still EXECUTES here - the
+#     pinned tally below is unaffected.
 #
 # The two sets are DISJOINT AND MUTUALLY EXCLUSIVE. One batch maximising either
 # necessarily minimises the other, so R7 flies both modes:

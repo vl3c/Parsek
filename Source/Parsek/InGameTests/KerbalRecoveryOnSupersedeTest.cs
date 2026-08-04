@@ -100,13 +100,22 @@ namespace Parsek.InGameTests
             // flown re-fly - CL-3's shape, which measures `Tombstoned 1 career
             // actions (... Kerbal=1 ...)` - this guard is false and every assertion
             // below runs unchanged, so nothing is weakened.
-            if (provisional.Points == null || provisional.Points.Count == 0)
+            //
+            // The guard calls the PRODUCT predicate itself rather than approximating
+            // it, so it can never drift from what the merge actually refuses on:
+            // ValidateSupersedeTarget accepts OrbitSegments / TrackSections payload
+            // as well as Points, and ALSO refuses on a null TerminalState (a re-fly
+            // still in flight), which a bare Points check would wave through into a
+            // red.
+            string supersedeRefusal;
+            if (!SupersedeCommit.ValidateSupersedeTarget(provisional, out supersedeRefusal))
             {
                 InGameAssert.Skip(
                     "Provisional '" + (provisional.RecordingId ?? "<no-id>") +
-                    "' has no recorded trajectory (unflown re-fly), so SupersedeCommit " +
-                    "refuses to supersede the origin and no tombstone can be written. " +
-                    "Fly the re-fly before running this test.");
+                    "' is not a valid supersede target (" + (supersedeRefusal ?? "<no-reason>") +
+                    "), so SupersedeCommit refuses to supersede the origin and no " +
+                    "tombstone can be written. Fly the re-fly to completion before " +
+                    "running this test.");
                 return;
             }
 

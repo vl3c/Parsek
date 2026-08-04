@@ -37,12 +37,14 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST. The rehydration cell reads a `.pcrf` ghost-geometry sidecar back into a
-# VesselSnapshot, which is D16 `sidecar-pcrf` executed rather than decided.
-# NOT claimed: the other three sidecar cells (`sidecar-prec`, `sidecar-craft`,
+# HONEST. The rehydration cell (`VesselSnapshotRehydratesFromSidecar`) round-trips
+# the `_vessel.craft` vessel-snapshot sidecar - it writes and reads that file
+# through `RecordingPaths.BuildVesselSnapshotRelativePath`, NOT a `.pcrf` - which is
+# D16 `sidecar-craft` executed rather than decided.
+# NOT claimed: the other three sidecar cells (`sidecar-prec`, `sidecar-pcrf`,
 # `sidecar-pann`) - no cell in this category writes or reads those - and no D1
 # recording-lifecycle token, since the batch records nothing.
-D16 = ["sidecar-pcrf"]
+D16 = ["sidecar-craft"]
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]

@@ -713,7 +713,7 @@ The batch tally cannot see it; only the `forbidden` contract can.
 
 ---
 
-## R7-SESSION-BATCH-ISOLATION: running the `Rewind` category beside a LIVE re-fly session breaks five of its own tests [FOUND 2026-08-04 by roadmap R7's abandoned `R7b-rewind-session-live` spec. THREE FIXED here, the rest RECORDED - the spec is NOT committed]
+## R7-SESSION-BATCH-ISOLATION: running the `Rewind` category beside a LIVE re-fly session breaks seven of its own tests, and starves nine more [FOUND 2026-08-04 by roadmap R7's abandoned `R7b-rewind-session-live` spec. FOUR defect-items FIXED here across THREE tests ((1)+(2) in `F5MidReFlyResume`, (2b), (3)); the FOUR remaining failing tests in (4) are RECORDED, not fixed. The nine starved are collateral of (2b), explained below - the spec is NOT committed]
 
 R7 set out to drive `Rewind` in both of its precondition modes. R7a (no live
 session) shipped green. The second spec - arm a REAL session with the seam's

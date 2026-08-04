@@ -88,9 +88,12 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED. The most confident of
-# R7's three derivations - four of the five cells have only self-satisfiable guards
-# - but still a prediction until flown. Replace with MEASURED + the run id.
+# EVIDENCE STANDING: TALLY MEASURED, RUN RED BY FINDING. Flown 2026-08-04 (run
+# `2026-08-04_1329_R7c-rewind-spacecenter`, 53 s): the BATCH_COMPLETE line matched
+# this pin token for token, exactly as derived from source, and every verifier row
+# passed. The run classified PARSEK-FAIL solely on the forbidden-ERROR log contract
+# - the Site B-1 finding, filed as R7C-SITE-B1-ERROR in
+# `docs/dev/todo-and-known-bugs.md`. The red is that contract, NOT this pin.
 #
 # WHAT EACH TOKEN RESTS ON:
 #  - total=37 is ATTRIBUTE-EXACT (see R7a); the token counts the whole category, not
