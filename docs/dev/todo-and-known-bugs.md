@@ -663,6 +663,190 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
+## R7C-SITE-B1-ERROR: an in-game test drives `SupersedeCommit` into a `[Parsek][ERROR]` and passes anyway [FOUND 2026-08-04 by the first `R7c-rewind-spacecenter` flight (`2026-08-04_1329`). NOT FIXED - the severity call is genuinely arguable and is not mine to make unilaterally]
+
+`R7c-rewind-spacecenter` flies GREEN on everything the batch itself measures:
+`total=37 passed=4 failed=0 skipped=33 category=Rewind scene=SPACECENTER`,
+`batchComplete failed=0`, analyzer/logValidate/anomalySweep/saveParse all PASS,
+53 s wall. Its ONE mismatch is the `forbidden` contract every committed spec
+carries, `\[Parsek\]\[ERROR\]`, and it fires exactly once:
+
+```
+[Parsek][ERROR][Supersede] Site B-1 slot lookup failed for
+  provisional=spanned_split_fork_0ae32884 markerOrigin=spanned_split_origin_587676fc
+  markerTarget=4eb33e57a7f84e5682899973d4c23f5e rp=<none> reason=noParentBp;
+  terminal=Landed; falling back to v0.9 terminalKind classifier
+```
+
+WHAT IS HAPPENING. `ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstones-
+PostRewindCrew` (`IncompleteBallisticRuntimeTests.cs:286`) builds a synthetic
+origin + fork and a marker carrying NO `RewindPointId`, then drives the merge.
+`SupersedeCommit` finds no parent branch point, cannot resolve a slot, and takes
+its DELIBERATE, DOCUMENTED fallback to the v0.9 terminalKind classifier - the
+recoverable branch; the unrecoverable one a few lines above throws. It logs that
+recoverable fallback at `Error`. The test's own assertions are about the split,
+the retag and the tombstone, so it PASSES and no in-game assertion notices.
+
+WHY IT IS FILED RATHER THAN FIXED. Two readings, and they lead to opposite fixes:
+
+1. **The test's fixture is not production-shaped.** `RewindInvoker` always writes
+   a `RewindPointId`, so `rp=<none>` may be a shape production never reaches, in
+   which case `Error` is the correct severity and the TEST should author a
+   slot-shaped marker. This is exactly the doctrine `.claude/CLAUDE.md` already
+   states for RP quicksave fixtures ("a sidecar missing either lets a FIXTURE
+   divergence read as a product defect - it did once, and cost a wrong
+   diagnosis").
+2. **`Error` is the wrong severity for a path the code deliberately continues on.**
+   The in-place-continuation variant of the very same failure logs `Verbose`, and
+   the fatal variant throws. A middle branch that safely falls back is a `Warn`.
+
+Deciding between them needs someone who owns the re-fly merge classifier, and
+changing product log severity to turn a red spec green would be softening. So the
+spec stays committed WITH the standard blanket contract, red by finding - the
+state `V1-map-dwell-mun-orbit` occupied between 2026-07-30 and 2026-08-02 - and
+the contract is NOT narrowed to hide it. Whoever fixes it should re-fly
+`R7c-rewind-spacecenter` and expect a clean PASS with the tally unchanged.
+
+NOTE this is a member of a class the harness has now caught twice in one day: an
+in-game test that PASSES while making production log something it should not.
+The batch tally cannot see it; only the `forbidden` contract can.
+
+---
+
+## R7-SESSION-BATCH-ISOLATION: running the `Rewind` category beside a LIVE re-fly session breaks seven of its own tests, and starves nine more [FOUND 2026-08-04 by roadmap R7's abandoned `R7b-rewind-session-live` spec. FOUR defect-items FIXED here across THREE tests ((1)+(2) in `F5MidReFlyResume`, (2b), (3)); the FOUR remaining failing tests in (4) are RECORDED, not fixed. The nine starved are collateral of (2b), explained below - the spec is NOT committed]
+
+R7 set out to drive `Rewind` in both of its precondition modes. R7a (no live
+session) shipped green. The second spec - arm a REAL session with the seam's
+`InvokeRewind`, then run the category inside it, so the twelve marker-dependent
+members stop skipping - did NOT ship, and the reason is worth writing down
+because it is a property of the tests, not of the fixture.
+
+**Four flights, and every one taught something.** All measured on
+`career-pad-craft` + `rewind-crew-loss` + `InvokeRewind rp=rp_cl_root slot=1`,
+merge dialog deliberately unanswered:
+
+| Flight | Tally | What it found |
+|---|---|---|
+| `2026-08-04_1333` | `passed=14 failed=1 skipped=22` | `F5MidReFlyResume` FAILED - see (1) |
+| `2026-08-04_1641` | `passed=15 failed=1 skipped=21` | after (1)+(2): `KerbalRecoveryOnSupersede` reached its core assertion for the FIRST TIME EVER and failed - see (3) |
+| `2026-08-04_1644` | `passed=15 failed=1 skipped=21` | a `StartRecording` step does NOT bind to the re-fly provisional; refusal reason unchanged |
+| `2026-08-04_1646` | `passed=10 failed=4 skipped=23` | after (3): four MORE tests reached their assertions and failed - see (4) |
+
+**(1) `F5MidReFlyResume` asserted a total-count proxy. FIXED.** Its assertion
+compared `RecordingStore.CommittedRecordings.Count` before and after
+`LoadTimeSweep.Run()`, while its own comment said it meant "any Immutable /
+CommittedProvisional entries". The total is a proxy that holds only while the
+test's synthetic provisional is the sole NotCommitted entry. Beside a real
+session there are two, the test installs its own marker, and the sweep CORRECTLY
+discards the now-orphaned real one (`Zombie discarded rec=...
+supersedeTarget=cl-pod-a`). Product was right; the assertion was reading a
+correct discard as a failure. Now counts settled (non-NotCommitted) recordings.
+
+**(2) `F5MidReFlyResume` is destructive beside a real session. FIXED.** Even with
+(1), the sweep still reaps the real provisional, and restoring the marker
+afterwards cannot un-discard the recording - so every later marker-dependent test
+finds a marker whose `ActiveReFlyRecordingId` resolves to nothing, which is an
+`InGameAssert.IsNotNull` FAIL rather than a skip. It now SKIPS when a foreign
+session is live, naming the context per the house rule.
+
+**(2b) `JournalFinisherMarkerPresentVariant` ATE the session. FIXED.** It borrows
+the live marker, runs the finisher (which clears the marker - that is the
+asserted behaviour), restores the prior JOURNAL, and never restores the MARKER.
+It had no `try`/`finally` at all, unlike every sibling in the family. That single
+omission starved NINE later members, which skipped on "No active re-fly session"
+having been reachable moments earlier (`ContractTombstonesAcrossSupersede` and
+`InvokeRPStripAndActivate` both ran ahead of it and saw the marker). Now restores
+in a `finally`, after the assertions, so nothing is weakened.
+
+**(3) `KerbalRecoveryOnSupersede` asserted against an unmet precondition. FIXED.**
+This is the test the status doc records as having AUTO-SKIPPED SINCE IT WAS
+WRITTEN for want of a kerbal death in a supersede subtree. The crew-loss fixture
+finally gave it one - `found 1 kerbal-death action(s) covering 1 kerbal(s)` - and
+it then failed on "KerbalAssignment+Dead action must be tombstoned after merge".
+NOT a product defect: the merge logged `AppendRelations
+outcome=refused-unflown-provisional ... reason=empty Points -- the re-fly attempt
+has no playable trajectory, so it cannot replace the origin`, then `Tombstoned 0
+career actions`. A spec that arms a session without FLYING it cannot produce a
+supersede, and without a supersede there is nothing to tombstone. The test now
+skips on an unflown provisional; on CL-3's flown shape (which measures
+`Tombstoned 1 career actions (... Kerbal=1 ...)`) the guard is false and every
+assertion runs unchanged.
+
+**(4) NOT FIXED - four more of the same family, and why the spec was abandoned.**
+With (3) no longer consuming the session through a real `CommitSupersede`, four
+further members reached their assertions and failed:
+`MergeInterruptionRecovery` ("Expected supersede relations to be durable at
+Durable1Done; got 0" - the same unflown-provisional root cause as (3)),
+`DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility`
+("DiscardReFlyLoadGameForTesting should fire exactly once"),
+`ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog` ("Prelaunch body
+copy should mention VAB") and
+`DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter`
+("Marker should be cleared after Discard Re-fly"). All four install their OWN
+synthetic marker and drive a GLOBAL handler, then assert on global state a real
+session perturbs. All four PASS in R7a, where no session exists.
+
+THE GENERAL SHAPE: roughly a third of this category is written as
+"install synthetic session state, drive the handler, assert" and is only correct
+when it is the only session in the process. That is a reasonable thing for a
+test invoked by hand from Ctrl+Shift+T to assume and a wrong thing for a batch
+run inside a live session. Fixing them one at a time is real work with a real
+risk of weakening assertions, and it was out of proportion to the remaining
+yield - R7a already executes 16 members, and the session-live mode's best
+measured result was 15.
+
+WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
+1. FLY the re-fly. Every unflown-provisional failure above disappears if the
+   provisional carries Points; that is a mission-driven spec (CL-3's shape), not
+   a seam-only one. `StartRecording` after `InvokeRewind` does NOT work - flight
+   `2026-08-04_1644` measured the refusal reason unchanged.
+2. Then give the four in (4) the same foreign-live-session skip guard (2) got.
+3. Expect the ceiling to stay near R7a's: the first member to perform a real
+   merge ends the session for everyone after it, which is inherent, not a defect.
+
+---
+
+## R7-FIXTURE-GAPS: five `Rewind` in-game tests can never execute on any committed fixture [FOUND 2026-08-04 by roadmap R7's per-test skip-precondition read. NOT FIXED - both are fixture-GENERATOR changes, not spec changes]
+
+R7 wired the `Rewind` category (37 declarations, the largest previously undriven
+one) as three specs. Reading every body's skip guards to size those specs turned
+up two gaps that no choice of committed fixture, injection preset or driver step
+can close. Recorded so the next wave does not re-derive them, and so the R7 pins'
+`skipped=` values are legible rather than mysterious.
+
+**Gap 1 - no committed fixture has a two-command-pod craft (3 tests).**
+`CaptureRPOnStaging`, `SavePathRootThenMove` and `WarpZeroedDuringSave` each need
+an ACTIVE vessel carrying >= 2 parts with a `ModuleCommand` whose NEXT STAGE
+decouples a second CONTROLLABLE vessel - that is the shape Rewind-to-Separation
+captures an RP at. Measured across the committed templates: `career-pad-craft`
+18 parts / 1 `ModuleCommand`, `b2-lko-craft` 81 parts / 1, `gloops-airshow` 9
+parts / 1. Every one of them has exactly ONE command pod, so all three tests skip
+on all three, and they skip in R7a and R7b alike.
+Fix: author a two-pod stack craft (pod + decoupler + probe core, both
+controllable) as a new fixture template. That is the same work `bdock-station-*`
+did for docking and it would close all three at once.
+
+**Gap 2 - `ScenarioWriter` emits no `mergeState`, so nothing can be an Unfinished
+Flight (2 tests).**
+`UnfinishedFlightsRenderingAndNoHide` (SPACECENTER) and `InvokeRPStripAndActivate`
+(FLIGHT) both need at least one recording satisfying
+`EffectiveState.IsUnfinishedFlight`, which requires `MergeState` to be `Immutable`
+or `CommittedProvisional`. Grepping `Source/Parsek.Tests/Generators/` for
+`MergeState` / `mergeState` / `CommittedProvisional` returns ZERO hits, so every
+injected recording deserialises to the default and NO preset - `all-synthetic`,
+`rewind-b9` or `rewind-crew-loss` - can satisfy the predicate. This is why R7c
+injects nothing: injecting would add a fixture dependency and still leave the cell
+skipped.
+Fix: teach `ScenarioWriter` to author `mergeState`, then re-fly R7c and re-pin.
+Note this is the same SHAPE as the `CrewReservationLive` blocker in the inventory
+doc's bucket B1 (a generator that cannot author the state a category gates on),
+and both are one generator change away.
+
+Neither gap is a product defect: the tests are correct and the production code
+they exercise is reachable in a real game. What is missing is fixture material.
+
+---
+
 ## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
 
 ### Correcting the first version of this entry

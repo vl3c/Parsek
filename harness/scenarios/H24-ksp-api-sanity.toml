@@ -1,0 +1,95 @@
+schema = 1
+id = "H24-ksp-api-sanity"
+tier = "nightly"
+# BATCH-ONLY scenario, exact H7-H20 shape. Roadmap R8 / inventory bucket B6, the
+# "qualified on every criterion, deferred only on batch size" list.
+#
+# WHAT IT COVERS, and why it is distinct from H13 (`KSP`, already driven): H13's
+# category is the stock-API SMOKE set. `KspApiSanity` is the narrower set of
+# assumptions Parsek's own math rests on and that a KSP point release could move
+# underneath it: that a body transform's rotation is stable across a frame, that
+# Planetarium's universal time is monotonic, that PartLoader hands back the SAME
+# instance for a repeated lookup (Parsek caches on that), that
+# Krakensbane.GetFrameVelocity stays finite, and that the floating origin does not
+# drift into NaN. Every one is a silent-corruption source rather than a crash, which
+# is what makes them worth an unattended assertion.
+description = "Run the in-game KspApiSanity category unattended: body-transform rotation stability, universal-time monotonicity, PartLoader instance identity, finite Krakensbane frame velocity, and floating-origin NaN drift."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ksp-api", "R8", "H24"]
+
+[fixture]
+# gloops-airshow, the family host. All three FLIGHT-booting fixtures tie at 5/5 -
+# nothing in this category reads ModuleEngines, part count, career surfaces,
+# orbital state or RecordingStore - so the tie breaks on cost and on sharing the
+# other 15 members' boot.
+#
+# Two guards do depend on the INSTANCE rather than the save, and both are satisfied
+# by stock-minimal: `FlightGlobals.GetBodyByName("Kerbin")` is non-null in any
+# loaded game, and `PartLoader.getPartInfoByName("mk1pod.v2")` resolves because the
+# profile ships Squad. A modded profile that removed Squad would skip that one cell
+# and say so in the log.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "KspApiSanity" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and deliberately minimal. These cells assert stock-API PROPERTIES, not
+# Parsek behaviour: there is no recording, no playback, no ghost and no ledger in
+# the batch. Claiming a D1-D13 cell off them would be exactly the over-claim the
+# coverage report exists to prevent, so only the environment axes are claimed.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_1449_H24-ksp-api-sanity`: PASS on attempt 1, 49 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN. The pre-flight derivation below
+# predicted every token correctly, including the skipped=0 that the inventory
+# table's "3 members with a self-skip" made look doubtful.
+#  - total=5 is ATTRIBUTE-EXACT: ExtendedRuntimeTests declares exactly 5
+#    [InGameTest(Category = "KspApiSanity")] methods. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED, and the derivation had to go past the inventory table to
+#    get there: that table records 3 members with a self-skip, which reads like a
+#    reason to expect skips. Reading the three shows all three guards are satisfied
+#    by any loaded FLIGHT game on a Squad-bearing instance - Kerbin resolves,
+#    mk1pod.v2 resolves, and FlightGlobals.ActiveVessel is non-null on a fixture
+#    whose LoadGame route is Focusable. Two of the five carry no guard at all
+#    (UniversalTimeMonotonic is scene-agnostic and assertion-only). Nothing is
+#    AllowBatchExecution=false, and all five are FLIGHT or AnyScene, so no attribute
+#    forces a skip either.
+#  - failed=0 is the ASSERTION.
+#  - passed=5 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / S1.4
+#    on this exact fixture. LOAD-BEARING: at SPACECENTER the two FLIGHT-scoped cells
+#    scene-skip and this line becomes impossible.
+required  = ["BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=KspApiSanity scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -42,6 +42,36 @@ namespace Parsek.InGameTests
             var priorJournal = scenario.ActiveMergeJournal;
             var priorRps = scenario.RewindPoints;
 
+            // CANNOT SELF-SET-UP BESIDE A REAL SESSION, so skip rather than assert
+            // against an assumed context (the house rule in .claude/CLAUDE.md).
+            //
+            // This test must install its OWN marker to drive LoadTimeSweep, and the
+            // sweep is a GLOBAL, DESTRUCTIVE operation: with a foreign marker
+            // installed, the real session's NotCommitted provisional is no longer
+            // owned by the active session, so the sweep correctly discards it as a
+            // zombie. Restoring the marker afterwards cannot un-discard the
+            // recording, and every later marker-dependent test in the same batch
+            // then finds a marker whose ActiveReFlyRecordingId resolves to nothing -
+            // an InGameAssert.IsNotNull FAIL, not a skip.
+            //
+            // FOUND 2026-08-04 by the R7b spec (a real InvokeRewind, then this
+            // category run inside the resulting session): the sweep logged
+            // `Zombie discarded rec=... supersedeTarget=cl-pod-a`, which is product
+            // behaving exactly as designed on state this test had manufactured.
+            // Skipping keeps the live session intact for the nine members that need
+            // it; the test still executes on any save with no session in progress,
+            // which is where its invariant is actually meaningful.
+            if (priorMarker != null)
+            {
+                InGameAssert.Skip(
+                    "A live Re-Fly session is already active (sess=" +
+                    (priorMarker.SessionId ?? "<no-id>") +
+                    "); this test installs its own marker and LoadTimeSweep would " +
+                    "destructively discard the real session's provisional. Run it " +
+                    "on a save with no re-fly in progress.");
+                return;
+            }
+
             string sessId = "phase13_igt_f5mid_" + Guid.NewGuid().ToString("N").Substring(0, 8);
             string treeId = "phase13_igt_tree_" + Guid.NewGuid().ToString("N").Substring(0, 8);
             string activeId = "phase13_igt_active_" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -133,7 +163,27 @@ namespace Parsek.InGameTests
                     $"active={activeId} origin={originId} rp={rpId} — invoking LoadTimeSweep");
 
                 // Capture pre-sweep counts for invariants.
-                int preRecCount = RecordingStore.CommittedRecordings.Count;
+                //
+                // SETTLED entries only (Immutable / CommittedProvisional), NOT the
+                // whole list, and that is the assertion below actually saying what
+                // its comment always claimed. The total count is a PROXY that only
+                // works while this test's synthetic provisional is the sole
+                // NotCommitted entry in the store, which is true when the test runs
+                // on a clean save and false the moment anything else has a live
+                // Re-Fly session. In that case the sweep correctly discards the
+                // OTHER session's now-orphaned provisional as a zombie - product
+                // behaving exactly as designed - and a total-count comparison reads
+                // that correct discard as a failure.
+                //
+                // FOUND 2026-08-04 by the R7b spec, which drives a real InvokeRewind
+                // and then runs this category inside the resulting live session:
+                // `Zombie discarded rec=... supersedeTarget=cl-pod-a` followed by
+                // this assertion failing, while every other invariant in this test
+                // passed. Counting only settled entries is immune to that and is
+                // strictly more precise - a dropped Immutable entry still reds, and
+                // the survival of THIS test's own NotCommitted provisional is
+                // asserted separately below.
+                int preRecCount = CountSettledRecordings();
                 int preRpCount = scenario.RewindPoints.Count;
 
                 // Simulated F5+F9: the save+reload would run Phase 10
@@ -172,8 +222,8 @@ namespace Parsek.InGameTests
 
                 // Committed-recording count: the sweep must not have
                 // dropped any Immutable / CommittedProvisional entries.
-                InGameAssert.AreEqual(preRecCount, committed.Count,
-                    "Sweep must not change the committed-recording count when every NotCommitted entry is spared");
+                InGameAssert.AreEqual(preRecCount, CountSettledRecordings(),
+                    "Sweep must not drop any settled (Immutable / CommittedProvisional) recording");
                 InGameAssert.AreEqual(preRpCount, scenario.RewindPoints.Count,
                     "Sweep must not change the RP count when every session-prov RP is spared");
 
@@ -194,6 +244,30 @@ namespace Parsek.InGameTests
                 scenario.ActiveMergeJournal = priorJournal;
                 scenario.RewindPoints = priorRps;
             }
+        }
+
+        /// <summary>
+        /// Committed recordings in a SETTLED merge state (anything other than
+        /// <see cref="MergeState.NotCommitted"/>).
+        ///
+        /// <para>
+        /// The sweep's whole job is to discard NotCommitted provisionals whose
+        /// session is gone while sparing the active session's, so the count of
+        /// NotCommitted entries is EXPECTED to move and is not an invariant. What
+        /// must never move is the settled population - that is what this counts.
+        /// </para>
+        /// </summary>
+        private static int CountSettledRecordings()
+        {
+            int settled = 0;
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var r = committed[i];
+                if (r == null) continue;
+                if (r.MergeState != MergeState.NotCommitted) settled++;
+            }
+            return settled;
         }
     }
 }
