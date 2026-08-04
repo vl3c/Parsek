@@ -3318,7 +3318,22 @@ item and must not be counted as one:
   stage B remains.
 - **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
   tallies - OPEN.
-- **R14** provisioning `modded-compat` for D17 - OPEN.
+- **R14** provisioning `modded-compat` for D17 - ~~OPEN~~ **CLOSED 2026-08-04**
+  (branch `modded-compat-lane`): `automation/modded-compat` provisioned live
+  (exit=0, VERIFY drift=0; the profile gained the missing audio-silencing
+  settings deltas on the first run's inspection, now pinned by
+  `RealProfileFileTests.test_both_profiles_pin_the_unattended_settings`), and
+  `MC-1-waterfall-compat` + `MC-2-restock-compat` flew the WaterfallCompat /
+  ReStockCompat categories green there on attempt 1 (7/8 and 8/9 executed; the
+  2 skips are the by-design inverse gates). D17 `waterfall-swe-fallback` +
+  `restock` and D7 `engine-fx-waterfall-fallback` claimed. RESIDUE:
+  `persistent-rotation` and `remotetech-commnet` stay source-blocked (GT-8 /
+  not in the profile); `better-time-warp` and `making-history` have the
+  instance but no committed spec; the FX-fingerprint A/B diff ran REPORT-ONLY
+  and surfaced a corpus limitation filed as its own bullet in the automation
+  section (the synthetic corpus is trajectory-only for all but a handful of
+  recordings, so a save-based A/B exercises ~1 engine key; a dedicated
+  engine-showcase fixture with real vessel snapshots is the follow-up).
 
 **Baseline caveat: three of these are already in flight.** Every count above was
 measured at `1591aa59f` and EXCLUDES work open in review at the time of writing. PR
@@ -6538,6 +6553,25 @@ To implement properly: prefer a stock-authoritative approach instead of another 
 ---
 
 ## TODO — Compatibility
+
+### T48. FX-fingerprint A/B coverage is starved by the trajectory-only synthetic corpus (filed 2026-08-04, branch `modded-compat-lane`)
+
+The first stock-minimal vs modded-compat `[FxFingerprint]` A/B (R14, report-only)
+worked mechanically but measured almost nothing: of the 342 recordings the
+all-synthetic corpus injects on a modded install, ~330 carry NO vessel snapshot
+(`Spawn suppressed: ... no vessel snapshot=330`), so no ghost visual - and no
+engine/RCS FX build - can ever happen for them. The engine/RCS "Part Showcase"
+rows loaded but did not spawn in the run window, leaving exactly ONE
+fingerprinted key per side (`solidBooster.sm.v2` from the Reentry East ghost's
+snapshot). That one key already shows the expected divergence (ReStock FX models
+`ReStock/FX/restock-fx-srb-{core,smoke}-1` on modded vs the stock prefabs), so
+the pipeline is sound - the corpus is the bottleneck. Fix: a dedicated
+engine-showcase fixture save whose recordings carry REAL vessel snapshots
+(one per engine/RCS part family, positioned inside spawn range of the pad
+host), then re-run `hlib.diff_fx_fingerprints` over the pair; only after that
+is a gate worth discussing. Extraction/diff tooling landed with R14
+(`hlib.parse_fx_fingerprint_lines` / `diff_fx_fingerprints` /
+`format_fx_fingerprint_diff` + `harness/tools/fx_fingerprint_diff.py`).
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 

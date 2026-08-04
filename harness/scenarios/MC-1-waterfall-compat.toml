@@ -1,0 +1,85 @@
+schema = 1
+id = "MC-1-waterfall-compat"
+tier = "nightly"
+# First spec on the modded-compat instance (R14). The WaterfallCompat category
+# self-skips on stock-minimal (7 of 8 members carry InGameAssert.Skip guards
+# keyed on the Waterfall assembly / per-part ModuleWaterfallFX), so this batch is
+# only non-vacuous on an instance where Waterfall + a config pack (SWE) are
+# actually installed. That instance is automation/modded-compat, provisioned by
+# provision.py --profile modded-compat.
+#
+# Deliberately NOT an H-series id: the H7+ wiring group pins the stock-fixture
+# skip floor (skipped == attribute_skipped == 0), and on modded-compat
+# WaterfallGateClosedOnStockInstall skips BY DESIGN (inverse gate: it verifies
+# the stock gate-closed contract and is N/A when Waterfall IS present).
+description = "Run the in-game WaterfallCompat category on the modded-compat instance, where the Waterfall/SWE pristine-FX fallback gate is actually open and the parity sweep runs against real Waterfall-patched parts."
+instanceProfile = "modded-compat"
+tags = ["ingame-batch", "modded-compat", "D17", "R14"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host: focusable vessel => Focusable/FLIGHT load
+# route, so scene=FLIGHT is pinnable. No injected recordings: the category reads
+# PartLoader / GameDatabase / pristine cfgs, never a recording store.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "WaterfallCompat" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# D17 waterfall-swe-fallback: the whole point of the instance - the pristine-FX
+# fallback recovery paths (Swivel legacy fx_* cascade, Spark EFFECTS particles,
+# RCS thruster groups, the all-engines parity sweep) execute against a real
+# Waterfall + SWE install instead of self-skipping.
+# D7 engine-fx-waterfall-fallback: assigned to R14 by the roadmap (the fallback
+# resolution surface is exercised here at the resolver level: every gated
+# engine's pristine legacy/PREFAB_PARTICLE/model asset must resolve exactly).
+# HONEST LIMIT: this is resolver-level proof, not a flown ghost rendering FX.
+D17 = ["waterfall-swe-fallback"]
+D7  = ["engine-fx-waterfall-fallback"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: total=8 is ATTRIBUTE-EXACT (8 [InGameTest(Category =
+# "WaterfallCompat")] declarations, all Scene = FLIGHT, none
+# AllowBatchExecution=false, so attribute_skipped=0). passed=/skipped= are NOT
+# attribute-derivable on this instance: WaterfallGateClosedOnStockInstall skips
+# BY DESIGN when Waterfall IS installed (inverse gate), and the per-part
+# ModuleWaterfallFX guards depend on what SWE actually patches - only a live run
+# settles them.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04, run
+# 2026-08-04_2008_MC-1-waterfall-compat: PASS on attempt 1, 83 s wall, every
+# verifier PASS/SKIPPED. Pin below is the measured line TOKEN FOR TOKEN.
+#  - skipped=1 is exactly WaterfallGateClosedOnStockInstall's inverse gate
+#    ("Waterfall is installed; the stock gate-closed contract is N/A") - the
+#    per-run SKIPPED: line named it. All 7 Waterfall-path members executed:
+#    every per-part ModuleWaterfallFX guard found its module, i.e. SWE patched
+#    Swivel, Mainsail, Spark and the RCS block as the profile intends.
+#  - passed=7 failed=0 is the assertion: the pristine-FX fallback recovery and
+#    the all-engines parity sweep hold on the real Waterfall+SWE install.
+required  = ["BATCH_COMPLETE v1 total=8 passed=7 failed=0 skipped=1 category=WaterfallCompat scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

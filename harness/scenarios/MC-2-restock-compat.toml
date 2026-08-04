@@ -1,0 +1,74 @@
+schema = 1
+id = "MC-2-restock-compat"
+tier = "nightly"
+# Second modded-compat spec (R14). All 9 ReStockCompat members skip on
+# stock-minimal (GameData/ReStock/Patches absent), so the category has never
+# executed under any committed spec. On modded-compat the ReStock MM-patch FX
+# index (ReStockPatchFxIndex) parses the real on-disk ReStock patch roots and
+# the recovery / tuning-standdown / resolve-sweep contracts run for real.
+#
+# Deliberately NOT an H-series id - see MC-1-waterfall-compat: the modded
+# instance legitimately skips inverse-gated members at runtime
+# (ReStockAloneNormalScanNonEmpty is N/A when Waterfall is installed, which it
+# is on this profile), breaking the H7+ group's skipped==0 floor.
+description = "Run the in-game ReStockCompat category on the modded-compat instance, where the ReStock patch FX index parses real ReStock patch files and the model-recovery and tuning-standdown contracts execute."
+instanceProfile = "modded-compat"
+tags = ["ingame-batch", "modded-compat", "D17", "R14"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "ReStockCompat" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# D17 restock: the ReStock patch-file index, per-ordinal effect recovery,
+# tuning standdown, and the whole-index resolve sweep execute against the real
+# ReStock + ReStock+ install.
+D17 = ["restock"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: total=9 is ATTRIBUTE-EXACT (9 [InGameTest(Category =
+# "ReStockCompat")] declarations, all Scene = FLIGHT, none
+# AllowBatchExecution=false, so attribute_skipped=0). passed=/skipped= are NOT
+# attribute-derivable: ReStockAloneNormalScanNonEmpty skips BY DESIGN when
+# Waterfall IS installed (it is, on this profile), and two recovery members
+# additionally gate on per-part ModuleWaterfallFX presence.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04, run
+# 2026-08-04_2011_MC-2-restock-compat: PASS on attempt 1, every verifier
+# PASS/SKIPPED, zero Unity exception lines. Pin below is the measured line
+# TOKEN FOR TOKEN.
+#  - skipped=1 is exactly ReStockAloneNormalScanNonEmpty's inverse gate
+#    ("Waterfall installed; the ReStock-alone contract is N/A here") - the
+#    per-run SKIPPED: line named it.
+#  - passed=8 failed=0 is the assertion: the ReStock patch index, per-ordinal
+#    recovery, tuning standdown, builtin smokeTrail routing, SRB velocity
+#    floor, and the whole-index resolve sweep hold on the real ReStock install.
+required  = ["BATCH_COMPLETE v1 total=9 passed=8 failed=0 skipped=1 category=ReStockCompat scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

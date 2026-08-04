@@ -85,7 +85,7 @@ Per dimension (total / uncovered):
 | D4 | track sections / optimizer | 12 | 6 |
 | D5 | tree topology | 12 | 7 |
 | D6 | playback / ghosts | 16 | 11 |
-| D7 | part events / FX | 16 | 12 |
+| D7 | part events / FX | 16 | 11 |
 | D8 | ledger / career | 18 | 6 |
 | D9 | rewind / re-fly | 16 | 9 |
 | D10 | logistics / routes | 20 | 12 |
@@ -95,9 +95,9 @@ Per dimension (total / uncovered):
 | D14 | bodies / scenes | 32 | 18 |
 | D15 | timeline | 1 | 1 |
 | D16 | storage / sidecars | 13 | 9 |
-| D17 | mod compatibility | 6 | **6** |
+| D17 | mod compatibility | 6 | 4 |
 | D18 | re-fly / interaction | 12 | 10 |
-| | | **242** | **145** |
+| | | **242** | **142** |
 
 ### The headline
 
@@ -106,7 +106,12 @@ exercised, D13 spawn positioning 11 of 11 uncovered, D17 mod compatibility 6 of 
 One wave later (measured 2026-07-28 at `7f5efa738`) D1 is down to **8 of 18** -
 the R4-family batches, H21 and the R1 gates closed `commit-scene-exit`,
 `switch-segment`, `scene-exit-finalization`, `ballistic-extrapolation` and
-`finalization-cache` - and D13 is down to 7 of 11. D17 is untouched at 6 of 6.
+`finalization-cache` - and D13 is down to 7 of 11. D17 opened 2026-08-04: R14
+provisioned `automation/modded-compat` and MC-1/MC-2 flew the WaterfallCompat /
+ReStockCompat categories green there, closing `waterfall-swe-fallback` and
+`restock` (plus D7 `engine-fx-waterfall-fallback`), leaving D17 at 4 of 6:
+`persistent-rotation` + `remotetech-commnet` are source-blocked, and
+`better-time-warp` / `making-history` have the instance but no committed spec.
 
 The D1 cells still uncovered are ordinary player actions:
 
