@@ -55,11 +55,12 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - PENDING FIRST FLIGHT.
-# (Replace this paragraph with the MEASURED form + run id off the first green
-# run before merging.) The pin is a LITERAL pattern and evaluate_expectations
-# requires it to match, so a PASS means the runner printed this line TOKEN FOR
-# TOKEN.
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_2206_H29-localized-name`: PASS on attempt 1, 70 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
+# below held.
 #  - total=3 is ATTRIBUTE-EXACT: 3 [InGameTest(Category = "LocalizedName")]
 #    declarations, all AnyScene. Kept in sync by
 #    CommittedBatchTallySourceSyncTests.

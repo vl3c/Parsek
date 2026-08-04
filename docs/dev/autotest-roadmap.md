@@ -140,16 +140,25 @@ feature and its entire automated proof is nominal.
 The single largest cause is not a missing capability. It is that we own roughly five
 times the test surface we execute and have no way to point the harness at it.
 
-### Cause A: written, never driven (336 tests, 74 categories; was 414 / 89 pre-#1358)
+### Cause A: written, never driven (232 tests, 64 categories; was 414 / 89 pre-#1358, 336 / 74 pre-R7, 280 / 70 pre-wave-2)
 
 Measured with `hlib.parse_ingame_test_declarations` over every `.cs` under
-`Source/Parsek`:
+`Source/Parsek`, re-derived 2026-08-05 after `wire-wave-2` (H26-H31):
 
 ```
-542 [InGameTest] declarations in 98 categories, 0 unresolved
-206 declarations in the 24 categories any spec drives (184 of them execute)
-336 declarations in the 74 categories nothing drives
+543 [InGameTest] declarations in 98 categories, 0 unresolved
+311 declarations in the 34 categories a committed spec drives
+232 declarations in the 64 categories nothing drives
 ```
+
+The in-driven-declarations metric, continued honestly across the waves:
+125 (8 categories, pre-#1358) -> 216 (25, post-#1358+H21/H22/H23) -> 263 (28,
+post-R7/H24/H25) -> **311 (34, post-wave-2)**. The wave-2 delta is the whole of
+bucket B6 plus `CrewReservation`; per-category executed/skipped splits and the
+two fixture substitutions the per-test read forced are in the status doc's
+wave-2 section and the H26-H31 specs themselves. The paragraph and tables below
+this point predate the R7 and wave-2 recounts and are kept for history - the
+inventory doc is the current per-category authority.
 
 The 24 driven categories are the pre-#1358 eight - `GameActionsHealth`, `GhostMap`,
 `GhostPlayback`, `MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`,
@@ -204,15 +213,15 @@ remaining work is legible against the original list:
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
 | `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
-| `GhostAudio` | 9 | D6 `ghost-audio` |
-| `MapPresence` | 5 | D6 `commnet-relay` |
+| ~~`GhostAudio`~~ | 9 | DRIVEN since wave-2 by `H30` (live-proven 2026-08-04; needed the W2-SHIP-VOLUME-ZERO provision fix). D6 `ghost-audio` |
+| ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
 | `ReentryFx` | 3 | D6 `reentry-fx` |
 | `Watch` | 2 | D6 `watch-mode-retarget-explosion-hold` |
 | `LedgerGroundTruth` | 1 | D8 `ground-truth-harness` |
 | `Contracts` | 2 | D8 `contracts` |
 | `StrategyLifecycle` | 2 | D8 `strategies` |
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
-| `CrewReservation` | 15 | D12 |
+| ~~`CrewReservation`~~ | 15 | DRIVEN since wave-2 by `H31` on b2-lko-craft (live-proven 2026-08-04, 14 of 15 executing). D12 `seat-matching`, `rescue-marker`; the rest of D12 has no producer in the category |
 
 ### Cause B: unreachable by ANY unattended path (68 tests) - CLOSED by R5, 2026-07-27
 
@@ -797,18 +806,21 @@ Flight? Yes - five flown (three R7 + two re-confirmations), 53-68 s each.
   still the cheapest whole-dimension close available.
 - D6: `GhostLifecycle` (15 of 17; the other 2 are TRACKSTATION-scene - no longer
   stranded, R12 SHIPPED `LoadGame scene=trackstation`, but they need a TRACKSTATION
-  spec of their own, since a batch names one category),
-  `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
-  these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
-  `GhostLifecycle` measures the loop / overlap surface over a live corpus.
+  spec of their own, since a batch names one category - AND see the inventory
+  doc's B4 correction: a full-body read measured ~11 of 17 unreachable on any
+  committed fixture, so it is generator/product work, not the next spec),
+  ~~`GhostAudio` (9)~~ CLOSED by wave-2's `H30`, ~~`MapPresence` (5)~~ CLOSED by
+  wave-2's `H28`, `ReentryFx` (3), `Watch` (2). None of the remainder needs the
+  reserved `StartLoopPlayback` / `EnterWatchMode` verbs.
 - D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
   R11 is closed by `career-pad-craft`),
   `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
   in ledger trust available.
-- D12: `CrewReservation` (15).
+- ~~D12: `CrewReservation` (15).~~ CLOSED by wave-2's `H31` (b2-lko-craft, 14 of
+  15 executing; D12 `seat-matching` + `rescue-marker` claimed).
 
-Flight? No.
+Flight? No for what remains. (Wave-2's six flew 2026-08-04, 49-71 s each.)
 
 ### Tier 3: machinery that raises the ceiling.
 

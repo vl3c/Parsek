@@ -61,11 +61,12 @@ count = { min = 272, max = 272 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - PENDING FIRST FLIGHT.
-# (Replace this paragraph with the MEASURED form + run id off the first green
-# run before merging.) The pin is a LITERAL pattern and evaluate_expectations
-# requires it to match, so a PASS means the runner printed this line TOKEN FOR
-# TOKEN.
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_2207_H27-diagnostics`: PASS on attempt 1, 71 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
+# below held.
 #  - total=6 is ATTRIBUTE-EXACT: DiagnosticsTests.cs declares exactly 6
 #    [InGameTest(Category = "Diagnostics")] methods (3 AnyScene + 3 FLIGHT).
 #    Kept in sync by CommittedBatchTallySourceSyncTests.

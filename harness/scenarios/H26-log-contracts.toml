@@ -88,11 +88,12 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - PENDING FIRST FLIGHT.
-# (Replace this paragraph with the MEASURED form + run id off the first green
-# run before merging; the house rule is that a committed whole pin comes from a
-# real flight.) The pin is a LITERAL pattern and evaluate_expectations requires
-# it to match, so a PASS means the runner printed this line TOKEN FOR TOKEN.
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_2209_H26-log-contracts`: PASS on attempt 1, 49 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
+# below held.
 #  - total=10 is ATTRIBUTE-EXACT: LogContractTests.cs declares exactly 10
 #    [InGameTest(Category = "LogContracts")] methods (8 AnyScene + 2 FLIGHT).
 #    Kept in sync by CommittedBatchTallySourceSyncTests.
@@ -113,6 +114,15 @@ count = { min = 0, max = 0 }
 # The three required ERROR lines are the deliberate emissions named in the
 # header note: pinning them required means the ERROR formatting path actually
 # ran; the narrowed forbidden means any OTHER ERROR line still reds the run.
+#
+# READING THIS RUN'S LOG, one non-obvious line: BAT-001 logs its format-check
+# SAMPLE tally at Info - `BATCH_COMPLETE v1 total=42 passed=40 failed=1
+# skipped=1 category=RecordingInvariants scene=FLIGHT` - so the log carries TWO
+# BATCH_COMPLETE lines and the harness reports perCategory=2. The sample's
+# failed=1 and its borrowed category name are FICTION (it validates the
+# formatter, nothing ran); the verifier keys on category=LogContracts and the
+# 2026-08-04 flight PASSed with exactly this shape. Do not "fix" a red H5 by
+# reading this line out of an H26 log.
 required  = [
   "BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=LogContracts scene=FLIGHT",
   "\\[Parsek\\]\\[ERROR\\]\\[TestSub\\] test error message",
