@@ -394,6 +394,11 @@ namespace Parsek.InGameTests
                 // rp.BranchPointId` (RewindInvoker.cs:1748) — both resolve to
                 // the RP's BP here, so the fork carries it too.
                 ParentBranchPointId = bpId,
+                // And one line above that (RewindInvoker.cs:1747) production
+                // stamps the provisional's RP linkage. The Site B-1 resolver keys
+                // off the branch link, not this field — but a production
+                // provisional never lacks it, so neither does the fixture.
+                ProvisionalForRpId = rpId,
             };
             fork.Points.Add(new TrajectoryPoint { ut = 34.5 });
             fork.Points.Add(new TrajectoryPoint { ut = 45.0 });
@@ -494,7 +499,12 @@ namespace Parsek.InGameTests
                 RewindPointId = rpId,
                 BranchPointId = bpId,
                 UT = rewindUT,
-                QuicksaveFilename = rpId + ".sfs",
+                // Production path shape via the production helper, not a bare
+                // save-root filename (review NIT on the first cut of this fixture:
+                // RewindPointAuthor writes "Parsek/RewindPoints/{id}.sfs", and a
+                // future reap path resolving THIS field would otherwise exercise a
+                // save-root path production never writes).
+                QuicksaveFilename = RecordingPaths.BuildRewindPointRelativePath(rpId),
                 SessionProvisional = true,
                 CreatingSessionId = sessId,
                 CreatedRealTime = System.DateTime.UtcNow.ToString("o"),

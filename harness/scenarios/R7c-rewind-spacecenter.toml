@@ -82,11 +82,19 @@ D14 = ["career", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The b9 corpus is injected and must still be present at teardown. min = 1 rather
-# than an exact pin, matching S4.1 / CL-3 on the same presets: the seal-confirm
-# cell writes a real GamePersistence.SaveGame mid-test, so the exact on-disk row
-# count is a function of what was live at that instant.
-count = { min = 1 }
+# EXACT, and it is the CAMPAIGN-ISOLATION assertion the first revision's {0,0}
+# carried, restored at the injected corpus's size. The b9 preset is exactly 3
+# recordings, the batch teardown reverts persistent.sfs from the pre-batch .bak
+# (which already contains them), and the 2026-08-04_1617 flight MEASURED the
+# produced save at exactly 3. The seal-confirm cell's mid-test SaveGame is why a
+# loose min=1 was first written here - but whatever that save persisted is
+# overwritten by the teardown revert, so on a healthy run the count cannot move.
+# A deviation therefore means the isolation contract failed (a leaked synthetic
+# row surviving a failed .bak revert) or the corpus size changed - both findings
+# to FILE, not to widen away. Note the min=1 precedent (S4.1 / CL-3 / S1.5) does
+# NOT apply: those are seam-driven runs with no batch teardown, so their produced
+# saves legitimately vary; this one is a batch run with the revert contract.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
@@ -139,12 +147,12 @@ count = { min = 1 }
 #        this flight measures.
 #  - scene=SPACECENTER is the fresh-career NoVesselSpaceCenter route.
 #
-# NOTE on the anti-vacuity gate: passed=4 with skipped=33 is a lopsided but
+# NOTE on the anti-vacuity gate: passed=5 with skipped=32 is a lopsided but
 # NON-vacuous line - hlib.batch_contract_vacuity_gap rejects passed == 0, and a
-# 33-skip floor that is 32 ATTRIBUTE-forced is exactly what a whole-category token
-# looks like when the category is 86% scoped to another scene. The alternative -
-# pinning only the five-member slice - is not expressible: BATCH_COMPLETE's total
-# counts filtered tests too.
+# 32-skip floor that is entirely ATTRIBUTE-forced is exactly what a whole-category
+# token looks like when the category is 86% scoped to another scene. The
+# alternative - pinning only the five-member slice - is not expressible:
+# BATCH_COMPLETE's total counts filtered tests too.
 required  = ["BATCH_COMPLETE v1 total=37 passed=5 failed=0 skipped=32 category=Rewind scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
