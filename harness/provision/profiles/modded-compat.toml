@@ -63,12 +63,15 @@ SIMULATE_IN_BACKGROUND = "True"
 AUTOSTRUT_SYMMETRY = "False"
 CONIC_PATCH_DRAW_MODE = "3"
 CHECK_FOR_UPDATES = "False"
-# All volumes 0: unattended automation instance, no background audio - same
+# Volumes: unattended automation instance, no background audio - same
 # rationale as stock-minimal (operator request 2026-07-19). MASTER_VOLUME alone
-# silences everything; the per-channel keys are zeroed too so a later master
-# tweak stays silent.
+# silences everything; the other per-channel keys are zeroed too so a later
+# master tweak stays silent. SHIP_VOLUME = "1" is the same deliberate exception
+# stock-minimal carries (W2-SHIP-VOLUME-ZERO, 2026-08-05): a zero SHIP_VOLUME
+# makes Parsek's ghost-audio start path structurally unreachable, and the
+# UNATTENDED_SETTINGS contract pins these keys identically across profiles.
 MASTER_VOLUME = "0"
-SHIP_VOLUME = "0"
+SHIP_VOLUME = "1"
 AMBIENCE_VOLUME = "0"
 MUSIC_VOLUME = "0"
 UI_VOLUME = "0"

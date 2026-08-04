@@ -1,0 +1,103 @@
+schema = 1
+id = "H28-map-presence"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Inventory bucket B6, wave 2.
+#
+# WHAT IT COVERS: the ghost map-presence ProtoVessel bookkeeping - the
+# pid -> proto-vessel resolution invariant, pid collision against real vessels,
+# the synthetic same-body ghost TARGETING path (create ghost, set as stock map
+# target, verify it sticks across the hosted verification coroutine), and the
+# chain-ghost reverse-map write/clear pair. Flight-map ghost presence is driven
+# every FLIGHT frame regardless of map view (ParsekFlight -> DriveMapPresence ->
+# UpdateFlightMapGhostLifecycle), so a FLIGHT batch exercises the real lifecycle.
+description = "Run the in-game MapPresence category unattended over the 272-recording injected corpus: ghost pid->ProtoVessel resolution, pid collision vs real vessels, synthetic ghost map targeting, and the chain-ghost reverse map."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "map-presence", "B6", "H28"]
+
+[fixture]
+# gloops-airshow + all-synthetic. THE INJECTION IS THE POINT for this category,
+# and it changes the run's MEANING without changing its tally: two of the five
+# cells (GhostPidsResolveToProtoVessels, NoPidCollisionWithRealVessels) bail out
+# through a SILENT `return` - not an InGameAssert.Skip, the fourth-trap shape -
+# when ghostMapVesselPids is empty, and the batch-start PerformBetweenRunCleanup
+# empties it. Under "none" nothing repopulates it and both report PASSED having
+# asserted nothing. Under all-synthetic, live ghosts respawn within frames of
+# batch start, so both walk real ghost-map bookkeeping. The corpus count pin
+# below is the proof the walk had something to walk.
+#
+# WHAT INJECTION DOES NOT FIX, so nobody re-derives it: AntennaSpecsProduceRelayPower
+# is vacuous under EVERY committed asset - no generator ever sets
+# Recording.AntennaSpecs (grep Source/Parsek.Tests/Generators: zero writers), so
+# the D6 commnet-relay cell stays unclaimable off this spec. Closing it is
+# generator work (a RecordingBuilder.WithAntennaSpecs), not spec authoring.
+# Filed in the wave notes in todo-and-known-bugs.md.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# NO isolated arg: all 5 declarations are AllowBatchExecution (default) with no
+# restore flag - identical admission either way.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "MapPresence" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# D6 ghost-map-presence is claimed on direct exercise: CreateGhostVesselForRecording,
+# the chain-ghost CreateGhostVessel, SetGhostMapNavigationTarget and the
+# pid->recordingId reverse map all run under the pinned tally. S1.4 already
+# claims the same cell, so this adds backing depth rather than new coverage -
+# stated so the coverage report's reader is not misled.
+# NOT claimed: D6 commnet-relay (see the fixture note - the only cell that would
+# back it is vacuous under every committed asset).
+D6  = ["ghost-map-presence"]
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec", "schema-gate"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# The corpus pin, exactly as H14-H17 carry it. If the corpus size moves,
+# re-derive here AND in H5 / H14 / H15 / H16 / H17 / H27 / S1.4 in one commit.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - PENDING FIRST FLIGHT.
+# (Replace this paragraph with the MEASURED form + run id off the first green
+# run before merging.) The pin is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN. The derivation is weaker than H13/H25's and says so: the targeting
+# cell (GhostMapVesselTargeting_SyntheticSameBodyGhost_Sticks) has never run
+# unattended and asserts stock target-validation behaviour across a hosted
+# coroutine - it is the plausible first-flight red. If it reds, that is a
+# FINDING to read out of the log, not a number to absorb into the pin.
+#  - total=5 is ATTRIBUTE-EXACT: 5 [InGameTest(Category = "MapPresence")]
+#    declarations (3 AnyScene + 2 FLIGHT). Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED: nothing scene-skips at FLIGHT, nothing is
+#    batch-disabled, and the four reachable InGameAssert.Skip sites all require
+#    FlightGlobals/ActiveVessel/mainBody to be null, impossible on a Focusable
+#    FLIGHT load.
+#  - failed=0 is the ASSERTION.
+#  - passed=5 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
+#    S1.4 on this exact fixture.
+required  = ["BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=MapPresence scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

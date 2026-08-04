@@ -1,0 +1,131 @@
+schema = 1
+id = "H26-log-contracts"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Inventory bucket B6 ("qualified on every
+# criterion, deferred only on batch size"), wave 2. LogContracts ties SpawnRotation
+# as the largest wireable category left (10 declarations).
+#
+# WHAT IT COVERS: the log-pipeline contract layer - structured line format
+# (FMT-001/002), WARN prefix hygiene (WRN-001), session/mission/batch marker
+# formats (SES-002, MSN-001, BAT-001), rate-limit suppression accounting
+# (RAT-001), recording stop metrics (REC-002), career resource-pool sanity
+# (RES-001/002) and ERROR line tagging (ERR-001). The KSP.log is the project's
+# primary debugging surface and `scripts/validate-ksp-log.ps1` parses these exact
+# shapes, so drift here silently breaks the offline validation layer.
+#
+# THE ERROR-LINE EXCEPTION, stated loudly because every other committed spec
+# carries the bare forbidden `\[Parsek\]\[ERROR\]`: THREE of these tests emit a
+# REAL [Parsek][ERROR] line by design (FMT-001 "[TestSub] test error message",
+# FMT-002 "[Test] msg", ERR-001 "[TestSub] deliberate test error" - they assert
+# the ERROR path formats correctly, and ParsekLog.Write still reaches Debug.Log
+# in-game; TestSinkForTesting is an xUnit-only seam). The forbidden pattern below
+# is therefore NARROWED with a lookahead excluding exactly those three literal
+# lines, and all three are ALSO pinned as required - so an unexpected ERROR still
+# reds AND a missing deliberate ERROR (the emit path breaking) reds too.
+description = "Run the in-game LogContracts category unattended: structured log format, level tags, WARN prefix hygiene, session/mission/batch marker formats, rate-limit suppression accounting, recording stop metrics, career resource sanity, and ERROR tagging."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "log-contracts", "B6", "H26"]
+
+[fixture]
+# career-pad-craft, NOT the family's gloops-airshow host, on one measured ground:
+# RES-001/002 is assertion-gated on HighLogic.CurrentGame.Mode - all three of its
+# assertion blocks require CAREER (funds/rep) or CAREER|SCIENCE_SANDBOX (science).
+# On any SANDBOX host the test RUNS and PASSES having asserted NOTHING (the
+# fourth-trap shape: reported Passed, not Skipped - the guard at
+# LogContractTests.cs:365 checks only CurrentGame != null, which any loaded scene
+# satisfies). career-pad-craft is CAREER (funds=500000, sci=100, rep seeded), so
+# all three blocks execute for real. The numeric tally is identical either way;
+# the SIGNAL is not. Same fixture + Focusable FLIGHT route CL-2 / CL-3 / R7a
+# already fly.
+#
+# injectedRecordings = "none" is a MEASURED choice with a known cost: REC-002
+# guards on RecordingStore.CommittedRecordings.Count == 0 -> Skip, and
+# career-pad-craft carries zero RECORDING nodes, so REC-002 is this spec's single
+# run-time skip. Injecting all-synthetic would flip it to EXECUTES over 272
+# recordings, but its Points.Count >= 2 rule has NO analyzer counterpart, so the
+# corpus is not proven to satisfy it and a single 1-point non-debris synthetic
+# would red the batch on a fixture question. If REC-002 is worth executing
+# unattended, prove the corpus first (analyzer rule or a report-only reading
+# run), then flip this spec's injection and re-pin. Filed in the wave notes
+# rather than silently absorbed.
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# SetSetting mirrors R7a on the same fixture: the craft sits at PRELAUNCH and
+# nothing here should start a recording; keeping auto-record off keeps the
+# recordings.count = 0 campaign-isolation pin meaningful.
+# NO isolated arg: all 10 declarations are AllowBatchExecution (default) with no
+# restore flag, so the ordinary and isolated filters admit identical sets and the
+# isolated path would only add baseline-capture cost for nothing.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LogContracts" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and deliberately minimal. These cells assert the LOG PIPELINE's own
+# contracts, not recording/playback/ledger behaviour. RES-001/002 reads the
+# career pools' floats for NaN/Inf/sign only - it exercises no ledger path, so
+# claiming a D8 cell off it would be an over-claim. Only the environment axes
+# are claimed.
+D14 = ["career", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero, doubling as the campaign-isolation assertion: nothing in this batch may
+# leave a recording in the produced save (auto-record is off and REC-002 is
+# read-only).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - PENDING FIRST FLIGHT.
+# (Replace this paragraph with the MEASURED form + run id off the first green
+# run before merging; the house rule is that a committed whole pin comes from a
+# real flight.) The pin is a LITERAL pattern and evaluate_expectations requires
+# it to match, so a PASS means the runner printed this line TOKEN FOR TOKEN.
+#  - total=10 is ATTRIBUTE-EXACT: LogContractTests.cs declares exactly 10
+#    [InGameTest(Category = "LogContracts")] methods (8 AnyScene + 2 FLIGHT).
+#    Kept in sync by CommittedBatchTallySourceSyncTests.
+#  - skipped=1 is a RUN-TIME skip, not an attribute skip - the attribute floor
+#    here is 0 (everything scene-eligible at FLIGHT, nothing batch-disabled).
+#    The one skip is REC-002 (RecordingStopMetricsValid) on "No committed
+#    recordings to validate": this fixture carries zero recordings and injection
+#    is deliberately "none" (see the fixture note). Declared in
+#    IngameBatchWiringGroupTests.RUNTIME_SKIPS so the group's floor cell models
+#    it instead of reding on a correct pin.
+#  - failed=0 is the ASSERTION.
+#  - passed=9 follows: FMT-001/002, WRN-001, SES-002, MSN-001, BAT-001, RAT-001,
+#    RES-001/002 (executing its assertions for real on this CAREER fixture),
+#    ERR-001.
+#  - scene=FLIGHT is the career-pad-craft Focusable route, MEASURED by CL-2 /
+#    CL-3 / R7a on this exact template.
+#
+# The three required ERROR lines are the deliberate emissions named in the
+# header note: pinning them required means the ERROR formatting path actually
+# ran; the narrowed forbidden means any OTHER ERROR line still reds the run.
+required  = [
+  "BATCH_COMPLETE v1 total=10 passed=9 failed=0 skipped=1 category=LogContracts scene=FLIGHT",
+  "\\[Parsek\\]\\[ERROR\\]\\[TestSub\\] test error message",
+  "\\[Parsek\\]\\[ERROR\\]\\[Test\\] msg",
+  "\\[Parsek\\]\\[ERROR\\]\\[TestSub\\] deliberate test error",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\](?!\\[TestSub\\] test error message|\\[Test\\] msg|\\[TestSub\\] deliberate test error)"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

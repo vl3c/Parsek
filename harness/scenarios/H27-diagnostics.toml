@@ -1,0 +1,90 @@
+schema = 1
+id = "H27-diagnostics"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Inventory bucket B6, wave 2.
+#
+# WHAT IT COVERS: the diagnostics/observability surface - the full
+# DiagnosticsComputation.FormatReport token set, ghost/zone/soft-cap counter
+# sanity, the storage breakdown walk, the RunDiagnosticsReport log path, the
+# store-count snapshot, and the engine-observability snapshot mirror. Two of the
+# six are honest TAUTOLOGIES (RecordingCountMatchesStore compares the store count
+# against a snapshot computed from the same expression; the observability mirror
+# re-derives from the same dicts in the same frame) - they are refactor-drift
+# guards, not runtime discriminators, and this spec does not pretend otherwise.
+# The value of the boot is the other four walking REAL data (see the injection
+# note) plus the report/format contract that the offline tooling greps.
+description = "Run the in-game Diagnostics category unattended over the 272-recording injected corpus: report token set, ghost counter sanity, storage breakdown, diagnostics log path, store-count snapshot, and engine observability mirror."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "diagnostics", "B6", "H27"]
+
+[fixture]
+# gloops-airshow + all-synthetic, the exact H5 / H14 / H15 / H16 / H17 host.
+# Injection is what makes this batch non-vacuous: no Diagnostics assertion is a
+# shape contract over recording CONTENTS (everything is >= 0, token-presence, or
+# tautological), so a 272-recording corpus cannot introduce a fail mode - while
+# without it StorageBreakdownNonNegative and the report's storage/memory arm walk
+# an empty store and measure nothing (the fourth-trap shape). The corpus count
+# pin below is the proof the walk had something to walk.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# NO isolated arg: all 6 declarations are AllowBatchExecution (default) with no
+# restore flag - identical admission either way.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Diagnostics" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: same claims as H5 on the same fixture + injection, same justification -
+# loading the corpus reads every .prec sidecar through the load-time schema
+# compatibility gate. No diagnostics-specific dimension token exists, and the
+# category's ghost/FX assertions are tautological, so nothing else is claimed.
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec", "schema-gate"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# The corpus pin, exactly as H14-H17 carry it: proves the store walks had 272
+# recordings to walk. If the corpus size moves, re-derive here AND in H5 / H14 /
+# H15 / H16 / H17 / S1.4 in the same commit.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: DERIVED FROM SOURCE, NEVER MEASURED - PENDING FIRST FLIGHT.
+# (Replace this paragraph with the MEASURED form + run id off the first green
+# run before merging.) The pin is a LITERAL pattern and evaluate_expectations
+# requires it to match, so a PASS means the runner printed this line TOKEN FOR
+# TOKEN.
+#  - total=6 is ATTRIBUTE-EXACT: DiagnosticsTests.cs declares exactly 6
+#    [InGameTest(Category = "Diagnostics")] methods (3 AnyScene + 3 FLIGHT).
+#    Kept in sync by CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED: all six are scene-eligible at FLIGHT, nothing is
+#    batch-disabled, and the category's single InGameAssert.Skip guard
+#    ("No ParsekFlight instance", DiagnosticsTests.cs) is unreachable in FLIGHT -
+#    ParsekFlight is a [KSPAddon(Startup.Flight)] that sets Instance in Start().
+#  - failed=0 is the ASSERTION.
+#  - passed=6 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
+#    S1.4 on this exact fixture.
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=Diagnostics scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

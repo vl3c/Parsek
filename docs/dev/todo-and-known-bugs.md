@@ -969,6 +969,100 @@ they exercise is reachable in a real game. What is missing is fixture material.
 
 ---
 
+## W2-SHIP-VOLUME-ZERO: the provision profiles made the ghost-audio start path structurally unreachable on every harness instance [FOUND 2026-08-05 by wire-wave-2's per-test read of `GhostAudio`, BEFORE the first flight; FIXED in the same wave - both profiles + the provlib pin now carry SHIP_VOLUME = "1"]
+
+Found by reading, not by a red flight - which is the point of the per-test
+discipline: the wave's reader traced `GhostAudioSources_FollowPartVisibilityAfterReanchor`
+to `GhostPlaybackLogic.EnforceLoopedAudioPlaybackCap`, whose only source-starting
+branch is guarded by `ComputeGhostAudioVolume(...) > 0`, and
+`ComputeGhostAudioVolume` is `curveValue * ghostAudioVolume *
+GameSettings.SHIP_VOLUME * atmosphereFactor`. Both provision profiles pinned
+`SHIP_VOLUME = "0"` (all six audio keys zeroed per the 2026-07-19
+silent-instance request), so the product was identically 0, the `continue`
+always fired, `StartLoopedGhostAudio` was unreachable, and the cell's "Engine
+audio should be playing" assertion was a GUARANTEED FAIL on any provisioned
+instance - while passing under Ctrl+Shift+T on the dev install, whose player
+settings carry a nonzero ship volume. H30 would have red on its first flight
+and the red would have read exactly like a product regression.
+
+THE FIX IS THE PROFILE, NOT THE TEST OR A SOFTER PIN: audible silence is owned
+by `MASTER_VOLUME = "0"` alone (it zeroes the AudioListener; per-channel keys
+scale individual sources), so `SHIP_VOLUME = "1"` keeps unattended instances
+silent while letting per-source volume math run for real - and it makes the
+looped-audio START path exercised by an unattended batch for the first time,
+which is what H30's D6 `ghost-audio` claim rests on. Changed in BOTH profiles
+plus `test_provlib.py`'s UNATTENDED_SETTINGS pin (the contract requires the
+keys identical across profiles), each carrying a do-not-revert comment, because
+"all volumes 0 for silence" is exactly the symmetry a future cleanup would
+restore. No spec-level fix existed: `SettingWhitelist` exposes no stock
+GameSettings key, and `ghostAudioVolume` cannot rescue a zero factor.
+
+Requires a re-provision to reach a live instance; an H30 red on the reanchor
+cell's "playing before the part is hidden" assertion on some future run means
+the instance was provisioned with the OLD profile - re-provision before
+reading it as a product defect.
+
+---
+
+## W2-VACUOUS-CELLS: the wave-2 per-test read catalogued ELEVEN cells that report PASSED having asserted nothing, across four of its six categories [FOUND 2026-08-05, wire-wave-2. RECORDED, deliberately not fixed here - every conversion moves a committed pin and deserves its own pass. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names]
+
+The inventory doc's fourth trap (a test that RUNS, PASSES and asserts over
+nothing, invisible to every tally gate) predicted "around a dozen more" across
+the tree. The wave-2 read found eleven in its six categories alone, in three
+distinct shapes. Names recorded so the eventual fix pass does not re-derive
+them:
+
+**Shape 1 - silent `return` / bare guard instead of `InGameAssert.Skip` (4):**
+`MapPresence.GhostPidsResolveToProtoVessels` and `.NoPidCollisionWithRealVessels`
+(both bail on an empty `ghostMapVesselPids`; H28 de-vacuates them by injecting
+the corpus so live ghosts exist - the batch-start cleanup empties the set and
+"none" never repopulates it), `CrewReservation.RosterAccessible`
+(`HighLogic.CurrentGame == null` -> bare return; unreachable in a driven batch)
+and `.ReplacementsAreValid` (`replacements.Count == 0` -> bare return; fires on
+EVERY committed fixture, see shape 3).
+
+**Shape 2 - assertion-gated on state the fixture may not have (2):**
+`LogContracts.ResourceValuesValid` runs its three assertion blocks only under
+CAREER (funds/rep) or CAREER|SCIENCE_SANDBOX (science) - on any sandbox host it
+reports Passed with ZERO assertions executed, and the guard that DOES fire
+(`CurrentGame == null` -> Skip) is unreachable, so the inventory table's "2
+members with self-skip" reading was technically true and practically misleading.
+H26 flies career-pad-craft specifically to make this cell real.
+`LogContracts.SessionStartFormatValid` is worse: it regexes a string IT BUILDS
+ITSELF (`$"SessionStart runUtc={utcNow}"`) and never touches the production
+emitter, so it cannot detect drift in what ParsekFlight actually writes. Fixing
+it means extracting a shared `FormatSessionStartMessage` the way
+`FormatMarkMessage` / `FormatBatchCompleteLine` already work (both of which the
+sibling cells DO call - the pattern exists in the same file).
+
+**Shape 3 - loops over state no committed asset can produce (5):**
+`CrewReservation.NoSelfReplacements` / `.NoCircularReplacements` /
+`.ReplacementsAreValid` all walk `CrewReservationManager.CrewReplacements`,
+which is EMPTY under every committed fixture x preset: `ScenarioWriter
+.AddCrewReplacement` exists with ZERO callers, and no fixture's ParsekScenario
+node carries CREW_REPLACEMENTS. The same emptiness makes
+`CrewReservation.CrewAutoAssignPatch_SwapsReservedCrew` unreachable in ANY
+scene (at FLIGHT it scene-skips as SPACECENTER-scoped; at SPACECENTER it would
+self-skip on the empty dict) - dead coverage until the generator gap closes.
+`MapPresence.AntennaSpecsProduceRelayPower` walks `rec.AntennaSpecs`, which no
+generator ever sets, so D6 `commnet-relay` stays honestly unclaimable; closing
+it is a `RecordingBuilder.WithAntennaSpecs` plus a corpus row, not a spec
+change. (`Diagnostics.RecordingCountMatchesStore` and
+`.DiagnosticsSnapshotMatchesEngineObservability` are NEAR-members: both are
+tautologies - same expression compared to itself, same-frame re-derivation over
+the same dicts - but that is refactor-drift value by design, so they are noted
+in H27 rather than listed as defects.)
+
+WHY NOT FIXED HERE: converting shape-1/shape-3 cells to `InGameAssert.Skip`
+moves H28's pin (5/5/0/0 -> passed 3 skipped 2 under "none"; unchanged under
+the corpus H28 actually injects) and H31's pin (14 passed -> 12 passed 3
+skipped), and H31's spec says so in its derivation comment. The conversions
+are one mechanical pass + two re-pins + two re-flights, best done together
+with the `ScenarioWriter.AddCrewReplacement` caller that would make the
+replacement-walking cells REAL instead of merely honest.
+
+---
+
 ## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
 
 ### Correcting the first version of this entry

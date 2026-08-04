@@ -46,11 +46,20 @@ SIMULATE_IN_BACKGROUND = "True"    # MUST stay True: unattended runs lose focus
 AUTOSTRUT_SYMMETRY = "False"       # pin autostrut policy (plan section 2/10)
 CONIC_PATCH_DRAW_MODE = "3"
 CHECK_FOR_UPDATES = "False"        # suppress the launcher/update nag for unattended boots
-# All volumes 0: unattended automation instance, no background audio
-# (operator request 2026-07-19). MASTER_VOLUME alone silences everything;
-# the per-channel keys are zeroed too so a later master tweak stays silent.
+# Volumes: unattended automation instance, no background audio
+# (operator request 2026-07-19). MASTER_VOLUME = "0" zeroes the AudioListener
+# and alone silences everything; the other per-channel keys are zeroed too so a
+# later master tweak stays silent.
+#
+# SHIP_VOLUME is the ONE deliberate exception (W2-SHIP-VOLUME-ZERO, 2026-08-05):
+# GhostPlaybackLogic.ComputeGhostAudioVolume multiplies per-source volume by
+# GameSettings.SHIP_VOLUME, and EnforceLoopedAudioPlaybackCap refuses to START a
+# source whose computed volume is 0 - so SHIP_VOLUME = "0" made the ghost-audio
+# start path structurally unreachable on every harness instance and hard-failed
+# GhostAudio's reanchor cell (H30). "1" keeps the instance audibly silent
+# (MASTER_VOLUME owns that) while letting per-source volume math run for real.
 MASTER_VOLUME = "0"
-SHIP_VOLUME = "0"
+SHIP_VOLUME = "1"
 AMBIENCE_VOLUME = "0"
 MUSIC_VOLUME = "0"
 UI_VOLUME = "0"

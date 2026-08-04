@@ -2640,6 +2640,28 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H23-tracking-station":      ("TrackingStation", 10, "TRACKSTATION"),
         "H24-ksp-api-sanity":        ("KspApiSanity", 5, "FLIGHT"),
         "H25-serialization":         ("Serialization", 4, "FLIGHT"),
+        "H26-log-contracts":         ("LogContracts", 10, "FLIGHT"),
+        "H27-diagnostics":           ("Diagnostics", 6, "FLIGHT"),
+        "H28-map-presence":          ("MapPresence", 5, "FLIGHT"),
+        "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
+        "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
+        "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+    }
+
+    # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
+    # ATTRIBUTES cannot predict, each with its reason recorded in the spec's
+    # derivation comment and confirmed by a live run. The floor cells below add
+    # these to the attribute-derived skip floor, so a member whose fixture
+    # legitimately cannot satisfy one guard can still pin its tally WHOLE without
+    # the group asserting a wrong split. Discipline for adding an entry: the skip
+    # must be a FIXTURE property stated in the spec (H26: REC-002 skips on "No
+    # committed recordings to validate" because career-pad-craft carries zero
+    # recordings and injection is deliberately "none" - the corpus is not proven
+    # against REC-002's point-count rule), never a way to absorb an unexplained
+    # red. An empty entry and an absent entry mean the same thing; only nonzero
+    # counts belong here.
+    RUNTIME_SKIPS = {
+        "H26-log-contracts": 1,
     }
 
     # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
@@ -2715,8 +2737,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(18, len(self.GROUP),
-                         "the H7-H20 + H22-H25 group is 18 specs; if it genuinely changed "
+        self.assertEqual(24, len(self.GROUP),
+                         "the H7-H20 + H22-H31 group is 24 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -2808,16 +2830,21 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
             with self.subTest(spec=sid):
                 category, _, scene = self.GROUP[sid]
                 derived = hlib.derive_batch_tally(self.decls, category, scene)
+                # RUNTIME_SKIPS entries are declared measured skips on top of the
+                # attribute floor (see the map's comment); zero for most members.
+                expected_skipped = (derived.attribute_skipped
+                                    + self.RUNTIME_SKIPS.get(sid, 0))
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 self.assertEqual(
                     (pin.passed, pin.failed, pin.skipped),
-                    (derived.total - derived.attribute_skipped, 0,
-                     derived.attribute_skipped),
-                    "%s: pinned tally disagrees with the attribute derivation at "
-                    "scene=%s (scene-skipped %s, batch-skipped %s)"
+                    (derived.total - expected_skipped, 0, expected_skipped),
+                    "%s: pinned tally disagrees with the attribute derivation "
+                    "plus declared RUNTIME_SKIPS at scene=%s (scene-skipped %s, "
+                    "batch-skipped %s, declared runtime %d)"
                     % (sid, scene, derived.scene_skipped_members,
-                       derived.batch_skipped_members))
+                       derived.batch_skipped_members,
+                       self.RUNTIME_SKIPS.get(sid, 0)))
 
     def test_the_interim_pin_member_is_declared_and_deliberately_loose(self):
         # Guards the OTHER direction: the interim form accepts 1-of-N by design, so
@@ -2849,7 +2876,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
             with self.subTest(spec=sid):
                 category, total, scene = self.GROUP[sid]
                 derived = hlib.derive_batch_tally(self.decls, category, scene)
-                skipped = derived.attribute_skipped
+                skipped = (derived.attribute_skipped
+                           + self.RUNTIME_SKIPS.get(sid, 0))
                 real = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
                         "skipped=%d category=%s scene=%s"
                         % (total, total - skipped, skipped, category, scene))
@@ -2879,8 +2907,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # `yield break` that is not even reported as a Skip). The tally cannot see
         # that; only the fixture can. So those four must inject the corpus AND pin a
         # non-zero recordings count, and the others must pin zero so a leak reds.
+        # Wave 2 added three: H27 (StorageBreakdown walks the store), H28 (two
+        # cells bail through a SILENT return on an empty ghost-map pid set -
+        # exactly the fourth-trap shape this cell exists for) and H30 (the
+        # engine-level pause/unpause cell iterates the live ghost set).
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
-                         "H16-corpus-spawn-health", "H17-flight-integration"}
+                         "H16-corpus-spawn-health", "H17-flight-integration",
+                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio"}
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
