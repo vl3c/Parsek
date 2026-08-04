@@ -266,6 +266,15 @@ namespace Parsek.InGameTests
         /// the merge:
         /// </para>
         ///
+        /// <para>
+        /// The fixture is production-shaped down to the rewind route: a
+        /// <see cref="BranchPoint"/> at the rewind UT, a
+        /// <see cref="RewindPoint"/> whose single <see cref="ChildSlot"/> names
+        /// the origin, and a marker carrying that RP's id. See the RP fixture
+        /// comment below (finding R7C-SITE-B1-ERROR) for why the shortcut
+        /// version of this fixture was a defect.
+        /// </para>
+        ///
         /// <list type="bullet">
         ///   <item><description>The origin recording is split into HEAD [8.42, 34.24] (visible) and TIP [34.24, 52.7] (superseded by the fork). HEAD keeps the original id; TIP gets a new id; they share a ChainId.</description></item>
         ///   <item><description>The kerbal's <c>KerbalEndState=Dead</c> ledger action is retagged to TIP, then tombstoned — ELS does not credit the kerbal as dead.</description></item>
@@ -307,6 +316,8 @@ namespace Parsek.InGameTests
             string originId = "spanned_split_origin_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
             string forkId = "spanned_split_fork_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
             string deadActionId = "act_dead_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string bpId = "spanned_split_bp_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string rpId = "rp_spanned_split_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
 
             const double originStartUT = 8.42;
             const double rewindUT = 34.24;
@@ -327,6 +338,21 @@ namespace Parsek.InGameTests
                 TerminalStateValue = TerminalState.Destroyed,
                 LaunchSiteName = "LaunchPad",
                 StartBodyName = "Kerbin",
+                // NO ParentBranchPointId, and its absence is load-bearing twice
+                // over. (1) This origin is the test's LAUNCH ROOT - the launch-row
+                // assertion at the tail is the test's core - and
+                // TimelineBuilder.Build suppresses RecordingStart for any recording
+                // carrying a ParentBranchPointId ("created by staging/decouple/
+                // breakup, not player launch"). The first cut of the Site B-1
+                // fixture fix set it to bpId anyway and the R7c flight
+                // (2026-08-04_1914) measured exactly that suppression: the merge
+                // went through the slot-aware path cleanly and the launch-row
+                // assertion failed. (2) It is not needed for the Site B-1 lookup
+                // either: TryResolveRewindPointForRecording runs on the
+                // PROVISIONAL, whose ParentBranchPointId (set below) reaches the
+                // RP, and the slot resolves to the fork through the
+                // EffectiveTipRecordingId chain+supersede walk from the slot's
+                // origin id - no branch link on the origin participates.
             };
             origin.Points.Add(new TrajectoryPoint { ut = originStartUT });
             origin.Points.Add(new TrajectoryPoint { ut = rewindUT });
@@ -363,9 +389,30 @@ namespace Parsek.InGameTests
                 TerminalStateValue = TerminalState.Landed,
                 SupersedeTargetId = originId,
                 CreatingSessionId = sessId,
+                // RewindInvoker builds the provisional with
+                // `ParentBranchPointId = originChild?.ParentBranchPointId ??
+                // rp.BranchPointId` (RewindInvoker.cs:1748) — both resolve to
+                // the RP's BP here, so the fork carries it too.
+                ParentBranchPointId = bpId,
             };
             fork.Points.Add(new TrajectoryPoint { ut = 34.5 });
             fork.Points.Add(new TrajectoryPoint { ut = 45.0 });
+
+            // The multi-controllable split the RP was captured at. Its parent
+            // is an upstream id that is deliberately NOT in the store (same
+            // pattern as StableLeafUnfinishedFlightsRuntimeTest): the walks
+            // that matter here key off the BP id, not off a live parent, and
+            // keeping origin out of ParentRecordingIds keeps the splitter's
+            // Step 2.6 BP-reparent walk a no-op for this fixture.
+            var branchPoint = new BranchPoint
+            {
+                Id = bpId,
+                Type = BranchPointType.Undock,
+                UT = rewindUT,
+                RewindPointId = rpId,
+                ParentRecordingIds = new List<string> { "spanned_split_upstream_" + treeId },
+                ChildRecordingIds = new List<string> { originId, forkId },
+            };
 
             var tree = new RecordingTree
             {
@@ -373,7 +420,7 @@ namespace Parsek.InGameTests
                 TreeName = "SpannedSplit_" + treeId,
                 RootRecordingId = originId,
                 ActiveRecordingId = originId,
-                BranchPoints = new List<BranchPoint>(),
+                BranchPoints = new List<BranchPoint> { branchPoint },
             };
             tree.AddOrReplaceRecording(origin);
             tree.AddOrReplaceRecording(fork);
@@ -423,9 +470,44 @@ namespace Parsek.InGameTests
                 ActiveReFlyRecordingId = forkId,
                 OriginChildRecordingId = originId,
                 SupersedeTargetId = originId,
+                RewindPointId = rpId,
                 RewindPointUT = rewindUT,
                 InvokedUT = rewindUT,
                 InvokedRealTime = System.DateTime.UtcNow.ToString("o"),
+            };
+
+            // Production-shaped RewindPoint for the marker (R7C-SITE-B1-ERROR).
+            // Every marker RewindInvoker writes comes from an RP-invoked rewind
+            // and carries a RewindPointId, so a fixture without one is a shape
+            // production never reaches: it made SupersedeCommit's Site B-1 slot
+            // lookup fail (`rp=<none> reason=noParentBp`) and take its
+            // deliberate ERROR-logged fallback to the v0.9 terminalKind
+            // classifier, which red'd the R7c harness spec's forbidden-ERROR
+            // contract while the test itself still passed. Same doctrine as the
+            // RP-quicksave-sidecar rule in .claude/CLAUDE.md: a fixture missing
+            // a field production always writes lets a FIXTURE divergence read
+            // as a product defect. With the slot present the lookup succeeds
+            // via slot[0]'s composite chain+supersede tip (HEAD → TIP → fork),
+            // which is exactly what invariant 7 below asserts.
+            var rewindPoint = new RewindPoint
+            {
+                RewindPointId = rpId,
+                BranchPointId = bpId,
+                UT = rewindUT,
+                QuicksaveFilename = rpId + ".sfs",
+                SessionProvisional = true,
+                CreatingSessionId = sessId,
+                CreatedRealTime = System.DateTime.UtcNow.ToString("o"),
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot
+                    {
+                        SlotIndex = 0,
+                        OriginChildRecordingId = originId,
+                        Controllable = true,
+                    },
+                },
             };
 
             // Install fresh scenario collections so we can deterministically
@@ -435,7 +517,7 @@ namespace Parsek.InGameTests
             scenario.ActiveMergeJournal = null;
             scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
             scenario.LedgerTombstones = new List<LedgerTombstone>();
-            scenario.RewindPoints = new List<RewindPoint>();
+            scenario.RewindPoints = new List<RewindPoint> { rewindPoint };
             scenario.BumpSupersedeStateVersion();
 
             // Bypass persistent.sfs writes — the orchestrator fires five
@@ -451,12 +533,26 @@ namespace Parsek.InGameTests
             ParsekLog.Info("RewindTest",
                 $"ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew: " +
                 $"installed origin={originId} fork={forkId} sess={sessId} " +
+                $"rp={rpId} bp={bpId} " +
                 $"rewindUT={rewindUT.ToString("F2", CultureInfo.InvariantCulture)} — invoking RunMerge");
 
             try
             {
                 bool ok = MergeJournalOrchestrator.RunMerge(marker, fork);
                 InGameAssert.IsTrue(ok, "MergeJournalOrchestrator.RunMerge returned false");
+
+                // Classification note (post R7C-SITE-B1-ERROR fix): the merge
+                // now takes SupersedeCommit's SLOT-AWARE branch rather than the
+                // v0.9 terminalKind fallback. Both routes agree on the state
+                // this test's invariants read: the fork's Landed terminal on
+                // the merge-time focus slot yields classifierQualifies=false
+                // with reason `stableTerminalFocusSlot`, so
+                // ShouldKeepReFlySlotOpenAfterMerge returns false and the fork
+                // commits Immutable — the same MergeState the fallback's
+                // TerminalKind.Landed produced. The only new behaviour is an
+                // Info-level `Auto-sealed re-fly slot=0` line
+                // (ShouldAutoSealReFlySlotAfterMerge is true for
+                // stableTerminalFocusSlot). Nothing below changes.
 
                 // 1. Tree topology: two recordings where origin used to be,
                 //    HEAD [originStartUT..rewindUT] keeps the original id,

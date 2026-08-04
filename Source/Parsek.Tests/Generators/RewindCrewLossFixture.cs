@@ -215,6 +215,14 @@ namespace Parsek.Tests.Generators
             var b = new RecordingBuilder("CL Pod A")
                 .WithRecordingId(PodRecordingId)
                 .WithParentRecordingId(RootRecordingId)
+                // Mirrors RewindB9Fixture's booster (R7-FIXTURE-GAPS gap 2): slot 1
+                // is an OPEN Unfinished Flight only when its effective tip MergeState
+                // is CommittedProvisional; the Immutable default made the slot read
+                // as sealed. Inert for CL-3's armed floors - every MergeState
+                // consumer on the merge path (EffectiveState visibility / closure /
+                // tip walking, SupersedeCommit.AppendRelations' row-write guard)
+                // special-cases only NotCommitted.
+                .WithMergeState(MergeState.CommittedProvisional)
                 // Launch identity agrees with the guid ScenarioWriter stamps on this
                 // slot's sidecar VESSEL, so QuickloadResumeMatchGuard's
                 // LaunchGuidConclusivelyDiffers cannot reject the re-fly candidate.

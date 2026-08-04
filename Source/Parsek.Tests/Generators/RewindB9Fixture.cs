@@ -199,12 +199,27 @@ namespace Parsek.Tests.Generators
 
         // Crashed booster (slot 1): falls back and impacts near the pad. Terminal
         // Destroyed = the "Crashed sibling" that a re-fly targets.
+        //
+        // MergeState CommittedProvisional is what makes slot 1 an OPEN Unfinished
+        // Flight (R7-FIXTURE-GAPS gap 2). The terminal shape alone was never
+        // enough: UnfinishedFlightClassifier.IsSlotEffectiveTipOpen reads the
+        // slot's EFFECTIVE TIP MergeState and admits ONLY CommittedProvisional, so
+        // with the Immutable default this booster qualified as `crashed` and was
+        // then rejected `sealedTipClosed` - which is why every in-game Rewind cell
+        // gated on EffectiveState.IsUnfinishedFlight skipped on this preset.
+        // Production reaches the same state through
+        // RecordingStore.ApplyRewindProvisionalMergeStates, the CommitTree
+        // promotion that demotes a qualifying RP child to CommittedProvisional;
+        // that pass runs at LIVE tree-commit time and requires tree.BranchPoints,
+        // so an already-committed injected tree never passes through it and must
+        // author the state directly.
         private static RecordingBuilder BuildBooster(double splitUt)
         {
             double t = splitUt;
             var b = new RecordingBuilder("B9 Booster A")
                 .WithRecordingId(BoosterRecordingId)
                 .WithParentRecordingId(RootRecordingId)
+                .WithMergeState(MergeState.CommittedProvisional)
                 // Launch identity agrees with the guid ScenarioWriter stamps on this
                 // slot's sidecar VESSEL, so QuickloadResumeMatchGuard's
                 // LaunchGuidConclusivelyDiffers cannot reject the re-fly candidate.

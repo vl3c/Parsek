@@ -663,7 +663,7 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
-## R7C-SITE-B1-ERROR: an in-game test drives `SupersedeCommit` into a `[Parsek][ERROR]` and passes anyway [FOUND 2026-08-04 by the first `R7c-rewind-spacecenter` flight (`2026-08-04_1329`). NOT FIXED - the severity call is genuinely arguable and is not mine to make unilaterally]
+## ~~R7C-SITE-B1-ERROR: an in-game test drives `SupersedeCommit` into a `[Parsek][ERROR]` and passes anyway~~ [FOUND 2026-08-04 by the first `R7c-rewind-spacecenter` flight (`2026-08-04_1329`). FIXED 2026-08-04, branch `r7-followups`, by reading 1 - the TEST FIXTURE was not production-shaped. Product severity is UNCHANGED: `Error` stays correct for a shape production never reaches. CONFIRMED by re-fly: run `2026-08-04_1617` FULL PASS, zero ERROR lines - after a second flight (`2026-08-04_1914`) caught the first cut of the fix over-shooting (a ParentBranchPointId on the launch-root origin suppressed the launch row via TimelineBuilder's staging-child rule; removed)]
 
 `R7c-rewind-spacecenter` flies GREEN on everything the batch itself measures:
 `total=37 passed=4 failed=0 skipped=33 category=Rewind scene=SPACECENTER`,
@@ -710,6 +710,36 @@ the contract is NOT narrowed to hide it. Whoever fixes it should re-fly
 NOTE this is a member of a class the harness has now caught twice in one day: an
 in-game test that PASSES while making production log something it should not.
 The batch tally cannot see it; only the `forbidden` contract can.
+
+**FIXED 2026-08-04 by reading 1.** The fixture, not the product, was wrong.
+`RewindInvoker` writes `marker.RewindPointId` on every session it starts and
+builds the provisional with `ParentBranchPointId = originChild?.ParentBranchPointId
+?? rp.BranchPointId` (`RewindInvoker.cs:1748`), so a marker with no RP and a fork
+with no branch link is a shape production cannot produce. `Error` therefore stays
+the right severity for it, and no product log level was touched - the change is
+entirely in `IncompleteBallisticRuntimeTests.cs`. The test now authors what a real
+rewind leaves behind: a `BranchPoint` at the rewind UT in `tree.BranchPoints`
+carrying `RewindPointId`, `ParentBranchPointId` on both the origin and the fork, a
+production-shaped `RewindPoint` (id / `BranchPointId` / UT / quicksave filename /
+`SessionProvisional` + `CreatingSessionId` / `FocusSlotIndex=0` / one `ChildSlot`
+whose `OriginChildRecordingId` is the origin) installed into `scenario.RewindPoints`,
+and `marker.RewindPointId`. Site B-1 now resolves the slot through
+`UnfinishedFlightClassifier.TryResolveRewindPointForRecording` -> the slot's
+composite chain+supersede tip (HEAD -> TIP -> fork), which is the same walk the
+test's invariant 7 already asserted.
+
+The merge consequently takes the SLOT-AWARE classification branch instead of the
+v0.9 fallback, and **no assertion flipped**: a `Landed` chain tip on the merge-time
+focus slot returns `classifierQualifies=false` with reason
+`stableTerminalFocusSlot`, so `ShouldKeepReFlySlotOpenAfterMerge` is false and the
+fork commits `Immutable` - exactly what `TerminalKind.Landed` produced through the
+fallback. The only new output is an Info-level `Auto-sealed re-fly slot=0` line
+(`ShouldAutoSealReFlySlotAfterMerge` is true for `stableTerminalFocusSlot`), which
+the forbidden contract does not match. The RP is NOT reaped during the merge:
+`ReapOrphanedRPs` runs at the RpReap phase while the marker is still set, and it
+skips the RP the live marker names. The `finally` block already restored
+`scenario.RewindPoints` wholesale and drops the tree (and with it the BranchPoint),
+so the new fixture adds no new teardown surface.
 
 ---
 
@@ -806,7 +836,7 @@ WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
 
 ---
 
-## R7-FIXTURE-GAPS: five `Rewind` in-game tests can never execute on any committed fixture [FOUND 2026-08-04 by roadmap R7's per-test skip-precondition read. NOT FIXED - both are fixture-GENERATOR changes, not spec changes]
+## R7-FIXTURE-GAPS: five `Rewind` in-game tests can never execute on any committed fixture [FOUND 2026-08-04 by roadmap R7's per-test skip-precondition read. GAP 2 FIXED 2026-08-04 and CONFIRMED the same day: R7c re-flown with rewind-b9 injected, `UnfinishedFlightsRenderingAndNoHide` EXECUTED and PASSED (run `2026-08-04_1617`, tally `passed=5 skipped=32`), and the four armed/adjacent fixture consumers confirmed unmoved (S4.1 + CL-3 armed gates green, S1.5 green, all attempt 1). `InvokeRPStripAndActivate` stays skipped in R7a DELIBERATELY: it performs a destructive RP strip+activate mid-batch beside 15 other executing cells - the emergent-batch-mutation class the R7-SESSION-BATCH-ISOLATION entry documents - so unblocking it wants its own reading pass, not a fixture swap. GAP 1 re-measured and REFRAMED, still open]
 
 R7 wired the `Rewind` category (37 declarations, the largest previously undriven
 one) as three specs. Reading every body's skip guards to size those specs turned
@@ -815,6 +845,56 @@ can close. Recorded so the next wave does not re-derive them, and so the R7 pins
 `skipped=` values are legible rather than mysterious.
 
 **Gap 1 - no committed fixture has a two-command-pod craft (3 tests).**
+
+> **CORRECTION 2026-08-04 - the measurement below is WRONG, and the gap is
+> smaller and differently shaped than it says.** The original read counted
+> `ModuleCommand` on three templates only (`career-pad-craft`, `b2-lko-craft`,
+> `gloops-airshow`) and generalised "every one of them". A mechanical per-VESSEL
+> scan of ALL twelve committed saves finds **two** whose ACTIVE vessel already
+> carries two `ModuleCommand` parts: `bdock-station-pad` and `eva3-pad-3crew`,
+> both flying the same 86-part SANDBOX `Kerbal X` (`mk1-3pod` at part 0 and
+> `probeStackLarge` at part 12, separated by the `Decoupler.2` at part 11,
+> `istg = 2`). Both sides of that decoupler are controllable, so the craft IS the
+> "pod + decoupler + probe core" stack the fix line below asks someone to author.
+> All three tests therefore clear their FIRST guard (`commandModules < 2` ->
+> `Skip("Needs 2+ command pods")`) on those two templates today.
+>
+> What they fail is the SECOND guard: each test calls
+> `StageManager.ActivateNextStage()` exactly once and then skips unless the
+> loaded controllable-vessel count went up. Both saves sit at `sit = PRELAUNCH`
+> with `stg = 7`, so one press fires `istg = 6` (Mainsail + boosters + launch
+> clamps), four presses short of the `istg = 2` decouple. **The missing fixture
+> material is not a craft - it is a save whose staging pointer is AT the split.**
+>
+> Two routes, neither implemented here (scouted only):
+> 1. **Produce it, do not hand-edit it.** Fly the existing `Kerbal X` to just
+>    before the stage-2 decouple and snapshot - the same route that produced
+>    `eva2-lko-crewed` (which is literally the post-split state: a `Kerbal X` and
+>    a separate controllable `Kerbal X Probe`). No hand-authoring, no craft-file
+>    consistency risk.
+> 2. **Hand-edit `stg` on a copy of `bdock-station-pad`** (`stg = 7` -> `stg = 3`)
+>    so one press fires `istg = 2`. Cheap to try, but carries one unverified
+>    assumption - whether KSP honours a persisted `stg` for a PRELAUNCH vessel or
+>    re-derives the stage pointer at flight start - and the split then happens
+>    with the stack still clamped to the pad. That is survivable for these three
+>    (all are `AllowBatchExecution = false` isolated-run with
+>    `RestoreBatchFlightBaselineAfterExecution = true`), because they assert on
+>    the RP + PID maps + quicksave file, not on the vessel surviving.
+>
+> The "edit `career-pad-craft`'s 18-part craft" idea in the fix line is the
+> EXPENSIVE route and should not be taken now that the craft exists elsewhere.
+> Its concrete blockers, for the record: `attN` / `parent` references are
+> POSITIONAL part indices, so inserting a part mid-stack means renumbering every
+> downstream reference; `uid` / `persistentId` must stay unique (and are
+> craft-baked, see the `persistentId` gotcha); `position` / `rotation` /
+> attach-node naming must be authored by hand with no editor to validate them;
+> `istg` has to be assigned consistently with the vessel's `stg`; and
+> `career-pad-craft` is a CAREER save, so `probeStackLarge` would also have to be
+> unlocked in its tech tree. The two SANDBOX templates have none of those
+> problems.
+
+The original (superseded) measurement:
+
 `CaptureRPOnStaging`, `SavePathRootThenMove` and `WarpZeroedDuringSave` each need
 an ACTIVE vessel carrying >= 2 parts with a `ModuleCommand` whose NEXT STAGE
 decouples a second CONTROLLABLE vessel - that is the shape Rewind-to-Separation
@@ -826,21 +906,63 @@ Fix: author a two-pod stack craft (pod + decoupler + probe core, both
 controllable) as a new fixture template. That is the same work `bdock-station-*`
 did for docking and it would close all three at once.
 
-**Gap 2 - `ScenarioWriter` emits no `mergeState`, so nothing can be an Unfinished
-Flight (2 tests).**
+**~~Gap 2 - `ScenarioWriter` emits no `mergeState`, so nothing can be an Unfinished
+Flight (2 tests).~~ RESOLVED-PENDING-RE-FLY 2026-08-04.**
 `UnfinishedFlightsRenderingAndNoHide` (SPACECENTER) and `InvokeRPStripAndActivate`
 (FLIGHT) both need at least one recording satisfying
-`EffectiveState.IsUnfinishedFlight`, which requires `MergeState` to be `Immutable`
-or `CommittedProvisional`. Grepping `Source/Parsek.Tests/Generators/` for
-`MergeState` / `mergeState` / `CommittedProvisional` returns ZERO hits, so every
-injected recording deserialises to the default and NO preset - `all-synthetic`,
-`rewind-b9` or `rewind-crew-loss` - can satisfy the predicate. This is why R7c
-injects nothing: injecting would add a fixture dependency and still leave the cell
-skipped.
-Fix: teach `ScenarioWriter` to author `mergeState`, then re-fly R7c and re-pin.
-Note this is the same SHAPE as the `CrewReservationLive` blocker in the inventory
-doc's bucket B1 (a generator that cannot author the state a category gates on),
-and both are one generator change away.
+`EffectiveState.IsUnfinishedFlight`. ~~which requires `MergeState` to be `Immutable`
+or `CommittedProvisional`.~~ **That reading was one predicate short**, and the
+correction matters for anyone re-deriving this: `UnfinishedFlightClassifier.TryQualify`
+does accept Immutable OR CommittedProvisional, but `TryResolveUnfinishedFlightRaw`
+then runs `IsSlotEffectiveTipOpen`, which admits **only CommittedProvisional** - an
+Immutable tip is a CLOSED (sealed) slot and rejects as `sealedTipClosed`. So the
+default was never merely "not authored", it was actively the closed state.
+Grepping `Source/Parsek.Tests/Generators/` for `MergeState` / `mergeState` /
+`CommittedProvisional` returned ZERO hits, so no preset - `all-synthetic`,
+`rewind-b9` or `rewind-crew-loss` - could satisfy the predicate. This is why R7c
+injects nothing.
+
+Fixed by three edits, all in the fixture generators (no product change):
+- `RecordingBuilder.WithMergeState(MergeState)` - OPT-IN, default unset. A builder
+  that never calls it keeps `Recording`'s own `Immutable` default and serializes
+  byte-identically.
+- `ScenarioWriter.BuildRecording` stamps the FIELD, so the wire format is the
+  production one: `RecordingTree.Save` -> `RecordingTreeRecordCodec
+  .SaveRewindToStagingMergeState` writes `mergeState = <enum name>` (omitted for
+  Immutable) and `LoadRecordingFrom` parses it back with `Enum.TryParse`. No key is
+  hand-written in the generator.
+- `RewindB9Fixture`'s crashed booster and `RewindCrewLossFixture`'s crewed pod -
+  the slot-1 re-fly targets - author `CommittedProvisional`, which is the state
+  production reaches through `RecordingStore.ApplyRewindProvisionalMergeStates`
+  (the CommitTree promotion). That pass runs at LIVE tree-commit time and needs
+  `tree.BranchPoints`, so an already-committed injected tree never passes through
+  it and must author the state directly.
+
+Compatibility: the four committed specs injecting `rewind-b9` (S1.5, S4.1, R1, V1)
+and the one injecting `rewind-crew-loss` (CL-3) were re-read against the change.
+Every MergeState consumer on their paths special-cases only `NotCommitted`
+(`EffectiveState.IsVisible` / closure / tip walking, `SupersedeCommit
+.AppendRelations`' row-write guard, `LoadTimeSweep`'s zombie discard), so no gated
+value can move: S4.1's ARMED `supersedeRows max = 0` / `tombstones max = 0` and
+CL-3's ARMED `min = 1` floors are all decided downstream of predicates blind to the
+Immutable/CommittedProvisional distinction, and `saveparse` evaluates only DECLARED
+keys. The one real behavioural delta is that S4.1's un-superseded booster now keeps
+its slot OPEN, so `rp_b9_root` is no longer reap-eligible at merge - S4.1 measured
+`rewindPoints = 0` but deliberately does NOT declare that key, and its own comment
+says so.
+
+Headless proof: `RewindB9FixtureTests.Inject_BoosterMergeStateRoundTripsThroughTheProductionCodec`
+(codec round-trip + the other two rows unchanged) and
+`Inject_CrashedBoosterClassifiesAsOpenUnfinishedFlight` (the booster classifies,
+the focus-slot upper stage does not, and flipping the booster back to Immutable
+un-classifies it - the negative control that pins the authored key as load-bearing).
+
+REMAINING: re-fly R7c with `injectedRecordings = "rewind-b9"` and re-pin its
+`BATCH_COMPLETE` tally + `[expectations.recordings] count` (currently `min = 0,
+max = 0`, which an injected corpus breaks). Until that lands, R7c is unchanged and
+the cell still skips at runtime.
+Note this was the same SHAPE as the `CrewReservationLive` blocker in the inventory
+doc's bucket B1 (a generator that cannot author the state a category gates on).
 
 Neither gap is a product defect: the tests are correct and the production code
 they exercise is reachable in a real game. What is missing is fixture material.

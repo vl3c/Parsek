@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -16,7 +17,7 @@ namespace Parsek.Tests
     /// reds here headlessly instead.
     /// </summary>
     [Collection("Sequential")]
-    public class RewindB9FixtureTests
+    public class RewindB9FixtureTests : IDisposable
     {
         // Minimal stock save skeleton with a FLIGHTSTATE anchor
         // (ScenarioWriter.InjectIntoSave inserts the ParsekScenario before it).
@@ -24,6 +25,36 @@ namespace Parsek.Tests
             "GAME\n{\n" +
             "\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n\t}\n" +
             "}\n";
+
+        // The MergeState round-trip / Unfinished-Flight cells below drive
+        // RecordingStore + ParsekScenario statics, so this class now carries the
+        // house shared-static contract ([Collection("Sequential")] + explicit
+        // resets on both ends). The pure fixture-shape cells are unaffected.
+        private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
+
+        public RewindB9FixtureTests()
+        {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
+            RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+        }
 
         [Fact]
         public void BuildRewindPoint_HasFixedIdNullSessionAndQuicksavePath()
@@ -123,6 +154,122 @@ namespace Parsek.Tests
             Assert.Contains(
                 "vesselPersistentId = " + boosterPid.ToString(CultureInfo.InvariantCulture),
                 serialized);
+        }
+
+        // =====================================================================
+        // R7-FIXTURE-GAPS gap 2: authored MergeState + the Unfinished Flight it
+        // unlocks. Both cells fail on the pre-fix fixture (no mergeState key ->
+        // Immutable -> `sealedTipClosed`), which is what made
+        // UnfinishedFlightsRenderingAndNoHide / InvokeRPStripAndActivate skip on
+        // every committed preset.
+        // =====================================================================
+
+        [Fact]
+        public void Inject_BoosterMergeStateRoundTripsThroughTheProductionCodec()
+        {
+            var writer = new ScenarioWriter();
+            RewindB9Fixture.PopulateWriter(writer, baseUT: 0.0);
+
+            ConfigNode scenario = writer.BuildScenarioNode();
+
+            // Wire format: exactly the key RecordingTreeRecordCodec
+            // .SaveRewindToStagingMergeState writes - `mergeState = <enum name>`,
+            // written ONLY for the non-default state, so the crashed booster is
+            // the single occurrence across the three-recording tree.
+            string serialized = writer.SerializeConfigNode(scenario, "SCENARIO");
+            Assert.Contains("mergeState = CommittedProvisional", serialized);
+            Assert.Equal(
+                1,
+                serialized.Split(new[] { "mergeState = " }, StringSplitOptions.None).Length - 1);
+
+            // Read back through the SAME loader ParsekScenario uses
+            // (RecordingTree.Load -> RecordingTreeRecordCodec.LoadRecordingFrom),
+            // so the assertion is on the production parse, not on the writer's
+            // own idea of what it wrote.
+            RecordingTree tree = LoadInjectedTree(scenario);
+            Assert.Equal(
+                MergeState.CommittedProvisional,
+                tree.Recordings[RewindB9Fixture.BoosterRecordingId].MergeState);
+
+            // The other two rows keep the codec's key-absent default. This is the
+            // half that keeps the change opt-in: a preset row that never calls
+            // WithMergeState must serialize exactly as it did before.
+            Assert.Equal(
+                MergeState.Immutable,
+                tree.Recordings[RewindB9Fixture.UpperRecordingId].MergeState);
+            Assert.Equal(
+                MergeState.Immutable,
+                tree.Recordings[RewindB9Fixture.RootRecordingId].MergeState);
+        }
+
+        [Fact]
+        public void Inject_CrashedBoosterClassifiesAsOpenUnfinishedFlight()
+        {
+            var writer = new ScenarioWriter();
+            RewindB9Fixture.PopulateWriter(writer, baseUT: 0.0);
+            ConfigNode scenario = writer.BuildScenarioNode();
+
+            RecordingTree tree = LoadInjectedTree(scenario);
+            RewindPoint rp = LoadInjectedRewindPoint(scenario);
+
+            RecordingStore.CommittedTrees.Add(tree);
+            MakeScenario(rp);
+
+            Recording booster = tree.Recordings[RewindB9Fixture.BoosterRecordingId];
+            Recording upper = tree.Recordings[RewindB9Fixture.UpperRecordingId];
+
+            // The whole point of gap 2: an injected corpus can now satisfy
+            // EffectiveState.IsUnfinishedFlight, so the two in-game Rewind cells
+            // that gate on UnfinishedFlightsGroup.ComputeMembers() being non-empty
+            // have material to run against.
+            Assert.True(EffectiveState.IsUnfinishedFlight(booster));
+
+            // The surviving upper stage must NOT surface: it is the RP's focus
+            // slot with a stable Orbiting terminal, which the classifier closes as
+            // `stableTerminalFocusSlot`. A fixture that surfaced both slots would
+            // be asserting a shape the product never produces.
+            Assert.False(EffectiveState.IsUnfinishedFlight(upper));
+
+            // Negative control - this is what pins the AUTHORED key as the
+            // load-bearing bit rather than an incidental one. With the pre-fix
+            // Immutable value (and nothing else changed) the same recording is a
+            // CLOSED slot: UnfinishedFlightClassifier.IsSlotEffectiveTipOpen admits
+            // only CommittedProvisional.
+            booster.MergeState = MergeState.Immutable;
+            EffectiveState.ResetCachesForTesting();
+            Assert.False(EffectiveState.IsUnfinishedFlight(booster));
+        }
+
+        private static RecordingTree LoadInjectedTree(ConfigNode scenario)
+        {
+            ConfigNode[] treeNodes = scenario.GetNodes("RECORDING_TREE");
+            Assert.Single(treeNodes);
+            return RecordingTree.Load(treeNodes[0]);
+        }
+
+        private static RewindPoint LoadInjectedRewindPoint(ConfigNode scenario)
+        {
+            ConfigNode rewindPoints = scenario.GetNode("REWIND_POINTS");
+            Assert.NotNull(rewindPoints);
+            ConfigNode[] points = rewindPoints.GetNodes("POINT");
+            Assert.Single(points);
+            return RewindPoint.LoadFrom(points[0]);
+        }
+
+        private static void MakeScenario(RewindPoint rp)
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint> { rp },
+                ActiveReFlySessionMarker = null,
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            scenario.BumpTombstoneStateVersion();
+            EffectiveState.ResetCachesForTesting();
         }
 
         [Fact]

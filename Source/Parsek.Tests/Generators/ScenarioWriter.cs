@@ -992,6 +992,17 @@ namespace Parsek.Tests.Generators
             if (ts.HasValue)
                 rec.TerminalStateValue = (TerminalState)ts.Value;
 
+            // R7-FIXTURE-GAPS gap 2: opt-in MergeState authoring. Stamping the
+            // FIELD (rather than hand-writing a key) is what makes the emitted node
+            // the production one - RecordingTree.Save -> RecordingTreeRecordCodec
+            // .SaveRewindToStagingMergeState writes `mergeState = <enum name>` and
+            // omits it for Immutable, and LoadRecordingFrom parses the same string
+            // back with Enum.TryParse. Fixtures that never call WithMergeState keep
+            // Recording's own Immutable default and serialize byte-identically.
+            MergeState? ms = builder.GetMergeState();
+            if (ms.HasValue)
+                rec.MergeState = ms.Value;
+
             double terrainH = builder.GetTerrainHeightAtEnd();
             if (!double.IsNaN(terrainH))
                 rec.TerrainHeightAtEnd = terrainH;
