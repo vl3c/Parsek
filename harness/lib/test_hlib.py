@@ -4025,8 +4025,10 @@ class AnomalyTokenCountTests(unittest.TestCase):
 
     def test_ungated_reason_is_not_counted(self):
         # An ungated reason rides `unlisted_anomaly_reasons`; it must never enter a
-        # gate's arithmetic.
-        self.assertEqual({}, hlib.count_anomaly_tokens(self._raise("icon-teleport", 3)))
+        # gate's arithmetic. Example is `factory-parity` (a shadow comparator that
+        # never drives a draw) since the 2026-08-04 promotion - the old example,
+        # `icon-teleport`, is now a GATED token and does count.
+        self.assertEqual({}, hlib.count_anomaly_tokens(self._raise("factory-parity", 3)))
 
     def test_a_line_merely_naming_a_token_is_not_counted(self):
         self.assertEqual({}, hlib.count_anomaly_tokens(
@@ -4045,7 +4047,8 @@ class UnityExceptionScanTests(unittest.TestCase):
     `[Parsek]`-tagged lines (session markers, line FORMAT, WARN content, recording
     pairing). So a KSP.log full of raw `NullReferenceException` stack traces or an
     IMGUI `ArgumentException: GUILayout` storm passed every gate. This scan is the
-    complement of that layer, REPORT-ONLY until a scenario arms it."""
+    complement of that layer, REPORT-ONLY until a scenario arms it - which 14
+    specs do since the 2026-08-04 calibration sweep (the allowlist cell below)."""
 
     NRE = ("NullReferenceException: Object reference not set to an instance of an object\n"
            "  at Something.Update () [0x00000] in <filename unknown>:0 \n")
@@ -4129,17 +4132,66 @@ class UnityExceptionScanTests(unittest.TestCase):
         self.assertTrue(v.ok, "an inert block is a warning, not a spec-invalid")
         self.assertTrue(any(hlib.UNITY_EXCEPTIONS_BLOCK in w for w in v.warnings))
 
-    def test_no_committed_spec_arms_it(self):
-        # The HARD SAFETY PROPERTY: this scan cannot move any nightly verdict, because
-        # nothing declares the block. Arming one is an operator decision taken after
-        # reading the report-only counts off a few green runs.
-        armed = []
+    def test_only_the_armed_allowlist_arms_it(self):
+        # The HARD SAFETY PROPERTY, in its post-calibration form. This cell asserted the
+        # EMPTY set ("nothing declares the block, so the scan cannot move any nightly
+        # verdict") from the day the scan shipped until the 2026-08-04 calibration sweep.
+        # It is now an explicit ALLOWLIST of what that sweep MEASURED, so a 15th spec
+        # arming the gate still reds here until its own evidence is recorded - and so
+        # LOOSENING a ceiling is a deliberate edit in this file too, not a quiet widening
+        # in a spec nobody re-reads.
+        #
+        # THE EVIDENCE, one population per group. Every reading below is DRIVER-VALID: a
+        # run that did not fly measures the abort, not the lane, which is why CL-3's two
+        # nonzero collected-log readings (1 and 2, both mission aborts) are excluded.
+        #
+        #   MAX 0 (11 specs) - every driver-valid reading of each is 0, across the
+        #   failure-population collected logs, the archived green result JSONs, and the
+        #   fresh all-green 2026-08-04 daily pass plus the singles flown beside it. The
+        #   thinnest is L1-passive-sandbox, armed on its own fresh 0 plus the six-spec L1
+        #   family's homogeneity (14+ readings, every one 0, one boot profile); the
+        #   widest are V1 (8x0), CL-2 (9x0) and CL-3 (6x0 driver-valid).
+        #
+        #   CEILINGS (3 specs) - each has at least one nonzero driver-valid reading, so
+        #   0 would be a flake rather than a gate:
+        #     H23  n=29: 25x0 plus 2, 2, 2, 4 (observed max 4). Those raises are the
+        #          gate-13 stock buildVesselsList SHUTDOWN race, counted twice each,
+        #          once per vessel Unity reclaims - so the ceiling is gate 13's own
+        #          mechanism bound for the 3-vessel fixture (3 reclaims x 2 = 6),
+        #          not the observed max: 5 would red the legal third reclaim.
+        #     S4.1 n=19: 18x0 and one 1.
+        #     H5   n=3: 4 and 2 in the failure population, 0 fresh - a thin sample, so
+        #          the ceiling is the status doc's short-spec band top, not a pin.
+        expected = {
+            "B10-career-passive-safety.toml": 0,
+            "CL-2-pod-impact-ledger.toml": 0,
+            "CL-3-refly-crew-tombstone.toml": 0,
+            "L1-dismiss-kerbal-career.toml": 0,
+            "L1-hire-kerbal-career.toml": 0,
+            "L1-passive-sandbox.toml": 0,
+            "L1-research-node-career.toml": 0,
+            "L1-research-node-science.toml": 0,
+            "L1-upgrade-facility-career.toml": 0,
+            "M1-mission-loop-unit.toml": 0,
+            "V1-map-dwell-mun-orbit.toml": 0,
+            "H23-tracking-station.toml": 6,
+            "S4.1-rewind-merge.toml": 3,
+            "H5-invariants-corpus.toml": 5,
+        }
+        armed = {}
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
-            if hlib.UNITY_EXCEPTIONS_BLOCK in (spec.get("expectations") or {}):
-                armed.append(name)
-        self.assertEqual([], armed, "a committed spec armed the report-only scan")
+            block = (spec.get("expectations") or {}).get(hlib.UNITY_EXCEPTIONS_BLOCK)
+            if block is not None:
+                armed[name] = block.get(hlib.UNITY_EXCEPTIONS_MAX_TOTAL_KEY)
+        self.assertEqual(sorted(expected), sorted(armed),
+                         "a committed spec outside the armed allowlist armed the scan")
+        # The declared VALUES, not just the membership. A declared block with no
+        # `maxTotal` gates NOTHING (it degrades to the same report-only an absent block
+        # gets), so a None here would be an allowlisted spec that arms nothing at all.
+        self.assertEqual(expected, armed,
+                         "an armed ceiling moved without its evidence moving with it")
 
     def test_over_budget_classifies_parsek_fail(self):
         d, v = _clean_pass_facts()
@@ -4616,11 +4668,28 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
         self.assertEqual(["ledger-vs-truth"], hlib.grep_anomaly_tokens(line))
 
     def test_a_reason_prefix_does_not_match_a_longer_token(self):
-        # reason=icon-teleport must not satisfy a search for a different token, and
-        # the field is read whole rather than by substring.
-        line = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1"
-                " reason=icon-teleport TELEPORT dPos=900m")
-        self.assertEqual([], hlib.grep_anomaly_tokens(line))
+        # Both anchors, on REAL production shapes rather than invented ones. The old
+        # version used `reason=icon-teleport` for this, which stopped being a
+        # not-a-hit example when icon-teleport was PROMOTED into the gate 2026-08-04.
+        #
+        # PHASE anchor. `line-blink-suppressed` is the Tier-B line the dark-window
+        # guard emits when it eats a would-be raise (MapRenderProbe.cs:762 ->
+        # MapRenderTrace.EmitOnChange -> `phase=line-blink-suppressed`, NOT
+        # phase=Anomaly), and its phase token CONTAINS the gated `line-blink`. A
+        # substring sweep would red a green V1 dwell on the very line that proves
+        # the guard worked.
+        suppressed = ("[Parsek][VERBOSE][MapRenderTrace] phase=line-blink-suppressed"
+                      " surface=ProtoOrbitLine pid=123 recId=r1 frame=8100"
+                      " lineActive=True sinceFrames=3 offWindowCovered=True")
+        self.assertEqual([], hlib.grep_anomaly_tokens(suppressed))
+        self.assertEqual([], hlib.unlisted_anomaly_reasons(suppressed))
+        # WHOLE-FIELD anchor. `factory-parity` is a real raise and shares the word
+        # "parity" with the gated `parity-drift`; the reason is read whole, so it is
+        # REPORTED and never counted as a hit for the gated token.
+        parity = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoOrbitLine"
+                  " pid=1 reason=factory-parity shadow=1 live=0")
+        self.assertEqual([], hlib.grep_anomaly_tokens(parity))
+        self.assertEqual(["factory-parity"], hlib.unlisted_anomaly_reasons(parity))
 
     def test_hits_come_back_in_registry_order_not_emit_order(self):
         log = "\n".join(
@@ -4630,31 +4699,37 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
                          hlib.grep_anomaly_tokens(log))
 
     def test_unlisted_reasons_are_reported_not_gated(self):
-        # The known ANOMALY_TOKENS drift: these are RAISED by the mod and absent
-        # from the harness set, so they must surface without changing the verdict.
+        # The report-not-gate channel, exercised on the TWO reasons that are still
+        # deliberately ungated after the 2026-08-04 promotion (both INSTRUMENTS:
+        # `factory-parity` is a shadow comparator that never drives a draw,
+        # `unaccounted-drawn-recording` is the S0 polyline-coverage probe). They must
+        # surface without changing the verdict; the gated token alongside them must.
         log = "\n".join(
             "[Parsek][INFO][MapRenderTrace] phase=Anomaly pid=1 reason=" + t
-            for t in ("icon-teleport", "gap-vs-retire", "parity-drift"))
+            for t in ("factory-parity", "unaccounted-drawn-recording", "parity-drift"))
         self.assertEqual(["parity-drift"], hlib.grep_anomaly_tokens(log))
-        self.assertEqual(["gap-vs-retire", "icon-teleport"],
+        self.assertEqual(["factory-parity", "unaccounted-drawn-recording"],
                          hlib.unlisted_anomaly_reasons(log))
 
-    def test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported(self):
-        # HALF THE DRIFT IS CLOSED (2026-07-29), and this cell pins WHICH half.
-        # CLOSED: `icon-jump` no longer sits in the gated set advertising coverage of
-        # a raise that does not exist. It is RETIRED to ANOMALY_TOKENS_DEAD, and the
-        # two tuples are disjoint.
+    def test_icon_jump_is_retired_and_icon_teleport_is_now_gated(self):
+        # BOTH HALVES OF THE DRIFT ARE NOW CLOSED, and this cell pins each.
+        # HALF ONE (2026-07-29): `icon-jump` no longer sits in the gated set
+        # advertising coverage of a raise that does not exist. It is RETIRED to
+        # ANOMALY_TOKENS_DEAD, and the two tuples are disjoint.
         self.assertNotIn("icon-jump", hlib.ANOMALY_TOKENS)
         self.assertIn("icon-jump", hlib.ANOMALY_TOKENS_DEAD)
         self.assertEqual(set(), set(hlib.ANOMALY_TOKENS) & set(hlib.ANOMALY_TOKENS_DEAD))
-        # STILL OPEN: the real raise (`icon-teleport`) is REPORT-ONLY. Gating it is
-        # the per-token call the todo-doc entry defers - it needs a measurement of
-        # whether it fires on a green S1.4, which only a nightly with the
-        # unlistedReasons channel can supply.
+        # HALF TWO (2026-08-04): the REAL raise (`icon-teleport`) is now GATED. The
+        # old version of this cell said the measurement of whether it fires on a
+        # green tracer-armed run would decide it; that measurement came in - the
+        # fresh S1.4 reading 2026-08-04_1228 exercised the probe and stayed SILENT,
+        # matching five V1 real-geometry dwells and 155 tracer-on historical runs.
+        # So a raise is now a HIT, not a report.
         line = ("[Parsek][INFO][MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1"
                 " reason=icon-teleport TELEPORT dPos=900m = 42x expected(21m)")
-        self.assertEqual([], hlib.grep_anomaly_tokens(line))
-        self.assertEqual(["icon-teleport"], hlib.unlisted_anomaly_reasons(line))
+        self.assertIn("icon-teleport", hlib.ANOMALY_TOKENS)
+        self.assertEqual(["icon-teleport"], hlib.grep_anomaly_tokens(line))
+        self.assertEqual([], hlib.unlisted_anomaly_reasons(line))
 
     def test_empty_and_none_are_clean(self):
         for empty in (None, "", "\n\n"):
@@ -4873,15 +4948,22 @@ def _production_anomaly_raises():
 
 
 class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
-    """The ungated-reason list is the DECISION INPUT for the deferred
-    ANOMALY_TOKENS reconciliation, so it must not be hand-maintained prose.
+    """Every reason the mod raises must be accounted for by exactly one of the two
+    tuples - GATED (a raise reds) or a declared report-only INSTRUMENT - and that
+    accounting must not be hand-maintained prose.
 
-    The 2026-07-26 first pass listed 5 of the 9 ungated reasons - it missed the
+    The 2026-07-26 first pass listed 5 of the then-9 ungated reasons - it missed the
     four cutover-hardening raises (clock-not-ready / retire-not-held /
     anchor-resolve-fail / factory-parity), which reach EmitAnomaly through thin
     MapRenderTrace wrappers rather than at the guard site. An incomplete
     enumeration understates a fail-open, which is exactly the thing the list
-    exists to size, so it is now derived from the C# source here."""
+    exists to size, so it is derived from the C# source here.
+
+    The 2026-08-04 calibration sweep PROMOTED seven of the nine into
+    ANOMALY_TOKENS, leaving two declared instruments. That changes what these cells
+    guard but not why they exist: the partition still has to hold, and now a raise
+    site added without a decision lands as an un-gated, un-declared reason and
+    reds here."""
 
     def setUp(self):
         self.assertTrue(os.path.isdir(PARSEK_SRC_DIR),
@@ -4912,13 +4994,68 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
             "listed in ANOMALY_REASONS_RAISED_UNGATED (or a listed one no longer "
             "exists) - re-derive the todo-doc table in the same change")
 
-    def test_the_ungated_count_is_nine_not_five(self):
-        self.assertEqual(9, len(hlib.ANOMALY_REASONS_RAISED_UNGATED))
-        for reason in ("clock-not-ready", "retire-not-held", "anchor-resolve-fail",
-                       "factory-parity"):
-            self.assertIn(reason, {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED},
-                          "the four wrapper-routed raises the first pass missed")
+    def test_the_ungated_count_is_two_instruments(self):
+        # After the 2026-08-04 calibration promotion the ungated list is no longer a
+        # backlog to be worked down - it is the SETTLED instrument list, and its
+        # membership is the claim worth pinning. Exactly two survive, and each
+        # survives for a written reason (see the tuple's comment block): a raise from
+        # either reports an instrumentation/diagnostic condition, not a rendered
+        # defect, so gating it would red a flight for the probe's own gap.
+        self.assertEqual(
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
+             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709")],
+            list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
+            "the report-only instrument list changed - that is a calibration "
+            "decision (defect signal vs instrument), not a bookkeeping edit")
+        # ...and both are still genuinely RAISED. An instrument nobody raises is a
+        # dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
+        for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
             self.assertIn(reason, self.raised)
+
+    def test_the_four_wrapper_routed_raises_are_accounted_for(self):
+        # The 2026-07-26 first pass listed 5 of 9 ungated reasons because these four
+        # reach EmitAnomaly through thin once-per-event MapRenderTrace wrappers
+        # rather than at the guard site, so a naive grep misses them. They are still
+        # the easiest reasons to lose track of; three are now GATED and the fourth
+        # (`factory-parity`) is a declared instrument, so every one of them is
+        # accounted for by exactly one of the two tuples.
+        gated = set(hlib.ANOMALY_TOKENS)
+        instruments = {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED}
+        for reason in ("clock-not-ready", "retire-not-held", "anchor-resolve-fail"):
+            self.assertIn(reason, gated,
+                          "%s was promoted 2026-08-04; a raise must be a HIT" % (reason,))
+            self.assertIn(reason, self.raised)
+        self.assertIn("factory-parity", instruments)
+        self.assertNotIn("factory-parity", gated)
+        self.assertIn("factory-parity", self.raised)
+
+    def test_the_promoted_seven_are_gated_and_no_longer_merely_reported(self):
+        # The promotion itself, pinned as membership rather than as a count so the
+        # failure message names the token that moved. Measured basis (recorded on
+        # hlib.ANOMALY_TOKENS): five V1 real-geometry dwells at ~130 nonzero-ghost
+        # probe frames each, fresh S1.4/S1.6/S1.7 2026-08-04 readings with the probe
+        # exercised and silent, and 155 tracer-on historical runs with zero raises.
+        promoted = ("icon-teleport", "icon-off-orbit", "gap-vs-retire",
+                    "decision-vs-old-truth", "clock-not-ready", "retire-not-held",
+                    "anchor-resolve-fail")
+        instruments = {r for r, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED}
+        for reason in promoted:
+            with self.subTest(reason=reason):
+                self.assertIn(reason, hlib.ANOMALY_TOKENS)
+                self.assertNotIn(reason, instruments)
+                # A gated token that nothing raises is the dead-token mistake the
+                # icon-jump retirement fixed; do not repeat it by promoting prose.
+                self.assertIn(reason, self.raised)
+        self.assertEqual(13, len(hlib.ANOMALY_TOKENS))
+        # ORDER IS A CONTRACT: grep_anomaly_tokens returns hits in tuple order, so
+        # the original six must stay first and keep their relative order.
+        self.assertEqual(
+            ["line-blink", "parity-drift", "decision-vs-truth",
+             "polyline-orbit-overlap", "rigid-seam-tangent-discontinuity",
+             "ledger-vs-truth"],
+            list(hlib.ANOMALY_TOKENS[:6]),
+            "the six pre-promotion tokens must stay first and in order - "
+            "hit-list determinism is pinned off this ordering")
 
     def test_dead_token_is_retired_from_the_gate_and_raised_by_nothing(self):
         # Post-2026-07-29 bookkeeping: a dead token is OUT of the gated set (it can
@@ -4933,33 +5070,37 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
                              "re-decide whether it belongs in ANOMALY_TOKENS or in "
                              "ANOMALY_REASONS_RAISED_UNGATED" % (dead,))
 
-    def test_status_doc_reports_the_same_nine(self):
+    def test_status_doc_names_every_report_only_instrument(self):
         # autotest-status.md is declared the single status authority for this
         # system, and its gate-0 list is what a reader acts on. It said FIVE for
-        # one commit; keep it tied to the source-derived tuple.
+        # one commit; keep it tied to the source-derived tuple - which after the
+        # 2026-08-04 promotion is the two-instrument list, not nine.
         with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
             body = fh.read()
         for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
             self.assertIn("`%s`" % (reason,), body,
-                          "gate 0 omits the ungated reason %s" % (reason,))
+                          "the status doc omits the report-only reason %s" % (reason,))
         self.assertNotIn("five further reasons are ungated", body.lower())
 
     def test_todo_doc_table_lists_every_raised_reason(self):
-        # The todo-doc table is the DECISION INPUT for the deferred reconciliation
-        # (the PR that defers it says so explicitly), so an incomplete table is the
-        # defect, not a cosmetic slip.
+        # The todo-doc table was the DECISION INPUT for the reconciliation and is
+        # now the RECORD of it (which reasons were promoted 2026-08-04, which two
+        # stayed instruments), so an incomplete table is the defect, not a cosmetic
+        # slip. Promotion removes no row - every raised reason still needs one.
         with open(TODO_DOC, encoding="utf-8") as fh:
             body = fh.read()
-        start = body.index("## The harness anomaly token set has drifted")
+        # The entry heading was struck through when the reconciliation resolved
+        # (2026-08-04), so the anchor carries the `~~` markers.
+        start = body.index("## ~~The harness anomaly token set has drifted")
         entry = body[start:body.index("\n## ", start + 10)]
         for reason in sorted(self.raised):
             self.assertIn("| `%s` |" % (reason,), entry,
                           "the ground-truth table omits %s" % (reason,))
 
     def test_documented_producers_are_real_file_line_pairs(self):
-        # The guard site (where the decision is made) is what the table names; for
-        # the four wrapper-routed raises that is NOT the EmitAnomaly line, so this
-        # checks the cited file:line rather than reusing the scanner's output.
+        # The guard site (where the decision is made) is what the table names; for a
+        # wrapper-routed raise (`factory-parity`) that is NOT the EmitAnomaly line,
+        # so this checks the cited file:line rather than reusing the scanner's output.
         root = os.path.dirname(HARNESS_ROOT)
         for reason, producer in hlib.ANOMALY_REASONS_RAISED_UNGATED:
             rel, _, lineno = producer.rpartition(":")

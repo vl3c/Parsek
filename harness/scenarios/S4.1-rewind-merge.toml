@@ -228,6 +228,14 @@ gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), armed with a small
+# CEILING rather than 0: n=19 driver-valid readings read 18x0 and one 1 (fresh
+# 2026-08-04 run: 0). The single raise is why this is not maxTotal = 0 - one
+# observation of a nonzero reading is enough to make 0 a flake. Full baseline
+# table in the arming-sweep PR.
+[expectations.unityExceptions]
+maxTotal = 3
+
 [runtime]
 # Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
 # TIMEOUT (driver-INVALID) for every step instead of a run-budget KILL. run.py waits

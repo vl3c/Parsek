@@ -26,14 +26,18 @@ tier = "daily"
 #      synthesized rendered-vs-intended arms, the icon-glide / gap-glide /
 #      arc-clip cells and the polyline leg-draw cells;
 #   2. the harness-owned Tier-C anomaly sweep is CLEAN with allowedAnomalies = []
-#      - so parity-drift, line-blink, decision-vs-truth, polyline-orbit-overlap,
-#      rigid-seam-tangent-discontinuity and ledger-vs-truth all red. Those are the
-#      SIX live gated tokens. The seventh entry in hlib.ANOMALY_TOKENS,
-#      `icon-jump`, is DEAD - no producer anywhere passes it as a reason (the
-#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:871) - so it cannot
-#      red anything and is deliberately not listed here. Nine further raised
-#      reasons are ungated and REPORT-ONLY via anomalySweep.unlistedReasons; see
-#      the drift entry in docs/dev/todo-and-known-bugs.md;
+#      - so all THIRTEEN live gated tokens red: the original six (parity-drift,
+#      line-blink, decision-vs-truth, polyline-orbit-overlap,
+#      rigid-seam-tangent-discontinuity, ledger-vs-truth) plus the seven promoted
+#      2026-08-04 off the real-geometry silence baseline (icon-teleport,
+#      icon-off-orbit, gap-vs-retire, decision-vs-old-truth, clock-not-ready,
+#      retire-not-held, anchor-resolve-fail). `icon-jump` is DEAD and retired to
+#      ANOMALY_TOKENS_DEAD - no producer anywhere passes it as a reason (the
+#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:871). Two raised
+#      reasons stay ungated as REPORT-ONLY instruments
+#      (unaccounted-drawn-recording, factory-parity) via
+#      anomalySweep.unlistedReasons; see the drift entry in
+#      docs/dev/todo-and-known-bugs.md;
 #   3. the oracle ACTUALLY MEASURED (the anti-vacuity conjunct below).
 #
 # THE ANTI-VACUITY CONJUNCT (the point of the whole exercise)

@@ -83,6 +83,14 @@ required  = ["RecordingInvariants walk: recordings=306 trees=276\\b",
              "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), armed with a small
+# CEILING rather than 0: only n=3 driver-valid readings exist - 4 and 2 in the
+# failure population, 0 on the fresh 2026-08-04 run - so the observed max is 4 on
+# a THIN sample. 5 is the top of the status doc's short-spec band, chosen because
+# a three-reading sample cannot honestly pin a tighter one. Re-pin when n grows.
+[expectations.unityExceptions]
+maxTotal = 5
+
 [runtime]
 # Budget arithmetic (M-A5 S8): runtime 720 >= 300 LoadGame + 540 RunTests ceiling
 # headroom (steps normally finish well under their per-step budgets, so the run

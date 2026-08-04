@@ -2204,7 +2204,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail.setdefault("anomalySweep", {"status": "SKIPPED", "reason": "short-circuit"})
 
     # 6b. Raw Unity exception scan. REPORT-ONLY unless the scenario declares
-    # [expectations.unityExceptions] (none do), mirroring how
+    # [expectations.unityExceptions] (armed on the 14-spec allowlist pinned by
+    # UnityExceptionScanTests since 2026-08-04), mirroring how
     # anomalySweep.unlistedReasons surfaces a blind spot without moving a verdict.
     # It exists because NOTHING else in the chain reads a line Parsek did not write:
     # the forbidden tokens are all `[Parsek]`-shaped and validate-ksp-log parses only
@@ -3469,9 +3470,22 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             else:
                 print("  [DRIVE  ] step=%d cmd=%s expect=%s budget=%s"
                       % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
+        # unityExceptions (row 6b) runs on every driver-valid run, but - same
+        # lesson as the saveParse row below - the plan must say whether it can
+        # MOVE THE VERDICT for this spec: 14 specs arm a maxTotal since
+        # 2026-08-04, and a hand-maintained "report-only" literal advertised
+        # every one of them as unarmed.
+        ue_block = exp.get(hlib.UNITY_EXCEPTIONS_BLOCK)
+        ue_max = (ue_block or {}).get(hlib.UNITY_EXCEPTIONS_MAX_TOTAL_KEY) \
+            if isinstance(ue_block, dict) else None
+        if isinstance(ue_max, int) and not isinstance(ue_max, bool):
+            ue_part = ("unityExceptions(armed: maxTotal=%d -> "
+                       "PARSEK-FAIL(unity-exception) over budget)" % ue_max)
+        else:
+            ue_part = "unityExceptions(report-only)"
         verify_line = ("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
-                       "logValidate, results, anomalySweep, unityExceptions(report-only), "
-                       "expectations")
+                       "logValidate, results, anomalySweep, %s, "
+                       "expectations" % ue_part)
         if is_autopilot:
             # POSITION matters: only steps AFTER the mission handoff gate through this row
             # (a pre-mission outcome verb already gates through driverValidity), so the plan

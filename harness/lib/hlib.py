@@ -179,42 +179,67 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 # construction (a token no producer raises cannot be a hit), and it stops the
 # gated set advertising coverage it does not have.
 #
-# The DRIFT ITSELF IS NOT CLOSED: ANOMALY_REASONS_RAISED_UNGATED below still lists
-# NINE reasons the mod raises that nothing gates. That reconciliation is a
-# per-token call (defect signal vs instrumentation signal) and stays deferred -
-# see the todo-doc entry. Note what the deferral is NOT: after the settings-sidecar
-# baseline only three specs arm the map tracer (S1.4, S1.6, S1.7), so widening the
-# set can only move THEIR verdicts, not "every committed scenario's". Until it is
-# decided, `unlisted_anomaly_reasons` REPORTS every anomaly reason seen that is not
-# in this set, so the drift is visible on every run instead of silent.
+# DRIFT CLOSED (2026-08-04, the calibration sweep). The seven defect-signal reasons
+# below are PROMOTED out of ANOMALY_REASONS_RAISED_UNGATED into this gate; only the
+# two INSTRUMENT reasons stay report-only (rationale per token on that tuple). What
+# the promotion is measured on - it is a calibration decision, not a rename:
+#   * FIVE V1-map-dwell-mun-orbit real-geometry dwells, each ~130 nonzero-ghost probe
+#     frames: runs 2026-07-30_1955, 2026-07-30_2023, the 2026-08-01 fix flight,
+#     2026-08-02_1046, and a fresh 2026-08-04_1250_a2 (399 probe summaries /
+#     130 nonzero-ghost frames / ZERO `phase=Anomaly` lines). V1 is the calibration
+#     instrument this gate was explicitly deferred to.
+#   * FRESH S1.4 / S1.6 / S1.7 readings 2026-08-04: probe exercised, silent.
+#   * 155 tracer-on historical runs with ZERO raises of any of the seven.
+#   * Every raise site is probe- or shadow-spine-gated (verified in the C# source),
+#     so a raise needs the tracer armed AND the probe actually sampling.
+# BLAST RADIUS is bounded and named: only S1.4 / S1.6 / S1.7 / V1 arm
+# `mapRenderTracing`, and all four declare `allowedAnomalies = []`. The RED DIRECTION
+# of this gate is already live-proven - `line-blink` red'd V1 `PARSEK-FAIL(anomaly)`
+# on 2026-07-30 - so promotion buys real coverage, not a decorative widening.
+#
+# ORDERING IS A CONTRACT: hits come back in THIS tuple's order (grep_anomaly_tokens),
+# so the original six stay first and the seven promoted follow. Do not re-sort.
 ANOMALY_TOKENS: Tuple[str, ...] = (
     "line-blink", "parity-drift", "decision-vs-truth",
     "polyline-orbit-overlap", "rigid-seam-tangent-discontinuity", "ledger-vs-truth",
+    # Promoted 2026-08-04 (see the calibration evidence above).
+    "icon-teleport", "icon-off-orbit", "gap-vs-retire", "decision-vs-old-truth",
+    "clock-not-ready", "retire-not-held", "anchor-resolve-fail",
 )
 
 # GROUND TRUTH: every `reason=` token the mod raises from PRODUCTION code (outside
 # `Source/Parsek/InGameTests/`) that ANOMALY_TOKENS does not gate. Each entry is
-# (reason, producer file:line) where the producer is the DECISION site - for the
-# four cutover-hardening raises that is the guard site, which calls a thin
-# once-per-event MapRenderTrace wrapper that calls EmitAnomaly, so the emitted
-# line is shaped exactly like a direct raise.
+# (reason, producer file:line) where the producer is the DECISION site - for a
+# cutover-hardening raise (of the two left, `factory-parity`) that is the guard
+# site, which calls a thin once-per-event MapRenderTrace wrapper that calls
+# EmitAnomaly, so the emitted line is shaped exactly like a direct raise.
 #
-# This tuple is the decision input for the deferred reconciliation, so it is
-# pinned against the C# source by AnomalyGroundTruthEnumerationTests: that test
-# walks every EmitAnomaly call site under Source/Parsek (excluding InGameTests/),
-# resolves the reason argument by position for both tracer signatures, and
-# requires the derived set to partition EXACTLY into ANOMALY_TOKENS (all live now
-# that the dead token is retired) plus this tuple. A new raise site that nobody
-# gates therefore reds the harness suite instead of quietly widening the fail-open.
+# This tuple is pinned against the C# source by AnomalyGroundTruthEnumerationTests:
+# that test walks every EmitAnomaly call site under Source/Parsek (excluding
+# InGameTests/), resolves the reason argument by position for both tracer
+# signatures, and requires the derived set to partition EXACTLY into ANOMALY_TOKENS
+# plus this tuple. A new raise site that nobody gates therefore reds the harness
+# suite instead of quietly widening the fail-open.
+#
+# After the 2026-08-04 promotion this is no longer a backlog: it is the settled
+# INSTRUMENT list. Both survivors are kept report-only DELIBERATELY, with a reason
+# each, because a raise from either is not a rendered defect:
+#
+#   * `unaccounted-drawn-recording` is the S0 polyline-COVERAGE instrument (named as
+#     such in .claude/CLAUDE.md's GhostTrajectoryPolylineRenderer entry - "the cheap
+#     coverage proof"). It raises when a DRAWN recording is unaccounted for by the
+#     coverage walk, i.e. it reports an instrumentation-completeness gap, not a
+#     wrong pixel. Gating it would turn a hole in the coverage probe into a scenario
+#     red, which inverts what the instrument is for.
+#   * `factory-parity` is a shadow-comparator parity probe on ShadowRenderDriver:
+#     the compared factory NEVER drives a draw. A disagreement is diagnostic
+#     evidence for the render cutover, not a user-visible defect, so a raise should
+#     inform the cutover rather than fail the flight that observed it.
+#
+# Promoting either one later needs the same thing the seven needed: a measurement
+# that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
-    ("icon-teleport", "Source/Parsek/MapRenderProbe.cs:871"),
-    ("icon-off-orbit", "Source/Parsek/MapRenderProbe.cs:952"),
     ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
-    ("gap-vs-retire", "Source/Parsek/MapRender/GhostRenderReconciler.cs:240"),
-    ("decision-vs-old-truth", "Source/Parsek/MapRender/GhostRenderReconciler.cs:260"),
-    ("clock-not-ready", "Source/Parsek/MapRender/ShadowRenderDriver.cs:316"),
-    ("retire-not-held", "Source/Parsek/MapRender/ShadowRenderDriver.cs:394"),
-    ("anchor-resolve-fail", "Source/Parsek/MapRender/AnchorFrameResolver.cs:87"),
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
 )
 
@@ -3566,11 +3591,13 @@ def count_anomaly_tokens(log_text: Optional[str]) -> Dict[str, int]:
 def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
     """Anomaly reasons RAISED but absent from ``ANOMALY_TOKENS`` (REPORT-ONLY).
 
-    Non-gating by design. The mod raises several reasons the harness set does not
-    carry (see the ANOMALY_TOKENS note), so a run can contain a real Tier-C raise
-    that the sweep is structurally blind to. Widening the gating set is a decision
-    with verdict consequences for every committed scenario; surfacing the drift is
-    not. Sorted for a stable log line.
+    Non-gating by design. The mod raises reasons the harness set does not carry
+    (post-2026-08-04: the two report-only instruments in
+    ANOMALY_REASONS_RAISED_UNGATED), so a run can contain a real Tier-C raise
+    that the sweep is structurally blind to. Widening the gating set is a
+    decision with verdict consequences for the tracer-armed specs (S1.4, S1.6,
+    S1.7, V1 - the only specs that pin ``mapRenderTracing``); surfacing the
+    drift is not. Sorted for a stable log line.
     """
     return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 
@@ -3754,12 +3781,15 @@ def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequenc
 # in the chain looks at a line the mod did not write. No overlap is duplicated
 # here - this scan is deliberately the complement of that layer.
 #
-# REPORT-ONLY BY DEFAULT, and that is not timidity: nobody has ever measured how
-# many of these a healthy KSP 1.12 + Parsek boot emits (stock KSP itself throws
-# during scene loads), so an armed ceiling picked without a calibration run would
-# red live-proven scenarios on the next nightly. The counts land in the result JSON
-# on EVERY run; an operator reads them off a few green runs, then arms
-# `[expectations.unityExceptions] maxTotal = N` per scenario.
+# REPORT-ONLY BY DEFAULT; ARMED PER SCENARIO OFF MEASURED BASELINES. The counts
+# land in the result JSON on EVERY run; an operator reads them off green runs,
+# then arms `[expectations.unityExceptions] maxTotal = N` per scenario. The
+# 2026-08-04 calibration sweep did exactly that for 14 specs (11 at 0; H23 at 6
+# per the gate-13 shutdown-race arithmetic, S4.1 at 3, H5 at 5) - the armed set
+# and its evidence live in `UnityExceptionScanTests.test_only_the_armed_allowlist_arms_it`.
+# Everything else stays report-only: the warp-family B/BDOCK specs measured a
+# noisy 0-7 band across a failure-biased population, and the n<=2 specs have no
+# stable baseline to cite yet.
 #
 # Each entry is (name, regex). Matched per LINE (an exception header line; the
 # stack-trace lines below it do not repeat the type name), so the count is
@@ -3776,8 +3806,8 @@ UNITY_EXCEPTION_PATTERNS: Tuple[Tuple[str, "re.Pattern"], ...] = (
     ("ArgumentException: GUILayout", re.compile(r"\bArgumentException:\s*GUILayout\b")),
 )
 
-# The spec block that ARMS the scan. Absent (the state of all 55 committed specs)
-# -> report-only.
+# The spec block that ARMS the scan. Absent -> report-only. (Armed 2026-08-04 on
+# the 14-spec allowlist pinned by UnityExceptionScanTests.)
 UNITY_EXCEPTIONS_BLOCK = "unityExceptions"
 UNITY_EXCEPTIONS_MAX_TOTAL_KEY = "maxTotal"
 
@@ -3835,8 +3865,7 @@ def evaluate_unity_exceptions(counts: Optional[Dict[str, int]],
                               block: Optional[Dict]) -> UnityExceptionResult:
     """Judge the scanned counts against an optional ``[expectations.unityExceptions]``.
 
-    ABSENT block -> ``REPORT`` (non-gating), which is the state of every committed
-    spec and the reason this cannot move a nightly verdict. A DECLARED block with
+    ABSENT block -> ``REPORT`` (non-gating). A DECLARED block with
     ``maxTotal = N`` gates: total > N -> ``FAIL`` with a mismatch string naming the
     per-pattern breakdown. A declared block with no ``maxTotal`` still reports (it
     declares nothing to gate on).

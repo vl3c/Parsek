@@ -715,6 +715,32 @@ state, and it no longer depends on a read failure to be correct.
 NOT fixed on the CL stage B branch: it is a different scenario's verdict logic, the
 opt-in flag already removes the branch's effect on it, and both scenarios are green.
 
+## CL-3's re-fly merge leans on the SECONDARY defense every run: `EnqueuePidPeerSiblings` skips a NotCommitted peer the primary reap should have removed [OBSERVED 2026-08-03/04 on every CL-3 flight, green ones included. NOT INVESTIGATED - filed by the arming-sweep verification pass]
+
+Every `CL-3-refly-crew-tombstone` flight - the red `2026-08-03_2147` AND the green
+`2026-08-04_1327` (verdict PASS, armed rewind gate green) - logs exactly one:
+
+```
+[Parsek][WARN] EnqueuePidPeerSiblings: skipped NotCommitted peer rec=rec_<id>
+  pid=<pid> tree=tree-cl-stack-root sess=sess_<id>
+  (should have been reaped by AtomicMarkerWrite's ReapPriorProvisionalsForRp
+   or by LoadTimeSweep - investigate)
+```
+
+That skip is the SECONDARY defense from `fix-refly-abandon-and-fork-persist.md`
+(closure walk refuses NotCommitted candidates), and it is doing load-bearing work
+deterministically in the CL-3 shape: the PRIMARY reap
+(`AtomicMarkerWrite.ReapPriorProvisionalsForRp` / `LoadTimeSweep`) misses this
+provisional on every run. The merge outcome is correct (the guard holds -
+supersedes=1, tombstones=1, saveParse armed green), so this is not a verdict
+defect; it is the line's own instruction: the primary reap has a gap the CL-3
+fixture reproduces on demand. Reproduce: `cd harness && python run.py --id
+CL-3-refly-crew-tombstone`, grep the collected/artifact KSP.log for
+`EnqueuePidPeerSiblings: skipped NotCommitted`. To determine: whether the reap's
+session/tree gate is too narrow, or the provisional is created after the reap
+point. Fix belongs in `Source/Parsek/` (EffectiveState / MergeJournal /
+LoadTimeSweep lane), not in the harness.
+
 ## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
 
 The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
@@ -1450,8 +1476,12 @@ floor-at-zero.
 CONSEQUENCE FOR THE HARNESS: the class itself is no longer what blocks a TRACKSTATION
 spec from arming `[expectations.unityExceptions] maxTotal` - but the SHUTDOWN race
 above still is, and it is a stock bug rather than one Parsek may swallow.
-`H23-tracking-station` therefore stays UNARMED; gate 13 in `autotest-status.md` now
-carries the decision that has to be made first.
+`H23-tracking-station` therefore stayed UNARMED until gate 13's decision was made.
+**MADE 2026-08-04 (branch `arming-sweep`): H23 arms `maxTotal = 6`, sized on gate
+13's own arithmetic** - one raise per vessel Unity reclaims in the shutdown window,
+counted twice each, 3-vessel fixture = 6 reachable on a healthy run - NOT on the
+observed max (4), which would red the legal third reclaim. The race stays diagnosed,
+unsuppressed and benign; the ceiling tolerates it and catches the storm.
 
 ---
 
@@ -3038,7 +3068,7 @@ A `PhaseSpineSwapInGameTest` diagnostic whose LABEL happens to be the token and 
 
 Fix: the matching moved into `hlib` (it is a DECISION; run.py keeps only a thin delegate) and is now anchored on the raise shape both tracers actually produce - `MapRenderTrace.EmitAnomaly` -> `EmitRaw(phase "Anomaly", "reason=" + Token(reason) + ...)` and `LedgerTrace.FormatAnomaly` -> `"phase=Anomaly ... reason=" + Token(reason)`. A hit now requires `phase=Anomaly` on the line AND the token as the whole `reason=` field. Hits are returned in `ANOMALY_TOKENS` order so the list is deterministic regardless of emit order. Covered by `AnomalyGrepAnchoringTests`, which pins the exact false-positive line, the real raise shape for both tracers, that a false positive cannot mask a real raise in the same log, and that a `reason=` prefix cannot satisfy a different token.
 
-## The harness anomaly token set has drifted from what the mod raises [DEAD-TOKEN HALF FIXED 2026-07-29 branch `harness-fail-open-gates`; the NINE UNGATED REASONS ARE STILL OPEN - wants a per-token decision]
+## ~~The harness anomaly token set has drifted from what the mod raises~~ [DEAD-TOKEN HALF FIXED 2026-07-29 branch `harness-fail-open-gates`; the NINE-UNGATED-REASONS HALF RESOLVED 2026-08-04 branch `arming-sweep` - per-token calls made: SEVEN PROMOTED into the gated set, TWO kept as report-only instruments. See the RESOLUTION paragraph below the table]
 
 Found 2026-07-26 while anchoring the sweep above; the fix for that bug made this one visible rather than causing it. `hlib.ANOMALY_TOKENS` is described as the fixed harness-owned Tier-C set, but it no longer matches the `reason=` values the mod emits.
 
@@ -3051,7 +3081,7 @@ allowedAnomalies = ["polyline-orbit-overlap", { token = "icon-teleport", maxCoun
 
 A bare string keeps its historical meaning (tolerated at ANY count) so all 55 committed specs parse unchanged; the table form reds at N+1. The two are different claims, and only the second catches a regression that turns a rare benign transient into a per-frame storm. `parse_allowed_anomalies` rejects a malformed entry pre-launch (a misspelled `maxcount` that silently degrades to unbudgeted is the fail-open the surface exists to close) and warns on an inert one. NO committed spec arms a budget; `anomalySweep.hitCounts` now records per-token raise counts on every run so one can be sized from a green flight instead of guessed.
 
-**STILL OPEN, unchanged:** the nine ungated reasons below, `icon-teleport` first among them. Nothing about the dead-token removal decides them.
+**The other half stayed open until 2026-08-04:** the nine then-ungated reasons below, `icon-teleport` first among them. Nothing about the dead-token removal decided them; the arming sweep's measurements did (RESOLUTION below).
 
 Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISED_UNGATED` carries the ungated half, and `AnomalyGroundTruthEnumerationTests` walks every `EmitAnomaly` call site under `Source/Parsek` excluding `InGameTests/`, resolves the reason argument by position for both tracer signatures, and requires the derived set to partition exactly into the gated tuple plus that one. So a new raise site nobody gates reds the harness suite instead of silently widening the fail-open.
 
@@ -3063,31 +3093,33 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:639` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
 | `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
-| `icon-teleport` | **NO** | `MapRenderProbe.cs:871` |
-| `icon-off-orbit` | **NO** | `MapRenderProbe.cs:952` |
-| `unaccounted-drawn-recording` | **NO** | `MapRenderProbe.cs:477` |
-| `gap-vs-retire` | **NO** | `MapRender/GhostRenderReconciler.cs:240` |
-| `decision-vs-old-truth` | **NO** | `MapRender/GhostRenderReconciler.cs:260` |
-| `clock-not-ready` | **NO** | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1407`) |
-| `retire-not-held` | **NO** | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1430`) |
-| `anchor-resolve-fail` | **NO** | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1455`) |
-| `factory-parity` | **NO** | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1485`) |
+| `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:871` |
+| `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:952` |
+| `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:477` |
+| `gap-vs-retire` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:240` |
+| `decision-vs-old-truth` | yes (promoted 2026-08-04) | `MapRender/GhostRenderReconciler.cs:260` |
+| `clock-not-ready` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:316` -> `MapRenderTrace.EmitClockNotReady` (`:1407`) |
+| `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1430`) |
+| `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1455`) |
+| `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1485`) |
 
 That is NINE ungated reasons, not five. **The first version of this table listed five**, and the four it missed are the last four rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace.cs:1371` `EmitRaw(true, "Anomaly", ...)`), so all four are genuinely ungated. Understating the ungated count understates the size of the fail-open, which is the one thing this entry exists to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
 
 And `icon-jump` WAS in the set but is raised by nothing - it is a DEAD token (RETIRED from the gated set 2026-07-29, see the FIXED HALF above). That one matters most: the icon-teleport family is precisely the defect class the map-render wave has spent months chasing, and the sweep has never been able to see it. Before the anchoring fix the token would occasionally "hit" by matching prose (`MapRenderHighWarpCanaryInGameTest`'s own description text contains `icon-jump`), which is a false positive dressed as coverage, not a gate. Retiring it removes the false advertisement; it does NOT add the coverage - that is the `icon-teleport` decision below.
 
-The NINE remain unresolved, deliberately, because reconciling them is a per-token decision (defect signal vs instrumentation signal) rather than a mechanical rename:
+The NINE remained unresolved through 2026-08-03, deliberately, because reconciling them is a per-token decision (defect signal vs instrumentation signal) rather than a mechanical rename. The considerations as they stood before the calls were made:
 - `unaccounted-drawn-recording` is documented in `.claude/CLAUDE.md` as the S0 polyline-COVERAGE instrument, not a defect signal - gating it would red runs for an instrumentation gap.
 - `factory-parity` is the same shape: a shadow-only PhaseFactory comparator that never drives a draw, so a fire is a build-bug signal, not a rendered regression.
 - `gap-vs-retire` / `decision-vs-old-truth` / `icon-off-orbit` / `retire-not-held` / `anchor-resolve-fail` / `clock-not-ready` each need a call on whether a raise is a defect or an expected transient.
 - `icon-teleport` is the one that most likely SHOULD be gated (renaming `icon-jump` -> `icon-teleport`). What blocks doing it here is that nobody knows whether it FIRES on a green run: the only tracer-armed scenario that walks the real 272-tree corpus is S1.4, and every S1.4 flight so far predates the `unlistedReasons` channel, so no archived result records whether an icon-teleport raise happened. Gating it blind could red a live-proven daily on the strength of a rename. S1.4's next nightly is the measurement - `anomalySweep.unlistedReasons` in its result JSON answers it for free - and the rename should follow that number, not precede it.
 
-**What the deferral is NOT.** An earlier draft of this entry justified it with "adding any of them WIDENS the gate for every committed scenario at once, and several run with the tracer armed". That is no longer true after the sidecar baseline in this same change: exactly three specs arm the map tracer (`S1.4`, `S1.6`, `S1.7` each carry `SetSetting mapRenderTracing=true`) and the baseline pins it OFF for the other 27, so every `MapRenderTrace` emit early-returns on `IsEnabled` elsewhere and widening the set can only move those three scenarios' verdicts. The reasons above are the real ones; the blast-radius claim was overstated and is retracted here.
+**What the deferral is NOT.** An earlier draft of this entry justified it with "adding any of them WIDENS the gate for every committed scenario at once, and several run with the tracer armed". That is no longer true after the sidecar baseline in this same change: exactly three specs armed the map tracer at the time (`S1.4`, `S1.6`, `S1.7` each carry `SetSetting mapRenderTracing=true`; V1 became the fourth when it landed) and the baseline pins it OFF for the rest, so every `MapRenderTrace` emit early-returns on `IsEnabled` elsewhere and widening the set can only move the tracer-armed scenarios' verdicts. The reasons above are the real ones; the blast-radius claim was overstated and is retracted here.
 
-Interim so it is not a silent fail-open: `hlib.unlisted_anomaly_reasons` returns every raised reason absent from the set, run.py warn-logs it (`anomalySweep saw N raise(s) with reason(s) NOT in the harness token set (REPORT-ONLY, not gating)`) and records it in the result JSON under `anomalySweep.unlistedReasons`. Non-gating by construction. Pinned by `AnomalyGrepAnchoringTests.test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported` (which now pins BOTH halves - the retirement that happened and the report-only status that did not change; delete it when `icon-teleport` is decided) and by `AnomalyGroundTruthEnumerationTests` (which stays, and is what keeps this table honest). The budget surface is pinned by `AnomalyBudgetParseTests` / `AnomalyBudgetSweepTests` / `AnomalyTokenCountTests`, plus a whole-set cell asserting no committed spec arms a `maxCount`.
+**RESOLUTION (2026-08-04, branch `arming-sweep`): the per-token calls, each with its measurement.** PROMOTED into `hlib.ANOMALY_TOKENS` (6 -> 13): `icon-teleport`, `icon-off-orbit`, `gap-vs-retire`, `decision-vs-old-truth`, `clock-not-ready`, `retire-not-held`, `anchor-resolve-fail`. The evidence is silence on EXERCISED geometry, which the historical corpus could not supply (its zeros were not-exercised zeros - see the sweep paragraph above): five V1 real-geometry dwells with ~130 nonzero-ghost probe frames each (`2026-07-30_1955`, `_2023`, `2026-08-01_1551`, `2026-08-02_1046`, fresh `2026-08-04_1250_a2`) raised none of the nine; 155 tracer-on historical runs raised none; and the S1.4 measurement this entry named as the decider arrived 2026-08-04 with the `unlistedReasons` channel live - run `2026-08-04_1228`, probe exercised, `hits=[] unlistedReasons=[]` - so `icon-teleport` promoted on exactly the number this entry said the rename should follow. KEPT REPORT-ONLY in `hlib.ANOMALY_REASONS_RAISED_UNGATED` (9 -> 2), for the instrument reasons the bullet list above already gave: `unaccounted-drawn-recording` (the S0 polyline-COVERAGE instrument - a raise is an instrumentation-coverage gap, and gating it would red a scenario for a probe bookkeeping miss, not a rendering defect) and `factory-parity` (a shadow-only comparator that never drives a draw - a fire is cutover diagnostics). No `maxCount` budget was armed for any token, promoted or kept: none of the seven fires at all on a healthy run, so the line-blink precedent (sharpen the predicate on the discriminating fact; a count budget cannot tell benign from defective at the same count) held without needing a budget anywhere. All four tracer-armed specs re-flew green under the widened gate on 2026-08-04. Cells: `test_the_ungated_count_is_nine_not_five` -> `test_the_ungated_count_is_two_instruments`; `test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported` -> `..._is_now_gated`; new cells pin the promoted seven's membership and the wrapper-routed four's accounting; the enumeration partition test is unchanged and now proves the 13+2 split.
 
-## STOCK_AWARD_PATTERNS were dead against real KSP logs, and nothing ever read a non-Parsek log line [MECHANISMS BUILT 2026-07-29, branch `harness-fail-open-gates`; both land REPORT-ONLY and their ARMING is operator-blocked]
+The report channel remains for the two kept instruments: `hlib.unlisted_anomaly_reasons` returns every raised reason absent from the set, run.py warn-logs it (`anomalySweep saw N raise(s) with reason(s) NOT in the harness token set (REPORT-ONLY, not gating)`) and records it in the result JSON under `anomalySweep.unlistedReasons`. Non-gating by construction. Pinned by `AnomalyGrepAnchoringTests.test_icon_jump_is_retired_and_icon_teleport_is_now_gated` (the `icon-teleport` decision this entry deferred was made 2026-08-04, so the cell was renamed and inverted rather than deleted - it now pins the retirement AND the promotion) and by `AnomalyGroundTruthEnumerationTests` (which stays, and is what keeps this table honest). The budget surface is pinned by `AnomalyBudgetParseTests` / `AnomalyBudgetSweepTests` / `AnomalyTokenCountTests`, plus a whole-set cell asserting no committed spec arms a `maxCount`.
+
+## ~~STOCK_AWARD_PATTERNS were dead against real KSP logs, and nothing ever read a non-Parsek log line~~ [MECHANISMS BUILT 2026-07-29, branch `harness-fail-open-gates`, both landing REPORT-ONLY; BOTH SINCE ARMED - the ledger capture cross-check on CL-2 2026-07-31 (known-gate 3), the unity-exception scan on 14 specs 2026-08-04 branch `arming-sweep` (see the ARMED paragraph in half 2 below)]
 
 Two fail-open gaps closed at the mechanism level in one change, both deliberately NOT armed. The shared reason for the restraint: no KSP can be launched from the change's own environment and no calibration run was possible, so nothing here may move a committed scenario's PASS/FAIL on the next nightly. Mechanism plus knob, not blind gates.
 
@@ -3157,12 +3189,9 @@ Every committed spec's `logContracts.forbidden` list carries Parsek-authored tok
 
 `hlib.scan_unity_exceptions` counts four patterns - `NullReferenceException`, `MissingReferenceException`, `IndexOutOfRangeException`, `ArgumentException: GUILayout` - deliberately as the COMPLEMENT of the validate-ksp-log layer, with no overlap duplicated. `[Parsek]`-tagged lines are skipped: a Parsek line naming an exception is the mod REPORTING a caught one, already covered by the forbidden tokens and WRN-001, and counting both would double-signal one event and make the number uncalibratable. run.py records a `unityExceptions` row in every result JSON - on a PASS (where no collect-logs runs, so this is the only place the number survives) and on a KILLED attempt too, since a kill tears the SAVE, not the log, and an exception storm is a leading suspect for whatever hung the process.
 
-NOT GATING. OPERATOR-BLOCKED arming - though the baseline that was missing now exists: sweeping all 137 collected `KSP.log`s with `hlib.scan_unity_exceptions` (2026-07-29) gives **73 of 137 runs at exactly 0**, median 0, p90 3, max 158; the 158 is one old career outlier (`2026-07-10_2339_rerun4-green`) and the corpus max excluding it is **7** (`BDOCK-1`, the longest flown scenario). Only `NullReferenceException` fires at all (284 total); `MissingReferenceException`, `IndexOutOfRangeException` and `ArgumentException: GUILayout` are ZERO corpus-wide, so the IMGUI-storm pattern the budget was partly designed for has never been seen. The corpus is not segmented green-vs-red and spans many builds, so treat it as an order-of-magnitude floor rather than a per-spec baseline; on it, 8-10 is a defensible first ceiling for heavy flown specs and 3-5 for short KSC/L1 runs. Nothing is armed:
+NOT GATING at the time. OPERATOR-BLOCKED arming - though the baseline that was missing then existed: sweeping all 137 collected `KSP.log`s with `hlib.scan_unity_exceptions` (2026-07-29) gives **73 of 137 runs at exactly 0**, median 0, p90 3, max 158; the 158 is one old career outlier (`2026-07-10_2339_rerun4-green`) and the corpus max excluding it is **7** (`BDOCK-1`, the longest flown scenario). Only `NullReferenceException` fires at all (284 total); `MissingReferenceException`, `IndexOutOfRangeException` and `ArgumentException: GUILayout` are ZERO corpus-wide, so the IMGUI-storm pattern the budget was partly designed for has never been seen. The corpus is not segmented green-vs-red and spans many builds, so treat it as an order-of-magnitude floor rather than a per-spec baseline; on it, 8-10 is a defensible first ceiling for heavy flown specs and 3-5 for short KSC/L1 runs.
 
-```toml
-[expectations.unityExceptions]
-maxTotal = 0    # declared by ZERO committed specs
-```
+**ARMED 2026-08-04 (branch `arming-sweep`) on 14 specs, off per-spec driver-valid baselines rather than the corpus floor above** - and the corpus itself was re-read first: `run.py` collect-logs only fires on a non-PASS verdict, so the collected corpus is the FAILURE population, and the ceilings were sized from it TOGETHER WITH the 371 archived result JSONs (186 PASS) and a fresh all-green 2026-08-04 daily pass + V1/CL-2/CL-3 singles. `maxTotal = 0` on the 11 all-zero specs (B10, the six L1s, M1, V1, CL-2, CL-3); ceilings on H23 (6 - gate 13's mechanism bound, see that entry), S4.1 (3, n=19) and H5 (5, thin n=3). Negative control flown per the S4.1 house rule: `2026-08-04_1348` red S1.6 `PARSEK-FAIL(unity-exception)` under a temporary `maxTotal = 0`, then reverted. The warp-family B/BDOCK specs (noisy 0-7, failure-population-only), the n<=2-variance specs (S0.5/S0.6/S0.8/S1.6/S1.7/H22/EVA-3), the n=1 sparse specs, B12 (3x0 but failure-pop-only) and ZZ (kill-probe) stay report-only, each for the stated reason. Allowlist + declared values pinned by `UnityExceptionScanTests.test_only_the_armed_allowlist_arms_it`; the dry-run plan renders armed-vs-report-only per spec (three new `DryRunPlanVerifierEnumerationTests` cells).
 
 Over-budget classifies `PARSEK-FAIL(unity-exception)`. `validate_unity_exception_expectations` rejects a misspelled or non-integer ceiling pre-launch, because a ceiling that silently degrades to report-only is the same fail-open one layer up.
 

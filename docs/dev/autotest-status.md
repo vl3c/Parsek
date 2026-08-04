@@ -1,6 +1,57 @@
 # Automated Testing System - Status
 
-Last updated: 2026-08-02 (GATE 12 CLOSED ON THE HARNESS SIDE: a recording is a
+Last updated: 2026-08-04 (THE CALIBRATION-AND-ARMING SWEEP, branch
+`arming-sweep`: the accumulated report-only readings became armed gates, and
+every arming cites its measured baseline. THE CORPUS CORRECTION FIRST, because
+it reframes every number that follows: `run.py` collects into `logs/` only on a
+non-PASS verdict, so the 157-log collected corpus is the FAILURE population
+(123 INVALID / 41 PARSEK-FAIL / 0 PASS) - the green truth lives in the 371
+surviving archived result JSONs (186 PASS) and in the fresh flights this sweep
+flew: an all-green 22-spec daily pass at merged HEAD plus V1 / CL-2 / CL-3
+singles, all on a hash-verified deploy (`57727c3d`).
+
+THREE ARMING SETS LANDED. (1) `[expectations.unityExceptions] maxTotal` is
+ARMED ON 14 SPECS (was zero): 0 on the 11 specs whose every driver-valid
+reading is 0 (B10, the six L1s, M1, V1 8x0, CL-2 9x0, CL-3 6x0), 6 on H23 (gate
+13's own mechanism bound - 3 reclaimed vessels x 2 counted lines - NOT the
+observed max 4, which would red the legal third reclaim), 3 on S4.1 (n=19), 5
+on H5 (thin n=3, band top). The negative control per the S4.1 house rule:
+`2026-08-04_1348` flew S1.6 under a temporary `maxTotal = 0` and red
+`PARSEK-FAIL(unity-exception)` on `total=3 gating=True`, then the block was
+reverted - the red direction is live-proven, not assumed. The warp-family
+B/BDOCK specs, the n<=2-variance specs and ZZ stay report-only, each with its
+reason recorded in known-gate 11. The dry-run plan's hand-maintained
+"unityExceptions(report-only)" literal - which would have advertised all 14
+armed specs as unarmed, the saveParse row's exact 2026-07-31 staleness class -
+now renders armed-vs-report-only per spec, pinned by three new cells. (2) SEVEN
+ANOMALY TOKENS PROMOTED into `hlib.ANOMALY_TOKENS` (6 -> 13): icon-teleport,
+icon-off-orbit, gap-vs-retire, decision-vs-old-truth, clock-not-ready,
+retire-not-held, anchor-resolve-fail - the per-token call known-gate 0 deferred,
+made on measured silence over EXERCISED geometry (five V1 dwells at ~130
+nonzero-ghost frames each incl. the fresh `2026-08-04_1250_a2`, fresh
+S1.4/S1.6/S1.7, 155 tracer-on historical runs, zero raises anywhere; S1.4's
+`2026-08-04_1228` reading was the deciding measurement the deferral named).
+`unaccounted-drawn-recording` and `factory-parity` stay report-only as
+INSTRUMENTS (coverage probe / shadow comparator), with rationales in the code
+and known-gate 0's resolution paragraph. No maxCount budget exists anywhere -
+line-blink's sharpen-the-predicate precedent held. (3) NOTHING NEW ARMED on the
+ledger side, by design: CL-2's `captureCrossCheck = "gate"` re-verified at HEAD
+(`2026-08-04_1324`, ninth consecutive bit-stable three-award capture), CL-3's
+armed rewind block re-verified (`2026-08-04_1327`, `armed=['rewind']
+mismatches=[]`), and line-blink was left exactly where its closed todo verdict
+put it - no budget, predicate guard in place, confirmed by the fresh green
+dwell. Guard cells: the unityExceptions zero-spec cell became the 14-entry
+value-pinning allowlist `test_only_the_armed_allowlist_arms_it`; the ungated
+enumeration re-pins 13+2 with renamed cells
+(`test_the_ungated_count_is_two_instruments`,
+`test_icon_jump_..._is_now_gated`). Every spec whose expectations changed
+re-flew green at its final values before merge. Suites: lib 1168, provision
+236, missions/lib 1252. One latent observation filed while verifying CL-3: the
+`EnqueuePidPeerSiblings: skipped NotCommitted peer` WARN fires on every CL-3
+re-fly merge - the secondary defense doing load-bearing work; see
+todo-and-known-bugs.md.)
+
+Prior: 2026-08-02 (GATE 12 CLOSED ON THE HARNESS SIDE: a recording is a
 FILE, and until today nothing in the verifier chain asserted a recording had any
 POINTS in it. `[expectations.recordings.points]` is the third M-C2 save-parse
 block (sibling of `rewind` and `recordings.structure`, evaluated by the same R9
@@ -447,10 +498,13 @@ body reads `over=False` reddened a run containing ZERO `phase=Anomaly` raises.
 The sweep is now anchored on the tracers' real raise shape, and the same
 investigation found the reverse defect, left UNRESOLVED and now REPORTED per-run:
 the harness token set has drifted from what the mod emits - `icon-jump` is dead
-(the probe raises `reason=icon-teleport`) and NINE further reasons are ungated.
+(the probe raises `reason=icon-teleport`) and NINE further reasons were ungated.
 That enumeration is now derived from the C# source by a harness test rather than
 hand-listed, after the first pass counted five and missed the four raises that
 reach EmitAnomaly through MapRenderTrace's cutover-hardening wrappers.
+**[RESOLVED 2026-08-04, arming-sweep: seven of the nine promoted into the gated
+set off the real-geometry silence baseline; the two instruments stay report-only
+- see known-gate 0's closing paragraph.]**
 Also FIXED: `allowedAnomalies` was misplaced under `[expectations.logContracts]`
 in all 28 pre-existing specs, so S1.4's declared exception had never been in
 force; validate_spec now REJECTS the misplaced form and every spec declares the
@@ -844,7 +898,7 @@ backlog is clear.
 
 | Test case | Tier | What it proves | Cells / notes |
 |-----------|------|----------------|---------------|
-| V1-map-dwell-mun-orbit | operator | THE FIRST VISUAL-PROGRAM lane (design-testing-unified section 6, V1): aims the shipped render parity oracle (MapRenderProbe + RenderParityOracle, previously exercised only by S1.6/S1.7's one-frame synthetic fixtures) at REAL flown geometry ACROSS TIME. Machine: the LIVE-PROVEN B11 profile (delegated `mlib.b5_decide`, captureEnabled) flies and commits in the Mun SOI, then the R1-proven rewind tail (STOP -> RECORDER-IDLE -> InvokeRewind rp_b9_root -> OBSERVED backward clock) puts the flown tree back into replay scope - LOAD-BEARING, not decoration: PlaybackScopeTracker (BUG-B historical-not-replayed) keeps a forward-play committed tree DORMANT, measured in BDOCK-1's archived log (674 post-commit probe frames, all ghosts=0), so a dwell without the rewind is structurally vacuous (the S1.4 552-frames-ghosts=0 class). Then the dwell: kRPC map camera staged (OBSERVED camera_mode readback, new `read_camera` opt-in channel), native warp to just past the flown launch, 45 s held 1x, a rails stair 10x->1000x->10x, and a held 10x re-cross of the RECORDED Kerbin->Mun SOI boundary UT. Anti-vacuity pins: `probe frame summary ... ghosts=[1-9]` + `faithful-parity summary sampled=[1-9]` required (verboseLogging pinned - the summaries are VerboseRateLimited). NO anomaly budget armed, NO overTolerance gate: this scenario IS the calibration instrument known-gate 0 defers to. Post-mission tail is AnswerMergeDialog choice=DISCARD (never merge: the never-flown re-fly provisional is empty, and merging one is R1-EMPTY-PROVISIONAL, a [Parsek][ERROR]) | D6 recorded-vs-rendered-parity (first claim over non-synthetic recordings across time; gated by the two dwell tokens); D14 scene-map (gated by the OBSERVED mapCameraObserved mission row + the dwell tokens). NOT claimed: B11's flight cells, R1's D9 cells, any anomaly cell. **FLOWN TWICE 2026-07-30, both flights end-to-end green at the mission layer and RED `PARSEK-FAIL(anomaly)` on the same real finding - the intended shape of a first calibration flight, not a regression.** Flight 1 (run `2026-07-30_1955`, wall 1,598 s, OPERATOR-ASSISTED: a manual helping warp during the in-SOI coast, so it does not count as unattended): mission PASS, all 20 assertion rows met, driverValidity/analyzer/logValidate/testResults PASS, sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]`. Flight 2 (run `2026-07-30_2023`, wall 2,044 s, FULLY UNATTENDED): MISSION-OK, zero unmet rows, identical verifier picture and the IDENTICAL baseline `hitCounts={line-blink: 2}` `unlistedReasons=[]`. The sweep FAIL preempts the expectations verifier, so all 12 required pins + the forbidden-ERROR contract were evaluated MANUALLY against both collected logs (`logs/2026-07-30_2322`, `logs/2026-07-30_2357`): all 12 matched on both (130/130 nonzero-ghost probe frames, 12/12 `faithful-parity summary sampled=1 overTolerance=0` passes, zero `[Parsek][ERROR]`), so the faithful-parity `sampled>0` pin's stated measurement protocol is CLOSED - the lens measures real replayed geometry, and its 55-per-run `skip.reaimed-or-foreign-seed` passes are the injected-b9-corpus ghost, not the flown one. WHAT THE BASELINE SAYS FOR ARMING (known-gate 0): across three dwells (incl. the discarded first attempt) `line-blink` fired EXACTLY 2x per dwell on the flown MAIN recording's proto orbit line under the 100x ramp step, at ownership-handoff frames, and NOTHING else fired - zero unlisted reasons, zero icon-teleport/icon-off-orbit. So: (a) `line-blink` is deterministic on this geometry and is a REAL defect signal or a benign handoff transient - diagnose before arming (forensics: todo `V1-REPLAY-LINE-BLINK`); (b) a future budget of `{ token = "line-blink", maxCount = 2 }` would exactly fit the measured behavior IF the blink is ruled benign - do not arm it before the diagnosis; (c) the nine ungated reasons stayed SILENT on real geometry, which is the first actual evidence for the gate-vs-instrument call on them. PROMOTE TO a cadence only after the line-blink call is made (either fixed -> green runs, or ruled benign -> budgeted). An earlier same-day invocation burned two full flights on HARNESS-INJECT-FAILS-OPEN (fresh worktree; evidence appended to that todo entry). **LINE-BLINK CALL MADE 2026-08-01 (branch `fix-v1-line-blink`): verdict (B) BENIGN, in BOTH of the two dark windows per dwell but by TWO DIFFERENT mechanisms** - window A is the proto orbit line standing down while the trajectory polyline OWNS the same ghost's non-orbital leg (the anti-double-draw invariant working), window B is the head crossing BETWEEN recorded legs, where the conic is held down because the current orbit is a per-frame state-vector reseed (`e 0.9893 -> 0.9993 -> 0.9999 -> 0.8939` across eight frames) while four run legs and two forward arcs stay painted. The rails ramp compresses each into 3-8 frames, so two correct transitions fall inside `LineBlinkFrameWindow = 8`. Full forensics: todo `V1-REPLAY-LINE-BLINK`. Suppressed at the RAISE SITE with a discriminating guard, NOT with a budget: `MapRenderTrace.IsLineBlink` gained an `offWindowCovered` param (mirroring `bodyChanged`) fed by the pure `NextOffWindowUncovered`, so a dark window with an ACTUAL polyline line PAINTED on every frame is not a blink while a window with even one unpainted frame still raises. So this spec arms NO budget and adds NO `allowedAnomalies` entry - the arming guidance's benign-and-suppressed case. **MEASURED, not asserted: run `2026-08-01_1551`** (collected log `logs/2026-08-01_1925`, 2,047 s wall, FULLY UNATTENDED, attempt 1) flew the FIRST cut of the guard, which fed it the narrow current-leg OWNERSHIP bit, and read `hitCounts={line-blink: 1}` `unlistedReasons=[]` - it killed window A exactly as designed and left window B, whose survivor arrived stamped `offWindowCovered=False polylineOwns=False sinceFrames=8`. That stamp is what located window B: ownership answers "is the HEAD inside a drawn CURRENT leg" and goes false in inter-leg gaps where the trajectory is still painted, so the coverage input was switched to a new per-recording PAINTED signal (`GhostMapPresence.IsPolylinePaintingGhostTrajectory`, published by the same Driver decide walk at exec-order -50 from a current-element leg OR a forward run leg OR a forward arc). Still strictly ACTUAL-DRAW - the Director's TracedPath classification is never consulted - so the token still MEANS "the line went dark and nothing was painted", strictly sharper than the pre-guard signal; every raise carries `offWindowCovered=` / `polylinePainted=` / `polylineOwns=`, the last two together precisely because they disagree in the gaps. Everything else on that run was green (MISSION-OK, all rows met, 12 phases, driverValidity/analyzer/logValidate PASS, 130 nonzero-ghost probe frames of 399, 13 `faithful-parity sampled>0` with `overTolerance=0`, zero `[Parsek][ERROR]`, all 12 required pins matched manually since the sweep FAIL preempts the expectations verifier). **CONFIRMED GREEN 2026-08-02, run `2026-08-02_1046`: `hitCounts={}` `unlistedReasons=[]`, verdict PASS** - 2,082 s wall / 1,988 s mission, attempt 1, fully unattended, and V1's FIRST fully green run. Every verifier green INCLUDING `expectations`, which the earlier sweep FAILs had been preempting: the harness itself evaluated all 12 required pins + the forbidden-ERROR contract this time instead of a human doing it by hand. Non-vacuous on the same evidence as before (131 nonzero-ghost probe frames of 399, 13 `faithful-parity sampled>0` with `overTolerance=0`, zero `[Parsek][ERROR]`), and ZERO Tier-C raises of any reason - all nine ungated report-only reasons stayed silent too. The row is therefore GREEN-BY-RIGHTS. **RE-PROVEN AT HEAD 2026-08-02, run `2026-08-02_1336`** (2,046 s, attempt 1, unattended, `hitCounts={}`, all verifiers green, 130 nonzero-ghost frames, zero raises of any reason) after a four-reviewer pass reworked the paint signal - per-member attribution instead of a frame-wide counter delta, degenerate line reads no longer able to end a dark window, per-pid line history pruned on ghost teardown, and the decide-time-not-paint-time semantics stated honestly. That run also carries the new `line-blink-suppressed` line, so a green dwell now SHOWS its two by-design windows being caught (`offWindowCovered=True polylinePainted=True polylineOwns=False` at sinceFrames=3 and 8) instead of merely not raising - a silent guard on a gated token was itself a finding. **PROMOTED 2026-08-02: `tier = "operator"` -> `tier = "nightly"`**, on the spec's own stated terms - green flights with run ids, wall time and an anomaly baseline recorded here. Cost is measured, not estimated: ~2,055 s (~34 min) per UNATTENDED run across four of them (2,044 / 2,047 / 2,082 / 2,046 s; the earlier 1,598 s flight was operator-assisted and does not count). The ~4,900 s x retry = ~2.7 h ceiling still stands as the budget, but it is the systematic-failure case the operator tier existed to keep off a cadence, and two consecutive greens at the corrected guard are the evidence it is not the expected case. NOT daily (~34 min every day is disproportionate for a lane catching RARE real-geometry regressions) and NOT weekly (no spec uses that tier, so it would look scheduled while very likely never firing). The `pending-operator` tag is dropped in the same commit: its sole recorded justification in the honesty check's CARRIERS inventory was `tier=operator`, so the promotion discharges it. FLAKE LEDGER, worth reading correctly: V1 shows `quarantined=true` at rate 0.25, and the numerator is `(INVALID + KILLED)`, so the attempt that set it was the harness-INVALID from a missing mission venv in a fresh worktree - NOT the honest `PARSEK-FAIL(anomaly)`, which never counted. Quarantine is advisory (run.py only warns; it moves no verdict), sticky, and lives in the gitignored `coverage/flake.json`, so it is local per-machine state that a human clears rather than a repo change |
+| V1-map-dwell-mun-orbit | operator | THE FIRST VISUAL-PROGRAM lane (design-testing-unified section 6, V1): aims the shipped render parity oracle (MapRenderProbe + RenderParityOracle, previously exercised only by S1.6/S1.7's one-frame synthetic fixtures) at REAL flown geometry ACROSS TIME. Machine: the LIVE-PROVEN B11 profile (delegated `mlib.b5_decide`, captureEnabled) flies and commits in the Mun SOI, then the R1-proven rewind tail (STOP -> RECORDER-IDLE -> InvokeRewind rp_b9_root -> OBSERVED backward clock) puts the flown tree back into replay scope - LOAD-BEARING, not decoration: PlaybackScopeTracker (BUG-B historical-not-replayed) keeps a forward-play committed tree DORMANT, measured in BDOCK-1's archived log (674 post-commit probe frames, all ghosts=0), so a dwell without the rewind is structurally vacuous (the S1.4 552-frames-ghosts=0 class). Then the dwell: kRPC map camera staged (OBSERVED camera_mode readback, new `read_camera` opt-in channel), native warp to just past the flown launch, 45 s held 1x, a rails stair 10x->1000x->10x, and a held 10x re-cross of the RECORDED Kerbin->Mun SOI boundary UT. Anti-vacuity pins: `probe frame summary ... ghosts=[1-9]` + `faithful-parity summary sampled=[1-9]` required (verboseLogging pinned - the summaries are VerboseRateLimited). NO anomaly budget armed, NO overTolerance gate: this scenario IS the calibration instrument known-gate 0 defers to. Post-mission tail is AnswerMergeDialog choice=DISCARD (never merge: the never-flown re-fly provisional is empty, and merging one is R1-EMPTY-PROVISIONAL, a [Parsek][ERROR]) | D6 recorded-vs-rendered-parity (first claim over non-synthetic recordings across time; gated by the two dwell tokens); D14 scene-map (gated by the OBSERVED mapCameraObserved mission row + the dwell tokens). NOT claimed: B11's flight cells, R1's D9 cells, any anomaly cell. **FLOWN TWICE 2026-07-30, both flights end-to-end green at the mission layer and RED `PARSEK-FAIL(anomaly)` on the same real finding - the intended shape of a first calibration flight, not a regression.** Flight 1 (run `2026-07-30_1955`, wall 1,598 s, OPERATOR-ASSISTED: a manual helping warp during the in-SOI coast, so it does not count as unattended): mission PASS, all 20 assertion rows met, driverValidity/analyzer/logValidate/testResults PASS, sweep `hitCounts={line-blink: 2}` `unlistedReasons=[]`. Flight 2 (run `2026-07-30_2023`, wall 2,044 s, FULLY UNATTENDED): MISSION-OK, zero unmet rows, identical verifier picture and the IDENTICAL baseline `hitCounts={line-blink: 2}` `unlistedReasons=[]`. The sweep FAIL preempts the expectations verifier, so all 12 required pins + the forbidden-ERROR contract were evaluated MANUALLY against both collected logs (`logs/2026-07-30_2322`, `logs/2026-07-30_2357`): all 12 matched on both (130/130 nonzero-ghost probe frames, 12/12 `faithful-parity summary sampled=1 overTolerance=0` passes, zero `[Parsek][ERROR]`), so the faithful-parity `sampled>0` pin's stated measurement protocol is CLOSED - the lens measures real replayed geometry, and its 55-per-run `skip.reaimed-or-foreign-seed` passes are the injected-b9-corpus ghost, not the flown one. WHAT THE BASELINE SAYS FOR ARMING (known-gate 0): across three dwells (incl. the discarded first attempt) `line-blink` fired EXACTLY 2x per dwell on the flown MAIN recording's proto orbit line under the 100x ramp step, at ownership-handoff frames, and NOTHING else fired - zero unlisted reasons, zero icon-teleport/icon-off-orbit. So: (a) `line-blink` is deterministic on this geometry and is a REAL defect signal or a benign handoff transient - diagnose before arming (forensics: todo `V1-REPLAY-LINE-BLINK`); (b) a future budget of `{ token = "line-blink", maxCount = 2 }` would exactly fit the measured behavior IF the blink is ruled benign - do not arm it before the diagnosis; (c) the nine ungated reasons stayed SILENT on real geometry, which is the first actual evidence for the gate-vs-instrument call on them. PROMOTE TO a cadence only after the line-blink call is made (either fixed -> green runs, or ruled benign -> budgeted). An earlier same-day invocation burned two full flights on HARNESS-INJECT-FAILS-OPEN (fresh worktree; evidence appended to that todo entry). **LINE-BLINK CALL MADE 2026-08-01 (branch `fix-v1-line-blink`): verdict (B) BENIGN, in BOTH of the two dark windows per dwell but by TWO DIFFERENT mechanisms** - window A is the proto orbit line standing down while the trajectory polyline OWNS the same ghost's non-orbital leg (the anti-double-draw invariant working), window B is the head crossing BETWEEN recorded legs, where the conic is held down because the current orbit is a per-frame state-vector reseed (`e 0.9893 -> 0.9993 -> 0.9999 -> 0.8939` across eight frames) while four run legs and two forward arcs stay painted. The rails ramp compresses each into 3-8 frames, so two correct transitions fall inside `LineBlinkFrameWindow = 8`. Full forensics: todo `V1-REPLAY-LINE-BLINK`. Suppressed at the RAISE SITE with a discriminating guard, NOT with a budget: `MapRenderTrace.IsLineBlink` gained an `offWindowCovered` param (mirroring `bodyChanged`) fed by the pure `NextOffWindowUncovered`, so a dark window with an ACTUAL polyline line PAINTED on every frame is not a blink while a window with even one unpainted frame still raises. So this spec arms NO budget and adds NO `allowedAnomalies` entry - the arming guidance's benign-and-suppressed case. **MEASURED, not asserted: run `2026-08-01_1551`** (collected log `logs/2026-08-01_1925`, 2,047 s wall, FULLY UNATTENDED, attempt 1) flew the FIRST cut of the guard, which fed it the narrow current-leg OWNERSHIP bit, and read `hitCounts={line-blink: 1}` `unlistedReasons=[]` - it killed window A exactly as designed and left window B, whose survivor arrived stamped `offWindowCovered=False polylineOwns=False sinceFrames=8`. That stamp is what located window B: ownership answers "is the HEAD inside a drawn CURRENT leg" and goes false in inter-leg gaps where the trajectory is still painted, so the coverage input was switched to a new per-recording PAINTED signal (`GhostMapPresence.IsPolylinePaintingGhostTrajectory`, published by the same Driver decide walk at exec-order -50 from a current-element leg OR a forward run leg OR a forward arc). Still strictly ACTUAL-DRAW - the Director's TracedPath classification is never consulted - so the token still MEANS "the line went dark and nothing was painted", strictly sharper than the pre-guard signal; every raise carries `offWindowCovered=` / `polylinePainted=` / `polylineOwns=`, the last two together precisely because they disagree in the gaps. Everything else on that run was green (MISSION-OK, all rows met, 12 phases, driverValidity/analyzer/logValidate PASS, 130 nonzero-ghost probe frames of 399, 13 `faithful-parity sampled>0` with `overTolerance=0`, zero `[Parsek][ERROR]`, all 12 required pins matched manually since the sweep FAIL preempts the expectations verifier). **CONFIRMED GREEN 2026-08-02, run `2026-08-02_1046`: `hitCounts={}` `unlistedReasons=[]`, verdict PASS** - 2,082 s wall / 1,988 s mission, attempt 1, fully unattended, and V1's FIRST fully green run. Every verifier green INCLUDING `expectations`, which the earlier sweep FAILs had been preempting: the harness itself evaluated all 12 required pins + the forbidden-ERROR contract this time instead of a human doing it by hand. Non-vacuous on the same evidence as before (131 nonzero-ghost probe frames of 399, 13 `faithful-parity sampled>0` with `overTolerance=0`, zero `[Parsek][ERROR]`), and ZERO Tier-C raises of any reason - all nine ungated report-only reasons stayed silent too. The row is therefore GREEN-BY-RIGHTS. **RE-PROVEN AT HEAD 2026-08-02, run `2026-08-02_1336`** (2,046 s, attempt 1, unattended, `hitCounts={}`, all verifiers green, 130 nonzero-ghost frames, zero raises of any reason) after a four-reviewer pass reworked the paint signal - per-member attribution instead of a frame-wide counter delta, degenerate line reads no longer able to end a dark window, per-pid line history pruned on ghost teardown, and the decide-time-not-paint-time semantics stated honestly. That run also carries the new `line-blink-suppressed` line, so a green dwell now SHOWS its two by-design windows being caught (`offWindowCovered=True polylinePainted=True polylineOwns=False` at sinceFrames=3 and 8) instead of merely not raising - a silent guard on a gated token was itself a finding. **PROMOTED 2026-08-02: `tier = "operator"` -> `tier = "nightly"`**, on the spec's own stated terms - green flights with run ids, wall time and an anomaly baseline recorded here. Cost is measured, not estimated: ~2,055 s (~34 min) per UNATTENDED run across four of them (2,044 / 2,047 / 2,082 / 2,046 s; the earlier 1,598 s flight was operator-assisted and does not count). The ~4,900 s x retry = ~2.7 h ceiling still stands as the budget, but it is the systematic-failure case the operator tier existed to keep off a cadence, and two consecutive greens at the corrected guard are the evidence it is not the expected case. NOT daily (~34 min every day is disproportionate for a lane catching RARE real-geometry regressions) and NOT weekly (no spec uses that tier, so it would look scheduled while very likely never firing). The `pending-operator` tag is dropped in the same commit: its sole recorded justification in the honesty check's CARRIERS inventory was `tier=operator`, so the promotion discharges it. FLAKE LEDGER, worth reading correctly: V1 shows `quarantined=true` at rate 0.25, and the numerator is `(INVALID + KILLED)`, so the attempt that set it was the harness-INVALID from a missing mission venv in a fresh worktree - NOT the honest `PARSEK-FAIL(anomaly)`, which never counted. Quarantine is advisory (run.py only warns; it moves no verdict), sticky, and lives in the gitignored `coverage/flake.json`, so it is local per-machine state that a human clears rather than a repo change. **PROMOTION FOLLOW-THROUGH 2026-08-04 (arming-sweep): the silence this lane measured became the arming input.** A fifth dwell (`2026-08-04_1250_a2`, PASS attempt 2 after a driver-INVALID attempt 1; 399 probe summaries, 130 nonzero-ghost frames, zero `phase=Anomaly` lines) confirmed the baseline at merged HEAD, and the seven silent defect-signal reasons were promoted into `hlib.ANOMALY_TOKENS` (known-gate 0). The two "nine ungated reasons stayed SILENT" readings above are the historical statements of exactly that evidence. V1 also armed `[expectations.unityExceptions] maxTotal = 0` in the same sweep, off 8 driver-valid readings all measuring 0, and re-flew green under both armings |
 
 FLAKE-LEDGER ARTIFACT worth knowing before reading `coverage/flake.json`: the
 2026-07-29 session left B1-pad-hop and S1.5-rewind-loop QUARANTINED at rate 0.50
@@ -1182,10 +1236,12 @@ six publish or compare numbers the runner already measured.
 
 ## Known gates and latent items (forensics in todo-and-known-bugs.md)
 
-0. ANOMALY_TOKENS has DRIFTED from what the mod raises, and the drift is a
-   FAIL-OPEN. Found 2026-07-26 while anchoring the sweep. **PARTIALLY CLOSED
-   2026-07-29 (branch `harness-fail-open-gates`); the ungated-reason half stays
-   open and is still the operator call described below.** What changed: the DEAD
+0. ~~ANOMALY_TOKENS has DRIFTED from what the mod raises, and the drift is a
+   FAIL-OPEN~~ - **CLOSED 2026-08-04 (branch `arming-sweep`): the per-token call
+   is made; see the RESOLUTION paragraph at the end of this item.** Found
+   2026-07-26 while anchoring the sweep. **PARTIALLY CLOSED
+   2026-07-29 (branch `harness-fail-open-gates`); the ungated-reason half stayed
+   open as the operator call described below until 2026-08-04.** What changed: the DEAD
    `icon-jump` token is REMOVED from `hlib.ANOMALY_TOKENS` and retired to
    `hlib.ANOMALY_TOKENS_DEAD` (the two tuples are now disjoint, and the
    source-derived enumeration asserts a retired token is still raised by nothing,
@@ -1198,9 +1254,10 @@ six publish or compare numbers the runner already measured.
    "this anomaly fires at most N times on a healthy run" become different claims.
    NO committed spec arms a budget - `anomalySweep.hitCounts` now records the
    per-token raise counts on every run so an operator can size one from a green
-   flight first. What is STILL OPEN, unchanged: `icon-teleport` (the real raise, and
-   the one that most likely should be gated) remains REPORT-ONLY, because nobody
-   has yet measured whether it fires on a green S1.4.
+   flight first. What stayed open until 2026-08-04: `icon-teleport` (the real raise, and
+   the one that most likely should be gated) remained REPORT-ONLY, because nobody
+   had yet measured whether it fires on a green S1.4 - the measurement the
+   RESOLUTION paragraph below records.
    NINE reasons are raised and ungated: `icon-teleport`,
    `icon-off-orbit`, `unaccounted-drawn-recording`, `gap-vs-retire`,
    `decision-vs-old-truth`, `clock-not-ready`, `retire-not-held`,
@@ -1230,9 +1287,12 @@ six publish or compare numbers the runner already measured.
    `AnomalyGrepAnchoringTests.test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported`
    plus `AnomalyGroundTruthEnumerationTests`, and the budget surface by
    `AnomalyBudgetParseTests` / `AnomalyBudgetSweepTests` / `AnomalyTokenCountTests`.
-   OPERATOR-BLOCKED REMAINDER: (a) the per-token gate-vs-instrument call for the
-   nine ungated reasons, which wants S1.4's next nightly `unlistedReasons` reading;
-   (b) arming any `maxCount`, which wants a green run's `hitCounts`.
+   OPERATOR-BLOCKED REMAINDER (both now discharged - see the RESOLUTION
+   paragraph at the end of this item): (a) the per-token gate-vs-instrument call
+   for the nine ungated reasons, which wanted S1.4's next `unlistedReasons`
+   reading (delivered 2026-08-04, silent, promoted); (b) arming any `maxCount`,
+   which wanted a green run's `hitCounts` (resolved by precedent: none armed,
+   none needed - see (b) in the resolution).
 
    **FIRST REAL-GEOMETRY BASELINE (2026-07-30, V1-map-dwell-mun-orbit; the
    first runs ever whose probe sampled ghosts over a sustained window):** both
@@ -1296,6 +1356,43 @@ six publish or compare numbers the runner already measured.
    gate-vs-instrument call on the nine ungated reasons - with its second and
    stronger data point: all nine stayed silent on real geometry across a full
    green dwell.
+
+   **RESOLUTION (a), 2026-08-04 (branch `arming-sweep`): SEVEN PROMOTED, TWO
+   KEPT AS REPORT-ONLY INSTRUMENTS.** The per-token call was made off measured
+   silence on exercised geometry, not off the historical-corpus zeros this item
+   warned against. The evidence: FIVE V1 real-geometry dwells each with ~130
+   nonzero-ghost probe frames (`2026-07-30_1955`, `2026-07-30_2023`,
+   `2026-08-01_1551`, `2026-08-02_1046`, and the fresh `2026-08-04_1250_a2` -
+   399 probe summaries, 130 nonzero-ghost frames, zero `phase=Anomaly` lines),
+   plus fresh 2026-08-04 S1.4/S1.6/S1.7 flights (probe exercised at 1
+   nonzero-ghost frame each, silent), plus 155 tracer-on historical runs with
+   zero raises of any of the nine. The deciding S1.4 measurement this item
+   reserved for `icon-teleport` arrived with the `unlistedReasons` channel live:
+   `2026-08-04_1228` read `hits=[] unlistedReasons=[]` with the probe exercised
+   - so it PROMOTED. Promoted into `hlib.ANOMALY_TOKENS` (6 -> 13):
+   `icon-teleport`, `icon-off-orbit`, `gap-vs-retire`, `decision-vs-old-truth`,
+   `clock-not-ready`, `retire-not-held`, `anchor-resolve-fail`. Kept
+   REPORT-ONLY in `hlib.ANOMALY_REASONS_RAISED_UNGATED` (9 -> 2), each with its
+   rationale: `unaccounted-drawn-recording` is the S0 polyline-COVERAGE
+   instrument (it raises on an instrumentation-coverage gap, not a rendering
+   defect - gating it would red a scenario for a probe bookkeeping miss), and
+   `factory-parity` is a shadow comparator that never drives a draw (a
+   disagreement is cutover diagnostics, not a user-visible defect). Blast
+   radius: only S1.4 / S1.6 / S1.7 / V1 pin `mapRenderTracing`, all with
+   `allowedAnomalies = []`; all four re-flew GREEN under the widened gate on
+   2026-08-04 (S1.4 `_1228`, S1.6 `_1229`, S1.7 `_1231`, V1 `_1250_a2` before
+   the edit and the re-fly pass after it). The red direction needed no new
+   proof: `line-blink` - a gated token - red V1 `PARSEK-FAIL(anomaly)` on
+   2026-07-30, so the raise -> verdict plumbing has been watched failing. Cells:
+   the enumeration partition test is unchanged (it proves the 13+2 split);
+   `test_the_ungated_count_is_nine_not_five` became
+   `test_the_ungated_count_is_two_instruments` (pins the exact two-entry list);
+   `test_icon_jump_is_retired_and_icon_teleport_is_still_only_reported` became
+   `..._is_now_gated`; new cells pin the promoted seven's membership and the
+   wrapper-routed four's accounting. (b) stays resolved as before: NO maxCount
+   budget is armed anywhere - line-blink's precedent (sharpen the predicate on
+   the discriminating fact, never tolerate by count) held for every promoted
+   token, since none of them fires at all on a healthy run.
 
    **HISTORICAL-CORPUS SWEEP (2026-07-29): the archive cannot size these budgets,
    and reading its zeros as "measured zero" would be a false calibration.** All 137
@@ -1512,6 +1609,25 @@ six publish or compare numbers the runner already measured.
    significant figures, so the three captured amounts sum to -7.999829 against a save
    carrying -7.99982834. An exact compare cannot succeed; budget the ~1e-6
    display-rounding residual (the default 0.1 rep tolerance absorbs it).
+
+   **RE-VERIFIED AT MERGED HEAD 2026-08-04 (arming-sweep), both armed surfaces of
+   the CL family.** CL-2's armed gate: run `2026-08-04_1324`, PASS attempt 1,
+   `ledgerOracle PASS hardDivergences=0 reportOnly=0`, and the manifest's
+   `capturedRaw` read the SAME three awards for the ninth consecutive archived
+   capture (`Progression +0.9999995` at ut 12.4, `Progression +0.9999995` at
+   ~19, `VesselLoss -9.999828` at ~120 - every one inside the armed
+   `[0,100]` / `[100,400]` windows; the capture has been bit-stable across all
+   nine manifests spanning 2026-07-30 to 2026-08-04). STAGE B CANNOT JOIN THIS
+   GATE, by design rather than omission: `CL-3-refly-crew-tombstone` (PR #1415)
+   declares `[expectations.ledger]` ILLEGAL - a rewind/merge rewrites the career
+   pools the seed+manifest contract cannot model - so its armed surface is the
+   M-C2 save-parse rewind block instead (`gating = true`, `supersedeRows min=1`,
+   `tombstones min=1`), verified the same day: run `2026-08-04_1327`, PASS,
+   `saveParse status=PASS gating=True armed=['rewind'] mismatches=[]` with
+   observed `supersedeRows=1 tombstones=1`. The capture allowlist cells
+   therefore still pin exactly `{CL-2}`, and the save-parse gating allowlist
+   pins exactly `{S4.1, CL-3}` - three armed gates, three named owners, no
+   silent growth.
 4. Flake ledgers (generated, gitignored) reset 2026-07-22 post-campaigns;
    quarantine (sticky, >0.20) is reporting-only and now reflects post-merge
    reality only.
@@ -1713,10 +1829,10 @@ six publish or compare numbers the runner already measured.
    healthy KSP 1.12 + Parsek boot emits (stock KSP itself throws during scene
    loads), so any ceiling picked now would be a guess that could red
    live-proven scenarios. ARMING: add `[expectations.unityExceptions] maxTotal =
-   N` to a spec - declared by ZERO committed specs - after reading the counts
-   off a few green runs. Over-budget classifies `PARSEK-FAIL(unity-exception)`.
-   Pinned by `UnityExceptionScanTests` (including a cell asserting no committed
-   spec arms it).
+   N` to a spec after reading the counts off a few green runs. Over-budget
+   classifies `PARSEK-FAIL(unity-exception)`. Pinned by
+   `UnityExceptionScanTests` - the zero-spec cell became the 14-spec allowlist
+   `test_only_the_armed_allowlist_arms_it` when the sweep below armed it.
 
    **HISTORICAL-CORPUS BASELINE (2026-07-29), the measurement this gate was waiting
    for - available now, without a new run.** All 137 `KSP.log`s present in `logs/` at
@@ -1739,6 +1855,47 @@ six publish or compare numbers the runner already measured.
    observed behaviour while still catching a storm (the failure mode is hundreds, not
    a handful). Arming remains the operator's call and still wants a couple of
    confirmed-green post-#1377 runs per spec; nothing here is armed.
+
+    **ARMED 2026-08-04 (branch `arming-sweep`) ON 14 SPECS, off per-spec
+    driver-valid baselines rather than the corpus floor above.** The calibration
+    first corrected the corpus reading: `run.py` collects into `logs/` ONLY on a
+    non-PASS verdict, so the 157-log collected corpus is the FAILURE population
+    (123 INVALID / 41 PARSEK-FAIL / 0 PASS) - per-spec ceilings were therefore
+    sized from three populations together: the collected logs re-scanned with
+    `hlib.scan_unity_exceptions`, the 371 surviving archived result JSONs (186
+    PASS), and a fresh all-green 2026-08-04 daily pass (22 specs) plus V1 / CL-2
+    / CL-3 singles at merged HEAD. Only the NRE pattern has ever fired in a
+    harness run; `MissingReferenceException`, `IndexOutOfRangeException` and the
+    IMGUI storm are 0 corpus-wide, and the sole three-digit outlier (158) is the
+    one DEV-instance run (`2026-07-10_2339`, ReStock/Kopernicus - a different
+    population, excluded). THE ARMED SET: `maxTotal = 0` on the 11 specs whose
+    every driver-valid reading is 0 - B10, the six L1s (family homogeneity:
+    14+ readings, all 0), M1, V1 (8x0), CL-2 (9x0), CL-3 (6x0 driver-valid; its
+    two nonzero collected-log readings are mission-abort INVALIDs, which measure
+    the abort, not the lane) - and ceilings on the three with nonzero readings:
+    H23 `maxTotal = 6` (n=29: 25x0 + 2,2,2,4 - the ceiling is gate 13's own
+    MECHANISM bound, one raise per reclaimed vessel counted twice on a 3-vessel
+    fixture, NOT the observed max: 5 would red the legal third reclaim), S4.1
+    `maxTotal = 3` (n=19: 18x0, one 1), H5 `maxTotal = 5` (n=3: 4, 2, 0 - thin,
+    the short-spec band top). NEGATIVE CONTROL, per the S4.1 house rule that a
+    gate nobody has watched fail is an assumption: `2026-08-04_1348` flew S1.6
+    under a temporary `maxTotal = 0` (S1.6 has never measured 0; readings 1, 2)
+    and red exactly right - `unityExceptions status=FAIL gating=True total=3` ->
+    `PARSEK-FAIL(unity-exception)` - then the temporary block was reverted.
+    DELIBERATELY LEFT REPORT-ONLY, each with its reason: the warp-family
+    B/BDOCK specs (noisy 0-7 band, failure-population-only samples, no fresh
+    green readings - B12's 3x0 is failure-pop-only so it does not qualify
+    either); the n<=2-with-variance specs (S0.5 1,3; S0.6 2; S1.6 1,2,3; S1.7
+    0,1; S0.8 4,0; H22 2,0; EVA-3 2); the n=1 sparse specs (M2, EVA-2, H18, H6
+    and friends - one observation is not a baseline); and ZZ-v3-kill-probe (a
+    harness-mechanism probe whose runs are deliberately killed). The dry-run
+    plan now renders armed-vs-report-only per spec
+    (`unityExceptions(armed: maxTotal=N ...)`) instead of the hand-maintained
+    "report-only" literal that would have advertised all 14 armed specs as
+    unarmed - the same staleness class, found and fixed the same way, as the
+    saveParse row's 2026-07-31 fix, pinned by three new
+    `DryRunPlanVerifierEnumerationTests` cells. Every armed spec re-flew green
+    at its final ceiling on 2026-08-04 before merge.
 
 12. ~~AN ORBITAL EVA RECORDS NOTHING~~ - **BOTH HALVES NOW CLOSED.** The PRODUCT
     defect was fixed 2026-08-01 and merged as `545e8099d` (PR #1408, branch
@@ -1945,9 +2102,15 @@ six publish or compare numbers the runner already measured.
     fix and its three layers in `todo-and-known-bugs.md`.
 13. INTERMITTENT stock `SpaceTracking.buildVesselsList` NRE on the `H23-tracking-station`
     lane. **DIAGNOSED 2026-08-01 AND IT IS NOT WHAT THIS GATE SAID IT WAS**: it is a
-    stock APPLICATION-SHUTDOWN race, not a Parsek synthetic-ghost teardown. The gate
-    stays OPEN and `[expectations.unityExceptions] maxTotal` stays UNARMED on that spec,
-    for a better-understood reason than before.
+    stock APPLICATION-SHUTDOWN race, not a Parsek synthetic-ghost teardown.
+    **ARMED 2026-08-04 (arming-sweep): H23 carries `maxTotal = 6`, and the ceiling
+    is THIS item's own arithmetic** - one raise per vessel Unity reclaims in the
+    shutdown window, counted twice each, on a 3-vessel fixture = 6 reachable on a
+    healthy run (observed: 2 and 4). Sizing on the observed max (4, or a 5 with
+    "headroom") would red the legal third reclaim; 6 tolerates the race this item
+    diagnosed as stock-and-benign while still catching the storm. Baseline n=29
+    driver-valid readings (25x0 + 2,2,2,4; fresh 2026-08-04 run 0). The stock
+    race itself stays what it was - diagnosed, unsuppressed, benign.
 
     The signature (unchanged): `[Parsek][WARN][GhostMap] SpaceTracking.buildVesselsList
     exception left visible: type=NullReferenceException totalVessels=0 ghostVessels=0 ...

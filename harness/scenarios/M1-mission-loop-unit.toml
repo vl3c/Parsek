@@ -145,6 +145,13 @@ count = { min = 0, max = 0 }
 required  = ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. Every
+# driver-valid reading of this spec measured 0: the collected log in the failure
+# population, plus the fresh 2026-08-04 daily run. Full baseline table: the
+# arming-sweep PR, not repeated in every spec.
+[expectations.unityExceptions]
+maxTotal = 0
+
 [runtime]
 # Budget arithmetic (M-A5 S8, mirrors H5/H6): 720 >= 300 LoadGame + 540 RunTests ceiling
 # headroom. The five executed tests are synchronous planner/builder calls over live body

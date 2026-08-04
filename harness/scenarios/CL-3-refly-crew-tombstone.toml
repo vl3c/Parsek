@@ -540,6 +540,14 @@ trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 4 }
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO on SIX
+# DRIVER-VALID readings, all 0: five green result JSONs plus the fresh
+# `2026-08-04_1327` run. The 1 and 2 readings in the collected-log population are
+# driver-INVALID mission aborts and are EXCLUDED - a mission that did not fly
+# measures the abort, not this lane. Full baseline table in the arming-sweep PR.
+[expectations.unityExceptions]
+maxTotal = 0
+
 [runtime]
 # Budget arithmetic (M-A5 S8), sized so the WORST DEFER path surfaces a clean per-step
 # TIMEOUT rather than a run-budget KILL. run.py waits max(step_budget, 600) + 60 for a

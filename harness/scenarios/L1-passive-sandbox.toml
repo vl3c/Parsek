@@ -104,6 +104,13 @@ tolerances   = "default"
 rec3CarveOut = false
 # No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
 
+# The raw-Unity-exception scan (hlib.scan_unity_exceptions), ARMED AT ZERO. This
+# spec's own fresh 2026-08-04 daily run measured 0, and the arming rests on the
+# six-spec L1 family reading 0 on EVERY one of its 14+ driver-valid readings -
+# one boot profile, one measurement. Full baseline table in the arming-sweep PR.
+[expectations.unityExceptions]
+maxTotal = 0
+
 [runtime]
 budgetSeconds = 600
 
