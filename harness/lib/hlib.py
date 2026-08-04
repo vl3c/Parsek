@@ -2968,10 +2968,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     errors.extend(allowed_parse.errors)
     warnings.extend(allowed_parse.warnings)
 
-    # The REPORT-ONLY-by-default raw-Unity-exception scan's opt-in block. Declared in
-    # ZERO committed specs; validated here so an armed ceiling that would silently
-    # degrade to report-only (misspelled key, non-int, negative) is a pre-launch
-    # rejection instead of a gate everyone believes is on.
+    # The REPORT-ONLY-by-default raw-Unity-exception scan's opt-in block. Declared
+    # by the 14-spec armed allowlist since 2026-08-04 (UnityExceptionScanTests);
+    # validated here so an armed ceiling that would silently degrade to
+    # report-only (misspelled key, non-int, negative) is a pre-launch rejection
+    # instead of a gate everyone believes is on.
     if UNITY_EXCEPTIONS_BLOCK in expectations:
         errors.extend(validate_unity_exception_expectations(
             expectations.get(UNITY_EXCEPTIONS_BLOCK)))

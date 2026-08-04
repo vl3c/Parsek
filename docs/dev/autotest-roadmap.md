@@ -1001,8 +1001,10 @@ Clusters, in the design doc's phase order:
 - **Fail-open closures** (spec/config; extends Tier 0's spirit): the
   `STOCK_AWARD_PATTERNS` rewrite (known-gate 3), anomaly count-budgets
   (known-gate 0), and a report-only raw-Unity-exception scan LANDED via
-  PR #1377 - arming stays operator-blocked on a calibration nightly (see
-  status-doc gates 0/3/11). Still open: the B4 chute-latch diagnosis
+  PR #1377. The armings have since happened: the capture cross-check on CL-2
+  (2026-07-31), then on 2026-08-04 the unity-exception scan on 14 specs plus
+  the seven-token anomaly promotion (status-doc gates 0/3/11 carry the
+  measured baselines). Still open: the B4 chute-latch diagnosis
   (known-gate 7); converting the ~19 silent early-return PASS sites to loud
   Skips; ERS/ELS gate hardening (`CommittedTrees` pattern,
   fail-on-missing-pwsh).
@@ -1051,8 +1053,8 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 | Item | Effect on this roadmap |
 |---|---|
 | ~~EVA-4 mission oracle returns MISSION-OK while the kerbal dies~~ (CLOSED by PR #1359, merged 2026-07-27) | Was: anyone reading `results/*_mission.json` alone read that flight as a success, with survival proven only by seam log tokens. Closed on both sides: the canopy-gated standoff completion in `TestCommandEvaExit.cs` (the C# EvaExit verb no longer completes before the observed canopy state allows it) plus the harness-side `missionOutcome` gate (`classify_post_mission_outcome_miss`), which reds a subject death as `PARSEK-FAIL(mission-outcome)` instead of letting a retry discard the evidence. Mission-level verdicts stay HANDOFF-scoped by design (`mlib.MISSION_HANDOFF_CONTRACTS` declares what a mission did not verify); the gate, not the mission JSON, carries survival. `autotest-status.md` already reflects this. |
-| `ANOMALY_TOKENS` drift (status doc known-gate 0, REPORTED not resolved) | `icon-jump` is a dead token; nine raised reasons including `icon-teleport` are ungated. Now source-derived and report-only via `anomalySweep.unlistedReasons`, so visible but non-gating. |
-| `STOCK_AWARD_PATTERNS` dead against real KSP logs (known-gate 3) | `unmatched_captured_awards` captures nothing, so the ledger oracle's independence cross-check is a structural no-op. Degrades every D8 claim and the whole L-track. Needs the operator stock-award capture session. |
+| ~~`ANOMALY_TOKENS` drift (status doc known-gate 0)~~ (RESOLVED 2026-08-04, branch `arming-sweep`) | Was: `icon-jump` a dead token; nine raised reasons including `icon-teleport` ungated. Closed in two halves: the dead token retired 2026-07-29, then the per-token calls made 2026-08-04 off the real-geometry silence baseline - seven promoted into the gated set (a raise now reds the tracer-armed specs), two kept as declared report-only instruments (`unaccounted-drawn-recording`, `factory-parity`). Known-gate 0 carries the full resolution record. |
+| ~~`STOCK_AWARD_PATTERNS` dead against real KSP logs (known-gate 3)~~ (CLOSED: mechanism 2026-07-29, ARMED on CL-2 2026-07-31, re-verified at HEAD 2026-08-04) | Was: `unmatched_captured_awards` captured nothing, making the ledger oracle's independence cross-check a structural no-op. The patterns were rewritten from measured lines (reputation-only, permanently - KSP logs no funds/science award line), and `CL-2-pod-impact-ledger` arms `captureCrossCheck = "gate"` with `utWindow` phase bounds; nine consecutive bit-stable captures archived. Known-gate 3 carries the record. |
 | B4 `chuteDeployed` is still a commanded latch (known-gate 7, audit debt) | Same class that let B1 ship four months of green nightlies on a chute that never opened. B4's fixture carries the same `automateSafeDeploy = 0`. Needs its own diagnosis from a B4 recording before anyone concludes either way. |
 | INV2 double-cover recorder seam (known-gate 5) | Real Parsek defect, fixed in its own lane. |
 | The no-1x-coast certification cannot see coast warp-thrash (known-gate 8) | A real gap in an existing gate. Bounded for now by the machine-side thrash fast-fail. |
