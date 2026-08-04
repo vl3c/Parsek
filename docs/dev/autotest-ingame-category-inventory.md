@@ -94,10 +94,10 @@ Two limits of this table, stated so nobody over-reads it:
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
 | `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
-| `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | - | B |
+| `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `DataHealth` | 4 | 4 | 4 | 4 | 0 | 0 | H14 | A |
-| `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | - | B |
+| `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | H27 | A |
 | `EvaSpawnPosition` | 2 | 2 | 0 | 0 | 0 | 2 | H20 | A |
 | `FinalizeBackfill` | 7 | 7 | 0 | 0 | 0 | 0 | H10 | A |
 | `FinalizeLimbo` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
@@ -105,7 +105,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `FlightIntegration` | 4 | 4 | 0 | 0 | 0 | 0 | H17 | A |
 | `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
-| `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | - | B |
+| `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | - | B |
 | `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | - | B |
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6 | B |
@@ -118,11 +118,11 @@ Two limits of this table, stated so nobody over-reads it:
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | - | B |
 | `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | - | B |
-| `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | - | B |
+| `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
+| `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | - | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
-| `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | - | B |
+| `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | - | B |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
@@ -188,11 +188,23 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **98 categories / 543 declarations**. Buckets **A 20 categories
-(138 declarations)**, **B 78 categories (405 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **28 of 98 categories**, up from 8.
-Measured against declarations rather than categories, that is 263 of 543 inside a
-driven category (was 125).
+Totals, re-derived: **98 categories / 543 declarations**. Buckets **A 26 categories
+(186 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **34 of 98 categories**, up from 28
+(and from 8 two waves ago). Measured against declarations rather than categories,
+that is 311 of 543 inside a driven category (was 263; 125 two waves ago).
+
+The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
+revision of this doc named as "the honest next wave": all five B6 members that
+were still undriven (`LogContracts` 10 as H26, `Diagnostics` 6 as H27,
+`MapPresence` 5 as H28, `LocalizedName` 3 as H29, `GhostAudio` 9 as H30) plus
+`CrewReservation` (15, as H31) from B4. Every spec followed the per-test
+skip-precondition read B4 demands; the two fixture substitutions that fell out of
+it (H26 on career-pad-craft for the CAREER-gated resource cell, H31 on
+b2-lko-craft as the ONLY committed fixture with both free crew seats and spare
+Available kerbals) and the SHIP_VOLUME provision finding that would have
+hard-failed H30 are recorded in the specs and in todo-and-known-bugs.md (the W2
+entries). See the B6 and B4 sections below for what each wiring settled.
 
 The 2026-08-04 wave (`wire-rewind-block`, roadmap R7 + two R8 stragglers) added
 three: `Rewind` (37 declarations - the largest undriven category in the tree, and
@@ -437,10 +449,23 @@ bearing part:
   `all-synthetic`. Unblocking the rest is generator/product work (an overlap-
   capable `WithLoopPlayback` interval, a mission-node author), not spec authoring.
 
-The honest next wave is therefore bucket B6 below (`LogContracts` 10,
+~~The honest next wave is therefore bucket B6 below (`LogContracts` 10,
 `GhostAudio` 9, `Diagnostics` 6, `MapPresence` 5, `LocalizedName` 3 - all
 read 2026-08-04 with high predicted execution on committed fixtures), plus
-`CrewReservation` from this bucket, ahead of anything else in B4.
+`CrewReservation` from this bucket, ahead of anything else in B4.~~
+**DONE 2026-08-05 (`wire-wave-2`): that exact list shipped as H26-H31.**
+`CrewReservation` left this bucket via the read it demanded: the blocker was
+never the guards themselves but the FIXTURE - measured across all twelve
+committed saves, only `b2-lko-craft` has both a crew part with free seats
+(mk1-3pod, 2 free) AND spare Available Crew kerbals (3); on the family's
+gloops-airshow host five of the six seat-matching cells skip on a full 1-seat
+pod. H31 executes 14 of 15 (the one skip is the SPACECENTER-scoped
+auto-assign-patch cell, which is currently unreachable in ANY scene - at
+SPACECENTER it would self-skip on the empty CrewReplacements dict no committed
+asset can populate; see W2-VACUOUS-CELLS in todo-and-known-bugs.md). Four of
+the 14 are honest vacuous passes for the same empty-dict reason - converting
+them to Skips is filed product work, and doing it will move H31's pin
+deliberately.
 
 **B5 - too small to justify a dedicated boot.** The long tail: `Bug289` (2),
 `ContinuationIntegrity` (2), `MissionPhasing` (2), `PartEventTiming` (2),
@@ -452,7 +477,21 @@ KSP boot each at one or two tests. They are the strongest argument for a future
 multi-category batch contract, and the honest answer today is "not worth wiring",
 not "cannot be wired".
 
-**B6 - THE NEXT WAVE: qualified on every criterion, deferred only on batch size.**
+**B6 - ~~THE NEXT WAVE~~ CLOSED 2026-08-05: all seven wired.** `KspApiSanity` /
+`Serialization` shipped 2026-08-04 as H24 / H25; the remaining five shipped
+2026-08-05 (`wire-wave-2`) as H26 (`LogContracts`), H27 (`Diagnostics`), H28
+(`MapPresence`), H29 (`LocalizedName`), H30 (`GhostAudio`). Two of the five
+needed more than the "share the family boot" default the table below predicted:
+H26 moved to career-pad-craft (its resource cell is assertion-gated on CAREER
+mode and passes VACUOUSLY on any sandbox host - the fourth-trap shape), and H30
+was unflyable on any instance provisioned before 2026-08-05 (the profiles pinned
+SHIP_VOLUME = "0", which zeroes ComputeGhostAudioVolume and makes the looped
+audio START path unreachable - the W2-SHIP-VOLUME-ZERO finding; both profiles
+now pin "1" with silence owned by MASTER_VOLUME alone). H28 injects the corpus
+deliberately: two of its cells bail through a SILENT return on an empty
+ghost-map pid set, so under "none" its green would mean less than the tally
+suggests. The section is kept for the record of what B6 was; the table below is
+the pre-wiring read.
 B1-B5 were written as if they partitioned the bucket. They do not, and the omission
 matters because these are the categories a reader would reach for first:
 
@@ -466,11 +505,13 @@ matters because these are the categories a reader would reach for first:
 | `Serialization` | 4 | 4 | 1 | |
 | `LocalizedName` | 3 | 3 | 0 | **Meets bucket A's admission test verbatim** - identical on all three criteria to `RecordingFinalization` (3/3/0) and `SpawnHealth` (3/3/0), both of which WERE wired. It was omitted by oversight, not by judgment |
 
-None of these is blocked by a fixture, a profile or a scene. They were left out of
-this wave to keep it at 14 boots and because each carries at least one self-skip
-whose fixture precondition wants reading first - except `LocalizedName`, which
-carries none and should simply have been wired. This is the highest-confidence
-starting point for the next wave, ahead of B4's large guarded categories.
+None of these is blocked by a fixture, a profile or a scene. They were left out
+of the H7-H20 wave to keep it at 14 boots and because each carries at least one
+self-skip whose fixture precondition wants reading first - except
+`LocalizedName`, which carries none and should simply have been wired. (All
+seven now are; the "one self-skip wants reading first" caution earned its keep
+twice - see the header note's H26 and H30 corrections, both invisible to the
+attribute columns above.)
 
 **B6-ISO - needs an ISOLATED batch and a launchable-craft fixture (5 categories, 16
 declarations).** `AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2),

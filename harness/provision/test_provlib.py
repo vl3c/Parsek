@@ -56,8 +56,15 @@ class RealProfileFileTests(unittest.TestCase):
     # zeros exist so an unattended run is silent (operator request 2026-07-19);
     # modded-compat initially shipped without them and the gap was only caught
     # by inspection after the first live provision (2026-08-04).
+    # SHIP_VOLUME is pinned "1", not "0" (W2-SHIP-VOLUME-ZERO, 2026-08-05):
+    # MASTER_VOLUME = "0" alone owns audible silence via the AudioListener, while
+    # a zero SHIP_VOLUME zeroes Parsek's ComputeGhostAudioVolume product and made
+    # the ghost-audio START path (StartLoopedGhostAudio) structurally
+    # unreachable on every harness instance - H30's reanchor cell hard-failed on
+    # it. Do not "fix" this back to "0" for symmetry; silence is not the job of
+    # this key.
     UNATTENDED_SETTINGS = {
-        "MASTER_VOLUME": "0", "SHIP_VOLUME": "0", "AMBIENCE_VOLUME": "0",
+        "MASTER_VOLUME": "0", "SHIP_VOLUME": "1", "AMBIENCE_VOLUME": "0",
         "MUSIC_VOLUME": "0", "UI_VOLUME": "0", "VOICE_VOLUME": "0",
         "SIMULATE_IN_BACKGROUND": "True", "FULLSCREEN": "False",
         "CHECK_FOR_UPDATES": "False",

@@ -8536,7 +8536,12 @@ namespace Parsek.InGameTests
                 //   victim is reserved (in crewReplacements) AND Missing.
                 CrewReservationManager.ClearReplacementsInternal();
                 CrewReservationManager.SetReplacement(victim.name, fakeStandIn);
-                victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
+                // Suppressed: the rescue's reverse flip runs inside the
+                // production SuppressionGuard.Crew(), so an unsuppressed flip
+                // here leaves a half-open debounce pair and leaks one
+                // CrewStatusChanged event into the save (W2 wave finding).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
                 // Sanity: marker must start clean.
                 InGameAssert.IsFalse(CrewReservationManager.IsRescuePlaced(victim.name),
                     $"Pre-test sanity: marker for '{victim.name}' must start cleared");
@@ -8630,7 +8635,11 @@ namespace Parsek.InGameTests
                 CrewReservationManager.ClearReplacementsInternal();
                 foreach (var kvp in savedReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                victim.rosterStatus = savedVictimStatus;
+                // Suppressed for the same reason as the staging flip: on a
+                // failure path this restore is a real Missing->Available flip
+                // whose pair never closes (Fable review of the W2 wave).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = savedVictimStatus;
                 if (victimWasRescuePlaced)
                     CrewReservationManager.MarkRescuePlaced(victim.name, savedVictimMarkerPid);
                 else
@@ -9399,7 +9408,11 @@ namespace Parsek.InGameTests
                 // Stage the bug scenario:
                 //   victim (Available) → Missing
                 //   crewReplacements: { victim → fakeStandIn }
-                victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
+                // Suppressed: the rescue's reverse flip runs inside the
+                // production SuppressionGuard.Crew(); an unsuppressed flip here
+                // leaks one CrewStatusChanged event (W2 wave finding).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
                 CrewReservationManager.SetReplacement(victim.name, fakeStandIn);
 
                 // Build the snapshot the recording would hand to the spawner.
@@ -9447,7 +9460,11 @@ namespace Parsek.InGameTests
                 CrewReservationManager.ClearReplacementsInternal();
                 foreach (var kvp in savedReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                victim.rosterStatus = savedVictimStatus;
+                // Suppressed for the same reason as the staging flip: on a
+                // failure path this restore is a real Missing->Available flip
+                // whose pair never closes (Fable review of the W2 wave).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = savedVictimStatus;
 
                 InGameAssert.AreEqual(savedReplacements.Count,
                     CrewReservationManager.CrewReplacements.Count,
@@ -9529,7 +9546,11 @@ namespace Parsek.InGameTests
 
                 // Stage the bug scenario:
                 //   victim (Available) -> Missing (no reservation registered)
-                victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
+                // Suppressed for the same reason as Bug609 above: the rescue's
+                // reverse flip is suppressed in production, so this half must
+                // be too or one CrewStatusChanged event leaks (W2 wave finding).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = ProtoCrewMember.RosterStatus.Missing;
 
                 // Build the snapshot the recording would hand to the spawner.
                 var snapshot = new ConfigNode("VESSEL");
@@ -9584,7 +9605,11 @@ namespace Parsek.InGameTests
                 CrewReservationManager.ClearReplacementsInternal();
                 foreach (var kvp in savedReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
-                victim.rosterStatus = savedVictimStatus;
+                // Suppressed for the same reason as the staging flip: on a
+                // failure path this restore is a real Missing->Available flip
+                // whose pair never closes (Fable review of the W2 wave).
+                using (SuppressionGuard.Crew())
+                    victim.rosterStatus = savedVictimStatus;
 
                 InGameAssert.AreEqual(savedReplacements.Count,
                     CrewReservationManager.CrewReplacements.Count,
