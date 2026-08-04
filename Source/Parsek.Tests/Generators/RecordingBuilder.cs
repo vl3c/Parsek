@@ -38,6 +38,7 @@ namespace Parsek.Tests.Generators
         private double rewindReservedScience;
         private float rewindReservedRep;
         private int? terminalState;
+        private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
         private Dictionary<string, ResourceAmount> startResources;
         private Dictionary<string, ResourceAmount> endResources;
@@ -380,6 +381,36 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithTerrainHeightAtEnd(double height)
         {
             terrainHeightAtEnd = height;
+            return this;
+        }
+
+        /// <summary>
+        /// OPT-IN <see cref="Recording.MergeState"/> authoring (R7-FIXTURE-GAPS
+        /// gap 2). Unset leaves the recording at <see cref="Recording"/>'s own
+        /// default (<see cref="MergeState.Immutable"/>), which is also what the
+        /// production codec reads back when the <c>mergeState</c> key is absent -
+        /// so an existing fixture that never calls this is byte-identical.
+        /// <para>
+        /// Set it to <see cref="MergeState.CommittedProvisional"/> to author an
+        /// OPEN rewind slot: <c>UnfinishedFlightClassifier.IsSlotEffectiveTipOpen</c>
+        /// reads the slot's effective tip MergeState and admits ONLY
+        /// CommittedProvisional, so an Immutable tip is a CLOSED (sealed) slot and
+        /// <see cref="EffectiveState.IsUnfinishedFlight"/> returns false for every
+        /// recording mapped to it. Authoring the key is what lets an injected
+        /// corpus surface an Unfinished Flight at all.
+        /// </para>
+        /// <para>
+        /// Serialization is the production one: <c>ScenarioWriter.BuildRecording</c>
+        /// stamps the field on the <see cref="Recording"/> and
+        /// <c>RecordingTreeRecordCodec.SaveRewindToStagingMergeState</c> writes
+        /// <c>mergeState = &lt;enum name&gt;</c> (omitted when Immutable). There is
+        /// deliberately no hand-written key here - mirroring the codec by hand is
+        /// how a fixture drifts from the format it claims to produce.
+        /// </para>
+        /// </summary>
+        public RecordingBuilder WithMergeState(MergeState state)
+        {
+            mergeState = state;
             return this;
         }
 
@@ -1004,6 +1035,13 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the terminal state (null if not set).</summary>
         public int? GetTerminalState() => terminalState;
+
+        /// <summary>
+        /// Returns the opt-in <see cref="MergeState"/> override, or null when the
+        /// fixture never called <see cref="WithMergeState"/> (leave the recording
+        /// at its default).
+        /// </summary>
+        public MergeState? GetMergeState() => mergeState;
 
         /// <summary>Returns the terrain height at end.</summary>
         public double GetTerrainHeightAtEnd() => terrainHeightAtEnd;

@@ -33,19 +33,22 @@ tags = ["ingame-batch", "rewind", "spacecenter", "R7", "R7c"]
 # ScenarioModule set the product ships. Sandbox would work; career is the stricter
 # of the two at identical cost.
 #
-# injectedRecordings = "none", and this is the one place R7 leaves a cell on the
-# table KNOWINGLY. UnfinishedFlightsRenderingAndNoHide is the only one of the five
-# that does not self-set-up: it needs a recording satisfying
-# EffectiveState.IsUnfinishedFlight, which requires MergeState Immutable or
-# CommittedProvisional. `ScenarioWriter` emits NO `mergeState` key at all (zero hits
-# for MergeState / CommittedProvisional across Source/Parsek.Tests/Generators/), so
-# EVERY injected recording deserialises to the default and NONE of the three presets
-# can satisfy it - injecting the crew-loss or b9 corpus here would add a fixture
-# dependency and still leave the cell skipped. Closing it is a fixture-GENERATOR
-# change (teach ScenarioWriter to author mergeState), filed in
-# docs/dev/todo-and-known-bugs.md, not a spec change.
+# injectedRecordings = "rewind-b9", and it exists for exactly ONE of the five
+# cells. UnfinishedFlightsRenderingAndNoHide is the only one that does not
+# self-set-up: it needs a recording satisfying EffectiveState.IsUnfinishedFlight.
+# The first R7 wave shipped this spec with "none" because no preset COULD satisfy
+# it - ScenarioWriter emitted no `mergeState` key, so every injected recording
+# deserialised to Immutable, and IsUnfinishedFlight's tip predicate
+# (`IsSlotEffectiveTipOpen`) admits ONLY CommittedProvisional; Immutable is the
+# actively-CLOSED state, not a second open one (the original R7-FIXTURE-GAPS
+# entry was one predicate short on this). The generator gap is now closed:
+# RecordingBuilder.WithMergeState stamps the field, the production codec emits
+# the key, and rewind-b9's slot-1 crashed booster authors CommittedProvisional -
+# unit-proven by RewindB9FixtureTests.Inject_CrashedBoosterClassifiesAsOpen-
+# UnfinishedFlight, whose negative control (flip the loaded booster back to
+# Immutable -> classifies false) shows the authored key is load-bearing.
 saveTemplate = "fixtures/saves/fresh-career"
-injectedRecordings = "none"
+injectedRecordings = "rewind-b9"
 craft = []
 
 [driver]
@@ -68,64 +71,89 @@ steps = [
 # clears the lock without sealing), and a third drives the stable-leaf group seal
 # plus the last-slot RP reap - that is D9 `seal-stash-fly` and `rp-disk-reaper`
 # executed rather than decided.
-# NOT claimed: `unfinished-flights-stash`. The cell that would carry it
-# (UnfinishedFlightsRenderingAndNoHide) is the one that SKIPS here, per the fixture
-# note - claiming the value off the seal cells would be exactly the over-claim the
-# registry's coverage report exists to prevent.
-D9  = ["seal-stash-fly", "rp-disk-reaper"]
+# `unfinished-flights-stash` is claimed off UnfinishedFlightsRenderingAndNoHide,
+# which EXECUTES now that the injected b9 booster satisfies IsUnfinishedFlight
+# (see the fixture note) - the first R7 wave left this cell skipped and the value
+# unclaimed for exactly that reason.
+D9  = ["seal-stash-fly", "rp-disk-reaper", "unfinished-flights-stash"]
 D14 = ["career", "scene-ksc"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Zero. Nothing is injected and every executing cell replaces the scenario's
-# rewind/supersede/tombstone lists only for its own duration. A non-zero count means
-# a cell leaked its synthetic recording into the produced save, which is a genuine
-# campaign-isolation finding to FILE, not to widen away.
-count = { min = 0, max = 0 }
+# EXACT, and it is the CAMPAIGN-ISOLATION assertion the first revision's {0,0}
+# carried, restored at the injected corpus's size. The b9 preset is exactly 3
+# recordings, the batch teardown reverts persistent.sfs from the pre-batch .bak
+# (which already contains them), and the 2026-08-04_1617 flight MEASURED the
+# produced save at exactly 3. The seal-confirm cell's mid-test SaveGame is why a
+# loose min=1 was first written here - but whatever that save persisted is
+# overwritten by the teardown revert, so on a healthy run the count cannot move.
+# A deviation therefore means the isolation contract failed (a leaked synthetic
+# row surviving a failed .bak revert) or the corpus size changed - both findings
+# to FILE, not to widen away. Note the min=1 precedent (S4.1 / CL-3 / S1.5) does
+# NOT apply: those are seam-driven runs with no batch teardown, so their produced
+# saves legitimately vary; this one is a batch run with the revert contract.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: TALLY MEASURED, RUN RED BY FINDING. Flown 2026-08-04 (run
-# `2026-08-04_1329_R7c-rewind-spacecenter`, 53 s): the BATCH_COMPLETE line matched
-# this pin token for token, exactly as derived from source, and every verifier row
-# passed. The run classified PARSEK-FAIL solely on the forbidden-ERROR log contract
-# - the Site B-1 finding, filed as R7C-SITE-B1-ERROR in
-# `docs/dev/todo-and-known-bugs.md`. The red is that contract, NOT this pin.
+# EVIDENCE STANDING: MEASURED. Run `2026-08-04_1617_R7c-rewind-spacecenter`: FULL
+# PASS on attempt 1, 55 s, every verifier green, expectations mismatches=0, ZERO
+# `[Parsek][ERROR]` lines. The pin is a LITERAL pattern, so the PASS means the
+# runner printed it token for token.
+#
+# THE HISTORY IS THREE FLIGHTS AND EACH ONE EARNED ITS KEEP:
+#  - `2026-08-04_1329` (injectedRecordings="none"): tally `passed=4 skipped=33`
+#    matched the derivation exactly, but PARSEK-FAIL on the forbidden-ERROR
+#    contract - the Site B-1 finding (R7C-SITE-B1-ERROR), fixed by
+#    production-shaping the spanned-recording test's RP fixture; ERROR severity
+#    in the product unchanged.
+#  - `2026-08-04_1914` (first cut of that fixture fix): caught the fix
+#    over-shooting - it gave the LAUNCH-ROOT origin a ParentBranchPointId too,
+#    which TimelineBuilder reads as "staging child, not a launch" and suppressed
+#    the very launch row the test asserts. failed=1 on the launch-row assertion,
+#    ERROR count already 0. See the fixture comment in the test.
+#  - `2026-08-04_1617`: the pin below, whole.
+# If a future run reds with a different split, read the skip/fail messages and
+# correct the derivation, never the pattern.
 #
 # WHAT EACH TOKEN RESTS ON:
 #  - total=37 is ATTRIBUTE-EXACT (see R7a); the token counts the whole category, not
 #    the scene-eligible slice.
-#  - skipped=33 = 32 ATTRIBUTE-FORCED + 1 RUN-TIME.
-#      32 attribute-forced: every FLIGHT-scoped Rewind declaration scene-skips here.
-#      That is the mirror image of R7a/R7b's 5, and it is why `scene=SPACECENTER` in
-#      this pin is load-bearing rather than cosmetic - at FLIGHT this line would be
-#      impossible.
-#      1 run-time: UnfinishedFlightsRenderingAndNoHide, on "No Unfinished Flight
-#      member in current save", for the ScenarioWriter mergeState reason above.
+#  - skipped=32, ALL ATTRIBUTE-FORCED: every FLIGHT-scoped Rewind declaration
+#    scene-skips here. That is the mirror image of R7a/R7b's 5, and it is why
+#    `scene=SPACECENTER` in this pin is load-bearing rather than cosmetic - at
+#    FLIGHT this line would be impossible. The former 33rd (run-time) skip was
+#    UnfinishedFlightsRenderingAndNoHide on "No Unfinished Flight member in current
+#    save"; the injected b9 booster now satisfies IsUnfinishedFlight (unit-proven,
+#    see the fixture note), so it is predicted to EXECUTE.
 #  - failed=0 is the ASSERTION.
-#  - passed=4, and the four are:
+#  - passed=5:
 #      ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew - its
 #        ONLY precondition is the SPACECENTER scene; everything else is built
-#        in-body.
+#        in-body (now including a production-shaped RP, per the Site B-1 fix).
 #      StableLeafGroupSealAndLastSlotReap - SPACECENTER + no live marker + no active
-#        merge journal, all true on a fresh career save.
+#        merge journal, all true on this save.
 #      SealPopupCancelClearsLockWithoutSealing and
 #        SealPopupConfirmSealsSlotAndClearsLock - SPACECENTER + a live UI so
-#        PopupDialog.SpawnPopupDialog and HighLogic.UISkin resolve. The UI is the one
-#        genuinely run-time-decided guard in this spec; a headless-UI regression
-#        would move this to passed=2 and name itself in the log.
+#        PopupDialog.SpawnPopupDialog and HighLogic.UISkin resolve. The UI is a
+#        genuinely run-time-decided guard; a headless-UI regression would drop this
+#        to passed=3 and name itself in the log.
+#      UnfinishedFlightsRenderingAndNoHide - the newly-unblocked cell, and the least
+#        certain of the five: its member resolution is unit-proven headless, but its
+#        rendering/no-hide assertions over a live KSC scene are exactly what only
+#        this flight measures.
 #  - scene=SPACECENTER is the fresh-career NoVesselSpaceCenter route.
 #
-# NOTE on the anti-vacuity gate: passed=4 with skipped=33 is a lopsided but
+# NOTE on the anti-vacuity gate: passed=5 with skipped=32 is a lopsided but
 # NON-vacuous line - hlib.batch_contract_vacuity_gap rejects passed == 0, and a
-# 33-skip floor that is 32 ATTRIBUTE-forced is exactly what a whole-category token
-# looks like when the category is 86% scoped to another scene. The alternative -
-# pinning only the five-member slice - is not expressible: BATCH_COMPLETE's total
-# counts filtered tests too.
-required  = ["BATCH_COMPLETE v1 total=37 passed=4 failed=0 skipped=33 category=Rewind scene=SPACECENTER"]
+# 32-skip floor that is entirely ATTRIBUTE-forced is exactly what a whole-category
+# token looks like when the category is 86% scoped to another scene. The
+# alternative - pinning only the five-member slice - is not expressible:
+# BATCH_COMPLETE's total counts filtered tests too.
+required  = ["BATCH_COMPLETE v1 total=37 passed=5 failed=0 skipped=32 category=Rewind scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
