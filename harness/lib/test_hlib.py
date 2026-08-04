@@ -4229,25 +4229,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # machine-checked below; the rest are human judgements recorded here.
     CARRIERS = {
         "R1-rewind-loop-flown.toml":   "tier=operator",
-        # Landed 2026-08-03 with the CL stage-B re-fly lane, UNFLOWN. Two live debts,
-        # both derived in the spec header rather than discovered by a flight.
+        # Landed 2026-08-03 with the CL stage-B re-fly lane. FLOWN since: three runs
+        # (two PASS + a deliberate negative control) on 2026-08-03, armed the same
+        # day. The two debts this entry originally listed are BOTH DISCHARGED - the
+        # `vesselStateChanged` row was removed (it was constant-False on this lane),
+        # and the arming follow-up was done. What is recorded below is the ONE debt
+        # that is actually open, and it was discovered BY a flight rather than
+        # derived from the header.
         "CL-3-refly-crew-tombstone.toml":
-                                       "tier=operator AND two open operator calls. (1) THE "
-                                       "OPEN GATE: the mission's `vesselStateChanged` "
-                                       "corroboration row cannot fire on a flightless "
-                                       "pad-to-pad rewind - BuildRewindPointQuicksave clones "
-                                       "the host save's OWN vessel and StampVesselIdentity "
-                                       "touches no coordinate, so the pre- and post-rewind "
-                                       "readings are the same craft, same pad, same "
-                                       "situation - and a human picks between the "
-                                       "mission-side and fixture-side remedies the header "
-                                       "derives. (2) THE ARMING FOLLOW-UP: it ships with no "
-                                       "[expectations.rewind] and no recordings.structure "
-                                       "block, so the supersede-row / tombstone save-parse "
-                                       "windows are declared only after a measurement flight "
-                                       "reads them (the S4.1 workflow, which itself names "
-                                       "this spec as the second reading its rewindPoints "
-                                       "window is waiting on).",
+                                       "tier=operator AND one open operator call: the "
+                                       "D12 `dead-crew-strip` cell. The 2026-08-03_1834 "
+                                       "flight measured half (i) of the registry's "
+                                       "two-part definition HOLDING (Tombstoned 1 ... "
+                                       "Kerbal=1) and half (ii) FAILING (Recomputed "
+                                       "after tombstones: 1 reservations remain, plus a "
+                                       "Stand-in generated for the same kerbal). The "
+                                       "surviving reservation is sourced from "
+                                       "cl-stack-root, OUTSIDE the supersede subtree, "
+                                       "so the fixture's crewed terminal-state-less "
+                                       "root is SUFFICIENT to explain it - but that is "
+                                       "NOT discriminated against a product defect, "
+                                       "because the crewless-root re-fly that would "
+                                       "settle it has not been run. A human decides "
+                                       "whether to spend that fixture change plus "
+                                       "flight, and the cell stays unclaimed until "
+                                       "someone does.",
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "

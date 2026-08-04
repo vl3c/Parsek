@@ -663,53 +663,57 @@ dead=1`, `Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead)`, zero
 
 ---
 
-## `CL-1-pod-impact` is RED in the current environment, and was red BEFORE this branch [FOUND 2026-08-04 by a regression sweep flown for CL stage B. NOT RESOLVED - pre-existing, not caused by the branch that found it]
+## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
 
-CL-1 is tiered `nightly` and its row records LIVE-PROVEN 2026-07-28. It does not pass
-today. Found while regression-flying the shared `_read_nodes` guard against specs the CL
-stage B branch did not touch - which is exactly what that sweep was for.
+### Correcting the first version of this entry
 
-### Measured, both ways
+An earlier revision of this entry claimed CL-1 was already red and that "the branch did
+not cause it". **That was wrong, and it was wrong because I read warning lines instead of
+a verdict.** The pre-guard control run logged four `vessel-lost: telemetry read failed N
+consecutive samples` warnings, I concluded from those that it had died, and never checked
+the run's own result. It had PASSED. The contradiction was caught by
+`harness/coverage/duration.json` - a PASS-only ledger - carrying a CL-1 sample the same
+branch's prose said could not exist.
 
-| mission_runner | CL-1 outcome |
+Measured, same build, the only variable being whether the maneuver-node read is tolerated:
+
+| `tolerate_unreadable_nodes` | CL-1 |
 |---|---|
-| WITHOUT the guard (i.e. `origin/main`'s code) | `vessel-lost`: "telemetry read failed 3 consecutive samples", then 4, 5, 6 -> `MISSION-ASSERT-FAIL` -> INVALID |
-| WITH the guard | gets past the read, then `MISSION-ASSERT-FAIL reason=crew-survived-impact ... last altitude 27m, lastRoster=Assigned, phasesReached=['PRELAUNCH','FLIGHT'] wall=1.857s` -> INVALID |
+| OFF (`2026-08-04_0538`) | **PASS**, 158 s, MISSION-OK |
+| ON (`_0535`, `_0536`, `_0541`) | INVALID, `crew-survived-impact`, 1.9 s |
 
-Both attempts, both configurations. **So the branch that found this did not cause it**:
-remove its only shared-code change and CL-1 still fails, just with the earlier symptom.
-The guard is a strict improvement (it removes the false vessel-lost) and it UNMASKED a
-second, independent defect that the vessel-lost death had been hiding.
+So the CL stage B branch DID cause CL-1's failure, by globally tolerating a read that
+used to abort the whole frame. That is fixed: the tolerance is now an OPT-IN constructor
+flag (`KrpcMissionControl(tolerate_unreadable_nodes=...)`), default OFF, and only CL-3's
+shell sets it. CL-1 and CL-3 both PASS on the same build (`CL-1` 179 s / 262 points,
+`CL-3` 64 s armed).
 
-### The second defect, stated precisely
+### The latent defect that remains
 
-CL-1 terminates in 1.9 s having reached only `PRELAUNCH` -> `FLIGHT` at 27 m - pad
-height. Its `crew-survived-impact` terminal fires while the craft is still ON THE PAD:
-the machine sees a LANDED situation on two consecutive frames with the crew alive and
-concludes the flight ended with the subject surviving. A craft that has not launched
-satisfies "landed with crew alive" trivially, so the terminal needs a precondition that
-the craft actually left the pad (an altitude gain, a non-PRELAUNCH streak, or a launch
-latch) before the landed-with-crew reading may conclude anything.
+Tolerating the read did not invent CL-1's failure, it UNMASKED one. The mechanism is
+worth stating because it generalises:
 
-### Why it passed on 2026-07-28 and does not now
+- Before, ONE field's exception aborted the WHOLE telemetry read, so the frame arrived
+  BLIND (`vessel_lost`, `roster=UNREAD`). CL-1's machine correctly treats a blind frame
+  as proving nothing and keeps waiting.
+- Tolerating that field makes the frame COMPLETE AND TRUSTED. On the pad it then reads
+  situation LANDED, roster Assigned, altitude 27 m - and `crew-survived-impact` fires on
+  two consecutive such frames, 1.9 s in, `phasesReached=['PRELAUNCH','FLIGHT']`.
 
-`control_handle.nodes` has been in `read_telemetry` since 2026-07-22 (commit
-`4802d904d`), i.e. BEFORE CL-1's green run - so the refusing read is not new. kRPC
-refuses it both for an un-upgraded Tracking Station AND for a vessel in a situation where
-nodes cannot be used, and PRELAUNCH is such a situation. On 2026-07-28 CL-1 evidently got
-off the pad inside the 3-consecutive-failure budget; today it does not launch at all
-within 1.9 s. WHAT CHANGED IS NOT ESTABLISHED and should not be guessed - candidates
-worth checking first are the staged craft's staging state and anything that would delay
-or suppress the initial stage activation.
+**A craft that has not launched satisfies "landed with crew alive" trivially.** That
+terminal's three conjuncts (live frame, roster not not-alive, roster not unread) do not
+include any evidence that the flight HAPPENED. The pad frames were never evaluated only
+because they used to be blind - which is masking, not a guard.
 
-### Scope note
+### Fix, for whoever picks it up
 
-Fixing CL-1 is NOT in scope for the CL stage B branch: it is a different scenario, the
-failure predates the branch, and the branch's own lane (CL-3) is green three ways. Filed
-here so a nightly that silently stopped passing is visible rather than discovered later
-as a "regression" from whatever touches it next.
+Add a fourth conjunct: the craft must have left the ground at least once before
+`crew-survived-impact` may conclude - a has-flown latch (a non-landed situation observed,
+or altitude gain over the launch reading). Then the terminal states what it claims to
+state, and it no longer depends on a read failure to be correct.
 
----
+NOT fixed on the CL stage B branch: it is a different scenario's verdict logic, the
+opt-in flag already removes the branch's effect on it, and both scenarios are green.
 
 ## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
 
@@ -739,17 +743,24 @@ terminalState=Destroyed` -> `PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`)
 tombstoned, and the tally's `Kerbal=1` term proves it was the KERBAL row rather than
 some other career action.
 
-### Why (ii) failed, and why it is NOT a product defect
+### Why (ii) failed. WHETHER it is a product defect is NOT established
 
 The surviving reservation is sourced from **`cl-stack-root`**, and the supersede subtree
 is `subtreeCount=1` rooted at `cl-pod-a`. The root is not in the subtree, so no tombstone
 of the pod could ever release its reservation. `RecomputeAfterTombstones` behaved
 correctly; it was handed a ledger that still legitimately reserves Jebediah.
 
-The cause is the FIXTURE. `RewindCrewLossFixture.BuildRoot` gives the root recording a
-crewed `FleaRocket` snapshot carrying the SAME kerbal and sets **no terminal state**, so
+The fixture is SUFFICIENT to explain it: `RewindCrewLossFixture.BuildRoot` gives the root
+recording a crewed `FleaRocket` snapshot carrying the SAME kerbal and no terminal state, so
 `InferCrewEndState` returns `Unknown` and the root holds an indefinite reservation on him
-independently of the pod. (B9's root is also terminal-state-less, but B9 is crewless
+independently of the pod.
+
+**But sufficient is not the same as sole, and this has NOT been discriminated.** The
+experiment that would settle it has not been run: rebuild the fixture with a crewless root
+and re-fly. If (ii) then holds, the fixture explanation is confirmed. If it still fails,
+the defect is in the product and the fixture was a red herring. Until that run exists,
+"fixture artifact, not a product defect" is a HYPOTHESIS consistent with the evidence, not
+a finding - and it should not be cited as one. (B9's root is also terminal-state-less, but B9 is crewless
 throughout, so the question never arose there.)
 
 ### Fix, for whoever picks this up

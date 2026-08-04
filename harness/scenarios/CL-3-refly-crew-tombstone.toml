@@ -44,32 +44,34 @@ id = "CL-3-refly-crew-tombstone"
 # `Tombstoned 0 ... Kerbal=0` empty-subtree form).
 #
 # -------------------------------------------------------------------------------------
-# UNARMED ON PURPOSE. THIS SPEC HAS NEVER FLOWN.
+# ARMED 2026-08-03, AFTER THREE FLIGHTS. (This block used to say "UNARMED ON PURPOSE.
+# THIS SPEC HAS NEVER FLOWN." - it is rewritten in place, S4.1-style, so the file's
+# entry point states what HEAD does rather than what the first draft intended.)
 #
-# It ships with NO `[expectations.rewind]` block, NO `[expectations.recordings.structure]`
-# block, and NO `[expectations.ledger]` block of any kind - so it arms NOTHING in the
-# M-C2 save-parse verifier and nothing in the M-B2 ledger oracle. That is the house
-# one-flight-then-arm rule, the same workflow `S4.1-rewind-merge` documents and was
-# promoted through: land report-only, read the facets off a real run, arm only on
-# readings that match the declared windows. The `saveParse` verifier RECORDS its
-# measured facets on every driver-valid run whether or not a block is declared, so the
-# first flight produces the reading a later arming needs WITHOUT this spec declaring
-# anything today.
+# It carries `[expectations.rewind]` with `gating = true` (see the ARMED block near the
+# bottom of this file) and a REPORT-ONLY `[expectations.recordings.structure]`. Gating is
+# PER BLOCK, so structure is recorded without being gated. It still carries NO
+# `[expectations.ledger]` block - see the ILLEGAL note below, which is unchanged.
 #
-# ARMING IS THE OPERATOR FOLLOW-UP, and it is a separate, deliberate commit:
-#   - fly this spec once and read `observed.rewind` off the result JSON
-#     (`supersedeRows`, `tombstones`, `rewindPoints`, `rewindRetirements`);
-#   - declare `[expectations.rewind]` with windows that MATCH those readings - the
-#     inverse of S4.1's, i.e. `supersedeRows = { min = 1 }` and
-#     `tombstones = { min = 1 }`, because S4.1 flies nothing and correctly writes ZERO
-#     of each while this spec flies the re-flight and must write both;
-#   - S4.1's own arming comment names THIS scenario as the second reading its
-#     `rewindPoints` window is waiting on ("one observation is not a window, and a reap
-#     count is exactly the kind of reading that wants a second scenario (CL-2 stage B)
-#     before it gates");
-#   - arming additionally requires an explicit edit of
-#     `test_hlib.py::SaveStructureVerifierWiringTests.ARMED_ALLOWLIST` citing the run
-#     ids. A spec that quietly grows a `gating = true` reds there, by design.
+# It got there by the house one-flight-then-arm rule, the workflow `S4.1-rewind-merge`
+# documents and was promoted through:
+#   - `2026-08-03_1834` REPORT-ONLY reading, PASS attempt 1, 70 s. Measured
+#     `observed.rewind = {supersedeRows 1, tombstones 1, rewindPoints 0,
+#     rewindRetirements 0}`. Arming those two as `min = 1` FLOORS therefore made a
+#     MEASURED behaviour load-bearing rather than asserting an unmeasured one.
+#   - `2026-08-03_1844` ARMED, PASS attempt 1, 70 s
+#     (`saveParse status=PASS gating=True armed=['rewind'] mismatches=0`).
+#   - NEGATIVE CONTROL, since reverted: a temporary `tombstones = { min = 2 }` reddened
+#     `PARSEK-FAIL(save-structure)` with `mismatches=1`. That run is the load-bearing
+#     one - a gate nobody has watched fail is an assumption.
+# `ARMED_ALLOWLIST` in `test_hlib.py::SaveStructureVerifierWiringTests` was edited in the
+# same commit, citing those run ids; it is now `{S4.1-rewind-merge, CL-3-...}`. A spec
+# that quietly grows a `gating = true` still reds there, by design.
+#
+# `rewindPoints` is deliberately NOT declared: the measurement read 0 because the merge
+# journal REAPS the RP, so asserting its presence post-merge would assert the opposite of
+# correct behaviour. (S4.1's arming comment names this scenario as the second reading its
+# own `rewindPoints` window was waiting on - that reading is now taken, and it is 0.)
 #
 # `[expectations.ledger]` IS NOT MERELY UNARMED HERE, IT IS ILLEGAL.
 # `hlib.validate_spec` hard-errors when `InvokeRewind` or `AnswerMergeDialog` pairs with
@@ -196,14 +198,17 @@ tier = "operator"
 # costs about what S4.1 costs, not what R1 costs.
 description = "Crew-loss re-fly half: Rewind-to-Separation onto the CREWED destroyed pod, re-fly it so the provisional is worth merging, and merge - driving SupersedeCommit over the derived KerbalAssignment/Dead row."
 instanceProfile = "stock-minimal"
-# `pending-flight` is literal: this spec has NEVER flown, so `flown` would be a lie and
-# `--tag flown` is a real selector. `pending-operator` is carried for the operator debt
-# the header states - the arming follow-up, once a reading run measures the facets
-# (the `vesselStateChanged` debt is CLOSED: the row was removed) - and is recorded in
-# `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` with those reasons. The tag
-# itself is non-gating; the tier is what governs cadence.
+# `flown` replaced `pending-flight` on 2026-08-03: the spec has flown green three times
+# (two PASS + a deliberate negative control), so `pending-flight` had stopped describing
+# the record, and `--tag flown` is a REAL selector that was excluding it.
+# `pending-operator` STAYS, and now names the ONE debt that is actually open: the
+# `dead-crew-strip` cell needs a fixture change (crewless root) plus a re-fly before it
+# can be claimed or its fixture explanation confirmed. The other two debts are
+# DISCHARGED - `vesselStateChanged` (the row was removed) and the arming follow-up (done
+# 2026-08-03) - and `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` records that.
+# The tag is non-gating; the tier governs cadence.
 tags = ["rewind", "refly", "merge", "tombstone", "crew-loss", "CL3", "D9", "D12",
-        "pending-flight", "pending-operator"]
+        "flown", "pending-operator"]
 
 [fixture]
 # `career-pad-craft`, the fixture CL-1 and CL-2 already share, chosen for six reasons
@@ -399,7 +404,7 @@ D14 = ["kerbin", "career", "scene-flight"]
 #   leaves no surviving reservation or stand-in for the dead kerbal. This spec gates the
 #   LOG half of (i) today and NOTHING of the save-parse half, because the save-parse
 #   block is unarmed until the measurement flight. Half a pinned definition is not the
-#   definition, so neither cell is claimed. After the arming commit declares
+#   definition, so D9 `tombstones` IS claimed since the 2026-08-03 arming (see the D9 array above and the ARMED block); the D12 cell below is not. After the arming commit declares
 #   `tombstones = { min = 1 }` and the run reads it, D9 `tombstones` becomes claimable
 #   here; D12 `dead-crew-strip` additionally needs a gate on half (ii)
 #   (`CrewReservationManager.RecomputeAfterTombstones`), which no token in this file

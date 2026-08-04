@@ -161,7 +161,9 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # 'Jebediah Kerman'`). The surviving reservation comes from `cl-stack-root`, OUTSIDE
 # the supersede subtree, so no tombstone of the pod could release it - a FIXTURE
 # artifact (the crew-loss fixture's root carries the same kerbal with no terminal
-# state), not a product defect. The cell therefore stays UNCLAIMED; `CL-3` claims D9
+# state) - SUFFICIENT to explain it, but NOT discriminated against a product defect,
+# because the crewless-root re-fly that would settle it has not been run. The cell
+# therefore stays UNCLAIMED; `CL-3` claims D9
 # `tombstones` only. Fix + re-fly recipe in docs/dev/todo-and-known-bugs.md.
 #
 # `tombstone-rep-penalty` IS UNREACHABLE BY ANY FLIGHT, not merely uncovered

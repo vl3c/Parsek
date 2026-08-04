@@ -29,10 +29,12 @@ namespace Parsek.Tests.Generators
         /// diagnosis trap when two fixtures' logs sit side by side.
         ///
         /// <para>
-        /// DEFAULTS TO <c>"B9 Slot "</c> ON PURPOSE: <c>RewindB9FixtureTests</c> and
-        /// the committed-fixture sweep assert the B9 sidecar's exact bytes, so the
-        /// default must reproduce them. A new fixture sets its own prefix before
-        /// injecting.
+        /// DEFAULTS TO <c>"B9 Slot "</c> ON PURPOSE: it preserves the B9 sidecar's
+        /// existing bytes, so adding this knob changed no committed fixture. (An
+        /// earlier version of this comment justified the default by naming tests that
+        /// "assert the B9 sidecar's exact bytes" - NO such test exists; the honest
+        /// reason is simply that the default is the historical value.) A new fixture
+        /// sets its own prefix before injecting.
         /// </para>
         /// </summary>
         public string RewindSlotVesselNamePrefix { get; set; } = "B9 Slot ";

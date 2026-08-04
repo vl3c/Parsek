@@ -1486,8 +1486,8 @@ class Cl3SpecValidationTests(unittest.TestCase):
         # `--tag` is a REAL selector, so `flown` on a spec that has never flown
         # would put an unproven scenario into a sweep that means "these work".
         tags = self.spec["tags"]
-        self.assertIn("pending-flight", tags)
-        self.assertNotIn("flown", tags)
+        self.assertIn("flown", tags)
+        self.assertNotIn("pending-flight", tags)
         # It also carries `pending-operator`, and that carries an obligation:
         # `test_hlib.py::PendingOperatorTagHonestyTests.CARRIERS` must name it
         # with the debt it owes, in the same commit. That cell reds if it does not.
@@ -1655,7 +1655,7 @@ class Cl3SpecArmedTests(unittest.TestCase):
         # armed block cannot appear without this cell noticing.
         self.assertEqual(["gating       = true"], gating_lines)
 
-    def test_it_is_not_on_the_save_structure_armed_allowlist(self):
+    def test_it_is_on_the_save_structure_armed_allowlist(self):
         # THE CROSS-FILE HALF, read out of the guard's own source rather than
         # restated: `test_hlib.py::SaveStructureVerifierWiringTests.ARMED_ALLOWLIST`
         # is the suite-wide list of specs permitted to arm gating, and this cell is
@@ -2133,8 +2133,6 @@ class Cl3SpecFeasibilityDerivationTests(unittest.TestCase):
                          "an operator hunting a blocker that no longer exists")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ManeuverNodeReadGuardTests(unittest.TestCase):
@@ -2160,8 +2158,9 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
         def __init__(self, nodes):
             self.nodes = nodes
 
-    def _control(self):
-        return mission_runner.KrpcMissionControl(client_name="test")
+    def _control(self, tolerate=True):
+        return mission_runner.KrpcMissionControl(client_name="test",
+                                                 tolerate_unreadable_nodes=tolerate)
 
     def test_a_refusing_node_read_degrades_to_the_empty_list(self):
         # The exact kRPC message the flight hit.
@@ -2190,8 +2189,40 @@ class ManeuverNodeReadGuardTests(unittest.TestCase):
             self.assertEqual([], control._read_nodes(handle))
         self.assertTrue(control._warned_nodes_read)
 
+    def test_the_default_still_propagates_so_no_other_mission_changes(self):
+        # THE CELL THAT SHOULD HAVE EXISTED FIRST. Tolerating the refusal
+        # GLOBALLY broke CL-1-pod-impact, a live-proven nightly: with a complete
+        # frame instead of a blind one, its crew-survived-impact terminal fires
+        # 1.9 s in on a craft still on the pad. Measured same-build:
+        # tolerance OFF `2026-08-04_0538` PASS 158 s; tolerance ON `_0535` /
+        # `_0536` / `_0541` all INVALID. So the default MUST re-raise, leaving
+        # every mission that did not ask for this byte-identical.
+        handle = self._Raises(RuntimeError("Maneuver node editing is not available"))
+        with self.assertRaises(RuntimeError):
+            self._control(tolerate=False)._read_nodes(handle)
+
+    def test_the_default_is_off_on_the_real_constructor(self):
+        # Not just the test factory: the shipped default.
+        self.assertFalse(
+            mission_runner.KrpcMissionControl(client_name="test")
+            ._tolerate_unreadable_nodes)
+
+    def test_only_cl3_opts_in_across_every_committed_mission_shell(self):
+        # Cross-file: a second shell quietly opting in would re-globalise the
+        # semantics change this flag exists to confine.
+        import glob
+        opters = []
+        for path in glob.glob(os.path.join(_HARNESS, "missions", "*.py")):
+            with open(path, "r", encoding="utf-8") as fh:
+                if "tolerate_unreadable_nodes=True" in fh.read():
+                    opters.append(os.path.basename(path))
+        self.assertEqual(["cl3_refly_crew_tombstone.py"], sorted(opters))
+
     def test_any_exception_type_degrades_not_just_runtimeerror(self):
         # The guard exists to keep a read fault off the vessel-lost streak; the
         # streak does not care which exception type kRPC chose.
         for exc in (ValueError("v"), AttributeError("a"), Exception("e")):
             self.assertEqual([], self._control()._read_nodes(self._Raises(exc)))
+
+if __name__ == "__main__":
+    unittest.main()

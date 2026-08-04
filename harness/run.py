@@ -104,9 +104,13 @@ INJECT_TIMEOUT_SECONDS = 600
 
 # Fixture-injection presets run.py will drive, and the RP quicksave sidecar each one
 # MUST leave on disk (the fail-closed postcondition; a preset with no RP maps to None).
-# Keep in step with scripts/inject-recordings.ps1's $injectFilterByPreset - a preset
-# named in a spec but missing here is rejected by hlib.validate_spec, not silently
-# skipped.
+# Keep in step with scripts/inject-recordings.ps1's $injectFilterByPreset.
+# HONEST LIMIT (an earlier draft of this comment claimed the opposite):
+# hlib.validate_spec checks a spec against hlib's OWN INJECTED_RECORDINGS tuple, NOT
+# against this table. A preset added there but missed here would validate clean,
+# stage with NO injection and NO postcondition check, and the run would boot against
+# an un-injected save - the HARNESS-INJECT-FAILS-OPEN shape. The sync is manual; a
+# cell asserting the two sets are equal is the fix, and is not yet written.
 RP_SIDECAR_BY_PRESET = {
     "all-synthetic": None,
     "rewind-b9": "rp_b9_root",

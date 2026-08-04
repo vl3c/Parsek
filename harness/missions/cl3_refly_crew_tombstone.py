@@ -107,11 +107,16 @@ def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
 
 def make_control() -> mission_runner.MissionControl:
     # Raw kRPC, no MechJeb (the CL-1 control): this lane never flies an ascent
-    # profile -- the re-fly is a throttle and one stage activation on whatever
+    # profile. tolerate_unreadable_nodes=True is THIS LANE'S opt-in and must not
+    # become a default: it polls on the pad in a career save, where kRPC refuses
+    # the maneuver-node read, and without it the mission dies vessel-lost in its
+    # first phase. Turning it on globally broke CL-1 (see _read_nodes).
+    # The re-fly is a throttle and one stage activation on whatever
     # craft the RewindPoint quicksave puts back. No opt-in channels: a channel the
     # machine does not gate on is an RPC per poll bought for nothing.
     return mission_runner.KrpcMissionControl(use_mechjeb=False,
-                                             client_name=MISSION_NAME)
+                                             client_name=MISSION_NAME,
+                                             tolerate_unreadable_nodes=True)
 
 
 SPEC = mission_runner.MissionSpec(
