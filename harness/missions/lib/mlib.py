@@ -13744,3 +13744,503 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
     return line + crew + node_exec + tt_pe + land_ap + hspd
+
+
+# ---------------------------------------------------------------------------
+# GS-1 auto-chute-booster phase state machine (mission gs1_auto_chute_booster).
+# Pure. THE ROUTINE-TWO-STAGE-FLIGHT REGRESSION GUARD.
+#
+# A two-stage craft leaves the pad, throttles up, cuts throttle near the top of a
+# LOW hop, and STAGES. The stage fires the decoupler AND arms the booster's radial
+# chutes in the same click (the classic auto-chute booster). Focus stays on the
+# upper stage, which arms its own chute on the way down and lands. The booster,
+# which the mission never controls and never reads, lands under its own canopy a
+# few hundred metres away.
+#
+# WHY THE HOP IS LOW, and it is a hard constraint rather than a preference. Stock
+# KSP DELETES an unloaded vessel below ~25 km, and the physics/loading bubble is
+# ~2.25 km. If the upper stage climbs away, the separated booster leaves the bubble
+# and stock destroys it before it can land -- the scenario's whole subject (a
+# booster whose recording closes at a LANDED terminal) is then unreachable, and the
+# run would red on Parsek for a stock rule. So this machine steers for an apoapsis
+# in the hundreds of metres and stages at/below stagingMaxAltMeters; the ceiling is
+# an ASSERTED fact, not an assumption.
+#
+# WHAT THE MACHINE CAN AND CANNOT SEE. The booster is NOT the active vessel after
+# separation, and kRPC's telemetry here reads the ACTIVE vessel only, so no
+# assertion below says anything about the booster. That half of the truth is
+# carried by Parsek's own log tokens and by the M-C2 save parse (the scenario spec
+# owns both). Every row here is about the ACTIVE vessel or about the SEPARATION
+# ITSELF.
+#
+# COMMANDED vs OBSERVED (autotest-status known-gate 7), inherited wholesale from
+# B1's four-month inert-chute failure. Two rows would have been trivial to write as
+# commanded latches and are deliberately not:
+#   - separationObserved reads kRPC AvailableThrust, NOT "we emitted activate_stage".
+#     Before the stage the LV-T45 is the only engine and reports its full available
+#     thrust; after it the upper stage carries NO engine at all, so the reading is
+#     0.0. A stage click that fired nothing (a mis-numbered istg, a decoupler that
+#     did not blow) leaves the thrust reading UNCHANGED and reds here by name.
+#   - craftCanopyObserved reads the live ParachuteState (B1's exact sticky latch),
+#     never the machine's own arm latch.
+#
+# FIVE PHASES. PRELAUNCH acts once (throttle + ignite). ASCENT watches apoapsis and
+# cuts throttle at the target. STAGE exists as its own phase for ONE reason: the
+# separation must not ride the same frame as the throttle cut. LV-T45 thrust decays
+# over a few physics frames after a throttle-to-zero, and firing a decoupler while
+# the lower stage is still pushing drives the spent booster INTO the upper stage.
+# stageSettleFrames is that wait, expressed in frames rather than seconds because
+# the poll cadence is what the frames measure. DESCENT arms the upper chute at the
+# apoapsis crossing (B1's arm-while-slow technique, live-proven on this exact
+# stock-parachute contract) and waits for the ground. LANDED is terminal.
+# ---------------------------------------------------------------------------
+
+GS1_PRELAUNCH = "PRELAUNCH"
+GS1_ASCENT = "ASCENT"
+GS1_STAGE = "STAGE"
+GS1_DESCENT = "DESCENT"
+GS1_LANDED = "LANDED"
+GS1_PHASES: Tuple[str, ...] = (GS1_PRELAUNCH, GS1_ASCENT, GS1_STAGE,
+                               GS1_DESCENT, GS1_LANDED)
+
+# Consecutive Deployed reads before the canopy latch certifies. Same value and same
+# reasoning as B1_CANOPY_DEBOUNCE_K: stock flips ParachuteState to DEPLOYED at the
+# START of the ~8 s canopy animation, so a lone glitched frame must not certify.
+GS1_CANOPY_DEBOUNCE_K = 2
+# Consecutive post-stage frames reading ~zero available thrust before the
+# separation latch certifies. Debounced for the mirror-image reason: kRPC can
+# return a stale or mid-transition AvailableThrust on the single frame a vessel
+# splits, and a terminal that CERTIFIES deserves the same treatment as one that
+# condemns.
+GS1_SEPARATION_DEBOUNCE_K = 2
+
+
+@dataclass(frozen=True)
+class Gs1Params:
+    """GS-1 auto-chute-booster tuning (spec [driver.missionParams] for
+    gs1_auto_chute_booster). Every value is a WINDOW / threshold / budget, never a
+    golden trajectory."""
+    throttle: float
+    # Cut throttle on the first ASCENT frame whose apoapsis reaches this. It is a
+    # STEERING TARGET, not an assertion: apoapsisWindowMeters below is what the run
+    # is judged on, and the two are deliberately separate so a burn that overshoots
+    # by a little is still a legitimate flight.
+    staging_apoapsis: float
+    # Assertion ceiling on the altitude the separation actually happened at. This is
+    # the row that keeps the booster inside the physics bubble (see the module
+    # comment); a stage at 8 km would fly green on every other row and still destroy
+    # the booster before it could land.
+    staging_max_alt: float
+    # Frames to hold between the throttle cut and the separation click, so LV-T45
+    # thrust has decayed before the decoupler blows.
+    stage_settle_frames: int
+    # ARM WHILE SLOW: arm the UPPER stage's chute on the first DESCENT frame whose
+    # |vertical speed| is within this. NOT an altitude - an altitude trigger is what
+    # produced B1's inert-armed-chute failure (stock's ACTIVE -> SEMIDEPLOYED needs
+    # automateSafeDeploy >= deploymentSafeState, and a craft at terminal velocity in
+    # dense air never reads SAFE).
+    chute_arm_max_rate: float
+    # The stock deployAltitude (metres) written onto the active vessel's parachutes
+    # in the same frame they are armed. Declared by the spec so the full-canopy leg
+    # is a mission input rather than a silent craft property.
+    chute_full_deploy_alt: float
+    landed_situations: Tuple[str, ...]
+    apoapsis_window: Tuple[float, float]   # (min, max), inclusive
+    ascent_timeout: float
+    stage_timeout: float
+    descent_timeout: float
+    # AvailableThrust (newtons) at/below which the active vessel counts as having
+    # NO live engine. Not zero: a float read of a shut-down engine can carry
+    # rounding dust, and the discriminator here is ~168,000 N vs ~0, so any small
+    # positive floor is unambiguous.
+    separation_thrust_epsilon: float = 100.0
+    frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
+                                           # vessel-lost terminal
+
+
+def gs1_params_from_dict(params: Dict) -> Gs1Params:
+    """Build ``Gs1Params`` from a spec ``missionParams`` dict. The apoapsis window
+    is the ``{min, max}`` sub-table (a WINDOW, design). Tolerant of int/float."""
+    params = params or {}
+    window = params.get("apoapsisWindowMeters", {}) or {}
+    return Gs1Params(
+        throttle=float(params.get("throttle", 1.0)),
+        staging_apoapsis=float(params.get("stagingApoapsisMeters", 800)),
+        staging_max_alt=float(params.get("stagingMaxAltMeters", 2000)),
+        stage_settle_frames=int(params.get("stageSettleFrames", 2)),
+        chute_arm_max_rate=float(params.get("chuteArmMaxRateMps", 30)),
+        chute_full_deploy_alt=float(params.get("chuteFullDeployAltMeters", 1000)),
+        landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
+        apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 90)),
+        stage_timeout=float(params.get("stageTimeoutSeconds", 60)),
+        descent_timeout=float(params.get("descentTimeoutSeconds", 300)),
+        separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class Gs1State:
+    """GS-1 machine state. ``verdict`` is None while running; a per-phase budget
+    overrun sets MISSION-FLAKE with ``flake_phase`` naming the stuck phase.
+    ``done`` is True at LANDED (flew to completion; the assertions then decide OK
+    vs ASSERT-FAIL) or on a flake / vessel loss."""
+    params: Gs1Params
+    phase: str = GS1_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    peak_apoapsis: Optional[float] = None
+
+    # --- separation, both halves of commanded-vs-observed -------------------
+    # COMMANDED: the activate_stage action for the separation was emitted.
+    stage_commanded: bool = False
+    # The altitude / UT the separation was COMMANDED at (evidence; the
+    # stagedBelowCeiling row reads the altitude).
+    stage_altitude: Optional[float] = None
+    stage_ut: Optional[float] = None
+    # The last finite AvailableThrust seen BEFORE the stage was commanded. The
+    # separation row requires this to be a real positive reading, so a craft whose
+    # engine never lit cannot satisfy "thrust went away".
+    pre_stage_thrust: Optional[float] = None
+    # OBSERVED: AvailableThrust has read at/below the epsilon on
+    # GS1_SEPARATION_DEBOUNCE_K consecutive post-stage frames. Sticky once earned.
+    separation_seen: bool = False
+    separation_streak: int = 0
+    # Frames spent in STAGE so far (the settle wait).
+    stage_frames: int = 0
+
+    # --- upper-stage canopy, B1's contract verbatim -------------------------
+    chute_commanded: bool = False
+    chute_armed_altitude: Optional[float] = None
+    chute_armed_rate: Optional[float] = None
+    craft_chute_full_seen: bool = False
+    canopy_seen_streak: int = 0
+    last_chute_state: str = ""
+    # Consecutive unarmed DESCENT frames read BELOW chuteFullDeployAltMeters.
+    below_floor_streak: int = 0
+
+    phases_reached: Tuple[str, ...] = (GS1_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
+    last_finite_altitude: Optional[float] = None
+
+
+def gs1_initial_state(params: Gs1Params) -> Gs1State:
+    """Fresh GS-1 machine at PRELAUNCH. Params ride in the state so the per-frame
+    ``gs1_decide`` keeps the ``(state, snapshot)`` signature."""
+    return Gs1State(params=params)
+
+
+def _gs1_phase_budget(params: Gs1Params, phase: str) -> Optional[float]:
+    """The bounded budget for a timed GS-1 phase, or None for the untimed
+    PRELAUNCH / terminal LANDED phases (design "Every wait bounded")."""
+    if phase == GS1_ASCENT:
+        return params.ascent_timeout
+    if phase == GS1_STAGE:
+        return params.stage_timeout
+    if phase == GS1_DESCENT:
+        return params.descent_timeout
+    return None
+
+
+def _gs1_over_budget(state: Gs1State, snapshot: TelemetrySnapshot) -> bool:
+    """True iff the current timed phase has out-run its budget by ``snapshot.ut``
+    (a non-finite UT never trips the timeout; the shell's watchdog is the backstop)."""
+    budget = _gs1_phase_budget(state.params, state.phase)
+    if budget is None:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _gs1_enter(state: Gs1State, new_phase: str, ut: float,
+               peak: Optional[float]) -> Gs1State:
+    """Transition into ``new_phase``, stamping the phase-entry UT for the budget
+    clock and appending to ``phases_reached``. LANDED sets ``done``."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        peak_apoapsis=peak,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == GS1_LANDED),
+    )
+
+
+def _gs1_stay_or_flake(state: Gs1State, snapshot: TelemetrySnapshot,
+                       peak: Optional[float]) -> Gs1State:
+    """Stay in the current phase, or flip to MISSION-FLAKE if it out-ran budget."""
+    if _gs1_over_budget(state, snapshot):
+        return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                       flake_phase=state.phase, done=True)
+    return replace(state, peak_apoapsis=peak)
+
+
+def _gs1_loss_reason(state: Gs1State, base: str) -> str:
+    """Append the last known altitude, the OBSERVED chute state and whether the
+    separation was seen, so a loss NAMES where the craft was and what had happened
+    to it. ``craftChute=Armed`` is the inert-chute signature (commanded, never
+    open); ``UNREAD`` means the runner never opted into the chute read, which fails
+    every canopy gate closed by design."""
+    parts = []
+    if state.last_finite_altitude is not None and _is_finite(state.last_finite_altitude):
+        parts.append("last altitude %.0fm" % state.last_finite_altitude)
+    parts.append("craftChute=%s" % (state.last_chute_state or "UNREAD"))
+    parts.append("separationObserved=%s" % ("true" if state.separation_seen else "false"))
+    return "%s (%s)" % (base, ", ".join(parts))
+
+
+def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, List[Action]]:
+    """Advance the GS-1 machine one frame; return (new_state, actions).
+
+    Transitions:
+      - PRELAUNCH -> ASCENT: on the FIRST decision, set throttle and activate the
+        next stage (ignite the LV-T45). Untimed.
+      - ASCENT -> STAGE: on the first frame whose apoapsis reaches
+        stagingApoapsisMeters, OR whose vertical speed has already gone negative
+        (the burn ended early / the target was overshot between polls). Cuts
+        throttle on that frame and NOTHING else -- the separation is deliberately
+        one phase later. Bounded by ascentTimeoutSeconds.
+      - STAGE -> DESCENT: after stageSettleFrames frames of holding, emit the
+        separation activate_stage, which fires the decoupler AND arms the booster's
+        radial chutes (they share istg). The frame FALLS THROUGH into the DESCENT
+        body, because the upper stage is already at/near its apex and the arm gate
+        below is RATE-gated: deferring by a poll needlessly eats the arming bound.
+        Bounded by stageTimeoutSeconds.
+      - DESCENT: on the first frame whose |vertical speed| is within
+        chuteArmMaxRateMps, write chuteFullDeployAltMeters onto the active vessel's
+        parachutes and ARM them -- both actions on the SAME frame so the module's
+        first ACTIVE FixedUpdate already sees the raised altitude. Then
+        DESCENT -> LANDED on a landed/splashed situation. Bounded by
+        descentTimeoutSeconds, with the fast named arm-window-missed terminal.
+
+    The separation LATCH is never the commanded one: ``separation_seen`` advances
+    only on live frames whose AvailableThrust has fallen to ~0 after the stage was
+    commanded, and only when a real positive pre-stage reading was captured first.
+    A vessel loss in any phase is a deterministic ASSERT-FAIL (there is no
+    success-by-destruction terminal here: this scenario's whole subject is a
+    ROUTINE flight that must NOT flood Unfinished Flights, so a destroyed active
+    vessel is a different scenario, not a pass).
+    Once ``done`` the machine is idempotent.
+    """
+    if state.done:
+        return state, []
+
+    peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+
+    if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
+        state = replace(state, last_finite_altitude=snapshot.altitude)
+
+    # OBSERVED canopy latch, live frames only, DESCENT-scoped and debounced. Exactly
+    # B1's contract: a stale pad read or a lone glitched frame must not certify.
+    if not snapshot.vessel_lost and snapshot.craft_chute_state:
+        state = replace(state, last_chute_state=snapshot.craft_chute_state)
+    if (not snapshot.vessel_lost and state.phase == GS1_DESCENT
+            and not state.craft_chute_full_seen):
+        if snapshot.craft_chute_state == CHUTE_STATE_DEPLOYED:
+            streak = state.canopy_seen_streak + 1
+            state = replace(state, canopy_seen_streak=streak,
+                            craft_chute_full_seen=(streak >= GS1_CANOPY_DEBOUNCE_K))
+        else:
+            state = replace(state, canopy_seen_streak=0)
+
+    # OBSERVED separation latch. BEFORE the stage is commanded, remember the last
+    # finite POSITIVE available-thrust reading (the "there was an engine" half);
+    # AFTER it, count consecutive at-or-below-epsilon readings.
+    if not snapshot.vessel_lost and _is_finite(snapshot.available_thrust):
+        if not state.stage_commanded:
+            if snapshot.available_thrust > state.params.separation_thrust_epsilon:
+                state = replace(state, pre_stage_thrust=snapshot.available_thrust)
+        elif not state.separation_seen:
+            if snapshot.available_thrust <= state.params.separation_thrust_epsilon:
+                streak = state.separation_streak + 1
+                state = replace(
+                    state, separation_streak=streak,
+                    separation_seen=(streak >= GS1_SEPARATION_DEBOUNCE_K
+                                     and state.pre_stage_thrust is not None))
+            else:
+                state = replace(state, separation_streak=0)
+
+    if snapshot.vessel_lost:
+        return replace(
+            state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=_gs1_loss_reason(
+                state, "vessel-lost (unreadable after repeated telemetry failures)")), []
+
+    if state.phase in (GS1_ASCENT, GS1_STAGE, GS1_DESCENT):
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=_gs1_loss_reason(
+                    state, "vessel-lost (telemetry frozen %d consecutive samples "
+                           "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    if state.phase == GS1_PRELAUNCH:
+        actions = [Action(ACTION_SET_THROTTLE, state.params.throttle),
+                   Action(ACTION_ACTIVATE_STAGE)]
+        return _gs1_enter(state, GS1_ASCENT, snapshot.ut, peak), actions
+
+    if state.phase == GS1_ASCENT:
+        reached = (_is_finite(snapshot.apoapsis)
+                   and snapshot.apoapsis >= state.params.staging_apoapsis)
+        falling = _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0
+        if reached or falling:
+            return (_gs1_enter(state, GS1_STAGE, snapshot.ut, peak),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        return _gs1_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == GS1_STAGE:
+        frames = state.stage_frames + 1
+        state = replace(state, stage_frames=frames)
+        if frames < max(1, state.params.stage_settle_frames):
+            return _gs1_stay_or_flake(state, snapshot, peak), []
+        stage_actions = [Action(ACTION_ACTIVATE_STAGE)]
+        state = replace(
+            state,
+            stage_commanded=True,
+            stage_altitude=snapshot.altitude if _is_finite(snapshot.altitude) else None,
+            stage_ut=snapshot.ut if _is_finite(snapshot.ut) else None)
+        # Enter DESCENT and FALL THROUGH on the same frame (no early return): the
+        # arm gate below is RATE-gated and the rate only ever worsens.
+        state = _gs1_enter(state, GS1_DESCENT, snapshot.ut, peak)
+    else:
+        stage_actions = []
+
+    if state.phase == GS1_DESCENT:
+        actions: List[Action] = list(stage_actions)
+        chute_commanded = state.chute_commanded
+        armed_alt = state.chute_armed_altitude
+        armed_rate = state.chute_armed_rate
+        if (not chute_commanded and _is_finite(snapshot.vertical_speed)
+                and abs(snapshot.vertical_speed) <= state.params.chute_arm_max_rate):
+            actions.append(Action(ACTION_SET_CHUTE_DEPLOY_ALTITUDE,
+                                  state.params.chute_full_deploy_alt))
+            actions.append(Action(ACTION_DEPLOY_CHUTE))
+            chute_commanded = True
+            armed_alt = snapshot.altitude if _is_finite(snapshot.altitude) else None
+            armed_rate = snapshot.vertical_speed
+
+        below_floor = state.below_floor_streak
+        if not chute_commanded and _is_finite(snapshot.altitude):
+            below_floor = (below_floor + 1
+                           if snapshot.altitude < state.params.chute_full_deploy_alt
+                           else 0)
+
+        if snapshot.situation in state.params.landed_situations:
+            landed = _gs1_enter(state, GS1_LANDED, snapshot.ut, peak)
+            return replace(landed, chute_commanded=chute_commanded,
+                           chute_armed_altitude=armed_alt,
+                           chute_armed_rate=armed_rate,
+                           below_floor_streak=below_floor), actions
+
+        # ARM-WINDOW-MISSED: a NAMED, FAST ASSERT-FAIL, B1's terminal verbatim. The
+        # arm gate is one-shot and monotonically unreachable once missed (the fall
+        # rate only grows), so without this branch a skipped poll across the apex
+        # turns a DETERMINISTIC failure into an unnamed descent-budget MISSION-FLAKE.
+        # Debounced for the same reason the canopy latch is: one glitched altitude
+        # sample must not condemn a healthy flight.
+        if below_floor >= GS1_CANOPY_DEBOUNCE_K:
+            return replace(
+                state, peak_apoapsis=peak, chute_commanded=chute_commanded,
+                below_floor_streak=below_floor, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=_gs1_loss_reason(
+                    state,
+                    "chute-arm-window-missed (fell below chuteFullDeployAltMeters "
+                    "%.0fm on %d consecutive frames without ever reaching the "
+                    "|vertical speed| <= %.0f m/s arming window)"
+                    % (state.params.chute_full_deploy_alt, below_floor,
+                       state.params.chute_arm_max_rate))), []
+
+        stayed = _gs1_stay_or_flake(state, snapshot, peak)
+        return replace(stayed, chute_commanded=chute_commanded,
+                       chute_armed_altitude=armed_alt,
+                       chute_armed_rate=armed_rate,
+                       below_floor_streak=below_floor), actions
+
+    return _gs1_stay_or_flake(state, snapshot, peak), stage_actions
+
+
+def evaluate_gs1_assertions(frames, params: Gs1Params,
+                            state=None) -> List[AssertionOutcome]:
+    """Evaluate the five GS-1 driver-validity assertions.
+
+    - ``apoapsisWindow``: the PEAK apoapsis sits inside apoapsisWindowMeters. Hop
+      sanity, B1's semantics verbatim (the NaN-filtered running max, so a flight
+      that passes THROUGH the window and peaks above it is UNMET).
+    - ``separationObserved``: the OBSERVED latch -- kRPC AvailableThrust fell from a
+      real positive pre-stage reading to at-or-below separationThrustEpsilonNewtons
+      on GS1_SEPARATION_DEBOUNCE_K consecutive frames after the stage click. This
+      is the row that makes "the craft actually split in two" a fact rather than a
+      belief, and the whole scenario is vacuous without it: the RewindPoint under
+      test is authored BY the split.
+    - ``stagedBelowCeiling``: the separation happened at/below stagingMaxAltMeters.
+      The row that keeps the separated booster inside the ~2.25 km physics bubble
+      and above stock's ~25 km unloaded-vessel deletion floor; a green run that
+      staged high would silently lose the booster.
+    - ``craftCanopyObserved``: the UPPER stage's parachute READ Deployed on
+      GS1_CANOPY_DEBOUNCE_K consecutive live DESCENT frames. B1's sticky observed
+      latch; the commanded half rides in the detail so the result JSON carries both.
+    - ``landedSituation``: the FINAL situation is one of landedSituations.
+
+    Nothing here asserts anything about the BOOSTER: it is not the active vessel
+    after the split and this mission never reads it. The booster-side truth
+    (a LANDED terminal, an Immutable slot, the RP reap) is the SPEC's, carried by
+    Parsek's own log tokens and the M-C2 save parse.
+    """
+    frames = list(frames or [])
+    lo, hi = params.apoapsis_window
+    peak = _peak_finite(frames, lambda f: f.apoapsis)
+    apo_met = peak is not None and lo <= peak <= hi
+    apo = AssertionOutcome("apoapsisWindow", apo_met,
+                           peak if peak is not None else float("nan"),
+                           {"window": [lo, hi]})
+
+    sep_seen = bool(getattr(state, "separation_seen", False))
+    pre_thrust = getattr(state, "pre_stage_thrust", None)
+    sep = AssertionOutcome(
+        "separationObserved", sep_seen,
+        pre_thrust if pre_thrust is not None else float("nan"),
+        {"debounceK": GS1_SEPARATION_DEBOUNCE_K,
+         "thrustEpsilonNewtons": params.separation_thrust_epsilon,
+         "stageCommanded": bool(getattr(state, "stage_commanded", False))})
+
+    stage_alt = getattr(state, "stage_altitude", None)
+    ceiling_met = (stage_alt is not None and _is_finite(stage_alt)
+                   and stage_alt <= params.staging_max_alt)
+    ceiling = AssertionOutcome(
+        "stagedBelowCeiling", ceiling_met,
+        stage_alt if stage_alt is not None else float("nan"),
+        {"ceiling": params.staging_max_alt,
+         "stageUT": getattr(state, "stage_ut", None)})
+
+    canopy = AssertionOutcome(
+        "craftCanopyObserved", bool(getattr(state, "craft_chute_full_seen", False)),
+        (getattr(state, "chute_armed_altitude", None)
+         if getattr(state, "chute_armed_altitude", None) is not None
+         else float("nan")),
+        {"required": CHUTE_STATE_DEPLOYED,
+         "debounceK": GS1_CANOPY_DEBOUNCE_K,
+         "armCommanded": bool(getattr(state, "chute_commanded", False)),
+         "armCommandedRate": getattr(state, "chute_armed_rate", None),
+         "armMaxRate": params.chute_arm_max_rate,
+         "fullDeployAltitude": params.chute_full_deploy_alt})
+
+    final_situation = frames[-1].situation if frames else None
+    sit = AssertionOutcome("landedSituation",
+                           final_situation in params.landed_situations,
+                           final_situation,
+                           {"accepted": list(params.landed_situations)})
+    return [apo, sep, ceiling, canopy, sit]

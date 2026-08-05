@@ -1,0 +1,139 @@
+schema = 1
+id = "FORGE-gs1-two-stage"
+# =====================================================================================
+# FIXTURE-FORGE for the GS-1 auto-chute-booster lane. NOT a coverage flight.
+#
+# operator tier: like its three siblings this NEVER runs on a cadence
+# (hlib.CADENCE_TIERS maps no cadence to `operator`), only under an explicit
+# `--id FORGE-gs1-two-stage` / `--tier operator`. It boots the SAME committed
+# bdock-forge-base the other three forges boot, launches the NEW committed
+# `GS1 Auto-Chute Booster` craft onto the pad with one named crew via kRPC
+# launch_vessel, waits for it to settle PRELAUNCH, and SaveGame + FlushAndQuit persist
+# the pad state. Then
+#
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name gs1-two-stage-pad \
+#       --expect-situation PRELAUNCH
+#
+# prunes Parsek state, normalizes the title, and writes the committed
+# `fixtures/saves/gs1-two-stage-pad` fixture that GS-1-auto-chute-booster consumes.
+#
+# NO NEW HARVEST TOOL, deliberately. `harvest_bdock_station.py` is already generic over
+# the produced situation (`--expect-situation`, added for the ORBITAL eva2 forge) and
+# over the fixture name (`--target-name`), and its own docstring says so. A fourth
+# copy would be three tools' worth of drift for zero new behaviour, and the next lane
+# that needs a forge (an ATTACHED two-probe stack parked in orbit, say) gets it free.
+#
+# WHY A FORGE AT ALL, when career-pad-craft was built headlessly by a script. Because
+# that script SPLICES WHOLE EXISTING NODES: it copies b1-pad-craft's Jumping Flea
+# VESSEL node verbatim. GS-1 needs a craft that does not exist anywhere - a booster
+# stage carrying BOTH a ModuleCommand probe core (so the staging split is
+# MULTI-CONTROLLABLE and authors a RewindPoint) AND parachutes (so it lands Immutable
+# instead of crashing to CommittedProvisional). Every committed fixture craft and every
+# stock VAB craft was checked; not one has a chute on its booster stage. The .craft
+# itself is authored BY CONSTRUCTION by `harness/tools/build_gs1_craft.py` (which is
+# also the derivation record and the drift gate); this forge is what turns that craft
+# into a pad save, because nothing but KSP can.
+#
+# UNFLOWN. Its first scheduled run IS its live-prove. A failure classifies
+# driver-INVALID (retryable), never a PARSEK-FAIL: the forge asserts nothing about
+# Parsek and its logContracts.required list is empty on purpose.
+#
+# WHAT A FAILED FIRST RUN MEANS, in the order the assumptions bite. The full derivation
+# and its five numbered assumptions live in `build_gs1_craft.py`'s module docstring;
+# the short forms, because this is the run that falsifies them:
+#   A1 root-relative origin   -> craft loads at a silly height on the pad
+#   A2 radial surface radius  -> canopies visibly floating off / sunk into the tank
+#   A3 staging (istg)         -> the decoupler and the booster chutes land in DIFFERENT
+#                                stages, which breaks the whole "auto-chute" premise
+#   A4 chute module defaults  -> a booster canopy opens at an unexpected altitude
+#   A5 touchdown mass         -> only GS-1 itself can falsify this one; the forge never
+#                                flies the craft
+# A crash or a kraken at launch is A1/A2; a wrong staging list is A3. None of those is
+# a Parsek finding.
+# =====================================================================================
+tier = "operator"
+description = "FIXTURE-FORGE: boot the committed forge base, launch the GS-1 two-stage auto-chute booster onto the pad with one named crew, settle PRELAUNCH, SaveGame -- headlessly stamps the gs1-two-stage-pad fixture (harvest_bdock_station.py --target-name gs1-two-stage-pad)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "GS1", "rewind", "pending-flight"]
+
+[fixture]
+# The SAME committed bootable base the other three forges use: gloops-airshow's FLIGHT
+# state (an active vessel, so LoadGame's IsLoadedGameFocusable gate passes) plus a
+# Ships/VAB directory kRPC launch_vessel resolves <save>/Ships/VAB/<craftName>.craft
+# against. This change ADDS `GS1 Auto-Chute Booster.craft` to that directory and
+# changes nothing else about the base, so the three existing forges are untouched (a
+# forge selects its craft by the craftName param).
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# UNCHANGED mission: `forge_station` is already generic over craft + launch site +
+# crew names. No mlib edit, no new mission code, no new schema for the forge half.
+mission = "forge_station"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be TOML-scoped to driver.missionParams.steps and
+# the spec would validate as having zero steps).
+#
+# No SetSetting: the pad craft never stages here, so no recording starts, and the
+# harvest prunes any Parsek/ dir regardless.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 120 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+craftName            = "GS1 Auto-Chute Booster"
+launchSite           = "LaunchPad"
+# ONE named crew, and it is LOAD-BEARING rather than flavour. mk1pod.v2's ModuleCommand
+# carries minimumCrew = 1, so an EMPTY pod is an UNCONTROLLED upper stage: kRPC could
+# still read it, but throttle and staging commands would do nothing and the GS-1
+# mission would burn its whole budget on the pad. The name matches GS-1's own
+# expectations; it is a SANDBOX save, so nothing about the roster is asserted.
+crewNames            = ["Jebediah Kerman"]
+# Game-seconds to see the new craft settle PRELAUNCH before flaking. Generous:
+# launch_vessel is a scene reload.
+launchTimeoutSeconds = 120
+settleDebounceFrames = 3
+
+# The forge is a fixture stamp, not a coverage flight: it commits no recording and
+# asserts nothing about Parsek. Only the honest environment cells are cited.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form), so
+# this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The pad craft never stages here, so no recording starts / commits. max 1 absorbs a
+# nascent auto-record if the base's persisted setting happens to be on; the harvest
+# prunes Parsek state regardless. Same window as the sibling pad forge.
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+# EMPTY required list, deliberately: a forge asserts nothing about Parsek, and a
+# required token here would convert a fixture-stamping failure into a PARSEK-FAIL.
+# The forbidden ERROR pattern stays - a forge that makes Parsek throw is still a
+# finding, and the sibling forges have never emitted one.
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 240 LoadGame + 120 mission + the fast SaveGame / FlushAndQuit verbs + margin.
+# Matches the sibling pad forge, which flies the same mission against a heavier craft.
+budgetSeconds = 500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

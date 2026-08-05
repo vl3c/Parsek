@@ -906,6 +906,41 @@ Fix: author a two-pod stack craft (pod + decoupler + probe core, both
 controllable) as a new fixture template. That is the same work `bdock-station-*`
 did for docking and it would close all three at once.
 
+> **UPDATE 2026-08-05 - the craft in that fix line now EXISTS, and so does a route
+> to author one.** The GS-1 gameplay-scenario lane needed exactly that stack (its
+> own reason: a staging split authors a RewindPoint only when it is
+> MULTI-CONTROLLABLE) and shipped two things this entry can reuse:
+>
+> - `harness/tools/build_gs1_craft.py` - the harness's FIRST craft-authoring route.
+>   It answers, mechanically, every blocker the paragraph above lists as the reason
+>   hand-editing is expensive: positions are DERIVED (child.pos = parent.pos +
+>   parent_node_offset - child_opposite_node_offset, with the effective node offsets
+>   read off stock craft `attN` tokens rather than computed from part cfgs, and the
+>   formula validated against Jumping Flea and Orbiter One), radial placement comes
+>   from an azimuth-to-quaternion formula validated against Jumping Flea's three fins
+>   exactly, part ids and `persistentId`s are generated unique, every `MODULE` block
+>   is lifted BYTE-FOR-BYTE from a stock KSP craft (so no module-index mismatch can
+>   be authored in), and `--check` plus a byte-identity rebuild cell wire the whole
+>   thing into the unit suite.
+> - `harness/fixtures/saves/bdock-forge-base/Ships/VAB/GS1 Auto-Chute Booster.craft` -
+>   mk1pod.v2 + Mk16 / `Decoupler.1` / probeCoreOcto2.v2 + FL-T200 + LV-T45 + six
+>   Mk2-R + three fins, 15 parts. THREE stages: istg 2 ignites, istg 1 fires the
+>   decoupler AND arms the booster chutes, istg 0 is the upper chute.
+>
+> WHAT IT DOES AND DOES NOT CLOSE, stated exactly so nobody over-reads it. It clears
+> the FIRST guard (two `ModuleCommand` parts either side of a decoupler) trivially.
+> It does NOT clear the SECOND guard as produced: the forge leaves the fixture at
+> `stg = 3` PRELAUNCH, so ONE `ActivateNextStage()` fires istg 2 (ignition), not the
+> split. What it does is make ROUTE 2 above cheap and low-risk: a copy of
+> `gs1-two-stage-pad` with `stg = 3` -> `stg = 2` puts the staging pointer AT the
+> split, carrying the same single unverified assumption (whether KSP honours a
+> persisted `stg` for a PRELAUNCH vessel or re-derives it) - now against a 15-part
+> stack instead of an 86-part Kerbal X, and against a booster that carries its own
+> chutes, so the post-split state is survivable rather than a clamped-to-the-pad
+> wreck. The fixture itself does not exist yet: it is produced by
+> `FORGE-gs1-two-stage` plus `harvest_bdock_station.py --target-name
+> gs1-two-stage-pad`. Not implemented here, scouted only.
+
 **~~Gap 2 - `ScenarioWriter` emits no `mergeState`, so nothing can be an Unfinished
 Flight (2 tests).~~ RESOLVED-PENDING-RE-FLY 2026-08-04.**
 `UnfinishedFlightsRenderingAndNoHide` (SPACECENTER) and `InvokeRPStripAndActivate`

@@ -4526,6 +4526,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FORGE-bdock-station.toml":         "forge-mechanism - manual by design; fixture committed",
         "FORGE-eva2-lko.toml":              "forge-mechanism - manual by design; fixture committed",
         "FORGE-eva3-pad.toml":              "forge-mechanism - manual by design; fixture committed",
+        # The fourth forge, same mechanism as the trio above: it stamps
+        # gs1-two-stage-pad from the committed `GS1 Auto-Chute Booster.craft`.
+        # Its fixture is NOT committed yet, which is the ONE way it differs from
+        # its siblings - but that debt is carried by the `pending-flight` tag and
+        # by GS-1's own STATUS block, not as an operator-REVIEW debt.
+        "FORGE-gs1-two-stage.toml":         "forge-mechanism - manual by design; fixture pending its forge run",
+        # tier=operator by PROMOTION POLICY, not debt. GS-1 is unflown and its
+        # fixture is the one the forge above produces, so it cannot sit on a
+        # cadence yet; promotion is a later human call after the report-only
+        # reading run and the arming sequence its header specifies. Nothing is
+        # outstanding beyond flying it, which is what `--tier operator` is for.
+        "GS-1-auto-chute-booster.toml":     "unflown - operator tier until its fixture is forged and it flies green",
     }
 
     def _specs(self):

@@ -1,0 +1,130 @@
+# Declared param schema for mission gs1_auto_chute_booster (design M-B1
+# "Scenario spec [driver] extension"; the GS-1 auto-chute-booster lane).
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# where <t> in {float, int, number, window, list, string, bool}. A `window` value
+# in the spec is a table {min, max}; hlib additionally enforces min <= max
+# structurally. Every value here is a WINDOW / tolerance / budget, never a golden
+# trajectory (design "Determinism guardrails").
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+# THE STEERING TARGET, deliberately separate from apoapsisWindowMeters below (the
+# JUDGING window). The machine cuts throttle on the first frame whose apoapsis
+# reaches this; the window is what the run is graded on. Two knobs because a burn
+# that overshoots the target by a poll's worth of thrust is still a legitimate
+# flight, and collapsing them would turn ordinary thrust-decay variance into a red.
+#
+# THE CEILING IS 5000, AND IT IS A REGIME BOUND, NOT A PREFERENCE. The whole lane
+# depends on the separated booster staying inside stock's ~2.25 km physics bubble
+# (an unloaded vessel below ~25 km is DELETED by stock, so a booster that leaves
+# the bubble can never reach the LANDED terminal this scenario is about). A target
+# in the kilometres already risks that; anything above this ceiling guarantees it.
+[params.stagingApoapsisMeters]
+required = true
+type = "number"
+min = 100.0
+max = 5000.0
+
+# The ASSERTION ceiling on the altitude the separation actually happened at
+# (mlib's stagedBelowCeiling row). Same regime bound as above, restated as a
+# measured fact rather than a commanded one: a run whose staging drifted high
+# would satisfy every other row and still lose the booster to the deletion rule.
+[params.stagingMaxAltMeters]
+required = true
+type = "number"
+min = 100.0
+max = 5000.0
+
+# The judging window on the PEAK apoapsis (B1's semantics: the NaN-filtered running
+# max over the whole flight, so a hop that passes THROUGH the window and peaks above
+# it is UNMET).
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+# Frames to hold between the throttle cut and the separation click. NOT seconds:
+# what it measures is poll cadence, and the quantity being waited out is engine
+# thrust decay over a handful of physics frames. Firing a decoupler while the lower
+# stage is still pushing drives the spent booster INTO the upper stage.
+[params.stageSettleFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# ARM-WHILE-SLOW bound for the UPPER stage's chute (B1's technique verbatim). The
+# machine arms on the first DESCENT frame whose |vertical speed| is within this,
+# i.e. at the APOAPSIS CROSSING -- NOT at an altitude. An altitude trigger was
+# proven inert on the stock parachute contract: ACTIVE -> SEMIDEPLOYED needs
+# automateSafeDeploy >= deploymentSafeState, and a craft at terminal velocity in
+# dense air never reads SAFE and never slows on its own.
+[params.chuteArmMaxRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 100.0
+
+# The stock deployAltitude written onto the active vessel's parachutes in the same
+# frame they are armed. Declared here rather than inherited from the craft's PAW so
+# the full-canopy leg is a mission input, not a silent craft property.
+#
+# BOUNDS ARE LOAD-BEARING (B1's finding, inherited): a value of 0 would make
+# ModuleParachute.ShouldDeploy() (`altitude < deployAltitude`) permanently false,
+# so the chute would hold SEMIDEPLOYED all the way to the ground. The ceiling
+# matches stock's own PAW control range (UI_FloatRange [50, 5000]).
+[params.chuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 5000.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.stageTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# AvailableThrust (newtons) at/below which the ACTIVE vessel counts as carrying no
+# live engine -- the OBSERVED half of separationObserved. Not zero: a float read of
+# a shut-down engine can carry rounding dust. The discriminator is unambiguous by
+# orders of magnitude (a lit LV-T45 reports ~1.7e5 N against a post-split upper
+# stage that has no engine at all), so any small positive floor works and the
+# bounds here only reject nonsense.
+[params.separationThrustEpsilonNewtons]
+required = false
+type = "number"
+min = 1.0
+max = 10000.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost/destroyed
+# and terminates. mlib.Gs1Params defaults it to 10 when absent.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
