@@ -2662,6 +2662,30 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # counts belong here.
     RUNTIME_SKIPS = {
         "H26-log-contracts": 1,
+        # H28: three, all MEASURED on run 2026-08-05_1855 and all three the
+        # W2-VACUOUS-CELLS conversions for this category (they used to bail
+        # through a silent `return` and report PASSED, which is why the old
+        # passed=5 pin was green).
+        #   * GhostPidsResolveToProtoVessels and NoPidCollisionWithRealVessels
+        #     skip on an empty GhostMapPresence.ghostMapVesselPids. THIS IS THE
+        #     ENTRY TO READ TWICE: the spec injects an all-synthetic corpus
+        #     specifically because the pre-2026-08-05 belief was that live
+        #     ghosts would repopulate that set and de-vacuate both cells. The
+        #     measured run says otherwise - the set is empty for the whole
+        #     driven batch WITH the corpus injected, so it is a fixture property
+        #     of the driven FLIGHT batch, not a missing injection.
+        #   * AntennaSpecsProduceRelayPower skips because no recording among the
+        #     306 committed carries AntennaSpecs - no generator sets the field
+        #     at all, so this one is corpus-INDEPENDENT.
+        "H28-map-presence": 3,
+        # H31: three, MEASURED on run 2026-08-05_1857, on top of an attribute
+        # floor of 1 (the SPACECENTER-scoped CrewAutoAssignPatch cell scene-skips
+        # at FLIGHT) for a pinned skipped=4. ReplacementsAreValid,
+        # NoSelfReplacements and NoCircularReplacements all walk
+        # CrewReservationManager.CrewReplacements, empty under every committed
+        # fixture x preset (ScenarioWriter.AddCrewReplacement has zero callers).
+        # Fixture property, and the spec says so.
+        "H31-crew-reservation": 3,
     }
 
     # EMPTY, and deliberately kept rather than deleted. H20 was the one member that

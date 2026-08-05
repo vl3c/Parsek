@@ -1,6 +1,43 @@
 # Automated Testing System - Status
 
-Last updated: 2026-08-05 (**H9 RE-PINNED TO `total=11`**, branch
+Last updated: 2026-08-05 (**TEN VACUOUS IN-GAME CELLS CONVERTED, H28 + H31
+RE-PINNED OFF MEASUREMENT**, branch `vacuous-cells-conversion`. The
+W2-VACUOUS-CELLS census - cells that reported PASSED while asserting nothing -
+now either assert for real or `InGameAssert.Skip` naming the missing context and
+how to produce it. Three measurement flights, all clean apart from the stale
+pins they were flown to move: H28 `2026-08-05_1855` (70 s) and H31
+`2026-08-05_1857` (50 s) each classified PARSEK-FAIL on ONE verifier row -
+`logContracts.required not matched` - with batchComplete / testResults /
+analyzer / logValidate / anomalySweep all PASS and zero test failures, which is
+what "the flight was clean and the NUMBER was stale" looks like; H26
+`2026-08-05_1859` PASS attempt 1, 50 s, pin unchanged (its conversion was
+CAREER-path byte-identical, exactly as derived). New pins, token-for-token off
+the collected logs: H28 `total=5 passed=2 failed=0 skipped=3`, H31 `total=15
+passed=11 failed=0 skipped=4`; `IngameBatchWiringGroupTests.RUNTIME_SKIPS` gains
+`H28-map-presence: 3` and `H31-crew-reservation: 3` in the same commit, because
+the group's floor cell asserts `pin.skipped == attribute_skipped +
+RUNTIME_SKIPS[sid]` and a registry entry alone reds. **THE FINDING**, and it is
+the reason a measurement run beats a derivation: H28's two pid cells
+(`GhostPidsResolveToProtoVessels`, `NoPidCollisionWithRealVessels`) were vacuous
+EVEN UNDER THE INJECTED CORPUS. Both the spec's `[fixture]` comment and the todo
+entry claimed injection de-vacuated them by respawning live ghosts;
+`GhostMapPresence.ghostMapVesselPids` was measurably EMPTY for the whole driven
+batch with all 306 recordings committed, so nothing repopulates what
+`PerformBetweenRunCleanup` empties and both now honestly Skip. The old
+`passed=5` pin WAS the vacuous-pass evidence. Making those two real is deferred
+follow-up work (whatever creates ghost map presence in a driven batch),
+alongside the `AntennaSpecs` generator gap that keeps D6 `commnet-relay`
+unclaimed. H28's D6 `ghost-map-presence` claim is NARROWED in place rather than
+left standing: it now rests on the synthetic-ghost half alone (chain-ghost
+create + reverse map, `SetGhostMapNavigationTarget`), with the live-lifecycle
+path explicitly named as not exercised. PASS -> honest-Skip reads as a step
+backwards in the tallies and is a step forwards in truth - the number of cells
+that really executed an assertion did not change. Both re-pins are CONFIRMED
+GREEN same-day: H28 run `2026-08-05_1915` and H31 run `2026-08-05_1916`, each
+PASS on attempt 1 with the runner printing the new pinned line token for token.
+Suites unchanged: lib 1272, provision 237, missions/lib 1424.)
+
+Prior: 2026-08-05 (**H9 RE-PINNED TO `total=11`**, branch
 `orbital-rotation-frame`, for the FIFTH FRAME MISMATCH fix - the one the five-site
 calibration below deliberately deferred (`ParsekFlight.ComputeOrbitalRotation` built
 its orbital frame from a Zup velocity and a world radial; the whole family moved to
@@ -101,7 +138,10 @@ corpus_backed + H27/H28/H30, and a new declared RUNTIME_SKIPS map generalising
 the attribute-floor cells for H26's measured REC-002 skip. Eleven vacuous-pass
 cells catalogued by name across four of the six categories
 (W2-VACUOUS-CELLS in todo-and-known-bugs.md; conversions deferred - each moves
-a committed pin). Three CrewReservation cells stopped leaking a
+a committed pin). BOTH NUMBERS IN THAT LAST SENTENCE WERE SUPERSEDED LATER THE
+SAME DAY: the census count was corrected from eleven to TEN by the wave's review
+(a double-count plus one mis-filed cell), and the conversions are no longer
+deferred - see the header entry for branch `vacuous-cells-conversion`. Three CrewReservation cells stopped leaking a
 CrewStatusChanged event each (unsuppressed Available->Missing flips, now
 wrapped). Suites: lib 1203, provision 237, missions/lib 1252.)
 
@@ -1089,17 +1129,25 @@ next wave: all five remaining B6 members plus `CrewReservation` from B4. Wired
 declarations; the read, not the wiring, was the work - it moved two specs off
 the family's default fixture, found the SHIP_VOLUME provision defect before it
 could burn a flight, and catalogued eleven vacuous-pass cells
-(W2-VACUOUS-CELLS). Same H7-H20 shape throughout: LoadGame, pin
-`autoRecordOnLaunch` false, one `RunTests` naming one category, FlushAndQuit.
+(W2-VACUOUS-CELLS; count later corrected to TEN by review). Same H7-H20 shape
+throughout: LoadGame, pin `autoRecordOnLaunch` false, one `RunTests` naming one
+category, FlushAndQuit.
+
+CONVERTED 2026-08-05 (`vacuous-cells-conversion`): all ten cells now assert for
+real or Skip honestly, and the two pins that moved (H28, H31) are re-measured
+off flights `2026-08-05_1855` / `_1857`, with H26 re-confirmed unmoved by
+`_1859`. The H28 rows below carry the finding that came out of it - two of its
+cells were vacuous even under the corpus this spec injects specifically to
+de-vacuate them.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| H26-log-contracts | nightly | The log-pipeline contract layer: structured line format, level tags, WARN prefix hygiene, session/mission/batch marker formats, rate-limit suppression accounting, recording stop metrics, career resource-pool sanity, ERROR tagging. On career-pad-craft so the CAREER-gated resource cell executes for real (on any sandbox host it passes having asserted nothing). THE ERROR EXCEPTION: three cells emit a real [Parsek][ERROR] by design, so this is the one spec whose forbidden pattern is a narrowed lookahead excluding exactly those three literal lines, each ALSO pinned required | D14 career/scene-flight. **LIVE-PROVEN 2026-08-04, twice** (run `2026-08-04_2209`, PASS attempt 1, 49 s, mismatches=0; re-confirmed `2026-08-04_2238`, PASS attempt 1, 54 s, after the review pass anchored the forbidden lookahead to end-of-line). Tally MEASURED whole: `total=10 passed=9 failed=0 skipped=1 category=LogContracts scene=FLIGHT` (the skip is REC-002 on a deliberately recording-free save - the first RUNTIME_SKIPS entry in the H-series group tests). All three deliberate ERROR pins matched and no other ERROR line appeared; the log's second BATCH_COMPLETE line is BAT-001's format-check sample (fiction; see the spec's reading note) |
+| H26-log-contracts | nightly | The log-pipeline contract layer: structured line format, level tags, WARN prefix hygiene, session/mission/batch marker formats, rate-limit suppression accounting, recording stop metrics, career resource-pool sanity, ERROR tagging. On career-pad-craft so the CAREER-gated resource cell executes for real (on any sandbox host it passes having asserted nothing). THE ERROR EXCEPTION: three cells emit a real [Parsek][ERROR] by design, so this is the one spec whose forbidden pattern is a narrowed lookahead excluding exactly those three literal lines, each ALSO pinned required | D14 career/scene-flight. **LIVE-PROVEN 2026-08-04, twice; RE-CONFIRMED 2026-08-05** (run `2026-08-04_2209`, PASS attempt 1, 49 s, mismatches=0; re-confirmed `2026-08-04_2238`, PASS attempt 1, 54 s, after the review pass anchored the forbidden lookahead to end-of-line; re-confirmed again `2026-08-05_1859`, PASS attempt 1, 50 s, after the W2-VACUOUS-CELLS conversion gave `ResourceValuesValid` an up-front mode guard and rewrote `SessionStartFormatValid` onto the production formatter - **PIN UNMOVED**, which is the point: the CAREER path is byte-identical, exactly as derived, so unlike H28/H31 this conversion cost no tally). Tally MEASURED whole: `total=10 passed=9 failed=0 skipped=1 category=LogContracts scene=FLIGHT` (the skip is REC-002 on a deliberately recording-free save - the first RUNTIME_SKIPS entry in the H-series group tests; H28 and H31 joined it on 2026-08-05). All three deliberate ERROR pins matched and no other ERROR line appeared; the log's second BATCH_COMPLETE line is BAT-001's format-check sample (fiction; see the spec's reading note) |
 | H27-diagnostics | nightly | The diagnostics/observability surface over the 272-recording corpus: FormatReport token set, ghost counter sanity, storage breakdown, RunDiagnosticsReport log path, store-count snapshot, engine-observability mirror (the last two are honest tautologies - refactor-drift guards, stated in the spec) | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_2207`, PASS attempt 1, 71 s, mismatches=0). Tally MEASURED whole: `total=6 passed=6 failed=0 skipped=0 category=Diagnostics scene=FLIGHT` |
-| H28-map-presence | nightly | Ghost map-presence ProtoVessel bookkeeping: pid->proto resolution, pid collision vs real vessels, synthetic same-body ghost map TARGETING across a hosted verification coroutine, chain-ghost reverse-map write/clear. Corpus injected deliberately: two cells bail through a SILENT return on an empty ghost-map pid set, so under "none" their green would be vacuous | D6 ghost-map-presence (backing depth; S1.4 owns the first claim); D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_2210`, PASS attempt 1, 70 s, mismatches=0). Tally MEASURED whole: `total=5 passed=5 failed=0 skipped=0 category=MapPresence scene=FLIGHT` - including the targeting cell, which had never run unattended and was the predicted first red; it held on attempt 1 |
+| H28-map-presence | nightly | Ghost map-presence ProtoVessel bookkeeping. WHAT EXECUTES, as measured: synthetic same-body ghost map TARGETING across a hosted verification coroutine, and chain-ghost reverse-map write/clear. WHAT SKIPS: pid->proto resolution and pid collision vs real vessels, both on an empty `ghostMapVesselPids` - the corpus is injected and does NOT repopulate it (see below); plus the antenna relay-power cell on the `AntennaSpecs` generator gap | D6 ghost-map-presence (backing depth on the SYNTHETIC half only; S1.4 owns the first claim; the live-lifecycle path is explicitly not exercised); D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. **RE-PINNED 2026-08-05** off measurement run `2026-08-05_1855` (70 s; PARSEK-FAIL on the stale pin ALONE - batchComplete/testResults/analyzer/logValidate/anomalySweep all PASS, 0 test failures, recordings.count=272 on the nose). Tally MEASURED whole: `total=5 passed=2 failed=0 skipped=3 category=MapPresence scene=FLIGHT`; the three skips are `AntennaSpecsProduceRelayPower`, `GhostPidsResolveToProtoVessels`, `NoPidCollisionWithRealVessels`, declared `RUNTIME_SKIPS: 3`. THE FINDING: the two pid cells were vacuous EVEN UNDER THE INJECTED CORPUS - the 2026-08-04 `passed=5` was their silent-return green, and the belief that injection de-vacuated them (spec comment AND todo entry) is measurably wrong. The targeting cell, the 2026-08-04 predicted first red, has now held across all three runs. CONFIRMED GREEN against the new pin: run `2026-08-05_1915`, PASS attempt 1, pinned line printed token for token |
 | H29-localized-name | nightly | #autoLOC resolution through the LIVE Localizer: recording display names, switch-segment recording names, VESSEL-snapshot rewrites. The B6 member the inventory doc says "should simply have been wired" - zero Skip sites in the transitive call graph | D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_2206`, PASS attempt 1, 70 s, mismatches=0). Tally MEASURED whole: `total=3 passed=3 failed=0 skipped=0 category=LocalizedName scene=FLIGHT` |
 | H30-ghost-audio | nightly | The ghost-audio lifecycle: pause/unpause over null/empty/real AudioSource state, decoupled-subtree FX+audio stop, engine-level pause/unpause across the live ghost set (corpus-fed), watch-pivot anchoring, part-visibility source sync after reanchor, camera-pivot recentring. RESTS ON the W2-SHIP-VOLUME-ZERO profile fix - on any instance provisioned before 2026-08-05 the reanchor cell hard-fails | D6 ghost-audio (FIRST claim - was uncovered); D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_2211`, PASS attempt 1, 69 s, mismatches=0), on an instance re-provisioned with the SHIP_VOLUME fix the same day - the reanchor cell's start-path assertion held, which is the first unattended exercise of StartLoopedGhostAudio. Tally MEASURED whole: `total=9 passed=8 failed=0 skipped=1 category=GhostAudio scene=FLIGHT` (the skip is the SPACECENTER-scoped KSC explosion cell, attribute-derived) |
-| H31-crew-reservation | nightly | Crew reservation/stand-in/seat-matching against a LIVE roster: free-seat crew add, orphan placement across all three seat-match tiers (pid hit, name-fallback with nameHitFallbacks=1, both-tiers-miss with reason=active-vessel-missing-snapshot-part), assigned-stand-in dedup, reserved-missing spawn rescue (Bug609/687), rescue-completion marker. On b2-lko-craft - the ONLY committed fixture with both free seats (mk1-3pod, 2 free) and spare Available kerbals (3); on gloops-airshow five seat-matching cells would skip | D12 seat-matching/rescue-marker; D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04, twice** (run `2026-08-04_2212`, PASS attempt 1, 49 s, mismatches=0; re-confirmed `2026-08-04_2239`, PASS attempt 1, 52 s, after the review pass wrapped the three finally-restore roster flips - members of this batch - in SuppressionGuard.Crew()). Tally MEASURED whole: `total=15 passed=14 failed=0 skipped=1 category=CrewReservation scene=FLIGHT` (the skip is the SPACECENTER-scoped auto-assign cell, attribute-derived; it is currently unreachable in ANY scene - see W2-VACUOUS-CELLS). The whole seat-matching derivation held: all five free-seat guards, the three spare-kerbal guards, and Bug578's ERS-absence guard all resolved as read |
+| H31-crew-reservation | nightly | Crew reservation/stand-in/seat-matching against a LIVE roster: free-seat crew add, orphan placement across all three seat-match tiers (pid hit, name-fallback with nameHitFallbacks=1, both-tiers-miss with reason=active-vessel-missing-snapshot-part), assigned-stand-in dedup, reserved-missing spawn rescue (Bug609/687), rescue-completion marker. On b2-lko-craft - the ONLY committed fixture with both free seats (mk1-3pod, 2 free) and spare Available kerbals (3); on gloops-airshow five seat-matching cells would skip | D12 seat-matching/rescue-marker; D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04, twice** (run `2026-08-04_2212`, PASS attempt 1, 49 s, mismatches=0; re-confirmed `2026-08-04_2239`, PASS attempt 1, 52 s, after the review pass wrapped the three finally-restore roster flips - members of this batch - in SuppressionGuard.Crew()), then **RE-PINNED 2026-08-05** off measurement run `2026-08-05_1857` (50 s; PARSEK-FAIL on the stale pin ALONE - batchComplete/testResults/analyzer/logValidate/anomalySweep all PASS, 0 test failures, recordings.count=0 as the zero-leak pin demands). Tally MEASURED whole: `total=15 passed=11 failed=0 skipped=4 category=CrewReservation scene=FLIGHT`, splitting 1 attribute + 3 run-time (`RUNTIME_SKIPS: 3`). The attribute skip is still the SPACECENTER-scoped auto-assign cell, unreachable in ANY scene - see W2-VACUOUS-CELLS; the three run-time skips are `ReplacementsAreValid` / `NoSelfReplacements` / `NoCircularReplacements`, the W2-VACUOUS-CELLS conversions, all on the empty `CrewReplacements` dict no committed fixture populates. This is the spec's OWN prediction landing token-for-token: its derivation comment said the conversion "will move this pin to passed=11 skipped=4 DELIBERATELY when it lands". The same 11 cells asserted for real on all three runs. The whole seat-matching derivation held: all five free-seat guards, the three spare-kerbal guards, and Bug578's ERS-absence guard all resolved as read. CONFIRMED GREEN against the new pin: run `2026-08-05_1916`, PASS attempt 1, pinned line printed token for token |
 
 ### In-game Rewind block, R7 (2)
 
