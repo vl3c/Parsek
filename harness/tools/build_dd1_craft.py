@@ -188,17 +188,26 @@ SRF_ATTACH_AXIS = {
 
 # Deterministic part ids (unique within the file; fixed so the bytes are
 # stable across runs -- the drift gate compares bytes).
+#
+# THE UInt32 CEILING IS LOAD-BEARING, measured the expensive way: KSP parses
+# the `part = <name>_<uid>` suffix with System.UInt32.Parse, so any uid above
+# 4,294,967,295 makes kRPC launch_vessel throw `RPCError: Value was either too
+# large or too small for a UInt32` before the craft ever reaches the pad (the
+# first FORGE-b17-duna-pad run, 2026-08-06, with the original 43xxxxxxxx ids).
+# GS-1's 42xxxxxxxx ids fit by luck of the prefix; these sit just under the
+# ceiling with room for the whole block.
 _PART_UID = {
-    "probe": 4300000001, "batt0": 4300000002, "batt1": 4300000003,
-    "sas0": 4300000004, "sas1": 4300000005, "tank": 4300000006,
-    "terrier": 4300000007, "dec": 4300000008, "x16": 4300000009,
-    "x32": 4300000010, "skipper": 4300000011,
-    "solar0": 4300000020, "solar1": 4300000021, "solar2": 4300000022,
-    "solar3": 4300000023,
-    "ra0": 4300000030, "ra1": 4300000031, "ra2": 4300000032,
-    "wing0": 4300000040, "wing1": 4300000041, "wing2": 4300000042,
-    "wing3": 4300000043,
+    "probe": 4250000001, "batt0": 4250000002, "batt1": 4250000003,
+    "sas0": 4250000004, "sas1": 4250000005, "tank": 4250000006,
+    "terrier": 4250000007, "dec": 4250000008, "x16": 4250000009,
+    "x32": 4250000010, "skipper": 4250000011,
+    "solar0": 4250000020, "solar1": 4250000021, "solar2": 4250000022,
+    "solar3": 4250000023,
+    "ra0": 4250000030, "ra1": 4250000031, "ra2": 4250000032,
+    "wing0": 4250000040, "wing1": 4250000041, "wing2": 4250000042,
+    "wing3": 4250000043,
 }
+assert max(_PART_UID.values()) <= 0xFFFFFFFF, "part uid exceeds UInt32"
 _PERSISTENT_ID = {k: 1600000000 + i * 7717 for i, k in enumerate(sorted(_PART_UID))}
 
 # THE STAGING TABLE (assumption A3). KSP fires stages in DESCENDING istg

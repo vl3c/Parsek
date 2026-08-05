@@ -35,6 +35,17 @@ have always had (activeVessel present + at least one VESSEL node). The active
 vessel's name + situation are ALWAYS logged, so an operator sees what was stamped
 even without the gate.
 
+`--keep-parsek` inverts the Parsek prune for RECORDED-STATE fixtures: a lane
+whose committed fixture IS a produced save carrying committed recordings (the
+B17 duna-direct recording the re-aim option-3 validation consumes) needs the
+save's `Parsek/` directory -- the recording sidecars (`Recordings/*.prec` /
+`*_vessel.craft` / `*_ghost.craft` / `*.pcrf`) live there, and pruning them
+would strip the fixture down to metadata pointing at nothing. The flag keeps
+`Parsek/` (and copies it as a kept directory) while STILL pruning the
+`.parsek-backup*` staging dirs, which are safety copies no fixture should
+carry. Default OFF: every pad/orbital START-state fixture stays Parsek-clean
+exactly as before.
+
 Usage:
     # After a forge run, the produced save is at
     #   <ksp-instance>/saves/bdock-forge-base/
@@ -196,7 +207,7 @@ def check_active_situation(records, active_index, expected):
 
 
 def harvest(save_dir: str, target_name: str, title: str, force: bool,
-            expected_situations=()) -> int:
+            expected_situations=(), keep_parsek: bool = False) -> int:
     if not os.path.isdir(save_dir):
         raise SystemExit("harvest: produced save dir not found: %s" % save_dir)
     src_sfs = os.path.join(save_dir, "persistent.sfs")
@@ -260,19 +271,35 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             shutil.copy2(src, os.path.join(target, name))
             log("copied %s" % name)
 
-    # 3) kept directories (Ships/VAB craft + AddOns), pruning Parsek/backup dirs.
-    for dname in _KEEP_DIRS:
+    # 3) kept directories (Ships/VAB craft + AddOns; plus the save's Parsek/
+    # recording sidecars in --keep-parsek mode), pruning per the mode.
+    keep_dirs = _KEEP_DIRS + (("Parsek",) if keep_parsek else ())
+    ignore = _ignore_pruned_keep_parsek if keep_parsek else _ignore_pruned
+    for dname in keep_dirs:
         src = os.path.join(save_dir, dname)
         if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(target, dname),
-                            ignore=_ignore_pruned)
+            shutil.copytree(src, os.path.join(target, dname), ignore=ignore)
             log("copied %s/" % dname)
 
     # 4) belt-and-braces prune of any Parsek/backup dir that slipped in (e.g. at
-    # the save root, not under a kept dir).
-    pruned = _prune_state(target)
+    # the save root, not under a kept dir). In --keep-parsek mode only the
+    # backup-staging dirs are swept; the Parsek dir IS the payload.
+    pruned = _prune_state(target, keep_parsek=keep_parsek)
     if pruned:
-        log("pruned Parsek/backup dirs: %s" % ", ".join(pruned))
+        log("pruned %s dirs: %s"
+            % ("backup" if keep_parsek else "Parsek/backup", ", ".join(pruned)))
+    if keep_parsek:
+        recordings = os.path.join(target, "Parsek", "Recordings")
+        sidecars = sorted(os.listdir(recordings)) if os.path.isdir(recordings) \
+            else []
+        log("fixture Parsek/Recordings: %d file(s)" % len(sidecars))
+        if not sidecars:
+            msg = ("--keep-parsek was passed but the produced save carries no "
+                   "Parsek/Recordings sidecars: a recorded-state fixture whose "
+                   "metadata points at nothing")
+            if not force:
+                raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+            log("warning: " + msg + " (writing anyway, --force)")
 
     craft = os.path.join(target, "Ships", "VAB")
     craft_files = sorted(os.listdir(craft)) if os.path.isdir(craft) else []
@@ -294,11 +321,20 @@ def _ignore_pruned(directory, names):
     return set(ignored)
 
 
-def _prune_state(root: str):
+def _ignore_pruned_keep_parsek(directory, names):
+    """--keep-parsek copytree filter: only the backup-staging dirs are pruned;
+    the Parsek dir (the recording sidecars) is the fixture's payload."""
+    return set(n for n in names
+               if any(n.startswith(p) for p in _PRUNE_DIR_PREFIXES))
+
+
+def _prune_state(root: str, keep_parsek: bool = False):
     pruned = []
     for dirpath, dirnames, _files in os.walk(root):
         for d in list(dirnames):
-            if d in _PRUNE_DIR_NAMES or any(d.startswith(p) for p in _PRUNE_DIR_PREFIXES):
+            is_backup = any(d.startswith(p) for p in _PRUNE_DIR_PREFIXES)
+            is_parsek = d in _PRUNE_DIR_NAMES
+            if is_backup or (is_parsek and not keep_parsek):
                 full = os.path.join(dirpath, d)
                 shutil.rmtree(full, ignore_errors=True)
                 dirnames.remove(d)
@@ -332,6 +368,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "PRELAUNCH for a pad forge). Omitted = gate off")
     p.add_argument("--title", default=None,
                    help="the fixture title (default: the target-name)")
+    p.add_argument("--keep-parsek", action="store_true",
+                   help="RECORDED-STATE fixture mode: keep the save's Parsek/ "
+                        "directory (recording sidecars) instead of pruning it; "
+                        ".parsek-backup* staging dirs are still pruned. Fails "
+                        "unless Parsek/Recordings carries at least one sidecar "
+                        "(--force overrides)")
     p.add_argument("--force", action="store_true",
                    help="write the fixture even if the produced save is not "
                         "focusable or fails the situation gate (diagnostics only)")
@@ -343,7 +385,8 @@ def main(argv=None) -> int:
     save_dir = resolve_save_dir(args)
     title = args.title or args.target_name
     return harvest(save_dir, args.target_name, title, args.force,
-                   parse_expected_situations(args.expect_situation))
+                   parse_expected_situations(args.expect_situation),
+                   keep_parsek=args.keep_parsek)
 
 
 if __name__ == "__main__":

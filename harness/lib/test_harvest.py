@@ -177,5 +177,70 @@ class TitleNormalizeTests(unittest.TestCase):
         self.assertEqual(len(out.splitlines()), len(SFS.splitlines()))
 
 
+class KeepParsekModeTests(unittest.TestCase):
+    """--keep-parsek: the RECORDED-STATE fixture mode (the B17 duna-direct
+    recording fixture). The save's Parsek/ dir (recording sidecars) must
+    SURVIVE the harvest while .parsek-backup* staging dirs are still pruned;
+    default mode must stay byte-identical Parsek-clean. Filesystem cells over
+    tempdirs -- this is exactly the prune decision, not operator shell work."""
+
+    def _make_save(self, root, with_sidecar=True):
+        os.makedirs(os.path.join(root, "Parsek", "Recordings"))
+        if with_sidecar:
+            with open(os.path.join(root, "Parsek", "Recordings", "abc.prec"),
+                      "w") as fh:
+                fh.write("payload")
+        os.makedirs(os.path.join(root, ".parsek-backup-staging-1"))
+        os.makedirs(os.path.join(root, "Ships", "VAB"))
+        with open(os.path.join(root, "Ships", "VAB", "X.craft"), "w") as fh:
+            fh.write("ship = X")
+        with open(os.path.join(root, "persistent.sfs"), "w") as fh:
+            fh.write(SFS)
+
+    def _harvest_into_temp(self, save_dir, target_name, **kw):
+        import tempfile
+        out_root = tempfile.mkdtemp()
+        orig = harvest._FIXTURES_SAVES
+        harvest._FIXTURES_SAVES = out_root
+        try:
+            rc = harvest.harvest(save_dir, target_name, target_name,
+                                 force=False, expected_situations=(), **kw)
+        finally:
+            harvest._FIXTURES_SAVES = orig
+        return rc, os.path.join(out_root, target_name)
+
+    def test_keep_parsek_keeps_the_sidecars_and_prunes_the_backups(self):
+        import tempfile
+        save = tempfile.mkdtemp()
+        self._make_save(save)
+        rc, target = self._harvest_into_temp(save, "recorded-fx",
+                                             keep_parsek=True)
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.isfile(
+            os.path.join(target, "Parsek", "Recordings", "abc.prec")),
+            "the recording sidecar IS the fixture payload and must survive")
+        self.assertFalse(os.path.isdir(
+            os.path.join(target, ".parsek-backup-staging-1")),
+            "backup staging dirs are never fixture content")
+
+    def test_keep_parsek_refuses_a_save_with_no_sidecars(self):
+        import tempfile
+        save = tempfile.mkdtemp()
+        self._make_save(save, with_sidecar=False)
+        with self.assertRaises(SystemExit):
+            self._harvest_into_temp(save, "recorded-fx", keep_parsek=True)
+
+    def test_default_mode_still_prunes_parsek_entirely(self):
+        import tempfile
+        save = tempfile.mkdtemp()
+        self._make_save(save)
+        rc, target = self._harvest_into_temp(save, "clean-fx")
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.isdir(os.path.join(target, "Parsek")),
+                         "a START-state fixture must stay Parsek-clean")
+        self.assertTrue(os.path.isfile(
+            os.path.join(target, "Ships", "VAB", "X.craft")))
+
+
 if __name__ == "__main__":
     unittest.main()
