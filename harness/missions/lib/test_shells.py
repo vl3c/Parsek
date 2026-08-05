@@ -3688,6 +3688,27 @@ class InterplanetaryPlanDiagnosticIsolationTests(unittest.TestCase):
                          "a diagnostic fault must never remove the plan")
         self.assertTrue(op.wait_for_phase_angle)
 
+    def test_the_pad_align_asap_selector_turns_the_phase_wait_off(self):
+        """B17 pad-align: `value=0.0` on the plan action selects ASAP mode
+        (WaitForPhaseAngle OFF) -- the pad epoch jump already did the phase
+        alignment. Every other lane emits value=None and the previous cell
+        pins that the wait stays ON for them."""
+        planned = ["node-0"]
+        op = self._Op(planned)
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True)
+        ctrl._mechjeb = self._MechJeb(self._Planner(op))
+        ctrl._conn = self._Conn(self._Sc(self._Vessel(planned)))
+        ctrl._log_transfer_plan_diagnostic = lambda sc, planned: None
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lambda line: None
+        try:
+            ctrl.perform(mlib.Action(
+                mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER, 0.0))
+        finally:
+            mission_runner._stdout_sink = orig
+        self.assertEqual(op.made, 1)
+        self.assertFalse(op.wait_for_phase_angle)
+
     def test_a_raising_diagnostic_does_not_corrupt_the_plan_MESSAGE(self):
         """The load-bearing half. The log must NOT say the plan failed -- it
         must name the diagnostic and say the plan succeeded, or the next

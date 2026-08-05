@@ -1,0 +1,135 @@
+schema = 1
+id = "FORGE-b17-duna-pad"
+# =====================================================================================
+# FIXTURE-FORGE for the B17 duna-direct lane. NOT a coverage flight.
+#
+# operator tier: like its four siblings this NEVER runs on a cadence, only under an
+# explicit `--id FORGE-b17-duna-pad` / `--tier operator`. It boots the SAME committed
+# bdock-forge-base every forge boots, launches the NEW committed `DD1 Duna Direct
+# Probe` craft onto the pad UNCREWED via kRPC launch_vessel, waits for it to settle
+# PRELAUNCH, and SaveGame + FlushAndQuit persist the pad state. Then
+#
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name b17-duna-pad \
+#       --expect-situation PRELAUNCH
+#
+# prunes Parsek state, normalizes the title, and writes the committed
+# `fixtures/saves/b17-duna-pad` fixture that B17-duna-direct-orbit consumes.
+#
+# NO NEW HARVEST TOOL, deliberately (the FORGE-gs1 argument verbatim):
+# harvest_bdock_station.py is already generic over the produced situation and the
+# fixture name, and its own docstring forbids a fifth fork.
+#
+# WHY A FORGE AT ALL. The DD1 craft is authored BY CONSTRUCTION by
+# `harness/tools/build_dd1_craft.py` (the derivation record + drift gate; the GS-1
+# pattern): no stock craft is a probe-controlled direct-transfer vehicle with real
+# torque, a non-deployable Duna-range comm link, zero action groups and a
+# single-ModuleCommand booster split (see the builder's A1-A8). This forge is what
+# turns that craft into a pad save, because nothing but KSP can.
+#
+# UNCREWED IS LOAD-BEARING, the inverse of FORGE-gs1's one-named-crew argument: the
+# DD1's only command part is the OKTO2 (minimumCrew = 0), there is NO seat anywhere
+# on the stack, and the B17 recording must carry NO crew surfaces (a crewed fixture
+# would drag Crew-subgroup recordings and kerbal-ledger structure into the committed
+# tree the "Looped re-aim interplanetary transfer" validation lane consumes).
+# crewNames = [] -> kRPC launch_vessel(crew=[]) -> an empty probe stack, which is
+# fully controlled through the OKTO2.
+#
+# UNFLOWN. Its first scheduled run IS its live-prove. A failure classifies
+# driver-INVALID (retryable), never a PARSEK-FAIL: the forge asserts nothing about
+# Parsek and its logContracts.required list is empty on purpose.
+#
+# WHAT A FAILED FIRST RUN MEANS, in the order the assumptions bite (full derivation +
+# the eight numbered assumptions in build_dd1_craft.py's module docstring):
+#   A1 root-relative origin   -> craft loads at a silly height on the pad
+#   A2 radial radii           -> panels / RA-2 dishes / winglets visibly floating or
+#                                sunk (cosmetic unless a joint fails)
+#   A3 staging (istg)         -> the pad click ignites something other than the
+#                                Skipper alone, or the TD-25 + Terrier land in
+#                                different stages (breaks the hot-stage contract)
+#   A5 RA-2 attach family     -> a dish pointing along the tank instead of outward
+#   A6/A7/A8                  -> only B17 itself can falsify these; the forge never
+#                                flies the craft
+# A crash or a kraken at launch is A1/A2; a wrong staging list is A3. None of those
+# is a Parsek finding.
+# =====================================================================================
+tier = "operator"
+description = "FIXTURE-FORGE: boot the committed forge base, launch the DD1 Duna Direct Probe onto the pad UNCREWED, settle PRELAUNCH, SaveGame -- stamps the b17-duna-pad fixture (harvest_bdock_station.py --target-name b17-duna-pad)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "B17", "interplanetary", "pending-flight"]
+
+[fixture]
+# The SAME committed bootable base the other four forges use. This change ADDS
+# `DD1 Duna Direct Probe.craft` to its Ships/VAB and changes nothing else about the
+# base, so every existing forge is untouched (a forge selects its craft by the
+# craftName param).
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# UNCHANGED mission: `forge_station` is already generic over craft + launch site +
+# crew names. No mlib edit, no new mission code, no new schema for the forge half.
+mission = "forge_station"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be TOML-scoped to driver.missionParams.steps
+# and the spec would validate as having zero steps).
+#
+# No SetSetting: the pad craft never stages here, so no recording starts, and the
+# harvest prunes any Parsek/ dir regardless.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 120 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+craftName            = "DD1 Duna Direct Probe"
+launchSite           = "LaunchPad"
+# UNCREWED (see the header): the DD1 has no seats and the B17 fixture must carry no
+# crew surfaces. Empty -> kRPC launch_vessel(crew=[]).
+crewNames            = []
+# Game-seconds to see the new craft settle PRELAUNCH before flaking. Generous:
+# launch_vessel is a scene reload.
+launchTimeoutSeconds = 120
+settleDebounceFrames = 3
+
+# The forge is a fixture stamp, not a coverage flight: it commits no recording and
+# asserts nothing about Parsek. Only the honest environment cells are cited.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form),
+# so this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The pad craft never stages here, so no recording starts / commits. max 1 absorbs a
+# nascent auto-record if the base's persisted setting happens to be on; the harvest
+# prunes Parsek state regardless. Same window as the sibling pad forges.
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+# EMPTY required list, deliberately: a forge asserts nothing about Parsek, and a
+# required token here would convert a fixture-stamping failure into a PARSEK-FAIL.
+# The forbidden ERROR pattern stays - a forge that makes Parsek throw is still a
+# finding, and the sibling forges have never emitted one.
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 240 LoadGame + 120 mission + the fast SaveGame / FlushAndQuit verbs + margin.
+# Matches the sibling pad forges.
+budgetSeconds = 500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -4568,6 +4568,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # fixture is not committed yet; that debt rides the `pending-flight` tag
         # and GS-2's STATUS block, not an operator-REVIEW debt.
         "FORGE-gs2-orbital-stack.toml":     "forge-mechanism - manual by design; FLOWN 2026-08-05 (PASS attempt 1), fixture gs2-orbital-stack committed + pinned",
+        # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
+        # launching the committed DD1 Duna Direct Probe (built by construction,
+        # build_dd1_craft.py) onto the pad UNCREWED. Its fixture is not committed
+        # yet; that debt rides the `pending-flight` tag and the B17 lane's
+        # pending-fixture tier, not an operator-REVIEW debt.
+        "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; UNFLOWN, stamps b17-duna-pad for the B17 duna-direct lane",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
