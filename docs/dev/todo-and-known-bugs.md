@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## DESIGN-DOC-13.1-STALE-TEST-NAMES: ten unit-test class names in the rewind design doc's §13.1 v0.9.1 list do not exist in Source [FOUND 2026-08-05 during the gameplay-scenarios-wave-1 §13.2 doc-truth reconciliation. NOT STARTED - same method as the §13.2 pass, similar scale]
+## ~~DESIGN-DOC-13.1-STALE-TEST-NAMES: ten unit-test class names in the rewind design doc's §13.1 v0.9.1 list do not exist in Source~~ [FOUND 2026-08-05 during the gameplay-scenarios-wave-1 §13.2 doc-truth reconciliation. DONE 2026-08-05 - per-bullet verification against the real test bodies, no mass-rename]
 
 `docs/parsek-rewind-to-separation-design.md` §13.1's "The v0.9.1 stable-leaf
 extension adds:" list names ten test classes with zero hits in `Source/`:
@@ -35,6 +35,32 @@ the three real stash classes). Fix: per-bullet verification against Source of
 what each claim SHOULD say (the described behavior may be covered under the real
 names, partially covered, or uncovered) - do not mass-rename without reading the
 actual test bodies. A reviewer reads §13.1 as authoritative; today it is not.
+
+**Fixed 2026-08-05.** Each of the ten bullets was verified against the actual
+test bodies and rewritten to name the real class(es):
+`ChildSlotStashedRoundTripTests` and `RewindPointFocusSlotIndexRoundTripTests` ->
+`RewindPointRoundTripTests` (both behaviors live in its fully-populated and
+legacy-defaults cells, the same class the bullet above already named);
+`ReFlySessionMarkerSupersedeTargetIdRoundTripTests` and
+`ReFlySessionMarkerPreSessionBranchPointIdsRoundTripTests` ->
+`ReFlySessionMarkerRoundTripTests` (both fully covered, presence sentinel
+included); `SupersedeCommitMergeClassifierTests`,
+`SupersedeCommitStructuralMutationGateTests`, `InvocationLinearizationTests`'
+chain-extension half and `HybridSupersedeGraphTests` -> `SupersedeCommitTests`
+(its Site B-1 cells, its `HasReFlySessionStructuralMutation_*` cells, its two
+chain-extension cells, and the single
+`HybridStarAndLinearGraph_ResolvesDominantTipAndAllSlotTrails` cell);
+`RewindPointAuthorFocusSlotIndexTests` -> `RewindPointAuthorTests` (fully
+covered, plus a multi-pid-match tiebreak the doc never claimed); the rest of
+`InvocationLinearizationTests` -> `AtomicMarkerWriteTests` (both marker-write
+branches stamp marker + recording together) and `SessionSuppressedSubtreeTests`
+(null/defensive-copy/closure-equivalence). Two gaps are now recorded instead of
+claimed: the Site B-1 bullet's SubOrbital-stays-open branch is asserted against
+the shared classifier in `UnfinishedFlightClassifierTests`, not at the commit
+site; and `SupersedeCommitInPlaceTests`' whole Site B-2 matrix does not exist -
+only the in-place slot-lookup fallback, the `AppendRelations` self-skip cells and
+`Bug585InPlaceContinuationRestoreTests` are in-place-specific, and every seal
+verdict in that bullet is driven through the fork path instead.
 
 ## HARNESS-TIER-TAXONOMY: `tier` encodes cadence membership, not cost or readiness, so "run everything" needs out-of-band knowledge [RAISED 2026-08-02 by the `V1-map-dwell-mun-orbit` promotion (PR #1407). NOT STARTED. Design change against a binding authority; the shape below is a problem statement, not a chosen solution]
 
