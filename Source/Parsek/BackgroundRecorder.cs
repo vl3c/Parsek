@@ -2961,6 +2961,63 @@ namespace Parsek
                 out result);
         }
 
+        /// <summary>
+        /// Read-only peek at the terminal verdict the
+        /// <see cref="TryApplyFinalizationCacheForBackgroundEnd(Recording, uint, double, string, bool, bool, bool, out RecordingFinalizationCacheApplyResult)"/>
+        /// overload WOULD apply for this recording, using the identical cache
+        /// resolution (recording lookup, then PID fallback) and the identical
+        /// <c>ScopeFinalizationCacheToBackgroundEnd</c> clamp. Mutates nothing.
+        /// <para>
+        /// Exists so a caller can VETO the apply on the cache's own verdict
+        /// before it lands. The one caller today is the switch-close terminal
+        /// stamp (<c>ParsekFlight.StampTerminalOnSwitchClosedBgOrigin</c>),
+        /// which must not seal a provably-alive vessel with a PREDICTED
+        /// <see cref="TerminalState.Destroyed"/> from a ballistic-extrapolator
+        /// cache — the scoping clamp pulls such a terminal back to the end UT,
+        /// so the applier's own <c>RejectedTerminalBeforeLastSample</c> guard
+        /// cannot catch it.
+        /// </para>
+        /// Returns false (with <paramref name="terminal"/> null) when no cache
+        /// resolves or the cache carries no terminal.
+        /// </summary>
+        internal bool TryPeekFinalizationCacheTerminalForBackgroundEnd(
+            Recording recording,
+            uint vesselPid,
+            double endUT,
+            out TerminalState? terminal)
+        {
+            terminal = null;
+            if (recording == null)
+                return false;
+
+            RecordingFinalizationCache cache = GetFinalizationCacheForRecording(recording);
+            if (cache == null && vesselPid != 0
+                && finalizationCaches.TryGetValue(vesselPid, out RecordingFinalizationCache pidLookup))
+            {
+                cache = CopyAndAlignFinalizationCacheIdentity(pidLookup, recording);
+            }
+
+            if (cache == null)
+                return false;
+
+            terminal = PeekFinalizationCacheTerminalForBackgroundEnd(cache, endUT);
+            return terminal.HasValue;
+        }
+
+        /// <summary>
+        /// Explicit-cache half of
+        /// <see cref="TryPeekFinalizationCacheTerminalForBackgroundEnd"/>, mirroring
+        /// the two-overload shape of the applier. Returns the terminal the apply
+        /// WOULD write for <paramref name="cache"/> at <paramref name="endUT"/>,
+        /// after the same background-end scoping clamp. Mutates nothing.
+        /// </summary>
+        internal static TerminalState? PeekFinalizationCacheTerminalForBackgroundEnd(
+            RecordingFinalizationCache cache,
+            double endUT)
+        {
+            return ScopeFinalizationCacheToBackgroundEnd(cache, endUT)?.TerminalState;
+        }
+
         internal bool TryApplyFinalizationCacheForBackgroundEnd(
             Recording recording,
             RecordingFinalizationCache cache,

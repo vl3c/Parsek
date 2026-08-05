@@ -104,7 +104,16 @@ namespace Parsek
                 return false;
             }
 
-            Recording chainTip = EffectiveState.ResolveChainTerminalRecording(rec, treeContext);
+            // Walks chain hops AND VesselSwitchContinuation branch points. A
+            // stock Fly / Switch-To glance opens a new segment on the SAME
+            // vessel; the segment carries the terminal, and the branch point
+            // between them is an observation boundary, not a downstream split.
+            // Real splits (Undock / Dock / EVA / Board / …) still stop the walk,
+            // so the downstreamBp reject below keeps its original meaning. The
+            // (rec, slot, rp) subject and branchSide stay the ORIGIN's — only
+            // the terminal is read through the segment.
+            Recording chainTip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                rec, treeContext);
             if (chainTip == null)
             {
                 reason = "noTerminal";
@@ -719,7 +728,13 @@ namespace Parsek
             if (!hasBranchLink && !HasOriginSlotMatchForRecording(rec))
                 return false;
 
-            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec, treeContext);
+            // Same switch-continuation walk as TryQualify: a recording whose own
+            // terminal was left unstamped because a stock Fly / Switch-To glance
+            // closed it mid-flight still has a candidate SHAPE — the terminal
+            // lives on the continuation segment downstream of the
+            // VesselSwitchContinuation branch point.
+            Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                rec, treeContext);
             if (terminalRec == null || !terminalRec.TerminalStateValue.HasValue)
                 return false;
 

@@ -4552,7 +4552,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # flown - its entire value is the DIFFERENCE from GS-2's outcome, and a
         # difference measured against an unflown baseline is not a difference.
         "GS-2-orbital-probe-deploy.toml":   "FLOWN GREEN 2026-08-05 (0853 reading, 0856 armed); operator tier is now an open PROMOTION call, not debt",
-        "GS-3-switch-nudge-deployed.toml":  "FLOWN 2026-08-05 (0903) and the divergence MEASURED; stays operator + report-only by design while GS3-NUDGE-DROPS-UNFINISHED-FLIGHT is open",
+        "GS-3-switch-nudge-deployed.toml":  "FLOWN 3x 2026-08-05 (0903 measured the bug, 1132 measured the fix) and ARMED; operator tier is now an open PROMOTION call, not debt",
     }
 
     def _specs(self):
@@ -4800,8 +4800,18 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # supersedeRows=0 tombstones=0 - every declared window already met. The
     # rewindPoints={min 1} floor is the EXACT INVERSION of GS-1's {max 0}: between
     # them both branches of RewindPointReaper.IsReapEligible are load-bearing.
+    # GS-3-switch-nudge-deployed armed [expectations.rewind] 2026-08-05 after the
+    # POST-FIX reading run 2026-08-05_1132 (PASS attempt 1) measured rewindPoints=1
+    # supersedeRows=0 tombstones=0. Its window was INVERTED from {max 0} to {min 1}
+    # in the same edit: while it was measuring the S17 bug, {max 0} described the
+    # reap that cost the player the re-fly affordance, and arming it then would have
+    # pinned the defect as the contract. Post-fix (570960da1) it declares GS-2's
+    # window verbatim - with the glance and without it, the RewindPoint survives -
+    # so this spec is now the REGRESSION GUARD for that fix rather than the
+    # experiment that found it.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
-                       "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml"}
+                       "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
+                       "GS-3-switch-nudge-deployed.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

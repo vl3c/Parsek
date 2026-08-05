@@ -77,6 +77,39 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Outcome of <see cref="SwitchSegmentBuilder.ClassifySwitchCloseTerminalStamp"/>.
+    /// </summary>
+    internal enum SwitchCloseTerminalStampDecision
+    {
+        /// <summary>The closed recording needs a classified terminal state.</summary>
+        Stamp = 0,
+
+        /// <summary>No recording was closed (null) — nothing to stamp.</summary>
+        SkipNoRecording = 1,
+
+        /// <summary>The recording already carries a terminal verdict, which a
+        /// switch close must never overwrite.</summary>
+        SkipAlreadyClassified = 2,
+    }
+
+    /// <summary>
+    /// Outcome of <see cref="SwitchSegmentBuilder.ClassifySwitchCloseCacheApply"/>.
+    /// </summary>
+    internal enum SwitchCloseCacheApplyDecision
+    {
+        /// <summary>Proceed with the finalization-cache apply. Also covers "no
+        /// cache resolved" — the apply site self-diagnoses that as
+        /// <c>reason=no-cache</c> and falls through to live classification, so
+        /// the veto has no reason to duplicate the check.</summary>
+        Apply = 0,
+
+        /// <summary>VETO. The cache predicts <see cref="TerminalState.Destroyed"/>
+        /// but the vessel is provably alive, so the apply must be skipped in
+        /// favour of live classification.</summary>
+        SkipPredictedDestroyedWhileAlive = 1,
+    }
+
+    /// <summary>
     /// Pure tree-mutation helper for switch/Fly continuation segments
     /// (plan §"Segment Creation"). The helper performs steps 3-5, 6, 7,
     /// and 8 of the contract — it does NOT flush background recorder
@@ -91,6 +124,80 @@ namespace Parsek
     /// </summary>
     internal static class SwitchSegmentBuilder
     {
+        /// <summary>
+        /// Pure decision for GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: when a stock
+        /// Fly / Switch-To click consumes a BG-recorded member, the BG recorder
+        /// closes that member's recording (TrackSection flush + final boundary
+        /// sample) WITHOUT classifying a terminal state, unlike every ordinary
+        /// background close. A recording must not end terminal-less because of a
+        /// switch — the Unfinished-Flights classifier reads terminals, and a
+        /// terminal-less close made the origin invisible to it.
+        /// <para>Returns <see cref="SwitchCloseTerminalStampDecision.Stamp"/>
+        /// only when the closed recording exists and has no terminal yet; an
+        /// already-classified recording is left alone (a Destroyed / Landed /
+        /// sealed verdict is authoritative and must never be overwritten by a
+        /// switch).</para>
+        /// </summary>
+        internal static SwitchCloseTerminalStampDecision ClassifySwitchCloseTerminalStamp(
+            Recording closedRec)
+        {
+            if (closedRec == null)
+                return SwitchCloseTerminalStampDecision.SkipNoRecording;
+            if (closedRec.TerminalStateValue.HasValue)
+                return SwitchCloseTerminalStampDecision.SkipAlreadyClassified;
+            return SwitchCloseTerminalStampDecision.Stamp;
+        }
+
+        /// <summary>
+        /// Pure veto on the finalization-cache half of the switch-close terminal
+        /// stamp (PR #1427 review F1).
+        ///
+        /// <para>
+        /// The stamp runs the same cache-then-live pair every background close
+        /// uses, but this call site has evidence none of the others has: the
+        /// player just switched TO this vessel, so it is ALIVE at the switch UT
+        /// by construction. A finalization cache can nonetheless carry a
+        /// PREDICTED <see cref="TerminalState.Destroyed"/> — the ballistic
+        /// extrapolator writes one for a tail it expects to end in impact — and
+        /// <c>BackgroundRecorder.ScopeFinalizationCacheToBackgroundEnd</c>
+        /// clamps that terminal back to the end UT, so the applier's
+        /// <c>RejectedTerminalBeforeLastSample</c> guard does not fire. Applying
+        /// it would seal a living vessel as destroyed: playback would fire a
+        /// false explosion at the switch UT, and if the continuation segment is
+        /// later discarded (discard clears <c>ChildBranchPointId</c>) the false
+        /// Destroyed becomes the row's effective terminal.
+        /// </para>
+        ///
+        /// <para>
+        /// <paramref name="hasLiveVessel"/> false means the switch target could
+        /// not be resolved — a defensive branch, since the BG-member route
+        /// dereferences the vessel to reach this point. In that case the cache
+        /// is the ONLY evidence available and IS applied, matching
+        /// <c>EndDebrisRecording</c>'s <c>v == null</c> semantics where the
+        /// prediction is exactly the point; the caller warns when neither cache
+        /// nor vessel can classify.
+        /// </para>
+        ///
+        /// <para>
+        /// Only Destroyed is vetoed. A cached Orbiting / Landed / SubOrbital
+        /// verdict is a reading of the same live vessel and stays authoritative
+        /// — it carries the recorder's own endpoint data, which the live
+        /// fallback would coarsen.
+        /// </para>
+        /// </summary>
+        internal static SwitchCloseCacheApplyDecision ClassifySwitchCloseCacheApply(
+            bool hasLiveVessel,
+            TerminalState? cacheTerminal)
+        {
+            if (hasLiveVessel
+                && cacheTerminal.HasValue
+                && cacheTerminal.Value == TerminalState.Destroyed)
+            {
+                return SwitchCloseCacheApplyDecision.SkipPredictedDestroyedWhileAlive;
+            }
+            return SwitchCloseCacheApplyDecision.Apply;
+        }
+
         /// <summary>
         /// Walks the tree from any recording matching <paramref name="focusedVesselPersistentId"/>
         /// (filtered optionally by <paramref name="focusedVesselRecordingIdHint"/>) forward

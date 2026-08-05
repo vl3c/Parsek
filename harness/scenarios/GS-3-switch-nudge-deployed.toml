@@ -161,18 +161,34 @@ id = "GS-3-switch-nudge-deployed"
 # than an assumed one. That ordering is the whole reason this spec's result means
 # anything, and it must be preserved on any re-fly.
 #
-# IT STAYS REPORT-ONLY AND UNARMED, PERMANENTLY UNTIL THE DESIGN CALL IS MADE. This
-# is NOT the usual "unflown, arm after a reading run" caveat - it has flown, and its
-# facets matched the declared windows exactly, which is normally the trigger to arm.
-# Arming is refused here for a different reason: `rewindPoints = { max = 0 }` is a
-# statement that the RewindPoint SHOULD be reaped, and that is the behaviour filed as
-# a defect. Arming it would pin the bug as the contract, and whichever way the design
-# call goes, the gate would have to be un-armed to fix it. If the call is
-# "implementation change", this spec's expectation INVERTS to `{min = 1}` and the run
-# that reds is the fix landing.
+# THE THREE ACTS, and this spec is the only place all three are in one file:
+#
+#   ACT 1 - THE BUG, MEASURED. Run `2026-08-05_0903` (PASS attempt 1): the glance
+#   cost the player the re-fly affordance. `rewindPoints 0` against GS-2's `1` on
+#   the same fixture and mission, one changed step.
+#
+#   ACT 2 - THE FIX. Commit `570960da1`, which took option (1) of the design
+#   question this spec raised (repair the classifier, do not amend S17). Two halves:
+#   a RECORDER half that stamps the origin's terminal when the switch closes its BG
+#   recorder - the origin had been ending TERMINAL-LESS, which is why it never
+#   classified - emitting `[SwitchSegment] origin-terminal-stamped ...`; and a
+#   CLASSIFIER half, a pure walker that hops `VesselSwitchContinuation` bps only, so
+#   `downstreamBp` keeps its original meaning for every other bp type.
+#
+#   ACT 3 - THE FIX, MEASURED. Run `2026-08-05_1132` (PASS attempt 1):
+#   `rewindPoints 1`, and the old report-only `{max = 0}` window mismatched exactly
+#   as this header predicted it would ("the run that reds is the fix landing"). The
+#   spec's expectation is now INVERTED and ARMED, and this file is a REGRESSION
+#   GUARD rather than an experiment.
+#
+# WHAT THAT MEANS FOR ANYONE EDITING IT: the windows below now assert the FIXED
+# behaviour. If a future change re-breaks the glance, this spec reds on
+# `rewind.rewindPoints`, on the missing promotion token, or on the missing
+# origin-terminal stamp - and which of the three tells you WHICH HALF of the fix
+# regressed.
 # =====================================================================================
 tier = "operator"
-description = "GS-2's in-orbit deploy plus ONE stock map Switch-To click onto the released vessel: the switch opens a VesselSwitchContinuation branch point on the deployed leaf, which is predicted to knock it out of the Unfinished Flights classifier via the downstreamBp gate and let the staging RewindPoint reap - the opposite of GS-2, on one changed variable."
+description = "REGRESSION GUARD for the S17 fix (570960da1): GS-2's in-orbit deploy plus ONE stock map Switch-To click onto the released vessel. The glance must NOT cost the player anything - the deployed leaf keeps its Unfinished Flight row and the staging RewindPoint survives, exactly as it does without the click. This spec MEASURED the bug first (0903) and now pins the fix (1132)."
 instanceProfile = "stock-minimal"
 tags = ["GS3", "GS2", "rewind", "unfinished-flights", "switch-segment", "stock-click", "R12", "orbital", "auto-merge", "scene-exit"]
 
@@ -297,11 +313,14 @@ D1 = ["switch-segment", "commit-scene-exit", "auto-merge"]
 # writes no ChainId (SwitchSegmentBuilder.cs:422-465) - so the D5 topology value has
 # no proving token here either.
 D5 = ["controlled-decoupled-child"]
-# D9 IS DELIBERATELY UNCLAIMED. The reaper's behaviour on this run is the PREDICTION
-# under test, carried as a report-only expectation; claiming `rp-disk-reaper` off it
-# would be claiming coverage from a block that cannot red. GS-2 claims that cell for
-# the refusal branch, and this cell may claim it for the reap branch AFTER the reading
-# run promotes the prediction to a required token.
+# `rp-disk-reaper` <- NOW CLAIMED, which it deliberately was not while this spec was
+#   measuring the bug. Then, the reaper's behaviour was the prediction under test and
+#   claiming coverage off a report-only block would have been claiming it from
+#   nothing. Post-fix it is gated by the REQUIRED `ReapOrphanedRPs: reaped=0
+#   remaining=[1-9]...` token plus the FORBIDDEN `Reaped rp=`, exactly as GS-2 gates
+#   it - the same REFUSAL branch, reached through a switch segment rather than
+#   without one.
+D9  = ["rp-disk-reaper"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
@@ -417,31 +436,47 @@ required  = ["Recording started",
              "switchclick complete site=map targetPid=[0-9]+ targetName=Kerbal X Probe .* switched=true",
              "switchclick refused gate=RefusedDialogRequired reason=dialog-required case=A-session targetPid=[0-9]+",
              "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
-             "OnSave: saving 1 committed tree\\(s\\)"]
+             "OnSave: saving 1 committed tree\\(s\\)",
+             "\\[SwitchSegment\\] origin-terminal-stamped recId=\\S+ terminal=Orbiting source=(?:cache|live)",
+             "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=[0-9]+ focusSlot=[0-9]+ terminal=Orbiting side=child",
+             "CommitTree promoted (?:chain-tip )?rec=\\S+ vessel='Kerbal X Probe' slot=[0-9]+ rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+             "ReapOrphanedRPs: reaped=0 remaining=[1-9][0-9]*"]
 # The suite-wide ERROR pattern ONLY. In particular `Reaped rp=` is NOT forbidden here -
 # GS-2 forbids it and this spec PREDICTS it, which is the whole contrast. Adding it to
 # either list on the other side would be asserting the conclusion before the
 # measurement.
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "Reaped rp="]
 
-# REPORT-ONLY (no `gating` key), and every window here is a PREDICTION derived from
-# code, not a measurement. Read against GS-2's block, which declares the opposite from
-# the same fixture and the same mission:
+# ARMED (`gating = true`) 2026-08-05 on the post-fix reading run `2026-08-05_1132`
+# (PASS attempt 1), which measured `rewindPoints 1 / supersedeRows 0 / tombstones 0`.
+# Armed confirm: run `2026-08-05_1142` (PASS attempt 1, gating=True armed=['rewind']
+# mismatches=[]; run `_1144` is an incidental second armed PASS - a negative-control
+# edit script refused an ambiguous match and the flight flew unchanged). Negative
+# control: run `2026-08-05_1147`, temporary `rewindPoints = { max = 0 }` (the old
+# bug-era window) -> PARSEK-FAIL(save-structure) `rewind.rewindPoints 1 > max 0`,
+# then reverted.
 #
-#   rewindPoints  = { max = 0 }  THE PREDICTED REAP. GS-2 declares `min = 1` for the
-#                                same flight without the click. If both hold, the
-#                                nudge cost the player the re-fly affordance, and the
-#                                design-vs-implementation divergence named at the top
-#                                of this file is confirmed with two run ids as
-#                                evidence. If this reads 1 instead, the research doc's
-#                                S17 was right, the `downstreamBp` reading is wrong,
-#                                and THAT is the finding.
-#   supersedeRows = { max = 0 }  No re-fly happened, so no supersede relation may
-#                                exist.
-#   tombstones    = { max = 0 }  Nobody dies here; the tombstone path runs strictly
-#                                inside the re-fly merge tail.
+# THE WINDOW IS INVERTED FROM WHAT THIS FILE USED TO DECLARE, and that inversion is
+# the whole point. It read `{ max = 0 }` while it was measuring the BUG - the reap
+# that cost the player the re-fly affordance - and arming it then would have pinned
+# the defect as the contract. Post-fix it reads `{ min = 1 }`, which is GS-2's window
+# verbatim: with the glance and without it, the RewindPoint must SURVIVE. That the
+# two specs now declare the SAME rewind window on the same fixture is the cleanest
+# statement of what the fix restored.
+#
+#   rewindPoints  = { min = 1 }  THE RP SURVIVES THE GLANCE. The regression this
+#                                guards is a re-break of S17: if a future change lets
+#                                an inert switch segment hide the origin again, this
+#                                is the row that reds, and it reds on the save rather
+#                                than on a log token.
+#   supersedeRows = { max = 0 }  UNCHANGED, and for the original reason: no re-fly
+#                                happens here, so no supersede relation may exist.
+#   tombstones    = { max = 0 }  UNCHANGED: nobody dies, and the tombstone path runs
+#                                strictly inside the re-fly merge tail.
 [expectations.rewind]
-rewindPoints  = { max = 0 }
+gating        = true
+rewindPoints  = { min = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
@@ -472,7 +507,14 @@ tombstones    = { max = 0 }
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 3 }
-terminalStates = { Orbiting = { min = 2 } }
+# RE-PINNED 2026-08-05 from `min = 2` against run `1132`, which measured THREE.
+# THIS ROW IS THE SAVE-SIDE SIGNATURE OF THE FIX'S RECORDER HALF. Pre-fix the count
+# was 2, because the deployed leaf's ORIGIN recording ended TERMINAL-LESS - that is
+# precisely why the classifier never reached it. Post-fix
+# `StampTerminalOnSwitchClosedBgOrigin` gives it one, so all three recordings (the
+# focus stack, the origin, and the switch segment) close at `Orbiting`. A regression
+# in the recorder half drops this back to 2 even if every log token still fires.
+terminalStates = { Orbiting = { min = 3 } }
 branchPoints   = { JointBreak = { min = 1 }, VesselSwitchContinuation = { min = 1 } }
 
 [runtime]

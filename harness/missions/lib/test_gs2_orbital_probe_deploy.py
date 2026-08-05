@@ -878,49 +878,95 @@ class Gs2SpecWiringTests(unittest.TestCase):
             self.assertEqual(1, len(pins), name)
             self.assertEqual("true", pins[0]["args"]["value"], name)
 
-    def test_gs2_forbids_the_reap_and_gs3_does_not(self):
-        """The two specs pin BOTH branches of `IsReapEligible`, and neither may assert
-        the other's conclusion."""
-        gs2 = self._spec("GS-2-orbital-probe-deploy.toml")
-        gs3 = self._spec("GS-3-switch-nudge-deployed.toml")
-        self.assertIn("Reaped rp=", gs2["expectations"]["logContracts"]["forbidden"])
-        self.assertNotIn("Reaped rp=", gs3["expectations"]["logContracts"]["forbidden"])
+    def test_gs1_requires_the_reap_while_gs2_and_gs3_forbid_it(self):
+        """THE REAL A/B, AND IT MOVED WHEN THE S17 FIX LANDED. It used to be GS-2 vs
+        GS-3 (survive vs reap), because GS-3 was measuring the bug. Post-fix the line
+        is drawn where the BEHAVIOUR actually differs:
 
-    def test_the_rewind_blocks_declare_opposite_rewind_point_windows(self):
-        """GS-2 says the RP survives; GS-3 predicts it reaps. If a future edit made
-        them agree, the A/B would have quietly stopped being one."""
-        gs2 = self._spec("GS-2-orbital-probe-deploy.toml")["expectations"]["rewind"]
-        gs3 = self._spec("GS-3-switch-nudge-deployed.toml")["expectations"]["rewind"]
-        self.assertEqual({"min": 1}, gs2["rewindPoints"])
-        self.assertEqual({"max": 0}, gs3["rewindPoints"])
+          GS-1  both stages LAND, both slots resolve Immutable -> the RP REAPS, so
+                `Reaped rp=` is REQUIRED there.
+          GS-2  a non-focus leaf is left Orbiting -> the RP SURVIVES, so `Reaped rp=`
+                is FORBIDDEN.
+          GS-3  the same flight plus a glance at that leaf -> must be IDENTICAL to
+                GS-2, so `Reaped rp=` is forbidden there too. That it is forbidden in
+                BOTH is the fix's contract: a glance changes nothing."""
+        gs1 = self._spec("GS-1-auto-chute-booster.toml")["expectations"]["logContracts"]
+        gs2 = self._spec("GS-2-orbital-probe-deploy.toml")["expectations"]["logContracts"]
+        gs3 = self._spec("GS-3-switch-nudge-deployed.toml")["expectations"]["logContracts"]
+        self.assertTrue(any("Reaped rp=" in p for p in gs1["required"]),
+                        "GS-1 is the reap branch and must REQUIRE the token")
+        self.assertNotIn("Reaped rp=", gs1["forbidden"])
+        for name, lc in (("GS-2", gs2), ("GS-3", gs3)):
+            self.assertIn("Reaped rp=", lc["forbidden"],
+                          "%s asserts the RP SURVIVES; the reap must be forbidden" % name)
 
-    def test_gs2_rewind_is_armed_and_gs3_is_not(self):
-        """ARMING IS PER-BLOCK AND PER-SCENARIO, and this cell is strict in BOTH
-        directions on purpose: it red when GS-2 was armed, which is the guard
-        working - an arming decision is meant to cost an edit here with the reason
-        written down, in the same commit.
+    def test_gs2_and_gs3_declare_the_SAME_window_and_gs1_the_opposite(self):
+        """THE FIX'S CONTRACT, EXPRESSED AS A RELATION BETWEEN SPECS rather than as
+        three separate numbers.
 
-        GS-2 armed 2026-08-05 after the three-run discipline: reading run
-        `2026-08-05_0853` PASS (`gating=False armed=[]`, save parse
-        `rewindPoints: 1`), armed run `2026-08-05_0856` PASS
-        (`gating=True armed=['rewind'] mismatches=[]`, same `rewindPoints: 1`).
-        The spec is in `ARMED_ALLOWLIST` in test_hlib.
+        While the S17 bug was live these two declared OPPOSITE windows, and that
+        opposition WAS the finding: one glance flipped the outcome. The fix
+        (570960da1) made the glance irrelevant, so GS-2 and GS-3 must now declare the
+        SAME window - and if a future edit pulled them apart again, that is either
+        the bug returning or someone relaxing a gate to hide it. Either way this cell
+        reds, which is why it survives as a relation instead of being folded into the
+        per-spec window assertions above.
 
-        GS-3 stays REPORT-ONLY and must, until its predicted divergence has been
-        MEASURED against GS-2's now-flown baseline. Its `rewindPoints = {max = 0}`
-        is a prediction derived from code, and arming a prediction is how a
-        scenario stops being an experiment."""
-        gs2 = self._spec("GS-2-orbital-probe-deploy.toml")["expectations"]
-        gs3 = self._spec("GS-3-switch-nudge-deployed.toml")["expectations"]
-        self.assertTrue(gs2["rewind"].get("gating"),
-                        "GS-2 has flown its reading + armed runs; its rewind block "
-                        "is armed and must stay so")
-        self.assertNotIn("gating", gs3["rewind"],
-                         "GS-3 is UNFLOWN - arming its predicted divergence would "
-                         "assert the conclusion it exists to measure")
-        # The STRUCTURE block stays report-only on BOTH: only `rewind` was armed.
-        for name, spec in (("GS-2", gs2), ("GS-3", gs3)):
+        GS-1 remains the genuine opposite: nothing there is left unconcluded."""
+        w = {n: self._spec("%s.toml" % n)["expectations"]["rewind"]["rewindPoints"]
+             for n in ("GS-1-auto-chute-booster", "GS-2-orbital-probe-deploy",
+                       "GS-3-switch-nudge-deployed")}
+        self.assertEqual(w["GS-2-orbital-probe-deploy"],
+                         w["GS-3-switch-nudge-deployed"],
+                         "a glance must not change the outcome; GS-2 and GS-3 declare "
+                         "one window between them")
+        self.assertEqual({"min": 1}, w["GS-2-orbital-probe-deploy"])
+        self.assertEqual({"max": 0}, w["GS-1-auto-chute-booster"])
+        self.assertNotEqual(w["GS-1-auto-chute-booster"],
+                            w["GS-2-orbital-probe-deploy"])
+
+    def test_all_three_gs_rewind_blocks_are_armed_with_unrelaxed_windows(self):
+        """ALL THREE GS SPECS ARE NOW ARMED, and this cell pins BOTH the arming and
+        the WINDOWS, because an armed gate whose window was quietly widened is worse
+        than an unarmed one - it reads green forever.
+
+        The arming history each window encodes, and why the three differ:
+          GS-1 `rewindPoints {max 0}`  the routine two-stage flight: both stages
+            land, both slots resolve Immutable, the staging RP REAPS. Armed after
+            reading `0824` / armed `0832` / negative control `0836`.
+          GS-2 `rewindPoints {min 1}`  the focus gate: the non-focus leaf stays open
+            so the RP SURVIVES. The EXACT INVERSION of GS-1 - between them both
+            branches of `RewindPointReaper.IsReapEligible` are load-bearing. Armed
+            after reading `0853` / armed `0856`.
+          GS-3 `rewindPoints {min 1}`  GS-2's window verbatim, and that is the point:
+            with a glance at the deployed leaf and without it, the outcome must be
+            the same. It read `{max 0}` while it was MEASURING the S17 bug (run
+            `0903`); the fix `570960da1` landed and the post-fix reading run `1132`
+            measured `rewindPoints 1`, so the window INVERTED and armed. A re-break
+            of S17 reds here.
+
+        This cell red twice already - once when GS-2 was armed and once when GS-3
+        was - and both times that was the guard working: an arming decision is meant
+        to cost an edit here, with the reason written down, in the same commit."""
+        specs = {n: self._spec("%s.toml" % n)["expectations"] for n in (
+            "GS-1-auto-chute-booster", "GS-2-orbital-probe-deploy",
+            "GS-3-switch-nudge-deployed")}
+        for name, spec in specs.items():
+            self.assertTrue(spec["rewind"].get("gating"), "%s must stay armed" % name)
+            # UNRELAXED, per spec: supersede/tombstone floors are absolute on all
+            # three (no re-fly is driven and nobody dies in any of them).
+            self.assertEqual({"max": 0}, spec["rewind"]["supersedeRows"], name)
+            self.assertEqual({"max": 0}, spec["rewind"]["tombstones"], name)
+            # The STRUCTURE block stays report-only on all three: only `rewind` armed.
             self.assertNotIn("gating", spec["recordings"]["structure"], name)
+        self.assertEqual({"max": 0},
+                         specs["GS-1-auto-chute-booster"]["rewind"]["rewindPoints"])
+        self.assertEqual({"min": 1},
+                         specs["GS-2-orbital-probe-deploy"]["rewind"]["rewindPoints"])
+        self.assertEqual({"min": 1},
+                         specs["GS-3-switch-nudge-deployed"]["rewind"]["rewindPoints"],
+                         "GS-3 guards the S17 fix: the RewindPoint must SURVIVE the "
+                         "glance, exactly as it does without one")
 
     def test_the_decoupler_branch_point_window_uses_jointbreak(self):
         """MEASURED CORRECTION, not a source reading: `ProcessBreakupEvent` is the
