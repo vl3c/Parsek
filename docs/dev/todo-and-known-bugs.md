@@ -2251,7 +2251,8 @@ wider than the seam that was red and wants its own in-game proof:
 A and B) and "`ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world
 radial", both below. Finding A shipped 2026-08-05 on branch `twobody-element-frame` and
 took site 5's seam with it (the crossing now lives at `TwoBodyOrbit`'s segment I/O);
-Finding B and the `ComputeOrbitalRotation` entry are still OPEN.
+Finding B shipped the same day on branch `twobody-extreme-ecc-solver`. The
+`ComputeOrbitalRotation` entry is still OPEN.
 
 ### The site-4 residual: diagnosed, and fixed as site 5 (phase 3)
 
@@ -2361,7 +2362,8 @@ encoding, never the frame. Its docstring now says so and points at the new cell.
 and get their own entry: see "TwoBodyOrbit's element-seeded propagation works in KSP's raw
 element frame" below. Finding A (the frame) has since been fixed on branch
 `twobody-element-frame`, which is what moved the element-frame crossing out of this
-file's seam and into `TwoBodyOrbit`'s segment I/O; Finding B (the solver) is still open.
+file's seam and into `TwoBodyOrbit`'s segment I/O; Finding B (the solver) has since been
+fixed on branch `twobody-extreme-ecc-solver`.
 
 **CONFIRMED IN FLIGHT (`2026-08-04_2323`, PASS attempt 1, 49 s).** The prediction this
 section made - site 4 from 131.066 deg to under 5 deg, closed form says ~0 - measured
@@ -2573,14 +2575,16 @@ Each is a behavioral change on live extrapolation paths; fix together with an in
 
 ---
 
-## `TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame, not stock `Orbit`'s (two findings; each needs its own PR) [FOUND 2026-08-05 by the headless cross-check that diagnosed the site-4 residual, branch `small-fixes-2`. **FINDING A (the frame) FIXED 2026-08-05, branch `twobody-element-frame`; FINDING B (the solver) STILL OPEN and is the NEXT PR**]
+## ~~`TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame, not stock `Orbit`'s (two findings; each needs its own PR)~~ [FOUND 2026-08-05 by the headless cross-check that diagnosed the site-4 residual, branch `small-fixes-2`. **BOTH FINDINGS FIXED: FINDING A (the frame) 2026-08-05, branch `twobody-element-frame`; FINDING B (the solver) 2026-08-05, branch `twobody-extreme-ecc-solver`. STILL OWED: Finding A's in-game proof, and `GhostExtender.PropagateOrbital`, the known raw-frame reader outside the boundary - both below**]
 
 Both fall out of `StockOrbitElementFrameParityTests`, the transcription of stock's
 element-to-state chain written to diagnose site 4 (see "BallisticExtrapolator frame
 mismatches" -> phase 3 for the closed form and the measurement). Neither was fixed there:
 site 5 corrected the ONE seam that was red, and each of these is wider than that seam.
-**Finding A has since been fixed on its own branch and its site-5 seam collapsed into the
-new boundary; Finding B is untouched and is the next PR.**
+**Both have since been fixed, each on its own branch: Finding A's fix collapsed the site-5
+seam into the new element-frame boundary, and Finding B's replaced the Kepler solve with
+stock's own dispatch. What is still owed is written down under each finding - Finding A's
+in-game proof, and the one raw-frame reader that lives outside the boundary.**
 
 **~~Finding A - the frame.~~ [FIXED 2026-08-05, branch `twobody-element-frame`]**
 `TwoBodyOrbit.TryCreateFromSegment` reads a segment's KSP-native
@@ -2713,7 +2717,8 @@ measurement) before it can be called fixed.
 **Headless coverage added:** direct-agreement cells with a REAL non-identity
 `Planetarium.Zup` installed (`TryCreateFromSegment` -> `GetStateAtUT` equals the stock
 transcription with NO `WorldToLocal`, at 0 / 37.5 / 230.01 / -130 deg, plus the pad
-fixture near apoapsis where Finding B's solver is exact); the inc=0 equatorial closed form
+fixture, which sampled near apoapsis only - where the pre-fix solver was exact - until
+Finding B was fixed and it was widened to a full period); the inc=0 equatorial closed form
 (the 3-1-3 collapses to `R_z(LAN + argPe)`, so the shift is still the polar rotation, with
 no polar leakage); a hyperbolic cell (the shift is a rotation of the conic, not a property
 of its class); a segment -> propagate -> `CreateSegment` LAN round trip; and the reworked
@@ -2724,20 +2729,83 @@ API). `BallisticExtrapolatorFrameTests`, `BallisticExtrapolatorKeplerTests` and
 reads the process-wide `Planetarium.Zup`, so a sibling that installs one must not run
 concurrently.
 
-**Finding B - the solver. STILL OPEN; this is the NEXT PR.** Above e = 0.8 stock dispatches to
+**~~Finding B - the solver.~~ [FIXED 2026-08-05, branch `twobody-extreme-ecc-solver`]**
+Above e = 0.8 stock dispatches to
 `solveEccentricAnomalyExtremeEcc` (8 fixed Laguerre-style iterations seeded at
-`M + 0.85 e sign(sin M)`); `TwoBodyOrbit` keeps plain Newton seeded at `E = M`. At
+`M + 0.85 e sign(sin M)`); `TwoBodyOrbit` kept plain Newton seeded at `E = M`. At
 e = 0.9948 - not exotic: that is the surface-rotation ellipse of EVERY landed or prelaunch
-vessel, and the exact fixture the H9 probes fly on - Newton fails to converge inside its 16
-iterations near periapsis and lands double-digit degrees of true anomaly from the root,
+vessel, and the exact fixture the H9 probes fly on - Newton failed to converge inside its 16
+iterations near periapsis and landed double-digit degrees of true anomaly from the root,
 peaking around 134 deg over a mean-anomaly sweep. Stock stays exact throughout. Pinned as a
 DISAGREEMENT by
-`StockOrbitElementFrameParityTests.HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver`,
-so a later fix flips a test instead of being invisible. Not the site-4 cause (that was
+`StockOrbitElementFrameParityTests.HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver`
+(since inverted and renamed - see below), so the fix flipped a test instead of being invisible. Not the site-4 cause (that was
 Finding A, proven by the polar-component and `r . v` invariants the measurement preserved),
-but it is a real robustness gap in the same propagator. Finding A's fix did NOT touch the
-Kepler solve or that pinned cell; the parity file's new pad-fixture cell deliberately samples
-only near apoapsis, where the solve is exact, so it measures the FRAME and not this.
+but a real robustness gap in the same propagator. Finding A's fix did NOT touch the
+Kepler solve or that pinned cell; the parity file's pad-fixture cell deliberately sampled
+only near apoapsis, where the solve was exact, so it measured the FRAME and not this.
+
+### What shipped for Finding B (2026-08-05, branch `twobody-extreme-ecc-solver`)
+
+`BallisticExtrapolator.TwoBodyOrbit.SolveEllipticKepler` is now stock's dispatch,
+transcribed from the same decompile the parity file's `StockOrbitPort` transcribes: the
+0.8 threshold, `SolveEllipticKeplerStandard` (Newton seeded at
+`M + e sin M + 0.5 e^2 sin 2M`, iterated until the STEP falls under 1e-7) and
+`SolveEllipticKeplerExtremeEccentricity` (the order-5 Laguerre step seeded at
+`M + 0.85 e sign(sin M)`, exactly 8 iterations, no early exit). BOTH branches were ported,
+not just the one that was wrong: a propagator that agrees with stock in one eccentricity
+regime and improvises in the other is not a parity contract. The old 16-iteration
+`E = M` Newton loop is gone. The change is in the SHARED solve, so it covers both
+constructors' downstream propagation (`TryCreate`-seeded and `TryCreateFromSegment`-seeded)
+rather than only the segment path.
+
+**TWO DELIBERATE DEVIATIONS FROM STOCK, both forced by totality** (the propagator runs from
+`RefreshFinalizationCache` before every recorder sample - see the "AN ORBITAL EVA RECORDS
+NOTHING" entry for what one throw out of it costs):
+
+1. Stock's standard loop is an UNCAPPED `while`. The port caps it at 64 iterations, and on
+   reaching the cap RETURNS ITS BEST ESTIMATE and emits a rate-limited Warn keyed
+   `twobody-elliptic-kepler-std-iteration-cap` - never a throw, never a hang. No production
+   input reaches that cap (Newton on `e < 0.8` from stock's series seed converges in a
+   handful of iterations, `AreSegmentElementsPropagatable` refuses `e < 0`, and `TryCreate`
+   derives e as a vector magnitude), which is exactly why hitting it must be loud. The cell
+   that exercises it drives the solve directly with a non-physical `e = -5`.
+2. `Math.Sign` is replaced by a NaN-safe `SolverSign` inside both loops. Both stock branches
+   call `Math.Sign`, the one `System.Math` entry point that THROWS `ArithmeticException` on
+   NaN instead of propagating it - the exact mechanism behind the orbital-EVA incident,
+   which reached it through the HYPERBOLIC solve. Porting two more `Math.Sign` call sites
+   into the elliptic path re-opened that door; the entry guard (non-finite M or e returns
+   NaN) plus `SolverSign` keep NaN-in / NaN-out. On any finite input the two agree exactly.
+
+The hyperbolic solve is UNTOUCHED.
+
+**Mean-anomaly range is NOT a divergence, and the code doc says so:** `GetStateAtUT`
+normalises M to `[0, 2pi)` where stock's `getObtAtUT` hands its solver M in `(-pi, pi]`.
+Both branches are equivariant under a 2pi shift of M, and E and E - 2pi give identical
+radius and true anomaly, so the two ranges agree; do not "fix" one to match the other.
+
+**Headless coverage.** The pinned disagreement cell is kept and INVERTED
+(`HighEccentricity_TwoBodyOrbitTracksStocksExtremeEccSolverOverTheFullSweep`): same fixture,
+same full 360-sample mean-anomaly sweep, per-sample position AND velocity agreement at 1e-9
+relative. Added: a Kepler-residual convergence cell across e = 0.8 / 0.9 / 0.9948 / 0.999 /
+0.99999 at 0.5-degree steps (stated against the equation, not against the port, so it holds
+even if both transcriptions were wrong the same way); a dispatch-threshold continuity cell
+straddling 0.8 with an anti-vacuity half proving the dispatch really does straddle; the
+iteration-cap totality cell; and a NaN/Infinity in -> NaN out theory. The pad-fixture
+direct-agreement cell, restricted to near-apoapsis because THIS finding dominated elsewhere,
+now sweeps a whole period. `BallisticExtrapolatorKeplerTests` needed no change - every cell
+there is solver-agnostic by construction (conic geometry, conserved quantities, periodicity,
+Kepler self-consistency), including its e = 0.82 / 0.9 / 0.95 cells, which now take the
+extreme-eccentricity branch and stay green; its class docstring now records that scope
+rather than restating the parity contract.
+
+**Deployed-DLL grep marker** for this change: the string literal
+`twobody-elliptic-kepler-std-iteration-cap` (`BallisticExtrapolator.EllipticKeplerIterationCapLogKey`).
+
+**No in-game proof is owed for this one** - unlike Finding A it moves no frame and no
+serialized value; it makes an existing computation converge where it previously did not, and
+the standard is agreement with stock, which is measured exactly and headlessly against the
+decompiled transcription. Finding A's in-game proof is still owed and is unaffected.
 
 ---
 

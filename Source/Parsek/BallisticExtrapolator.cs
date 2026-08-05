@@ -632,6 +632,17 @@ namespace Parsek
         internal const string ElementFrameZupBoundaryLogKey = "twobody-element-frame-zup-boundary";
 
         /// <summary>
+        /// Rate-limit / log key for the ONE non-total path the elliptic Kepler solve could
+        /// otherwise take: stock's standard-eccentricity Newton loop is UNCAPPED, and this port
+        /// caps it (see <see cref="TwoBodyOrbit.SolveEllipticKepler"/>). Distinctive verbatim
+        /// literal on purpose: it is the grep marker that proves a build carrying the
+        /// stock-parity Kepler solver actually deployed (see docs/dev/todo-and-known-bugs.md,
+        /// "TwoBodyOrbit's element-seeded propagation works in KSP's raw element frame",
+        /// finding B; branch <c>twobody-extreme-ecc-solver</c>).
+        /// </summary>
+        internal const string EllipticKeplerIterationCapLogKey = "twobody-elliptic-kepler-std-iteration-cap";
+
+        /// <summary>
         /// THE FRAME CONTRACT for this propagator's SEGMENT I/O, and the single place the
         /// element-frame crossing happens. FIXED 2026-08-05 (branch <c>twobody-element-frame</c>),
         /// generalising the site-5 seam that previously sat in
@@ -2025,20 +2036,202 @@ namespace Parsek
                     r31 * perifocal.x + r32 * perifocal.y);
             }
 
-            private static double SolveEllipticKepler(double meanAnomaly, double eccentricity)
+            /// <summary>
+            /// The eccentricity at or above which stock <c>Orbit</c> - and therefore this
+            /// propagator - switches from Newton to the Laguerre-style extreme-eccentricity
+            /// solve. Stock's own literal, from <c>Orbit.solveEccentricAnomaly</c>.
+            /// </summary>
+            internal const double ExtremeEccentricityThreshold = 0.8;
+
+            /// <summary>
+            /// Stock <c>Orbit.solveEccentricAnomalyStd</c>'s convergence threshold, on the Newton
+            /// STEP (not the residual). Quadratic convergence means a step this small leaves a
+            /// residual near machine precision, which is why a "loose"-looking 1e-7 is not a loss
+            /// of accuracy against the 1e-12 step threshold it replaces.
+            /// </summary>
+            internal const double StandardKeplerStepTolerance = 1e-7;
+
+            /// <summary>
+            /// Iteration cap on the standard branch. Stock's loop is UNCAPPED; see
+            /// <see cref="SolveEllipticKepler"/> for why this port needs one and what it does
+            /// when the cap is reached.
+            /// </summary>
+            internal const int StandardKeplerIterationCap = 64;
+
+            /// <summary>
+            /// Stock <c>Orbit.solveEccentricAnomalyExtremeEcc</c>'s FIXED iteration count - not a
+            /// cap and not a convergence budget: the loop runs exactly this many times with no
+            /// early exit, exactly as stock does, so the two solvers agree bit-for-bit in
+            /// arithmetic order as well as in result.
+            /// </summary>
+            internal const int ExtremeEccentricityKeplerIterations = 8;
+
+            /// <summary>
+            /// SOLVER-PARITY CONTRACT with stock <c>Orbit</c> (decompiled KSP 1.12.5,
+            /// <c>Orbit.solveEccentricAnomaly</c> / <c>solveEccentricAnomalyStd</c> /
+            /// <c>solveEccentricAnomalyExtremeEcc</c>). This method IS stock's dispatch,
+            /// transcribed: below <see cref="ExtremeEccentricityThreshold"/> (0.8) the standard
+            /// Newton solve seeded at <c>M + e sin M + 0.5 e^2 sin 2M</c> and iterated until the
+            /// Newton STEP falls under <see cref="StandardKeplerStepTolerance"/>; at or above it
+            /// the Laguerre-style solve seeded at <c>M + 0.85 e sign(sin M)</c> and run for
+            /// exactly <see cref="ExtremeEccentricityKeplerIterations"/> (8) iterations with no
+            /// early exit. The same transcription (from the same decompile) is cross-checked cell
+            /// by cell in <c>Parsek.Tests.StockOrbitElementFrameParityTests.StockOrbitPort</c>.
+            /// <para>
+            /// WHY. Until 2026-08-05 this was plain Newton seeded at <c>E = M</c>, capped at 16
+            /// iterations, for every eccentricity. At e = 0.9948 - which is not exotic: it is the
+            /// surface-rotation ellipse of EVERY landed or prelaunch vessel, and the fixture the
+            /// H9 probes fly on - that solve fails to converge near periapsis inside its 16
+            /// iterations and lands DOUBLE-DIGIT degrees of true anomaly from the root, peaking
+            /// around 134 deg over a mean-anomaly sweep, while stock stays exact throughout. The
+            /// element-seeded propagator is supposed to be stock's, so both branches are ported
+            /// rather than only the one that was wrong - a propagator that agrees with stock in
+            /// one eccentricity regime and improvises in the other is not a parity contract.
+            /// See docs/dev/todo-and-known-bugs.md, "TwoBodyOrbit's element-seeded propagation
+            /// works in KSP's raw element frame, not stock Orbit's" (Finding B), branch
+            /// <c>twobody-extreme-ecc-solver</c>.
+            /// </para>
+            /// <para>
+            /// TOTALITY, and the ONE deliberate deviation. This propagator must never throw and
+            /// must never hang - <c>FlightRecorder.OnPhysicsFrame</c> refreshes the finalization
+            /// cache through it BEFORE it samples, so one bad conic costs every sample of every
+            /// frame (see <see cref="SolveHyperbolicKepler"/> for the measured incident). Stock's
+            /// standard branch is a <c>while</c> with no iteration limit; a cap
+            /// (<see cref="StandardKeplerIterationCap"/>) is therefore added, and on reaching it
+            /// the solve RETURNS ITS BEST ESTIMATE and emits a rate-limited log keyed
+            /// <see cref="BallisticExtrapolator.EllipticKeplerIterationCapLogKey"/> rather than
+            /// throwing or looping. That cap is unreachable through the production entry points
+            /// (Newton on <c>e &lt; 0.8</c> from stock's seed converges in a handful of
+            /// iterations), which is exactly why it must not be silent if it is ever hit.
+            /// </para>
+            /// <para>
+            /// NaN-IN, NaN-OUT is preserved and is load-bearing for the same reason it is on the
+            /// hyperbolic solve: BOTH ported branches call <c>Math.Sign</c>, the one
+            /// <c>System.Math</c> entry point that THROWS <c>ArithmeticException</c> on NaN
+            /// instead of propagating it. The entry guard below returns NaN for a non-finite mean
+            /// anomaly or eccentricity, and <see cref="SolverSign"/> replaces <c>Math.Sign</c>
+            /// inside the loops so a value that goes non-finite mid-iteration falls out as NaN
+            /// too. Callers keep the contract they already had: the three
+            /// <see cref="TryPropagate"/> consumers check finiteness, and the in-extrapolator
+            /// sites are safe only because they reach this solver through
+            /// <see cref="AreSegmentElementsPropagatable"/>- or <see cref="TryCreate"/>-validated
+            /// elements.
+            /// </para>
+            /// <para>
+            /// MEAN-ANOMALY RANGE. <see cref="GetStateAtUT"/> normalises M to <c>[0, 2pi)</c>
+            /// while stock's <c>getObtAtUT</c> hands its solver M in <c>(-pi, pi]</c>. Both
+            /// branches are equivariant under a 2pi shift of M (the seeds use only <c>sin</c> of
+            /// M, and the residual <c>E - e sin E - M</c> is unchanged when E and M shift
+            /// together), and E and E - 2pi produce identical radius and true anomaly, so the two
+            /// ranges agree. Do not "fix" one range to match the other on the assumption that
+            /// they differ.
+            /// </para>
+            /// <para>
+            /// This method and its two branches are <c>internal</c> rather than <c>private</c>
+            /// purely so <c>Parsek.Tests</c> can drive them directly: no production input reaches
+            /// the standard branch's iteration cap, and a cap nobody can exercise is a claim
+            /// rather than a contract.
+            /// </para>
+            /// </summary>
+            internal static double SolveEllipticKepler(double meanAnomaly, double eccentricity)
             {
-                double eccentricAnomaly = meanAnomaly;
-                for (int i = 0; i < 16; i++)
+                if (!IsFiniteElement(meanAnomaly) || !IsFiniteElement(eccentricity))
+                    return double.NaN;
+
+                return eccentricity < ExtremeEccentricityThreshold
+                    ? SolveEllipticKeplerStandard(meanAnomaly, eccentricity)
+                    : SolveEllipticKeplerExtremeEccentricity(meanAnomaly, eccentricity);
+            }
+
+            /// <summary>
+            /// <c>Orbit.solveEccentricAnomalyStd</c>: Newton on <c>M = E - e sin E</c> seeded at
+            /// the second-order series expansion of E in e. Iteration-capped where stock is not -
+            /// see <see cref="SolveEllipticKepler"/> for the totality contract.
+            /// </summary>
+            internal static double SolveEllipticKeplerStandard(double meanAnomaly, double eccentricity)
+            {
+                double delta = 1.0;
+                double eccentricAnomaly = meanAnomaly
+                    + (eccentricity * Math.Sin(meanAnomaly))
+                    + (0.5 * eccentricity * eccentricity * Math.Sin(2.0 * meanAnomaly));
+
+                int iterations = 0;
+                while (Math.Abs(delta) > StandardKeplerStepTolerance)
                 {
-                    double numerator = eccentricAnomaly - eccentricity * Math.Sin(eccentricAnomaly) - meanAnomaly;
-                    double denominator = 1.0 - eccentricity * Math.Cos(eccentricAnomaly);
-                    double delta = numerator / denominator;
-                    eccentricAnomaly -= delta;
-                    if (Math.Abs(delta) < 1e-12)
+                    if (iterations >= StandardKeplerIterationCap)
+                    {
+                        ParsekLog.WarnRateLimited(LogTag, EllipticKeplerIterationCapLogKey,
+                            "elliptic Kepler standard solve hit its iteration cap ("
+                            + StandardKeplerIterationCap
+                            + "); returning best estimate E="
+                            + eccentricAnomaly.ToString("R", CultureInfo.InvariantCulture)
+                            + " for M="
+                            + meanAnomaly.ToString("R", CultureInfo.InvariantCulture)
+                            + " e="
+                            + eccentricity.ToString("R", CultureInfo.InvariantCulture)
+                            + " lastStep="
+                            + delta.ToString("R", CultureInfo.InvariantCulture));
                         break;
+                    }
+
+                    iterations++;
+                    double solved = eccentricAnomaly - (eccentricity * Math.Sin(eccentricAnomaly));
+                    delta = (meanAnomaly - solved) / (1.0 - (eccentricity * Math.Cos(eccentricAnomaly)));
+                    eccentricAnomaly += delta;
                 }
 
                 return eccentricAnomaly;
+            }
+
+            /// <summary>
+            /// <c>Orbit.solveEccentricAnomalyExtremeEcc</c>: a Laguerre-style solve (order 5) run
+            /// for a FIXED 8 iterations with no convergence test, seeded on the correct side of
+            /// periapsis by <c>0.85 e sign(sin M)</c>. Structurally total for the eccentricity
+            /// band it serves - <c>1 - e cos E</c> is bounded below by <c>1 - e &gt; 0</c> and the
+            /// square root is taken of an absolute value, so the denominator can neither vanish
+            /// nor go imaginary - with <see cref="SolverSign"/> covering the non-finite case the
+            /// entry guard in <see cref="SolveEllipticKepler"/> does not already refuse.
+            /// </summary>
+            internal static double SolveEllipticKeplerExtremeEccentricity(
+                double meanAnomaly, double eccentricity)
+            {
+                double eccentricAnomaly = meanAnomaly
+                    + (0.85 * eccentricity * SolverSign(Math.Sin(meanAnomaly)));
+
+                for (int i = 0; i < ExtremeEccentricityKeplerIterations; i++)
+                {
+                    double sine = eccentricity * Math.Sin(eccentricAnomaly);
+                    double cosine = eccentricity * Math.Cos(eccentricAnomaly);
+                    double residual = eccentricAnomaly - sine - meanAnomaly;
+                    double firstDerivative = 1.0 - cosine;
+                    double secondDerivative = sine;
+                    eccentricAnomaly += (-5.0 * residual)
+                        / (firstDerivative
+                            + (SolverSign(firstDerivative)
+                                * Math.Sqrt(Math.Abs(
+                                    (16.0 * firstDerivative * firstDerivative)
+                                    - (20.0 * residual * secondDerivative)))));
+                }
+
+                return eccentricAnomaly;
+            }
+
+            /// <summary>
+            /// NaN-safe stand-in for <c>Math.Sign</c>, which throws <c>ArithmeticException</c> on
+            /// NaN rather than propagating it. Returns 0 for both zero and NaN, so a non-finite
+            /// iterate poisons the arithmetic into a NaN RESULT instead of an exception out of
+            /// the propagator - the NaN-in / NaN-out half of the totality contract on
+            /// <see cref="SolveEllipticKepler"/>. Stock's own solvers use <c>Math.Sign</c>
+            /// directly; that is the deviation, and it changes nothing on any finite input
+            /// because the two agree everywhere else.
+            /// </summary>
+            private static double SolverSign(double value)
+            {
+                if (value > 0.0)
+                    return 1.0;
+                if (value < 0.0)
+                    return -1.0;
+                return 0.0;
             }
 
             /// <summary>
