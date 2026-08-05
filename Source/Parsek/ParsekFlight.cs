@@ -9062,6 +9062,13 @@ namespace Parsek
                     fallthroughReason: "bg-flush-threw");
             }
 
+            // 2b. GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: the BG close above flushes
+            // and boundary-samples but never CLASSIFIES a terminal, unlike every
+            // ordinary background close (EndDebrisRecording, deferred destruction,
+            // scene-exit finalization). A recording must not end terminal-less
+            // because the player switched onto it.
+            StampTerminalOnSwitchClosedBgOrigin(bgRec, newVessel, newPid, switchUT);
+
             // 3. Resolve terminal leaf in the active tree (walks from any PID
             // match — the BG recording itself or any downstream continuation).
             var resolution = SwitchSegmentBuilder.ResolveSwitchContinuationParent(
@@ -9152,6 +9159,93 @@ namespace Parsek
                 SessionId = sessionId,
                 DiagnosticReason = "consumed-into-segment",
             };
+        }
+
+        /// <summary>
+        /// GS3-NUDGE-DROPS-UNFINISHED-FLIGHT, half 1 (the DATA half). Live-side
+        /// wrapper around the pure
+        /// <see cref="SwitchSegmentBuilder.ClassifySwitchCloseTerminalStamp"/>
+        /// decision: when a stock Fly / Switch-To click consumes a BG-recorded
+        /// member, <see cref="BackgroundRecorder.OnVesselRemovedFromBackground(uint)"/>
+        /// flushes and boundary-samples the member's recording but never
+        /// classifies a terminal state — unlike <c>EndDebrisRecording</c>, the
+        /// deferred-destruction path, and scene-exit finalization, which all end
+        /// with "apply the finalization cache, else classify from the live
+        /// vessel". This reuses that exact pair rather than inventing a parallel
+        /// classification, so a recording never ends terminal-less merely because
+        /// the player glanced at it.
+        /// <para>Ordering contract: call AFTER the BG close (the flush seals the
+        /// authored data and refreshes the finalization cache) and BEFORE the
+        /// continuation segment is attached.</para>
+        /// </summary>
+        private void StampTerminalOnSwitchClosedBgOrigin(
+            Recording bgRec,
+            Vessel focusedVessel,
+            uint focusedPid,
+            double switchUT)
+        {
+            var decision = SwitchSegmentBuilder.ClassifySwitchCloseTerminalStamp(bgRec);
+            if (decision != SwitchCloseTerminalStampDecision.Stamp)
+            {
+                ParsekLog.Verbose("SwitchSegment",
+                    $"origin-terminal-stamp skipped decision={decision} " +
+                    $"recId={bgRec?.RecordingId ?? "<none>"} focusedPid={focusedPid} " +
+                    $"terminal={bgRec?.TerminalStateValue?.ToString() ?? "<none>"}");
+                return;
+            }
+
+            string source = "live";
+            if (backgroundRecorder != null)
+            {
+                try
+                {
+                    RecordingFinalizationCacheApplyResult cacheResult;
+                    if (backgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                            bgRec,
+                            focusedPid,
+                            switchUT,
+                            "SwitchSegment.BgMemberContinuation",
+                            allowStale: true,
+                            requireDestroyedTerminal: false,
+                            confirmedDestroyed: false,
+                            out cacheResult))
+                    {
+                        source = "cache";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("SwitchSegment",
+                        $"origin-terminal-stamp cache-apply-threw recId={bgRec.RecordingId ?? "<no-id>"} " +
+                        $"focusedPid={focusedPid} ex={ex.Message}");
+                }
+            }
+
+            if (!bgRec.TerminalStateValue.HasValue)
+            {
+                source = "live";
+                if (focusedVessel != null)
+                {
+                    bgRec.TerminalStateValue =
+                        RecordingTree.DetermineTerminalState((int)focusedVessel.situation, focusedVessel);
+                    CaptureTerminalOrbit(bgRec, focusedVessel);
+                }
+                else
+                {
+                    // No live vessel to classify against and no cache — leave the
+                    // recording terminal-less rather than inventing a verdict.
+                    ParsekLog.Warn("SwitchSegment",
+                        $"origin-terminal-stamp unresolved recId={bgRec.RecordingId ?? "<no-id>"} " +
+                        $"focusedPid={focusedPid} reason=no-vessel-no-cache");
+                    return;
+                }
+            }
+
+            bgRec.FilesDirty = true;
+            ParsekLog.Verbose("SwitchSegment",
+                $"origin-terminal-stamped recId={bgRec.RecordingId ?? "<no-id>"} " +
+                $"terminal={bgRec.TerminalStateValue?.ToString() ?? "<none>"} source={source} " +
+                $"focusedPid={focusedPid} ut={switchUT.ToString("R", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

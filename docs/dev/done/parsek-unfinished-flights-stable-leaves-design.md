@@ -886,6 +886,11 @@ Marker validates against on-disk session-provisional + RP. Session resumes. **No
 ### 7.31 Post-feature save loaded on pre-feature (v0.9.x) Parsek
 Not supported. The new ConfigNode keys (`sealed`, `focusSlotIndex`, `supersedeTargetId`) would be silently dropped on next save. The player would lose the Sealed state and the FocusSlotIndex; UF predicate would degrade to the v0.9 Crashed-only behavior on the now-modified save. **No downgrade path provided.**
 
+### 7.32 Player switch/Fly-nudges a deployed leaf (the GS-3 case) — RESOLVED AS AN IMPLEMENTATION CHANGE, 2026-08-05
+A stock map Switch-To / Fly click onto a leaf that is already a stable-leaf UF candidate opens a `VesselSwitchContinuation` segment under it. The harness measured (`GS-3-switch-nudge-deployed`, run `2026-08-05_0903`, A/B against `GS-2-orbital-probe-deploy`) that the glance silently removed the probe's UF row and let its RewindPoint reap — the opposite of the intent recorded in `docs/dev/research/extending-rewind-to-stable-leaves.md` §8 S17.
+
+The open question was "tolerate the inert switch branch point, or amend S17". **Resolved as an implementation change: S17 stands, the code was wrong.** A `VesselSwitchContinuation` branch point is an OBSERVATION boundary on the SAME vessel, never a consumption, so both UF gates (`IsUnfinishedFlightCandidateShape` and `TryQualify`) now resolve the terminal *through* it via `EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations`; the origin stays the `(rec, slot, rp)` subject and keeps its own `branchSide`, and every other branch-point type still stops the walk so the `downstreamBp` reject keeps its original meaning. The BG-member switch-consumption path also stamps a classified terminal on the recording it closes, so a recording never ends terminal-less merely because the player glanced at it — that terminal-less close, not the predicted `downstreamBp` gate, was the measured mechanism (§7.30's `noTerminal` verdict was what actually fired, one level up, in the candidate-shape gate). Nudged probe → still UF → RP survives → player Seals or re-flies, exactly as §7.16 intends.
+
 ---
 
 ## 8. What Doesn't Change

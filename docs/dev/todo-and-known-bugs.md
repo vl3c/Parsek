@@ -940,7 +940,7 @@ the baseline captured from the same always-0 field, so an unread channel yields
 
 ---
 
-## GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: one stock map click onto a deployed vessel silently closes its Unfinished Flight and lets its RewindPoint reap, against the design [MEASURED 2026-08-05 by `GS-3-switch-nudge-deployed` run `2026-08-05_0903` (PASS attempt 1), read against `GS-2-orbital-probe-deploy` runs `0853`/`0856`. OPEN - the fix is a design call, not ours]
+## ~~GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: one stock map click onto a deployed vessel silently closes its Unfinished Flight and lets its RewindPoint reap, against the design~~ [MEASURED 2026-08-05 by `GS-3-switch-nudge-deployed` run `2026-08-05_0903` (PASS attempt 1), read against `GS-2-orbital-probe-deploy` runs `0853`/`0856`. **FIXED 2026-08-05** - resolved as an IMPLEMENTATION change: S17 stands]
 
 CONFIRMED, and the confirming run is a controlled A/B: one fixture, one mission,
 one changed step. The prediction that opened this entry was right about the
@@ -986,9 +986,27 @@ and `aba5def9` is its VesselSwitchContinuation branch point - which matches no
 RewindPoint, hence `noMatchingRP` (UnfinishedFlightClassifier.cs:53).
 
 The probe's ORIGIN recording, `72803b52...` - the one the RP's slot actually
-points at, and whose terminal the recorder closed at `Orbiting`
+points at, and whose terminal the FINALIZER CACHE had computed as `Orbiting`
 (`[FinalizerCache] Refresh accepted: ... rec=72803b52... terminal=Orbiting`) -
 **produces no `[UnfinishedFlights]` line at all.** It is not evaluated.
+
+**THE SHARPEST ROOT CAUSE, read from the produced save itself** (`automation/
+stock-minimal/saves/gs2-orbital-stack/persistent.sfs`, the origin's `RECORDING`
+node): `72803b52...` has **no `terminalState` key at all**, and its
+`explicitEndUT` is exactly the switch UT `468.93145690904743`. The cache had the
+verdict; nothing ever applied it. `ParsekFlight.StartBgMemberContinuationSegment`
+closes the BG-recorded member through
+`BackgroundRecorder.OnVesselRemovedFromBackground`, which flushes TrackSections
+and samples a final boundary point but - alone among the background closes
+(`EndDebrisRecording`, the deferred-destruction path, scene-exit finalization) -
+**never classifies a terminal state.** So the origin ended terminal-less because
+the player switched onto it, and
+`IsUnfinishedFlightCandidateShape` (UnfinishedFlightClassifier.cs) rejected it
+SILENTLY on the `!terminalRec.TerminalStateValue.HasValue` line, one gate ABOVE
+`TryQualify` - which is precisely why no verdict line names it. Had the terminal
+been present, `TryQualify`'s leaf gate would then have rejected `downstreamBp`
+anyway (`chainTip.ChildBranchPointId` = the switch bp != `rp.BranchPointId`), so
+BOTH gates had to change.
 
 So the switch segment DISPLACES the origin as the classifier's subject, and the
 segment carries the wrong branch point to match the RewindPoint. Zero promotions
@@ -1008,26 +1026,58 @@ save carries `pointsTotal=453 largest=228 smallest=3`; the 3-point recording is
 that persisted no-op segment. Nothing the player did was meaningful, and the
 segment still outlived the commit.
 
-**THE OPEN DESIGN QUESTION, which is Vlad's call and not ours.** Exactly one of
-these is true:
+**THE DESIGN CALL, TAKEN: implementation change. S17 stands.** The two candidates
+were (1) stop letting an inert switch-continuation segment displace the RP slot's
+origin, or (2) amend S17 to say a glance IS meaningful intent. (1) was chosen: the
+downstream-branch gate exists to suppress leaves with a REAL downstream split, and
+a `VesselSwitchContinuation` branch point is an OBSERVATION boundary on the SAME
+vessel - the recorder's own bookkeeping for "the player looked at this" - not a
+vessel-ownership transfer. `BranchPoint.cs:17-27` already says so in prose; the
+classifier just did not read it.
 
-1. **Implementation change.** The classifier should not let an inert
-   switch-continuation segment displace the RP slot's origin recording - either
-   by evaluating the slot's origin directly rather than whatever leaf the walk
-   lands on, or by tolerating a no-op / `VesselSwitchContinuation` downstream bp.
-   The downstream-branch gate exists to suppress leaves that have a REAL
-   downstream split; a glance is not one.
-2. **Design change.** S17's "nudged probes stay in the list" is wrong, a glance
-   IS meaningful intent, and the research doc should be amended to say so.
+**Fix (two halves, both required).**
 
-Both are defensible and they have opposite fixes, which is why this entry stops
-here. What is NOT defensible is the current state: the behaviour is silent, it is
-undocumented, and it contradicts the only written statement of intent.
+1. **DATA.** `ParsekFlight.StartBgMemberContinuationSegment` now calls
+   `StampTerminalOnSwitchClosedBgOrigin` immediately after the BG close, gated by
+   the pure `SwitchSegmentBuilder.ClassifySwitchCloseTerminalStamp`. It reuses the
+   exact pair every ordinary background close uses -
+   `BackgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd` first, then
+   `RecordingTree.DetermineTerminalState` + `CaptureTerminalOrbit` off the live
+   vessel - and NEVER overwrites an existing terminal (a Destroyed / Landed
+   verdict is authoritative). Logged at Verbose as
+   `[SwitchSegment] origin-terminal-stamped recId=... terminal=... source=cache|live`.
+   A recording no longer ends terminal-less because the player switched onto it.
+2. **CLASSIFIER.** New pure walker
+   `EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, treeContext)`:
+   from a rec's chain tip, if `ChildBranchPointId` resolves (in the tree's
+   `BranchPoints`) to a `VesselSwitchContinuation`, follow to the sole child whose
+   `ParentBranchPointId` is that bp, take ITS chain tip, repeat. Cycle-safe
+   (visited set + `MaxSwitchContinuationHops = 64`); a dangling or ambiguous switch
+   bp stops the walk and leaves the pre-fix behaviour intact; every non-switch bp
+   type stops the walk so `downstreamBp` keeps its original meaning. Used by BOTH
+   gates - `IsUnfinishedFlightCandidateShape` and `TryQualify` - with the
+   `(rec, slot, rp)` subject and `branchSide` still the ORIGIN's, and the
+   `treeContext` overload plumbed through (merge dialogs run pre-commit).
 
-**Do not arm `GS-3-switch-nudge-deployed`.** Its `[expectations.rewind]` stays
-report-only precisely because arming `rewindPoints = {max = 0}` would pin this
-bug as the contract, and whichever way the call goes, the gate would then have to
-be un-armed to fix it.
+**Post-fix behaviour in the GS-3 shape:** the origin qualifies
+`reason=stableLeafUnconcluded` (terminal `Orbiting` read through the segment),
+promotes to `CommittedProvisional`, appears in Unfinished Flights, and the RP is
+not reap-eligible - it survives. Had the nudge crashed the probe, the terminal
+would read `Destroyed` -> `reason=crashed` -> still UF. GS-1 / GS-2 are unchanged
+(no switch segments there). The no-op-discard machinery
+(`SwitchSegmentNoOpClassifier` / `SceneExitInterceptor`) was deliberately NOT
+touched: the segment still persists, it just no longer hides the origin.
+
+Unit-covered by `SwitchContinuationTerminalWalkTests` (14 cells: single hop,
+chained double switch, Destroyed segment, Dock bp preserves `downstreamBp`,
+dangling bp, ambiguous bp, cycle guard, candidate-shape accept/reject, the
+end-to-end `CommitTree` promotion + `IsReapEligible == false`, and the three
+stamp-decision cells).
+
+**`GS-3-switch-nudge-deployed`'s expected measurement now INVERTS** (`rewindPoints`
+0 -> 1, plus a `CommitTree promoted` line for the probe's origin). Its
+`[expectations.rewind]` stays report-only until a re-fly confirms the new reading;
+arming is a separate harness step.
 
 ---
 ## ~~GS1-SIBLING-STILL-FLYING: a mission that watches only the ACTIVE vessel exits while the other stage is still under canopy~~ [FOUND 2026-08-05 by GS-1 flight 3; FIXED the same day with a bounded SIBLING-DOWN wait + a new guarded kRPC channel]

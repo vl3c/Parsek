@@ -1153,37 +1153,7 @@ namespace Parsek
             if (rec == null) return null;
             if (string.IsNullOrEmpty(rec.ChainId)) return rec;
 
-            RecordingTree owningTree = null;
-            if (treeContext != null && treeContext.Recordings != null)
-            {
-                bool sameTreeId = !string.IsNullOrEmpty(rec.TreeId)
-                    && string.Equals(treeContext.Id, rec.TreeId, StringComparison.Ordinal);
-                bool containsRecording = !string.IsNullOrEmpty(rec.RecordingId)
-                    && treeContext.Recordings.ContainsKey(rec.RecordingId);
-                if (sameTreeId || containsRecording)
-                    owningTree = treeContext;
-            }
-
-            if (owningTree == null)
-            {
-                var trees = RecordingStore.CommittedTrees;
-                if (trees == null) return rec;
-
-                for (int i = 0; i < trees.Count; i++)
-                {
-                    var tree = trees[i];
-                    if (tree == null) continue;
-                    if (!string.IsNullOrEmpty(rec.TreeId) && !string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
-                        continue;
-                    if (tree.Recordings != null
-                        && !string.IsNullOrEmpty(rec.RecordingId)
-                        && tree.Recordings.ContainsKey(rec.RecordingId))
-                    {
-                        owningTree = tree;
-                        break;
-                    }
-                }
-            }
+            RecordingTree owningTree = ResolveOwningTree(rec, treeContext);
 
             if (owningTree?.Recordings == null) return rec;
 
@@ -1199,6 +1169,180 @@ namespace Parsek
                 maxIdx = candidate.ChainIndex;
             }
             return tip;
+        }
+
+        /// <summary>
+        /// Resolves the <see cref="RecordingTree"/> that owns
+        /// <paramref name="rec"/>. Prefers <paramref name="treeContext"/> when
+        /// it plausibly owns the recording (same <c>TreeId</c>, or it actually
+        /// contains the recording) — merge dialogs run before the pending tree
+        /// is committed, so those callers must not depend on
+        /// <see cref="RecordingStore.CommittedTrees"/>. Falls back to a scan of
+        /// the committed trees. Returns null when no owner is found.
+        /// </summary>
+        internal static RecordingTree ResolveOwningTree(
+            Recording rec,
+            RecordingTree treeContext)
+        {
+            if (rec == null) return null;
+
+            if (treeContext != null && treeContext.Recordings != null)
+            {
+                bool sameTreeId = !string.IsNullOrEmpty(rec.TreeId)
+                    && string.Equals(treeContext.Id, rec.TreeId, StringComparison.Ordinal);
+                bool containsRecording = !string.IsNullOrEmpty(rec.RecordingId)
+                    && treeContext.Recordings.ContainsKey(rec.RecordingId);
+                if (sameTreeId || containsRecording)
+                    return treeContext;
+            }
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return null;
+
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree == null) continue;
+                if (!string.IsNullOrEmpty(rec.TreeId)
+                    && !string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (tree.Recordings != null
+                    && !string.IsNullOrEmpty(rec.RecordingId)
+                    && tree.Recordings.ContainsKey(rec.RecordingId))
+                {
+                    return tree;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Hard bound on the switch-continuation walk in
+        /// <see cref="ResolveTerminalRecordingAcrossSwitchContinuations"/>. The
+        /// visited set already makes the walk cycle-safe; this is the belt-and-
+        /// braces stop for a pathological (acyclic but enormous) switch chain.
+        /// </summary>
+        internal const int MaxSwitchContinuationHops = 64;
+
+        /// <summary>
+        /// Resolves the recording whose <c>TerminalStateValue</c> represents how
+        /// this vessel's engagement actually ENDED, following
+        /// <see cref="BranchPointType.VesselSwitchContinuation"/> branch points
+        /// in addition to the chain hops of
+        /// <see cref="ResolveChainTerminalRecording"/>.
+        ///
+        /// <para>
+        /// A <c>VesselSwitchContinuation</c> branch point is NOT a physical
+        /// split: it records that the player glanced at (or resumed flying) the
+        /// SAME vessel through a stock Fly / Switch-To click, so the recorder
+        /// opened a new segment. The vessel downstream of such a branch point is
+        /// the same vessel, and its terminal is this vessel's terminal. Every
+        /// other branch-point type (Undock / Dock / EVA / Board / JointBreak /
+        /// Breakup / …) IS a real downstream split and stops the walk, so
+        /// existing consumption semantics (the <c>downstreamBp</c> reject in
+        /// <see cref="UnfinishedFlightClassifier.TryQualify"/>) are preserved.
+        /// </para>
+        ///
+        /// <para>
+        /// A dangling switch branch point (no resolvable child recording, or more
+        /// than one claimant) stops the walk and returns the last resolved tip —
+        /// callers then see the pre-fix shape and take their existing path.
+        /// Cycle-safe via a visited set plus
+        /// <see cref="MaxSwitchContinuationHops"/>.
+        /// </para>
+        ///
+        /// <para>
+        /// <paramref name="treeContext"/> plumbing matters exactly as it does for
+        /// <see cref="ResolveChainTerminalRecording"/>: merge dialogs run
+        /// pre-commit, so the pending tree must be passed in rather than looked
+        /// up in <see cref="RecordingStore.CommittedTrees"/>.
+        /// </para>
+        /// </summary>
+        internal static Recording ResolveTerminalRecordingAcrossSwitchContinuations(
+            Recording rec,
+            RecordingTree treeContext)
+        {
+            if (rec == null) return null;
+
+            Recording current = ResolveChainTerminalRecording(rec, treeContext);
+            if (current == null) return null;
+
+            RecordingTree tree = ResolveOwningTree(rec, treeContext);
+            if (tree?.Recordings == null || tree.BranchPoints == null)
+                return current;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(current.RecordingId))
+                visited.Add(current.RecordingId);
+
+            for (int hops = 0; hops < MaxSwitchContinuationHops; hops++)
+            {
+                string childBpId = current.ChildBranchPointId;
+                if (string.IsNullOrEmpty(childBpId)) break;
+
+                BranchPoint bp = FindSwitchContinuationBranchPoint(tree, childBpId);
+                if (bp == null) break;
+
+                Recording child = FindSoleSwitchContinuationChild(tree, bp.Id);
+                if (child == null) break;
+
+                Recording childTip = ResolveChainTerminalRecording(child, tree);
+                if (childTip == null || string.IsNullOrEmpty(childTip.RecordingId)) break;
+                if (!visited.Add(childTip.RecordingId)) break;
+
+                current = childTip;
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Returns the branch point with <paramref name="branchPointId"/> when it
+        /// exists in <paramref name="tree"/> AND is a
+        /// <see cref="BranchPointType.VesselSwitchContinuation"/>; null otherwise
+        /// (unknown id, or a real downstream split that must stop the walk).
+        /// </summary>
+        private static BranchPoint FindSwitchContinuationBranchPoint(
+            RecordingTree tree,
+            string branchPointId)
+        {
+            var bps = tree?.BranchPoints;
+            if (bps == null || string.IsNullOrEmpty(branchPointId)) return null;
+
+            for (int i = 0; i < bps.Count; i++)
+            {
+                var bp = bps[i];
+                if (bp == null) continue;
+                if (!string.Equals(bp.Id, branchPointId, StringComparison.Ordinal)) continue;
+                return bp.Type == BranchPointType.VesselSwitchContinuation ? bp : null;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Returns the single recording in <paramref name="tree"/> whose
+        /// <c>ParentBranchPointId</c> is <paramref name="branchPointId"/>. Returns
+        /// null when there is none (dangling switch branch point) or more than one
+        /// (ambiguous — the walk refuses to guess and stops).
+        /// </summary>
+        private static Recording FindSoleSwitchContinuationChild(
+            RecordingTree tree,
+            string branchPointId)
+        {
+            if (tree?.Recordings == null || string.IsNullOrEmpty(branchPointId))
+                return null;
+
+            Recording found = null;
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ParentBranchPointId, branchPointId, StringComparison.Ordinal))
+                    continue;
+                if (found != null) return null;
+                found = candidate;
+            }
+            return found;
         }
 
         /// <summary>

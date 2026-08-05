@@ -457,6 +457,8 @@ Chain may be N segments long depending on optimizer behaviour. `ResolveChainTerm
 
 Probe still terminal Orbiting after the nudge. UF. Player can Fly to redo the probe, or Seal to accept. v1 over-includes nudged probes; player handles via Seal. ✓ Acceptable per user.
 
+**Implementation now matches (2026-08-05):** the divergence GS-3 measured (a nudge dropped the row and reaped the RP) was fixed rather than the intent amended — see `todo-and-known-bugs.md` GS3-NUDGE-DROPS-UNFINISHED-FLIGHT and design §7.32.
+
 ### S18 (R3-new). Rover drove 20m, player merged
 
 Rover terminal Landed. `TerminalOutcomeQualifies` false. NOT UF. Default does NOT include the row. v1 has no Park button to add it. The player accepts the rover is "concluded" by default; if they later want to drive it more, they take over via stock KSP from the Tracking Station.

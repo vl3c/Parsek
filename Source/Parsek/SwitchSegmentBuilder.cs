@@ -77,6 +77,22 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Outcome of <see cref="SwitchSegmentBuilder.ClassifySwitchCloseTerminalStamp"/>.
+    /// </summary>
+    internal enum SwitchCloseTerminalStampDecision
+    {
+        /// <summary>The closed recording needs a classified terminal state.</summary>
+        Stamp = 0,
+
+        /// <summary>No recording was closed (null) — nothing to stamp.</summary>
+        SkipNoRecording = 1,
+
+        /// <summary>The recording already carries a terminal verdict, which a
+        /// switch close must never overwrite.</summary>
+        SkipAlreadyClassified = 2,
+    }
+
+    /// <summary>
     /// Pure tree-mutation helper for switch/Fly continuation segments
     /// (plan §"Segment Creation"). The helper performs steps 3-5, 6, 7,
     /// and 8 of the contract — it does NOT flush background recorder
@@ -91,6 +107,30 @@ namespace Parsek
     /// </summary>
     internal static class SwitchSegmentBuilder
     {
+        /// <summary>
+        /// Pure decision for GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: when a stock
+        /// Fly / Switch-To click consumes a BG-recorded member, the BG recorder
+        /// closes that member's recording (TrackSection flush + final boundary
+        /// sample) WITHOUT classifying a terminal state, unlike every ordinary
+        /// background close. A recording must not end terminal-less because of a
+        /// switch — the Unfinished-Flights classifier reads terminals, and a
+        /// terminal-less close made the origin invisible to it.
+        /// <para>Returns <see cref="SwitchCloseTerminalStampDecision.Stamp"/>
+        /// only when the closed recording exists and has no terminal yet; an
+        /// already-classified recording is left alone (a Destroyed / Landed /
+        /// sealed verdict is authoritative and must never be overwritten by a
+        /// switch).</para>
+        /// </summary>
+        internal static SwitchCloseTerminalStampDecision ClassifySwitchCloseTerminalStamp(
+            Recording closedRec)
+        {
+            if (closedRec == null)
+                return SwitchCloseTerminalStampDecision.SkipNoRecording;
+            if (closedRec.TerminalStateValue.HasValue)
+                return SwitchCloseTerminalStampDecision.SkipAlreadyClassified;
+            return SwitchCloseTerminalStampDecision.Stamp;
+        }
+
         /// <summary>
         /// Walks the tree from any recording matching <paramref name="focusedVesselPersistentId"/>
         /// (filtered optionally by <paramref name="focusedVesselRecordingIdHint"/>) forward
