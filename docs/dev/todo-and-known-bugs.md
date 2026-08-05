@@ -14,6 +14,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## DESIGN-DOC-13.1-STALE-TEST-NAMES: ten unit-test class names in the rewind design doc's §13.1 v0.9.1 list do not exist in Source [FOUND 2026-08-05 during the gameplay-scenarios-wave-1 §13.2 doc-truth reconciliation. NOT STARTED - same method as the §13.2 pass, similar scale]
+
+`docs/parsek-rewind-to-separation-design.md` §13.1's "The v0.9.1 stable-leaf
+extension adds:" list names ten test classes with zero hits in `Source/`:
+`SupersedeCommitMergeClassifierTests`, `SupersedeCommitInPlaceTests`,
+`SupersedeCommitStructuralMutationGateTests`, `RewindPointAuthorFocusSlotIndexTests`,
+`InvocationLinearizationTests`, `HybridSupersedeGraphTests`,
+`ChildSlotStashedRoundTripTests`, `RewindPointFocusSlotIndexRoundTripTests`,
+`ReFlySessionMarkerSupersedeTargetIdRoundTripTests`,
+`ReFlySessionMarkerPreSessionBranchPointIdsRoundTripTests`. Real classes in that
+area are differently named (`RewindPointAuthorTests`, `RewindPointReaperTests`,
+`SupersedeCommitTests`, `SupersedeCommitTombstoneTests`,
+`ReFlySessionMarkerRoundTripTests`, `BranchPointRewindPointIdRoundTripTests`,
+`ChildSlotEffectiveRecordingIdTests`, `Inv9RewindPointTests`). Three other stale
+names in the same list were corrected in place during the wave-1 pass
+(`ApplyRewindProvisionalMergeStatesTests` -> the real four-class coverage,
+`SealHandlerTests` -> `UnfinishedFlightSealHandlerTests`, `ManualStashTests` ->
+the three real stash classes). Fix: per-bullet verification against Source of
+what each claim SHOULD say (the described behavior may be covered under the real
+names, partially covered, or uncovered) - do not mass-rename without reading the
+actual test bodies. A reviewer reads §13.1 as authoritative; today it is not.
+
 ## HARNESS-TIER-TAXONOMY: `tier` encodes cadence membership, not cost or readiness, so "run everything" needs out-of-band knowledge [RAISED 2026-08-02 by the `V1-map-dwell-mun-orbit` promotion (PR #1407). NOT STARTED. Design change against a binding authority; the shape below is a problem statement, not a chosen solution]
 
 The invocation model we actually want is agent-driven: an agent runs the WHOLE
