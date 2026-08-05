@@ -870,14 +870,33 @@ class Gs2SpecWiringTests(unittest.TestCase):
         self.assertEqual({"min": 1}, gs2["rewindPoints"])
         self.assertEqual({"max": 0}, gs3["rewindPoints"])
 
-    def test_neither_rewind_block_is_armed(self):
-        """Arming is a per-scenario operator decision taken only after a reading run.
-        An unflown spec must not gate on a declared window."""
-        for name in ("GS-2-orbital-probe-deploy.toml", "GS-3-switch-nudge-deployed.toml"):
-            spec = self._spec(name)
-            self.assertNotIn("gating", spec["expectations"]["rewind"], name)
-            self.assertNotIn(
-                "gating", spec["expectations"]["recordings"]["structure"], name)
+    def test_gs2_rewind_is_armed_and_gs3_is_not(self):
+        """ARMING IS PER-BLOCK AND PER-SCENARIO, and this cell is strict in BOTH
+        directions on purpose: it red when GS-2 was armed, which is the guard
+        working - an arming decision is meant to cost an edit here with the reason
+        written down, in the same commit.
+
+        GS-2 armed 2026-08-05 after the three-run discipline: reading run
+        `2026-08-05_0853` PASS (`gating=False armed=[]`, save parse
+        `rewindPoints: 1`), armed run `2026-08-05_0856` PASS
+        (`gating=True armed=['rewind'] mismatches=[]`, same `rewindPoints: 1`).
+        The spec is in `ARMED_ALLOWLIST` in test_hlib.
+
+        GS-3 stays REPORT-ONLY and must, until its predicted divergence has been
+        MEASURED against GS-2's now-flown baseline. Its `rewindPoints = {max = 0}`
+        is a prediction derived from code, and arming a prediction is how a
+        scenario stops being an experiment."""
+        gs2 = self._spec("GS-2-orbital-probe-deploy.toml")["expectations"]
+        gs3 = self._spec("GS-3-switch-nudge-deployed.toml")["expectations"]
+        self.assertTrue(gs2["rewind"].get("gating"),
+                        "GS-2 has flown its reading + armed runs; its rewind block "
+                        "is armed and must stay so")
+        self.assertNotIn("gating", gs3["rewind"],
+                         "GS-3 is UNFLOWN - arming its predicted divergence would "
+                         "assert the conclusion it exists to measure")
+        # The STRUCTURE block stays report-only on BOTH: only `rewind` was armed.
+        for name, spec in (("GS-2", gs2), ("GS-3", gs3)):
+            self.assertNotIn("gating", spec["recordings"]["structure"], name)
 
     def test_the_decoupler_branch_point_window_uses_jointbreak(self):
         """MEASURED CORRECTION, not a source reading: `ProcessBreakupEvent` is the

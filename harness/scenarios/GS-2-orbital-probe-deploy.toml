@@ -148,7 +148,9 @@ id = "GS-2-orbital-probe-deploy"
 # (FlightRecorder.cs:7141 / :9854).
 #
 # =====================================================================================
-# STATUS: UNFLOWN, and its fixture does not exist yet.
+# STATUS: FLOWN AND ARMED 2026-08-05 (flight record + arming run ids below). The
+# fixture exists: forged by FORGE-gs2-orbital-stack (PASS attempt 1, 310s), harvested
+# and pinned in EXPECTED_SCENARIO_PRESENCE the same day.
 #
 # `fixtures/saves/gs2-orbital-stack` is produced by `FORGE-gs2-orbital-stack` (the
 # live-proven forge_lko ascent with the new `parkAttached=true`, which skips the

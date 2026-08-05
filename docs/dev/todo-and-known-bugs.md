@@ -889,74 +889,96 @@ the baseline captured from the same always-0 field, so an unread channel yields
 
 ---
 
-## GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: a switch onto a deployed vessel may silently close its Unfinished Flight and let its RewindPoint reap, against the design [RAISED 2026-08-05 by the Lane B code read. PREDICTED, UNFLOWN - `GS-3-switch-nudge-deployed` is the measurement, and it must be read against `GS-2-orbital-probe-deploy`'s flight, not on its own]
+## GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: one stock map click onto a deployed vessel silently closes its Unfinished Flight and lets its RewindPoint reap, against the design [MEASURED 2026-08-05 by `GS-3-switch-nudge-deployed` run `2026-08-05_0903` (PASS attempt 1), read against `GS-2-orbital-probe-deploy` runs `0853`/`0856`. OPEN - the fix is a design call, not ours]
 
-NOT CONFIRMED. This is a code reading with an experiment attached, filed now so
-the experiment has a place to report into and so the divergence is not discovered
-a third time. If GS-3's first flight contradicts it, this entry closes as "the
-design was right and the reading was wrong", which is an equally useful outcome.
+CONFIRMED, and the confirming run is a controlled A/B: one fixture, one mission,
+one changed step. The prediction that opened this entry was right about the
+OUTCOME and WRONG about the MECHANISM; both are recorded below, because the
+mechanism that actually fired is the sharper defect.
 
-**The design says one thing.** `docs/dev/research/extending-rewind-to-stable-leaves.md`
+**What the player loses.** They deploy a probe in orbit, glance at it with a
+single stock map Switch-To click, change nothing, and leave. That glance removes
+the probe from Unfinished Flights and lets Parsek delete the RewindPoint behind
+it. Without the glance, both survive and the player can go back and fly it.
+
+**The A/B, from the produced saves.**
+
+| | GS-2, no nudge (`0853` reading, `0856` armed) | GS-3, one no-input click (`0903`) |
+|---|---|---|
+| deployed probe's leaf | PROMOTED to CommittedProvisional, `reason=stableLeafUnconcluded` | NOT promoted - see mechanism |
+| focus leaf (crewed stack) | refused `stableTerminalFocusSlot` -> Immutable | refused `stableTerminalFocusSlot` -> Immutable |
+| `rewindPoints` in the save | **1** (survives) | **0** (reaped) |
+| `supersedeRows` / `tombstones` | 0 / 0 | 0 / 0 |
+
+**The design text this contradicts.** `docs/dev/research/extending-rewind-to-stable-leaves.md`
 section 8, scenario S17: a briefly-nudged probe STAYS in the Unfinished Flights
-list - "v1 over-includes nudged probes; player handles via Seal". The player is
-expected to keep the re-fly affordance and to close it themselves if they do not
-want it. Over-inclusion is the deliberate v1 bias.
+list - "v1 over-includes nudged probes; player handles via Seal". Over-inclusion
+is the deliberate v1 bias, and the player is meant to close the row themselves.
+The measured behaviour is the opposite, and it is silent.
 
-**The code appears to say the opposite.** A stock map Switch-To onto a deployed
-vessel opens a switch-continuation segment, and
-`SwitchSegmentBuilder.CreateSwitchContinuationSegment` (SwitchSegmentBuilder.cs:422-465)
-writes `parentRec.ChildBranchPointId = newBranchPointId` onto the PARENT - which,
-for a switch to a vessel a decoupler just released, is that vessel's ORIGIN
-recording, the very one the RewindPoint's slot points at. `UnfinishedFlightClassifier.TryQualify`
-then hits its downstream-branch gate BEFORE any terminal logic runs
-(UnfinishedFlightClassifier.cs:115-132):
+**THE MECHANISM, MEASURED - and NOT the one this entry predicted.** The prediction
+was that the probe's ORIGIN recording would trip `TryQualify`'s downstream-branch
+gate and return `reason=downstreamBp` (UnfinishedFlightClassifier.cs:115-132),
+because `SwitchSegmentBuilder.CreateSwitchContinuationSegment`
+(SwitchSegmentBuilder.cs:422-465) stamps `parentRec.ChildBranchPointId` onto it.
+**`downstreamBp` does not appear in the run's KSP.log even once.** It never got
+the chance. What the log shows is only TWO classifier evaluations for a
+three-recording tree:
 
-    if (!string.IsNullOrEmpty(chainTip.ChildBranchPointId)
-        && !string.Equals(chainTip.ChildBranchPointId, rp.BranchPointId, ...))
-    { ... reason = "downstreamBp"; ... return false; }
+    [UnfinishedFlights] IsUnfinishedFlight=false rec=2263ae54... reason=stableTerminalFocusSlot slot=0 focusSlot=0 terminal=Orbiting side=active-parent-child
+    [UnfinishedFlights] CommitTree: RP child rec=2263ae54... vessel='Kerbal X' not promoted reason=stableTerminalFocusSlot rp=rp_6895f3df... slot=0
+    [UnfinishedFlights] CommitTree: RP child rec=a1101202... vessel='Kerbal X Probe' not promoted reason=noMatchingRP parentBp=aba5def9... childBp=<none>
 
-The switch bp is not the RP's bp, so the leaf is NOT promoted to
-CommittedProvisional. The focus leaf is separately refused by the focus-slot gate
-(`stableTerminalFocusSlot`, :313-322). With BOTH slots left Immutable,
-`RewindPointReaper.IsReapEligible` (RewindPointReaper.cs:184-222) finds nothing
-open and the RewindPoint REAPS. Net effect for the player: they glanced at a probe
-they had deployed, and the game quietly removed both the Unfinished Flights row and
-the rewind point behind it.
+`a1101202` is the SWITCH SEGMENT (`[SwitchSegment] created ... segmentRecId=a1101202-...
+branchPointId=aba5def9-... focusedName='Kerbal X Probe' reason=MapSwitchTo ut=468.93`),
+and `aba5def9` is its VesselSwitchContinuation branch point - which matches no
+RewindPoint, hence `noMatchingRP` (UnfinishedFlightClassifier.cs:53).
 
-**Why a no-input glance is enough, and not only a real nudge.** The no-op
-auto-discard does not rescue it. `SwitchSegmentNoOpClassifier.IsNoOpSegment` will
-call an input-free orbital segment a no-op, but the DISPOSITION decides what happens
-next, and for a tree that also holds the parent's recordings it is `BgMemberOrMixed`
-(RecordingStore.cs:3283-3286). `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment`
-DEFERS exactly that disposition (SceneExitInterceptor.cs:407-415) - only `Standalone`
-and `CommittedRestoreClone` are discarded - because the rest of the live tree must
-still commit. So the branch point persists into the commit and the gate above fires.
+The probe's ORIGIN recording, `72803b52...` - the one the RP's slot actually
+points at, and whose terminal the recorder closed at `Orbiting`
+(`[FinalizerCache] Refresh accepted: ... rec=72803b52... terminal=Orbiting`) -
+**produces no `[UnfinishedFlights]` line at all.** It is not evaluated.
 
-**The experiment.** `GS-2-orbital-probe-deploy` and `GS-3-switch-nudge-deployed`
-share one fixture, one mission and one commit route, and differ by exactly one
-`SimulateStockSwitchClick` step. GS-2 declares `rewindPoints = { min = 1 }`
-(report-only) and REQUIRES the promotion token; GS-3 declares
-`rewindPoints = { max = 0 }` (report-only) and requires none of the divergence
-facts. Fly GS-2 first: a difference measured against an unflown baseline is not a
-difference. If both hold, this entry becomes a confirmed divergence with two run
-ids as evidence and the fix discussion starts from whether the downstream-branch
-gate should ignore a `VesselSwitchContinuation` child bp specifically (it exists to
-suppress leaves that have a real downstream split, and a switch segment is not one).
+So the switch segment DISPLACES the origin as the classifier's subject, and the
+segment carries the wrong branch point to match the RewindPoint. Zero promotions
+follow, both slots resolve Immutable, and `RewindPointReaper.IsReapEligible`
+(RewindPointReaper.cs:184-222) reaps:
 
-**Do NOT soften either scenario to avoid the red.** The red, or the documented
-divergence, is the deliverable.
+    [Rewind] Reaped rp=rp_6895f3df... bp=3340d5d9... slots=2
+    [Rewind] ReapOrphanedRPs: reaped=1 remaining=0 fileDeleteOk=1 fileDeleteFail=0 bpBackrefCleared=1
 
-**A note on the S17 shape itself, which is not implementable as written.** "Switch
-to the probe and back" cannot be driven at all in v1: with a session armed and a
-different target, `MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`
-(MapFocusObjectOnSelectPatch.cs:1166-1198) returns `OpenDialog` (Case A) and
-`TestCommandSimulateSwitchClick.DecideSwitchGate` (:414-434) answers REJECTED
-`dialog-required case=A-session` without auto-answering the modal. GS-3 pins that
-refusal as a deliberate `expect = "REJECTED"` step so a future verb that learns to
-answer the dialog is noticed rather than silently changing what this lane measures.
+**A no-input glance is enough, and the save proves the segment persisted.** The
+segment IS classified a no-op, but its disposition is `BgMemberOrMixed` (the tree
+also holds the parent's recordings, RecordingStore.cs:3283-3286) and
+`SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` DEFERS that disposition
+(SceneExitInterceptor.cs:407-415) - only `Standalone` and `CommittedRestoreClone`
+are discarded, because the rest of the live tree must still commit. The produced
+save carries `pointsTotal=453 largest=228 smallest=3`; the 3-point recording is
+that persisted no-op segment. Nothing the player did was meaningful, and the
+segment still outlived the commit.
+
+**THE OPEN DESIGN QUESTION, which is Vlad's call and not ours.** Exactly one of
+these is true:
+
+1. **Implementation change.** The classifier should not let an inert
+   switch-continuation segment displace the RP slot's origin recording - either
+   by evaluating the slot's origin directly rather than whatever leaf the walk
+   lands on, or by tolerating a no-op / `VesselSwitchContinuation` downstream bp.
+   The downstream-branch gate exists to suppress leaves that have a REAL
+   downstream split; a glance is not one.
+2. **Design change.** S17's "nudged probes stay in the list" is wrong, a glance
+   IS meaningful intent, and the research doc should be amended to say so.
+
+Both are defensible and they have opposite fixes, which is why this entry stops
+here. What is NOT defensible is the current state: the behaviour is silent, it is
+undocumented, and it contradicts the only written statement of intent.
+
+**Do not arm `GS-3-switch-nudge-deployed`.** Its `[expectations.rewind]` stays
+report-only precisely because arming `rewindPoints = {max = 0}` would pin this
+bug as the contract, and whichever way the call goes, the gate would then have to
+be un-armed to fix it.
 
 ---
-
 ## ~~GS1-SIBLING-STILL-FLYING: a mission that watches only the ACTIVE vessel exits while the other stage is still under canopy~~ [FOUND 2026-08-05 by GS-1 flight 3; FIXED the same day with a bounded SIBLING-DOWN wait + a new guarded kRPC channel]
 
 NOT A PARSEK DEFECT - the third in a row on this lane where the product was right and

@@ -19,7 +19,35 @@ id = "GS-3-switch-nudge-deployed"
 # not softened away by weakening the scenario.
 #
 # =====================================================================================
-# THE PREDICTION, DERIVED FROM CODE, AND IT IS THE OPPOSITE OF GS-2's OUTCOME.
+# MEASURED 2026-08-05, run `2026-08-05_0903` (PASS attempt 1), against GS-2's
+# `0853`/`0856` on the SAME fixture and mission with ONE changed step. The
+# divergence is CONFIRMED - and the prediction below was RIGHT ABOUT THE OUTCOME
+# AND WRONG ABOUT THE MECHANISM. Both are kept, because being able to see which
+# half of a code reading survived contact with a flight is the point of writing
+# the reading down.
+#
+#   MEASURED OUTCOME    GS-2 save `rewindPoints 1` (probe in Unfinished Flights)
+#                       GS-3 save `rewindPoints 0` (probe dropped, RP reaped)
+#                       `supersedeRows 0` / `tombstones 0` on both.
+#
+#   MEASURED MECHANISM  NOT `downstreamBp` - that string does not appear in the
+#                       run's KSP.log even once. The switch segment DISPLACES the
+#                       origin as the classifier's subject: only TWO evaluations
+#                       happen for a three-recording tree, the focus leaf
+#                       (`stableTerminalFocusSlot`) and the SEGMENT
+#                       (`not promoted reason=noMatchingRP parentBp=<the
+#                       VesselSwitchContinuation bp>`, UnfinishedFlightClassifier.cs:53).
+#                       The probe's ORIGIN recording - the one the RP slot points
+#                       at, closed at terminal `Orbiting` - is never evaluated at
+#                       all. Zero promotions, both slots Immutable, RP reaped
+#                       (`Reaped rp=... slots=2`, `reaped=1 remaining=0`).
+#
+# The full write-up, the A/B table and the OPEN DESIGN QUESTION live in
+# docs/dev/todo-and-known-bugs.md under GS3-NUDGE-DROPS-UNFINISHED-FLIGHT. The
+# call - tolerate an inert switch bp in the classifier, or amend section 8 S17 -
+# is Vlad's, and this spec deliberately does not encode either answer.
+#
+# THE ORIGINAL PREDICTION, PRESERVED AS WRITTEN:
 #
 # `SwitchSegmentBuilder.CreateSwitchContinuationSegment` (SwitchSegmentBuilder.cs:422-465)
 # attaches the new segment under a `BranchPointType.VesselSwitchContinuation` branch
@@ -44,6 +72,10 @@ id = "GS-3-switch-nudge-deployed"
 #          -> RP NOT eligible -> "ReapOrphanedRPs: reaped=0 remaining=1", RP survives.
 #   GS-3   non-focus leaf -> reason=downstreamBp          -> stays Immutable
 #          -> RP eligible  -> "Reaped rp=... slots=2", RP gone.
+#          [MEASURED: the RP is indeed gone and the reap tokens fired verbatim,
+#          but via `noMatchingRP` on the SEGMENT rather than `downstreamBp` on the
+#          origin. The origin was never classified. See the measurement block at
+#          the top of this file.]
 #
 # =====================================================================================
 # WHY A NO-INPUT NUDGE IS ENOUGH, i.e. why the no-op auto-discard does NOT rescue it.
@@ -115,13 +147,26 @@ id = "GS-3-switch-nudge-deployed"
 # Everything else is read off the reading run and armed afterwards, if it holds.
 #
 # =====================================================================================
-# STATUS: UNFLOWN, and it shares GS-2's pending fixture. `fixtures/saves/gs2-orbital-stack`
+# STATUS: FLOWN AND MEASURED 2026-08-05 (`2026-08-05_0903`, PASS attempt 1), and it
+# shares GS-2's now-committed fixture. `fixtures/saves/gs2-orbital-stack`
 # is produced by `FORGE-gs2-orbital-stack` plus
 #   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
 #       --run-save bdock-forge-base --target-name gs2-orbital-stack \
 #       --expect-situation ORBITING
-# FLY GS-2 FIRST. This spec's whole value is the DIFFERENCE from GS-2's outcome, and a
-# difference measured against an unflown baseline is not a difference.
+# FLY GS-2 FIRST - and it was: GS-2's reading (`0853`) and armed (`0856`) runs both
+# preceded this one, so the difference was measured against a flown baseline rather
+# than an assumed one. That ordering is the whole reason this spec's result means
+# anything, and it must be preserved on any re-fly.
+#
+# IT STAYS REPORT-ONLY AND UNARMED, PERMANENTLY UNTIL THE DESIGN CALL IS MADE. This
+# is NOT the usual "unflown, arm after a reading run" caveat - it has flown, and its
+# facets matched the declared windows exactly, which is normally the trigger to arm.
+# Arming is refused here for a different reason: `rewindPoints = { max = 0 }` is a
+# statement that the RewindPoint SHOULD be reaped, and that is the behaviour filed as
+# a defect. Arming it would pin the bug as the contract, and whichever way the design
+# call goes, the gate would have to be un-armed to fix it. If the call is
+# "implementation change", this spec's expectation INVERTS to `{min = 1}` and the run
+# that reds is the fix landing.
 # =====================================================================================
 tier = "operator"
 description = "GS-2's in-orbit deploy plus ONE stock map Switch-To click onto the released vessel: the switch opens a VesselSwitchContinuation branch point on the deployed leaf, which is predicted to knock it out of the Unfinished Flights classifier via the downstreamBp gate and let the staging RewindPoint reap - the opposite of GS-2, on one changed variable."

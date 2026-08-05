@@ -4551,7 +4551,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # header specifies. GS-3 additionally must not be promoted before GS-2 has
         # flown - its entire value is the DIFFERENCE from GS-2's outcome, and a
         # difference measured against an unflown baseline is not a difference.
-        "GS-2-orbital-probe-deploy.toml":   "unflown - operator tier until its fixture is forged and it flies green",
+        "GS-2-orbital-probe-deploy.toml":   "FLOWN GREEN 2026-08-05 (0853 reading, 0856 armed); operator tier is now an open PROMOTION call, not debt",
         "GS-3-switch-nudge-deployed.toml":  "unflown - operator tier until GS-2 has flown and its predicted divergence is measured",
     }
 
