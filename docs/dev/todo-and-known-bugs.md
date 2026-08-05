@@ -114,6 +114,9 @@ An agent can ask for "everything" or "the smokes" in ONE invocation with no
 out-of-band knowledge, and selection can use the cost and trust data the harness
 already records. Whether `tier` then shrinks to a pure cost/readiness label or
 disappears is the open design call, not a foregone one.
+
+[2026-08-05] The three-invocation knowledge is now encoded in TOOLING rather than in somebody's memory: `harness/tools/cadence_runner.py --tier {daily|nightly|operator}` is a per-tier entry point (one command, walk away, one classified skim line), invoked ON DEMAND - plus `scripts/register-cadence-tasks.ps1`, an optional scheduling script deliberately NOT registered anywhere (mechanics: `harness/README.md` -> "Cadence runs + review"). That is packaging only: it adds no selector, no `--all`, no cost tag, no smoke set, and touches neither `TIERS` nor `CADENCE_TIERS`. The taxonomy question above is unchanged - and this item is what the operator is waiting on before deciding whether to schedule anything.
+
 ## DEV-INSTANCE-UNLOCKED: shared-state races outside the machine lock, accepted as tracked limitations [FOUND 2026-08-02 by the multi-agent exclusivity audit. DELIBERATELY NOT FIXED by the machine-lock PR]
 
 The machine lock (`<umbrella>/automation/.ksp-machine.lock`) serializes `run.py`
