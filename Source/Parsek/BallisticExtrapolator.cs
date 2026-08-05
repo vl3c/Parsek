@@ -618,6 +618,188 @@ namespace Parsek
             return CanonicalizeQuaternionSign(TrajectoryMath.PureNormalize(quaternion));
         }
 
+        // ------------------------------------------------------------------
+        // THE ELEMENT FRAME BOUNDARY (site 5, generalised)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Rate-limit / log key for the two degenerate paths of
+        /// <see cref="GetStockElementFrameZupAngleRadians"/>. Distinctive verbatim literal on
+        /// purpose: it is the grep marker that proves a build carrying the element-frame
+        /// boundary actually deployed (see docs/dev/todo-and-known-bugs.md, "TwoBodyOrbit's
+        /// element-seeded propagation works in KSP's raw element frame", finding A).
+        /// </summary>
+        internal const string ElementFrameZupBoundaryLogKey = "twobody-element-frame-zup-boundary";
+
+        /// <summary>
+        /// THE FRAME CONTRACT for this propagator's SEGMENT I/O, and the single place the
+        /// element-frame crossing happens. FIXED 2026-08-05 (branch <c>twobody-element-frame</c>),
+        /// generalising the site-5 seam that previously sat in
+        /// <c>IncompleteBallisticSceneExitFinalizer</c>; see docs/dev/todo-and-known-bugs.md,
+        /// "<c>TwoBodyOrbit</c>'s element-seeded propagation works in KSP's raw element frame,
+        /// not stock <c>Orbit</c>'s" (FINDING A).
+        /// <para>
+        /// WHAT THE ANGLE IS. Stock <c>Orbit</c> builds its state from elements through exactly
+        /// the same 3-1-3 perifocal rotation <c>TwoBodyOrbit.RotateFromPerifocal</c> does, then
+        /// passes EVERY state vector it returns through <c>Planetarium.Zup.WorldToLocal</c>.
+        /// <c>Planetarium.Zup</c> is <c>PlanetaryFrame(0, 90, inverseRotAngle)</c>, whose
+        /// declination argument collapses the 3-1-3 to a PURE ROTATION ABOUT THE POLAR (z) AXIS by
+        /// <c>inverseRotAngle</c>: its X axis is <c>(cos a, sin a, 0)</c> and its Z axis is
+        /// <c>(0, 0, 1)</c>. Stock's own <c>Planetarium.right</c> docstring states the same thing
+        /// from the other side - "the LAN is the angle between <c>Planetarium.right</c> and the
+        /// orbit's ascending node". So KSP's stored LAN is measured from <c>Planetarium.right</c>,
+        /// NOT from the raw +x of the element frame. That angle MEASURED 230.01 deg in H9 run
+        /// <c>2026-08-04_2224</c>.
+        /// </para>
+        /// <para>
+        /// THE SIGN, derived (not assumed) from the closed form
+        /// <c>stockState == Zup.WorldToLocal(rawState)</c> that
+        /// <c>StockOrbitElementFrameParityTests</c> pins: <c>WorldToLocal</c> against an X axis of
+        /// <c>(cos a, sin a, 0)</c> is <c>R_z(-a)</c>, and <c>R_z(-a)</c> applied to
+        /// <c>R_z(LAN) R_x(inc) R_z(argPe)</c> is the same chain evaluated at <c>LAN - a</c>.
+        /// Hence <see cref="TwoBodyOrbit.TryCreateFromSegment"/> SUBTRACTS the angle on the way IN
+        /// and <c>CreateSegment</c> ADDS it back on the way OUT, and after that conversion every
+        /// state this propagator produces is already in stock's frame - the element-seeded path
+        /// agrees with the state-vector-seeded path (<see cref="TwoBodyOrbit.TryCreate"/>, fed
+        /// stock-frame vectors off a live orbit) and with site 1's
+        /// <c>ResolveBodyFixedSurfaceCoordinates</c> contract, in ONE place.
+        /// </para>
+        /// <para>
+        /// THE GATE. Headlessly - and in any process that never ran <c>Planetarium.Awake</c> -
+        /// <c>Planetarium.Zup</c> is a DEFAULT-constructed <c>CelestialFrame</c> with all three
+        /// axes zero. Extracting an angle from that would be meaningless, so
+        /// <see cref="TryResolveCelestialFramePolarAngle"/> declines anything that is not an
+        /// orthonormal rotation ABOUT THE POLAR AXIS and the boundary becomes the identity, which
+        /// is exactly the pass-through the previous seam's orthonormality gate produced.
+        /// </para>
+        /// <para>
+        /// TIME DEPENDENCE - <c>Planetarium.Zup</c> MOVES, AND THIS ACCESSOR IS BUILT FOR THAT.
+        /// <c>Planetarium.Awake</c> seeds <c>Zup</c>, but it does not own it:
+        /// <c>CelestialBody.CBUpdate</c> - reached from <c>Planetarium.FixedUpdate</c> -&gt;
+        /// <c>UpdateCBsRecursive</c> EVERY PHYSICS TICK - REBUILDS the static for a body in the
+        /// inverse-rotation regime:
+        /// <code>
+        /// rotationAngle = (initialRotation + 360 * rotPeriodRecip * UT) % 360;
+        /// Planetarium.InverseRotAngle = (rotationAngle - directRotAngle) % 360;
+        /// CelestialFrame.PlanetaryFrame(0, 90, Planetarium.InverseRotAngle, ref Planetarium.Zup);
+        /// </code>
+        /// <c>rotationAngle</c> advances with UT, so the polar angle advances with it - about
+        /// 1 deg per minute of game time at Kerbin's rotation period, and a vessel on or near
+        /// Kerbin below the inverse-rotation threshold (the H9 pad fixture) sits in exactly that
+        /// regime. THE 230.01 deg CITED ABOVE IS A SNAPSHOT AT THAT RUN'S UT, NOT AN INSTALL
+        /// CONSTANT.
+        /// </para>
+        /// <para>
+        /// WHY PER-CALL READS ARE CORRECT, AND WHAT THE INVARIANT ACTUALLY IS. Precisely BECAUSE
+        /// the static moves, this accessor reads it fresh on every call and nothing caches the
+        /// angle. The invariant the boundary relies on is ONE SYNCHRONOUS SINGLE-FRAME PASS = ONE
+        /// <c>Zup</c>: <c>IncompleteBallisticSceneExitFinalizer.TryApply</c> is invoked as a plain
+        /// synchronous call from <c>ParsekFlight.Finalization.cs</c> (:148 and :414), and seed -&gt;
+        /// propagate -&gt; <c>CreateSegment</c> all run inside it on the main thread with no
+        /// <c>yield</c> between them, so the angle subtracted on the way in and the angle added on
+        /// the way out are the same number. Stock then applies its own then-current <c>Zup</c> at
+        /// query / replay time, and the LAN written to disk is inertial and time-stable, so the
+        /// two sides agree at any later UT.
+        /// </para>
+        /// <para>
+        /// THEREFORE: never cache this angle across frames, and never move the finalization pass
+        /// into a coroutine or split it across frames. Under time warp a multi-frame pass would
+        /// seed against one <c>Zup</c> and write out against another, and the segment's LAN would
+        /// come out wrong by the degrees the frame turned in between. No
+        /// <see cref="TwoBodyOrbit"/> built from a segment is stored anywhere either - every one is
+        /// a call-local - so there is no propagator instance to go stale across frames.
+        /// </para>
+        /// </summary>
+        internal static double GetStockElementFrameZupAngleRadians()
+        {
+            Planetarium.CelestialFrame zup;
+            try
+            {
+                zup = Planetarium.Zup;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited(LogTag, ElementFrameZupBoundaryLogKey,
+                    "element-frame boundary: Planetarium.Zup unavailable ("
+                    + ex.GetType().Name
+                    + "); treating the segment element frame as stock's frame (angle 0)");
+                return 0.0;
+            }
+
+            if (!TryResolveCelestialFramePolarAngle(zup.X, zup.Y, zup.Z, out double angleRadians))
+            {
+                ParsekLog.VerboseRateLimited(LogTag, ElementFrameZupBoundaryLogKey,
+                    "element-frame boundary: Planetarium.Zup is not an orthonormal polar rotation "
+                    + "(uninitialised frame); treating the segment element frame as stock's frame (angle 0)");
+                return 0.0;
+            }
+
+            return angleRadians;
+        }
+
+        /// <summary>
+        /// Pure core of <see cref="GetStockElementFrameZupAngleRadians"/>: recovers the polar-axis
+        /// rotation angle of a <c>Planetarium.CelestialFrame</c> basis, or declines.
+        /// <para>
+        /// Declines for a basis that is not a rotation - which is what a DEFAULT-constructed
+        /// <c>Planetarium.CelestialFrame</c> is, all three axes zero - and equally for an
+        /// orthonormal basis that is NOT a rotation about the polar axis, because the single angle
+        /// this returns would then not describe it. <c>Planetarium.Zup</c> is always polar by
+        /// construction (<c>PlanetaryFrame(0, 90, inverseRotAngle)</c>), so the second half of the
+        /// gate can only fire on a frame nothing in KSP builds; declining is the honest answer
+        /// rather than silently mis-rotating every extrapolated tail.
+        /// </para>
+        /// <para>
+        /// <c>internal</c> and pure so the headless tests can drive both the accept and the
+        /// decline path without a live <c>Planetarium</c>.
+        /// </para>
+        /// </summary>
+        internal static bool TryResolveCelestialFramePolarAngle(
+            Vector3d x, Vector3d y, Vector3d z, out double angleRadians)
+        {
+            angleRadians = 0.0;
+            const double orthonormalTolerance = 1e-6;
+            if (!IsUnitAxis(x, orthonormalTolerance)
+                || !IsUnitAxis(y, orthonormalTolerance)
+                || !IsUnitAxis(z, orthonormalTolerance)
+                || Math.Abs(Vector3d.Dot(x, y)) > orthonormalTolerance
+                || Math.Abs(Vector3d.Dot(x, z)) > orthonormalTolerance
+                || Math.Abs(Vector3d.Dot(y, z)) > orthonormalTolerance)
+            {
+                return false;
+            }
+
+            // A polar rotation leaves the z axis alone and keeps both in-plane axes in the
+            // xy-plane; anything else is not describable by a single angle about z.
+            if (Math.Abs(x.z) > orthonormalTolerance
+                || Math.Abs(y.z) > orthonormalTolerance
+                || Math.Abs(z.x) > orthonormalTolerance
+                || Math.Abs(z.y) > orthonormalTolerance
+                || Math.Abs(z.z - 1.0) > orthonormalTolerance)
+            {
+                return false;
+            }
+
+            angleRadians = Math.Atan2(x.y, x.x);
+            return !double.IsNaN(angleRadians) && !double.IsInfinity(angleRadians);
+        }
+
+        private static bool IsUnitAxis(Vector3d axis, double tolerance)
+        {
+            double magnitudeSquared = (axis.x * axis.x) + (axis.y * axis.y) + (axis.z * axis.z);
+            return !double.IsNaN(magnitudeSquared)
+                && !double.IsInfinity(magnitudeSquared)
+                && Math.Abs(magnitudeSquared - 1.0) <= tolerance;
+        }
+
+        /// <summary>
+        /// Propagates a segment's elements to a state vector IN STOCK <c>Orbit</c>'s FRAME - the
+        /// same frame <c>orbit.getRelativePositionAtUT</c> / <c>getOrbitalVelocityAtUT</c> report,
+        /// Zup-swizzled body-relative. The element-frame crossing is applied once, inside
+        /// <see cref="TwoBodyOrbit.TryCreateFromSegment"/>; see
+        /// <see cref="GetStockElementFrameZupAngleRadians"/> for the contract. Callers must NOT
+        /// apply a further Zup rotation on top of this output.
+        /// </summary>
         internal static bool TryPropagate(
             OrbitSegment segment,
             double bodyGravParameter,
@@ -708,6 +890,16 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Writes the propagator's own elements back out as a KSP-native <see cref="OrbitSegment"/>.
+        /// <para>
+        /// FRAME - the OTHER end of the element-frame boundary opened by
+        /// <see cref="TwoBodyOrbit.TryCreateFromSegment"/>. Playback feeds these elements to a
+        /// stock <c>Orbit</c>, which applies <c>Planetarium.Zup</c> itself, so the Zup polar angle
+        /// is ADDED back here - otherwise every extrapolator-authored segment would replay rotated
+        /// about the polar axis. See <see cref="GetStockElementFrameZupAngleRadians"/>.
+        /// </para>
+        /// </summary>
         private static OrbitSegment CreateSegment(
             TwoBodyOrbit orbit,
             string bodyName,
@@ -722,7 +914,8 @@ namespace Parsek
                 inclination = orbit.Inclination * RadToDeg,
                 eccentricity = orbit.Eccentricity,
                 semiMajorAxis = orbit.SemiMajorAxis,
-                longitudeOfAscendingNode = orbit.LongitudeOfAscendingNode * RadToDeg,
+                longitudeOfAscendingNode = NormalizeAngle(
+                    orbit.LongitudeOfAscendingNode + GetStockElementFrameZupAngleRadians()) * RadToDeg,
                 argumentOfPeriapsis = orbit.ArgumentOfPeriapsis * RadToDeg,
                 meanAnomalyAtEpoch = orbit.MeanAnomalyAtEpoch,
                 epoch = orbit.Epoch,
@@ -1444,7 +1637,19 @@ namespace Parsek
         // conventions match KSP's Orbit.UpdateFromStateVectors (z = polar axis,
         // node from +x), so state vectors live in the same frame as
         // Orbit.getRelativePositionAtUT / getOrbitalVelocityAtUT (Zup-swizzled,
-        // body-relative). Known measure-zero divergence: for an EXACTLY equatorial
+        // body-relative). THAT HOLDS FOR THE ELEMENT-SEEDED PATH TOO: a segment's
+        // LAN is KSP-native (measured from Planetarium.right, not from the raw +x
+        // of the element frame), so TryCreateFromSegment / CreateSegment shift it
+        // by the Planetarium.Zup polar angle at the same boundary they convert
+        // degrees to radians - see GetStockElementFrameZupAngleRadians for the
+        // contract, the derivation and the headless gate. Within THIS propagator
+        // and everything it feeds there is exactly ONE element-frame crossing and
+        // it is that boundary; nothing downstream may apply a second Zup rotation.
+        // Scoped deliberately: GhostExtender.PropagateOrbital reaches KSP-native
+        // elements by another route entirely and is still a raw-frame (frame-naive
+        // longitude) reader - pre-existing, recorded in todo-and-known-bugs.md
+        // under Finding A, and NOT covered here.
+        // Known measure-zero divergence: for an EXACTLY equatorial
         // retrograde eccentric orbit the degenerate-node argPe branch below measures
         // CCW from +x where KSP flips on direction of motion, yielding 360-argPe.
         // Internal (not private) purely so the Kepler core is reachable from
@@ -1627,6 +1832,17 @@ namespace Parsek
             /// See <see cref="AreSegmentElementsPropagatable"/> for what "cannot express"
             /// means and why declining (rather than propagating a degenerate conic) is
             /// the contract.
+            /// <para>
+            /// FRAME - one of the TWO ends of the element-frame boundary (the other is
+            /// <c>CreateSegment</c>). A segment's <c>longitudeOfAscendingNode</c> is KSP-native,
+            /// i.e. measured from <c>Planetarium.right</c>, while this propagator works in stock
+            /// <c>Orbit</c>'s STATE frame, so the Zup polar angle is SUBTRACTED here and added
+            /// back on the way out. The derivation, the sign, and the headless /
+            /// uninitialised-Planetarium gate all live on
+            /// <see cref="BallisticExtrapolator.GetStockElementFrameZupAngleRadians"/> - read that
+            /// before touching this line. Applies to open orbits exactly as to closed ones: the
+            /// shift is a rotation of the conic, not a property of its class.
+            /// </para>
             /// </summary>
             public static bool TryCreateFromSegment(
                 OrbitSegment segment,
@@ -1637,6 +1853,7 @@ namespace Parsek
                 if (!AreSegmentElementsPropagatable(segment, gravParameter))
                     return false;
 
+                double zupAngle = GetStockElementFrameZupAngleRadians();
                 bool isElliptic = segment.eccentricity < 1.0;
                 orbit = new TwoBodyOrbit
                 {
@@ -1645,7 +1862,8 @@ namespace Parsek
                     Inclination = segment.inclination * DegToRad,
                     Eccentricity = segment.eccentricity,
                     SemiMajorAxis = segment.semiMajorAxis,
-                    LongitudeOfAscendingNode = segment.longitudeOfAscendingNode * DegToRad,
+                    LongitudeOfAscendingNode = NormalizeAngle(
+                        (segment.longitudeOfAscendingNode * DegToRad) - zupAngle),
                     ArgumentOfPeriapsis = segment.argumentOfPeriapsis * DegToRad,
                     MeanAnomalyAtEpoch = segment.meanAnomalyAtEpoch,
                     Epoch = segment.epoch,

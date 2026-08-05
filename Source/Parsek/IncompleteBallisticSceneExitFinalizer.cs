@@ -2108,139 +2108,37 @@ namespace Parsek
             return zupBodyRelative.xzy;
         }
 
-        /// <summary>
-        /// Orthonormality gate for a <c>Planetarium.CelestialFrame</c> basis, and the frame
-        /// application itself. Returns false — leaving <paramref name="local"/> untouched — for a
-        /// basis that is not a rotation, which is what a DEFAULT-constructed
-        /// <c>Planetarium.CelestialFrame</c> is: all three axes zero. That is exactly the value
-        /// <c>Planetarium.Zup</c> carries headlessly (nothing ever ran <c>Planetarium.Awake</c>),
-        /// and applying it would collapse every vector to the origin, so the gate is
-        /// load-bearing rather than defensive.
-        /// <para>
-        /// Pure and <c>internal</c> so the headless tests can drive both the accept and the
-        /// decline path without a live <c>Planetarium</c>.
-        /// </para>
-        /// </summary>
-        internal static bool TryApplyCelestialFrame(
-            Vector3d vector, Vector3d x, Vector3d y, Vector3d z, out Vector3d local)
-        {
-            local = vector;
-            const double orthonormalTolerance = 1e-6;
-            if (!IsUnitAxis(x, orthonormalTolerance)
-                || !IsUnitAxis(y, orthonormalTolerance)
-                || !IsUnitAxis(z, orthonormalTolerance)
-                || Math.Abs(Vector3d.Dot(x, y)) > orthonormalTolerance
-                || Math.Abs(Vector3d.Dot(x, z)) > orthonormalTolerance
-                || Math.Abs(Vector3d.Dot(y, z)) > orthonormalTolerance)
-            {
-                return false;
-            }
-
-            local = new Vector3d(
-                Vector3d.Dot(vector, x),
-                Vector3d.Dot(vector, y),
-                Vector3d.Dot(vector, z));
-            return true;
-        }
-
-        private static bool IsUnitAxis(Vector3d axis, double tolerance)
-        {
-            double magnitudeSquared = (axis.x * axis.x) + (axis.y * axis.y) + (axis.z * axis.z);
-            return !double.IsNaN(magnitudeSquared)
-                && !double.IsInfinity(magnitudeSquared)
-                && Math.Abs(magnitudeSquared - 1.0) <= tolerance;
-        }
-
-        /// <summary>
-        /// FRAME SITE #5 (ELEMENT FRAME), FIXED (diagnosed headlessly by
-        /// <c>StockOrbitElementFrameParityTests</c> from the site-4 residual measured at
-        /// angleError=131.066 deg in H9 run <c>2026-08-04_2224</c>).
-        /// <para>
-        /// CONTRACT: converts a state vector the ELEMENT-seeded propagator produced
-        /// (<c>TwoBodyOrbit.TryCreateFromSegment</c> -&gt; <c>GetStateAtUT</c>) into the frame
-        /// stock <c>Orbit</c> returns its state vectors in. The two element-to-state maps are
-        /// arithmetically identical — same 3-1-3 perifocal rotation, same mean-anomaly and epoch
-        /// convention, same handedness — except that stock passes every result through
-        /// <c>Planetarium.Zup.WorldToLocal</c>, and <c>Planetarium.Zup</c> is
-        /// <c>PlanetaryFrame(0, 90, inverseRotAngle)</c>, which reduces to a rotation about the
-        /// POLAR AXIS by <c>inverseRotAngle</c>. In other words KSP's <c>LAN</c> is measured from
-        /// <c>Planetarium.right</c>, not from the raw +x of the element frame. That angle MEASURED
-        /// 230.01 deg in the run above.
-        /// </para>
-        /// <para>
-        /// This is why the site-4 round trip did not cancel: the producer encoded off the raw
-        /// element-frame state while the consumer decodes off the live orbit's Zup state, and the
-        /// same rotation is applied to BOTH halves of the state — which is why correcting only the
-        /// radial half moved the error by 2 deg (133.123 -&gt; 131.066) instead of closing it.
-        /// </para>
-        /// <para>
-        /// The STATE-VECTOR-seeded path does NOT need this and must not get it: it seeds from
-        /// stock's own <c>getRelativePositionAtUT</c> / <c>getOrbitalVelocityAtUT</c>, so it
-        /// recovers elements in the Zup frame and propagates in the Zup frame already. Only the
-        /// element-seeded path crosses the boundary. The WIDER instance of that crossing — every
-        /// other element-seeded consumer in the extrapolator, and the elements
-        /// <c>CreateSegment</c> writes back out — is filed as its own entry in
-        /// docs/dev/todo-and-known-bugs.md; this seam fixes site 4 only.
-        /// </para>
-        /// <para>
-        /// NAMING: "site 5" here means THIS element-frame crossing. It is NOT the deferred
-        /// "<c>ComputeOrbitalRotation</c> mixes a Zup velocity with a world radial" finding, which
-        /// an older todo entry also calls "the fifth frame mismatch" and which is untouched.
-        /// </para>
-        /// </summary>
-        internal static Vector3d ToStockOrbitFrame(Vector3d rawElementFrameVector)
-        {
-            try
-            {
-                Planetarium.CelestialFrame zup = Planetarium.Zup;
-                if (TryApplyCelestialFrame(
-                        rawElementFrameVector, zup.X, zup.Y, zup.Z, out Vector3d stockFrame))
-                {
-                    return stockFrame;
-                }
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.VerboseRateLimited("Extrapolator", "to-stock-orbit-frame-unavailable",
-                    "ToStockOrbitFrame: Planetarium.Zup unavailable ("
-                    + ex.GetType().Name
-                    + "); passing the raw element-frame vector through unchanged");
-                return rawElementFrameVector;
-            }
-
-            ParsekLog.VerboseRateLimited("Extrapolator", "to-stock-orbit-frame-degenerate",
-                "ToStockOrbitFrame: Planetarium.Zup is not an orthonormal frame (uninitialised); "
-                + "passing the raw element-frame vector through unchanged");
-            return rawElementFrameVector;
-        }
-
-        /// <summary>
-        /// <see cref="BallisticExtrapolator.TryPropagate"/> with the site-5 frame correction
-        /// applied to both halves of the state, i.e. the state a stock <c>Orbit</c> built from the
-        /// same segment would report. Use this wherever the propagated state is about to be
-        /// compared against, or encoded relative to, a LIVE stock orbit.
-        /// </summary>
-        private static bool TryPropagateInStockOrbitFrame(
-            OrbitSegment segment,
-            double gravParameter,
-            double ut,
-            out Vector3d position,
-            out Vector3d velocity)
-        {
-            if (!BallisticExtrapolator.TryPropagate(
-                    segment, gravParameter, ut, out Vector3d rawPosition, out Vector3d rawVelocity)
-                || !IsFinite(rawPosition)
-                || !IsFinite(rawVelocity))
-            {
-                position = Vector3d.zero;
-                velocity = Vector3d.zero;
-                return false;
-            }
-
-            position = ToStockOrbitFrame(rawPosition);
-            velocity = ToStockOrbitFrame(rawVelocity);
-            return IsFinite(position) && IsFinite(velocity);
-        }
+        // ------------------------------------------------------------------
+        // THE ELEMENT FRAME CROSSING NO LONGER LIVES HERE
+        // ------------------------------------------------------------------
+        // For the extrapolator and everything it feeds, it lives at exactly ONE boundary:
+        // TwoBodyOrbit's segment I/O (TwoBodyOrbit.TryCreateFromSegment in / CreateSegment
+        // out), whose contract, sign derivation, Zup time-dependence and headless gate are
+        // stated on BallisticExtrapolator.GetStockElementFrameZupAngleRadians. Generalised
+        // there 2026-08-05, branch `twobody-element-frame`; see
+        // docs/dev/todo-and-known-bugs.md "TwoBodyOrbit's element-seeded propagation works
+        // in KSP's raw element frame, not stock Orbit's" (FINDING A). Scoped deliberately:
+        // GhostExtender.PropagateOrbital reaches KSP-native elements by another route and is
+        // still a raw-frame reader (frame-naive longitude) - pre-existing, recorded in that
+        // entry, NOT covered here.
+        //
+        // WHAT USED TO BE HERE, and why it had to go. FRAME SITE #5 (ELEMENT FRAME) shipped
+        // as a local `ToStockOrbitFrame` that applied `Planetarium.Zup.WorldToLocal` on top
+        // of raw `BallisticExtrapolator.TryPropagate` output, because the element-seeded
+        // propagator worked in KSP's raw element frame while its consumers decode against a
+        // LIVE stock orbit. It closed the site-4 residual (angleError 131.066 deg in H9 run
+        // 2026-08-04_2224 -> 0.000 in 2026-08-04_2323) but only for that one seam. Now that
+        // `TryPropagate` itself returns stock-frame state, applying a second rotation here
+        // would DOUBLE-rotate and re-break exactly that probe - so the seam, its
+        // `TryApplyCelestialFrame` orthonormality gate and the `TryPropagateInStockOrbitFrame`
+        // wrapper are gone, and the two call sites in
+        // `SeedPredictedSegmentOrbitalFrameRotations` use plain `TryPropagate` plus their own
+        // finiteness checks.
+        //
+        // NAMING, unchanged: "site 5" means THIS element-frame crossing. It is NOT the
+        // deferred "ComputeOrbitalRotation mixes a Zup velocity with a world radial" finding,
+        // which an older todo entry also calls "the fifth frame mismatch" and which is still
+        // untouched.
 
         private static void ResolveBodyFixedSurfaceCoordinates(
             CelestialBody body,
@@ -2282,6 +2180,18 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Seeds the extrapolation loop from a SEGMENT's elements.
+        /// <para>
+        /// FRAME: no correction needed here, and none must be added. Plain
+        /// <c>BallisticExtrapolator.TryPropagate</c> returns stock <c>Orbit</c>'s frame since the
+        /// element-frame boundary moved inside <c>TwoBodyOrbit.TryCreateFromSegment</c>
+        /// (2026-08-05, FINDING A - see
+        /// <see cref="BallisticExtrapolator.GetStockElementFrameZupAngleRadians"/>). That is what
+        /// makes a segment-seeded tail land at the same longitude a vessel-seeded one does
+        /// (site 2) and share a frame with the site-3-corrected SOI ephemerides.
+        /// </para>
+        /// </summary>
         internal static bool TryBuildStartStateFromSegment(
             OrbitSegment segment,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
@@ -2290,6 +2200,7 @@ namespace Parsek
             return TryBuildStartStateFromSegment(segment, bodies, segment.endUT, out startState);
         }
 
+        /// <inheritdoc cref="TryBuildStartStateFromSegment(OrbitSegment, IReadOnlyDictionary{string, ExtrapolationBody}, out BallisticStateVector)"/>
         internal static bool TryBuildStartStateFromSegment(
             OrbitSegment segment,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
@@ -2343,12 +2254,14 @@ namespace Parsek
 
                 bool hasOrbitalFrameRotation = BallisticExtrapolator.HasOrbitalFrameRotation(segment.orbitalFrameRotation);
                 if (!hasOrbitalFrameRotation
-                    && TryPropagateInStockOrbitFrame(
+                    && BallisticExtrapolator.TryPropagate(
                         segment,
                         body.GravitationalParameter,
                         segment.startUT,
                         out Vector3d startPosition,
-                        out Vector3d startVelocity))
+                        out Vector3d startVelocity)
+                    && IsFinite(startPosition)
+                    && IsFinite(startVelocity))
                 {
                     // FRAME SITE #4, FIXED (calibration run 2026-08-04_2142, completed by the
                     // site-5 frame correction after the confirm run 2026-08-04_2224) - see
@@ -2361,14 +2274,14 @@ namespace Parsek
                     // comes from `orbit.getOrbitalVelocityAtUT` (Zup body-relative), so the
                     // producer unswizzles ONLY the position and passes the propagated
                     // velocity through untouched.
-                    // The propagated state itself arrives through TryPropagateInStockOrbitFrame,
-                    // NOT raw TryPropagate: the element-seeded propagator works in KSP's raw
-                    // element frame, which stock's Orbit rotates about the polar axis by
-                    // `Planetarium.Zup` before returning any state vector (see
-                    // ToStockOrbitFrame). Encoding off the raw state was the whole remaining
-                    // residual - 133.123 deg before the radial half was corrected, 131.066 deg
-                    // after, and the frames cancel exactly once both halves live in stock's
-                    // frame.
+                    // The propagated state arrives from PLAIN `BallisticExtrapolator.TryPropagate`,
+                    // which since 2026-08-05 (branch `twobody-element-frame`, FINDING A) already
+                    // returns stock `Orbit`'s frame: the element-frame crossing is applied ONCE,
+                    // inside `TwoBodyOrbit.TryCreateFromSegment`. Encoding off the RAW
+                    // element-frame state was the whole remaining site-4 residual - 133.123 deg
+                    // before the radial half was corrected, 131.066 deg after, 0.000 once both
+                    // halves live in stock's frame. DO NOT re-introduce a `Zup.WorldToLocal` here:
+                    // it would double-rotate and red `Site4AttitudeRoundTrip` again.
                     // NOT FIXED HERE, deliberately: the consumer's own internal mix of a
                     // Zup velocity with a world radial is a further, wider mismatch shared
                     // with recorder-authored orbital-frame rotations across ~6 call sites.
@@ -2384,12 +2297,14 @@ namespace Parsek
                 }
 
                 if (!hasOrbitalFrameRotation
-                    || !TryPropagateInStockOrbitFrame(
+                    || !BallisticExtrapolator.TryPropagate(
                         segment,
                         body.GravitationalParameter,
                         segment.endUT,
                         out Vector3d endPosition,
-                        out Vector3d endVelocity))
+                        out Vector3d endVelocity)
+                    || !IsFinite(endPosition)
+                    || !IsFinite(endVelocity))
                 {
                     continue;
                 }
@@ -2397,9 +2312,9 @@ namespace Parsek
                 // Same calibrated contract as the seeding call above: the stored rotation is
                 // relative to a world radial + Zup velocity frame, so the decode that
                 // carries the attitude across to the next segment unswizzles the position
-                // and leaves the velocity alone - off a state that has already been rotated
-                // into stock's orbit frame, which is the frame the stored rotation is
-                // relative to.
+                // and leaves the velocity alone - off a state that is already in stock's
+                // orbit frame (the propagator's own segment boundary put it there), which is
+                // the frame the stored rotation is relative to.
                 currentWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                     segment.orbitalFrameRotation,
                     SwizzleZupBodyRelativeToWorld(endPosition),
@@ -2491,10 +2406,12 @@ namespace Parsek
                 bodyName = vessel.orbit.referenceBody.name,
                 position = position,
                 velocity = velocity,
-                // World radial + Zup velocity, the site-4 calibrated contract. NO site-5 frame
-                // correction here, deliberately: `position` / `velocity` came straight off the
-                // LIVE orbit above, so they are already in stock's orbit frame. Only the
-                // ELEMENT-seeded propagation needs ToStockOrbitFrame.
+                // World radial + Zup velocity, the site-4 calibrated contract. NO element-frame
+                // (site-5) correction here, deliberately: `position` / `velocity` came straight
+                // off the LIVE orbit above, so they are already in stock's orbit frame. Only the
+                // ELEMENT-seeded path crosses that boundary, and it now does so inside
+                // `TwoBodyOrbit.TryCreateFromSegment` - see
+                // `BallisticExtrapolator.GetStockElementFrameZupAngleRadians`.
                 orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                     vessel.transform.rotation,
                     SwizzleZupBodyRelativeToWorld(position),

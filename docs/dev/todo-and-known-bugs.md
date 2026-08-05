@@ -2245,11 +2245,13 @@ would not have told us. `harness/scenarios/H9-incomplete-ballistic.toml` met its
 unchanged `total=10 passed=10 failed=0 skipped=0` pin; both probes are now PERMANENT
 frame-regression guards.
 
-Two findings the site-5 cross-check turned up remain OPEN and are deliberately not
-fixed here - each is wider than the seam that was red and wants its own in-game proof:
+Two findings the site-5 cross-check turned up were deliberately not fixed here - each is
+wider than the seam that was red and wants its own in-game proof:
 "`TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame" (findings
 A and B) and "`ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world
-radial", both below.
+radial", both below. Finding A shipped 2026-08-05 on branch `twobody-element-frame` and
+took site 5's seam with it (the crossing now lives at `TwoBodyOrbit`'s segment I/O);
+Finding B and the `ComputeOrbitalRotation` entry are still OPEN.
 
 ### The site-4 residual: diagnosed, and fixed as site 5 (phase 3)
 
@@ -2299,19 +2301,33 @@ not (it seeds from stock's own `getRelativePositionAtUT` / `getOrbitalVelocityAt
 recovers elements in the Zup frame and stays there). That is why site 1 - fed a stock
 relative position - came back exact while site 4 - fed a segment's elements - did not.
 
-**Site 5 (ELEMENT FRAME), what shipped.** The name means THIS crossing; it is not the
-deferred "`ComputeOrbitalRotation` mixes a Zup velocity with a world radial" entry below,
-which is also called "the fifth frame mismatch" and is untouched.
+**Site 5 (ELEMENT FRAME), what shipped - AND WHERE IT LIVES NOW.** The name means THIS
+crossing; it is not the deferred "`ComputeOrbitalRotation` mixes a Zup velocity with a world
+radial" entry below, which is also called "the fifth frame mismatch" and is untouched.
+
+*As originally shipped (2026-08-05, branch `small-fixes-2`)*:
 `IncompleteBallisticSceneExitFinalizer.ToStockOrbitFrame`
-applies `Planetarium.Zup.WorldToLocal` to an element-seeded state vector, gated by
+applied `Planetarium.Zup.WorldToLocal` to an element-seeded state vector, gated by
 `TryApplyCelestialFrame`'s orthonormality check (a default-constructed `CelestialFrame` -
 what `Planetarium.Zup` is in any process that never ran `Planetarium.Awake`, including the
 test run - has all three axes zero and would collapse every vector to the origin, so the
-gate declines and passes the vector through unchanged). The site-4 producer and its
-`ResolveWorldRotation` decode both reach their state through
-`TryPropagateInStockOrbitFrame` instead of raw `TryPropagate`. **Site 2 is deliberately
-NOT changed**: its seed already comes off the live orbit, so it is already in stock's
-frame.
+gate declined and passed the vector through unchanged). The site-4 producer and its
+`ResolveWorldRotation` decode both reached their state through
+`TryPropagateInStockOrbitFrame` instead of raw `TryPropagate`.
+
+*Where the crossing lives TODAY (moved 2026-08-05, branch `twobody-element-frame`, Finding
+A below)*: at exactly ONE boundary, `TwoBodyOrbit`'s segment I/O -
+`TryCreateFromSegment` subtracts the Zup polar angle from a segment's KSP-native LAN and
+`CreateSegment` adds it back, with the angle from
+`BallisticExtrapolator.GetStockElementFrameZupAngleRadians`. `ToStockOrbitFrame`,
+`TryPropagateInStockOrbitFrame` and `TryApplyCelestialFrame` are DELETED: `TryPropagate`
+now returns stock's frame itself, so a second rotation on top would double-rotate and
+re-red `Site4AttitudeRoundTrip`. The two seed call sites use plain `TryPropagate` plus
+their own finiteness checks; the site-4 contract - world radial + Zup velocity, encoded off
+a state in stock's frame - is unchanged, and its in-flight 0.000 reading still stands.
+
+**Site 2 is deliberately NOT changed**: its seed already comes off the live orbit, so it is
+already in stock's frame.
 
 **Headless coverage - the cross-check IS the diagnosis, not a by-product of the fix.**
 
@@ -2343,7 +2359,9 @@ encoding, never the frame. Its docstring now says so and points at the new cell.
 
 **Two findings the cross-check turned up are NOT fixed here** - they are wider than site 4
 and get their own entry: see "TwoBodyOrbit's element-seeded propagation works in KSP's raw
-element frame" below.
+element frame" below. Finding A (the frame) has since been fixed on branch
+`twobody-element-frame`, which is what moved the element-frame crossing out of this
+file's seam and into `TwoBodyOrbit`'s segment I/O; Finding B (the solver) is still open.
 
 **CONFIRMED IN FLIGHT (`2026-08-04_2323`, PASS attempt 1, 49 s).** The prediction this
 section made - site 4 from 131.066 deg to under 5 deg, closed form says ~0 - measured
@@ -2555,17 +2573,21 @@ Each is a behavioral change on live extrapolation paths; fix together with an in
 
 ---
 
-## `TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame, not stock `Orbit`'s (two findings; deferred, each needs its own PR) [FOUND 2026-08-05 by the headless cross-check that diagnosed the site-4 residual, branch `small-fixes-2`]
+## `TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame, not stock `Orbit`'s (two findings; each needs its own PR) [FOUND 2026-08-05 by the headless cross-check that diagnosed the site-4 residual, branch `small-fixes-2`. **FINDING A (the frame) FIXED 2026-08-05, branch `twobody-element-frame`; FINDING B (the solver) STILL OPEN and is the NEXT PR**]
 
 Both fall out of `StockOrbitElementFrameParityTests`, the transcription of stock's
 element-to-state chain written to diagnose site 4 (see "BallisticExtrapolator frame
-mismatches" -> phase 3 for the closed form and the measurement). Neither is fixed there:
-site 5 corrects the ONE seam that was red, and each of these is wider than that seam.
+mismatches" -> phase 3 for the closed form and the measurement). Neither was fixed there:
+site 5 corrected the ONE seam that was red, and each of these is wider than that seam.
+**Finding A has since been fixed on its own branch and its site-5 seam collapsed into the
+new boundary; Finding B is untouched and is the next PR.**
 
-**Finding A - the frame.** `TwoBodyOrbit.TryCreateFromSegment` reads a segment's KSP-native
+**~~Finding A - the frame.~~ [FIXED 2026-08-05, branch `twobody-element-frame`]**
+`TwoBodyOrbit.TryCreateFromSegment` reads a segment's KSP-native
 elements and propagates without stock's `Planetarium.Zup.WorldToLocal`, so EVERY
 element-seeded state it produces is stock's rotated about the polar axis by
-`Planetarium.inverseRotAngle` (MEASURED at 230.01 deg in H9 run `2026-08-04_2224`). Two
+`Planetarium.inverseRotAngle` (MEASURED at 230.01 deg in H9 run `2026-08-04_2224` - a
+SNAPSHOT AT THAT RUN'S UT, not an install constant; see "Zup is not static" below). Two
 consequences, MOSTLY longitude-shaped (a polar rotation preserves radius, altitude and
 latitude, which is why nothing altitude-driven ever looked wrong) - but NOT strictly
 longitude-only on a multi-body tail: the vessel state stays in the raw element frame
@@ -2584,15 +2606,125 @@ longitude offset:
   `OrbitSegment.longitudeOfAscendingNode`, but playback feeds those to a stock `Orbit`,
   which applies `Zup` again. Extrapolator-authored segments replay rotated.
 
-The clean fix is the pair `TryCreateFromSegment: LAN -= zupAngle` /
-`CreateSegment: LAN += zupAngle`, which makes the element-seeded path agree with the
-state-vector-seeded path and with site 1 in one place. It is deliberately NOT taken here:
-it moves every extrapolated tail's ground track and every extrapolator-authored segment's
-replay orientation, which wants its own in-game proof (an impact whose recorded lat/lon is
-compared against the crash site - the same standard the four original sites were held to),
-not a headless argument.
+### What shipped for Finding A (2026-08-05, branch `twobody-element-frame`)
 
-**Finding B - the solver.** Above e = 0.8 stock dispatches to
+The pair the entry named: `TryCreateFromSegment: LAN -= zupAngle` /
+`CreateSegment: LAN += zupAngle`, at ONE boundary - `TwoBodyOrbit`'s segment I/O - which
+makes the element-seeded path agree with the state-vector-seeded path and with site 1 in
+one place. The angle comes from `BallisticExtrapolator.GetStockElementFrameZupAngleRadians`,
+a guarded accessor over `Planetarium.Zup` (pure core
+`TryResolveCelestialFramePolarAngle`): it recovers `atan2(Zup.X.y, Zup.X.x)` and DECLINES -
+angle 0, boundary inert, Verbose rate-limited log keyed
+`twobody-element-frame-zup-boundary` - for a basis that is not an orthonormal rotation ABOUT
+THE POLAR AXIS, which is what a default-constructed `CelestialFrame` is in any process that
+never ran `Planetarium.Awake`. That is the same pass-through the old seam's orthonormality
+gate produced, so every headless fixture is unaffected.
+
+**THE SIGN WAS DERIVED, not taken from this entry's wording.** `Zup.WorldToLocal` against
+an X axis of `(cos a, sin a, 0)` is `R_z(-a)`, and `R_z(-a)` applied to
+`R_z(LAN) R_x(inc) R_z(argPe)` is the same chain at `LAN - a`; that is exactly the closed
+form `StockOrbitElementFrameParityTests` already pinned
+(`stockState == Zup.WorldToLocal(tboState)`). Confirmed by mutation: inverting both ends
+reds 16 cells across the two frame test classes, including the measured 230.01 deg case and
+the a=300.8 km / e=0.9948 pad fixture. Stock's own `Planetarium.right` docstring says the
+same thing from the other side - "the LAN is the angle between `Planetarium.right` and the
+orbit's ascending node".
+
+**THE SITE-5 SEAM COLLAPSED INTO THE BOUNDARY, necessarily.**
+`IncompleteBallisticSceneExitFinalizer.ToStockOrbitFrame` /
+`TryPropagateInStockOrbitFrame` / `TryApplyCelestialFrame` are DELETED: with
+`TryPropagate` already returning stock's frame, applying `Zup.WorldToLocal` on top would
+double-rotate and re-red H9's `Site4AttitudeRoundTrip` (a permanent frame-regression guard
+currently at angleError=0.000). The two `SeedPredictedSegmentOrbitalFrameRotations` call
+sites now use plain `BallisticExtrapolator.TryPropagate` plus their own finiteness checks.
+Site 2 (`TryBuildStartStateFromVessel`) is untouched - its seed comes off the live orbit and
+is already stock-frame.
+
+**Consequences, as predicted by this entry:** tails finalized from a SEGMENT now land at
+the correct longitude; extrapolator-authored `OrbitSegment`s now replay unrotated through
+stock `Orbit`; and on a multi-body tail the vessel state now shares a frame with the
+site-3-corrected SOI ephemerides (`ParentFrameState`), so child-encounter geometry is
+consistent rather than one-sidedly rotated.
+
+**No schema or generation bump, and NO MIGRATION** - the serialized contract (KSP-native
+elements) is unchanged; the extrapolator was writing non-conforming values into it.
+Predicted segments already on disk carry the OLD raw-frame elements and will render with
+the frame difference, per the no-migration rule (ORBITSEGMENT-ANGLE-UNITS precedent).
+
+**Still owed: the in-game proof.** The change moves every extrapolated tail's ground track
+and every extrapolator-authored segment's replay orientation, and the standard the four
+original sites were held to is a measurement, not a headless argument - an impact whose
+recorded lat/lon is compared against the crash site. H9's two probes
+(`Site1FrameProbe`, `Site4AttitudeRoundTrip`) are the cheap first read: both must stay at
+zero, and a re-red on site 4 means the boundary and a surviving local rotation are stacking.
+
+### Zup is not static, and the boundary is built for that [CORRECTED 2026-08-05 by review of the Finding A commit]
+
+The first draft of `GetStockElementFrameZupAngleRadians`'s docstring claimed
+`Planetarium.Zup` is "assigned once in `Planetarium.Awake` and never mutated afterwards".
+**That is FALSE**, and the decompiled source says so plainly: `CelestialBody.CBUpdate` -
+reached from `Planetarium.FixedUpdate` -> `UpdateCBsRecursive` EVERY PHYSICS TICK -
+REBUILDS the static for a body in the inverse-rotation regime:
+
+```
+rotationAngle = (initialRotation + 360.0 * rotPeriodRecip * Planetarium.GetUniversalTime()) % 360.0;
+...
+Planetarium.InverseRotAngle = (rotationAngle - directRotAngle) % 360.0;
+Planetarium.CelestialFrame.PlanetaryFrame(0.0, 90.0, Planetarium.InverseRotAngle, ref Planetarium.Zup);
+```
+
+`rotationAngle` advances with UT, so the polar angle advances with it - roughly **1 deg per
+minute of game time** at Kerbin's rotation period - and a vessel on or near Kerbin below the
+inverse-rotation threshold is exactly that regime, i.e. exactly the H9 pad fixture. So
+**230.01 deg is a snapshot at that run's UT, not a per-install constant**, and any future
+reading of the same probe on a different flight will land on a different angle without
+anything being wrong.
+
+**The fix's per-call reads are correct PRECISELY BECAUSE the static moves.** The accessor
+reads `Planetarium.Zup` fresh on every call and nothing caches the angle. The real
+invariant is **one synchronous single-frame pass = one Zup**:
+`IncompleteBallisticSceneExitFinalizer.TryApply` is a plain synchronous call from
+`ParsekFlight.Finalization.cs` (:148 and :414), and seed -> propagate -> `CreateSegment` all
+run inside it on the main thread with no `yield`, so the angle subtracted on the way in and
+the angle added on the way out are the same number. Stock applies its own then-current Zup
+at query / replay time, and the LAN written to disk is inertial and time-stable, so the two
+sides agree at any later UT.
+
+**Consequence for future work: NEVER cache the angle across frames, and NEVER move the
+finalization pass into a coroutine or split it across frames.** Under time warp a
+multi-frame pass would seed against one Zup and write out against another, and the
+segment's LAN would come out wrong by the degrees the frame turned in between. The code
+doc on `GetStockElementFrameZupAngleRadians` now states this instead of the false claim.
+
+### Known raw-frame reader still OUTSIDE the boundary: `GhostExtender.PropagateOrbital`
+
+`GhostExtender.PropagateOrbital` (`Source/Parsek/GhostExtender.cs`, ~:100-137; fed from
+`RecordingEndpointResolver.cs:462` and `VesselGhoster.cs:992`) consumes KSP-native orbit
+elements and propagates them WITHOUT the Zup shift, then hands the raw Cartesian result to
+`CartesianToGeodetic`, whose longitude is a bare `Atan2` with no body-rotation term either.
+Latitude is safe (a polar rotation preserves it); **longitude is frame-naive**. This is
+PRE-EXISTING and is NOT a regression from Finding A - that fix covered `TwoBodyOrbit`'s
+segment I/O, which is the extrapolator's boundary, not every element reader in the codebase.
+Recorded here so the claim "the element-frame crossing lives at exactly one boundary" is
+read as scoped to the extrapolator: this consumer reaches elements by another route and
+still needs its own decision (and, on the same standard as the four original sites, its own
+measurement) before it can be called fixed.
+
+**Headless coverage added:** direct-agreement cells with a REAL non-identity
+`Planetarium.Zup` installed (`TryCreateFromSegment` -> `GetStateAtUT` equals the stock
+transcription with NO `WorldToLocal`, at 0 / 37.5 / 230.01 / -130 deg, plus the pad
+fixture near apoapsis where Finding B's solver is exact); the inc=0 equatorial closed form
+(the 3-1-3 collapses to `R_z(LAN + argPe)`, so the shift is still the polar rotation, with
+no polar leakage); a hyperbolic cell (the shift is a rotation of the conic, not a property
+of its class); a segment -> propagate -> `CreateSegment` LAN round trip; and the reworked
+`StockOrbitFrameSeamTests` anti-vacuity half, which now breaks the round trip by SKIPPING
+the boundary conversion (the pre-fix encoding is no longer reachable through the production
+API). `BallisticExtrapolatorFrameTests`, `BallisticExtrapolatorKeplerTests` and
+`StockOrbitElementFrameParityTests` all gained `[Collection("Sequential")]`: the boundary
+reads the process-wide `Planetarium.Zup`, so a sibling that installs one must not run
+concurrently.
+
+**Finding B - the solver. STILL OPEN; this is the NEXT PR.** Above e = 0.8 stock dispatches to
 `solveEccentricAnomalyExtremeEcc` (8 fixed Laguerre-style iterations seeded at
 `M + 0.85 e sign(sin M)`); `TwoBodyOrbit` keeps plain Newton seeded at `E = M`. At
 e = 0.9948 - not exotic: that is the surface-rotation ellipse of EVERY landed or prelaunch
@@ -2603,7 +2735,9 @@ DISAGREEMENT by
 `StockOrbitElementFrameParityTests.HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver`,
 so a later fix flips a test instead of being invisible. Not the site-4 cause (that was
 Finding A, proven by the polar-component and `r . v` invariants the measurement preserved),
-but it is a real robustness gap in the same propagator and should be fixed with it.
+but it is a real robustness gap in the same propagator. Finding A's fix did NOT touch the
+Kepler solve or that pinned cell; the parity file's new pad-fixture cell deliberately samples
+only near apoapsis, where the solve is exact, so it measures the FRAME and not this.
 
 ---
 

@@ -46,13 +46,67 @@ namespace Parsek.Tests
     /// ELEMENT-seeded path crosses the boundary.
     /// </para>
     /// <para>
-    /// No shared static state is touched, so no <c>[Collection("Sequential")]</c>.
+    /// <b>FINDING A IS FIXED</b> (2026-08-05, branch <c>twobody-element-frame</c>).
+    /// <c>TryCreateFromSegment</c> now SUBTRACTS the <c>Planetarium.Zup</c> polar angle from a
+    /// segment's KSP-native LAN and <c>CreateSegment</c> adds it back, so the element-seeded path
+    /// lands DIRECTLY in stock's state frame. The cells below pin that AGREEMENT rather than the
+    /// divergence: with a real non-identity <c>Zup</c> installed,
+    /// <c>TryCreateFromSegment</c> -&gt; <c>GetStateAtUT</c> equals the transcription below with NO
+    /// <c>WorldToLocal</c> applied. The closed form that WAS the diagnosis is still pinned, on the
+    /// state reached by PRE-CANCELLING the boundary (feeding a segment whose LAN carries the
+    /// boundary's own correction) - the only way to reproduce the pre-fix encoding through the
+    /// production API now. FINDING B, the extreme-eccentricity solver, remains OPEN and is still
+    /// pinned as a disagreement at the bottom of this file.
+    /// </para>
+    /// <para>
+    /// Since the production boundary reads the process-wide <c>Planetarium.Zup</c>, these cells
+    /// touch shared static state: hence <c>[Collection("Sequential")]</c> and the restore in
+    /// <see cref="Dispose"/>. Every cell installs the frame it wants explicitly rather than relying
+    /// on the ambient one.
     /// </para>
     /// </summary>
-    public class StockOrbitElementFrameParityTests
+    [Collection("Sequential")]
+    public class StockOrbitElementFrameParityTests : IDisposable
     {
         private const double KerbinMu = 3.5316e12;
         private const double DegToRad = Math.PI / 180.0;
+
+        private readonly Planetarium.CelestialFrame originalZup;
+
+        public StockOrbitElementFrameParityTests()
+        {
+            originalZup = Planetarium.Zup;
+        }
+
+        public void Dispose()
+        {
+            Planetarium.Zup = originalZup;
+        }
+
+        /// <summary>
+        /// Installs the frame <c>Planetarium.Awake</c> installs, so the production element-frame
+        /// boundary takes the same path it takes in flight.
+        /// </summary>
+        private static void InstallZup(double inverseRotAngleDegrees)
+        {
+            CelestialFramePort port = StockOrbitPort.PlanetaryZup(inverseRotAngleDegrees);
+            Planetarium.Zup = new Planetarium.CelestialFrame { X = port.X, Y = port.Y, Z = port.Z };
+        }
+
+        /// <summary>
+        /// A segment carrying the boundary's own correction, so that
+        /// <c>TryCreateFromSegment</c>'s subtraction cancels and the propagated state is the RAW
+        /// element-frame state the pre-fix producer encoded off. The only way to reach that state
+        /// through the production API since Finding A was fixed.
+        /// </summary>
+        private static OrbitSegment PreCancelTheElementFrameBoundary(
+            OrbitSegment segment, double inverseRotAngleDegrees)
+        {
+            OrbitSegment raw = segment;
+            raw.longitudeOfAscendingNode =
+                NormalizeDegrees(segment.longitudeOfAscendingNode + inverseRotAngleDegrees);
+            return raw;
+        }
 
         /// <summary>
         /// The polar-axis angle MEASURED between the two frames in H9 run 2026-08-04_2224.
@@ -88,6 +142,7 @@ namespace Parsek.Tests
         public void IdentityZup_TwoBodyOrbitReproducesStocksElementToStateMapExactly(
             double inclinationDeg, double lanDeg, double argPeDeg, double eccentricity)
         {
+            InstallZup(0.0);
             double semiMajorAxis = 900000.0;
             const double epoch = 1000.0;
             const double meanAnomalyAtEpoch = 0.75;
@@ -115,20 +170,25 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// CLOSED FORM: <c>stockState == Planetarium.Zup.WorldToLocal(twoBodyOrbitState)</c>, for
-        /// BOTH the position and the velocity, at every element combination and every UT. The
-        /// discrepancy is therefore exactly one rotation about the polar axis, applied
-        /// identically to both halves of the state - which is why the site-4 error barely moved
-        /// when only the radial half of the producer's frame was corrected.
+        /// THE FIX, stated as the agreement it produces: with a REAL non-identity
+        /// <c>Planetarium.Zup</c> installed, the element-seeded propagator's state equals stock's
+        /// DIRECTLY - no <c>WorldToLocal</c> applied by anyone downstream - at every UT.
+        /// <para>
+        /// And the CLOSED FORM that was the diagnosis, still pinned in the same cell:
+        /// <c>stockState == Zup.WorldToLocal(rawElementFrameState)</c>, where the raw state is
+        /// reached by pre-cancelling the boundary. Both statements in one place so a future reader
+        /// sees what the boundary does AND why it has to.
+        /// </para>
         /// </summary>
         [Theory]
         [InlineData(0.0)]
         [InlineData(37.5)]
         [InlineData(MeasuredZupAngleDegrees)]
         [InlineData(-130.0)]
-        public void ZupRotation_IsTheSoleDiscrepancyBetweenTheTwoElementToStateMaps(
+        public void ElementFrameBoundary_MakesTheTwoElementToStateMapsAgreeDirectly(
             double inverseRotAngleDeg)
         {
+            InstallZup(inverseRotAngleDeg);
             OrbitSegment segment = BuildSegment(
                 inclinationDeg: 35.0,
                 lanDeg: 128.0,
@@ -138,6 +198,10 @@ namespace Parsek.Tests
                 meanAnomalyAtEpoch: 0.75,
                 epoch: 1000.0);
             Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(
+                PreCancelTheElementFrameBoundary(segment, inverseRotAngleDeg),
+                KerbinMu,
+                out TwoBodyOrbit rawFrameOrbit));
 
             var zup = StockOrbitPort.PlanetaryZup(inverseRotAngleDeg);
             var stock = StockOrbitPort.FromSegment(segment, KerbinMu, zup);
@@ -145,18 +209,180 @@ namespace Parsek.Tests
             for (int i = 0; i <= 16; i++)
             {
                 double ut = segment.epoch + (stock.Period * i) / 16.0;
-                orbit.GetStateAtUT(ut, out Vector3d rawPosition, out Vector3d rawVelocity);
+                orbit.GetStateAtUT(ut, out Vector3d position, out Vector3d velocity);
+                rawFrameOrbit.GetStateAtUT(ut, out Vector3d rawPosition, out Vector3d rawVelocity);
+
+                AssertVectorsAgree(
+                    stock.GetRelativePositionAtUT(ut), position, 1e-9, $"position at sample {i}");
+                AssertVectorsAgree(
+                    stock.GetOrbitalVelocityAtUT(ut), velocity, 1e-9, $"velocity at sample {i}");
 
                 AssertVectorsAgree(
                     stock.GetRelativePositionAtUT(ut),
                     zup.WorldToLocal(rawPosition),
                     1e-9,
-                    $"position at sample {i}");
+                    $"closed form, position at sample {i}");
                 AssertVectorsAgree(
                     stock.GetOrbitalVelocityAtUT(ut),
                     zup.WorldToLocal(rawVelocity),
                     1e-9,
-                    $"velocity at sample {i}");
+                    $"closed form, velocity at sample {i}");
+            }
+        }
+
+        /// <summary>
+        /// THE MEASURED CASE, on the fixture the flight actually ran: a prelaunch vessel's
+        /// surface-rotation ellipse (a = 300.8 km, e = 0.9948) at 230.01 deg. The element-seeded
+        /// state agrees with stock's directly.
+        /// <para>
+        /// SAMPLED NEAR APOAPSIS ONLY, and that restriction is FINDING B, not a weakening of this
+        /// claim: at e = 0.9948 <c>TwoBodyOrbit</c>'s plain Newton solve diverges from stock's
+        /// <c>solveEccentricAnomalyExtremeEcc</c> near periapsis by double-digit degrees of true
+        /// anomaly (pinned by
+        /// <see cref="HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver"/>), so
+        /// a full-orbit sweep here would red on the SOLVER and say nothing about the FRAME. The
+        /// site-4 measurement itself was taken at apoapsis, where the solve is exact - so this is
+        /// the fixture the flight ran, at the anomaly the flight ran it at.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void MeasuredPadFixture_ElementSeededStateAgreesWithStockDirectly()
+        {
+            InstallZup(MeasuredZupAngleDegrees);
+            OrbitSegment segment = BuildSegment(
+                inclinationDeg: 0.0972,
+                lanDeg: 235.7958,
+                argPeDeg: 90.0,
+                eccentricity: 0.9948,
+                semiMajorAxis: 300818.761,
+                meanAnomalyAtEpoch: Math.PI,
+                epoch: 0.0);
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+
+            var zup = StockOrbitPort.PlanetaryZup(MeasuredZupAngleDegrees);
+            var stock = StockOrbitPort.FromSegment(segment, KerbinMu, zup);
+
+            for (int i = -4; i <= 4; i++)
+            {
+                double ut = segment.epoch + (stock.Period * i) / 64.0;
+                orbit.GetStateAtUT(ut, out Vector3d position, out Vector3d velocity);
+
+                AssertVectorsAgree(
+                    stock.GetRelativePositionAtUT(ut), position, 1e-6, $"pad position at sample {i}");
+                AssertVectorsAgree(
+                    stock.GetOrbitalVelocityAtUT(ut), velocity, 1e-6, $"pad velocity at sample {i}");
+            }
+        }
+
+        /// <summary>
+        /// EQUATORIAL ORBITS: the boundary is a pure LAN shift, and a pure LAN shift is still the
+        /// right correction at <c>inc = 0</c> - the 3-1-3 composition
+        /// <c>R_z(LAN) R_x(0) R_z(argPe)</c> collapses to <c>R_z(LAN + argPe)</c>, so shifting LAN
+        /// rotates the state about the polar axis exactly as it does at any other inclination.
+        /// Stated closed form (the shifted-LAN state IS the polar-rotated state), then confirmed
+        /// against the stock transcription.
+        /// </summary>
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(MeasuredZupAngleDegrees)]
+        [InlineData(-130.0)]
+        public void EquatorialOrbit_TheLanShiftIsStillThePolarRotation(double inverseRotAngleDeg)
+        {
+            InstallZup(inverseRotAngleDeg);
+            OrbitSegment segment = BuildSegment(
+                inclinationDeg: 0.0,
+                lanDeg: 128.0,
+                argPeDeg: 77.0,
+                eccentricity: 0.42,
+                semiMajorAxis: 900000.0,
+                meanAnomalyAtEpoch: 0.75,
+                epoch: 1000.0);
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(
+                PreCancelTheElementFrameBoundary(segment, inverseRotAngleDeg),
+                KerbinMu,
+                out TwoBodyOrbit rawFrameOrbit));
+
+            var zup = StockOrbitPort.PlanetaryZup(inverseRotAngleDeg);
+            var stock = StockOrbitPort.FromSegment(segment, KerbinMu, zup);
+
+            for (int i = 0; i <= 8; i++)
+            {
+                double ut = segment.epoch + (stock.Period * i) / 8.0;
+                orbit.GetStateAtUT(ut, out Vector3d position, out Vector3d velocity);
+                rawFrameOrbit.GetStateAtUT(ut, out Vector3d rawPosition, out Vector3d rawVelocity);
+
+                // The shifted-LAN state IS the polar-rotated state, at inc = 0 as anywhere else.
+                AssertVectorsAgree(
+                    zup.WorldToLocal(rawPosition), position, 1e-9, $"equatorial position {i}");
+                AssertVectorsAgree(
+                    zup.WorldToLocal(rawVelocity), velocity, 1e-9, $"equatorial velocity {i}");
+
+                // ...and it is stock's state.
+                AssertVectorsAgree(
+                    stock.GetRelativePositionAtUT(ut), position, 1e-9, $"equatorial vs stock {i}");
+
+                // The plane is exactly the reference plane throughout - no polar leakage.
+                Assert.Equal(0.0, position.z, 9);
+                Assert.Equal(0.0, velocity.z, 9);
+            }
+        }
+
+        /// <summary>
+        /// HYPERBOLIC segments cross the boundary too: the conversion is a rotation of the conic,
+        /// not a property of its class. The stock transcription is elliptic-only, so this states
+        /// the closed form directly - the boundary-converted state is the polar rotation of the raw
+        /// element-frame state, on an OPEN orbit.
+        /// </summary>
+        [Theory]
+        [InlineData(37.5)]
+        [InlineData(MeasuredZupAngleDegrees)]
+        [InlineData(-130.0)]
+        public void HyperbolicSegment_CrossesTheElementFrameBoundaryToo(double inverseRotAngleDeg)
+        {
+            InstallZup(inverseRotAngleDeg);
+            OrbitSegment segment = BuildSegment(
+                inclinationDeg: 22.0,
+                lanDeg: 128.0,
+                argPeDeg: 77.0,
+                eccentricity: 1.35,
+                semiMajorAxis: -900000.0,
+                meanAnomalyAtEpoch: -0.4,
+                epoch: 1000.0);
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(
+                PreCancelTheElementFrameBoundary(segment, inverseRotAngleDeg),
+                KerbinMu,
+                out TwoBodyOrbit rawFrameOrbit));
+
+            // The DIRECTION of the shift, pinned independently of the boundary itself: an
+            // identity-Zup orbit built at (LAN - a) is by construction the state the boundary is
+            // supposed to produce at LAN under Zup = a.
+            OrbitSegment shifted = segment;
+            shifted.longitudeOfAscendingNode =
+                NormalizeDegrees(segment.longitudeOfAscendingNode - inverseRotAngleDeg);
+            InstallZup(0.0);
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(shifted, KerbinMu, out TwoBodyOrbit expected));
+            InstallZup(inverseRotAngleDeg);
+
+            var zup = StockOrbitPort.PlanetaryZup(inverseRotAngleDeg);
+
+            for (int i = 0; i <= 8; i++)
+            {
+                double ut = segment.epoch + (i * 240.0);
+                orbit.GetStateAtUT(ut, out Vector3d position, out Vector3d velocity);
+                rawFrameOrbit.GetStateAtUT(ut, out Vector3d rawPosition, out Vector3d rawVelocity);
+                expected.GetStateAtUT(ut, out Vector3d expectedPosition, out Vector3d expectedVelocity);
+
+                AssertVectorsAgree(
+                    zup.WorldToLocal(rawPosition), position, 1e-9, $"hyperbolic position {i}");
+                AssertVectorsAgree(
+                    zup.WorldToLocal(rawVelocity), velocity, 1e-9, $"hyperbolic velocity {i}");
+
+                AssertVectorsAgree(
+                    expectedPosition, position, 1e-9, $"hyperbolic shift direction, position {i}");
+                AssertVectorsAgree(
+                    expectedVelocity, velocity, 1e-9, $"hyperbolic shift direction, velocity {i}");
             }
         }
 
@@ -171,6 +397,7 @@ namespace Parsek.Tests
         [Fact]
         public void ZupRotation_PreservesThePolarComponentAndTheRadialVelocityAngle()
         {
+            InstallZup(MeasuredZupAngleDegrees);
             OrbitSegment segment = BuildSegment(
                 inclinationDeg: 22.0,
                 lanDeg: 128.0,
@@ -179,7 +406,11 @@ namespace Parsek.Tests
                 semiMajorAxis: 900000.0,
                 meanAnomalyAtEpoch: 0.75,
                 epoch: 1000.0);
-            Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
+            // The RAW element-frame state (boundary pre-cancelled) is what the rotation acts on.
+            Assert.True(TwoBodyOrbit.TryCreateFromSegment(
+                PreCancelTheElementFrameBoundary(segment, MeasuredZupAngleDegrees),
+                KerbinMu,
+                out TwoBodyOrbit orbit));
 
             var zup = StockOrbitPort.PlanetaryZup(MeasuredZupAngleDegrees);
             var stock = StockOrbitPort.FromSegment(segment, KerbinMu, zup);
@@ -217,9 +448,15 @@ namespace Parsek.Tests
         /// actually ran: a PRELAUNCH vessel on the KSC pad, whose orbit is the surface-rotation
         /// ellipse (a=300.8 km, e=0.9948, at apoapsis) around a near-equatorial Kerbin. Encoding
         /// the orbital frame from the raw element-frame state and decoding it from stock's Zup
-        /// state - which is what the shipping producer and the shipping consumer respectively do
-        /// - is off by an angle in the band the two flights measured (133.123 deg before the
+        /// state - which is what the PRE-FIX producer and the (unchanged) consumer respectively
+        /// did - is off by an angle in the band the two flights measured (133.123 deg before the
         /// radial half was corrected, 131.066 deg after).
+        /// <para>
+        /// HISTORICAL, and deliberately so: it reaches both states through the test port, not
+        /// through the production propagator, so it keeps saying what the flight measured even
+        /// after Finding A moved the producer. The live claim that the SHIPPING producer now
+        /// cancels lives in <c>StockOrbitFrameSeamTests</c>.
+        /// </para>
         /// <para>
         /// This is the cell that makes the diagnosis falsifiable: it derives a number the game
         /// produced, from stock's decompiled source, with no live KSP.
@@ -304,6 +541,8 @@ namespace Parsek.Tests
         [Fact]
         public void HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver()
         {
+            // Identity Zup so the element-frame boundary is inert and only the SOLVER is measured.
+            InstallZup(0.0);
             const double eccentricity = 0.9948;
             const double semiMajorAxis = 300818.761;
 

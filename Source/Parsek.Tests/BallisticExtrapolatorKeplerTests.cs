@@ -21,10 +21,16 @@ namespace Parsek.Tests
     /// cross-checks the fused rotation matrix the implementation uses.
     /// </para>
     /// <para>
-    /// No shared static state is touched (the Kepler core neither logs nor reads statics),
-    /// so these tests deliberately carry no <c>[Collection("Sequential")]</c>.
+    /// SHARED STATIC STATE, since Finding A (2026-08-05, branch <c>twobody-element-frame</c>):
+    /// <c>TryCreateFromSegment</c> reads the process-wide <c>Planetarium.Zup</c> to shift a
+    /// segment's KSP-native LAN into stock <c>Orbit</c>'s state frame (see
+    /// <c>BallisticExtrapolator.GetStockElementFrameZupAngleRadians</c>). Nothing here installs a
+    /// frame - the headless default is declined and the boundary is the identity - but a sibling
+    /// class that DOES install one must not run concurrently with these cells, hence
+    /// <c>[Collection("Sequential")]</c>.
     /// </para>
     /// </summary>
+    [Collection("Sequential")]
     public class BallisticExtrapolatorKeplerTests
     {
         // Stock Kerbin / Sun-scale gravitational parameters, used only to keep the

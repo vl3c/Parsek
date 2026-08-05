@@ -7,7 +7,7 @@ using StockOrbitPort = Parsek.Tests.StockOrbitElementFrameParityTests.StockOrbit
 namespace Parsek.Tests
 {
     /// <summary>
-    /// The PRODUCTION site-4 / site-5 seam, driven headlessly against a REAL non-identity
+    /// The PRODUCTION site-4 / element-frame seam, driven headlessly against a REAL non-identity
     /// <c>Planetarium.Zup</c>.
     /// <para>
     /// <c>Planetarium.Zup</c> is a plain public static field, so a headless test can install the
@@ -17,6 +17,16 @@ namespace Parsek.Tests
     /// cell in <c>SceneExitFinalizationIntegrationTests</c> could not do: that cell models the
     /// consumer through the SAME <c>TwoBodyOrbit</c> propagation the producer uses, so the Zup
     /// rotation cancels inside the fixture and the mismatch only ever appeared in flight.
+    /// </para>
+    /// <para>
+    /// SINCE FINDING A (2026-08-05, branch <c>twobody-element-frame</c>) the element-frame crossing
+    /// is applied ONCE, inside <c>TwoBodyOrbit.TryCreateFromSegment</c>, rather than by a local
+    /// <c>ToStockOrbitFrame</c> wrapper in the finalizer. The cells below therefore drive the
+    /// boundary through its production entry points — <c>BallisticExtrapolator.TryPropagate</c> and
+    /// <c>SeedPredictedSegmentOrbitalFrameRotations</c> — and the anti-vacuity half now breaks the
+    /// round trip by SKIPPING the boundary conversion (propagating the segment's raw KSP-native
+    /// LAN) rather than by re-encoding off a raw-frame state, which is no longer reachable through
+    /// the production API.
     /// </para>
     /// <para>
     /// Touches shared static state (<c>Planetarium.Zup</c>, <c>ParsekLog</c>), hence
@@ -53,44 +63,94 @@ namespace Parsek.Tests
         /// <summary>
         /// A default-constructed <c>Planetarium.CelestialFrame</c> — all three axes zero, which is
         /// what <c>Planetarium.Zup</c> carries in any process that never ran
-        /// <c>Planetarium.Awake</c> — is DECLINED rather than applied. Applying it would collapse
-        /// every state vector to the origin, so the orthonormality gate is the thing standing
-        /// between the headless fixtures and a silent zero.
+        /// <c>Planetarium.Awake</c> — is DECLINED rather than read for an angle, and the boundary
+        /// becomes the identity. Without the gate, every headless fixture in the suite would have
+        /// its LAN shifted by whatever <c>Atan2(0, 0)</c> happens to return off a collapsed basis.
+        /// The decline is LOGGED, because a silent identity is indistinguishable from a working
+        /// conversion.
         /// </summary>
         [Fact]
-        public void ToStockOrbitFrame_DeclinesADegenerateZupAndPassesTheVectorThrough()
+        public void ElementFrameBoundary_DeclinesADegenerateZupAndBecomesTheIdentity()
         {
             Planetarium.Zup = default(Planetarium.CelestialFrame);
-            var raw = new Vector3d(-496283.195, 337326.756, -1018.081);
 
-            Vector3d resolved = IncompleteBallisticSceneExitFinalizer.ToStockOrbitFrame(raw);
-
-            Assert.Equal(raw.x, resolved.x, 6);
-            Assert.Equal(raw.y, resolved.y, 6);
-            Assert.Equal(raw.z, resolved.z, 6);
+            Assert.Equal(0.0, BallisticExtrapolator.GetStockElementFrameZupAngleRadians(), 12);
             Assert.Contains(logLines, l =>
-                l.Contains("[Extrapolator]") && l.Contains("not an orthonormal frame"));
+                l.Contains("[Extrapolator]") && l.Contains("not an orthonormal polar rotation"));
         }
 
         /// <summary>
-        /// With the frame the game installs, the helper reproduces
-        /// <c>Planetarium.Zup.WorldToLocal</c>: a rotation about the POLAR axis, leaving the polar
-        /// component and the magnitude alone.
+        /// With the frame the game installs, the boundary recovers <c>inverseRotAngle</c> itself —
+        /// the angle of the pure polar rotation <c>Planetarium.Zup</c> reduces to. Signed, so a
+        /// sign slip here is caught before it reaches a LAN.
+        /// </summary>
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(37.5)]
+        [InlineData(MeasuredZupAngleDegrees)]
+        [InlineData(-130.0)]
+        public void ElementFrameBoundary_RecoversTheZupPolarAngle(double inverseRotAngleDegrees)
+        {
+            Planetarium.Zup = BuildZup(inverseRotAngleDegrees);
+
+            double recovered = BallisticExtrapolator.GetStockElementFrameZupAngleRadians()
+                * (180.0 / Math.PI);
+
+            Assert.Equal(
+                NormalizeDegrees(inverseRotAngleDegrees), NormalizeDegrees(recovered), 6);
+        }
+
+        /// <summary>
+        /// An orthonormal basis that is NOT a rotation about the polar axis is declined too: a
+        /// single angle cannot describe it, and silently returning one would mis-rotate every
+        /// extrapolated tail. <c>Planetarium.Zup</c> is polar by construction, so this can only
+        /// fire on a frame nothing in KSP builds — which is the point of stating it.
         /// </summary>
         [Fact]
-        public void ToStockOrbitFrame_AppliesTheZupRotationAboutThePolarAxis()
+        public void ElementFrameBoundary_DeclinesAnOrthonormalNonPolarFrame()
         {
-            Planetarium.Zup = BuildZup(MeasuredZupAngleDegrees);
-            var raw = new Vector3d(-496283.195, 337326.756, -1018.081);
+            // A 90 deg rotation about the X axis: orthonormal, but its Z axis is not the pole.
+            Planetarium.Zup = new Planetarium.CelestialFrame
+            {
+                X = new Vector3d(1.0, 0.0, 0.0),
+                Y = new Vector3d(0.0, 0.0, 1.0),
+                Z = new Vector3d(0.0, -1.0, 0.0)
+            };
 
-            Vector3d resolved = IncompleteBallisticSceneExitFinalizer.ToStockOrbitFrame(raw);
+            Assert.Equal(0.0, BallisticExtrapolator.GetStockElementFrameZupAngleRadians(), 12);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]") && l.Contains("not an orthonormal polar rotation"));
+        }
 
-            Assert.Equal(raw.z, resolved.z, 6);
-            Assert.Equal(Magnitude(raw), Magnitude(resolved), 3);
-            Assert.Equal(
-                NormalizeDegrees(PlaneAngleDegrees(raw) - MeasuredZupAngleDegrees),
-                PlaneAngleDegrees(resolved),
-                6);
+        /// <summary>
+        /// THE PRODUCTION BOUNDARY, both ends: a segment's KSP-native elements propagate to the
+        /// state a stock <c>Orbit</c> built from the SAME elements reports — directly, with no
+        /// <c>WorldToLocal</c> applied by the caller — and an extrapolated conic written back out
+        /// through <c>CreateSegment</c> restores the KSP-native LAN it came in with.
+        /// </summary>
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(37.5)]
+        [InlineData(MeasuredZupAngleDegrees)]
+        [InlineData(-130.0)]
+        public void TryPropagate_MatchesStocksOwnElementToStateChainDirectly(
+            double inverseRotAngleDegrees)
+        {
+            Planetarium.Zup = BuildZup(inverseRotAngleDegrees);
+            OrbitSegment segment = BuildSegments()[0];
+
+            var stock = StockOrbitPort.FromSegment(
+                segment, KerbinMu, StockOrbitPort.PlanetaryZup(inverseRotAngleDegrees));
+
+            for (int i = 0; i <= 8; i++)
+            {
+                double ut = segment.epoch + (i * 137.0);
+                Assert.True(BallisticExtrapolator.TryPropagate(
+                    segment, KerbinMu, ut, out Vector3d position, out Vector3d velocity));
+
+                AssertVectorsAgree(stock.GetRelativePositionAtUT(ut), position, 1e-9, $"position {i}");
+                AssertVectorsAgree(stock.GetOrbitalVelocityAtUT(ut), velocity, 1e-9, $"velocity {i}");
+            }
         }
 
         // ------------------------------------------------------------------
@@ -136,22 +196,35 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// ANTI-VACUITY, and the regression this whole investigation exists for: encoding off the
-        /// RAW element-frame state — what the producer did before the site-5 correction — breaks
-        /// the same round trip by the double-digit degrees the in-game probe measured. Without a
-        /// non-identity Zup installed there is nothing to break, which is precisely why the
-        /// earlier headless cell stayed green while the flight red'd.
+        /// ANTI-VACUITY, and the regression this whole investigation exists for: SKIPPING the
+        /// element-frame boundary breaks the same round trip by the double-digit degrees the
+        /// in-game probe measured.
+        /// <para>
+        /// The pre-fix encoding is no longer reachable through the production API (that is the
+        /// fix), so this cell reproduces it the only honest way left: it propagates a segment whose
+        /// LAN was NOT shifted at the boundary — i.e. it hands <c>TryPropagate</c> elements already
+        /// carrying the boundary's own correction, which cancels the shift and leaves the raw
+        /// element-frame state the producer used to encode off. Without a non-identity Zup
+        /// installed there is nothing to break, which is precisely why the earlier headless cell
+        /// stayed green while the flight red'd.
+        /// </para>
         /// </summary>
         [Fact]
-        public void SeedPredictedSegment_RawElementFrameEncodingBreaksTheRoundTrip()
+        public void SeedPredictedSegment_SkippingTheElementFrameBoundaryBreaksTheRoundTrip()
         {
             Planetarium.Zup = BuildZup(MeasuredZupAngleDegrees);
 
             var frozenWorldRotation = new Quaternion(0.2f, -0.4f, 0.3f, 0.8f);
             OrbitSegment segment = BuildSegments()[0];
 
+            // Pre-cancel the boundary's subtraction so the propagated state is the RAW
+            // element-frame state the producer encoded off before the fix.
+            OrbitSegment unconverted = segment;
+            unconverted.longitudeOfAscendingNode =
+                NormalizeDegrees(segment.longitudeOfAscendingNode + MeasuredZupAngleDegrees);
+
             Assert.True(BallisticExtrapolator.TryPropagate(
-                segment, KerbinMu, segment.startUT,
+                unconverted, KerbinMu, segment.startUT,
                 out Vector3d rawPosition, out Vector3d rawVelocity));
 
             segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
@@ -162,8 +235,38 @@ namespace Parsek.Tests
             float error = ResolveErrorThroughStockConsumer(
                 segment, MeasuredZupAngleDegrees, frozenWorldRotation);
             Assert.True(error > 10f,
-                $"the pre-fix raw-element-frame producer still round-trips (error={error} deg); "
+                $"skipping the element-frame boundary still round-trips (error={error} deg); "
                 + "this fixture no longer discriminates the frame the flights measured");
+        }
+
+        /// <summary>
+        /// The OUTBOUND half of the boundary: elements in, extrapolate, elements out — the
+        /// KSP-native LAN is restored under a non-identity Zup. Without the <c>+ zupAngle</c> in
+        /// <c>CreateSegment</c> this reads back the internal (stock-state-frame) LAN and every
+        /// extrapolator-authored segment replays rotated.
+        /// </summary>
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(MeasuredZupAngleDegrees)]
+        [InlineData(-130.0)]
+        public void ExtrapolatedSegments_RoundTripTheKspNativeLongitudeOfAscendingNode(
+            double inverseRotAngleDegrees)
+        {
+            Planetarium.Zup = BuildZup(inverseRotAngleDegrees);
+            OrbitSegment segment = BuildSegments()[0];
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryBuildStartStateFromSegment(
+                segment, BuildBodies(), segment.startUT, out BallisticStateVector startState));
+
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(startState, BuildBodies());
+
+            Assert.NotEmpty(result.segments);
+            Assert.Equal(
+                NormalizeDegrees(segment.longitudeOfAscendingNode),
+                NormalizeDegrees(result.segments[0].longitudeOfAscendingNode),
+                4);
+            Assert.Equal(
+                segment.inclination, result.segments[0].inclination, 4);
         }
 
         // ------------------------------------------------------------------
@@ -234,6 +337,17 @@ namespace Parsek.Tests
         private static double Magnitude(Vector3d v)
         {
             return Math.Sqrt((v.x * v.x) + (v.y * v.y) + (v.z * v.z));
+        }
+
+        private static void AssertVectorsAgree(
+            Vector3d expected, Vector3d actual, double tolerance, string what)
+        {
+            double scale = Math.Max(Magnitude(expected), 1e-12);
+            double error = Magnitude(new Vector3d(
+                expected.x - actual.x, expected.y - actual.y, expected.z - actual.z)) / scale;
+            Assert.True(error <= tolerance,
+                $"{what}: expected ({expected.x},{expected.y},{expected.z}), "
+                + $"got ({actual.x},{actual.y},{actual.z}) (relative error {error} > {tolerance})");
         }
 
         private static double PlaneAngleDegrees(Vector3d v)
