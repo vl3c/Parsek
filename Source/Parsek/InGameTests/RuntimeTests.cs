@@ -8351,10 +8351,7 @@ namespace Parsek.InGameTests
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
-            {
                 InGameAssert.Skip("No crew roster available");
-                return;
-            }
 
             int valid = 0;
             var problems = new List<string>();
@@ -8436,10 +8433,7 @@ namespace Parsek.InGameTests
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
-            {
                 InGameAssert.Skip("No crew roster available");
-                return;
-            }
 
             // Build a production facade exactly the way KerbalsModule does
             // and exercise IsKerbalOnLiveVessel through the interface, so
@@ -8687,10 +8681,7 @@ namespace Parsek.InGameTests
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
-            {
                 InGameAssert.Skip("No crew roster available");
-                return;
-            }
 
             var problems = new List<string>();
             foreach (ProtoCrewMember pcm in roster.Crew)
@@ -9955,9 +9946,11 @@ namespace Parsek.InGameTests
             var ghostPids = GhostMapPresence.ghostMapVesselPids;
             if (ghostPids.Count == 0)
                 InGameAssert.Skip("no ghost map vessels registered in " +
-                    "GhostMapPresence.ghostMapVesselPids - requires a save carrying committed " +
-                    "recordings whose ghosts get map presence; fly with an injected recording " +
-                    "corpus (H28 injects an all-synthetic corpus) and rerun.");
+                    "GhostMapPresence.ghostMapVesselPids - requires ghosts that currently " +
+                    "hold map presence. Measured 2026-08-05: a driven batch does NOT get here " +
+                    "even with an injected corpus (nothing repopulates the set the batch-start " +
+                    "cleanup empties - see W2-VACUOUS-CELLS deferred follow-up); in normal play, " +
+                    "have ghosts playing with map presence and rerun.");
 
             var flightState = HighLogic.CurrentGame?.flightState;
             if (flightState == null)
@@ -9986,8 +9979,10 @@ namespace Parsek.InGameTests
             if (ghostPids.Count == 0)
                 InGameAssert.Skip("no ghost map vessels registered in " +
                     "GhostMapPresence.ghostMapVesselPids - the collision walk would compare " +
-                    "every real vessel against an empty set; fly with an injected recording " +
-                    "corpus (H28 injects an all-synthetic corpus) and rerun.");
+                    "every real vessel against an empty set. Measured 2026-08-05: a driven " +
+                    "batch does NOT get here even with an injected corpus (see " +
+                    "W2-VACUOUS-CELLS deferred follow-up); in normal play, have ghosts " +
+                    "playing with map presence and rerun.");
 
             var realVessels = FlightGlobals.Vessels;
             if (realVessels == null)

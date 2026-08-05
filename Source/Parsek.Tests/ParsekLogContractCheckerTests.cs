@@ -362,8 +362,10 @@ namespace Parsek.Tests
         [Fact]
         public void FormatSessionStartMessage_IsCultureInvariant()
         {
-            // A comma/space group separator (de-DE, fr-FR) or a non-ASCII digit shape
-            // would break the checker's ^SessionStart runUtc=\d+$ regex.
+            // Int64.ToString() with the default "G" format never applies group
+            // separators in any culture, so today this cannot fail; it pins against a
+            // future format-specifier change (e.g. "N0"), which WOULD break the
+            // checker's ^SessionStart runUtc=\d+$ regex under de-DE.
             var original = System.Threading.Thread.CurrentThread.CurrentCulture;
             try
             {

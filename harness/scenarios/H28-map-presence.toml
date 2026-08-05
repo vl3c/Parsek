@@ -77,8 +77,10 @@ steps = [
 [dimensionsCovered]
 # D6 ghost-map-presence is claimed on direct exercise, NARROWED 2026-08-05 to
 # what the measured run actually executes: the chain-ghost CreateGhostVessel,
-# SetGhostMapNavigationTarget and the pid->recordingId reverse map all run under
-# the pinned tally, driven by the two cells that pass. S1.4 already claims the
+# CreateGhostVesselForRecording (called DIRECTLY by the targeting cell, not via
+# the DriveMapPresence driver), SetGhostMapNavigationTarget and the
+# pid->recordingId reverse map all run under the pinned tally, driven by the two
+# cells that pass. S1.4 already claims the
 # same cell, so this adds backing depth rather than new coverage - stated so the
 # coverage report's reader is not misled.
 # WHAT THIS CLAIM NO LONGER RESTS ON, stated in the same style as the unclaimed

@@ -1602,12 +1602,18 @@ lands"); H28's did not - see DISCOVERY.
 
 **DISCOVERY (2026-08-05): cells 1-2 were vacuous EVEN UNDER THE INJECTED
 CORPUS.** This is the finding the conversion bought, and it invalidates a belief
-held in two places at once. This entry's Shape 1 paragraph said "H28 de-vacuates
+held in three places at once. This entry's Shape 1 paragraph said "H28 de-vacuates
 them by injecting the corpus so live ghosts exist", and
 `H28-map-presence.toml`'s `[fixture]` comment said the same thing at greater
 length ("under all-synthetic, live ghosts respawn within frames of batch start,
-so both walk real ghost-map bookkeeping"). Neither was ever measured; both are
-wrong. Run `2026-08-05_1855` flew the all-synthetic corpus and BOTH cells
+so both walk real ghost-map bookkeeping"). The pre-resolution entry's "WHY NOT
+FIXED HERE" paragraph (deleted with the resolution, so noted here rather than
+silently) stated it a third time and added a prediction measurement also
+contradicts: it derived H28 as "5/5/0/0 -> passed 3 skipped 2 under 'none';
+unchanged under the corpus H28 actually injects" - the measured corpus tally is
+passed 2 skipped 3, and under "none" it would read the same 2/3, since cell 3
+skips under every preset. None of the three statements was ever measured; all
+are wrong. Run `2026-08-05_1855` flew the all-synthetic corpus and BOTH cells
 skipped on an empty `GhostMapPresence.ghostMapVesselPids`. The corpus itself
 demonstrably landed - cell 3's skip message reports it walked 306 committed
 recordings, and the produced save carries the pinned 272 - so this is not an
@@ -1629,8 +1635,11 @@ without losing a single real assertion.
 
 - **(i) Cell 3 / D6 `commnet-relay`:** add `RecordingBuilder.WithAntennaSpecs`
   plus a corpus row carrying antennas. Touches the 272-pin in 8 specs, so PREFER
-  augmenting an EXISTING corpus row over adding one. Until then D6
-  `commnet-relay` stays honestly unclaimed.
+  augmenting an EXISTING corpus row over adding one. When wiring the nonzero
+  path, also make the cell assert `withRelayPower > 0` - today the future
+  nonzero path only asserts per-spec `antennaPower >= 0`, so a corpus row whose
+  relay power summed to zero would still pass. Until then D6 `commnet-relay`
+  stays honestly unclaimed.
 - **(0) Cells 1-2 / H28's live-lifecycle half - NEW, added by the DISCOVERY
   above and the largest of the three.** Something must create ghost map presence
   during a driven FLIGHT batch before `GhostPidsResolveToProtoVessels` and
