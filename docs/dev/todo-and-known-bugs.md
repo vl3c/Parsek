@@ -836,6 +836,224 @@ WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
 
 ---
 
+## GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: a switch onto a deployed vessel may silently close its Unfinished Flight and let its RewindPoint reap, against the design [RAISED 2026-08-05 by the Lane B code read. PREDICTED, UNFLOWN - `GS-3-switch-nudge-deployed` is the measurement, and it must be read against `GS-2-orbital-probe-deploy`'s flight, not on its own]
+
+NOT CONFIRMED. This is a code reading with an experiment attached, filed now so
+the experiment has a place to report into and so the divergence is not discovered
+a third time. If GS-3's first flight contradicts it, this entry closes as "the
+design was right and the reading was wrong", which is an equally useful outcome.
+
+**The design says one thing.** `docs/dev/research/extending-rewind-to-stable-leaves.md`
+section 8, scenario S17: a briefly-nudged probe STAYS in the Unfinished Flights
+list - "v1 over-includes nudged probes; player handles via Seal". The player is
+expected to keep the re-fly affordance and to close it themselves if they do not
+want it. Over-inclusion is the deliberate v1 bias.
+
+**The code appears to say the opposite.** A stock map Switch-To onto a deployed
+vessel opens a switch-continuation segment, and
+`SwitchSegmentBuilder.CreateSwitchContinuationSegment` (SwitchSegmentBuilder.cs:422-465)
+writes `parentRec.ChildBranchPointId = newBranchPointId` onto the PARENT - which,
+for a switch to a vessel a decoupler just released, is that vessel's ORIGIN
+recording, the very one the RewindPoint's slot points at. `UnfinishedFlightClassifier.TryQualify`
+then hits its downstream-branch gate BEFORE any terminal logic runs
+(UnfinishedFlightClassifier.cs:115-132):
+
+    if (!string.IsNullOrEmpty(chainTip.ChildBranchPointId)
+        && !string.Equals(chainTip.ChildBranchPointId, rp.BranchPointId, ...))
+    { ... reason = "downstreamBp"; ... return false; }
+
+The switch bp is not the RP's bp, so the leaf is NOT promoted to
+CommittedProvisional. The focus leaf is separately refused by the focus-slot gate
+(`stableTerminalFocusSlot`, :313-322). With BOTH slots left Immutable,
+`RewindPointReaper.IsReapEligible` (RewindPointReaper.cs:184-222) finds nothing
+open and the RewindPoint REAPS. Net effect for the player: they glanced at a probe
+they had deployed, and the game quietly removed both the Unfinished Flights row and
+the rewind point behind it.
+
+**Why a no-input glance is enough, and not only a real nudge.** The no-op
+auto-discard does not rescue it. `SwitchSegmentNoOpClassifier.IsNoOpSegment` will
+call an input-free orbital segment a no-op, but the DISPOSITION decides what happens
+next, and for a tree that also holds the parent's recordings it is `BgMemberOrMixed`
+(RecordingStore.cs:3283-3286). `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment`
+DEFERS exactly that disposition (SceneExitInterceptor.cs:407-415) - only `Standalone`
+and `CommittedRestoreClone` are discarded - because the rest of the live tree must
+still commit. So the branch point persists into the commit and the gate above fires.
+
+**The experiment.** `GS-2-orbital-probe-deploy` and `GS-3-switch-nudge-deployed`
+share one fixture, one mission and one commit route, and differ by exactly one
+`SimulateStockSwitchClick` step. GS-2 declares `rewindPoints = { min = 1 }`
+(report-only) and REQUIRES the promotion token; GS-3 declares
+`rewindPoints = { max = 0 }` (report-only) and requires none of the divergence
+facts. Fly GS-2 first: a difference measured against an unflown baseline is not a
+difference. If both hold, this entry becomes a confirmed divergence with two run
+ids as evidence and the fix discussion starts from whether the downstream-branch
+gate should ignore a `VesselSwitchContinuation` child bp specifically (it exists to
+suppress leaves that have a real downstream split, and a switch segment is not one).
+
+**Do NOT soften either scenario to avoid the red.** The red, or the documented
+divergence, is the deliverable.
+
+**A note on the S17 shape itself, which is not implementable as written.** "Switch
+to the probe and back" cannot be driven at all in v1: with a session armed and a
+different target, `MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`
+(MapFocusObjectOnSelectPatch.cs:1166-1198) returns `OpenDialog` (Case A) and
+`TestCommandSimulateSwitchClick.DecideSwitchGate` (:414-434) answers REJECTED
+`dialog-required case=A-session` without auto-answering the modal. GS-3 pins that
+refusal as a deliberate `expect = "REJECTED"` step so a future verb that learns to
+answer the dialog is noticed rather than silently changing what this lane measures.
+
+---
+
+## ~~GS1-SIBLING-STILL-FLYING: a mission that watches only the ACTIVE vessel exits while the other stage is still under canopy~~ [FOUND 2026-08-05 by GS-1 flight 3; FIXED the same day with a bounded SIBLING-DOWN wait + a new guarded kRPC channel]
+
+NOT A PARSEK DEFECT - the third in a row on this lane where the product was right and
+the driver was wrong. Recorded because the channel it added is reusable and because
+the failure mode is invisible to any mission that reads only `active_vessel`.
+
+**What happened.** GS-1 stages a booster it never flies. Flight 3
+(`2026-08-05_0807`, collected `2026-08-05_1110`) flew MISSION-OK: the pod landed and
+finalized cleanly (`FinalizeIndividualRecording 'a4d4b634...' with stable terminal
+state Landed (vessel.situation=LANDED, isSceneExit=True)`). The mission then concluded
+and `ExitToSpaceCenter` fired - **while the booster was still descending**. Its
+recording closed `terminal=SubOrbital`, so:
+
+```
+IsUnfinishedFlight=true rec=81e48efe... reason=stableLeafUnconcluded slot=1
+  focusSlot=0 terminal=SubOrbital side=child
+CommitTree promoted rec=81e48efe... vessel='GS1 Auto-Chute Booster Probe' slot=1
+  rp=rp_6881c324... reason=stableLeafUnconcluded to CommittedProvisional
+```
+
+and the RewindPoint could not reap. Correct behaviour: a sibling still in the air IS a
+stable leaf whose engagement is unconcluded.
+
+**Why it is easy to get wrong.** kRPC telemetry is active-vessel-scoped, so a mission
+literally cannot see the other stage without enumerating `SpaceCenter.vessels`. And on
+this craft the stage the mission does NOT fly is the one that lands LAST: six Mk2-R
+from a higher separation descend slower than the pod's single Mk16. The pod's touchdown
+looks like the end of the flight and is not.
+
+**Fix.** A bounded `SIBLING-DOWN` phase between DESCENT and LANDED, fed by a new
+channel built to the roster-watch pattern:
+
+- `mlib.ACTION_SET_SIBLING_WATCH` (text = vessel name), armed on the mission's FIRST
+  frame - by NAME, never a handle, because the watched vessel is created mid-flight by
+  the staging split;
+- `TelemetrySnapshot.sibling_situation` / `.sibling_present`, a TRI-STATE pair whose
+  UNREAD sentinels are `("", -1)`;
+- `mission_runner.KrpcMissionControl._read_sibling_situation`, with its own
+  try/except so a faulted enumeration NEITHER advances nor erases a caller's streak
+  and never counts toward the vessel-lost read-fail streak.
+
+**Two guards that are the point, not decoration.** (1) An ABSENT reading (`present=0`)
+only means "the booster is gone" AFTER the vessel has been OBSERVED PRESENT at least
+once - otherwise a misspelled `siblingVesselName` would settle the wait instantly and
+green; it now produces a named timeout carrying `everObservedPresent=false`.
+(2) A DESTROYED booster CONCLUDES the mission instead of failing it: it still stopped
+flying, which is all the mission was waiting for, so the run stays MISSION-OK, the tail
+runs, the tree commits, and **the SPEC** reds on the CP promotion and the missing reap.
+Failing the driver row would make the run driver-INVALID and discard the very evidence
+those contracts read - the mission-vs-Parsek orthogonality rule.
+
+**Measured Site A formats, worth reusing.** Two `reason=` values are now pinned on
+`RecordingStore.cs:1235`'s Info line: `crashed` (flight 2, a Destroyed child) and
+`stableLeafUnconcluded` (flight 3, a SubOrbital non-focus child). A lane whose child
+legitimately ends OPEN wants that line as a REQUIRED token with its own `reason=`:
+`CommitTree promoted rec=<id> vessel='<name>' slot=<n> rp=<rp> reason=<reason> to
+CommittedProvisional`.
+
+**Generalises to.** Any mission whose scenario asserts something about a vessel it does
+not fly. If the assertion is about how that vessel's RECORDING closes, the mission must
+wait for it to stop flying - the scene exit is what stamps the terminal state.
+
+**STILL OPEN:** assumption A5 in `harness/tools/build_gs1_craft.py` - whether the
+booster SURVIVES TOUCHDOWN. Flight 3 got closest (146+ points, still descending). The
+POD side of the mass/canopy math is now proven by its own intact landing.
+
+## ~~GS1-APEX-SEPARATION-COLLISION: staging at the apex gives NO separation, and the two halves collide~~ [FOUND 2026-08-05 by GS-1 flight 2; FIXED the same day by reordering the mission phases. Kept because the physics generalises to every future two-stage lane, and because the first fix for it was itself the cause]
+
+NOT A PARSEK DEFECT. Recorded here because it cost two flights, because the
+mechanism is a property of KSP rather than of this scenario, and because the
+obvious-looking remedy for the FIRST failure is what caused the SECOND.
+
+**What happened.** `GS-1-auto-chute-booster` flies a two-stage craft that stages at
+low altitude; the stage that fires the decoupler also arms the booster's six radial
+chutes. Flight 1 (`2026-08-05_0725_..._a2`) died because the mission staged while the
+craft was still climbing and then sat in DESCENT waiting for an arming window that
+only opens at the apex. The fix inserted a COAST phase so the separation happened AT
+THE APEX. Flight 2 (`2026-08-05_0749`) then flew a perfect 107 s profile and the
+booster was destroyed in mid-air anyway.
+
+**The mechanism, measured to the metre.** At the apex there is no airspeed, so there
+is no differential drag, and a stack decoupler's ejection impulse is negligible
+against 2.3 t + 0.9 t. From `logs/2026-08-05_1052_GS-1-auto-chute-booster/KSP.log`
+and the run's mission stdout:
+
+- the halves parted by `seedLiveRootDist=5.49m` and then **fell together** - over the
+  3.6 s to the collision the upper stage fell 84.1 m (AGL 636.3 -> 552.2) and the
+  booster 85.9 m (AGL 636.1 -> 550.2);
+- both deployed canopies within ~1 s of each other - booster: six
+  `Part event: ParachuteSemiDeployed 'parachuteRadial'` at ut ~41 then six
+  `ParachuteDeployed` at ut ~42.3; upper: `parachuteSingle` semi at ut ~41.7, full at
+  ut ~42.7;
+- at ut 43.62 the upper stage was **2.0 m above** the booster when
+  `Decoupler.1 Exploded!! - blast awesomeness: 0.5` - the booster's own TOPMOST part,
+  which is exactly what an upper stage falling onto it would strike;
+- `Part joint break on background vessel: Decoupled 'probeCoreOcto2.v2'
+  pid=1500100321 vesselPid=717880265 breakForce=0.0`, then
+  `Destroy-reason override: rec=defcf77c... reason=background_destroy situation=FLYING
+  terminalUT=43.620`.
+
+It was **not** a canopy snap load (full deploy was at only ~24 m/s), **not** a
+touchdown (624 m ASL), and **not** a collision with terrain.
+
+**AGL/ASL reconciliation**, because the two sources use different references and the
+2 m result depends on getting it right: Parsek logs the upper stage at ASL 710.2 for
+the same frame kRPC reports AGL 636.319 (both ut 40.020), so the pad offset is 73.9 m
+and the booster's ASL 624.1 at the break is AGL 550.2 against the upper's 552.2.
+
+**What Parsek did, and why none of it is a bug.** The product read the situation
+correctly at every step, and this is worth recording because the run's RED looks
+exactly like a rewind regression until the chain is followed:
+`IsUnfinishedFlight=true rec=defcf77c... reason=crashed terminal=Destroyed side=child`
+(`UnfinishedFlightClassifier.cs:186` - a Destroyed terminal IS a re-flyable unfinished
+flight) -> `CommitTree promoted rec=defcf77c... slot=1 rp=rp_b17103eb... reason=crashed
+to CommittedProvisional` (`RecordingStore.cs:1235`) -> `ReapOrphanedRPs: reaped=0
+remaining=1`, because `RewindPointReaper.IsReapEligible` (`RewindPointReaper.cs:184`)
+refuses while any slot tip is CommittedProvisional. A crashed booster SHOULD open an
+Unfinished Flight and SHOULD keep its RewindPoint. GS-1 asserts the other branch of
+that same rule, so it correctly went RED.
+
+**Also settled by this run** (it was an open question in the spec): the reaper is not
+deferred to some later load. It ran at 10:51:56.496, **78 ms after** the commit at
+10:51:56.418, inside the same `ParsekScenario.OnLoad` for the SPACECENTER scene
+(`ParsekScenario.cs:3552` auto-commit, `:3645` reap). The spec's model of WHEN
+reaping happens was right; only its expectation of the OUTCOME was unmet.
+
+**Fix.** Mission phases reordered to
+`PRELAUNCH -> ASCENT -> STAGE -> COAST -> DESCENT -> LANDED`: separate WITH AIRSPEED
+so the booster's canopies bite and pull it away while the upper stage coasts on, THEN
+coast to the apex, THEN arm the upper stage's chute there (B1's arm-while-slow
+contract still holds - an altitude trigger is inert on a craft that never slows).
+Those two requirements are compatible in exactly one order. Replaying flight 2's own
+telemetry through the reordered machine separates at 327 m climbing at +81 m/s
+instead of at the apex at -7.7 m/s, and still arms at the apex. Regression cell:
+`test_the_separation_happens_WITH_AIRSPEED_not_at_the_apex`.
+
+**Generalises to.** Any lane that separates two chuted or draggy stages and expects
+them to end up apart. Separation needs either airspeed (differential drag) or a real
+ejection impulse; at an apex it has neither, and two stages 5 m apart with similar
+ballistic coefficients stay 5 m apart until one of them opens more canopy than the
+other and the pair closes.
+
+**STILL OPEN, and only a flight can settle it:** assumption A5 in
+`harness/tools/build_gs1_craft.py` - whether the booster SURVIVES TOUCHDOWN under six
+Mk2-R at a computed ~4.3 m/s against `fuelTankSmall`'s crashTolerance of 6. Neither
+flight has reached the ground with the booster intact. If the reordered profile
+separates cleanly and the booster then breaks up on contact, the finding moves from
+the driver to the craft and the remedy is more canopy or a lighter engine - NOT a
+softer expectation in the spec.
+
 ## R7-FIXTURE-GAPS: five `Rewind` in-game tests can never execute on any committed fixture [FOUND 2026-08-04 by roadmap R7's per-test skip-precondition read. GAP 2 FIXED 2026-08-04 and CONFIRMED the same day: R7c re-flown with rewind-b9 injected, `UnfinishedFlightsRenderingAndNoHide` EXECUTED and PASSED (run `2026-08-04_1617`, tally `passed=5 skipped=32`), and the four armed/adjacent fixture consumers confirmed unmoved (S4.1 + CL-3 armed gates green, S1.5 green, all attempt 1). `InvokeRPStripAndActivate` stays skipped in R7a DELIBERATELY: it performs a destructive RP strip+activate mid-batch beside 15 other executing cells - the emergent-batch-mutation class the R7-SESSION-BATCH-ISOLATION entry documents - so unblocking it wants its own reading pass, not a fixture swap. GAP 1 re-measured and REFRAMED, still open]
 
 R7 wired the `Rewind` category (37 declarations, the largest previously undriven
@@ -937,9 +1155,14 @@ did for docking and it would close all three at once.
 > persisted `stg` for a PRELAUNCH vessel or re-derives it) - now against a 15-part
 > stack instead of an 86-part Kerbal X, and against a booster that carries its own
 > chutes, so the post-split state is survivable rather than a clamped-to-the-pad
-> wreck. The fixture itself does not exist yet: it is produced by
-> `FORGE-gs1-two-stage` plus `harvest_bdock_station.py --target-name
-> gs1-two-stage-pad`. Not implemented here, scouted only.
+> wreck. The fixture EXISTS as of 2026-08-05 (`FORGE-gs1-two-stage` flew and was
+> harvested with `harvest_bdock_station.py --target-name gs1-two-stage-pad`), and
+> GS-1's own first flight CONFIRMED that the craft splits into two controllables and
+> authors a RewindPoint: `Controllable split children: [2200110033,4093180920]
+> (checked=2, unresolved=0)` -> `RewindPoint begin: ... slots=2 controllablePids=2`.
+> So the "author a two-pod stack craft" fix line is DISCHARGED as far as the craft
+> goes. The `stg = 3 -> 2` edit that would put the staging pointer AT the split is
+> still not implemented; it is scouted only.
 
 **~~Gap 2 - `ScenarioWriter` emits no `mergeState`, so nothing can be an Unfinished
 Flight (2 tests).~~ RESOLVED-PENDING-RE-FLY 2026-08-04.**

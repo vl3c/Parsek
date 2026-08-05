@@ -1,0 +1,124 @@
+# Declared param schema for mission gs2_orbital_probe_deploy (design M-B1
+# "Scenario spec [driver] extension"; the GS-2 / GS-3 orbital-deploy lane).
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# where <t> in {float, int, number, window, list, string, bool}. Every value here
+# is a WINDOW / tolerance / budget, never a golden trajectory (design
+# "Determinism guardrails").
+#
+# THE MISSION IS DELIBERATELY TINY. Its fixture already holds the ATTACHED stack
+# parked in a stable ~100 km orbit, so there is no ascent, no circularization and
+# no landing to tune: settle, fire ONE stage, watch the vessel count rise, dwell.
+# Everything this lane actually asserts about Parsek is asserted by the SPEC (log
+# contracts + the M-C2 saveParse block), not here - the mission's only job is to
+# make the gameplay moment happen and to prove, from telemetry, that it happened.
+
+# Situations the ACTIVE vessel must read for the settle gate and again for the
+# post-deploy dwell. ORBITING is the only sane value for this lane and it is
+# load-bearing twice over: `RecordingTree.DetermineTerminalState` demotes a
+# terminal from Orbiting to SubOrbital when the periapsis is inside the
+# atmosphere, and `UnfinishedFlightClassifier`'s focus-slot gate fires ONLY for
+# terminal == Orbiting.
+[params.settleSituations]
+required = true
+type = "list"
+
+# Consecutive in-gate frames before the settle is believed. Debounced for the
+# usual reason: one glitched poll after a LoadGame must not fire a stage.
+[params.settleDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# Give-up (GAME seconds) for the settle. A BACKSTOP, not the guard: the fixture is
+# stamped in-gate, so the debounce is normally satisfied within a second.
+[params.settleTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Give-up (GAME seconds) for the deploy: the window in which vessel_count must
+# rise above the phase-entry baseline after the single stage activation. A
+# stuck-decoupler backstop (a retryable flake), never a tuning knob - a decoupler
+# fires in one frame.
+[params.deployTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Consecutive frames reading vessel_count ABOVE the baseline before the split is
+# certified. Same discipline as the shared `separation_evidence` counter B-DOCK
+# and FORGE-LKO use: kRPC can return a stale count on the single frame a vessel
+# splits, and a terminal that CERTIFIES deserves the same debounce as one that
+# condemns.
+[params.deployDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# GAME seconds the post-deploy state must run before the mission declares itself
+# done. THE RECORDING BUDGET, and the one number here that is about Parsek rather
+# than about KSP: both vessels must accumulate enough post-split trajectory for
+# the recorder to author real surfaces on each, so that the tree the commit closes
+# is not two one-point stubs. Read together with deployDebounceFrames, which is
+# frames rather than seconds.
+[params.postDeployDwellSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Consecutive in-gate frames (situation + periapsis) that must hold at the END of
+# the dwell. Same semantics as the FORGE-LKO park gate, and the same caveat: the
+# dwell is measured from phase entry, not from the first in-gate frame, so this
+# means "in-gate now, and the phase has been running for the dwell".
+[params.postDeployDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# Give-up (GAME seconds) for the whole post-deploy phase. Must exceed
+# postDeployDwellSeconds or the phase can never complete; hlib does not enforce
+# the relation, so it is stated here and asserted by the unit suite instead.
+[params.postDeployTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Periapsis floor (m) both gates enforce. Kerbin's atmosphere ends at 70 km; a
+# focus vessel whose periapsis has dropped inside it will close SubOrbital rather
+# than Orbiting, and the focus-slot gate this lane exists to measure would never
+# fire. Fails CLOSED on a non-finite read.
+[params.minSafePeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# The vessel the DEPLOY releases, watched BY NAME through the shared sibling
+# channel (mlib.ACTION_SET_SIBLING_WATCH). Optional: "" disables the gate and its
+# assertion row is auto-met, in the same discipline as forge_lko's minCrew.
+#
+# WHY A MISSION NEEDS IT. kRPC telemetry is ACTIVE-VESSEL-SCOPED, so a mission that
+# watches only the focus vessel cannot see the one this scenario deploys - and the
+# SCENE EXIT is what stamps a recording's terminal state, so a deployed vessel that
+# is not where the scenario claims at exit closes with a terminal nobody asserted.
+# GS-1 flight 3 flew that exact hole with a still-descending booster.
+#
+# It bites more QUIETLY here: GS-2's required log tokens would still all pass with a
+# SubOrbital deployed leaf, because Orbiting and SubOrbital take the SAME non-focus
+# branch of the classifier and both return `stableLeafUnconcluded`. Without this row
+# the run could be green while having measured a different scenario.
+#
+# The accepted situation set is `settleSituations`, deliberately not a second knob:
+# "both halves stay Orbiting" is ONE claim and must not be able to drift into two.
+[params.siblingVesselName]
+required = false
+type = "string"

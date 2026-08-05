@@ -25,6 +25,7 @@ runs from `harness/` with `missions/lib` as the root, and `missions/` is prepend
 so `import mission_runner` / `import gs1_auto_chute_booster` resolve.
 """
 
+import dataclasses
 import importlib.util
 import os
 import sys
@@ -56,14 +57,17 @@ GS1_PARAMS = {
     "throttle": 1.0,
     "stagingApoapsisMeters": 700.0,
     "stagingMaxAltMeters": 1500.0,
-    "apoapsisWindowMeters": {"min": 200.0, "max": 2000.0},
-    "stageSettleFrames": 3,
+    "apoapsisWindowMeters": {"min": 600.0, "max": 1600.0},
+    "stageSettleFrames": 2,
     "chuteArmMaxRateMps": 30.0,
-    "chuteFullDeployAltMeters": 1000.0,
+    "chuteFullDeployAltMeters": 600.0,
     "landedSituations": ["LANDED", "SPLASHED"],
     "ascentTimeoutSeconds": 90.0,
+    "coastTimeoutSeconds": 120.0,
     "stageTimeoutSeconds": 60.0,
     "descentTimeoutSeconds": 300.0,
+    "siblingVesselName": "GS1 Auto-Chute Booster Probe",
+    "siblingDownTimeoutSeconds": 240.0,
 }
 
 
@@ -77,28 +81,81 @@ def machine(**over):
     return mlib.gs1_initial_state(mlib.gs1_params_from_dict(params(**over)))
 
 
+def replace_state_unarmed(state):
+    """Clear the chute-armed latch so the below-floor streak is reachable. The
+    machine arms at the apex by design, and the give-up only counts UNARMED
+    frames, so exercising it needs the latch cleared."""
+    return dataclasses.replace(state, chute_commanded=False,
+                               chute_armed_altitude=None, chute_armed_rate=None)
+
+
 def step(state, **kw):
     kw.setdefault("available_thrust", LIT)
     return mlib.gs1_decide(state, snap(**kw))
 
 
-def to_stage(**over):
-    """Drive PRELAUNCH -> ASCENT -> the frame the separation is emitted on.
-    Returns (state, actions_of_that_frame)."""
+def fly(state, **kw):
+    """``step`` with the booster present and airborne - the reading every frame after
+    the split carries on a nominal flight."""
+    kw.setdefault("sibling_present", 1)
+    kw.setdefault("sibling_situation", "FLYING")
+    return step(state, **kw)
+
+
+def to_separation(**over):
+    """Drive PRELAUNCH -> ASCENT -> STAGE -> the frame the SEPARATION is emitted on.
+    Returns (state, actions_of_that_frame); the machine is then in COAST.
+
+    The shape mirrors the MEASURED flight profile: the throttle cut fires well below
+    the apex while the craft is still climbing hard, the settle wait holds a poll,
+    and the separation happens WITH AIRSPEED so the two halves actually come apart
+    (flight 2 separated at the apex, drifted 5 m, and they collided)."""
     state = machine(**over)
     state, _ = step(state, ut=0.0, altitude=70.0, situation="PRE_LAUNCH")
-    # Climb until the apoapsis target trips the throttle cut.
+    # Climb until the apoapsis target trips the throttle cut (still ascending fast).
     state, _ = step(state, ut=2.0, altitude=200.0, apoapsis=300.0,
                     vertical_speed=90.0, situation="FLYING")
     state, _ = step(state, ut=4.0, altitude=500.0, apoapsis=750.0,
                     vertical_speed=60.0, situation="FLYING")
     assert state.phase == mlib.GS1_STAGE, state.phase
-    # stageSettleFrames frames in STAGE; the last one emits the separation.
+    # stageSettleFrames frames in STAGE; the last one emits the separation, still
+    # climbing.
     actions = []
     for i in range(int(params(**over)["stageSettleFrames"])):
-        state, actions = step(state, ut=5.0 + i, altitude=700.0 + i, apoapsis=780.0,
-                              vertical_speed=10.0 - 4.0 * i, situation="FLYING")
+        state, actions = step(state, ut=5.0 + i, altitude=560.0 + 40.0 * i,
+                              apoapsis=780.0, vertical_speed=50.0 - 10.0 * i,
+                              situation="FLYING")
+    assert state.phase == mlib.GS1_COAST, state.phase
     return state, actions
+
+
+def to_descent(**over):
+    """``to_separation`` plus the ballistic climb and the APEX frame, which is where
+    the upper stage's chute is armed. Returns (state, actions_of_the_apex_frame)."""
+    state, _ = to_separation(**over)
+    state, _ = fly(state, ut=9.0, altitude=760.0, apoapsis=780.0,
+                   vertical_speed=20.0, situation="FLYING", available_thrust=0.0)
+    state, actions = fly(state, ut=11.0, altitude=800.0, apoapsis=780.0,
+                         vertical_speed=-2.0, situation="FLYING",
+                         available_thrust=0.0)
+    assert state.phase == mlib.GS1_DESCENT, state.phase
+    return state, actions
+
+
+def to_sibling_down(**over):
+    """``to_descent`` plus a chuted descent and the pod's touchdown. Leaves the
+    machine in SIBLING-DOWN with the booster still airborne."""
+    state, _ = to_descent(**over)
+    for i in range(3):
+        state, _ = fly(state, ut=13.0 + i, altitude=500.0 - 100.0 * i,
+                       vertical_speed=-8.0, situation="FLYING",
+                       available_thrust=0.0,
+                       craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+    state, _ = fly(state, ut=30.0, altitude=71.0, vertical_speed=-5.0,
+                   situation="LANDED", available_thrust=0.0,
+                   craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+    assert state.phase == mlib.GS1_SIBLING_DOWN, state.phase
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -111,16 +168,17 @@ class Gs1PhaseSequenceTests(unittest.TestCase):
     def test_prelaunch_sets_throttle_and_ignites_on_the_first_frame(self):
         state, actions = step(machine(), ut=0.0, altitude=70.0,
                               situation="PRE_LAUNCH")
-        self.assertEqual([mlib.ACTION_SET_THROTTLE, mlib.ACTION_ACTIVATE_STAGE],
-                         [a.kind for a in actions])
-        self.assertEqual(1.0, actions[0].value)
+        # The sibling watch is armed FIRST (it issues no RPC and must be live before
+        # anything can split), then throttle, then ignition.
+        self.assertEqual([mlib.ACTION_SET_SIBLING_WATCH, mlib.ACTION_SET_THROTTLE,
+                          mlib.ACTION_ACTIVATE_STAGE], [a.kind for a in actions])
+        self.assertEqual(1.0, actions[1].value)
         self.assertEqual(mlib.GS1_ASCENT, state.phase)
 
-    def test_ascent_cuts_throttle_at_the_apoapsis_target_and_stages_nothing_yet(self):
-        # LOAD-BEARING SEPARATION OF CONCERNS: the cut and the separation must not
-        # ride the same frame. LV-T45 thrust decays over a few physics frames after
-        # a throttle-to-zero, and firing the decoupler while the lower stage is
-        # still pushing drives the spent booster INTO the upper stage.
+    def test_ascent_cuts_throttle_at_the_target_and_hands_off_to_descent(self):
+        # The cut and the separation must never ride the same frame: stageSettleFrames
+        # is the only thing between them, and firing a decoupler while the lower stage
+        # is still pushing drives the spent booster INTO the upper stage.
         state = machine()
         state, _ = step(state, ut=0.0, altitude=70.0, situation="PRE_LAUNCH")
         state, actions = step(state, ut=3.0, altitude=400.0, apoapsis=705.0,
@@ -128,35 +186,78 @@ class Gs1PhaseSequenceTests(unittest.TestCase):
         self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in actions])
         self.assertEqual(mlib.GS1_STAGE, state.phase)
 
-    def test_ascent_also_leaves_on_a_negative_vertical_speed(self):
-        # The apoapsis target can be overshot or undershot between polls (a burn
-        # that flamed out early, a poll stall across the apex). Falling is the
-        # fallback exit so the machine can never sit in ASCENT past the apogee
-        # waiting for a target it will now never reach.
+    def test_the_separation_happens_WITH_AIRSPEED_not_at_the_apex(self):
+        # THE REGRESSION CELL FOR FLIGHT 2'S KILL. Flight 2 staged at the apex, where
+        # there is no airspeed and therefore no differential drag: the halves parted
+        # by 5.49 m, fell together (upper 84.1 m, booster 85.9 m over 3.6 s), and the
+        # upper stage struck the booster's topmost part 2.0 m below it, exploding it.
+        # The separation must therefore be emitted while the craft is still climbing
+        # hard, so the booster's canopies can bite and pull it away.
+        state, actions = to_separation()
+        self.assertIn(mlib.ACTION_ACTIVATE_STAGE, [a.kind for a in actions])
+        self.assertGreater(state.stage_ut, 0.0)
+        # The machine's own record of the separation frame must show it CLIMBING.
+        self.assertEqual(mlib.GS1_COAST, state.phase,
+                         "after separating the machine coasts to the apex; reaching "
+                         "DESCENT here would mean it thought it was already falling")
+        self.assertFalse(state.chute_commanded,
+                         "the upper chute must NOT be armed at separation - it is "
+                         "armed at the apex, which is still ahead")
+
+    def test_coast_holds_the_whole_ballistic_climb_after_the_separation(self):
+        # THE REGRESSION CELL FOR FLIGHT 1'S ROOT CAUSE, re-pointed at COAST's new
+        # position. Replays the MEASURED post-cut climb (alt 230 -> 287 -> 339 -> 444,
+        # all still ascending, while the ORBIT apoapsis DECAYS 957 -> 940 -> 926 ->
+        # 908 under drag) and asserts the machine does not reach DESCENT. The decaying
+        # apoapsis is why the apex signal has to be the vertical speed: the reading
+        # falls while the craft rises, so it names neither the apex altitude nor its
+        # moment.
+        state, _ = to_separation()
+        for ut, alt, ap, vs in ((30.08, 230.3, 957.2, 112.9),
+                                (30.60, 287.3, 940.2, 106.0),
+                                (31.10, 338.8, 926.5, 100.2),
+                                (32.20, 444.0, 908.6, 89.0)):
+            state, actions = step(state, ut=ut, altitude=alt, apoapsis=ap,
+                                  vertical_speed=vs, situation="FLYING",
+                                  available_thrust=0.0)
+            self.assertEqual(mlib.GS1_COAST, state.phase,
+                             "reached DESCENT at alt %s while still climbing at %s "
+                             "m/s - this is flight 1's failure" % (alt, vs))
+            self.assertEqual([], actions)
+        # The apex, at last: DESCENT, and the arm rides that same frame.
+        state, actions = step(state, ut=41.0, altitude=850.0, apoapsis=890.0,
+                              vertical_speed=-2.0, situation="FLYING",
+                              available_thrust=0.0)
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+        self.assertIn(mlib.ACTION_DEPLOY_CHUTE, [a.kind for a in actions])
+
+    def test_ascent_falling_past_the_target_still_cuts_before_it_stages(self):
+        # The fallback: a burn that ran long, or a poll stall across the top, leaves
+        # ASCENT with the vertical speed already negative. The cut still rides that
+        # frame and the separation still does NOT -- which is the whole reason the
+        # settle wait survives.
         state = machine(stagingApoapsisMeters=50000.0)
         state, _ = step(state, ut=0.0, altitude=70.0, situation="PRE_LAUNCH")
         state, actions = step(state, ut=9.0, altitude=800.0, apoapsis=810.0,
                               vertical_speed=-1.0, situation="FLYING")
-        self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in actions])
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in actions],
+                         "the cut must ride this frame and the separation must NOT")
         self.assertEqual(mlib.GS1_STAGE, state.phase)
 
     def test_the_separation_waits_out_stage_settle_frames(self):
         state = machine()
         state, _ = step(state, ut=0.0, altitude=70.0, situation="PRE_LAUNCH")
-        state, _ = step(state, ut=3.0, altitude=400.0, apoapsis=705.0,
-                        vertical_speed=70.0, situation="FLYING")
-        emitted = []
-        for i in range(3):
-            state, actions = step(state, ut=4.0 + i, altitude=700.0,
-                                  apoapsis=760.0, vertical_speed=5.0,
-                                  situation="FLYING")
-            emitted.append([a.kind for a in actions])
-        # Frames 1 and 2 hold; frame 3 stages (and, being already slow, arms the
-        # upper chute on the same frame by falling through into DESCENT).
-        self.assertEqual([], emitted[0])
-        self.assertEqual([], emitted[1])
-        self.assertIn(mlib.ACTION_ACTIVATE_STAGE, emitted[2])
-        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+        state, cut = step(state, ut=3.0, altitude=400.0, apoapsis=705.0,
+                          vertical_speed=70.0, situation="FLYING")
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE], [a.kind for a in cut])
+        state, first = step(state, ut=3.5, altitude=430.0, apoapsis=760.0,
+                            vertical_speed=60.0, situation="FLYING")
+        self.assertEqual([], first, "the first settle frame emits nothing")
+        self.assertEqual(mlib.GS1_STAGE, state.phase)
+        state, second = step(state, ut=4.0, altitude=460.0, apoapsis=760.0,
+                             vertical_speed=55.0, situation="FLYING")
+        self.assertIn(mlib.ACTION_ACTIVATE_STAGE, [a.kind for a in second])
+        self.assertEqual(mlib.GS1_COAST, state.phase)
 
     def test_exactly_two_stage_activations_are_ever_emitted(self):
         # THE STAGING CONTRACT IN THE MACHINE. The craft has three stages and the
@@ -178,7 +279,12 @@ class Gs1PhaseSequenceTests(unittest.TestCase):
 
 
 class Gs1SeparationLatchTests(unittest.TestCase):
-    """separationObserved is an OBSERVED latch. B1 shipped four months of green
+    """separationObserved is an OBSERVED latch.
+
+    Every cell here drives ``to_separation`` rather than ``to_descent``: the latch
+    must be exercised against thrust readings the CELL supplies, and to_descent
+    feeds zero-thrust coast frames that would certify it first.
+ B1 shipped four months of green
     nightlies on a chute that never opened because its terminal read a COMMANDED
     latch; these cells are what stop the same class of lie about the split."""
 
@@ -187,7 +293,7 @@ class Gs1SeparationLatchTests(unittest.TestCase):
         # ModuleDecouple in its stage): the upper stage still carries the engine,
         # so AvailableThrust never falls. The machine COMMANDED the stage, and the
         # row must still be UNMET.
-        state, _ = to_stage()
+        state, _ = to_separation()
         self.assertTrue(state.stage_commanded)
         for i in range(20):
             state, _ = step(state, ut=10.0 + i, altitude=700.0 - 20 * i,
@@ -201,7 +307,7 @@ class Gs1SeparationLatchTests(unittest.TestCase):
                         "JSON carries both halves of the distinction")
 
     def test_thrust_falling_away_after_the_stage_satisfies_the_row(self):
-        state, _ = to_stage()
+        state, _ = to_separation()
         for i in range(3):
             state, _ = step(state, ut=10.0 + i, altitude=700.0, apoapsis=760.0,
                             vertical_speed=-10.0, situation="FLYING",
@@ -215,7 +321,7 @@ class Gs1SeparationLatchTests(unittest.TestCase):
         # Debounced for the same reason the canopy latch is: a terminal that
         # CERTIFIES deserves the same treatment as one that condemns, and kRPC can
         # return a stale or mid-transition reading on the one frame a vessel splits.
-        state, _ = to_stage()
+        state, _ = to_separation()
         state, _ = step(state, ut=10.0, altitude=700.0, vertical_speed=-10.0,
                         situation="FLYING", available_thrust=0.0)
         self.assertFalse(state.separation_seen)
@@ -242,7 +348,7 @@ class Gs1SeparationLatchTests(unittest.TestCase):
         self.assertFalse(state.separation_seen)
 
     def test_a_nonfinite_thrust_read_never_advances_either_half(self):
-        state, _ = to_stage()
+        state, _ = to_separation()
         for i in range(5):
             state, _ = step(state, ut=10.0 + i, altitude=700.0,
                             vertical_speed=-10.0, situation="FLYING",
@@ -256,7 +362,7 @@ class Gs1StagingCeilingTests(unittest.TestCase):
     and still lose the booster to the unloaded-vessel deletion rule."""
 
     def test_a_low_separation_meets_the_ceiling(self):
-        state, _ = to_stage()
+        state, _ = to_descent()
         rows = {r.name: r for r in mlib.evaluate_gs1_assertions(
             [], mlib.gs1_params_from_dict(GS1_PARAMS), state=state)}
         self.assertTrue(rows["stagedBelowCeiling"].met)
@@ -287,7 +393,7 @@ class Gs1CanopyTests(unittest.TestCase):
     is most likely to relax back into a commanded latch."""
 
     def test_the_arm_rides_the_first_slow_descent_frame_with_the_altitude_write(self):
-        state, actions = to_stage()
+        state, actions = to_descent()
         kinds = [a.kind for a in actions]
         self.assertIn(mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE, kinds)
         self.assertIn(mlib.ACTION_DEPLOY_CHUTE, kinds)
@@ -298,7 +404,7 @@ class Gs1CanopyTests(unittest.TestCase):
                         "sees the raised altitude")
 
     def test_a_commanded_but_never_open_canopy_is_unmet(self):
-        state, _ = to_stage()
+        state, _ = to_descent()
         self.assertTrue(state.chute_commanded)
         for i in range(10):
             state, _ = step(state, ut=20.0 + i, altitude=600.0 - 30 * i,
@@ -313,7 +419,7 @@ class Gs1CanopyTests(unittest.TestCase):
         self.assertTrue(rows["craftCanopyObserved"].detail["armCommanded"])
 
     def test_two_consecutive_deployed_reads_certify_and_stay_sticky(self):
-        state, _ = to_stage()
+        state, _ = to_descent()
         for i in range(2):
             state, _ = step(state, ut=20.0 + i, altitude=500.0,
                             vertical_speed=-8.0, situation="FLYING",
@@ -326,6 +432,29 @@ class Gs1CanopyTests(unittest.TestCase):
                         situation="FLYING", available_thrust=0.0,
                         craft_chute_state=mlib.CHUTE_STATE_CUT)
         self.assertTrue(state.craft_chute_full_seen)
+
+    def test_being_below_the_floor_while_CLIMBING_never_counts(self):
+        # THE OTHER HALF OF FLIGHT 1'S KILL. The give-up counts unarmed frames below
+        # chuteFullDeployAltMeters. On a hop whose apex is at or under that floor the
+        # craft is below it FROM THE PAD, so before the falling conjunct the predicate
+        # was satisfiable by construction and tripped two frames into DESCENT while
+        # the craft was still going UP (MEASURED alt 339 then 444, +100 and +89 m/s).
+        #
+        # The COAST reorder makes that unreachable a SECOND way (DESCENT is now only
+        # entered once the craft is falling), so this cell drives the conjunct
+        # DIRECTLY: a DESCENT frame that momentarily reads a POSITIVE vertical speed
+        # -- a bounce, a glitched sample, a gust -- must not advance the streak.
+        # Defence in depth is deliberate: the two guards fail independently.
+        state, _ = to_descent(chuteFullDeployAltMeters=5000.0)
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+        state = replace_state_unarmed(state)
+        for i in range(8):
+            state, _ = step(state, ut=20.0 + i, altitude=300.0 + 100.0 * i,
+                            vertical_speed=90.0, situation="FLYING",
+                            available_thrust=0.0)
+            self.assertFalse(state.done,
+                             "gave up on a climbing frame below the floor")
+            self.assertEqual(0, state.below_floor_streak)
 
     def test_the_arm_window_missed_terminal_is_named_and_fast(self):
         # Without this branch a skipped poll across the apex turns a DETERMINISTIC
@@ -347,8 +476,23 @@ class Gs1CanopyTests(unittest.TestCase):
 
 class Gs1TerminalTests(unittest.TestCase):
 
-    def test_a_landed_situation_ends_the_flight(self):
-        state, _ = to_stage()
+    def test_the_pods_touchdown_hands_off_to_the_booster_wait(self):
+        # THE REGRESSION CELL FOR FLIGHT 3. The pod landing is NOT the end of the
+        # flight: flight 3 terminated here, `ExitToSpaceCenter` fired while the
+        # booster was still under canopy, and the booster's recording closed
+        # `terminal=SubOrbital` -> `IsUnfinishedFlight=true ... reason=
+        # stableLeafUnconcluded` -> CommittedProvisional -> no reap.
+        state, _ = to_descent()
+        state, _ = fly(state, ut=40.0, altitude=72.0, vertical_speed=-5.0,
+                       situation="LANDED", available_thrust=0.0)
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase)
+        self.assertFalse(state.done)
+
+    def test_a_landed_situation_ends_the_flight_when_no_sibling_is_watched(self):
+        # With no siblingVesselName there is nothing to wait for, so the pod's
+        # touchdown is still terminal. Keeps the machine usable for a single-stage
+        # profile and keeps the handoff from being unconditional.
+        state, _ = to_descent(siblingVesselName="")
         state, _ = step(state, ut=40.0, altitude=72.0, vertical_speed=-5.0,
                         situation="LANDED", available_thrust=0.0)
         self.assertEqual(mlib.GS1_LANDED, state.phase)
@@ -357,12 +501,46 @@ class Gs1TerminalTests(unittest.TestCase):
                           "LANDED leaves the verdict to the assertions, exactly as "
                           "B1's terminal does")
 
+    def test_a_stale_pad_LANDED_reading_cannot_end_the_flight(self):
+        # MEASURED, and it had not bitten yet only by luck: KSP reported
+        # `situation = LANDED` up to ut 30.08, at alt 230 m, CLIMBING at 113 m/s.
+        # An ungated `situation in landedSituations` would have declared the flight
+        # over on such a frame and resolved every terminal row against a craft still
+        # on its way up. Same defect class as the one filed against CL-1 ("a craft
+        # that never launched satisfies landed with crew alive").
+        state = machine()
+        state, _ = step(state, ut=0.0, altitude=1.9, situation="PRE_LAUNCH")
+        state, _ = step(state, ut=29.58, altitude=172.4, apoapsis=950.5,
+                        vertical_speed=117.2, situation="LANDED")
+        state, _ = step(state, ut=30.08, altitude=230.3, apoapsis=957.2,
+                        vertical_speed=112.9, situation="LANDED")
+        self.assertFalse(state.airborne_seen,
+                         "nothing so far has been an airborne situation")
+        self.assertFalse(state.done)
+        self.assertNotEqual(mlib.GS1_LANDED, state.phase)
+        rows = {r.name: r for r in mlib.evaluate_gs1_assertions(
+            [snap(situation="LANDED")], mlib.gs1_params_from_dict(GS1_PARAMS),
+            state=state)}
+        self.assertFalse(rows["landedSituation"].met,
+                         "a tail frame reading LANDED must not satisfy the row when "
+                         "the machine never reached its own gated terminal")
+        self.assertFalse(rows["landedSituation"].detail["airborneSeen"])
+
+    def test_the_landed_terminal_works_once_the_craft_has_been_airborne(self):
+        state, _ = to_descent()
+        self.assertTrue(state.airborne_seen)
+        state, _ = fly(state, ut=40.0, altitude=72.0, vertical_speed=-5.0,
+                       situation="LANDED", available_thrust=0.0)
+        self.assertNotEqual(mlib.GS1_DESCENT, state.phase,
+                            "the pod's touchdown must be accepted; it hands off to "
+                            "the booster wait rather than terminating")
+
     def test_a_vessel_loss_is_a_deterministic_assert_fail_not_a_success(self):
         # DELIBERATELY UNLIKE B1: there is no success-by-destruction terminal here.
         # This scenario's whole subject is a ROUTINE flight that must NOT flood
         # Unfinished Flights, so a destroyed active vessel is a different scenario,
         # not a pass - and the reason NAMES the canopy state and the split.
-        state, _ = to_stage()
+        state, _ = to_descent()
         state, _ = step(state, ut=40.0, altitude=300.0, situation="FLYING",
                         vessel_lost=True)
         self.assertTrue(state.done)
@@ -379,12 +557,149 @@ class Gs1TerminalTests(unittest.TestCase):
         self.assertEqual(mlib.GS1_ASCENT, state.flake_phase)
 
     def test_the_machine_is_idempotent_once_done(self):
-        state, _ = to_stage()
-        state, _ = step(state, ut=40.0, altitude=72.0, vertical_speed=-5.0,
-                        situation="LANDED", available_thrust=0.0)
-        again, actions = step(state, ut=41.0, situation="LANDED")
+        state = to_sibling_down()
+        for i in range(2):
+            state, _ = step(state, ut=41.0 + i, situation="LANDED",
+                            sibling_present=1, sibling_situation="LANDED")
+        self.assertTrue(state.done)
+        again, actions = step(state, ut=50.0, situation="LANDED")
         self.assertEqual(state, again)
         self.assertEqual([], actions)
+
+
+class Gs1BoosterWaitTests(unittest.TestCase):
+    """SIBLING-DOWN: the bounded wait on a stage this mission never flies.
+
+    Flight 3 (`2026-08-05_0807`) is why it exists. The pod landed, the mission
+    concluded, `ExitToSpaceCenter` fired, and the booster - still under six canopies
+    from a higher separation - closed its recording `terminal=SubOrbital`. Parsek
+    then did the right thing (`IsUnfinishedFlight=true rec=81e48efe... reason=
+    stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital side=child` ->
+    `CommitTree promoted rec=81e48efe... to CommittedProvisional`), the RP could not
+    reap, and the spec red on its own forbidden pattern."""
+
+    def test_the_watch_is_armed_on_the_very_first_frame(self):
+        # Armed before anything flies, and by NAME: the booster does not exist until
+        # the split, so a handle taken any earlier would be stale and one taken later
+        # would need a frame nobody schedules.
+        state, actions = step(machine(), ut=0.0, altitude=2.0,
+                              situation="PRE_LAUNCH", available_thrust=0.0)
+        armed = [a for a in actions if a.kind == mlib.ACTION_SET_SIBLING_WATCH]
+        self.assertEqual(1, len(armed))
+        self.assertEqual("GS1 Auto-Chute Booster Probe", armed[0].text)
+
+    def test_no_watch_action_when_no_sibling_is_declared(self):
+        state, actions = step(machine(siblingVesselName=""), ut=0.0, altitude=2.0,
+                              situation="PRE_LAUNCH", available_thrust=0.0)
+        self.assertEqual([], [a for a in actions
+                              if a.kind == mlib.ACTION_SET_SIBLING_WATCH])
+
+    def test_the_wait_holds_while_the_booster_is_still_flying(self):
+        state = to_sibling_down()
+        for i in range(20):
+            state, _ = step(state, ut=31.0 + i, situation="LANDED",
+                            sibling_present=1, sibling_situation="FLYING")
+            self.assertFalse(state.done, "concluded while the booster was airborne")
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase)
+
+    def test_two_agreeing_landed_reads_conclude_the_wait(self):
+        state = to_sibling_down()
+        state, _ = step(state, ut=31.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertFalse(state.done, "one read must not settle it")
+        state, _ = step(state, ut=32.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.GS1_LANDED, state.phase)
+        self.assertEqual("LANDED", state.sibling_outcome)
+
+    def test_a_faulted_enumeration_neither_advances_nor_erases_the_streak(self):
+        # The roster-watch discipline: an UNREAD pair is evidence in NEITHER
+        # direction, so it must not certify the wait and must not reset progress
+        # toward it either.
+        state = to_sibling_down()
+        state, _ = step(state, ut=31.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertEqual(1, state.sibling_landed_streak)
+        state, _ = step(state, ut=32.0, situation="LANDED", sibling_present=-1)
+        self.assertEqual(1, state.sibling_landed_streak,
+                         "a faulted read erased progress")
+        self.assertFalse(state.done)
+        state, _ = step(state, ut=33.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertTrue(state.done)
+
+    def test_a_destroyed_booster_CONCLUDES_the_mission_rather_than_failing_it(self):
+        # MISSION-vs-PARSEK ORTHOGONALITY. A booster that blew up still stopped
+        # flying, so the mission's job is done: it stays MISSION-OK, the tail runs,
+        # the tree commits, and the SPEC's log contracts red on the
+        # CommittedProvisional promotion and the missing reap. Failing the row here
+        # would make the run driver-INVALID and DISCARD the very evidence those
+        # contracts read.
+        state = to_sibling_down()
+        for i in range(2):
+            state, _ = step(state, ut=31.0 + i, situation="LANDED",
+                            sibling_present=0)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.GS1_SIBLING_DESTROYED, state.sibling_outcome)
+        rows = {r.name: r for r in mlib.evaluate_gs1_assertions(
+            [snap(situation="LANDED")], mlib.gs1_params_from_dict(GS1_PARAMS),
+            state=state)}
+        self.assertTrue(rows["boosterConcluded"].met,
+                        "a destroyed booster CONCLUDED; the spec reds, not the driver")
+        self.assertEqual(mlib.GS1_SIBLING_DESTROYED,
+                         rows["boosterConcluded"].value)
+
+    def test_a_never_present_sibling_is_not_read_as_destroyed(self):
+        # THE MISSPELLED-NAME GUARD. Absence only means "destroyed" once the vessel
+        # has actually been seen; otherwise a typo in siblingVesselName would settle
+        # the wait instantly and green.
+        # NOT `to_descent`: that helper reports the sibling PRESENT on every frame
+        # after the split, which is exactly the premise this cell has to deny.
+        state = machine(siblingVesselName="Nonexistent Booster")
+        for ut, alt, ap, vs, thr, sit in ((0.0, 70.0, 74.0, 0.0, LIT, "PRE_LAUNCH"),
+                                          (2.0, 200.0, 300.0, 90.0, LIT, "FLYING"),
+                                          (4.0, 500.0, 750.0, 60.0, LIT, "FLYING"),
+                                          (5.0, 560.0, 780.0, 50.0, LIT, "FLYING"),
+                                          (6.0, 600.0, 780.0, 40.0, LIT, "FLYING"),
+                                          (11.0, 800.0, 780.0, -2.0, 0.0, "FLYING")):
+            state, _ = step(state, ut=ut, altitude=alt, apoapsis=ap,
+                            vertical_speed=vs, available_thrust=thr, situation=sit,
+                            sibling_present=0)
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+        state, _ = step(state, ut=30.0, altitude=71.0, vertical_speed=-5.0,
+                        situation="LANDED", available_thrust=0.0,
+                        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED,
+                        sibling_present=0)
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase)
+        self.assertFalse(state.sibling_seen_present)
+        for i in range(10):
+            state, _ = step(state, ut=31.0 + i, situation="LANDED",
+                            sibling_present=0)
+            self.assertFalse(state.done, "a never-present sibling settled the wait")
+        self.assertEqual(0, state.sibling_absent_streak)
+
+    def test_the_wait_flakes_by_name_rather_than_hanging(self):
+        state = to_sibling_down()
+        state, _ = step(state, ut=10000.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="FLYING")
+        self.assertEqual(mlib.MISSION_FLAKE, state.verdict)
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.flake_phase)
+
+    def test_a_timeout_leaves_the_row_unmet_and_says_what_it_was_doing(self):
+        state = to_sibling_down()
+        state, _ = step(state, ut=10000.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="SUB_ORBITAL")
+        rows = {r.name: r for r in mlib.evaluate_gs1_assertions(
+            [snap(situation="LANDED")], mlib.gs1_params_from_dict(GS1_PARAMS),
+            state=state)}
+        row = rows["boosterConcluded"]
+        self.assertFalse(row.met)
+        self.assertTrue(row.detail["everObservedPresent"])
+        self.assertEqual("SUB_ORBITAL", row.detail["lastSituation"],
+                         "the row must name what the booster was doing - SUB_ORBITAL "
+                         "is flight 3's exact failure and the reading that "
+                         "distinguishes 'wait too short' from 'watch never resolved'")
 
 
 class Gs1AssertionShapeTests(unittest.TestCase):
@@ -394,7 +709,8 @@ class Gs1AssertionShapeTests(unittest.TestCase):
             [], mlib.gs1_params_from_dict(GS1_PARAMS), state=machine())
         self.assertEqual(["apoapsisWindow", "separationObserved",
                           "stagedBelowCeiling", "craftCanopyObserved",
-                          "landedSituation"], [r.name for r in rows])
+                          "landedSituation", "boosterConcluded"],
+                         [r.name for r in rows])
 
     def test_the_apoapsis_row_gates_on_the_PEAK_not_a_passing_frame(self):
         # B1's semantics verbatim: a hop that passes THROUGH the window and peaks
@@ -421,7 +737,8 @@ class Gs1AssertionShapeTests(unittest.TestCase):
 
 
 def _nominal_frames():
-    """A scripted nominal flight: ignite, climb, stage, canopy, land."""
+    """A scripted nominal flight: ignite, climb, stage, canopy, pod down, BOOSTER
+    down. The tail is what flight 3 lacked - the pod's touchdown is not the end."""
     frames = [snap(ut=0.0, altitude=70.0, situation="PRE_LAUNCH",
                    available_thrust=LIT)]
     frames.append(snap(ut=2.0, altitude=300.0, apoapsis=400.0, vertical_speed=90.0,
@@ -436,10 +753,21 @@ def _nominal_frames():
         frames.append(snap(ut=9.0 + i, altitude=700.0 - 55.0 * i, apoapsis=740.0,
                            vertical_speed=-7.0, situation="FLYING",
                            available_thrust=0.0,
-                           craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+                           craft_chute_state=mlib.CHUTE_STATE_DEPLOYED,
+                           sibling_present=1, sibling_situation="FLYING"))
     frames.append(snap(ut=30.0, altitude=71.0, vertical_speed=-5.0,
                        situation="LANDED", available_thrust=0.0,
-                       craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+                       craft_chute_state=mlib.CHUTE_STATE_DEPLOYED,
+                       sibling_present=1, sibling_situation="FLYING"))
+    # The booster is still under canopy when the pod is down; the mission waits.
+    for i in range(6):
+        frames.append(snap(ut=31.0 + i, situation="LANDED", available_thrust=0.0,
+                           craft_chute_state=mlib.CHUTE_STATE_DEPLOYED,
+                           sibling_present=1, sibling_situation="FLYING"))
+    for i in range(3):
+        frames.append(snap(ut=40.0 + i, situation="LANDED", available_thrust=0.0,
+                           craft_chute_state=mlib.CHUTE_STATE_DEPLOYED,
+                           sibling_present=1, sibling_situation="LANDED"))
     return frames
 
 
@@ -451,7 +779,7 @@ class Gs1ShellTests(unittest.TestCase):
         self.assertEqual(0, code, result)
         self.assertEqual(mlib.MISSION_OK, result["verdict"], result)
         rows = {r["name"]: r for r in result["assertions"]}
-        self.assertEqual(5, len(rows))
+        self.assertEqual(6, len(rows))
         for name, row in rows.items():
             self.assertTrue(row["met"], "%s unmet: %r" % (name, row))
 

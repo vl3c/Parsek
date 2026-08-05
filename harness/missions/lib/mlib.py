@@ -694,6 +694,13 @@ ACTION_SET_CHUTE_DEPLOY_ALTITUDE = "set_chute_deploy_altitude"   # value = metre
 # mission. Unarmed, the channel stays at its "" UNREAD sentinel and no extra RPC
 # is issued, so every other mission's snapshot is byte-identical.
 ACTION_SET_ROSTER_WATCH = "set_roster_watch"                # text = kerbal name
+# Arms the SIBLING WATCH: the shell resolves a NON-ACTIVE vessel by name every poll
+# and reports its situation (GS-1). Sibling of the roster watch and armed the same
+# way - by NAME, never by a captured handle, because the watched vessel is created
+# mid-flight by a staging split and any handle taken before then would be stale.
+# Unarmed = the shell issues no RPC and both sibling_* fields stay at their UNREAD
+# sentinels, so every other mission is unaffected.
+ACTION_SET_SIBLING_WATCH = "set_sibling_watch"              # text = vessel name
 ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
@@ -2166,6 +2173,19 @@ class TelemetrySnapshot:
     # the vessel-lost path it is the one channel that still carries truth - and
     # it is exactly the frame on which a crew-loss mission most needs it.
     crew_roster_status: str = ""
+    # The WATCHED SIBLING vessel (GS-1): a non-active vessel resolved by name every
+    # poll, so a mission can wait for a stage it does not fly to reach the ground.
+    # TWO fields, because "I could not read it" and "it is not there any more" are
+    # different facts and only one of them means the sibling's flight has concluded.
+    #   sibling_situation  "" = UNREAD (no watch armed, or the read faulted -
+    #                      fail-closed: matches no gate); else the kRPC situation.
+    #   sibling_present    TRI-STATE, same discipline as crew_count: -1 = UNREAD,
+    #                      0 = the enumeration SUCCEEDED and no vessel of that name
+    #                      is in it (destroyed / renamed), 1 = present.
+    # A fault leaves BOTH at their unread sentinel, so it neither advances nor
+    # erases a caller's streak.
+    sibling_situation: str = ""
+    sibling_present: int = -1
     # OBSERVED MechJeb NodeExecutor.Enabled (KRPC.MechJeb 0.8.1
     # NodeExecutor : ComputerModule -> the inherited MuMech.ComputerModule
     # Enabled property). TRI-STATE, -1 = UNREAD (the fail-closed sentinel,
@@ -11692,6 +11712,20 @@ class ForgeLkoParams:
     circularize_timeout: float = 2400.0
     # --- separation (the B-DOCK two-step contract, verbatim) ---
     separation_timeout: float = 120.0
+    # PARK ATTACHED (the GS-2 / GS-3 orbital-deploy lane). False is the
+    # LIVE-PROVEN behaviour, byte for byte: CIRCULARIZE -> SEPARATE (drop the
+    # spent core AND ignite the orbital engine) -> PARK, which is what
+    # FORGE-eva2-lko flew green on 2026-07-24. True SKIPS the SEPARATE phase
+    # entirely -- CIRCULARIZE hands straight to PARK with the same park entry
+    # actions and NO stage activation -- so the stamped fixture holds ONE vessel,
+    # the ATTACHED stack, instead of two.
+    #
+    # A PARAMETER rather than a sibling machine because exactly one phase EDGE
+    # differs; the launch, the crew gate, the ascent, the circularization, every
+    # budget and the whole park gate are shared, and a copy would be a second
+    # thing to keep in step with an ascent contract B-DOCK has re-tuned twice.
+    # It changes nothing for a caller that leaves it unset.
+    park_attached: bool = False
     # --- park (new: the fixture is a SAVED STATE, so it must be settled) ---
     park_situations: Tuple[str, ...] = ("ORBITING",)
     # GAME seconds the stabilized orbit must be HELD before the forge declares
@@ -11732,6 +11766,7 @@ def forge_lko_params_from_dict(params: Dict) -> ForgeLkoParams:
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 900)),
         circularize_timeout=float(params.get("circularizeTimeoutSeconds", 2400)),
         separation_timeout=float(params.get("separationTimeoutSeconds", 120)),
+        park_attached=bool(params.get("parkAttached", False)),
         park_situations=tuple(params.get("parkSituations", ("ORBITING",))),
         park_dwell=float(params.get("parkDwellSeconds", 60)),
         park_timeout=float(params.get("parkTimeoutSeconds", 600)),
@@ -11785,6 +11820,20 @@ class ForgeLkoState:
     separate_thrust_streak: int = 0
     separate_split_confirmed: bool = False
     separate_activations: int = 0
+    # PARK-ATTACHED evidence (park_attached only; inert otherwise). The forge
+    # never activates a stage on that path, so the ONLY thing that could split
+    # the stack before the save is MechJeb's AUTOSTAGE firing the payload
+    # decoupler after the core ran dry. `attached_baseline_vessel_count` is
+    # captured at CIRCULARIZE entry and `attached_split_seen` latches on any
+    # CIRCULARIZE / PARK frame whose vessel_count rises above it, which is the
+    # same signal `separation_evidence` reads -- here used to CONDEMN rather than
+    # to certify. `attached_peak_vessel_count` is carried for the assertion's
+    # detail so an operator can tell a real split from the one false-positive
+    # channel this has (vessel_count is len(sc.vessels), so a stock asteroid
+    # spawning during the coast also raises it).
+    attached_baseline_vessel_count: int = 0
+    attached_peak_vessel_count: int = 0
+    attached_split_seen: bool = False
     # PARK stability debounce.
     park_stable_streak: int = 0
     # Carried evidence for the evaluator (LATCHED, so the per-phase resets above
@@ -11912,6 +11961,22 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
 
     p = state.params
 
+    # PARK-ATTACHED watch: on the attached path nothing in this machine ever
+    # activates a stage after the ascent, so a vessel_count ABOVE the
+    # CIRCULARIZE-entry baseline can only be MechJeb autostage having fired the
+    # payload decoupler (or, rarely, a stock asteroid spawn -- see the state
+    # field's comment). Latched, never acted on here: the run continues and the
+    # `stackAttached` assertion row condemns it, so the operator gets the whole
+    # telemetry tail rather than a mid-coast flake.
+    if p.park_attached and state.phase in (FLKO_CIRCULARIZE, FLKO_PARK):
+        count = int(snapshot.vessel_count or 0)
+        state = replace(
+            state,
+            attached_peak_vessel_count=max(state.attached_peak_vessel_count, count),
+            attached_split_seen=(state.attached_split_seen
+                                 or (state.attached_baseline_vessel_count > 0
+                                     and count > state.attached_baseline_vessel_count)))
+
     if state.phase == FLKO_PRELAUNCH:
         return (_flko_enter(state, FLKO_LAUNCH, snapshot.ut),
                 [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name,
@@ -11953,13 +12018,30 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
             # is shared global state -- an identical machine warped on one flight
             # and coasted the whole leg at 1x on the next. A forge must not depend
             # on that luck.
-            return (_flko_enter(state, FLKO_CIRCULARIZE, snapshot.ut),
+            return (_flko_enter(state, FLKO_CIRCULARIZE, snapshot.ut,
+                                attached_baseline_vessel_count=int(
+                                    snapshot.vessel_count or 0),
+                                attached_peak_vessel_count=int(
+                                    snapshot.vessel_count or 0)),
                     [Action(ACTION_MJ_EXECUTE_NODES)])
         return _flko_stay_or_flake(state, snapshot), []
 
     if state.phase == FLKO_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.target_periapsis - p.peri_error):
+            if p.park_attached:
+                # PARK ATTACHED: skip SEPARATE outright. No ACTIVATE_STAGE is
+                # emitted anywhere on this path -- the spent core stays bolted
+                # on and the stamped fixture holds ONE vessel, the attached
+                # two-controllable stack the GS-2 / GS-3 lane needs. The park
+                # entry actions are the SAME ones the separated path uses
+                # (throttle cut, nodes cleared, attitude held); if anything this
+                # park is the easier of the two, since no mass was just dropped
+                # and the spent core's own reaction wheel is still part of the
+                # vessel.
+                return (_flko_enter(state, FLKO_PARK, snapshot.ut,
+                                    park_stable_streak=0),
+                        _flko_park_entry_actions())
             # Circularized -> the two-step SEPARATE contract. This entry
             # ACTIVATE_STAGE (activation count 1) drops the spent core; step 1
             # confirms on the vessel_count increase, step 2 lights the orbital
@@ -12085,14 +12167,37 @@ def evaluate_forge_lko_assertions(frames, params: ForgeLkoParams,
 
     split_ev = bool(getattr(state, "split_ever_confirmed", False))
     ignition_ev = bool(getattr(state, "ignition_ever_confirmed", False))
-    sep_met = ((FLKO_SEPARATE in phases) and (FLKO_PARK in phases)
-               and split_ev and ignition_ev)
-    separated = AssertionOutcome(
-        "separated", sep_met,
-        (FLKO_SEPARATE if FLKO_SEPARATE in phases
-         else (phases[-1] if phases else None)),
-        {"required": FLKO_SEPARATE, "splitConfirmed": split_ev,
-         "ignitionConfirmed": ignition_ev})
+    if params.park_attached:
+        # THE ATTACHED PATH'S OWN ROW, and it is a POSITIVE statement rather than
+        # a waived one: the fixture's whole promise is that the stack is still in
+        # ONE PIECE, so the row asserts that the machine never entered SEPARATE,
+        # never confirmed a split, and never SAW the vessel count rise above the
+        # CIRCULARIZE-entry baseline. A waiver (`met=True because the phase was
+        # skipped`) would have read green on a forge whose core autostaged off
+        # mid-coast and stamped a SPLIT fixture -- the one failure this path can
+        # have that every other row would miss.
+        attached_split_seen = bool(getattr(state, "attached_split_seen", False))
+        attached_met = ((FLKO_SEPARATE not in phases) and (FLKO_PARK in phases)
+                        and not split_ev and not attached_split_seen)
+        separated = AssertionOutcome(
+            "stackAttached", attached_met,
+            (phases[-1] if phases else None),
+            {"required": FLKO_PARK, "forbidden": FLKO_SEPARATE,
+             "splitConfirmed": split_ev,
+             "vesselCountRose": attached_split_seen,
+             "baselineVesselCount": int(
+                 getattr(state, "attached_baseline_vessel_count", 0)),
+             "peakVesselCount": int(
+                 getattr(state, "attached_peak_vessel_count", 0))})
+    else:
+        sep_met = ((FLKO_SEPARATE in phases) and (FLKO_PARK in phases)
+                   and split_ev and ignition_ev)
+        separated = AssertionOutcome(
+            "separated", sep_met,
+            (FLKO_SEPARATE if FLKO_SEPARATE in phases
+             else (phases[-1] if phases else None)),
+            {"required": FLKO_SEPARATE, "splitConfirmed": split_ev,
+             "ignitionConfirmed": ignition_ev})
 
     final_situation = frames[-1].situation if frames else None
     parked_met = (FLKO_ORBIT in phases) and (final_situation in params.park_situations)
@@ -13784,24 +13889,87 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
 #   - craftCanopyObserved reads the live ParachuteState (B1's exact sticky latch),
 #     never the machine's own arm latch.
 #
-# FIVE PHASES. PRELAUNCH acts once (throttle + ignite). ASCENT watches apoapsis and
-# cuts throttle at the target. STAGE exists as its own phase for ONE reason: the
-# separation must not ride the same frame as the throttle cut. LV-T45 thrust decays
-# over a few physics frames after a throttle-to-zero, and firing a decoupler while
-# the lower stage is still pushing drives the spent booster INTO the upper stage.
-# stageSettleFrames is that wait, expressed in frames rather than seconds because
-# the poll cadence is what the frames measure. DESCENT arms the upper chute at the
-# apoapsis crossing (B1's arm-while-slow technique, live-proven on this exact
-# stock-parachute contract) and waits for the ground. LANDED is terminal.
+# SIX PHASES: PRELAUNCH -> ASCENT -> STAGE -> COAST -> DESCENT -> LANDED.
+#
+# THE PHASE ORDER IS THE PRODUCT OF TWO FAILED FLIGHTS, and the ORDER ITSELF - not
+# the set - is what both of them got wrong. Recorded here because the two failures
+# pull in OPPOSITE directions, and the arrangement above is the only one that
+# satisfies both.
+#
+# FLIGHT 1 (`2026-08-05_0725_..._a2`, MISSION-ASSERT-FAIL): there was no COAST at
+# all. The machine staged the moment ASCENT ended and fell straight through into
+# DESCENT, on the reasoning that the throttle cut happens "at the apoapsis". IT
+# DOES NOT: the cut is gated on the ORBIT's apoapsis, and the craft reaches its own
+# apex many seconds LATER (MEASURED: cut at ut 29.58 / alt 172 m / +117 m/s, apex
+# ~9 s away). So the machine sat in DESCENT while the craft went UP, the arm gate
+# (|v| <= chuteArmMaxRateMps) could not fire, and the arm-window-missed give-up -
+# which counts UNARMED frames below chuteFullDeployAltMeters - tripped ON THE WAY
+# UP and killed a healthy flight in 6.1 s.
+#
+# FLIGHT 2 (`2026-08-05_0749`, MISSION-OK but PARSEK-FAIL(expectations)): that fix
+# put COAST BETWEEN ASCENT AND STAGE, so the separation happened AT THE APEX. The
+# flight flew beautifully and the booster was DESTROYED IN MID-AIR anyway, which
+# cost the run its RewindPoint reap. Cause, measured to the metre:
+#   AT THE APEX THERE IS NO AIRSPEED, SO THERE IS NO SEPARATION FORCE. A stack
+#   decoupler's ejection impulse is small against 2.3 t + 0.9 t, and with no
+#   relative wind there is no differential drag to pull the halves apart. The two
+#   stages parted by `seedLiveRootDist=5.49m` and then FELL TOGETHER: over the
+#   3.6 s to the collision the upper fell 84.1 m and the booster 85.9 m. Both
+#   deployed canopies within ~1 s of each other, and at ut 43.62 the upper stage
+#   (AGL 552.2 m) was 2.0 m above the booster (ASL 624.1 = AGL 550.2) when
+#   `Decoupler.1 Exploded!!` - the booster's own topmost part, and exactly what an
+#   upper stage falling onto it would strike.
+#
+# SO STAGE MUST HAPPEN WHILE THE CRAFT IS STILL MOVING FAST, which is also what
+# makes a real auto-chute booster work: the booster's canopies bite immediately and
+# it decelerates hard while the upper stage coasts on, opening hundreds of metres
+# within a couple of seconds. And the upper stage's chute must STILL be armed at
+# the apex (B1's arm-while-slow contract, since an altitude trigger is inert on a
+# craft that never slows). Those two requirements are compatible in exactly one
+# order - separate on the way up, THEN coast to the apex, THEN arm - which is the
+# order above.
+#
+# WHAT EACH PHASE DOES. PRELAUNCH acts once (throttle + ignite). ASCENT watches the
+# orbit apoapsis, cuts throttle at the target and RETURNS. STAGE holds
+# stageSettleFrames - genuinely load-bearing again in this order, since it is now
+# the only thing between the cut and the decoupler, and firing one while the lower
+# stage is still pushing drives the spent booster INTO the upper stage - then fires
+# ONE stage, which blows the decoupler AND arms the booster's radial chutes. COAST
+# waits out the rest of the ballistic climb. DESCENT arms the upper stage's chute
+# on the apex crossing and waits for the ground. LANDED is terminal.
 # ---------------------------------------------------------------------------
 
 GS1_PRELAUNCH = "PRELAUNCH"
 GS1_ASCENT = "ASCENT"
 GS1_STAGE = "STAGE"
+GS1_COAST = "COAST"
 GS1_DESCENT = "DESCENT"
+GS1_SIBLING_DOWN = "SIBLING-DOWN"
 GS1_LANDED = "LANDED"
-GS1_PHASES: Tuple[str, ...] = (GS1_PRELAUNCH, GS1_ASCENT, GS1_STAGE,
-                               GS1_DESCENT, GS1_LANDED)
+GS1_PHASES: Tuple[str, ...] = (GS1_PRELAUNCH, GS1_ASCENT, GS1_STAGE, GS1_COAST,
+                               GS1_DESCENT, GS1_SIBLING_DOWN, GS1_LANDED)
+
+# Consecutive agreeing sibling reads before the booster's outcome is settled, in
+# EITHER direction (landed, or gone). Debounced for the reason every other latch here
+# is: a terminal that CERTIFIES and one that CONDEMNS deserve the same treatment, and
+# a lone glitched enumeration must decide nothing.
+GS1_SIBLING_DEBOUNCE_K = 2
+
+# Situations that prove the craft actually left the pad. THE LANDED TERMINAL IS
+# GATED ON HAVING SEEN ONE (`airborne_seen`), and that is not defensive
+# programming: flight 1 MEASURED KSP reporting `situation = LANDED` up to
+# ut 30.08, at alt 230 m, climbing at 113 m/s. Without the gate a machine that
+# reached DESCENT early would read that stale LANDED as "the flight is over" and
+# resolve every terminal row against a craft still on its way up. It is the same
+# defect filed against CL-1 ("a craft that never launched satisfies landed with
+# crew alive"), closed here before it could be flown into.
+GS1_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL", "ORBITING",
+                                            "ESCAPING")
+
+# The sibling_outcome value meaning "the booster is no longer in the vessel list".
+# It is a CONCLUSION, not a success: the booster's flight ended, and the spec's own
+# log contracts are what say whether it ended the way this scenario requires.
+GS1_SIBLING_DESTROYED = "DESTROYED"
 
 # Consecutive Deployed reads before the canopy latch certifies. Same value and same
 # reasoning as B1_CANOPY_DEBOUNCE_K: stock flips ParachuteState to DEPLOYED at the
@@ -13847,12 +14015,23 @@ class Gs1Params:
     landed_situations: Tuple[str, ...]
     apoapsis_window: Tuple[float, float]   # (min, max), inclusive
     ascent_timeout: float
+    coast_timeout: float
     stage_timeout: float
     descent_timeout: float
+    # The BOOSTER's vessel name, as KSP auto-derives it for the separated stage
+    # (spec key siblingVesselName). It is the argument to the sibling watch, so the
+    # whole SIBLING-DOWN wait reads this vessel and no other; a wrong name is caught
+    # by the never-present guard rather than burning the budget.
+    sibling_vessel_name: str = ""
+    # Game-seconds to wait for the booster to reach the ground AFTER the active
+    # vessel has landed (spec key siblingDownTimeoutSeconds).
+    sibling_down_timeout: float = 240.0
     # AvailableThrust (newtons) at/below which the active vessel counts as having
     # NO live engine. Not zero: a float read of a shut-down engine can carry
-    # rounding dust, and the discriminator here is ~168,000 N vs ~0, so any small
-    # positive floor is unambiguous.
+    # rounding dust, and the discriminator is unambiguous by orders of magnitude -
+    # MEASURED on flight 1, the reading goes 170393.0 on the frame the stage is
+    # commanded and 0.0 on the very next poll, so kRPC returns a clean zero for an
+    # engineless vessel rather than faulting.
     separation_thrust_epsilon: float = 100.0
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal
@@ -13873,8 +14052,11 @@ def gs1_params_from_dict(params: Dict) -> Gs1Params:
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 90)),
+        coast_timeout=float(params.get("coastTimeoutSeconds", 120)),
         stage_timeout=float(params.get("stageTimeoutSeconds", 60)),
         descent_timeout=float(params.get("descentTimeoutSeconds", 300)),
+        sibling_vessel_name=str(params.get("siblingVesselName", "") or ""),
+        sibling_down_timeout=float(params.get("siblingDownTimeoutSeconds", 240)),
         separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
@@ -13906,8 +14088,36 @@ class Gs1State:
     # GS1_SEPARATION_DEBOUNCE_K consecutive post-stage frames. Sticky once earned.
     separation_seen: bool = False
     separation_streak: int = 0
+    # Post-stage frames carrying a FINITE thrust read. Diagnostic only, and it
+    # exists because flight 1's separationObserved row could not be diagnosed from
+    # its own output: the row reported the pre-stage thrust and `met=False` with no
+    # way to tell "the split never happened" from "the machine gave up before it
+    # could see it" (it was the second - the give-up fired one poll too early, and
+    # the very next frame read 0.0). This count makes that distinction legible in
+    # the result JSON without another flight.
+    post_stage_thrust_reads: int = 0
     # Frames spent in STAGE so far (the settle wait).
     stage_frames: int = 0
+    # OBSERVED: the craft has been seen in an airborne situation at least once.
+    # The LANDED terminal is gated on it. See GS1_AIRBORNE_SITUATIONS.
+    airborne_seen: bool = False
+
+    # --- the BOOSTER, watched but never flown -------------------------------
+    # Sticky: the watched sibling has been OBSERVED PRESENT at least once. An ABSENT
+    # reading only means "destroyed" AFTER this is true; before it, absence is far
+    # more likely to be a misspelled siblingVesselName, and treating that as a
+    # concluded flight would be a silent wrong pass.
+    sibling_seen_present: bool = False
+    # Consecutive agreeing reads toward each outcome; whichever reaches
+    # GS1_SIBLING_DEBOUNCE_K first settles it.
+    sibling_landed_streak: int = 0
+    sibling_absent_streak: int = 0
+    # The settled outcome: "" while unsettled, else a landed situation name or
+    # GS1_SIBLING_DESTROYED. Read by the assertion row.
+    sibling_outcome: str = ""
+    # The last non-empty situation actually read off the booster, so a timeout can
+    # say what it was doing rather than only that it was not down.
+    sibling_last_situation: str = ""
 
     # --- upper-stage canopy, B1's contract verbatim -------------------------
     chute_commanded: bool = False
@@ -13941,10 +14151,14 @@ def _gs1_phase_budget(params: Gs1Params, phase: str) -> Optional[float]:
     PRELAUNCH / terminal LANDED phases (design "Every wait bounded")."""
     if phase == GS1_ASCENT:
         return params.ascent_timeout
+    if phase == GS1_COAST:
+        return params.coast_timeout
     if phase == GS1_STAGE:
         return params.stage_timeout
     if phase == GS1_DESCENT:
         return params.descent_timeout
+    if phase == GS1_SIBLING_DOWN:
+        return params.sibling_down_timeout
     return None
 
 
@@ -14005,15 +14219,21 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         next stage (ignite the LV-T45). Untimed.
       - ASCENT -> STAGE: on the first frame whose apoapsis reaches
         stagingApoapsisMeters, OR whose vertical speed has already gone negative
-        (the burn ended early / the target was overshot between polls). Cuts
-        throttle on that frame and NOTHING else -- the separation is deliberately
-        one phase later. Bounded by ascentTimeoutSeconds.
-      - STAGE -> DESCENT: after stageSettleFrames frames of holding, emit the
+        (the burn ended late / the target was crossed between polls). Cuts throttle
+        on that frame and NOTHING else, then RETURNS: the settle wait is the only
+        thing standing between the cut and the decoupler. Bounded by
+        ascentTimeoutSeconds.
+      - STAGE -> COAST: after stageSettleFrames frames of holding, emit the
         separation activate_stage, which fires the decoupler AND arms the booster's
-        radial chutes (they share istg). The frame FALLS THROUGH into the DESCENT
-        body, because the upper stage is already at/near its apex and the arm gate
-        below is RATE-gated: deferring by a poll needlessly eats the arming bound.
-        Bounded by stageTimeoutSeconds.
+        radial chutes (they share istg). This happens WHILE THE CRAFT IS STILL
+        CLIMBING FAST, and that is the whole point: flight 2 separated at the apex,
+        where there is no airspeed and so no differential drag, the halves stayed
+        ~5 m apart, and the upper stage fell onto the booster 3.6 s later and blew
+        up its topmost part. Bounded by stageTimeoutSeconds.
+      - COAST -> DESCENT: on the first frame whose vertical speed has gone
+        negative, i.e. the actual APEX. The frame FALLS THROUGH into the DESCENT
+        body because the arm gate below is RATE-gated and the rate only ever
+        worsens. Bounded by coastTimeoutSeconds.
       - DESCENT: on the first frame whose |vertical speed| is within
         chuteArmMaxRateMps, write chuteFullDeployAltMeters onto the active vessel's
         parachutes and ARM them -- both actions on the SAME frame so the module's
@@ -14038,6 +14258,13 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
     if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
         state = replace(state, last_finite_altitude=snapshot.altitude)
 
+    # OBSERVED airborne latch. Sticky, live frames only. The LANDED terminal reads
+    # it, because KSP reports `situation = LANDED` well past the pad on this craft
+    # (MEASURED alt 230 m at +113 m/s on flight 1).
+    if (not snapshot.vessel_lost and not state.airborne_seen
+            and snapshot.situation in GS1_AIRBORNE_SITUATIONS):
+        state = replace(state, airborne_seen=True)
+
     # OBSERVED canopy latch, live frames only, DESCENT-scoped and debounced. Exactly
     # B1's contract: a stale pad read or a lone glitched frame must not certify.
     if not snapshot.vessel_lost and snapshot.craft_chute_state:
@@ -14051,6 +14278,17 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         else:
             state = replace(state, canopy_seen_streak=0)
 
+    # OBSERVED sibling latches. `sibling_present == 1` is the only thing that earns
+    # `sibling_seen_present`; the UNREAD pair ("", -1) touches nothing, so a faulted
+    # enumeration neither advances nor erases either streak (the roster-watch
+    # discipline). Absence only starts counting once the booster has actually been
+    # seen, so a misspelled siblingVesselName can never read as a concluded flight.
+    if not snapshot.vessel_lost and snapshot.sibling_present == 1:
+        if snapshot.sibling_situation:
+            state = replace(state, sibling_last_situation=snapshot.sibling_situation)
+        if not state.sibling_seen_present:
+            state = replace(state, sibling_seen_present=True)
+
     # OBSERVED separation latch. BEFORE the stage is commanded, remember the last
     # finite POSITIVE available-thrust reading (the "there was an engine" half);
     # AFTER it, count consecutive at-or-below-epsilon readings.
@@ -14058,15 +14296,18 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         if not state.stage_commanded:
             if snapshot.available_thrust > state.params.separation_thrust_epsilon:
                 state = replace(state, pre_stage_thrust=snapshot.available_thrust)
-        elif not state.separation_seen:
-            if snapshot.available_thrust <= state.params.separation_thrust_epsilon:
-                streak = state.separation_streak + 1
-                state = replace(
-                    state, separation_streak=streak,
-                    separation_seen=(streak >= GS1_SEPARATION_DEBOUNCE_K
-                                     and state.pre_stage_thrust is not None))
-            else:
-                state = replace(state, separation_streak=0)
+        else:
+            state = replace(
+                state, post_stage_thrust_reads=state.post_stage_thrust_reads + 1)
+            if not state.separation_seen:
+                if snapshot.available_thrust <= state.params.separation_thrust_epsilon:
+                    streak = state.separation_streak + 1
+                    state = replace(
+                        state, separation_streak=streak,
+                        separation_seen=(streak >= GS1_SEPARATION_DEBOUNCE_K
+                                         and state.pre_stage_thrust is not None))
+                else:
+                    state = replace(state, separation_streak=0)
 
     if snapshot.vessel_lost:
         return replace(
@@ -14074,7 +14315,7 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
             loss_reason=_gs1_loss_reason(
                 state, "vessel-lost (unreadable after repeated telemetry failures)")), []
 
-    if state.phase in (GS1_ASCENT, GS1_STAGE, GS1_DESCENT):
+    if state.phase in (GS1_ASCENT, GS1_COAST, GS1_STAGE, GS1_DESCENT):
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
             state.frozen_sig, state.frozen_count, snapshot, limit)
@@ -14088,8 +14329,15 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
     if state.phase == GS1_PRELAUNCH:
+        # Arm the sibling watch on the FIRST frame, before anything flies. The
+        # booster does not exist yet, so it reads ABSENT until the split - which is
+        # exactly why `sibling_seen_present` has to be earned before an ABSENT
+        # reading is allowed to mean "destroyed".
         actions = [Action(ACTION_SET_THROTTLE, state.params.throttle),
                    Action(ACTION_ACTIVATE_STAGE)]
+        if state.params.sibling_vessel_name:
+            actions.insert(0, Action(ACTION_SET_SIBLING_WATCH,
+                                     text=state.params.sibling_vessel_name))
         return _gs1_enter(state, GS1_ASCENT, snapshot.ut, peak), actions
 
     if state.phase == GS1_ASCENT:
@@ -14097,6 +14345,10 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
                    and snapshot.apoapsis >= state.params.staging_apoapsis)
         falling = _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0
         if reached or falling:
+            # Cut and RETURN. The separation is deliberately at least one poll
+            # later: stageSettleFrames is what stands between the throttle cut and
+            # the decoupler, and firing one while the lower stage is still pushing
+            # drives the spent booster INTO the upper stage.
             return (_gs1_enter(state, GS1_STAGE, snapshot.ut, peak),
                     [Action(ACTION_CUT_THROTTLE, 0.0)])
         return _gs1_stay_or_flake(state, snapshot, peak), []
@@ -14112,14 +14364,26 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
             stage_commanded=True,
             stage_altitude=snapshot.altitude if _is_finite(snapshot.altitude) else None,
             stage_ut=snapshot.ut if _is_finite(snapshot.ut) else None)
-        # Enter DESCENT and FALL THROUGH on the same frame (no early return): the
-        # arm gate below is RATE-gated and the rate only ever worsens.
-        state = _gs1_enter(state, GS1_DESCENT, snapshot.ut, peak)
-    else:
-        stage_actions = []
+        # Enter COAST and RETURN. The upper stage's chute is NOT armed here: it is
+        # armed at the apex, which COAST waits for.
+        return _gs1_enter(state, GS1_COAST, snapshot.ut, peak), stage_actions
+
+    if state.phase == GS1_COAST:
+        # THE APEX. `vertical_speed < 0` is the only honest apex signal available:
+        # `apoapsis` is the ORBIT's, which on this profile peaks and then DECAYS
+        # under drag while the craft is still climbing (MEASURED 957 -> 940 -> 926
+        # -> 908 across alt 230 -> 444), so it can name neither the apex altitude
+        # nor the apex moment.
+        if _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0:
+            # Enter DESCENT and FALL THROUGH on the same frame (no early return):
+            # the arm gate below is RATE-gated and the rate only ever worsens, so
+            # deferring by a poll needlessly eats the arming bound.
+            state = _gs1_enter(state, GS1_DESCENT, snapshot.ut, peak)
+        else:
+            return _gs1_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == GS1_DESCENT:
-        actions: List[Action] = list(stage_actions)
+        actions: List[Action] = []
         chute_commanded = state.chute_commanded
         armed_alt = state.chute_armed_altitude
         armed_rate = state.chute_armed_rate
@@ -14132,15 +14396,41 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
             armed_alt = snapshot.altitude if _is_finite(snapshot.altitude) else None
             armed_rate = snapshot.vertical_speed
 
+        # BELOW-FLOOR STREAK, GATED ON ACTUALLY FALLING. The extra conjunct is the
+        # direct fix for flight 1's kill: on this profile the whole hop happens
+        # under any sane chuteFullDeployAltMeters, so "unarmed and below the floor"
+        # is satisfied FROM THE PAD and the give-up fired on the way UP, two frames
+        # after the machine reached DESCENT (MEASURED alt 339 then 444, both
+        # climbing). Being below the floor means the arm window is unreachable only
+        # once the craft is coming DOWN; before that it means nothing at all.
         below_floor = state.below_floor_streak
-        if not chute_commanded and _is_finite(snapshot.altitude):
+        if (not chute_commanded and _is_finite(snapshot.altitude)
+                and _is_finite(snapshot.vertical_speed)):
             below_floor = (below_floor + 1
-                           if snapshot.altitude < state.params.chute_full_deploy_alt
+                           if (snapshot.vertical_speed < 0.0
+                               and snapshot.altitude < state.params.chute_full_deploy_alt)
                            else 0)
 
-        if snapshot.situation in state.params.landed_situations:
-            landed = _gs1_enter(state, GS1_LANDED, snapshot.ut, peak)
-            return replace(landed, chute_commanded=chute_commanded,
+        # THE LANDED TERMINAL IS GATED ON HAVING BEEN AIRBORNE. KSP reports
+        # `situation = LANDED` well past the pad on this craft (MEASURED alt 230 m
+        # at +113 m/s), so an ungated read would resolve every terminal row against
+        # a craft still climbing. Same defect class as the one filed against CL-1.
+        if (state.airborne_seen
+                and snapshot.situation in state.params.landed_situations):
+            # THE ACTIVE VESSEL IS DOWN, BUT THE FLIGHT IS NOT OVER. Hand off to
+            # SIBLING-DOWN rather than terminating: flight 3 ended here, and
+            # `ExitToSpaceCenter` then fired while the booster was STILL UNDER
+            # CANOPY, so its recording closed `terminal=SubOrbital` and Parsek
+            # correctly opened an Unfinished Flight for it
+            # (`IsUnfinishedFlight=true ... reason=stableLeafUnconcluded`). Six
+            # Mk2-R from a higher separation descend slower than the pod's single
+            # Mk16, so the stage this mission does NOT fly is the one that lands
+            # last. With no sibling name declared there is nothing to wait for and
+            # the machine terminates as before.
+            nxt = (GS1_SIBLING_DOWN if state.params.sibling_vessel_name
+                   else GS1_LANDED)
+            moved = _gs1_enter(state, nxt, snapshot.ut, peak)
+            return replace(moved, chute_commanded=chute_commanded,
                            chute_armed_altitude=armed_alt,
                            chute_armed_rate=armed_rate,
                            below_floor_streak=below_floor), actions
@@ -14170,7 +14460,42 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
                        chute_armed_rate=armed_rate,
                        below_floor_streak=below_floor), actions
 
-    return _gs1_stay_or_flake(state, snapshot, peak), stage_actions
+    if state.phase == GS1_SIBLING_DOWN:
+        # BOUNDED WAIT on a vessel this mission never flies. Both exits are OBSERVED
+        # and both are debounced; neither is the machine's own belief about what it
+        # commanded.
+        landed_streak = state.sibling_landed_streak
+        absent_streak = state.sibling_absent_streak
+        if snapshot.sibling_present == 1:
+            absent_streak = 0
+            landed_streak = (landed_streak + 1
+                             if snapshot.sibling_situation in state.params.landed_situations
+                             else 0)
+        elif snapshot.sibling_present == 0 and state.sibling_seen_present:
+            landed_streak = 0
+            absent_streak = absent_streak + 1
+        # sibling_present == -1 (UNREAD) holds BOTH streaks: a faulted enumeration is
+        # evidence in neither direction.
+        state = replace(state, sibling_landed_streak=landed_streak,
+                        sibling_absent_streak=absent_streak)
+
+        if landed_streak >= GS1_SIBLING_DEBOUNCE_K:
+            settled = replace(state, sibling_outcome=snapshot.sibling_situation)
+            return _gs1_enter(settled, GS1_LANDED, snapshot.ut, peak), []
+
+        if absent_streak >= GS1_SIBLING_DEBOUNCE_K:
+            # THE BOOSTER IS GONE - destroyed under canopy or on contact. The
+            # mission CONCLUDES rather than waiting it out or retrying: its job was
+            # to fly the profile and observe the booster's flight END, and that has
+            # happened. Whether it ended the way this scenario REQUIRES is the
+            # SPEC's question, answered by its log contracts and save parse, and a
+            # driver-INVALID here would discard the very evidence they read.
+            settled = replace(state, sibling_outcome=GS1_SIBLING_DESTROYED)
+            return _gs1_enter(settled, GS1_LANDED, snapshot.ut, peak), []
+
+        return _gs1_stay_or_flake(state, snapshot, peak), []
+
+    return _gs1_stay_or_flake(state, snapshot, peak), []
 
 
 def evaluate_gs1_assertions(frames, params: Gs1Params,
@@ -14210,12 +14535,19 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
 
     sep_seen = bool(getattr(state, "separation_seen", False))
     pre_thrust = getattr(state, "pre_stage_thrust", None)
+    # `postStageThrustReads` is the diagnostic flight 1 needed and did not have:
+    # the row reported the PRE-stage thrust beside `met=False`, which reads like
+    # "the split never happened" when the actual cause was that the machine gave up
+    # one poll before the post-split reading arrived. A zero here means the machine
+    # never got to look; a large count with met=False means the thrust really did
+    # not go away, which is the failure the row exists to catch.
     sep = AssertionOutcome(
         "separationObserved", sep_seen,
         pre_thrust if pre_thrust is not None else float("nan"),
         {"debounceK": GS1_SEPARATION_DEBOUNCE_K,
          "thrustEpsilonNewtons": params.separation_thrust_epsilon,
-         "stageCommanded": bool(getattr(state, "stage_commanded", False))})
+         "stageCommanded": bool(getattr(state, "stage_commanded", False)),
+         "postStageThrustReads": int(getattr(state, "post_stage_thrust_reads", 0))})
 
     stage_alt = getattr(state, "stage_altitude", None)
     ceiling_met = (stage_alt is not None and _is_finite(stage_alt)
@@ -14236,11 +14568,497 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
          "armCommanded": bool(getattr(state, "chute_commanded", False)),
          "armCommandedRate": getattr(state, "chute_armed_rate", None),
          "armMaxRate": params.chute_arm_max_rate,
-         "fullDeployAltitude": params.chute_full_deploy_alt})
+         "fullDeployAltitude": params.chute_full_deploy_alt,
+         # The LAST OBSERVED state, so the row says what the canopy was actually
+         # doing instead of only that it was not Deployed. Flight 1's row reported
+         # a bare `value=null` (the arm altitude, absent because the arm never
+         # fired) and nothing about the chute at all; `Stowed` here would have said
+         # "never armed" and `Armed` would have said "armed and never opened",
+         # which are completely different findings.
+         "observedState": getattr(state, "last_chute_state", "") or "UNREAD"})
 
+    # The LANDED row reads the machine's own airborne-gated terminal, not the raw
+    # final situation: KSP reports LANDED well past the pad on this craft, so a
+    # tail-frame read could be satisfied by a flight that never came back down.
+    landed_reached = getattr(state, "phase", None) == GS1_LANDED
     final_situation = frames[-1].situation if frames else None
     sit = AssertionOutcome("landedSituation",
-                           final_situation in params.landed_situations,
+                           landed_reached
+                           and final_situation in params.landed_situations,
                            final_situation,
-                           {"accepted": list(params.landed_situations)})
-    return [apo, sep, ceiling, canopy, sit]
+                           {"accepted": list(params.landed_situations),
+                            "airborneSeen": bool(getattr(state, "airborne_seen", False)),
+                            "landedPhaseReached": bool(landed_reached)})
+
+    # boosterConcluded asserts that the mission WAITED until the stage it does not
+    # fly stopped flying - NOT that the booster landed. That distinction is the
+    # mission-vs-Parsek orthogonality rule: a booster that was destroyed still
+    # concluded, so the mission stays MISSION-OK, the tail runs, the tree commits,
+    # and the SPEC's log contracts red on the CommittedProvisional promotion and the
+    # missing reap. Making this row fail on a destroyed booster would make the run
+    # driver-INVALID and throw away the evidence those contracts read.
+    #
+    # It is UNMET only on a TIMEOUT, which is a real driver failure: the wait was too
+    # short, or the watch never resolved. `observedOutcome` and `lastSituation` are
+    # what tell those two apart without another flight.
+    outcome = getattr(state, "sibling_outcome", "") or ""
+    watched = params.sibling_vessel_name
+    booster = AssertionOutcome(
+        "boosterConcluded",
+        (not watched) or bool(outcome),
+        outcome or None,
+        {"watchedVessel": watched or None,
+         "debounceK": GS1_SIBLING_DEBOUNCE_K,
+         "everObservedPresent": bool(getattr(state, "sibling_seen_present", False)),
+         "lastSituation": getattr(state, "sibling_last_situation", "") or "UNREAD",
+         "landedAccepted": list(params.landed_situations),
+         "destroyedSentinel": GS1_SIBLING_DESTROYED})
+    return [apo, sep, ceiling, canopy, sit, booster]
+
+
+# ---------------------------------------------------------------------------
+# GS-2 / GS-3 phase state machine (mission gs2_orbital_probe_deploy: the
+# IN-ORBIT DEPLOY). Pure.
+#
+# The shortest flight machine in the library, and deliberately so. Its fixture
+# (gs2-orbital-stack, stamped by FORGE-gs2-orbital-stack with parkAttached=true)
+# already holds the ATTACHED two-controllable stack parked on a stable ~100 km
+# circular Kerbin orbit with the throttle cut and no maneuver nodes, so there is
+# no ascent to fly, no node to execute and no ground to reach:
+#
+#   PRELOAD      acts ONCE (throttle cut + SAS stability-assist) so the loaded
+#                state is commanded, not merely inherited: LoadGame restores the
+#                saved control state, but a fixture consumer must not depend on
+#                a value some other spec's SetSetting might have moved.
+#   SETTLE       debounce the loaded state in-gate (accepted situation AND a
+#                periapsis clear of the atmosphere) before touching anything.
+#   DEPLOY       fires exactly ONE stage on entry -- the istg=2 decoupler -- and
+#                waits for vessel_count to rise above the phase-entry baseline.
+#   POST-DEPLOY  dwells so BOTH vessels accumulate real post-split trajectory
+#                before the commit closes the tree, re-checking the same in-gate
+#                predicate the settle used.
+#   DEPLOYED     terminal, MISSION-OK.
+#
+# EXACTLY ONE STAGE ACTIVATION, EVER, and it is a hard property of the machine
+# rather than a budget: DEPLOY emits its ACTIVATE_STAGE on the phase EDGE and
+# never again, and no other branch emits one. On the docking Kerbal X the next
+# stage down (istg=1) is the orbital Skipper, so a second activation would light
+# an engine under a stack that is supposed to be coasting and would move the
+# focus vessel off the orbit the terminal classification depends on.
+#
+# NO FROZEN-TELEMETRY DETECTOR, and that is a decision rather than an omission.
+# The shared `_advance_frozen_count` looks for bit-identical orbit fields while
+# UT advances, which is a DESTROYED-VESSEL signal on a craft that is flying and a
+# FALSE POSITIVE on one that is coasting a stable orbit at 1x. FORGE-LKO reached
+# the same conclusion from the other end: `_FLKO_FROZEN_PHASES` is
+# (ASCENT, CIRCULARIZE) and its PARK phase is deliberately excluded. Every phase
+# here is a park, so the runner-signalled `vessel_lost` terminal is the only loss
+# channel -- which is the right one anyway, since the failure this mission could
+# actually suffer is the focus vessel being destroyed, not its telemetry
+# freezing.
+#
+# WHAT THIS MISSION DOES NOT SEE. kRPC reads the ACTIVE vessel, so the DEPLOYED
+# child is observable only as the vessel_count rise. The child's situation, its
+# recording and every RewindPoint / MergeState / reaper fact are asserted by the
+# SPEC (GS-2 / GS-3 logContracts + the M-C2 saveParse block), never here. That is
+# the mission-vs-Parsek orthogonality the harness README states: a mission that
+# did not fly is driver-INVALID, and a flight Parsek then mishandled is a
+# PARSEK-FAIL through the verifier chain.
+# ---------------------------------------------------------------------------
+
+GS2_PRELOAD = "PRELOAD"
+GS2_SETTLE = "SETTLE"
+GS2_DEPLOY = "DEPLOY"
+GS2_POST_DEPLOY = "POST-DEPLOY"
+GS2_DEPLOYED = "DEPLOYED"
+GS2_PHASES: Tuple[str, ...] = (GS2_PRELOAD, GS2_SETTLE, GS2_DEPLOY,
+                               GS2_POST_DEPLOY, GS2_DEPLOYED)
+
+
+@dataclass(frozen=True)
+class Gs2Params:
+    """GS-2 in-orbit-deploy tuning (spec [driver.missionParams] for
+    gs2_orbital_probe_deploy). Every value is a WINDOW / threshold / budget,
+    never a golden trajectory."""
+    settle_situations: Tuple[str, ...] = ("ORBITING",)
+    settle_debounce: int = 3
+    settle_timeout: float = 120.0
+    deploy_timeout: float = 60.0
+    deploy_debounce: int = 2
+    # GAME seconds the post-split state must run before the mission is done. THE
+    # RECORDING BUDGET: both vessels must accumulate enough trajectory that the
+    # tree the commit closes is not two one-point stubs.
+    post_deploy_dwell: float = 30.0
+    post_deploy_debounce: int = 3
+    post_deploy_timeout: float = 180.0
+    # Periapsis floor (m) BOTH in-gate checks enforce. Kerbin's atmosphere ends
+    # at 70 km, and `RecordingTree.DetermineTerminalState` demotes a terminal
+    # from Orbiting to SubOrbital whenever the periapsis is inside it -- which
+    # would silently disarm the focus-slot gate this lane exists to measure.
+    min_safe_periapsis: float = 75000.0
+    # THE DEPLOYED VESSEL, watched by NAME through the shared sibling channel
+    # (ACTION_SET_SIBLING_WATCH). "" DISABLES the gate, in the same discipline as
+    # ForgeLkoParams.min_crew: an unarmed watch reads the UNREAD sentinel pair and
+    # its assertion row is auto-met, so no pre-existing mission is affected.
+    #
+    # WHY THIS EXISTS, and it is GS-1 flight 3's lesson applied before it could
+    # bite here rather than after. kRPC telemetry is ACTIVE-VESSEL-SCOPED, so a
+    # mission that watches only the focus vessel is BLIND to the one this
+    # scenario deploys - and the SCENE EXIT is what stamps a recording's terminal
+    # state, so a sibling that is not where the scenario claims at exit closes
+    # with a terminal nobody asserted. GS-1 flew that exact hole: its booster was
+    # still descending when the exit fired and its recording closed SubOrbital.
+    #
+    # It bites DIFFERENTLY here, and more quietly. GS-2's required log tokens
+    # would still PASS with a SubOrbital deployed leaf, because
+    # `TerminalOutcomeQualifiesInternal` sends Orbiting AND SubOrbital down the
+    # SAME non-focus branch (UnfinishedFlightClassifier.cs:270, :334) and both
+    # return `stableLeafUnconcluded` - GS-1 flight 3 MEASURED the SubOrbital half
+    # of that. So the promotion fires, the RP still does not reap, every token is
+    # green, and the run has quietly measured a different scenario from the one
+    # it describes. This row is what makes "both halves stay Orbiting" a
+    # MEASURED premise instead of an assumed one.
+    #
+    # It also de-risks GS-3 for free: GS-3 targets this vessel BY NAME with
+    # `SimulateStockSwitchClick`, and a name that does not resolve is a whole
+    # wasted flight. GS-2 reads the name first.
+    sibling_vessel_name: str = ""
+
+
+def gs2_params_from_dict(params: Dict) -> Gs2Params:
+    """Build ``Gs2Params`` from a spec ``missionParams`` dict. Tolerant of
+    int/float; every default matches the dataclass so an absent optional key
+    behaves identically to an explicitly-defaulted one."""
+    params = params or {}
+    return Gs2Params(
+        settle_situations=tuple(params.get("settleSituations", ("ORBITING",))),
+        settle_debounce=int(params.get("settleDebounceFrames", 3)),
+        settle_timeout=float(params.get("settleTimeoutSeconds", 120)),
+        deploy_timeout=float(params.get("deployTimeoutSeconds", 60)),
+        deploy_debounce=int(params.get("deployDebounceFrames", 2)),
+        post_deploy_dwell=float(params.get("postDeployDwellSeconds", 30)),
+        post_deploy_debounce=int(params.get("postDeployDebounceFrames", 3)),
+        post_deploy_timeout=float(params.get("postDeployTimeoutSeconds", 180)),
+        min_safe_periapsis=float(params.get("minSafePeriapsisMeters", 75000)),
+        sibling_vessel_name=str(params.get("siblingVesselName", "") or ""),
+    )
+
+
+@dataclass(frozen=True)
+class Gs2State:
+    """GS-2 machine state. ``verdict`` is None while running; a per-phase budget
+    overrun sets MISSION-FLAKE with ``flake_phase`` naming the stuck phase.
+    ``done`` is True at DEPLOYED (flew to completion; the assertions then decide
+    OK vs ASSERT-FAIL) or on a flake / vessel loss."""
+    params: Gs2Params
+    phase: str = GS2_PRELOAD
+    phase_entry_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (GS2_PRELOAD,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    done: bool = False
+    loss_reason: Optional[str] = None
+    # SETTLE debounce.
+    settle_streak: int = 0
+    # DEPLOY evidence. The baseline is captured on the phase EDGE, in the same
+    # frame the single ACTIVATE_STAGE is emitted, so the rise it is compared
+    # against can only be the split.
+    deploy_baseline_vessel_count: int = 0
+    deploy_peak_vessel_count: int = 0
+    deploy_split_streak: int = 0
+    # COMMANDED: how many ACTIVATE_STAGE actions this machine has emitted. The
+    # `singleStageActivation` row reads it, and it is a commanded fact no
+    # telemetry scan could recover.
+    stage_activations: int = 0
+    # Carried evidence for the evaluator (LATCHED, so a vessel_count read that
+    # faults after the split cannot erase something that really happened).
+    split_ever_confirmed: bool = False
+    split_ut: Optional[float] = None
+    # POST-DEPLOY stability debounce + its latch.
+    post_stable_streak: int = 0
+    post_ever_stable: bool = False
+    # OBSERVED sibling latches (the deployed vessel). `sibling_present == 1` is the
+    # only reading that earns `sibling_seen_present`, and it must be earned before an
+    # ABSENT reading is allowed to mean anything: BEFORE the split the vessel does not
+    # exist, so `("", 0)` is the CORRECT reading of a healthy run and is
+    # indistinguishable from a misspelled watch name until presence has been seen
+    # once. `sibling_last_situation` keeps the last NON-EMPTY situation, so a single
+    # faulted poll on the final frame cannot erase what the run observed.
+    sibling_seen_present: bool = False
+    sibling_last_situation: str = ""
+
+
+def gs2_initial_state(params: Gs2Params) -> Gs2State:
+    return Gs2State(params=params)
+
+
+def _gs2_enter(state: Gs2State, new_phase: str, ut: float, **fields) -> Gs2State:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state, phase=new_phase, phase_entry_ut=entry,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == GS2_DEPLOYED), **fields)
+
+
+def _gs2_phase_budget(params: Gs2Params, phase: str) -> Optional[float]:
+    if phase == GS2_SETTLE:
+        return params.settle_timeout
+    if phase == GS2_DEPLOY:
+        return params.deploy_timeout
+    if phase == GS2_POST_DEPLOY:
+        return params.post_deploy_timeout
+    return None
+
+
+def _gs2_over_budget(state: Gs2State, snapshot: TelemetrySnapshot) -> bool:
+    budget = _gs2_phase_budget(state.params, state.phase)
+    if budget is None or not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _gs2_flake(state: Gs2State, reason: Optional[str] = None) -> Gs2State:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def gs2_in_gate(params: Gs2Params, snapshot: TelemetrySnapshot) -> bool:
+    """One frame's in-gate verdict, shared by SETTLE and POST-DEPLOY: an accepted
+    orbital situation AND a periapsis clear of the atmosphere floor. Both
+    conjuncts fail CLOSED on a non-finite read (SF-2 discipline) -- an unreadable
+    periapsis is never counted as safe."""
+    if snapshot.situation not in params.settle_situations:
+        return False
+    if not _is_finite(snapshot.periapsis):
+        return False
+    return snapshot.periapsis >= params.min_safe_periapsis
+
+
+def _gs2_preload_actions() -> List[Action]:
+    """Commanded once, on the PRELOAD edge: throttle CUT (nothing in this mission
+    ever burns, and a non-zero throttle inherited from a save would move the
+    orbit the terminal classification reads) and SAS stability-assist ON (so the
+    focus vessel holds attitude through the decoupler's ejection impulse instead
+    of tumbling into the vessel it just released)."""
+    return [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_SET_SAS)]
+
+
+def gs2_decide(state: Gs2State, snapshot: TelemetrySnapshot
+               ) -> Tuple[Gs2State, List[Action]]:
+    """Advance the GS-2 machine one frame; return (new_state, actions).
+
+    Terminals: MISSION-OK at GS2_DEPLOYED (the assertions then judge the run);
+    ASSERT-FAIL on a vessel loss; a bounded FLAKE with a NAMED reason on every
+    phase give-up. A stuck decoupler is a retryable driver flake, never a
+    PARSEK-FAIL -- the Parsek surfaces this lane cares about are asserted by the
+    spec's log contracts and its saveParse block, and a mission that did not fly
+    must not be allowed to look like a product defect."""
+    if state.done:
+        return state, []
+
+    # Phase-independent vessel-loss terminal. There is no launch reload here (the
+    # fixture is already in FLIGHT), so no phase is exempt. See the module block
+    # for why there is no frozen-telemetry detector.
+    if snapshot.vessel_lost:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost (unreadable after repeated telemetry "
+                         "failures)")), []
+
+    # OBSERVED sibling latches, advanced before any phase branch so every phase
+    # contributes. The UNREAD pair ("", -1) and the enumerated-absent pair ("", 0)
+    # BOTH leave the latches untouched: neither proves the deployed vessel is there,
+    # and neither may erase a presence already observed. Skipped entirely on a
+    # vessel_lost frame, whose other fields carry benign defaults.
+    if not snapshot.vessel_lost and snapshot.sibling_present == 1:
+        state = replace(state, sibling_seen_present=True)
+        if snapshot.sibling_situation:
+            state = replace(state, sibling_last_situation=snapshot.sibling_situation)
+
+    p = state.params
+
+    if state.phase == GS2_PRELOAD:
+        # Arm the sibling watch on the FIRST frame, exactly as GS-1 does. The
+        # deployed vessel does not exist until the DEPLOY phase stages, so it reads
+        # ABSENT until then - which is why `sibling_seen_present` has to be EARNED
+        # before an absent reading is allowed to mean anything.
+        actions = _gs2_preload_actions()
+        if p.sibling_vessel_name:
+            actions.insert(0, Action(ACTION_SET_SIBLING_WATCH,
+                                     text=p.sibling_vessel_name))
+        return _gs2_enter(state, GS2_SETTLE, snapshot.ut), actions
+
+    if state.phase == GS2_SETTLE:
+        # CAPPED at the debounce depth: the streak is a DIFFED status field and
+        # the gate below tests only `>=`, so the cap is behaviour-identical while
+        # keeping the status block from churning every frame (the same change the
+        # B5 and FORGE-LKO park branches took).
+        streak = (min(state.settle_streak + 1, p.settle_debounce)
+                  if gs2_in_gate(p, snapshot) else 0)
+        st = replace(state, settle_streak=streak)
+        if streak >= p.settle_debounce:
+            # THE ONE STAGE ACTIVATION OF THE WHOLE MISSION, emitted on the edge
+            # together with the baseline it will be judged against.
+            return (_gs2_enter(st, GS2_DEPLOY, snapshot.ut,
+                               deploy_baseline_vessel_count=int(
+                                   snapshot.vessel_count or 0),
+                               deploy_peak_vessel_count=int(
+                                   snapshot.vessel_count or 0),
+                               deploy_split_streak=0,
+                               stage_activations=st.stage_activations + 1),
+                    [Action(ACTION_ACTIVATE_STAGE)])
+        if _gs2_over_budget(st, snapshot):
+            return _gs2_flake(st, (
+                "phase %s: the loaded fixture never settled in %s with periapsis "
+                ">= %.0f m (situation=%s pe=%.0f)"
+                % (GS2_SETTLE, list(p.settle_situations), p.min_safe_periapsis,
+                   snapshot.situation or "?", snapshot.periapsis))), []
+        return st, []
+
+    if state.phase == GS2_DEPLOY:
+        count = int(snapshot.vessel_count or 0)
+        # A count of 0 is the UNREAD sentinel (TelemetrySnapshot.vessel_count
+        # documents it as such), so it can never satisfy the rise: `count > 0`
+        # is part of the predicate, not defensive noise.
+        rose = (count > 0 and state.deploy_baseline_vessel_count > 0
+                and count > state.deploy_baseline_vessel_count)
+        streak = (min(state.deploy_split_streak + 1, p.deploy_debounce)
+                  if rose else 0)
+        st = replace(state, deploy_split_streak=streak,
+                     deploy_peak_vessel_count=max(state.deploy_peak_vessel_count,
+                                                  count))
+        if streak >= p.deploy_debounce:
+            return (_gs2_enter(st, GS2_POST_DEPLOY, snapshot.ut,
+                               split_ever_confirmed=True,
+                               split_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                         else st.split_ut),
+                               post_stable_streak=0), [])
+        if _gs2_over_budget(st, snapshot):
+            return _gs2_flake(st, (
+                "phase %s: no split observed after the stage activation "
+                "(vessel_count stayed at %d against baseline %d)"
+                % (GS2_DEPLOY, st.deploy_peak_vessel_count,
+                   st.deploy_baseline_vessel_count))), []
+        return st, []
+
+    if state.phase == GS2_POST_DEPLOY:
+        stable = gs2_in_gate(p, snapshot)
+        streak = (min(state.post_stable_streak + 1, p.post_deploy_debounce)
+                  if stable else 0)
+        st = replace(state, post_stable_streak=streak,
+                     post_ever_stable=(state.post_ever_stable
+                                       or streak >= p.post_deploy_debounce))
+        # SAME WORDING CAVEAT AS THE FORGE-LKO / B5 PARK GATES: the dwell runs
+        # from phase_entry_ut, not from the first stable frame, so this means
+        # "in-gate now, and the phase has been running for the dwell", NOT
+        # "in-gate continuously through the dwell".
+        dwelled = (_is_finite(snapshot.ut)
+                   and (snapshot.ut - st.phase_entry_ut) >= p.post_deploy_dwell)
+        if streak >= p.post_deploy_debounce and dwelled:
+            return _gs2_enter(st, GS2_DEPLOYED, snapshot.ut), []
+        if _gs2_over_budget(st, snapshot):
+            if st.post_ever_stable:
+                return _gs2_flake(st, (
+                    "phase %s: the focus vessel reached the post-deploy gate at "
+                    "least once but was not in-gate at the end of the %.0f s "
+                    "dwell (the dwell is measured from phase entry, not from "
+                    "first stability)" % (GS2_POST_DEPLOY, p.post_deploy_dwell))), []
+            return _gs2_flake(st, (
+                "phase %s: the focus vessel never held the post-deploy gate "
+                "(situation=%s pe=%.0f accepted=%s floor=%.0f)"
+                % (GS2_POST_DEPLOY, snapshot.situation or "?", snapshot.periapsis,
+                   list(p.settle_situations), p.min_safe_periapsis))), []
+        return st, []
+
+    return _gs2_flake(state, "phase %s: unreachable state" % state.phase), []
+
+
+def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
+                            state=None) -> List[AssertionOutcome]:
+    """GS-2 driver-validity assertions. FIVE rows, four of them reading
+    MACHINE-CARRIED evidence rather than re-deriving from the frame tail.
+
+    - ``settled``:     GS2_DEPLOY reached, i.e. the loaded fixture held the
+      in-gate predicate for the debounce before anything was staged.
+    - ``deployObserved``: the split latch is set AND the machine advanced to
+      POST-DEPLOY. The detail carries the baseline and the peak vessel_count so a
+      run that flaked is diagnosable without the frame dump.
+    - ``singleStageActivation``: EXACTLY one ACTIVATE_STAGE was emitted. On the
+      docking Kerbal X the next stage down is the orbital Skipper, so a second
+      activation would light an engine under a coasting stack; the row is here so
+      a future machine edit that added one reds in the unit suite's spirit rather
+      than in a flight.
+    - ``focusStillOrbiting``: GS2_DEPLOYED reached AND the FINAL frame's situation
+      is an accepted one. This is the mission-side half of what the spec then
+      asserts about the terminal classification.
+    - ``periapsisSafe``: the LAST FINITE periapsis clears the floor. Scanning for
+      the last finite read (rather than taking frames[-1]) means an unreadable
+      final frame cannot fabricate a pass; a run with NO finite read at all is
+      UNMET.
+    - ``deployedSiblingOrbiting``: the vessel the deploy RELEASED was seen present
+      at least once AND its last observed situation is an accepted one. AUTO-MET
+      when no `siblingVesselName` is configured (the gate is off), in the same
+      discipline as FORGE-LKO's `crewAboard` / `minCrew`. This is the ONLY row that
+      says anything about the vessel this scenario is actually about: kRPC
+      telemetry is active-vessel-scoped, and without it the mission is blind to the
+      deployed leaf. It is an ASSERT-FAIL row rather than a report, and
+      deliberately: an UNMET mission SKIPS the world-mutating tail, so a run whose
+      deploy did not produce an orbiting vessel never commits a tree that would
+      have been misread as this scenario's evidence.
+    """
+    frames = list(frames or [])
+    phases = tuple(phases_reached or ())
+
+    settled = AssertionOutcome(
+        "settled", GS2_DEPLOY in phases,
+        (phases[-1] if phases else None),
+        {"required": GS2_DEPLOY, "accepted": list(params.settle_situations)})
+
+    split_ev = bool(getattr(state, "split_ever_confirmed", False))
+    deploy_met = split_ev and (GS2_POST_DEPLOY in phases)
+    deploy = AssertionOutcome(
+        "deployObserved", deploy_met,
+        (GS2_POST_DEPLOY if GS2_POST_DEPLOY in phases
+         else (phases[-1] if phases else None)),
+        {"required": GS2_POST_DEPLOY, "splitConfirmed": split_ev,
+         "baselineVesselCount": int(
+             getattr(state, "deploy_baseline_vessel_count", 0)),
+         "peakVesselCount": int(getattr(state, "deploy_peak_vessel_count", 0)),
+         "splitUT": getattr(state, "split_ut", None)})
+
+    activations = int(getattr(state, "stage_activations", 0))
+    single_stage = AssertionOutcome(
+        "singleStageActivation", activations == 1, activations,
+        {"expected": 1})
+
+    final_situation = frames[-1].situation if frames else None
+    focus_met = (GS2_DEPLOYED in phases
+                 and final_situation in params.settle_situations)
+    focus = AssertionOutcome(
+        "focusStillOrbiting", focus_met, final_situation,
+        {"required": GS2_DEPLOYED, "accepted": list(params.settle_situations)})
+
+    pe_last = None
+    for f in frames:
+        value = getattr(f, "periapsis", float("nan"))
+        if _is_finite(value):
+            pe_last = float(value)
+    pe_met = (pe_last is not None and pe_last >= params.min_safe_periapsis)
+    periapsis = AssertionOutcome(
+        "periapsisSafe", pe_met, pe_last,
+        {"floor": params.min_safe_periapsis})
+
+    sibling_name = params.sibling_vessel_name
+    sibling_seen = bool(getattr(state, "sibling_seen_present", False))
+    sibling_situation = str(getattr(state, "sibling_last_situation", "") or "")
+    sibling_met = (not sibling_name
+                   or (sibling_seen and sibling_situation in params.settle_situations))
+    sibling = AssertionOutcome(
+        "deployedSiblingOrbiting", sibling_met,
+        (sibling_situation or None),
+        {"watchedVessel": sibling_name or None,
+         "seenPresent": sibling_seen,
+         "accepted": list(params.settle_situations)})
+
+    return [settled, deploy, single_stage, focus, periapsis, sibling]

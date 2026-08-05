@@ -4538,6 +4538,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
         "GS-1-auto-chute-booster.toml":     "unflown - operator tier until its fixture is forged and it flies green",
+        # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
+        # flying the live-proven forge_lko ascent with the new parkAttached=true,
+        # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
+        # fixture is not committed yet; that debt rides the `pending-flight` tag
+        # and GS-2's STATUS block, not an operator-REVIEW debt.
+        "FORGE-gs2-orbital-stack.toml":     "forge-mechanism - manual by design; fixture pending its forge run",
+        # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
+        # both are unflown and both consume a fixture the forge above has yet to
+        # produce, so neither can sit on a cadence. Promotion is a later human
+        # call after the report-only reading run and the arming sequence each
+        # header specifies. GS-3 additionally must not be promoted before GS-2 has
+        # flown - its entire value is the DIFFERENCE from GS-2's outcome, and a
+        # difference measured against an unflown baseline is not a difference.
+        "GS-2-orbital-probe-deploy.toml":   "unflown - operator tier until its fixture is forged and it flies green",
+        "GS-3-switch-nudge-deployed.toml":  "unflown - operator tier until GS-2 has flown and its predicted divergence is measured",
     }
 
     def _specs(self):

@@ -1,0 +1,512 @@
+schema = 1
+id = "GS-2-orbital-probe-deploy"
+# =====================================================================================
+# THE ORBITAL DEPLOY, AND THE FOCUS GATE. An attached two-controllable stack is parked
+# in a stable ~100 km Kerbin orbit with a recording running. The player stages once: a
+# decoupler fires IN ORBIT and the stack becomes two vessels, both still loaded, both
+# still Orbiting. Focus stays with the crewed pod stack. Then the player leaves.
+#
+# WHAT MUST HAPPEN, and it is the EXACT INVERSION of GS-1's both-reap direction:
+#   - the NON-FOCUS leaf (the released vessel, Orbiting) qualifies as an UNFINISHED
+#     FLIGHT, is demoted to CommittedProvisional, and opens a row the player can go
+#     back and fly;
+#   - the FOCUS leaf (the pod stack, also Orbiting) does NOT, because the engagement
+#     the player is still flying is not "unfinished";
+#   - and BECAUSE one slot is CommittedProvisional, the RewindPoint the split authored
+#     is NOT reap-eligible and SURVIVES on disk.
+#
+# This is scenario S17 / S19b of docs/dev/research/extending-rewind-to-stable-leaves.md
+# section 8, and it is the design doc's never-written
+# `InvertedFocusBoosterUpperStageOrbitingTest`
+# (docs/parsek-rewind-to-separation-design.md section 13.2): a booster and an upper
+# stage, focus on the upper stage, both Orbiting. GS-1 explicitly disclaims this
+# direction ("The Orbiting / focus-gate direction ... is a SEPARATE lane and is not
+# claimed here"). This is that lane, and it is the FIRST live exercise of the R5
+# focus-slot gate.
+#
+# =====================================================================================
+# THE FOUR CODE FACTS THIS SPEC RESTS ON. Every one was read rather than assumed,
+# because three of them are the kind that would make the run pass while proving
+# nothing.
+#
+# (1) AN ORBITAL DECOUPLER AUTHORS A REWINDPOINT EXACTLY LIKE AN ATMOSPHERIC ONE.
+#     The whole authoring path was re-read for an atmosphere / altitude / situation /
+#     packed gate and there is NONE. It flows exactly as GS-1's header describes it:
+#     the deferred split check feeds the crash coalescer -> `ProcessBreakupEvent`
+#     builds `breakupControllablePairs` INCLUDING the surviving parent
+#     (ParsekFlight.cs:7550-7553) -> `TryAuthorRewindPointForBreakup`
+#     (ParsekFlight.cs:7635) -> `SegmentBoundaryLogic.IdentifyControllableChildren`,
+#     which filters ONLY by `ParsekFlight.IsTrackableVessel` (ParsekFlight.cs:4218-4236:
+#     vesselType == SpaceObject, or isEVA, or a part carrying ModuleCommand) ->
+#     `IsMultiControllableSplit(count)` = `count >= 2` (SegmentBoundaryLogic.cs:446) ->
+#     `RewindPointAuthor.Begin` (RewindPointAuthor.cs:52). The ONLY environment gate
+#     anywhere on it is `HighLogic.LoadedScene != GameScenes.FLIGHT`
+#     (RewindPointAuthor.cs:82), which is a SCENE check, not a situation check.
+#
+# (2) BOTH SIDES OF THIS DECOUPLER CARRY A ModuleCommand, which is what makes the
+#     split MULTI-controllable and the whole scenario non-vacuous. Verified by walking
+#     the committed docking `Kerbal X.craft`'s own part tree and cutting it at the
+#     istg=2 `Decoupler.2`: ABOVE = mk1-3pod (crewed) + dockingPort2 + the Skipper
+#     orbital stage, 28 parts, and it keeps the ROOT so it keeps FOCUS; BELOW = the
+#     spent Rockomax core carrying `probeStackLarge`, the RC-L01 Remote Guidance Unit,
+#     21 parts after the ascent has shed the radial boosters. The 28/21 split and the
+#     released vessel's NAME ("Kerbal X Probe") are not derivations - EVA-2 and
+#     S0.8-switch-click-segment both MEASURED them on eva2-lko-crewed, which this same
+#     decoupler produced. If only one side were controllable,
+#     `TryAuthorRewindPointForBreakup` would log `Single-controllable split: no RP`
+#     and this scenario would silently become a plain orbital coast, which is why the
+#     `controllablePids=2` literal below is a REQUIRED token rather than a comment.
+#
+# (3) THE FOCUS SLOT IS STAMPED FROM THE ACTIVE VESSEL AT AUTHORING TIME.
+#     `RewindPointAuthor.cs:134` sets `FocusSlotIndex = ResolveFocusSlotIndex(...)`,
+#     which (RewindPointAuthor.cs:414-453) matches the slot whose origin recording's
+#     vessel pid equals `FlightGlobals.ActiveVessel.persistentId`, and returns -1 when
+#     nothing matches. It is logged at Info, inside the authoring line, as
+#     `focusSlot={rp.FocusSlotIndex}` - and GS-1's flight 1 (2026-08-05) MEASURED that
+#     line reading `slots=2 controllablePids=2 focusSlot=0` on a real staging split, so
+#     the shape below is measured, not guessed. The `focusSlot=[01]` literal is the
+#     NON-VACUITY: `focusSlot=-1` does not match it, and -1 is exactly the value that
+#     would make `UnfinishedFlightClassifier` return `noFocusSignalOrbiting` for BOTH
+#     slots (UnfinishedFlightClassifier.cs:294-296) and quietly disarm this scenario.
+#
+# (4) THE TERMINAL MUST READ `Orbiting`, NOT `SubOrbital`, OR THE GATE DOES NOT FIRE.
+#     `UnfinishedFlightClassifier.cs:313-322` is the focus-slot gate, and it tests
+#     `slotListIndex == rp.FocusSlotIndex && terminal.Value == TerminalState.Orbiting`.
+#     A focus leaf that closed SubOrbital falls through to `stableLeafUnconcluded` and
+#     would be promoted too - the run would still emit a promotion token and the
+#     focus-gate novelty would go unproven. And
+#     `RecordingTree.DetermineTerminalState` (RecordingTree.cs:869-905) DEMOTES
+#     Orbiting to SubOrbital whenever the periapsis is inside the atmosphere. That is
+#     why the fixture parks at ~100 km rather than 80, why the mission's
+#     `minSafePeriapsisMeters` gate is 75 km, and why `terminalStates.Orbiting` is in
+#     the report-only structure block: it is the single save-side fact that decides
+#     whether this run measured the gate or merely walked past it.
+#
+# =====================================================================================
+# WHAT PROVES THE VERDICT, and the honest split between what is Info and what is not.
+#
+# THE POSITIVE HALF IS INFO AND IS REQUIRED. `RecordingStore.ApplyRewindProvisionalMergeStates`
+# emits, at Info, on a demotion to CommittedProvisional (RecordingStore.cs:1235):
+#     CommitTree promoted rec=<id> vessel='<name>' slot=<n> rp=<rp> reason=<r> to CommittedProvisional
+# and its chain-tip twin (RecordingStore.cs:1265). The required pattern below accepts
+# EITHER spelling and PINS `reason=stableLeafUnconcluded`, which is the exact reason
+# string `TerminalOutcomeQualifiesInternal` returns at UnfinishedFlightClassifier.cs:334
+# for a NON-FOCUS Orbiting leaf. Pinning the reason is what makes the token
+# non-vacuous: a promotion for `crashed` or `strandedEva` would be a different
+# scenario wearing this one's clothes.
+#
+# THE NON-REAP IS THE STRONGER HALF, AND IT IS ONLY AVAILABLE AT VERBOSE.
+# `RewindPointReaper.IsReapEligible` (RewindPointReaper.cs:184-222) returns false the
+# moment ANY slot's effective tip reads NotCommitted or CommittedProvisional - and it
+# is COMPLETELY SILENT when it does. It emits no log call at any level. The refusal is
+# therefore observable only through the caller's summary, and the "nothing was
+# eligible" summary is Verbose (RewindPointReaper.cs:125-126):
+#     ReapOrphanedRPs: reaped=0 remaining=<N>
+# `remaining=[1-9][0-9]*` is what turns that into an assertion rather than a
+# tautology: it says an RP EXISTS and SURVIVED the sweep. Its sibling at
+# RewindPointReaper.cs:91-92 reads `reaped=0 remaining=0` and would NOT match, so a
+# run whose RP was never authored cannot satisfy it. This is why `verboseLogging=true`
+# is a MANDATORY step here and not the convenience it is in GS-1.
+# The complement is FORBIDDEN: `Reaped rp=` (RewindPointReaper.cs:155, Info) must not
+# appear at all. GS-1 REQUIRES that exact token; this spec forbids it. Between them
+# the two specs pin both branches of one predicate.
+#
+# THE FOCUS-SLOT VERDICT ITSELF IS DELIBERATELY NOT REQUIRED, and this is the one
+# place the spec is weaker than it looks. `LogVerdict` goes through
+# `ParsekLog.VerboseRateLimited` (UnfinishedFlightClassifier.cs:940-948), and the focus
+# gate's line renders:
+#     IsUnfinishedFlight=false rec=<id> reason=stableTerminalFocusSlot slot=<n> focusSlot=<n> terminal=Orbiting side=<...>
+# It is the DIRECT statement of everything this scenario is named for, and it is the
+# FIRST thing to grep on the reading run. It is not required because it is reachable
+# only if `ApplyRewindProvisionalMergeStates` gets as far as calling `TryQualify` for
+# the focus recording, and the earlier slot-resolution gates
+# (UnfinishedFlightClassifier.cs:53-91) take a DIFFERENT Verbose branch
+# (`not promoted reason=<slotRejectReason>`) when they do not. Requiring a token whose
+# reachability is inferred rather than measured is how an unflown spec reds on itself.
+# ARM IT AFTER THE READING RUN if it appears - it is the single best arming candidate
+# this spec has.
+#
+# =====================================================================================
+# THE COMMIT ROUTE IS `ExitToSpaceCenter`, FOR GS-1'S REASON EXACTLY.
+# `RewindPointReaper.ReapOrphanedRPs` runs from `ParsekScenario.OnLoad`, and a
+# `CommitTree` + `FlushAndQuit` tail never leaves FLIGHT, so no OnLoad ever runs and
+# the reaper is never reached. Here that would be worse than in GS-1: the assertion is
+# that the reaper RAN AND DECLINED, and a reaper that never ran produces the same
+# on-disk RP as one that declined. `ExitToSpaceCenter` reaches
+# `AutoCommitPendingTreeOutsideFlight("scene-exit")` (ParsekScenario.cs:3552) and then
+# `rewind-point-reap` (ParsekScenario.cs:3645) inside ONE OnLoad, in that order, which
+# is what makes a single run enough.
+# `SetSetting autoMerge=true` is MANDATORY, not stylistic: without it
+# `TestCommandExitToSpaceCenter.DecideExitGate` reports `RefusedActiveTreeDialog`
+# (TestCommandExitToSpaceCenter.cs:108-109) and the run proves nothing.
+#
+# NO `StopRecording`, deliberately: the scene-exit interceptor finalizes the tree
+# itself, which is also what sets the terminal states the classifier reads. Note that
+# the `StartRecording` step makes `hlib.spec_expects_live_recording` TRUE, so
+# REC-001/REC-003 stay MANDATORY and the run must still emit a Recorder
+# "Recording stopped" line - which the scene-exit finalize does
+# (FlightRecorder.cs:7141 / :9854).
+#
+# =====================================================================================
+# STATUS: UNFLOWN, and its fixture does not exist yet.
+#
+# `fixtures/saves/gs2-orbital-stack` is produced by `FORGE-gs2-orbital-stack` (the
+# live-proven forge_lko ascent with the new `parkAttached=true`, which skips the
+# SEPARATE phase so the stack is stamped ATTACHED) plus
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name gs2-orbital-stack \
+#       --expect-situation ORBITING
+# When the harvest lands, add `gs2-orbital-stack` to `EXPECTED_SCENARIO_PRESENCE` in
+# `harness/lib/test_saveparse.py` in the SAME commit (that sweep pins the committed
+# fixture set exactly and will red otherwise).
+#
+# PLANNED ARMING, per the S4.1 / CL-3 three-run discipline. `[expectations.rewind]` and
+# `[expectations.recordings.structure]` below are REPORT-ONLY (no `gating` key). The
+# sequence is: (1) a report-only READING run that MEASURES the facets; (2) if and only
+# if the measurement matches the windows declared here, arm `[expectations.rewind]`
+# with `gating = true` and add this spec to `ARMED_ALLOWLIST` in
+# `test_hlib.py::SaveStructureVerifierWiringTests` in the same commit, citing the run
+# ids; (3) a NEGATIVE CONTROL. Do NOT arm off this file's declarations alone.
+#
+# THE MEASUREMENT THAT MATTERS MOST is `rewindPoints = { min = 1 }`. That IS the
+# non-reap, read out of the produced save rather than out of the log, and it is the
+# half the log tokens cannot give: a `reaped=0` line proves the sweep declined, and a
+# nonzero RP count in the .sfs proves the object is still there to be flown.
+#
+# ITS SIBLING IS `GS-3-switch-nudge-deployed`, which flies THIS EXACT FIXTURE and THIS
+# EXACT MISSION plus ONE `SimulateStockSwitchClick`, and predicts the OPPOSITE outcome
+# for a code reason stated in its own header. The two are a controlled A/B on a single
+# variable; read them together.
+# =====================================================================================
+tier = "operator"
+description = "In-orbit deploy: an attached two-controllable stack parked at ~100 km fires its decoupler, both halves stay Orbiting, and the commit opens an Unfinished Flight on the NON-FOCUS leaf only (reason=stableLeafUnconcluded) while the focus leaf stays Immutable - so the staging RewindPoint is NOT reap-eligible and survives on disk."
+instanceProfile = "stock-minimal"
+tags = ["GS2", "rewind", "unfinished-flights", "focus-gate", "staging", "orbital", "auto-merge", "scene-exit", "pending-fixture"]
+
+[fixture]
+# PRODUCED BY FORGE-gs2-orbital-stack + harvest_bdock_station.py --target-name
+# gs2-orbital-stack --expect-situation ORBITING. See the STATUS block above.
+#
+# WHAT IT HOLDS: ONE vessel - the ATTACHED docking Kerbal X with its spent Rockomax
+# core still bolted on - parked on a stable ~100 km circular Kerbin orbit, throttle
+# cut, no maneuver nodes, not tumbling, TWO crew aboard, with no recordings, no trees
+# and no ledger state. SANDBOX, inherited from the forge base: nothing here asserts a
+# ledger fact and nobody dies.
+#
+# The crew is LOAD-BEARING rather than flavour: mk1-3pod's ModuleCommand carries
+# minimumCrew = 1, so an empty pod is an UNCONTROLLED stack. It has no other
+# consequence - the kerbals stay in orbit, which is precisely the "engagement the
+# player is still flying" the focus gate exists to protect.
+#
+# ALSO IN THE SAVE, inherited from the forge's ascent and disclosed because a reader
+# will see them in the analyzer output: the landed remnants of the six radial boosters,
+# hundreds of km downrange, never loaded and never recorded.
+#
+# The harvested fixture inherits the forge base's INERT `SCENARIO{name=ParsekScenario}`
+# node, which is the CL-1 trap: the seam's FLIGHT focus route does not run
+# `UpdateScenarioModules` (autotest-status known-gate 6), so a fixture without that
+# node never gets the ScenarioModule added, `OnSave` never runs, and the entire flight
+# is recorded in memory and thrown away.
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs2_orbital_probe_deploy"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be TOML-scoped to driver.missionParams.steps and
+# the spec would validate as having ZERO steps).
+#
+# EIGHT STEPS.
+#   - `autoRecordOnLaunch=false`: nothing launches here (the fixture is already in
+#     FLIGHT), so the trigger is irrelevant to the flight but pinning it off keeps a
+#     stale save-side setting from opening a second recording.
+#   - `autoMerge=true` BEFORE the flight, so the setting is live on every path the exit
+#     interceptor can take. MANDATORY - see the header.
+#   - `verboseLogging=true`. MANDATORY here, unlike in GS-1: the non-reap token below
+#     is Verbose (the reaper's refusal is silent), so without this step the run's
+#     central assertion is unobservable.
+#   - `StartRecording`, the explicit trigger. This is what makes
+#     `hlib.spec_expects_live_recording` TRUE and keeps REC-001/REC-003 mandatory.
+#   - the mission: settle, ONE stage activation, dwell.
+#   - `ExitToSpaceCenter`, the commit AND the reaper, in one OnLoad. Its 120 s budget
+#     matches its C# `DeferralBudget`. `hlib.SEAM_VERB_POST_MISSION_ROLE` classes it
+#     `recording`, not `outcome`, so its verdict does not gate as
+#     PARSEK-FAIL(mission-outcome) - whether the commit and the classification then
+#     happened is proven by the grep-stable tokens below, which is the intended
+#     carve-out. And because `hlib.SEAM_VERB_TAIL_ROLE` classes it WORLD-MUTATING, an
+#     UNMET mission runs the cleanup tail only and SKIPS it, so a failed attempt never
+#     commits a junk tree.
+#
+# Deliberately ABSENT: no `CommitTree` (it would succeed and never reach the reaper),
+# no `StopRecording` (the scene-exit interceptor finalizes the tree itself), no
+# `RunTests` (this spec owns no in-game batch, which keeps it out of
+# `CommittedBatchTallySourceSyncTests` entirely).
+steps = [
+  { cmd = "LoadGame",        args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",      args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",      args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",      args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK" },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 300 },
+  { cmd = "ExitToSpaceCenter",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# Mission parameters are TOLERANCES / WINDOWS / BUDGETS, never golden trajectories;
+# validated against gs2_orbital_probe_deploy.schema.toml. There is no trajectory to
+# tune here at all - the fixture is already parked and the mission's whole job is
+# "settle, fire ONE stage, watch the vessel count rise, dwell".
+[driver.missionParams]
+# ORBITING and nothing else. See code fact (4) in the header: the focus-slot gate
+# fires ONLY for terminal == Orbiting, so accepting SUB_ORBITAL here would let a
+# decayed park satisfy the mission and silently disarm the scenario.
+settleSituations = ["ORBITING"]
+settleDebounceFrames = 3
+# BACKSTOP, not the guard: the fixture is stamped in-gate, so the debounce is normally
+# satisfied within a second of the scene settling.
+settleTimeoutSeconds = 120
+# A decoupler fires in one frame. This is a stuck-staging backstop (a retryable
+# driver flake), never a tuning knob.
+deployTimeoutSeconds = 60
+deployDebounceFrames = 2
+# THE RECORDING BUDGET, and the only mission number here that is about Parsek rather
+# than about KSP. Both vessels must accumulate real post-split trajectory before the
+# commit closes the tree, or the tree is two one-point stubs and
+# `PruneSinglePointDebrisLeaves` may remove the very leaf the classifier is supposed
+# to judge. 45 s at the runner's poll cadence is tens of samples per vessel and costs
+# 45 s of a 300 s mission budget.
+postDeployDwellSeconds = 45
+postDeployDebounceFrames = 3
+postDeployTimeoutSeconds = 180
+# Kerbin's atmosphere ends at 70 km. Enforced on BOTH the settle and the post-deploy
+# gates, because the terminal classification is taken at scene exit and it is the
+# post-deploy periapsis that decides whether the focus leaf closes Orbiting.
+minSafePeriapsisMeters = 75000
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's own
+# logContracts. Nothing is claimed off a report-only block.
+#
+# `commit-scene-exit` <- "Silent full-fidelity auto-commit (scene-exit)".
+# `auto-merge`        <- the same token, whose branch predicate
+#                        `ShouldSilentFullFidelityCommit` requires isAutoMerge, plus
+#                        the pinned `autoMerge=true` on the exit start line.
+# NOT claimed: `auto-record-launch` (nothing launches; the trigger is the explicit
+# StartRecording seam verb, for which the registry has no value).
+D1 = ["commit-scene-exit", "auto-merge"]
+# `controlled-decoupled-child` <- "ProcessBreakupEvent: controlled child created:
+#   pid=...". The released core is exactly that population: a probe-cored child that
+#   comes off through a decoupler, IsDebris=false with a ParentAnchorRecordingId.
+D5 = ["controlled-decoupled-child"]
+# `rp-disk-reaper` <- the REQUIRED "ReapOrphanedRPs: reaped=0 remaining=[1-9]..." token
+#   plus the FORBIDDEN "Reaped rp=". GS-1 gates the reaper's REAP branch against a
+#   physics-authored RP; this gates its REFUSAL branch against one. Between them the
+#   two specs pin both outcomes of `IsReapEligible`.
+#
+# DELIBERATELY NOT CLAIMED, and each absence has a reason:
+#   `unfinished-flights-stash` / `seal-stash-fly` - an Unfinished Flight is OPENED
+#   here, which is the whole point, but NOTHING IS STASHED and nothing is re-flown.
+#   The registry has no value for "an Unfinished Flight row was opened", which is a
+#   genuine gap this lane exposes; claiming the stash cell to fill it would be a false
+#   claim, so the gap is left visible instead.
+#   `rewind-to-separation` / `refly-gate` / `supersede-relation` / `head-tip-split` /
+#   `merge-journal` / `reconciliation-bundle` / `read-back-guard` - this scenario
+#   invokes NO rewind. It authors an RP and watches it SURVIVE; it never flies one.
+#   `terminal-kind-classify` - `TerminalKindClassifier` is not on this path
+#   (`ApplyRewindProvisionalMergeStates` calls `UnfinishedFlightClassifier`), and no
+#   token here names it.
+D9 = ["rp-disk-reaper"]
+# `scene-ksc` <- "exittospacecenter complete scene=SPACECENTER game-loaded=true", a
+#   token DecideExitCompletion emits only from its CompleteOk branch.
+# `sandbox` <- the harvested fixture's Mode, inherited from the forge base.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form), so
+# this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# TWO is the expected shape and the floor is what matters: the parent recording (the
+# pod stack, which CONTINUES through the breakup in the breakup-continuous design)
+# plus the controlled child the split creates for the released core. A count of 1 would
+# mean the split produced no child recording at all, which is the failure the whole
+# scenario is downstream of - and it would ALSO satisfy every log token up to the
+# authoring line, which is why this numeric guard is not redundant with them.
+#
+# The ceiling is deliberately loose rather than pinned at 2. Nothing here sheds parts
+# (the split is clean and there is no touchdown), so 4 is slack rather than an
+# expectation of debris; redding on a stray single-point leaf would be a false
+# negative, and the analyzer (Forbid) over the produced recordings is the real
+# correctness gate.
+#
+# RE-PIN CONTRACT: the first reading run measures the real count. Re-pin to the
+# MEASURED value and record WHICH recordings the run produced; do not widen blindly.
+count = { min = 2, max = 4 }
+
+[expectations.logContracts]
+# FOUR GROUPS, ordered as the run emits them. Each is quoted from its emitting
+# ParsekLog call site; where a sibling spec or a prior flight has already MEASURED the
+# same line that is noted, and where a token is DERIVED and unmeasured it is noted too.
+#
+# GROUP 1 - THE FLIGHT AND THE SPLIT.
+#   "Recording started"                       FlightRecorder.cs:6140   (Info) [MEASURED - B1, CL-1, CL-2]
+#   "Controllable split children: [a,b] ..."  SegmentBoundaryLogic.cs:418 (Info) [MEASURED - GS-1 flight 1]
+#       The regex requires TWO comma-separated pids. That is the non-vacuity: the same
+#       line is emitted with one pid on a single-controllable split, which is precisely
+#       the case where NO RewindPoint is authored.
+#   "ProcessBreakupEvent: controlled child created: pid=..."  ParsekFlight.cs:7622 (Info) [DERIVED]
+#       The released core got its own recording. Backs the D5 claim.
+#
+# GROUP 2 - THE REWINDPOINT AND ITS FOCUS SLOT.
+#   "RewindPoint begin: rp=... slots=2 controllablePids=2 focusSlot=N ..."
+#                                             RewindPointAuthor.cs:152 (Info) [MEASURED - GS-1 flight 1]
+#       THREE numeric guards, because logContract matching is presence-only
+#       `re.search`: slots=2 rejects a degenerate one-slot RP, controllablePids=2
+#       restates the classifier's own count, and focusSlot=[01] rejects the -1
+#       no-focus-signal value that would disarm the classifier for BOTH slots.
+#   "RewindPoint slot capture: rp=... populated=2/2 disabled=0"  RewindPointAuthor.cs:283 (Info) [DERIVED]
+#       Both slots correlated to a LIVE vessel. `disabled=0` is load-bearing: a slot
+#       that failed to correlate is marked Disabled with reason no-live-vessel.
+#
+# GROUP 3 - THE COMMIT. The first four are S0.7's and CL-2's MEASURED tokens.
+#   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false"
+#                                             TestCommandExitToSpaceCenter (Info) [MEASURED - S0.7]
+#       PREFIX ONLY: S0.7 pins the whole line including the two variant tokens, but it
+#       measured them on a ONE-POINT idle tree and this is a real flight. The prefix
+#       pins every guard input that decides whether the verb proceeds.
+#   "CommitTreeSceneExit: stashed pending tree"  ParsekFlight.cs:14891 (Info) [MEASURED - S0.7]
+#   "Silent full-fidelity auto-commit (scene-exit): tree='...' recordings=N"
+#                                             ParsekScenario.cs:7034  (Info) [MEASURED - CL-2]
+#   "Committed tree '...' (N recordings). Total committed: N recordings, 1 trees"
+#                                             RecordingStore.cs        (Info) [MEASURED - CL-2]
+#   "CommitTree: promoted 1 normal staging RP(s)"  RecordingStore.cs:1434 (Info) [DERIVED]
+#       A staging RP is born `SessionProvisional = true` (RewindPointAuthor.cs:135) and
+#       `IsReapEligible` refuses on its very FIRST line until a commit clears it
+#       (RecordingStore.cs:1425-1426). Without this step the non-reap below would be
+#       true for the WRONG reason - provisional rather than open-slot - which is the
+#       one way this spec could pass while measuring nothing. The summary line is
+#       emitted only when promoted > 0, so the literal 1 is both the count and the
+#       non-vacuity.
+#
+# GROUP 4 - THE VERDICT AND THE NON-REAP, which is the whole scenario.
+#   "CommitTree promoted [chain-tip ]rec=... reason=stableLeafUnconcluded to CommittedProvisional"
+#                                             RecordingStore.cs:1235 / :1265 (Info) [DERIVED]
+#       THE UNFINISHED FLIGHT BEING OPENED, on the NON-FOCUS leaf. The alternation
+#       accepts either the head or the chain-tip spelling (which one fires depends on
+#       whether the child recording has a chain, and it should not); `reason=` is
+#       pinned to the exact string UnfinishedFlightClassifier.cs:334 returns for a
+#       non-focus Orbiting leaf, so a promotion for `crashed` or `strandedEva` cannot
+#       satisfy it.
+#   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed="
+#                                             TestCommandExitToSpaceCenter (Info) [MEASURED - CL-2]
+#   "OnSave: saving 1 committed tree(s)"      ParsekScenario.cs        (Info) [MEASURED - CL-2]
+#   "ReapOrphanedRPs: reaped=0 remaining=N"   RewindPointReaper.cs:125 (VERBOSE) [DERIVED]
+#       THE NON-REAP. `remaining=[1-9][0-9]*` is the assertion: an RP exists and
+#       survived the sweep. The zero-RP sibling (RewindPointReaper.cs:91) reads
+#       `remaining=0` and cannot match. Requires the pinned verboseLogging step.
+required  = ["Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2 focusSlot=[01]",
+             "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+             "CommitTreeSceneExit: stashed pending tree",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)\\. Total committed: [1-9][0-9]* recordings, 1 trees",
+             "CommitTree: promoted 1 normal staging RP\\(s\\)",
+             "CommitTree promoted (?:chain-tip )?rec=\\S+ .*reason=stableLeafUnconcluded to CommittedProvisional",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "OnSave: saving 1 committed tree\\(s\\)",
+             "ReapOrphanedRPs: reaped=0 remaining=[1-9][0-9]*"]
+# `Reaped rp=` (RewindPointReaper.cs:155, Info) IS THE ASSERTION, INVERTED. The reaper
+# runs on this run - the required `reaped=0` token proves it - so its absence here is
+# a measured refusal rather than an unreached code path. It is FORBIDDEN rather than
+# merely absent from `required` because logContract matching is presence-only: an
+# absent required token and an unexpected present token are different failures, and
+# only the forbidden list can express the second. If a future change makes the focus
+# leaf's slot resolve Immutable on BOTH sides, this spec reds on the line that reaped
+# the RewindPoint the player was supposed to still have.
+#
+# The ERROR pattern is the suite-wide one. Nothing on the author -> commit -> classify
+# path has a `ParsekLog.Error` call site that a healthy run reaches.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "Reaped rp="]
+
+# REPORT-ONLY (no `gating` key - gating is PER BLOCK, and arming is a per-scenario
+# operator decision taken only after a reading run whose facets match). These are the
+# SAVE-side statements of the same facts the log tokens make, read out of the produced
+# .sfs by the M-C2 parser rather than out of KSP.log:
+#
+#   rewindPoints  = { min = 1 }  THE NON-REAP, as durable state, and the EXACT
+#                                INVERSION of GS-1's `max = 0`. A `reaped=0` log line
+#                                proves the sweep declined; a nonzero RP count in the
+#                                save proves the object is still there for the player
+#                                to fly. This is the facet the log cannot give, and it
+#                                is the one to watch on the reading run.
+#   supersedeRows = { max = 0 }  No re-fly happened, so no supersede relation may
+#                                exist. A nonzero here would mean something invoked a
+#                                merge tail this scenario never drives.
+#   tombstones    = { max = 0 }  Same: `SupersedeCommit.CommitTombstones` runs strictly
+#                                inside the re-fly merge tail. Nobody dies here either.
+#
+# `rewindRetirements` is NOT declared: it is an OBSERVED facet only and is not a legal
+# spec key (saveparse.REWIND_BLOCK_KEYS), so declaring it would hard-reject the spec.
+[expectations.rewind]
+rewindPoints  = { min = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY (no `gating` key): the structural shape the reading run should show, so
+# a later regression is legible. Best-guess windows, not measurements.
+#
+# `terminalStates` carries this scenario's heart in save form: BOTH leaves must close
+# at `Orbiting`, because that is the classifier input
+# (`TerminalOutcomeQualifiesInternal` reads the chain tip's TerminalStateValue) that
+# makes the non-focus slot resolve `stableLeafUnconcluded` and the focus slot resolve
+# `stableTerminalFocusSlot`. A run whose focus leaf closed `SubOrbital` instead would
+# still emit most of the tokens above - it would even still emit a promotion - and the
+# focus gate would never have been exercised. This row is where that shows up as a
+# fact rather than an inference, and it is why `SubOrbital` is deliberately NOT
+# declared as an alternative.
+#
+# `branchPoints` pins the bp the decoupler split authors - the node the RewindPoint
+# hangs off (`RewindPoint begin: ... bp=<id>`). THE TYPE IS `JointBreak`, NOT
+# `Breakup`, and that is a MEASURED correction rather than a reading of the source:
+# the handler is named `ProcessBreakupEvent` and `BranchPointType.Breakup` exists, so
+# `Breakup` is the natural guess and it is WRONG - GS-1's flight 2 declared it and the
+# facet read 0. The coalescer emits `Type = BranchPointType.JointBreak` with
+# `SplitCause = "DECOUPLE"` (CrashCoalescer.cs:161, log line `type=JointBreak
+# splitCause=DECOUPLE`), and that is what `SaveBranchPoint` writes.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2 }
+terminalStates = { Orbiting = { min = 2 } }
+branchPoints   = { JointBreak = { min = 1 } }
+
+[runtime]
+# WALL clock, bounding the WHOLE drive phase INCLUDING KSP boot: 300 LoadGame + 300
+# mission + 120 ExitToSpaceCenter + the fast SetSetting / StartRecording /
+# FlushAndQuit verbs + ~350 for boot and margin. The mission never warps, so game and
+# wall run 1:1 and the 300 clears the worst-case phase sum (120 SETTLE + 60 DEPLOY +
+# 180 POST-DEPLOY = 360)... which it does NOT, deliberately: those three budgets are
+# independent BACKSTOPS that cannot all be consumed on a run that reaches MISSION-OK
+# (a settle that took 120 s would flake, not proceed). The nominal path is
+# ~3 s + ~1 s + 45 s.
+budgetSeconds = 1100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately. An `expectedFail` key here would demote EVERY failure of its
+# subkind under one bug id - including the exact focus-gate regression this spec
+# exists to catch - which is the active-masking failure mode S4.1's removed keys
+# document at length.
+bugId = ""

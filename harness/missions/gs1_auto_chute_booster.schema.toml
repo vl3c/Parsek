@@ -53,15 +53,34 @@ max = 5000.0
 required = true
 type = "window"
 
-# Frames to hold between the throttle cut and the separation click. NOT seconds:
-# what it measures is poll cadence, and the quantity being waited out is engine
-# thrust decay over a handful of physics frames. Firing a decoupler while the lower
-# stage is still pushing drives the spent booster INTO the upper stage.
+# Frames to hold in STAGE before the separation click. NOT seconds: what it
+# measures is poll cadence.
+#
+# ITS JOB CHANGED AFTER FLIGHT 1. It was written to wait out LV-T45 thrust decay
+# between the throttle cut and the decoupler (firing one while the lower stage is
+# still pushing drives the spent booster INTO the upper stage). On the NOMINAL path
+# that job is now done by COAST, which spends ~11 s coasting to the apex with the
+# throttle already at zero. What the wait still guards is the FALLBACK path, where
+# ASCENT exits on an already-negative vertical speed and the cut and the apex land
+# on the same frame; there it is the only thing between the two. Keep it >= 2 for
+# that reason, and no larger than a couple of polls: every frame here is spent
+# falling away from the apex, eating the chuteArmMaxRateMps window that opens there.
 [params.stageSettleFrames]
 required = false
 type = "int"
 min = 1
 max = 50
+
+# Game-seconds to coast from the throttle cut to the actual apex before the machine
+# flakes. THE PHASE FLIGHT 1 DID NOT HAVE. The cut is gated on the ORBIT's apoapsis
+# and the craft reaches its own apex many seconds later (MEASURED: cut at ut 29.58,
+# alt 172 m, climbing at 117 m/s; the apex was still ~9 s away when the mission
+# died), so staging at the cut staged a third of the way up at 100 m/s. A BACKSTOP,
+# not the guard - the apex arrives on its own in ~11 s on this profile.
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
 
 # ARM-WHILE-SLOW bound for the UPPER stage's chute (B1's technique verbatim). The
 # machine arms on the first DESCENT frame whose |vertical speed| is within this,
@@ -105,6 +124,32 @@ min = 0.0
 
 [params.descentTimeoutSeconds]
 required = true
+type = "number"
+min = 0.0
+
+# The BOOSTER's vessel name, as KSP auto-derives it for the separated stage. It is
+# the argument to the sibling watch (ACTION_SET_SIBLING_WATCH -> SpaceCenter.vessels
+# match by name), so the whole SIBLING-DOWN wait reads this vessel and no other.
+#
+# WHY IT IS A PARAM AND NOT A CONSTANT: it is a property of the CRAFT, and the craft
+# is a fixture. A wrong value is caught by the machine's never-present guard (an
+# ABSENT reading only counts as "destroyed" after the vessel has been OBSERVED
+# PRESENT at least once), so a typo produces a named timeout with
+# `everObservedPresent=false` rather than a silent pass.
+[params.siblingVesselName]
+required = false
+type = "string"
+
+# Game-seconds to wait for the booster to reach the ground AFTER the active vessel
+# has landed, before the wait flakes.
+#
+# THE PHASE FLIGHT 3 DID NOT HAVE. Flight 3 flew MISSION-OK, the pod landed, and
+# `ExitToSpaceCenter` then fired while the booster was STILL UNDER CANOPY - so its
+# recording closed `terminal=SubOrbital` and Parsek correctly opened an Unfinished
+# Flight for it. The stage this mission does NOT fly is the one that lands LAST: six
+# Mk2-R from a higher separation descend slower than the pod's single Mk16.
+[params.siblingDownTimeoutSeconds]
+required = false
 type = "number"
 min = 0.0
 

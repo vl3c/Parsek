@@ -629,7 +629,7 @@ class AdversarialMutationTests(unittest.TestCase):
 
 class CommittedFixtureSweepTests(unittest.TestCase):
     """Corpus 1: every committed fixture save parses, and its structural counts
-    are pinned EXACTLY. Ten fixtures carry the spliced inert ParsekScenario
+    are pinned EXACTLY. Eleven fixtures carry the spliced inert ParsekScenario
     node (a flyable template must, or the FLIGHT route records nothing); the
     three fresh-* templates carry none. ALL committed fixtures carry zero
     trees / staging rows - the rich payloads are injected at stage time and
@@ -651,6 +651,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "fresh-science": False,
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
+        "gs2-orbital-stack": True,
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):
