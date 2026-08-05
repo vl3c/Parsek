@@ -204,6 +204,29 @@ postDeployDwellSeconds = 45
 postDeployDebounceFrames = 3
 postDeployTimeoutSeconds = 180
 minSafePeriapsisMeters = 75000
+# IDENTICAL to GS-2's, and it must stay so. THE DEPLOYED VESSEL, watched by name. kRPC telemetry is
+# active-vessel-scoped, so without this the mission is blind to the very leaf this
+# scenario is about, and the SCENE EXIT is what stamps a recording's terminal state -
+# GS-1 flight 3 flew that hole with a still-descending booster whose recording closed
+# SubOrbital.
+#
+# HERE IT WOULD BITE SILENTLY, WHICH IS WORSE. Every REQUIRED token below would still
+# pass with a SubOrbital deployed leaf: `TerminalOutcomeQualifiesInternal` sends
+# Orbiting AND SubOrbital down the SAME non-focus branch
+# (UnfinishedFlightClassifier.cs:270, :334) and both return `stableLeafUnconcluded`,
+# which GS-1 flight 3 MEASURED. The promotion fires, the RP still does not reap, the
+# run is green - and it has measured a different scenario from the one described.
+# `deployedSiblingOrbiting` is what makes "both halves stay Orbiting" a MEASURED
+# premise rather than an assumed one, and it is an ASSERT-FAIL row on purpose: an
+# UNMET mission SKIPS the world-mutating tail, so such a run never commits a tree
+# that would later be read as this scenario's evidence.
+#
+# THE NAME IS MEASURED, not invented: EVA-2 and S0.8 both read `Kerbal X Probe` off
+# `eva2-lko-crewed`, which THIS decoupler on THIS craft produced. Reading it here also
+# de-risks GS-3 for free - GS-3 targets the same vessel by name with
+# `SimulateStockSwitchClick`, and a name that does not resolve there is a whole wasted
+# flight, so GS-2 is where that name is proven.
+siblingVesselName = "Kerbal X Probe"
 
 [dimensionsCovered]
 # CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's own

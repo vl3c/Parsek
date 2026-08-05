@@ -43,13 +43,23 @@ NOMINAL_PARAMS = {
     "postDeployDebounceFrames": 3,
     "postDeployTimeoutSeconds": 180,
     "minSafePeriapsisMeters": 75000,
+    # The deployed vessel, watched by NAME through the shared sibling channel.
+    "siblingVesselName": "Kerbal X Probe",
 }
 
 
-def orbiting(ut, vessel_count=5, periapsis=100000.0, situation="ORBITING"):
-    """One in-gate frame of the parked stack."""
+def orbiting(ut, vessel_count=5, periapsis=100000.0, situation="ORBITING",
+             sibling_situation="", sibling_present=-1):
+    """One in-gate frame of the parked stack.
+
+    The sibling pair defaults to the UNREAD sentinel ("", -1), which is exactly what
+    a frame BEFORE the deploy legitimately reads: the released vessel does not exist
+    yet, so every pre-split cell below is also a test that UNREAD neither advances
+    nor erases the latches."""
     return mlib.TelemetrySnapshot(ut=ut, situation=situation, apoapsis=100000.0,
-                                  periapsis=periapsis, vessel_count=vessel_count)
+                                  periapsis=periapsis, vessel_count=vessel_count,
+                                  sibling_situation=sibling_situation,
+                                  sibling_present=sibling_present)
 
 
 def drive(state, frames):
@@ -74,7 +84,8 @@ def fly_nominal(state, dwell_end_ut=60.0):
     frames += [orbiting(float(i)) for i in (1, 2, 3)]          # SETTLE debounce -> DEPLOY
     frames += [orbiting(4.0, vessel_count=6),                  # split, debounce 1
                orbiting(5.0, vessel_count=6)]                  # debounce 2 -> POST-DEPLOY
-    frames += [orbiting(float(t), vessel_count=6)
+    frames += [orbiting(float(t), vessel_count=6,
+                        sibling_situation="ORBITING", sibling_present=1)
                for t in (6.0, 7.0, dwell_end_ut)]              # dwell
     return drive(state, frames)
 
@@ -144,12 +155,16 @@ class Gs2NominalTests(unittest.TestCase):
             st.phases_reached)
 
     def test_preload_commands_throttle_cut_and_sas_exactly_once(self):
+        """The sibling watch is INSERTED ahead of these two on the PRELOAD frame, so
+        the assertion is on the ordered TAIL plus once-ness, not on the whole list."""
         _p, st = fresh()
         _st, emitted = fly_nominal(st)
-        self.assertEqual([mlib.ACTION_CUT_THROTTLE, mlib.ACTION_SET_SAS], emitted[0])
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE, mlib.ACTION_SET_SAS],
+                         emitted[0][-2:])
         for frame_actions in emitted[1:]:
             self.assertNotIn(mlib.ACTION_CUT_THROTTLE, frame_actions)
             self.assertNotIn(mlib.ACTION_SET_SAS, frame_actions)
+            self.assertNotIn(mlib.ACTION_SET_SIBLING_WATCH, frame_actions)
 
     def test_exactly_one_stage_activation_over_the_whole_profile(self):
         """GUARD 1 of the module docstring. A second activation would light the
@@ -264,6 +279,144 @@ class Gs2SettleAndDwellTests(unittest.TestCase):
         self.assertIn("never held", st.flake_reason)
 
 
+class Gs2SiblingWatchTests(unittest.TestCase):
+    """The deployed vessel, watched by NAME through the shared sibling channel.
+
+    THE HOLE THIS CLOSES is GS-1 flight 3's, applied here before it could bite: kRPC
+    telemetry is ACTIVE-VESSEL-SCOPED, and the SCENE EXIT is what stamps a recording's
+    terminal state, so a mission blind to the deployed leaf can commit a tree whose
+    terminal nobody asserted. It bites more QUIETLY in this lane than it did in GS-1's:
+    every one of GS-2's required log tokens would still pass with a SubOrbital deployed
+    leaf, because `TerminalOutcomeQualifiesInternal` sends Orbiting AND SubOrbital down
+    the same non-focus branch and both return `stableLeafUnconcluded`."""
+
+    def test_the_watch_is_armed_on_the_first_frame(self):
+        """Armed at PRELOAD, long before the vessel exists - the deploy CREATES it, so
+        there is nothing to resolve until then and a watch armed later would miss the
+        frames right after the split."""
+        _p, st = fresh()
+        _st, emitted = drive(st, [orbiting(0.0)])
+        self.assertEqual(mlib.ACTION_SET_SIBLING_WATCH, emitted[0][0])
+
+    def test_the_watch_carries_the_configured_name(self):
+        _p, st = fresh()
+        _st, actions = mlib.gs2_decide(st, orbiting(0.0))
+        watch = [a for a in actions if a.kind == mlib.ACTION_SET_SIBLING_WATCH]
+        self.assertEqual(1, len(watch))
+        self.assertEqual("Kerbal X Probe", watch[0].text)
+
+    def test_no_name_configured_arms_nothing(self):
+        """An unconfigured watch must leave every pre-existing behaviour untouched."""
+        _p, st = fresh(siblingVesselName="")
+        _st, actions = mlib.gs2_decide(st, orbiting(0.0))
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE, mlib.ACTION_SET_SAS],
+                         [a.kind for a in actions])
+
+    def test_presence_is_latched_and_the_situation_carried(self):
+        _p, st = fresh()
+        st, _ = drive(st, [orbiting(0.0),
+                           orbiting(1.0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        self.assertTrue(st.sibling_seen_present)
+        self.assertEqual("ORBITING", st.sibling_last_situation)
+
+    def test_the_unread_sentinel_neither_proves_nor_erases(self):
+        """("", -1) is a FAULTED read. It must not earn presence, and it must not
+        erase a presence already observed."""
+        _p, st = fresh()
+        st, _ = drive(st, [orbiting(0.0)])
+        self.assertFalse(st.sibling_seen_present)
+        st, _ = drive(st, [orbiting(1.0, sibling_situation="ORBITING",
+                                    sibling_present=1),
+                           orbiting(2.0)])
+        self.assertTrue(st.sibling_seen_present)
+        self.assertEqual("ORBITING", st.sibling_last_situation)
+
+    def test_enumerated_absent_never_earns_presence(self):
+        """("", 0) is the CORRECT reading before the split, and it is also what a
+        misspelled watch name reads - which is why it can never earn the latch."""
+        _p, st = fresh()
+        st, _ = drive(st, [orbiting(0.0, sibling_present=0),
+                           orbiting(1.0, sibling_present=0)])
+        self.assertFalse(st.sibling_seen_present)
+        self.assertEqual("", st.sibling_last_situation)
+
+    def test_a_present_but_unreadable_situation_does_not_erase_the_last_good_one(self):
+        """("", 1) is present-but-unreadable. Presence is real; the situation is not,
+        so the last NON-EMPTY reading must survive it."""
+        _p, st = fresh()
+        st, _ = drive(st, [orbiting(0.0),
+                           orbiting(1.0, sibling_situation="ORBITING",
+                                    sibling_present=1),
+                           orbiting(2.0, sibling_situation="", sibling_present=1)])
+        self.assertEqual("ORBITING", st.sibling_last_situation)
+
+    def test_a_vessel_lost_frame_does_not_touch_the_latches(self):
+        """A vessel_lost snapshot carries benign defaults for every vessel-scoped
+        channel, so reading one as sibling truth would fabricate an observation."""
+        _p, st = fresh()
+        st, _ = drive(st, [orbiting(0.0),
+                           orbiting(1.0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        st, _ = mlib.gs2_decide(st, mlib.TelemetrySnapshot(
+            ut=2.0, vessel_lost=True, sibling_situation="LANDED", sibling_present=1))
+        self.assertEqual("ORBITING", st.sibling_last_situation)
+
+
+class Gs2SiblingAssertionTests(unittest.TestCase):
+    def _row(self, state, frames):
+        rows = {o.name: o for o in mlib.evaluate_gs2_assertions(
+            frames, state.params, phases_reached=state.phases_reached, state=state)}
+        return rows["deployedSiblingOrbiting"]
+
+    def test_met_when_the_deployed_vessel_was_seen_orbiting(self):
+        _p, st = fresh()
+        st, _ = fly_nominal(st)
+        row = self._row(st, [orbiting(0.0)])
+        self.assertTrue(row.met)
+        self.assertEqual("ORBITING", row.value)
+        self.assertTrue(row.detail["seenPresent"])
+
+    def test_UNMET_when_the_deployed_vessel_was_never_seen(self):
+        """The name that does not resolve. This is ALSO what protects GS-3: it targets
+        the same vessel by name with SimulateStockSwitchClick, and a name that does not
+        resolve there costs a whole flight."""
+        _p, st = fresh()
+        frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
+            orbiting(4.0, vessel_count=6, sibling_present=0),
+            orbiting(5.0, vessel_count=6, sibling_present=0)]
+        st, _ = drive(st, frames)
+        row = self._row(st, frames)
+        self.assertFalse(row.met)
+        self.assertFalse(row.detail["seenPresent"])
+        self.assertEqual("Kerbal X Probe", row.detail["watchedVessel"])
+
+    def test_UNMET_when_the_deployed_vessel_is_suborbital(self):
+        """THE ONE THIS ROW EXISTS FOR. Every required log token would still pass here:
+        Orbiting and SubOrbital take the SAME non-focus classifier branch and both
+        return `stableLeafUnconcluded`, so the promotion fires and the RP still does
+        not reap. Only this row notices that the scenario measured something else."""
+        _p, st = fresh()
+        frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
+            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(6.0, vessel_count=6, sibling_situation="SUB_ORBITAL",
+                     sibling_present=1)]
+        st, _ = drive(st, frames)
+        row = self._row(st, frames)
+        self.assertFalse(row.met)
+        self.assertEqual("SUB_ORBITAL", row.value)
+        self.assertTrue(row.detail["seenPresent"])
+
+    def test_auto_met_when_the_gate_is_off(self):
+        """Same discipline as forge_lko's minCrew: an unconfigured gate is off, not
+        failed, so no pre-existing caller is affected by the row existing."""
+        _p, st = fresh(siblingVesselName="")
+        st, _ = drive(st, [orbiting(0.0)])
+        row = self._row(st, [orbiting(0.0)])
+        self.assertTrue(row.met)
+        self.assertIsNone(row.detail["watchedVessel"])
+
+
 class Gs2LossTests(unittest.TestCase):
     def test_a_vessel_loss_is_an_assert_fail_in_every_phase(self):
         for phase_frames in ([], [orbiting(0.0)],
@@ -287,16 +440,19 @@ class Gs2AssertionTests(unittest.TestCase):
         return {o.name: o for o in mlib.evaluate_gs2_assertions(
             frames, state.params, phases_reached=state.phases_reached, state=state)}
 
-    def test_a_nominal_run_meets_all_five_rows(self):
+    def test_a_nominal_run_meets_all_six_rows(self):
         _p, st = fresh()
+        live = {"sibling_situation": "ORBITING", "sibling_present": 1}
         frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
             orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
-            orbiting(6.0, vessel_count=6), orbiting(7.0, vessel_count=6),
-            orbiting(60.0, vessel_count=6)]
+            orbiting(6.0, vessel_count=6, **live),
+            orbiting(7.0, vessel_count=6, **live),
+            orbiting(60.0, vessel_count=6, **live)]
         st, _ = drive(st, frames)
         rows = self._outcomes(st, frames)
         self.assertEqual({"settled", "deployObserved", "singleStageActivation",
-                          "focusStillOrbiting", "periapsisSafe"}, set(rows))
+                          "focusStillOrbiting", "periapsisSafe",
+                          "deployedSiblingOrbiting"}, set(rows))
         for name, row in rows.items():
             self.assertTrue(row.met, "%s should be met on a nominal run" % name)
 
@@ -552,6 +708,20 @@ class Gs2SpecWiringTests(unittest.TestCase):
         steps = self._spec("GS-2-orbital-probe-deploy.toml")["driver"]["steps"]
         self.assertEqual([], [s for s in steps
                               if s.get("cmd") == "SimulateStockSwitchClick"])
+
+    def test_both_specs_arm_the_sibling_watch_on_the_same_vessel(self):
+        """The deployed vessel's NAME is the one runtime-resolved string this lane
+        depends on twice: GS-2 asserts its situation through the sibling channel, and
+        GS-3 targets it with SimulateStockSwitchClick. If they ever disagreed, GS-2
+        would go green on one vessel while GS-3 refused target-not-found on another."""
+        gs2 = self._spec("GS-2-orbital-probe-deploy.toml")["driver"]
+        gs3 = self._spec("GS-3-switch-nudge-deployed.toml")["driver"]
+        name = gs2["missionParams"]["siblingVesselName"]
+        self.assertEqual("Kerbal X Probe", name)
+        self.assertEqual(name, gs3["missionParams"]["siblingVesselName"])
+        click = [s for s in gs3["steps"]
+                 if s.get("cmd") == "SimulateStockSwitchClick"][0]
+        self.assertEqual(name, click["args"]["vessel"])
 
     def test_both_specs_pin_verbose_logging(self):
         """GS-2's central non-reap token and GS-3's whole prediction set are VERBOSE
