@@ -190,7 +190,7 @@ than the disease; the dev install stays under the hash-verify discipline in
 refusal names the holder's pid, worktree, selection and start time.
 
 **Stale locks** are reclaimed automatically two ways: the holder pid is dead, or
-the lease (`provlib.DEFAULT_LEASE_SECONDS`, 4h) has expired - the second is the
+the lease (`provlib.DEFAULT_LEASE_SECONDS`, 8h) has expired - the second is the
 backstop for Windows pid reuse, which pid-liveness alone cannot escape. A live
 run heartbeats its timestamp, so expiry never fires on a genuinely running
 selection. If you are certain nothing is running and want the machine back now,
@@ -219,6 +219,163 @@ real runs. `--instance-dir` bypasses umbrella resolution entirely, so pointing i
 at the shared automation instance from an odd umbrella flies that instance under
 a different lock. Prefer the default umbrella; treat those flags as
 single-operator tools.
+
+## Cadence runs + review
+
+Fly a whole cadence tier with one command, walk away, come back to a classified
+outcome:
+
+```
+cd harness && python tools/cadence_runner.py --tier daily     # or nightly / operator
+```
+
+**Current operating mode: ON DEMAND ONLY. No scheduled tasks are registered**,
+by operator decision (2026-08-05), pending the selection-layer refactor tracked
+as `HARNESS-TIER-TAXONOMY` in `docs/dev/todo-and-known-bugs.md`. Scheduling is
+available but off - see "Optional: scheduling" below.
+
+`tools/cadence_runner.py` is a thin wrapper around `run.py` that owns only what
+`run.py` cannot: keeping the box awake for the duration, refusing to queue
+behind a busy machine, classifying the whole invocation, and leaving a one-line
+trace to read afterwards. It never decides a verdict, never re-runs a scenario,
+and never provisions.
+
+| Tier | Specs | Suggested schedule (if ever registered) |
+|---|---|---|
+| `daily` | 22 | daily 21:00 |
+| `nightly` | 46 | daily 23:00 |
+| `operator` | 6 | Saturday 10:00 |
+
+Spec counts are as of 2026-08-05 and DRIFT as specs land; recount with
+`python run.py --dry-run --tier <t>` (launches nothing, takes no lock). The
+daily->nightly gap in the suggested times is load-bearing: skip-don't-queue
+means a nightly window that opens while the daily still holds the machine lock
+SKIPS, so the gap must exceed the daily's real duration (observed ~20 min; 2h
+of margin here). If the daily ever runs toward its 4h backstop, the nightly
+skips visibly - a SKIPPED history line, never a queue.
+
+`--tier` is an EXACT match, so the three are disjoint: `--tier nightly` does not
+re-run the daily specs. `--cadence nightly` would be the cumulative alternative
+(`hlib.CADENCE_TIERS` resolves it to `daily+nightly`) and is deliberately not
+what the runner uses - a daily spec that already failed should be a finding
+being looked at, not something quietly re-flown at nightly cost.
+
+**The `operator` tier is offered** even though `hlib.CADENCE_TIERS` maps no
+cadence to it: the carve-out's rule is that an operator-tiered spec runs "ONLY
+on an explicit `--tier operator` / `--id` invocation", and this runner's
+invocation is exactly that - not a `--cadence` sweep that would pick the tier up
+implicitly. The cost the carve-out protects against is real, though (a
+(b)-tiered spec is EXPENSIVE AND UNFLOWN, e.g. B16-eve-orbit at ~2.6 h per
+attempt), so treat that tier as a deliberate, occasional run rather than a
+routine one.
+
+**Policies the runner enforces** (mode-independent - they hold on demand exactly
+as they would under a scheduler):
+
+- **Wake hold.** The runner pins the system awake for the whole invocation
+  (`ES_CONTINUOUS|ES_SYSTEM_REQUIRED`). Without it, a multi-hour tier you walked
+  away from is suspended by the idle timer about two minutes in, mid-flight.
+- **Skip, do not queue.** If the machine lock is held or any `KSP_x64.exe` is
+  alive, the runner exits 3 having invoked nothing. Letting `run.py` refuse
+  instead would stamp one junk `INVALID(instance-locked)` result JSON PER
+  SELECTED SPEC (46 for the nightly tier) into `results/` and onto the index,
+  burying real history under a run that never flew.
+- **Never auto-provision.** An unfit instance reports `NEEDS-PROVISION`
+  (exit 2) and stops. Provisioning DEPLOYs whatever
+  `Source/Parsek/bin/Debug/Parsek.dll` the invoking worktree holds, which is as
+  likely to be a half-finished build as a release candidate; which worktree's
+  DLL the automation instance carries is a human call, always.
+- **Never re-run a finding.** `run.py` owns retry policy; a PARSEK-FAIL that
+  reaches the history line already survived it.
+
+Runner exit codes: `0` GREEN, `1` RED (a finding, a KILLED, an XPASS, or the
+"flew nothing" shape), `2` NEEDS-PROVISION, `3` SKIPPED, `4` runner internal
+error. (These are also what Task Scheduler would show as "Last Run Result" if
+the optional registration below were ever used.)
+
+### Optional: scheduling (NOT IN USE)
+
+`scripts/register-cadence-tasks.ps1` registers three tasks under `\Parsek\`, one
+per tier, each invoking the runner with a fixed `--tier`. **It has not been run
+on this machine and no such tasks exist.** It is kept so that scheduling can be
+turned on reproducibly if that decision is ever taken, and so the constraints it
+would imply are reviewable beforehand rather than discovered after:
+
+```
+pwsh -File scripts/register-cadence-tasks.ps1
+pwsh -File scripts/register-cadence-tasks.ps1 -NightlyTime 01:30 -OperatorDay Sunday
+pwsh -File scripts/register-cadence-tasks.ps1 -Unregister
+schtasks /Query /TN "\Parsek\Harness Nightly" /V /FO LIST
+```
+
+Re-running replaces the registrations, so changing hours is just another run.
+Scheduler state is MACHINE-LOCAL - the repo carries the script, never the tasks.
+`-RepoRoot` picks which worktree's harness would be scheduled; the default is
+the script's own checkout.
+
+What registering it would mean (all deliberate, all reversible by editing the
+script):
+
+- **Interactive logon only.** KSP needs the interactive desktop. A window that
+  arrives while nobody is logged on is simply skipped - a locked screen is fine,
+  a logged-out session is not.
+- **`-WakeToRun`**, so the machine may wake from sleep to fly. This requires
+  wake timers to be ALLOWED in the active power plan
+  (`powercfg /q SCHEME_CURRENT SUB_SLEEP`); the runner's own wake hold then
+  keeps it awake, without which a wake-timer-started run re-sleeps about two
+  minutes in, mid-flight.
+- **No `StartWhenAvailable`.** A missed window stays missed. The alternative
+  fires a multi-hour KSP run the moment the box comes back - i.e. mid-workday,
+  taking the machine lock and the GPU away from whoever is at the keyboard.
+- **`IgnoreNew`**, so a second instance never starts while one is running, plus
+  an `ExecutionTimeLimit` (4h / 12h / 12h) as an OUTER backstop only - `run.py`'s
+  per-spec budgets do the real hang-killing.
+
+### Reviewing a run
+
+After a tier finishes - typically the next morning for a nightly you started and
+left - four surfaces, each answering a different question:
+
+1. **`results/index.html`** - one open. Every run newest-first, verdict-colored,
+   linking each run's contact sheet.
+2. **`results/cadence/history.txt`** - one line per invocation
+   (`<utc> tier=… outcome=… exit=… <tally> log=…`). A MISSING line means the
+   runner never got that far: it was never started, or it died before its
+   history append. The named `results/cadence/<tier>_<stamp>.log` holds that
+   invocation's full tee.
+3. **`results/summary.txt`** tail - the raw verdict-per-attempt ledger.
+4. **`coverage/flake.json`** - which scenarios are drifting toward quarantine.
+
+What a red means:
+
+- **PARSEK-FAIL** - a finding. File it (forensics go in
+  `docs/dev/todo-and-known-bugs.md`). NEVER re-run it away: run.py already owns
+  retry policy, so a PARSEK-FAIL that reached the history line survived it.
+- **INVALID** with subkind `drift` / `manifest-missing` / `provision-incomplete`
+  - the instance is not fit; the runner labels the whole invocation
+  `NEEDS-PROVISION`. Provision from the intended worktree
+  (`cd harness && python provision/provision.py --profile stock-minimal`).
+- **KILLED** - a budget kill. Always called out explicitly in the tally so it
+  cannot hide behind twenty passes beside it.
+- **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
+  closed, then remove the `expectedFail` key so it stops being expected.
+
+### What accumulates, and what may be pruned
+
+Permanent by design, and NOT to be pruned by any automation: `results/*.json`,
+`results/summary.txt`, the per-run `*_contact.html` + `index.html`,
+`results/<ts>_harness.log`, and the mission stdout logs. They are the whole
+historical record, and they are small (text).
+
+Automatically bounded: `results/<runId>_shots/` (run.py keeps the newest 40 dirs
+/ 2 GiB - the only heavy artifacts), and `results/cadence/*.log` (the runner
+rotates its OWN logs at 60 days; it never touches anything else, and never
+`history.txt`).
+
+Safe to prune by hand if the disk ever demands it: old `_shots/` dirs and old
+`<ts>_harness.log` files. **Never delete `results/*.claim`** - the run-id stakes
+are exclusive-create and load-bearing (see the ownership boundary above);
+deleting one lets a future run overwrite an earlier run's records.
 
 ## Running the tests
 

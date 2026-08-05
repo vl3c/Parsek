@@ -3536,7 +3536,8 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             "  2  no scenario selection given (also argparse's own bad-argument code)\n"))
     sel = parser.add_mutually_exclusive_group()
     sel.add_argument("--id", help="run one scenario by id")
-    sel.add_argument("--tier", help="run all specs of a tier (perpr|daily|nightly|weekly)")
+    sel.add_argument("--tier", help="run all specs of a tier (exact match; "
+                                    "perpr|daily|nightly|weekly|pending-fixture|operator)")
     sel.add_argument("--tag", help="run every spec carrying this tag")
     sel.add_argument("--cadence", help="run the tier set a cadence maps to (per-pr|daily|nightly|weekly)")
     parser.add_argument("--dry-run", action="store_true",
