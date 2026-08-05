@@ -2789,16 +2789,31 @@ class KrpcMissionControl(MissionControl):
         except Exception:
             return "", -1
         match = None
+        faulted = False
         for candidate in vessels:
             try:
                 if candidate.name == name:
                     match = candidate
                     break
             except Exception:
-                # A vessel that vanished between the enumeration and this read is not
-                # the one we are looking for; skip it rather than fail the whole poll.
+                # A PER-VESSEL read fault. It is NOT evidence that this vessel is
+                # some other vessel: the name is exactly what could not be read, so
+                # the watched one cannot be ruled out. Keep sweeping (the match may
+                # still be ahead of us) but remember that the sweep was BLIND.
+                faulted = True
                 continue
+        if match is None and faulted:
+            # NOT FOUND, BUT THE SWEEP WAS BLIND somewhere - so "not found" is
+            # unproven and this must be the FAULT sentinel, never the
+            # enumerated-and-absent OBSERVATION. Returning ("", 0) here would let
+            # two such polls satisfy a caller's absent-debounce and conclude a LIVE
+            # vessel destroyed; on GS-1 that ends the mission early, the
+            # world-mutating tail is skipped, and the scenario reds on a missing
+            # reap - a driver fault misattributed as a product red, which is the
+            # exact class this lane spent three flights eliminating.
+            return "", -1
         if match is None:
+            # A CLEAN sweep that did not find the name: a real observation.
             return "", 0
         try:
             return str(getattr(match.situation, "name", "")).upper(), 1

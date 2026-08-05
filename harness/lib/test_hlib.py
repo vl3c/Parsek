@@ -4531,19 +4531,19 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Its fixture is NOT committed yet, which is the ONE way it differs from
         # its siblings - but that debt is carried by the `pending-flight` tag and
         # by GS-1's own STATUS block, not as an operator-REVIEW debt.
-        "FORGE-gs1-two-stage.toml":         "forge-mechanism - manual by design; fixture pending its forge run",
+        "FORGE-gs1-two-stage.toml":         "forge-mechanism - manual by design; FLOWN 2026-08-05, fixture gs1-two-stage-pad committed + pinned",
         # tier=operator by PROMOTION POLICY, not debt. GS-1 is unflown and its
         # fixture is the one the forge above produces, so it cannot sit on a
         # cadence yet; promotion is a later human call after the report-only
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
-        "GS-1-auto-chute-booster.toml":     "unflown - operator tier until its fixture is forged and it flies green",
+        "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
         # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
         # fixture is not committed yet; that debt rides the `pending-flight` tag
         # and GS-2's STATUS block, not an operator-REVIEW debt.
-        "FORGE-gs2-orbital-stack.toml":     "forge-mechanism - manual by design; fixture pending its forge run",
+        "FORGE-gs2-orbital-stack.toml":     "forge-mechanism - manual by design; FLOWN 2026-08-05 (PASS attempt 1), fixture gs2-orbital-stack committed + pinned",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
@@ -4552,7 +4552,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # flown - its entire value is the DIFFERENCE from GS-2's outcome, and a
         # difference measured against an unflown baseline is not a difference.
         "GS-2-orbital-probe-deploy.toml":   "FLOWN GREEN 2026-08-05 (0853 reading, 0856 armed); operator tier is now an open PROMOTION call, not debt",
-        "GS-3-switch-nudge-deployed.toml":  "unflown - operator tier until GS-2 has flown and its predicted divergence is measured",
+        "GS-3-switch-nudge-deployed.toml":  "FLOWN 2026-08-05 (0903) and the divergence MEASURED; stays operator + report-only by design while GS3-NUDGE-DROPS-UNFINISHED-FLIGHT is open",
     }
 
     def _specs(self):

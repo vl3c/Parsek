@@ -41,6 +41,7 @@ if os.path.join(_HARNESS, "lib") not in sys.path:
     sys.path.insert(0, os.path.join(_HARNESS, "lib"))
 
 import mlib                        # noqa: E402
+import mission_runner              # noqa: E402
 import gs1_auto_chute_booster      # noqa: E402
 from test_shells import FakeMissionControl, run, snap  # noqa: E402
 
@@ -747,6 +748,71 @@ class Gs1BoosterWaitTests(unittest.TestCase):
                          "the row must name what the booster was doing - SUB_ORBITAL "
                          "is flight 3's exact failure and the reading that "
                          "distinguishes 'wait too short' from 'watch never resolved'")
+
+
+class _FaultyVessel(object):
+    """A kRPC vessel handle whose `.name` raises - the real failure mode when a
+    vessel is destroyed or unloaded between the enumeration and the read."""
+
+    def __init__(self, name=None, raises=False):
+        self._name = name
+        self._raises = raises
+
+    @property
+    def name(self):
+        if self._raises:
+            raise RuntimeError("RPC failed for this vessel")
+        return self._name
+
+    @property
+    def situation(self):
+        return type("S", (), {"name": "landed"})()
+
+
+class _FakeSpaceCenter(object):
+    def __init__(self, vessels):
+        self.vessels = vessels
+
+
+class SiblingReadFaultTests(unittest.TestCase):
+    """`_read_sibling_situation`'s THREE-VALUED contract, at the one place it is
+    easiest to collapse: a PER-VESSEL read fault.
+
+    The first cut swept past a faulting handle with `continue` and, if the watched
+    name was never matched, returned ("", 0) - the enumerated-and-ABSENT
+    OBSERVATION. But the field that faulted IS the name, so the watched vessel
+    cannot be ruled out: "not found" was unproven. Two such polls satisfy the
+    absent-debounce, GS-1 concludes DESTROYED for a live booster, the mission ends
+    early, the world-mutating tail is SKIPPED, and the spec reds on a missing reap -
+    a driver fault misattributed as a product red. Found by the PR #1425 review."""
+
+    def _control(self, vessels, name="GS1 Auto-Chute Booster Probe"):
+        c = mission_runner.KrpcMissionControl()
+        c._sibling_watch_name = name
+        return c, _FakeSpaceCenter(vessels)
+
+    def test_a_fault_while_the_watched_vessel_is_NOT_found_is_the_fault_sentinel(self):
+        c, sc = self._control([_FaultyVessel(raises=True)])
+        self.assertEqual(("", -1), c._read_sibling_situation(sc),
+                         "a blind sweep that found nothing must NOT report absence")
+
+    def test_a_fault_on_an_UNRELATED_vessel_still_yields_a_normal_observation(self):
+        # THE OVER-CORRECTION GUARD. Treating any fault as blindness would make the
+        # channel useless in a busy save: debris and asteroids fault routinely. Once
+        # the watched vessel HAS been matched, an unrelated fault is irrelevant.
+        c, sc = self._control([_FaultyVessel(raises=True),
+                               _FaultyVessel(name="GS1 Auto-Chute Booster Probe")])
+        self.assertEqual(("LANDED", 1), c._read_sibling_situation(sc))
+
+    def test_a_CLEAN_sweep_that_finds_nothing_is_a_real_absence(self):
+        # The other side: with no fault, "not found" IS an observation, and it is
+        # what a genuinely destroyed booster reads.
+        c, sc = self._control([_FaultyVessel(name="Some Other Craft")])
+        self.assertEqual(("", 0), c._read_sibling_situation(sc))
+
+    def test_an_unarmed_watch_never_enumerates(self):
+        c, sc = self._control([_FaultyVessel(raises=True)], name="")
+        self.assertEqual(("", -1), c._read_sibling_situation(sc))
 
 
 class Gs1AssertionShapeTests(unittest.TestCase):

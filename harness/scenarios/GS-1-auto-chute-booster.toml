@@ -391,9 +391,10 @@ id = "GS-1-auto-chute-booster"
 # and the remedy is more canopy or a lighter engine - NOT a softer expectation.
 #
 # =====================================================================================
-# STATUS: FLOWN THREE TIMES (flight 1 driver-INVALID; flights 2 and 3 MISSION-OK /
+# STATUS: FLOWN FOUR TIMES (flight 1 driver-INVALID; flights 2 and 3 MISSION-OK /
 # PARSEK-FAIL(expectations), each on a DIFFERENT driver defect, all three fixed
-# above). Parsek has been correct on every one. Its fixture exists.
+# above; flight 4 PASS, which is the reading run the arming block below cites).
+# Parsek has been correct on every one. Its fixture exists.
 #
 # `fixtures/saves/gs1-two-stage-pad` is produced by `FORGE-gs1-two-stage` (which
 # launches the committed `GS1 Auto-Chute Booster.craft` onto the pad) plus
@@ -426,7 +427,7 @@ id = "GS-1-auto-chute-booster"
 tier = "operator"
 description = "Routine two-stage flight: a probe-cored auto-chute booster separates at low altitude and lands, the focus upper stage lands under its own chute, and the commit leaves BOTH slots Immutable so the staging RewindPoint reaps and no Unfinished Flight is opened."
 instanceProfile = "stock-minimal"
-tags = ["GS1", "rewind", "unfinished-flights", "staging", "auto-merge", "scene-exit", "pending-fixture"]
+tags = ["GS1", "rewind", "unfinished-flights", "staging", "auto-merge", "scene-exit"]
 
 [fixture]
 # PRODUCED BY FORGE-gs1-two-stage + harvest_bdock_station.py --target-name
@@ -705,7 +706,7 @@ count = { min = 2, max = 6 }
 #                                             TestCommandExitToSpaceCenter (Info) [MEASURED - S0.7, and GS-1 flight 2 2026-08-05_0749]
 #       PREFIX ONLY, deliberately. S0.7 pins the whole line including
 #       `activeTreeVariant=None pendingTreeVariant=None`; those two are computed from
-#       `ShouldShouldDialogBeforeSceneChange` and are None whenever autoMerge is on and
+#       `ShouldShowDialogBeforeSceneChange` and are None whenever autoMerge is on and
 #       the destination is not MAINMENU, but S0.7 measured them on a ONE-POINT idle tree
 #       and this is a real flight. The prefix pins every guard input that decides
 #       whether the verb proceeds (the autoMerge pin and the live-tree state, which is

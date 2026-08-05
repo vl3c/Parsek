@@ -136,11 +136,14 @@ id = "GS-3-switch-nudge-deployed"
 # `met = found and verdict == expect`, so an OK there would red the step.)
 #
 # =====================================================================================
-# WHAT IS REQUIRED AND WHAT IS ONLY MEASURED. The divergence above is a PREDICTION
-# from code, not a measurement, and this spec is unflown. Per the measure-then-arm
-# discipline, NONE of the three divergence facts (`reason=downstreamBp`, the ABSENCE
-# of a CommittedProvisional promotion, and the reap) is a required token or a gating
-# expectation on flight 1. The required set is only what is mechanically certain: the
+# WHAT IS REQUIRED AND WHAT IS ONLY MEASURED. The divergence facts were carried as
+# report-only on flight 1 because they were a PREDICTION from code; that flight has
+# now happened (`2026-08-05_0903`) and the measurement block at the top of this file
+# records what it found - including that one of the three predicted facts,
+# `reason=downstreamBp`, did NOT occur and was replaced by `noMatchingRP` on the
+# switch segment. They REMAIN report-only rather than being promoted to required
+# tokens, because the behaviour they describe is filed as a defect and pinning it
+# would make this spec assert the bug. The required set is only what is mechanically certain: the
 # click was gated and armed as the patch would have armed it, a segment was created on
 # the named vessel, the marker was consumed INTO that segment, the switch-back was
 # refused with the documented case token, and the run committed and left FLIGHT.
@@ -171,7 +174,7 @@ id = "GS-3-switch-nudge-deployed"
 tier = "operator"
 description = "GS-2's in-orbit deploy plus ONE stock map Switch-To click onto the released vessel: the switch opens a VesselSwitchContinuation branch point on the deployed leaf, which is predicted to knock it out of the Unfinished Flights classifier via the downstreamBp gate and let the staging RewindPoint reap - the opposite of GS-2, on one changed variable."
 instanceProfile = "stock-minimal"
-tags = ["GS3", "GS2", "rewind", "unfinished-flights", "switch-segment", "stock-click", "R12", "orbital", "auto-merge", "scene-exit", "pending-fixture"]
+tags = ["GS3", "GS2", "rewind", "unfinished-flights", "switch-segment", "stock-click", "R12", "orbital", "auto-merge", "scene-exit"]
 
 [fixture]
 # THE SAME committed fixture GS-2 consumes, and that is the experiment: one fixture,

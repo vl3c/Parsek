@@ -14531,7 +14531,7 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
 
 def evaluate_gs1_assertions(frames, params: Gs1Params,
                             state=None) -> List[AssertionOutcome]:
-    """Evaluate the five GS-1 driver-validity assertions.
+    """Evaluate the six GS-1 driver-validity assertions.
 
     - ``apoapsisWindow``: the PEAK apoapsis sits inside apoapsisWindowMeters. Hop
       sanity, B1's semantics verbatim (the NaN-filtered running max, so a flight
@@ -14992,13 +14992,23 @@ def gs2_decide(state: Gs2State, snapshot: TelemetrySnapshot
         if p.sibling_vessel_name:
             rose = (snapshot.sibling_present == 1
                     and not state.sibling_seen_before_deploy)
+            unread = snapshot.sibling_present < 0
         else:
             # A count of 0 is the UNREAD sentinel, so it can never satisfy the
             # rise: `count > 0` is part of the predicate, not defensive noise.
             rose = (count > 0 and state.deploy_baseline_vessel_count > 0
                     and count > state.deploy_baseline_vessel_count)
-        streak = (min(state.deploy_split_streak + 1, p.deploy_debounce)
-                  if rose else 0)
+            unread = (count == 0)
+        # A FAULTED / UNREAD frame HOLDS the streak rather than erasing it: it is
+        # evidence in NEITHER direction, which is the tri-state discipline this
+        # channel is built on and the same rule GS-1's SIBLING-DOWN wait follows on
+        # the identical sentinel. Only a REAL frame that fails the rise resets.
+        if rose:
+            streak = min(state.deploy_split_streak + 1, p.deploy_debounce)
+        elif unread:
+            streak = state.deploy_split_streak
+        else:
+            streak = 0
         st = replace(state, deploy_split_streak=streak,
                      deploy_peak_vessel_count=max(state.deploy_peak_vessel_count,
                                                   count))

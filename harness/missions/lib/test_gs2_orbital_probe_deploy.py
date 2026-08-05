@@ -226,6 +226,30 @@ class Gs2DeployEvidenceTests(unittest.TestCase):
         self.assertEqual(mlib.GS2_DEPLOY, st.phase)
         self.assertFalse(st.split_ever_confirmed)
 
+    def test_an_UNREAD_frame_HOLDS_the_streak_instead_of_erasing_it(self):
+        """CONSISTENCY WITH THE CHANNEL'S OWN DISCIPLINE (PR #1425 review). A -1
+        frame is evidence in NEITHER direction, so it must not erase progress toward
+        the split any more than it may certify it - which is the rule GS-1's
+        SIBLING-DOWN wait already follows on the identical sentinel. Before this the
+        streak reset to 0 on a faulted poll, so a single dropped RPC in the middle of
+        a debounce silently restarted the count.
+
+        Distinct from `test_an_unread_sibling_never_satisfies_the_split`, which pins
+        that -1 cannot ADVANCE the streak; this pins that it cannot ERASE it."""
+        st = self._to_deploy()
+        st, _ = drive(st, [orbiting(4.0, vessel_count=0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        self.assertEqual(1, st.deploy_split_streak)
+        st, _ = drive(st, [orbiting(5.0, vessel_count=0, sibling_present=-1)])
+        self.assertEqual(1, st.deploy_split_streak,
+                         "a faulted poll erased progress toward the split")
+        self.assertEqual(mlib.GS2_DEPLOY, st.phase)
+        # The next real frame completes the debounce rather than starting over.
+        st, _ = drive(st, [orbiting(6.0, vessel_count=0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        self.assertEqual(mlib.GS2_POST_DEPLOY, st.phase)
+        self.assertTrue(st.split_ever_confirmed)
+
     def test_THE_FLIGHT_1_REGRESSION_an_unread_vessel_count_no_longer_blinds_it(self):
         """FLIGHT 1 REPLAYED (2026-08-05_0842). Every frame carries vessel_count=0 -
         the UNREAD sentinel, because the control is built with read_docking=False and

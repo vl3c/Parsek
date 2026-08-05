@@ -158,9 +158,9 @@ id = "GS-2-orbital-probe-deploy"
 #   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
 #       --run-save bdock-forge-base --target-name gs2-orbital-stack \
 #       --expect-situation ORBITING
-# When the harvest lands, add `gs2-orbital-stack` to `EXPECTED_SCENARIO_PRESENCE` in
-# `harness/lib/test_saveparse.py` in the SAME commit (that sweep pins the committed
-# fixture set exactly and will red otherwise).
+# The harvest landed on 2026-08-05 and `gs2-orbital-stack` IS registered in
+# `EXPECTED_SCENARIO_PRESENCE` in `harness/lib/test_saveparse.py` (that sweep pins the
+# committed fixture set exactly and would red otherwise).
 #
 # ARMING, per the S4.1 / CL-3 three-run discipline - EXECUTED 2026-08-05:
 # (1) READING run = flight 2, run 2026-08-05_0853, PASS attempt 1 (flight 1,
@@ -188,7 +188,7 @@ id = "GS-2-orbital-probe-deploy"
 tier = "operator"
 description = "In-orbit deploy: an attached two-controllable stack parked at ~100 km fires its decoupler, both halves stay Orbiting, and the commit opens an Unfinished Flight on the NON-FOCUS leaf only (reason=stableLeafUnconcluded) while the focus leaf stays Immutable - so the staging RewindPoint is NOT reap-eligible and survives on disk."
 instanceProfile = "stock-minimal"
-tags = ["GS2", "rewind", "unfinished-flights", "focus-gate", "staging", "orbital", "auto-merge", "scene-exit", "pending-fixture"]
+tags = ["GS2", "rewind", "unfinished-flights", "focus-gate", "staging", "orbital", "auto-merge", "scene-exit"]
 
 [fixture]
 # PRODUCED BY FORGE-gs2-orbital-stack + harvest_bdock_station.py --target-name
@@ -390,7 +390,7 @@ count = { min = 2, max = 4 }
 #       The regex requires TWO comma-separated pids. That is the non-vacuity: the same
 #       line is emitted with one pid on a single-controllable split, which is precisely
 #       the case where NO RewindPoint is authored.
-#   "ProcessBreakupEvent: controlled child created: pid=..."  ParsekFlight.cs:7622 (Info) [DERIVED]
+#   "ProcessBreakupEvent: controlled child created: pid=..."  ParsekFlight.cs:7622 (Info) [MEASURED - runs 2026-08-05_0853 / _0856]
 #       The released core got its own recording. Backs the D5 claim.
 #
 # GROUP 2 - THE REWINDPOINT AND ITS FOCUS SLOT.
@@ -400,7 +400,7 @@ count = { min = 2, max = 4 }
 #       `re.search`: slots=2 rejects a degenerate one-slot RP, controllablePids=2
 #       restates the classifier's own count, and focusSlot=[01] rejects the -1
 #       no-focus-signal value that would disarm the classifier for BOTH slots.
-#   "RewindPoint slot capture: rp=... populated=2/2 disabled=0"  RewindPointAuthor.cs:283 (Info) [DERIVED]
+#   "RewindPoint slot capture: rp=... populated=2/2 disabled=0"  RewindPointAuthor.cs:283 (Info) [MEASURED - runs 2026-08-05_0853 / _0856]
 #       Both slots correlated to a LIVE vessel. `disabled=0` is load-bearing: a slot
 #       that failed to correlate is marked Disabled with reason no-live-vessel.
 #
@@ -415,7 +415,7 @@ count = { min = 2, max = 4 }
 #                                             ParsekScenario.cs:7034  (Info) [MEASURED - CL-2]
 #   "Committed tree '...' (N recordings). Total committed: N recordings, 1 trees"
 #                                             RecordingStore.cs        (Info) [MEASURED - CL-2]
-#   "CommitTree: promoted 1 normal staging RP(s)"  RecordingStore.cs:1434 (Info) [DERIVED]
+#   "CommitTree: promoted 1 normal staging RP(s)"  RecordingStore.cs:1434 (Info) [MEASURED - runs 2026-08-05_0853 / _0856]
 #       A staging RP is born `SessionProvisional = true` (RewindPointAuthor.cs:135) and
 #       `IsReapEligible` refuses on its very FIRST line until a commit clears it
 #       (RecordingStore.cs:1425-1426). Without this step the non-reap below would be
@@ -426,7 +426,7 @@ count = { min = 2, max = 4 }
 #
 # GROUP 4 - THE VERDICT AND THE NON-REAP, which is the whole scenario.
 #   "CommitTree promoted [chain-tip ]rec=... reason=stableLeafUnconcluded to CommittedProvisional"
-#                                             RecordingStore.cs:1235 / :1265 (Info) [DERIVED]
+#                                             RecordingStore.cs:1235 / :1265 (Info) [MEASURED - runs 2026-08-05_0853 / _0856]
 #       THE UNFINISHED FLIGHT BEING OPENED, on the NON-FOCUS leaf. The alternation
 #       accepts either the head or the chain-tip spelling (which one fires depends on
 #       whether the child recording has a chain, and it should not); `reason=` is
@@ -436,7 +436,7 @@ count = { min = 2, max = 4 }
 #   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed="
 #                                             TestCommandExitToSpaceCenter (Info) [MEASURED - CL-2]
 #   "OnSave: saving 1 committed tree(s)"      ParsekScenario.cs        (Info) [MEASURED - CL-2]
-#   "ReapOrphanedRPs: reaped=0 remaining=N"   RewindPointReaper.cs:125 (VERBOSE) [DERIVED]
+#   "ReapOrphanedRPs: reaped=0 remaining=N"   RewindPointReaper.cs:125 (VERBOSE) [MEASURED - runs 2026-08-05_0853 / _0856]
 #       THE NON-REAP. `remaining=[1-9][0-9]*` is the assertion: an RP exists and
 #       survived the sweep. The zero-RP sibling (RewindPointReaper.cs:91) reads
 #       `remaining=0` and cannot match. Requires the pinned verboseLogging step.

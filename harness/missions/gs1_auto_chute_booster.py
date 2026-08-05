@@ -5,7 +5,9 @@ throttle + ignite, climb to a LOW target apoapsis, cut throttle, hold a few fram
 so engine thrust decays, then STAGE -- one click that fires the decoupler AND arms
 the booster's radial chutes. Focus stays on the upper stage, which arms its own
 chute at the apoapsis crossing and lands. The booster lands under its own canopy a
-few hundred metres away, unwatched by this mission (it is not the active vessel).
+few hundred metres away; the mission cannot fly it (it is not the active vessel)
+but it DOES watch it, via the sibling watch, and will not conclude until the
+booster's own flight has ended.
 
 This is a THIN shell: every decision is the pure ``mlib.gs1_decide`` phase machine
 and ``mlib.evaluate_gs1_assertions``; the flight, connect, logging, and result
@@ -46,7 +48,7 @@ def decide(state, snapshot):
 
 
 def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
-    # Every one of the five rows reads MACHINE-CARRIED evidence rather than
+    # Every one of the six rows reads MACHINE-CARRIED evidence rather than
     # re-deriving from the frame tail: the separation and canopy latches are both
     # sticky (a canopy cut on the final frame, or a thrust read that faults after
     # the split, must not erase something that really happened), and the stage
