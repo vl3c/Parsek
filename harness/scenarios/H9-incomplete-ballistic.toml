@@ -130,14 +130,14 @@ count = { min = 0, max = 0 }
 #    dLat=34.3 deg and angleError=133 / 131 deg, orders of magnitude above tolerance.
 #    Site 4 in particular has now red TWICE, so a third red there says the closed
 #    form is incomplete and wants reading, not a relaxed cell.
-#    THE ELEVENTH CELL IS DERIVED, NOT MEASURED. It has not flown: the pin was bumped
-#    with the fix that added it (branch `orbital-rotation-frame`) so the tally-sync
-#    cell stays green, and its total/skipped standing is the same derivation the two
-#    2026-08-04 probes carried before THEIR first flight. Its failed=0 rests on the
-#    headless closed-form half (Parsek.Tests
-#    StockOrbitElementFrameParityTests.RecorderStyleWorldWorldEncode_*) plus the
-#    lockstep argument that keeps site 4 at 0.000. Read a first red there as the
-#    measurement it is, not as noise.
+#    THE ELEVENTH CELL IS MEASURED: first flight run `2026-08-05_1633`, PASS
+#    attempt 1, 49 s. `RecorderAttitudeRoundTrip: angleError=0.000 tolDeg=5.000`
+#    with resolved/vessel quaternions bit-identical to site 4's on the same
+#    fixture, and the batch line matched this pin token for token. It is now a
+#    permanent guard for the RECORDER encode seam
+#    (`StampVesselOrbitalFrameRotation` -> world/world decode), the side site 4
+#    structurally cannot see (site 4 cancels any convention BOTH sides share). A
+#    red here with site 4 still 0.000 says the recorder side moved alone.
 #  - passed=11 follows.
 #  - scene=FLIGHT is INFERRED from the fixture (Focusable route, as H5/S1.4
 #    MEASURED on it) and is LOAD-BEARING: at any other scene all 11 scene-skip.
