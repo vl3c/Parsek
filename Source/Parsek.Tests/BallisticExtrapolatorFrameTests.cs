@@ -33,11 +33,17 @@ namespace Parsek.Tests
     /// them is unchanged and still convention-free.
     /// </para>
     /// <para>
-    /// No shared static state is touched (neither the Kepler core nor the pure axis map
-    /// logs or reads statics), so these tests deliberately carry no
+    /// SHARED STATIC STATE, since Finding A (2026-08-05, branch <c>twobody-element-frame</c>):
+    /// <c>TryCreateFromSegment</c> reads the process-wide <c>Planetarium.Zup</c> to shift a
+    /// segment's KSP-native LAN into stock <c>Orbit</c>'s state frame (see
+    /// <c>BallisticExtrapolator.GetStockElementFrameZupAngleRadians</c>). Nothing here installs a
+    /// frame - the headless default is declined and the boundary is the identity, which is what
+    /// keeps every closed-form statement below convention-free - but a sibling class that DOES
+    /// install one must not run concurrently with these cells, hence
     /// <c>[Collection("Sequential")]</c>.
     /// </para>
     /// </summary>
+    [Collection("Sequential")]
     public class BallisticExtrapolatorFrameTests
     {
         private const double KerbinMu = 3.5316e12;

@@ -3620,6 +3620,11 @@ namespace Parsek.Tests
         /// The claim that the producer cancels through a STOCK-frame consumer lives in
         /// <c>StockOrbitFrameSeamTests</c>, which installs a real non-identity
         /// <c>Planetarium.Zup</c> and models the consumer off stock's own element-to-state chain.
+        /// Since Finding A (2026-08-05, branch <c>twobody-element-frame</c>) the element-frame
+        /// crossing lives at ONE boundary - <c>TwoBodyOrbit</c>'s segment I/O - so the propagation
+        /// this cell reaches through IS stock's frame. The blind spot is unchanged though: a round
+        /// trip that reaches both ends through one implementation can only test the encoding,
+        /// never the frame.
         /// </para>
         /// </summary>
         [Fact]
