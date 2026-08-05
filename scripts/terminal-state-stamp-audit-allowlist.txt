@@ -1,0 +1,59 @@
+# Terminal-stamp seam audit allowlist.
+#
+# Enforced by Source/Parsek.Tests/TerminalStateStampSeamAuditTests.cs, which walks
+# Source/Parsek/**/*.cs and fails on any raw `TerminalStateValue =` assignment that is
+# not listed here.
+#
+# WHY THE GATE EXISTS: `Recording.StampTerminalState` is the single door for deciding a
+# recording's terminal verdict, because that decision must retire crew end states inferred
+# against the OLD verdict (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp - a
+# re-fly fork otherwise latches every crew member at KerbalEndState.Unknown and a
+# re-flown-and-recovered kerbal is reserved forever). The single-door claim was audited by
+# hand once and two verdict-deciding sites were missed, both in files that ALSO hold
+# legitimate raw writes - which is why entries here are keyed on the exact source line, not
+# on the file: allowlisting a whole file would have hidden both misses.
+#
+# FORMAT
+#   <repo-relative file with forward slashes> | <exact trimmed source line>
+# or, for a whole directory:
+#   <repo-relative directory prefix ending in '/'>
+# '#' starts a comment; blank lines are ignored.
+#
+# ADDING AN ENTRY: only for a site that does NOT decide a verdict - a structural copy onto
+# a fresh recording, a codec load, or a non-Recording type. Anything that decides what
+# became of a vessel goes through the seam instead. Write the rationale above the entry.
+
+# ── The seam itself ────────────────────────────────────────────────────────────
+# The one assignment StampTerminalState makes before handing the transition to the
+# crew-end-state invalidation.
+Source/Parsek/Recording.cs | TerminalStateValue = value;
+
+# ── Structural copies onto a fresh / consistently-copied recording ─────────────
+# ApplyPersistenceArtifactsFrom: copies an already-decided verdict as part of the
+# persistence-artifact bundle. Safe only because its callers copy from sources whose crew
+# end states are still unresolved - see the warning comment at the CrewEndStatesResolved
+# copy in the same method.
+Source/Parsek/Recording.cs | TerminalStateValue = source.TerminalStateValue;
+
+# RecordingTreeRecordCodec: load path. Restores the persisted verdict alongside the
+# persisted crew end states; invalidating on load would discard a consistent pair.
+Source/Parsek/RecordingTreeRecordCodec.cs | rec.TerminalStateValue = (TerminalState)terminalInt;
+
+# SessionMerger: `merged` is a fresh Recording whose CrewEndStates are still null.
+Source/Parsek/SessionMerger.cs | merged.TerminalStateValue = srcRec.TerminalStateValue;
+
+# RecordingOptimizer.SplitAtUT: `second` (the TIP) is a fresh Recording with null end
+# states; `original` (the HEAD) keeps its end states with a nulled terminal, which is
+# exactly the seam's retraction carve-out.
+Source/Parsek/RecordingOptimizer.cs | second.TerminalStateValue = original.TerminalStateValue;
+Source/Parsek/RecordingOptimizer.cs | original.TerminalStateValue = null;
+
+# ── Not a Recording at all ─────────────────────────────────────────────────────
+# MissionLeg display DTOs built fresh for the Missions UI; they carry no crew end states.
+Source/Parsek/MissionComposition.cs | TerminalStateValue = isLast ? lastLeg.TerminalStateValue : null,
+Source/Parsek/MissionStructure.cs | TerminalStateValue = rec.TerminalStateValue,
+
+# ── In-game test fixtures ──────────────────────────────────────────────────────
+# InGameTests builds recordings from scratch in object initializers; a fixture stating its
+# own starting verdict is not a production verdict decision.
+Source/Parsek/InGameTests/

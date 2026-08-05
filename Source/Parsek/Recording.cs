@@ -712,11 +712,15 @@ namespace Parsek
         ///
         /// <para>Structural copy sites are deliberately NOT routed through here, because
         /// none of them can leave a populated crew-end-state surface sitting under a
-        /// changed verdict: <c>RecordingTreeRecordCodec</c>'s load and the recording
-        /// clone/copy helpers restore both surfaces together, and <c>SessionMerger</c>
-        /// plus <c>RecordingOptimizer.SplitAtUT</c> move the verdict onto a FRESH
-        /// recording whose end states are still null (the split's HEAD keeps its end
-        /// states with a nulled terminal, which is exactly the retraction carve-out).</para>
+        /// changed verdict. <c>RecordingTreeRecordCodec</c>'s load and
+        /// <see cref="DeepClone"/> restore both surfaces together;
+        /// <c>SessionMerger</c> and <c>RecordingOptimizer.SplitAtUT</c> move the verdict
+        /// onto a FRESH recording whose end states are still null (the split's HEAD keeps
+        /// its end states with a nulled terminal, which is exactly the retraction
+        /// carve-out); and <see cref="ApplyPersistenceArtifactsFrom"/> copies the verdict
+        /// plus the resolved FLAG but not the states dictionary — safe only because its
+        /// callers copy from still-unresolved sources, which is why that field carries its
+        /// own warning comment.</para>
         ///
         /// Returns true when crew end states were invalidated by this stamp.
         /// </summary>
@@ -885,6 +889,12 @@ namespace Parsek
             RouteRunManifest = source.RouteRunManifest != null ? source.RouteRunManifest.DeepClone() : null;
             RunManifestVoided = source.RunManifestVoided;
             RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
+            // WARNING: this copies the resolved FLAG but NOT the CrewEndStates dictionary
+            // (only DeepClone carries both). Today's callers copy from sources whose end
+            // states are still unresolved, so nothing is transferred; a future consumer
+            // copying from a RESOLVED source would import the one-shot skip flag without
+            // the states behind it and leave the target reading as crewless forever.
+            // Copy the dictionary too, or leave this field alone, if that changes.
             CrewEndStatesResolved = source.CrewEndStatesResolved;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 

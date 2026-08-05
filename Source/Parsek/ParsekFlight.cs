@@ -9272,8 +9272,9 @@ namespace Parsek
                 source = "live";
                 if (focusedVessel != null)
                 {
-                    bgRec.TerminalStateValue =
-                        RecordingTree.DetermineTerminalState((int)focusedVessel.situation, focusedVessel);
+                    bgRec.StampTerminalState(
+                        RecordingTree.DetermineTerminalState((int)focusedVessel.situation, focusedVessel),
+                        "StampTerminalOnSwitchClosedBgOrigin.live");
                     CaptureTerminalOrbit(bgRec, focusedVessel);
                 }
                 else

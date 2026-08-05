@@ -1748,23 +1748,41 @@ reason the entry gives (still-active recordings would re-infer on every recalc),
 its own it is insufficient anyway - a non-null `CrewEndStates` blocks re-admission
 independently of the flag, so BOTH have to be cleared.
 
-- **One seam.** `Recording.StampTerminalState(TerminalState?, string context)` is now the
-  single door for every production site that DECIDES a terminal verdict - 26 call sites
-  across 12 files (23 verdicts + the 3 retractions below): the flight finalizer,
-  terminal-event handlers, the BG debris close, the finalization cache applier/producer,
-  the incomplete-ballistic scene-exit finalizer, the chain-segment commit, the Gloops
-  commit, `ParsekScenario.UpdateRecordingsForTerminalEvent`,
-  `Recording.MarkDestroyedAtTerminal`, `RecordingOptimizer.AbsorbInto`. It delegates to
+- **One seam, mechanically enforced.** `Recording.StampTerminalState(TerminalState?, string
+  context)` is now the single door for every production site that DECIDES a terminal
+  verdict - 28 call sites across 12 files (25 verdicts + the 3 retractions below): the
+  flight finalizer, terminal-event handlers, the BG debris close, the finalization cache
+  applier/producer, the incomplete-ballistic scene-exit finalizer, the chain-segment commit,
+  the Gloops commit, `ParsekScenario.UpdateRecordingsForTerminalEvent`,
+  `Recording.MarkDestroyedAtTerminal`, `RecordingOptimizer.AbsorbInto`,
+  `EnsureActiveRecordingTerminalState`'s live non-leaf branch, and
+  `StampTerminalOnSwitchClosedBgOrigin`'s live-classification fallback. It delegates to
   `KerbalsModule.InvalidateCrewEndStatesForTerminalStamp`, which clears BOTH
   `CrewEndStates` and the serialized `CrewEndStatesResolved`, re-infers, and logs the
   grep-stable `crew-end-states-stale-after-terminal-stamp` line (recording id, `old->new`
   terminal, how many end states were dropped and re-inferred, context). Structural copies
-  (`RecordingTreeRecordCodec` load, the recording clone/copy helpers, `SessionMerger`,
-  `RecordingOptimizer.SplitAtUT`) deliberately do NOT route through it: none can leave a
-  populated end-state surface under a changed verdict - the load/clone helpers restore both
-  surfaces together, and the merger/splitter move the verdict onto a FRESH recording whose
-  end states are still null (the split's HEAD keeps its end states with a nulled terminal,
-  which is the retraction carve-out).
+  (`RecordingTreeRecordCodec` load, `Recording.DeepClone` /
+  `ApplyPersistenceArtifactsFrom`, `SessionMerger`, `RecordingOptimizer.SplitAtUT`)
+  deliberately do NOT route through it: none can leave a populated end-state surface under
+  a changed verdict - the load path and `DeepClone` restore both surfaces together, the
+  merger/splitter move the verdict onto a FRESH recording whose end states are still null
+  (the split's HEAD keeps its end states with a nulled terminal, which is the retraction
+  carve-out), and `ApplyPersistenceArtifactsFrom` copies the verdict plus the resolved FLAG
+  but not the states dictionary - safe only because its callers copy from still-unresolved
+  sources, which is now stated in a warning comment at that copy.
+- **The single-door claim is a gate, not an audit.** The first cut asserted it by hand and
+  MISSED two verdict-deciding sites - `EnsureActiveRecordingTerminalState`'s live non-leaf
+  branch (the re-fly fork's own finalization path when the fork is a non-leaf at scene
+  exit: the headline scenario) and `StampTerminalOnSwitchClosedBgOrigin`'s live fallback -
+  both in files whose sibling branch WAS routed. Review caught them, and the lesson is
+  mechanised: `TerminalStateStampSeamAuditTests` +
+  `scripts/terminal-state-stamp-audit-allowlist.txt` fail the build on any raw
+  `TerminalStateValue =` assignment in `Source/Parsek` outside an explicit allowlist,
+  keyed on the exact source LINE rather than the file - a file-level allowlist (the shape
+  the existing ERS/ELS and UI-mode gates use) would have hidden BOTH misses. A second cell
+  fails on a stale allowlist entry, and the walk asserts a minimum hit count so a
+  regex/path regression cannot pass vacuously. Negative control run: reverting one routed
+  site reds the gate naming that file and line.
 - **Transition guard: any stamp of a NON-NULL terminal that differs from the previous
   value** - null->X (the filed finding) AND X->Y. X->Y is not hypothetical, which is the
   one place this went wider than the entry's scope, deliberately:
@@ -1804,12 +1822,16 @@ independently of the flag, so BOTH have to be cleared.
 is rebuilt by `CreateKerbalAssignmentActions`, which runs at commit
 (`OnRecordingCommitted`) and, for committed recordings, in `MigrateKerbalAssignments` on
 KSP load - NOT on every recalc (`RecalculateAndPatchCore`'s
-`PopulateUnpopulatedCrewEndStates` refreshes recordings but does not rewrite rows). Every
-routed stamp site is pre-commit for the recording it touches
+`PopulateUnpopulatedCrewEndStates` refreshes recordings but does not rewrite rows). Almost
+every routed stamp site is pre-commit for the recording it touches
 (`UpdateRecordingsForTerminalEvent` explicitly refuses to modify committed recordings), so
-the corrected end state reaches the ledger at commit time. A hypothetical future
-post-commit stamp would correct the recording immediately and its ledger rows on the next
-load.
+the corrected end state reaches the ledger at commit time. `RecordingOptimizer.AbsorbInto`
+is the exception and a REAL post-commit stamp: the auto-merge targets committed chain
+segments. Its recording is corrected immediately; its ledger rows self-heal on the next
+load, because `MigrateKerbalAssignments` rebuilds each recording's rows and
+`ReplaceActionsForRecording`s them whenever they no longer match. Reservations are computed
+from the ledger, so a post-commit correction of that shape lands one load late rather than
+never.
 
 **Serialization boundary, also honest.** `crewEndStatesResolved` is persisted, and the
 clear happens synchronously inside the stamp, so a save written after a stamp always
@@ -1823,7 +1845,8 @@ path end to end - the fork lifecycle to a finite-endUT `Recovered` reservation, 
 `Landed` case, the Landed->Recovered and Landed->Destroyed re-stamps, same-value re-stamp,
 crewless no-op, retraction, the not-re-derivable restore, the post-stamp ghost-only
 conversion, `MarkDestroyedAtTerminal`, plus a
-raw-field-assignment cell that reproduces the original latch and so pins WHAT fixes it. The
+raw-field-assignment cell that reproduces the original latch and so pins WHAT fixes it -
+and `TerminalStateStampSeamAuditTests` (2 cells) holds the single-door contract. The
 destroyed-vessel ghost-visual admission gate
 (`CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered`) is
 untouched and still passes.

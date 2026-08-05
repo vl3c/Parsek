@@ -187,8 +187,9 @@ namespace Parsek
 
             if (v != null)
             {
-                activeRec.TerminalStateValue =
-                    RecordingTree.DetermineTerminalState((int)v.situation, v);
+                activeRec.StampTerminalState(
+                    RecordingTree.DetermineTerminalState((int)v.situation, v),
+                    "EnsureActiveRecordingTerminalState.liveNonLeaf");
                 RecordingEndpointResolver.RefreshEndpointDecision(activeRec, "FinalizeTreeRecordings.LiveNonLeaf");
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: set terminalState=" +
