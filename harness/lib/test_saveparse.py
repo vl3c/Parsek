@@ -639,6 +639,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     # fixture dir -> ParsekScenario node present in persistent.sfs
     EXPECTED_SCENARIO_PRESENCE = {
         "b1-pad-craft": True,
+        "b17-duna-pad": True,
         "b2-lko-craft": True,
         "bdock-forge-base": True,
         "bdock-station-craft": True,

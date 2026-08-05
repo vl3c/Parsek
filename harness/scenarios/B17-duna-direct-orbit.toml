@@ -50,9 +50,9 @@ id = "B17-duna-direct-orbit"
 # (CommitTreeImpl returns ERROR no-active-tree when no tree is live ->
 # driver-INVALID; the B11 accounting rule verbatim).
 #
-# UNFLOWN. tier = "pending-fixture" until FORGE-b17-duna-pad flies and
-# harvest_bdock_station.py --target-name b17-duna-pad lands the committed pad
-# fixture; re-tier to "nightly" in the fixture commit. Expect GS-1-style
+# UNFLOWN. Was tier = "pending-fixture" until FORGE-b17-duna-pad flew (PASS
+# attempt 1, 2026-08-06) and the harvest landed the committed b17-duna-pad
+# fixture; now "nightly". Expect GS-1-style
 # multi-flight iteration (three driver defects before green was the norm); file
 # findings, never relax the cleanliness constraints -- a fixture with loiter or an
 # Ike brush is worse than no fixture.
@@ -64,7 +64,7 @@ id = "B17-duna-direct-orbit"
 # FlushAndQuit + margin -> budgetSeconds 4700, the B16 sizing for the same profile
 # shape (B16 is the wall-cost precedent: same machine, same warp policy).
 # =====================================================================================
-tier = "pending-fixture"
+tier = "nightly"
 description = "Pad-aligned DIRECT Kerbin->Duna transfer (no parking-orbit loiter: pre-launch seam TimeJump to the ejection window + ASAP ejection) + capture into an Ike-clear 300 km park + mid-mission CommitTree: produces the clean direct looped-recording fixture the re-aim option-3 validation requires."
 instanceProfile = "stock-minimal"
 tags = ["B17", "interplanetary", "duna", "pad-align", "capture", "commit", "pending-flight"]
