@@ -5842,7 +5842,9 @@ namespace Parsek
                 {
                     ParsekLog.Verbose("Scenario",
                         $"Clearing post-spawn terminal state {ts} for {context} '{rec.VesselName}'");
-                    rec.TerminalStateValue = null;
+                    // Retraction: crew end states from the original flight are kept
+                    // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
+                    rec.StampTerminalState(null, "ClearPostSpawnTerminalState");
                 }
             }
         }
@@ -7220,10 +7222,16 @@ namespace Parsek
                 {
                     if (MatchesVessel(rec, identity) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
                     {
-                        rec.TerminalStateValue = state;
                         rec.ExplicitEndUT = ut;
                         CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        // Snapshot first, stamp second: CanOverwriteTerminalState
+                        // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
+                        // Recovered|Destroyed, and that is exactly the transition the
+                        // crew-end-state seam must re-infer against — it has to judge
+                        // re-derivability against the surface that survives this block
+                        // (the ghost snapshot), not the snapshot being dropped here.
                         rec.VesselSnapshot = null;
+                        rec.StampTerminalState(state, "UpdateRecordingsForTerminalEvent");
                         anyUpdated = true;
                         ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
                     }

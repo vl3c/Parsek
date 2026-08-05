@@ -184,7 +184,10 @@ namespace Parsek
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
 
             var prev = rec.TerminalStateValue;
-            rec.TerminalStateValue = TerminalState.Destroyed;
+            // A genuine X->Destroyed re-stamp: the crew-end-state seam re-infers any
+            // Aboard/Unknown verdict inherited from the overridden terminal into Dead.
+            rec.StampTerminalState(
+                TerminalState.Destroyed, "ActiveRecorderDestructionOverride");
             ParsekLog.Info("Flight",
                 $"Finalization override: active-recorder destruction override for " +
                 $"'{rec.RecordingId ?? "(null)"}' — overriding TerminalState " +
@@ -200,7 +203,7 @@ namespace Parsek
             PendingDestruction pending,
             Recording rec)
         {
-            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.StampTerminalState(TerminalState.Destroyed, "ApplyTerminalDestruction");
             rec.ExplicitEndUT = pending.capturedUT;
             ApplyTerminalData(pending, rec);
             ParsekLog.Verbose("Flight", $"Applied terminal destruction to recording {rec.RecordingId}: Destroyed at UT={pending.capturedUT:F1}");
@@ -350,7 +353,7 @@ namespace Parsek
                             $"Suspected phantom terrain crash for EVA '{rec.VesselName}': " +
                             $"was {packState.preSit}, packed {pending.capturedUT - packState.packUT:F1}s " +
                             $"before destruction. Using {safeTerm} instead of Destroyed");
-                        rec.TerminalStateValue = safeTerm;
+                        rec.StampTerminalState(safeTerm, "PhantomTerrainCrashOverride");
                         rec.ExplicitEndUT = pending.capturedUT;
                         ApplyTerminalData(pending, rec);
                     }

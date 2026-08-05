@@ -353,7 +353,9 @@ namespace Parsek
                 ? recording.ExplicitEndUT
                 : recording.EndUT;
 
-            recording.TerminalStateValue = null;
+            // Retraction: the seam deliberately keeps the existing crew end states
+            // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
+            recording.StampTerminalState(null, "ClearStaleDestroyedTerminalForResume");
             recording.ExplicitEndUT = double.NaN;
             recording.MarkFilesDirty();
 
@@ -2648,7 +2650,9 @@ namespace Parsek
             if (result.appendedOrbitSegments != null && result.appendedOrbitSegments.Count > 0)
                 recording.OrbitSegments.AddRange(result.appendedOrbitSegments);
 
-            recording.TerminalStateValue = result.terminalState.Value;
+            recording.StampTerminalState(
+                result.terminalState.Value,
+                (logContext ?? "SceneExitFinalizer") + ".Apply");
             recording.ExplicitEndUT = result.terminalUT;
             if (result.terminalOrbit.HasValue)
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);

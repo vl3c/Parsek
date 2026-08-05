@@ -4811,7 +4811,9 @@ namespace Parsek
                     if (!SuppressLogging)
                         ParsekLog.Verbose("Rewind",
                             $"Clearing post-spawn terminal state {ts} for '{rec.VesselName}' (id={rec.RecordingId})");
-                    rec.TerminalStateValue = null;
+                    // Retraction: crew end states from the original flight are kept
+                    // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
+                    rec.StampTerminalState(null, "ResetRecordingPlaybackFields");
                 }
             }
 

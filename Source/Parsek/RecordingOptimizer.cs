@@ -801,9 +801,13 @@ namespace Parsek
             if (absorbed.DockTargetVesselPid != 0)
                 target.DockTargetVesselPid = absorbed.DockTargetVesselPid;
 
-            // 8. TerminalState: absorbed is the later segment, inherit its terminal state
+            // 8. TerminalState: absorbed is the later segment, inherit its terminal state.
+            // Routed through the stamp seam: unlike the split/merge sites that build a
+            // FRESH recording, `target` is a live recording that keeps its own crew end
+            // states, so a verdict change here can leave them stale. No-op in the normal
+            // pre-commit case where nothing has populated them yet.
             if (absorbed.TerminalStateValue.HasValue)
-                target.TerminalStateValue = absorbed.TerminalStateValue;
+                target.StampTerminalState(absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto");
             if (absorbed.TerminalOrbitBody != null)
             {
                 target.TerminalOrbitInclination = absorbed.TerminalOrbitInclination;
