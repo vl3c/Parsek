@@ -407,15 +407,16 @@ id = "GS-1-auto-chute-booster"
 # `EXPECTED_SCENARIO_PRESENCE` in `harness/lib/test_saveparse.py` (that sweep pins the
 # committed fixture set exactly and would red otherwise).
 #
-# PLANNED ARMING, per the S4.1 / CL-3 three-run discipline. `[expectations.rewind]` and
-# `[expectations.recordings.structure]` below are REPORT-ONLY (no `gating` key). The
-# sequence is: (1) a report-only READING run that MEASURES the four rewind facets and
-# the structure facets; (2) if and only if the measurement matches the windows declared
-# here, arm `[expectations.rewind]` with `gating = true` and add this spec to
-# `ARMED_ALLOWLIST` in `test_hlib.py::SaveStructureVerifierWiringTests` in the same
-# commit, citing the run ids; (3) a NEGATIVE CONTROL - temporarily tighten one window
-# so it reds - because a gate nobody has watched fail is an assumption. Do NOT arm off
-# this file's declarations alone: they are this author's expectation, not a measurement.
+# ARMING, per the S4.1 / CL-3 three-run discipline - EXECUTED 2026-08-05:
+# (1) READING run = flight 4, run 2026-08-05_0824, PASS attempt 1 after three driver
+# defects were fixed across flights 1-3 (see FLIGHT FORENSICS above): measured
+# rewindPoints=0 supersedeRows=0 tombstones=0, structure facets all inside windows;
+# (2) ARMED run 2026-08-05_0832: PASS attempt 1, `gating=True armed=['rewind']
+# mismatches=[]` - `[expectations.rewind]` armed with `gating = true` + this spec
+# added to `ARMED_ALLOWLIST` in `test_hlib.py::SaveStructureVerifierWiringTests`;
+# (3) NEGATIVE CONTROL run 2026-08-05_0836: temporary `supersedeRows = { min = 1 }`
+# -> PARSEK-FAIL(save-structure) `rewind.supersedeRows 0 < min 1`, then reverted.
+# `[expectations.recordings.structure]` stays REPORT-ONLY: single-sample windows.
 #
 # THE MEASUREMENT THAT MATTERS MOST is `rewindPoints = { max = 0 }`. That IS the reap,
 # read out of the produced save rather than out of the log, and it is the half the log
@@ -793,6 +794,12 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 # `rewindRetirements` is NOT declared: it is an OBSERVED facet only and is not a legal
 # spec key (saveparse.REWIND_BLOCK_KEYS), so declaring it would hard-reject the spec.
 [expectations.rewind]
+# ARMED 2026-08-05 after the reading run 2026-08-05_0824 (flight 4, PASS attempt 1)
+# measured rewindPoints=0 supersedeRows=0 tombstones=0 with every window already met -
+# arming moved no verdict (armed confirm: run 2026-08-05_0832, PASS gating=True).
+# The red direction was proven by the negative control run 2026-08-05_0836
+# (temporary supersedeRows={min 1} -> PARSEK-FAIL(save-structure), reverted).
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }

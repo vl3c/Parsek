@@ -629,6 +629,53 @@ class Gs1BoosterWaitTests(unittest.TestCase):
                         sibling_present=1, sibling_situation="LANDED")
         self.assertTrue(state.done)
 
+    def test_a_present_but_UNREADABLE_situation_holds_the_streak(self):
+        # THE THIRD TRI-STATE READING, and the one easiest to get wrong. The shell
+        # returns ("", 1) for "the vessel is there but its situation read faulted".
+        # That is a PARTIAL FAULT, not an observation that the booster is still
+        # flying, so it must HOLD the landed streak - the same "evidence in neither
+        # direction" rule as the ("", -1) pair. An earlier cut tested
+        # `situation in landedSituations` directly, so the empty string failed the
+        # test and ERASED progress; found by Lane B restating the contract back.
+        state = to_sibling_down()
+        state, _ = step(state, ut=31.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertEqual(1, state.sibling_landed_streak)
+        state, _ = step(state, ut=32.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="")
+        self.assertEqual(1, state.sibling_landed_streak,
+                         "a present-but-unreadable frame erased progress")
+        self.assertFalse(state.done)
+        state, _ = step(state, ut=33.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertTrue(state.done)
+        self.assertEqual("LANDED", state.sibling_outcome)
+
+    def test_a_REAL_non_landed_reading_does_erase_the_streak(self):
+        # The other side of the same coin: a genuine FLYING/SUB_ORBITAL reading is
+        # real evidence the booster is still up, so it MUST reset. Without this the
+        # hold above would have quietly turned the debounce into "any two landed
+        # reads ever", which is not a debounce.
+        state = to_sibling_down()
+        state, _ = step(state, ut=31.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="LANDED")
+        self.assertEqual(1, state.sibling_landed_streak)
+        state, _ = step(state, ut=32.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="SUB_ORBITAL")
+        self.assertEqual(0, state.sibling_landed_streak)
+        self.assertFalse(state.done)
+
+    def test_presence_always_clears_the_absent_streak(self):
+        # Absence and presence are mutually exclusive observations, so ANY present
+        # reading - even an unreadable one - resets progress toward "destroyed".
+        state = to_sibling_down()
+        state, _ = step(state, ut=31.0, situation="LANDED", sibling_present=0)
+        self.assertEqual(1, state.sibling_absent_streak)
+        state, _ = step(state, ut=32.0, situation="LANDED",
+                        sibling_present=1, sibling_situation="")
+        self.assertEqual(0, state.sibling_absent_streak)
+        self.assertFalse(state.done)
+
     def test_a_destroyed_booster_CONCLUDES_the_mission_rather_than_failing_it(self):
         # MISSION-vs-PARSEK ORTHOGONALITY. A booster that blew up still stopped
         # flying, so the mission's job is done: it stays MISSION-OK, the tail runs,
@@ -935,18 +982,53 @@ class SpecSyncTests(unittest.TestCase):
                 self.assertIn(value, self.registry[dim]["values"],
                               "%s claims unknown %s value %r" % (SPEC_PATH, dim, value))
 
-    def test_the_rewind_block_is_declared_but_not_armed(self):
-        # ARMING IS A PER-SCENARIO OPERATOR DECISION taken only after a report-only
-        # reading run whose facets match. A spec that quietly grows `gating = true`
-        # also reds in test_hlib's ARMED_ALLOWLIST; this cell states the same
-        # property from the lane's own side, with the reason attached.
+    def test_the_rewind_block_is_ARMED_and_its_windows_are_unrelaxed(self):
+        # ARMED 2026-08-05 after the reading run `2026-08-05_0824` (flight 4, PASS
+        # attempt 1) measured rewindPoints=0 supersedeRows=0 tombstones=0 with every
+        # window already met, so arming moved no verdict. This cell replaced an
+        # earlier `..._declared_but_not_armed` one, which was correct only while the
+        # arming was pending.
+        #
+        # WHAT IT GUARDS NOW is the thing that can still go wrong: the windows are
+        # the ASSERTION (all `max = 0`), and three flights red on them for three
+        # different DRIVER defects without a single product defect. A future run that
+        # goes red here must be fixed at the driver or the craft, never by widening
+        # `rewindPoints` to `{min = 1}` - that would turn the guard into a
+        # description of whatever happened to fly.
         rewind = self.spec["expectations"]["rewind"]
-        self.assertNotIn("gating", rewind)
+        self.assertIs(True, rewind.get("gating"))
+        # IF THIS CELL FIRES WITH `supersedeRows == {"min": 1}`, THE NEGATIVE CONTROL
+        # WAS NOT REVERTED. That value is the deliberate temporary edit the arming
+        # workflow flies to watch the gate FAIL (a gate nobody has seen fail is an
+        # assumption), and the workflow's last step is to put it back. GS-1 drives no
+        # rewind, so a supersede row cannot legitimately exist here and `{min: 1}` is
+        # never a shippable pin - revert to `{max: 0}` rather than teaching this cell
+        # to accept it.
         self.assertEqual({"max": 0}, rewind["rewindPoints"])
-        self.assertEqual({"max": 0}, rewind["supersedeRows"])
+        self.assertEqual({"max": 0}, rewind["supersedeRows"],
+                         "supersedeRows is not {max: 0} - if it reads {min: 1} this "
+                         "is the un-reverted arming negative control, not a new pin")
         self.assertEqual({"max": 0}, rewind["tombstones"])
+        # The structure block stays REPORT-ONLY: gating is PER BLOCK, and its windows
+        # are single-sample readings rather than measurements worth gating.
         structure = self.spec["expectations"]["recordings"]["structure"]
         self.assertNotIn("gating", structure)
+
+    def test_arming_the_rewind_block_is_paired_with_the_allowlist_entry(self):
+        # THE PAIR MUST NOT DRIFT APART. `test_hlib.py::SaveStructureVerifierWiringTests`
+        # reds when the set of gating-armed specs changes without an explicit edit
+        # citing the run ids; this cell states the same coupling from the lane's own
+        # side, so removing either half is caught from both directions.
+        allowlist = os.path.join(_HARNESS, "lib", "test_hlib.py")
+        with open(allowlist, encoding="utf-8") as fh:
+            text = fh.read()
+        armed = bool(self.spec["expectations"]["rewind"].get("gating"))
+        listed = '"GS-1-auto-chute-booster.toml"' in text
+        self.assertEqual(armed, listed,
+                         "GS-1 arms save-structure gating but is not in "
+                         "test_hlib's ARMED_ALLOWLIST (or vice versa) - arming is a "
+                         "per-scenario operator decision and the allowlist entry is "
+                         "the record of it")
 
     def test_the_unfinished_flight_promotion_lines_are_forbidden(self):
         # THE REGRESSION GUARD ITSELF. These two are the exact lines

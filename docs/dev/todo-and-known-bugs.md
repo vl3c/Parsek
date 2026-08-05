@@ -966,9 +966,11 @@ CommittedProvisional`.
 not fly. If the assertion is about how that vessel's RECORDING closes, the mission must
 wait for it to stop flying - the scene exit is what stamps the terminal state.
 
-**STILL OPEN:** assumption A5 in `harness/tools/build_gs1_craft.py` - whether the
-booster SURVIVES TOUCHDOWN. Flight 3 got closest (146+ points, still descending). The
-POD side of the mass/canopy math is now proven by its own intact landing.
+**A5 IS DISCHARGED (flight 4, `2026-08-05_0824`, PASS).** The save parse read
+`terminalStates {Landed: 2}` - the booster survived touchdown under six Mk2-R, so the
+craft's computed ~4.3 m/s against `fuelTankSmall`'s crashTolerance of 6 held. Every
+numbered assumption in `build_gs1_craft.py` is now closed by a live flight, which
+retires the by-construction craft's last unproven claim.
 
 ## ~~GS1-APEX-SEPARATION-COLLISION: staging at the apex gives NO separation, and the two halves collide~~ [FOUND 2026-08-05 by GS-1 flight 2; FIXED the same day by reordering the mission phases. Kept because the physics generalises to every future two-stage lane, and because the first fix for it was itself the cause]
 
@@ -1046,13 +1048,13 @@ ejection impulse; at an apex it has neither, and two stages 5 m apart with simil
 ballistic coefficients stay 5 m apart until one of them opens more canopy than the
 other and the pair closes.
 
-**STILL OPEN, and only a flight can settle it:** assumption A5 in
+**SETTLED BY FLIGHT 4** (`2026-08-05_0824`, PASS attempt 1): assumption A5 in
 `harness/tools/build_gs1_craft.py` - whether the booster SURVIVES TOUCHDOWN under six
-Mk2-R at a computed ~4.3 m/s against `fuelTankSmall`'s crashTolerance of 6. Neither
-flight has reached the ground with the booster intact. If the reordered profile
-separates cleanly and the booster then breaks up on contact, the finding moves from
-the driver to the craft and the remedy is more canopy or a lighter engine - NOT a
-softer expectation in the spec.
+Mk2-R at a computed ~4.3 m/s against `fuelTankSmall`'s crashTolerance of 6 - HELD. The
+save parse read `terminalStates {Landed: 2}` and `rewindPoints: 0`, so the booster
+landed intact, its slot resolved Immutable, and the RewindPoint reaped. No craft change
+was needed, and every numbered assumption in the by-construction builder is now closed
+by a live flight.
 
 ## R7-FIXTURE-GAPS: five `Rewind` in-game tests can never execute on any committed fixture [FOUND 2026-08-04 by roadmap R7's per-test skip-precondition read. GAP 2 FIXED 2026-08-04 and CONFIRMED the same day: R7c re-flown with rewind-b9 injected, `UnfinishedFlightsRenderingAndNoHide` EXECUTED and PASSED (run `2026-08-04_1617`, tally `passed=5 skipped=32`), and the four armed/adjacent fixture consumers confirmed unmoved (S4.1 + CL-3 armed gates green, S1.5 green, all attempt 1). `InvokeRPStripAndActivate` stays skipped in R7a DELIBERATELY: it performs a destructive RP strip+activate mid-batch beside 15 other executing cells - the emergent-batch-mutation class the R7-SESSION-BATCH-ISOLATION entry documents - so unblocking it wants its own reading pass, not a fixture swap. GAP 1 re-measured and REFRAMED, still open]
 

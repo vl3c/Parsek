@@ -14467,10 +14467,23 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         landed_streak = state.sibling_landed_streak
         absent_streak = state.sibling_absent_streak
         if snapshot.sibling_present == 1:
+            # PRESENCE is observed, so the absent streak resets unconditionally.
             absent_streak = 0
-            landed_streak = (landed_streak + 1
-                             if snapshot.sibling_situation in state.params.landed_situations
-                             else 0)
+            if not snapshot.sibling_situation:
+                # PRESENT BUT UNREADABLE - the shell's ("", 1) reading. This is a
+                # PARTIAL FAULT, not an observation that the booster is still flying,
+                # so it HOLDS the landed streak rather than erasing it. An earlier
+                # cut tested `situation in landed_situations` directly, which made an
+                # empty string fail the test and reset progress - the same
+                # "a fault is evidence in neither direction" rule this channel is
+                # built on, broken in the one place it is easiest to miss.
+                pass
+            elif snapshot.sibling_situation in state.params.landed_situations:
+                landed_streak = landed_streak + 1
+            else:
+                # A REAL reading of a non-landed situation (FLYING, SUB_ORBITAL):
+                # genuine evidence the booster is still up, so progress resets.
+                landed_streak = 0
         elif snapshot.sibling_present == 0 and state.sibling_seen_present:
             landed_streak = 0
             absent_streak = absent_streak + 1

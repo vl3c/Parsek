@@ -407,6 +407,60 @@ class Gs2SiblingAssertionTests(unittest.TestCase):
         self.assertEqual("SUB_ORBITAL", row.value)
         self.assertTrue(row.detail["seenPresent"])
 
+    def test_a_LATER_real_out_of_gate_reading_REPLACES_an_earlier_good_one(self):
+        """THE CELL THAT MAKES THE LATCH FALSIFIABLE, and the analogue of the hole
+        Lane A found in the GS-1 streak. Without it, `sibling_last_situation` could be
+        sticky-first-good, or "any accepted reading ever seen", and every other cell in
+        this class would still pass. Feeding SUB_ORBITAL only (as
+        test_UNMET_when_the_deployed_vessel_is_suborbital does) cannot tell those
+        implementations apart from the real one; feeding a GOOD reading and then a
+        REAL bad one can."""
+        _p, st = fresh()
+        frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
+            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(6.0, vessel_count=6, sibling_situation="ORBITING",
+                     sibling_present=1),
+            orbiting(7.0, vessel_count=6, sibling_situation="SUB_ORBITAL",
+                     sibling_present=1)]
+        st, _ = drive(st, frames)
+        self.assertEqual("SUB_ORBITAL", st.sibling_last_situation)
+        row = self._row(st, frames)
+        self.assertFalse(row.met)
+
+    def test_a_LATER_good_reading_replaces_an_earlier_bad_one(self):
+        """The converse, and it documents WHY last-wins is the right semantics here
+        rather than a debounce: the terminal state is stamped at SCENE EXIT, so what
+        matters is where the deployed vessel ENDED UP, not whether it ever read
+        out-of-gate on the way. A probe that settles into its orbit is fine."""
+        _p, st = fresh()
+        frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
+            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(6.0, vessel_count=6, sibling_situation="SUB_ORBITAL",
+                     sibling_present=1),
+            orbiting(7.0, vessel_count=6, sibling_situation="ORBITING",
+                     sibling_present=1)]
+        st, _ = drive(st, frames)
+        row = self._row(st, frames)
+        self.assertTrue(row.met)
+        self.assertEqual("ORBITING", row.value)
+
+    def test_UNMET_when_present_but_the_situation_was_NEVER_readable(self):
+        """`("", 1)` on every frame: presence is observed, the situation never is. The
+        membership test then runs against the empty latch and must FAIL CLOSED - an
+        implementation that treated "no contrary reading" as a pass would be asserting
+        the scenario's central premise from an absence of evidence."""
+        _p, st = fresh()
+        frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
+            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(6.0, vessel_count=6, sibling_situation="", sibling_present=1),
+            orbiting(7.0, vessel_count=6, sibling_situation="", sibling_present=1)]
+        st, _ = drive(st, frames)
+        self.assertTrue(st.sibling_seen_present)
+        self.assertEqual("", st.sibling_last_situation)
+        row = self._row(st, frames)
+        self.assertFalse(row.met)
+        self.assertIsNone(row.value)
+
     def test_auto_met_when_the_gate_is_off(self):
         """Same discipline as forge_lko's minCrew: an unconfigured gate is off, not
         failed, so no pre-existing caller is affected by the row existing."""

@@ -4790,7 +4790,13 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # enforce. It is the first spec in the suite to gate on a TOMBSTONE, and the
     # floors are what separate "the merge ran" from "the merge retired
     # something": a refused batch writes `Added 0 supersede relations`.
-    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml"}
+    # GS-1-auto-chute-booster armed [expectations.rewind] 2026-08-05 after reading run
+    # 2026-08-05_0824 (flight 4, PASS attempt 1) measured rewindPoints=0
+    # supersedeRows=0 tombstones=0 - every declared window already met, so arming
+    # moved no verdict; the reap windows make the critical-regression-guard shape
+    # (routine two-stage flight leaves no RP behind) load-bearing.
+    ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       "GS-1-auto-chute-booster.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
