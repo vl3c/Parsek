@@ -887,6 +887,29 @@ WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
 
 ---
 
+## GS-WAVE-DEFERRED: two gameplay-scenario-wave decisions recorded only in PR bodies until now [RAISED 2026-08-05, gameplay-scenarios wave 1 (PR #1425) + follow-ups (PR #1427). DECISIONS, NOT DEFECTS - recorded here so the PR bodies are not the only durable trace]
+
+**1. S20 flight variant deferred (uncontrollable booster -> no RewindPoint).**
+Research doc section 8 S20: a booster with parachutes but NO probe core fails the
+controllable-subject gate at the split, so no RP is authored
+(`TryAuthorRewindPointForBreakup` logs `Single-controllable split: no RP`). The
+VERDICT is unit-covered (`SegmentBoundaryLogic.IsMultiControllableSplit` = count
+>= 2) and GS-1's spec header documents the mechanism as the reason its booster
+carries a probeCoreOcto2.v2. The deferred piece is only the dedicated FLIGHT: it
+would need a second craft variant (build_gs1_craft.py minus the booster core), a
+second forge run and a committed fixture, for a single logContract token on an
+already-unit-proven negative. Build it only if a wave wants the D9 no-RP cell
+flown live; the craft builder is parameterizable for it.
+
+**2. One unreproduced missions/lib suite failure during wave 1.**
+A single `python -m unittest discover -s missions/lib` run red with failures=1
+mid-wave (between the GS-2 negative-control revert and its commit,
+2026-08-05); the very next run and 4+ consecutive runs after were green
+(1419-1424 OK), the failing cell name was never captured (output tail cut it),
+and it never reproduced. Recorded per the honesty rule: if a missions/lib cell
+ever flakes again, this is the prior sighting; suspect environment (temp seam
+dirs) before code.
+
 ## HARNESS-SHELL-READSET-UNCHECKED: a mission shell can read a telemetry field its own control flags never populate, and nothing catches it until a flight [RAISED 2026-08-05 by GS-2 flight 1, which was lost to exactly this. IDEA, NOT STARTED - recorded with its cost so a future wave can decide rather than rediscover]
 
 **What happened, as the concrete instance.** `gs2_orbital_probe_deploy`'s DEPLOY
