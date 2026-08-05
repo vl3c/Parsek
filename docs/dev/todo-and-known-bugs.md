@@ -1502,7 +1502,7 @@ reading it as a product defect.
 
 ---
 
-## W2-VACUOUS-CELLS: the wave-2 per-test read catalogued TEN cells that report PASSED having asserted nothing (or cannot assert what they claim), across four of its six categories [FOUND 2026-08-05, wire-wave-2. RECORDED, deliberately not fixed here - every conversion moves a committed pin and deserves its own pass. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names. COUNT CORRECTED from eleven by the wave's Fable review: the first draft double-counted ReplacementsAreValid across two shapes and mis-filed RosterAccessible, whose guard is unreachable in a driven batch so the cell actually executes there - it carries the bare-return PATTERN, not a vacuous pass]
+## ~~W2-VACUOUS-CELLS: the wave-2 per-test read catalogued TEN cells that report PASSED having asserted nothing (or cannot assert what they claim), across four of its six categories~~ [FOUND 2026-08-05, wire-wave-2. **CONVERTED + RE-PINNED 2026-08-05**, branch `vacuous-cells-conversion` - all ten dispositioned, and the two pins the conversions move are now MEASURED off three re-flights rather than predicted: H28 `total=5 passed=2 failed=0 skipped=3 category=MapPresence scene=FLIGHT` (run `2026-08-05_1855`), H31 `total=15 passed=11 failed=0 skipped=4 category=CrewReservation scene=FLIGHT` (run `2026-08-05_1857`), H26 UNMOVED at `total=10 passed=9 failed=0 skipped=1` (run `2026-08-05_1859`, PASS attempt 1 - its conversion was CAREER-path byte-identical, as derived). Both moved pins landed with their `IngameBatchWiringGroupTests.RUNTIME_SKIPS` entries (H28: 3, H31: 3) in the same commit, and both were CONFIRMED GREEN same-day against the new pins: H28 run `2026-08-05_1915`, H31 run `2026-08-05_1916`, each PASS on attempt 1 with the pinned line printed token for token. **The H28 flight produced a FINDING - see "DISCOVERY" below - that contradicts this entry's own original H28 belief.** The fourth-trap census the inventory doc predicted "around a dozen" of, now with names. COUNT CORRECTED from eleven by the wave's Fable review: the first draft double-counted ReplacementsAreValid across two shapes and mis-filed RosterAccessible, whose guard is unreachable in a driven batch so the cell actually executes there - it carries the bare-return PATTERN, not a vacuous pass]
 
 The inventory doc's fourth trap (a test that RUNS, PASSES and asserts over
 nothing, invisible to every tally gate) predicted "around a dozen more" across
@@ -1513,8 +1513,10 @@ them:
 **Shape 1 - silent `return` / bare guard instead of `InGameAssert.Skip` (3
 vacuous + 1 pattern-only):** `MapPresence.GhostPidsResolveToProtoVessels` and
 `.NoPidCollisionWithRealVessels` (both bail on an empty `ghostMapVesselPids`;
-H28 de-vacuates them by injecting the corpus so live ghosts exist - the
-batch-start cleanup empties the set and "none" never repopulates it), and
+this entry originally read "H28 de-vacuates them by injecting the corpus so live
+ghosts exist - the batch-start cleanup empties the set and 'none' never
+repopulates it". **THAT IS MEASURABLY WRONG and the DISCOVERY section below is
+the correction** - the corpus does not repopulate the set either), and
 `CrewReservation.ReplacementsAreValid` (`replacements.Count == 0` -> bare
 return; fires on EVERY committed fixture, see shape 3).
 `CrewReservation.RosterAccessible` carries the same bare-return PATTERN
@@ -1555,14 +1557,122 @@ tautologies - same expression compared to itself, same-frame re-derivation over
 the same dicts - but that is refactor-drift value by design, so they are noted
 in H27 rather than listed as defects.)
 
-WHY NOT FIXED HERE: converting shape-1/shape-3 cells to `InGameAssert.Skip`
-moves H28's pin (5/5/0/0 -> passed 3 skipped 2 under "none"; unchanged under
-the corpus H28 actually injects) and H31's pin (the three replacement-dict
-cells: passed 14 -> 11, skipped 1 -> 4), and H31's spec says so in its
-derivation comment. The conversions
-are one mechanical pass + two re-pins + two re-flights, best done together
-with the `ScenarioWriter.AddCrewReplacement` caller that would make the
-replacement-walking cells REAL instead of merely honest.
+### Conversion (2026-08-05): per-cell disposition
+
+Three dispositions: **(a)** silent guard -> `InGameAssert.Skip` naming the
+missing context AND how to produce it; **(b)** the cell gained a real assertion
+it did not have; **(c)** no code change needed.
+
+| # | Cell | Disp. | Reasoning |
+|---|------|-------|-----------|
+| 1 | `MapPresence.GhostPidsResolveToProtoVessels` | a | Two bare returns (empty `ghostMapVesselPids`, null `flightState`) -> Skip. Real orphan assertion unchanged. **Outcome: honest Skip under H28 as MEASURED** (run `2026-08-05_1855`), not "real under H28" as this table's first draft assumed - see DISCOVERY. |
+| 2 | `MapPresence.NoPidCollisionWithRealVessels` | a + b | Same two guards -> Skip; PLUS a positive-evidence Info line (`N real vessel(s) checked against M ghost map PID(s)`) and `IsGreaterThan(checkedVessels, 0)`. A negative-only walk read identically over 40 vessels and over zero; now it states its span. **Outcome: honest Skip under H28 as MEASURED** - the positive-evidence assertion is still the right guard, it simply has nothing to count yet. |
+| 3 | `MapPresence.AntennaSpecsProduceRelayPower` | a | Counts recordings carrying non-empty `AntennaSpecs` while walking; zero -> Skip naming the generator gap. Per-spec assertions kept for the nonzero path. **Outcome: honest Skip under H28 as MEASURED**, having walked all 306 committed recordings - exactly as predicted, and the one prediction here that held. |
+| 4 | `CrewReservation.RosterAccessible` | a | Pattern consistency only - its `CurrentGame == null` guard is unreachable in a driven batch, so the cell already executes its real assertions in H31. Those are untouched. |
+| 5 | `CrewReservation.ReplacementsAreValid` | a | `replacements.Count == 0` -> Skip. Its second guard already used Skip; the cell is now internally consistent. |
+| 6 | `CrewReservation.NoSelfReplacements` | a | Gained an empty-dict Skip before the loop (it had no guard at all - it just iterated nothing). |
+| 7 | `CrewReservation.NoCircularReplacements` | a | Same. |
+| 8 | `CrewReservation.CrewAutoAssignPatch_SwapsReservedCrew` | c | Already honestly written with four Skip sites. NOT touched; its SPACECENTER scene scope is NOT relaxed. |
+| 9 | `LogContracts.ResourceValuesValid` | a | Mode checked up front: neither CAREER nor SCIENCE_SANDBOX -> Skip naming the required mode. Under CAREER all three blocks run exactly as before, so **H26's tally does not move**. |
+| 10 | `LogContracts.SessionStartFormatValid` | b | Rewritten to call the PRODUCTION formatter. Extracted `ParsekHarmony.FormatSessionStartMessage(long)`; `ParsekHarmony.Awake` now emits through it. The cell regex-validates + exact-matches + epoch-plausibility-checks the formatter's output and unifies on production's `DateTimeOffset.UtcNow.ToUnixTimeSeconds()` (it used to hand-roll `(DateTime.UtcNow - epoch).TotalSeconds`). Emitted string is BYTE-IDENTICAL (`SessionStart runUtc=<seconds>`); every consumer re-checked - `ParsekLogContractChecker` SES-001/SES-002, `ParsekKspLogParser`'s latest-session split, `harness/lib/_fake_ksp.py`'s fixture line. New xUnit cell `SessionStartFormatterTests` pins shape + InvariantCulture + both consumers. |
+
+**Pins: LANDED, MEASURED 2026-08-05.** The conversions moved H28's and H31's
+`BATCH_COMPLETE` tallies, and both new pins are the lines the runner actually
+printed, read token-for-token out of the collected logs
+(`../logs/2026-08-05_2156_H28-map-presence/`,
+`../logs/2026-08-05_2158_H31-crew-reservation/`):
+
+- H28: `BATCH_COMPLETE v1 total=5 passed=2 failed=0 skipped=3 category=MapPresence scene=FLIGHT` (run `2026-08-05_1855`)
+- H31: `BATCH_COMPLETE v1 total=15 passed=11 failed=0 skipped=4 category=CrewReservation scene=FLIGHT` (run `2026-08-05_1857`)
+- H26: UNCHANGED at `total=10 passed=9 failed=0 skipped=1` (run `2026-08-05_1859`, PASS attempt 1) - cell 9's CAREER path is byte-identical, so the derivation that said this pin would not move was right.
+
+Both measurement runs classified PARSEK-FAIL on ONE verifier row each -
+`logContracts.required not matched`, against the stale pin they were flown to
+move - with batchComplete / testResults / analyzer / logValidate / anomalySweep
+all PASS and zero test failures. A clean flight and a stale number.
+`IngameBatchWiringGroupTests.RUNTIME_SKIPS` gained `H28-map-presence: 3` and
+`H31-crew-reservation: 3` in the SAME commit as the pins (the group's floor cell
+asserts `pin.skipped == attribute_skipped + RUNTIME_SKIPS[sid]`, so a registry
+entry alone reds - and so does a pin alone). The tally gate itself is blind to
+PASS->Skip conversions (the attribute derivation does not scan method bodies),
+which is why `harness/lib` stayed green through the conversion commit and why
+the flights were needed at all. H31's derivation predicted its own new pin
+exactly ("will move this pin to passed=11 skipped=4 DELIBERATELY when it
+lands"); H28's did not - see DISCOVERY.
+
+**DISCOVERY (2026-08-05): cells 1-2 were vacuous EVEN UNDER THE INJECTED
+CORPUS.** This is the finding the conversion bought, and it invalidates a belief
+held in three places at once. This entry's Shape 1 paragraph said "H28 de-vacuates
+them by injecting the corpus so live ghosts exist", and
+`H28-map-presence.toml`'s `[fixture]` comment said the same thing at greater
+length ("under all-synthetic, live ghosts respawn within frames of batch start,
+so both walk real ghost-map bookkeeping"). The pre-resolution entry's "WHY NOT
+FIXED HERE" paragraph (deleted with the resolution, so noted here rather than
+silently) stated it a third time and added a prediction measurement also
+contradicts: it derived H28 as "5/5/0/0 -> passed 3 skipped 2 under 'none';
+unchanged under the corpus H28 actually injects" - the measured corpus tally is
+passed 2 skipped 3, and under "none" it would read the same 2/3, since cell 3
+skips under every preset. None of the three statements was ever measured; all
+are wrong. Run `2026-08-05_1855` flew the all-synthetic corpus and BOTH cells
+skipped on an empty `GhostMapPresence.ghostMapVesselPids`. The corpus itself
+demonstrably landed - cell 3's skip message reports it walked 306 committed
+recordings, and the produced save carries the pinned 272 - so this is not an
+injection failure. No ghost acquires map presence during the driven FLIGHT
+batch, so nothing repopulates the set that the batch-start
+`PerformBetweenRunCleanup` empties. Two consequences worth stating plainly:
+the 2026-08-04 `passed=5` pin WAS the vacuous-pass evidence (it was green
+BECAUSE the two cells returned silently), and the H28 spec's D6
+`ghost-map-presence` claim has been NARROWED in place to the synthetic-ghost
+half it actually exercises. Making cells 1-2 real is now deferred follow-up
+work, below.
+
+PASS -> honest-Skip is a WIN even where the tally looks worse: the count of
+cells that actually executed an assertion is unchanged, and a SKIP is a standing
+statement of what the fixture cannot cover. H28 went `passed=5` -> `passed=2`
+without losing a single real assertion.
+
+### Deferred follow-ups (make these cells REAL, not merely honest)
+
+- **(i) Cell 3 / D6 `commnet-relay`:** add `RecordingBuilder.WithAntennaSpecs`
+  plus a corpus row carrying antennas. Touches the 272-pin in 8 specs, so PREFER
+  augmenting an EXISTING corpus row over adding one. When wiring the nonzero
+  path, also make the cell assert `withRelayPower > 0` - today the future
+  nonzero path only asserts per-spec `antennaPower >= 0`, so a corpus row whose
+  relay power summed to zero would still pass. Until then D6 `commnet-relay`
+  stays honestly unclaimed.
+- **(0) Cells 1-2 / H28's live-lifecycle half - NEW, added by the DISCOVERY
+  above and the largest of the three.** Something must create ghost map presence
+  during a driven FLIGHT batch before `GhostPidsResolveToProtoVessels` and
+  `NoPidCollisionWithRealVessels` can assert anything; today `ghostMapVesselPids`
+  is empty for the whole batch even with the corpus injected, so both Skip. The
+  work is NOT a different `injectedRecordings` value - that was the disproven
+  hypothesis. Start by establishing WHY no ghost gets map presence: the driven
+  batch runs after `PerformBetweenRunCleanup` empties the set, and the flight-map
+  lifecycle (`ParsekFlight` -> `DriveMapPresence` ->
+  `UpdateFlightMapGhostLifecycle`) evidently does not repopulate it under batch
+  conditions - whether that is a timing property of the batch, a gate on map
+  view, or a genuine product gap is UNDETERMINED and is the first question.
+  Whichever it is, closing it moves H28's pin again (up, this time) and would
+  restore the D6 `ghost-map-presence` claim to the full surface. Until then
+  the spec claims the synthetic half only, and says so.
+- **(ii) Cells 5-7:** a first caller for `ScenarioWriter.AddCrewReplacement`, or
+  a dedicated crew-replacement fixture. **NOT via editing `b2-lko-craft`** - it
+  is shared by 17 specs (the B-series missions, R1, R7a, S0.5, V1, H21, H31), so
+  seeding it would put a live replacement dict under every mission flight.
+
+### Audit-era silent-return sites noticed but OUT OF SCOPE
+
+Same bare-return-instead-of-Skip pattern, found while reading for the ten above.
+Recorded so a later pass does not re-derive them. Split by whether a committed
+spec drives the category (a conversion there moves that spec's pin):
+
+- **DRIVEN** (conversion moves a pin): `DataHealth` - `AllBodyNamesResolve`,
+  `OrbitSegmentBodiesValid`, `EveryRecordingHasResolvablePart` (H14);
+  `GhostVisuals` - `AllSnapshotPartNamesResolve`, `GhostHasRenderers` (two
+  guards: no-snapshot recording, null ghost build) (H15).
+- **UNDRIVEN** (no pin to move): `RecordingStore` -
+  `CommittedRecordingsHaveValidData`; `Settings` - `SettingsAccessible`;
+  `SaveLoad` - `ScenarioInstanceActive`, `ExternalFilesExist`.
 
 ---
 

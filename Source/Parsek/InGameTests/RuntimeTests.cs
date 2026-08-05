@@ -8312,17 +8312,28 @@ namespace Parsek.InGameTests
     /// </summary>
     public class CrewReservationTests
     {
+        /// <summary>
+        /// Shared skip reason for the three cells that walk
+        /// <see cref="CrewReservationManager.CrewReplacements"/>. The dictionary is
+        /// empty in every committed fixture and preset — <c>ScenarioWriter.AddCrewReplacement</c>
+        /// has zero callers — so each of those loops would iterate zero entries and
+        /// report PASSED without asserting anything.
+        /// </summary>
+        internal const string CrewReplacementFixtureGapSkipReason =
+            "CrewReservationManager.CrewReplacements is empty, so the replacement walk " +
+            "asserts over zero entries - no committed fixture or preset populates it " +
+            "(ScenarioWriter.AddCrewReplacement has zero callers); seed a crew-replacement " +
+            "fixture, or reserve a crew member in-game and rerun.";
+
         [InGameTest(Category = "CrewReservation",
             Description = "KSP crew roster is accessible and has kerbals")]
         public void RosterAccessible()
         {
             var game = HighLogic.CurrentGame;
             if (game == null)
-            {
-                // No active game (main menu) — not a failure
-                ParsekLog.Verbose("TestRunner", "No active game — skipping roster check");
-                return;
-            }
+                InGameAssert.Skip("HighLogic.CurrentGame is null (main menu) - requires a " +
+                    "loaded game to read a crew roster; load a save and rerun. " +
+                    "Unreachable in a driven batch, which always runs inside a loaded game.");
 
             var roster = game.CrewRoster;
             InGameAssert.IsNotNull(roster, "CrewRoster should not be null");
@@ -8336,17 +8347,11 @@ namespace Parsek.InGameTests
         {
             var replacements = CrewReservationManager.CrewReplacements;
             if (replacements.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No active crew replacements");
-                return;
-            }
+                InGameAssert.Skip(CrewReplacementFixtureGapSkipReason);
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
-            {
                 InGameAssert.Skip("No crew roster available");
-                return;
-            }
 
             int valid = 0;
             var problems = new List<string>();
@@ -8385,6 +8390,9 @@ namespace Parsek.InGameTests
         public void NoSelfReplacements()
         {
             var replacements = CrewReservationManager.CrewReplacements;
+            if (replacements.Count == 0)
+                InGameAssert.Skip(CrewReplacementFixtureGapSkipReason);
+
             foreach (var kvp in replacements)
             {
                 InGameAssert.AreNotEqual(kvp.Key, kvp.Value,
@@ -8425,10 +8433,7 @@ namespace Parsek.InGameTests
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
-            {
                 InGameAssert.Skip("No crew roster available");
-                return;
-            }
 
             // Build a production facade exactly the way KerbalsModule does
             // and exercise IsKerbalOnLiveVessel through the interface, so
@@ -8652,6 +8657,9 @@ namespace Parsek.InGameTests
         public void NoCircularReplacements()
         {
             var replacements = CrewReservationManager.CrewReplacements;
+            if (replacements.Count == 0)
+                InGameAssert.Skip(CrewReplacementFixtureGapSkipReason);
+
             var keys = new HashSet<string>(replacements.Keys);
             foreach (var kvp in replacements)
             {
@@ -8673,10 +8681,7 @@ namespace Parsek.InGameTests
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null)
-            {
                 InGameAssert.Skip("No crew roster available");
-                return;
-            }
 
             var problems = new List<string>();
             foreach (ProtoCrewMember pcm in roster.Crew)
@@ -9940,17 +9945,17 @@ namespace Parsek.InGameTests
         {
             var ghostPids = GhostMapPresence.ghostMapVesselPids;
             if (ghostPids.Count == 0)
-            {
-                ParsekLog.Verbose("TestRunner", "No ghost map vessels active");
-                return;
-            }
+                InGameAssert.Skip("no ghost map vessels registered in " +
+                    "GhostMapPresence.ghostMapVesselPids - requires ghosts that currently " +
+                    "hold map presence. Measured 2026-08-05: a driven batch does NOT get here " +
+                    "even with an injected corpus (nothing repopulates the set the batch-start " +
+                    "cleanup empties - see W2-VACUOUS-CELLS deferred follow-up); in normal play, " +
+                    "have ghosts playing with map presence and rerun.");
 
             var flightState = HighLogic.CurrentGame?.flightState;
             if (flightState == null)
-            {
-                ParsekLog.Verbose("TestRunner", "No FlightState available");
-                return;
-            }
+                InGameAssert.Skip("HighLogic.CurrentGame.flightState is null - " +
+                    "requires a loaded game (not the main menu); load a save and rerun.");
 
             int resolved = 0, orphaned = 0;
             foreach (uint pid in ghostPids)
@@ -9971,14 +9976,24 @@ namespace Parsek.InGameTests
         public void NoPidCollisionWithRealVessels()
         {
             var ghostPids = GhostMapPresence.ghostMapVesselPids;
-            if (ghostPids.Count == 0) return;
+            if (ghostPids.Count == 0)
+                InGameAssert.Skip("no ghost map vessels registered in " +
+                    "GhostMapPresence.ghostMapVesselPids - the collision walk would compare " +
+                    "every real vessel against an empty set. Measured 2026-08-05: a driven " +
+                    "batch does NOT get here even with an injected corpus (see " +
+                    "W2-VACUOUS-CELLS deferred follow-up); in normal play, have ghosts " +
+                    "playing with map presence and rerun.");
 
             var realVessels = FlightGlobals.Vessels;
-            if (realVessels == null) return;
+            if (realVessels == null)
+                InGameAssert.Skip("FlightGlobals.Vessels is null - requires a scene with a " +
+                    "live vessel list (FLIGHT / TRACKSTATION with a loaded game); rerun there.");
 
+            int checkedVessels = 0;
             foreach (var vessel in realVessels)
             {
                 if (vessel == null) continue;
+                checkedVessels++;
                 // A vessel whose PID is in ghostPids is expected — that's the ghost itself.
                 // But we want to make sure no NON-ghost vessel accidentally shares a ghost PID.
                 if (ghostPids.Contains(vessel.persistentId) && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
@@ -9987,6 +10002,16 @@ namespace Parsek.InGameTests
                         $"Real vessel '{vessel.vesselName}' (PID={vessel.persistentId}) collides with ghost PID");
                 }
             }
+
+            // Positive evidence: a negative-only walk reads identically whether it
+            // compared 40 vessels or zero, so record the coverage AND assert it was
+            // nonzero. Guaranteed true once the Skip guards above passed, which is the
+            // point - it turns a silent negative-only cell into one that states its span.
+            ParsekLog.Info("TestRunner",
+                $"Ghost PID collision walk: {checkedVessels} real vessel(s) checked against " +
+                $"{ghostPids.Count} ghost map PID(s), 0 collisions");
+            InGameAssert.IsGreaterThan(checkedVessels, 0,
+                "PID collision walk covered zero real vessels — nothing was compared");
         }
 
         [InGameTest(Category = "MapPresence", Scene = GameScenes.FLIGHT,
@@ -10172,6 +10197,13 @@ namespace Parsek.InGameTests
                         $"Negative antenna power on '{spec.partName}': {spec.antennaPower}");
                 }
             }
+
+            if (withAntennas == 0)
+                InGameAssert.Skip($"no recording among {recordings.Count} committed carries " +
+                    "AntennaSpecs, so the relay-power assertions walked zero specs — no " +
+                    "committed save or synthetic corpus row populates Recording.AntennaSpecs " +
+                    "today; closing the gap needs RecordingBuilder.WithAntennaSpecs plus a " +
+                    "corpus row (D6 commnet-relay stays unclaimed until then).");
 
             ParsekLog.Info("TestRunner",
                 $"Antenna specs: {withAntennas} recordings with antennas, {withRelayPower} with positive combined power");

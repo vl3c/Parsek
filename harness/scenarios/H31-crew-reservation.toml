@@ -96,44 +96,74 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: MEASURED, TWICE. Flown 2026-08-04 (run
-# `2026-08-04_2212_H31-crew-reservation`: PASS on attempt 1, 49 s wall, every
-# verifier PASS or SKIPPED, expectations mismatches=0), and re-confirmed the
-# same day (run `2026-08-04_2239`, PASS attempt 1, 52 s) after the review pass
-# wrapped the three cells' finally-restore roster flips in
-# SuppressionGuard.Crew() - members of THIS batch, so the re-fly proves the
-# wraps move nothing in the tally. The pin is a LITERAL
-# pattern and evaluate_expectations requires it to match, so the PASS means the
-# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
-# below held.
+# EVIDENCE STANDING: MEASURED THREE TIMES, RE-MEASURED 2026-08-05 AFTER A
+# DELIBERATE MOVE. Flown 2026-08-04 (run `2026-08-04_2212_H31-crew-reservation`:
+# PASS on attempt 1, 49 s wall, every verifier PASS or SKIPPED, mismatches=0),
+# re-confirmed the same day (run `2026-08-04_2239`, PASS attempt 1, 52 s) after
+# the review pass wrapped the three cells' finally-restore roster flips in
+# SuppressionGuard.Crew(), then re-measured 2026-08-05 (run
+# `2026-08-05_1857_H31-crew-reservation`, 50 s wall) after the
+# W2-VACUOUS-CELLS conversion turned three vacuous passes into honest Skips.
+#
+# THE PREDICTION LANDED EXACTLY. The pre-2026-08-05 text of this comment said
+# the conversion "will move this pin to passed=11 skipped=4 DELIBERATELY when it
+# lands". It landed on branch `vacuous-cells-conversion`, and the measured line
+# is passed=11 skipped=4 - the pin below is that line read token-for-token out
+# of the collected `KSP.log` (`../logs/2026-08-05_2158_H31-crew-reservation/`),
+# not the prediction re-asserted. The 2026-08-05 run classified PARSEK-FAIL, and
+# the reason is the point: its SOLE verifier mismatch was
+# `logContracts.required not matched` against the stale passed=14 pin -
+# batchComplete PASS, testResults PASS (0 failures), analyzer PASS (red=0),
+# logValidate PASS, anomalySweep PASS with zero hits, expectations' observed
+# recordings.count=0 exactly as the zero-leak pin demands, ledgerOracle SKIPPED.
+# The flight was clean and the NUMBER was stale. (saveParse and unityExceptions
+# are REPORT-only; unityExceptions logged one NullReferenceException, non-gating
+# and not investigated here.) CONFIRMED GREEN against the new pin the same day:
+# run `2026-08-05_1916_H31-crew-reservation`, PASS on attempt 1, every verifier
+# PASS/SKIPPED - the runner printed the pinned line token for token.
+#
+# The pin is a LITERAL pattern and evaluate_expectations requires it to match,
+# so a PASS means the runner printed this line TOKEN FOR TOKEN.
 #  - total=15 is ATTRIBUTE-EXACT: 15 [InGameTest(Category = "CrewReservation")]
 #    declarations (9 FLIGHT + 5 AnyScene + 1 SPACECENTER); CrewReservationLive
 #    is a distinct category and not counted. Kept in sync by
 #    CommittedBatchTallySourceSyncTests.
-#  - skipped=1 is ATTRIBUTE-DERIVED, single-source: only
+#  - skipped=4 SPLITS 1 ATTRIBUTE + 3 RUN-TIME, and the split is what the
+#    RUNTIME_SKIPS declaration below encodes.
+#    The ATTRIBUTE floor is 1, single-source: only
 #    CrewAutoAssignPatch_SwapsReservedCrew is SPACECENTER-scoped, so it
 #    scene-skips at FLIGHT. (It is currently unreachable in ANY scene: at
 #    SPACECENTER it would self-skip on the same empty CrewReplacements dict no
 #    committed fixture can populate - see the wave notes. The scene skip is
 #    what the tally shows; the deeper gap is recorded rather than hidden.)
-#    No run-time skip fires on THIS fixture: every free-seat guard is satisfied
-#    by the mk1-3pod's 2 free seats, every spare-kerbal guard by Bill/Bob/Val,
-#    Bug456's pid-coincidence guard by the live pid != 100000, Bug578's
-#    ERS-absence guard by the empty store, and ReservedCrewNotAssigned's guard
-#    by ParsekScenario's unconditional LedgerOrchestrator.Initialize().
+#    The THREE run-time skips are the W2-VACUOUS-CELLS conversions, all firing
+#    on one fixture property - CrewReservationManager.CrewReplacements is empty
+#    under every committed fixture x preset, because ScenarioWriter
+#    .AddCrewReplacement has zero callers and no fixture's ParsekScenario node
+#    carries CREW_REPLACEMENTS. They are ReplacementsAreValid, NoSelfReplacements
+#    and NoCircularReplacements, and they share one const skip reason naming both
+#    the missing state and the two ways to produce it. Declared in
+#    IngameBatchWiringGroupTests.RUNTIME_SKIPS so the group's floor cell models
+#    them instead of reding on a correct pin.
+#    NO OTHER run-time skip fires on THIS fixture, exactly as derived: every
+#    free-seat guard is satisfied by the mk1-3pod's 2 free seats, every
+#    spare-kerbal guard by Bill/Bob/Val, Bug456's pid-coincidence guard by the
+#    live pid != 100000, Bug578's ERS-absence guard by the empty store, and
+#    ReservedCrewNotAssigned's guard by ParsekScenario's unconditional
+#    LedgerOrchestrator.Initialize().
 #  - failed=0 is the ASSERTION.
-#  - passed=14 follows. THREE of the 14 are honest vacuous passes, all on the
-#    empty CrewReplacements dict (ReplacementsAreValid bare-returns on it;
-#    NoSelfReplacements and NoCircularReplacements loop over it zero times) -
-#    the tally proves they RAN, not that they measured anything. RosterAccessible
-#    shares the bare-return-instead-of-Skip PATTERN but its guard
-#    (CurrentGame == null) is unreachable in a driven batch, so here it executes
-#    its real assertions and is NOT vacuous. Converting the three to Skips is
-#    product work filed in the wave notes, and doing it will move this pin to
-#    passed=11 skipped=4 DELIBERATELY when it lands.
+#  - passed=11 follows, and is now the honest count of cells that executed real
+#    assertions. It is THREE LOWER than the 2026-08-04 pin and that is the
+#    conversion working, not a regression: the same 11 cells asserted for real
+#    on both runs, and the three that moved PASSED -> SKIPPED had been passing
+#    over the empty dict without measuring anything. RosterAccessible shares the
+#    bare-return-instead-of-Skip PATTERN and was converted for consistency, but
+#    its guard (CurrentGame == null) is unreachable in a driven batch, so it
+#    executes its real assertions here and stays in the passed column - as
+#    measured (PASSED, 0.3 ms).
 #  - scene=FLIGHT is the b2-lko-craft Focusable route, MEASURED by the eleven
 #    committed flight specs that fly this template.
-required  = ["BATCH_COMPLETE v1 total=15 passed=14 failed=0 skipped=1 category=CrewReservation scene=FLIGHT"]
+required  = ["BATCH_COMPLETE v1 total=15 passed=11 failed=0 skipped=4 category=CrewReservation scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
