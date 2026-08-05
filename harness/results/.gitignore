@@ -11,6 +11,6 @@ summary.txt
 *_shots/
 *.html
 *.html.tmp.*
-# Cadence-runner output: per-invocation dated logs + the history.txt skim surface
-# (tools/cadence_runner.py). Machine-local scheduler evidence, never committed.
-cadence/
+# Tier-runner output: per-invocation dated logs + the history.txt skim surface
+# (tools/tier_runner.py). Local run evidence, never committed.
+tier-runs/

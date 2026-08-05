@@ -153,6 +153,8 @@ Harness traps that bite C# work:
 - **Mission-vs-Parsek orthogonality:** a mission that did not fly is driver-INVALID, never PARSEK-FAIL. Post-mission RECORDING seam steps are non-gating on a MISSION-OK run (a mis-recorded good flight reds through the verifier chain); post-mission OUTCOME steps DO gate as `PARSEK-FAIL(mission-outcome)` via the `missionOutcome` verifier row (the M-C2 EVA verbs; a driver-INVALID would discard evidence and retry an intermittent subject death into a PASS). A HANDOFF mission declares what it did not verify via `mlib.MISSION_HANDOFF_CONTRACTS`.
 - Two dev-script seams the harness passes (additive, inert by default): `scripts/analyze-recordings.ps1 -FreshSaveGate` and `scripts/validate-ksp-log.ps1 -KilledRun` / `-NoRecordingRun` (the C# checker's `ParseSuppressionList` rejects suppressing FMT/WRN - the cannot-mask guarantee).
 
+Run a tier on request: `python harness/tools/tier_runner.py --tier {daily|nightly|operator}` (or ask via the `run-tier` skill); details in `harness/README.md` -> "Running a tier on request (agent-driven)".
+
 Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5), `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3), `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1), `design-autotest-stack-setup.md` (M-A6), `design-autotest-mission-library.md` (M-B1), `design-autotest-ledger-oracle.md` (M-B2). Module layout details: `harness/README.md`. Status authority: `docs/dev/autotest-status.md`.
 
 Key source files and what they do - read the relevant one before modifying:

@@ -1,7 +1,7 @@
-"""Pure tests for the cadence runner (`harness/tools/cadence_runner.py`).
+"""Pure tests for the tier runner (`harness/tools/tier_runner.py`).
 
-The runner is the one-command tier entry point (invoked on demand; schedulable
-but not scheduled). Everything it DECIDES is a module-level pure function, and
+The runner is the entry point an agent invokes when a tier run is requested.
+Everything it DECIDES is a module-level pure function, and
 this file covers those: the outcome classifier (every outcome, its precedence
 rules, and the KILLED call-out), the summary.txt verdict tally against real line
 shapes, the history-line formatter, the runner-log rotation selector, and the
@@ -34,7 +34,7 @@ for _p in (_HERE, _TOOLS, _PROVISION):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import cadence_runner as cr  # noqa: E402
+import tier_runner as cr  # noqa: E402
 import provlib  # noqa: E402
 
 
@@ -230,7 +230,7 @@ class ClassifyOutcomeTests(unittest.TestCase):
             self.assertIn(cr.OUTCOME_EXIT_CODES[outcome], (0, 1, 2, 3, 4))
 
     def test_an_unknown_outcome_label_falls_back_to_the_error_code(self):
-        self.assertEqual(cr.CadenceOutcome("WAT", "").exit_code, cr.EXIT_ERROR)
+        self.assertEqual(cr.TierRunOutcome("WAT", "").exit_code, cr.EXIT_ERROR)
 
 
 class EvidenceLineTests(unittest.TestCase):
@@ -272,52 +272,52 @@ class HistoryLineTests(unittest.TestCase):
         self.assertIn("outcome=NEEDS-PROVISION", line)
 
 
-class CadenceLogStampTests(unittest.TestCase):
+class TierRunLogStampTests(unittest.TestCase):
     def test_parses_a_runner_log_name(self):
-        stamp = cr.parse_cadence_log_stamp("nightly_2026-08-04_230501.log")
+        stamp = cr.parse_tier_run_log_stamp("nightly_2026-08-04_230501.log")
         self.assertEqual(stamp, datetime(2026, 8, 4, 23, 5, 1, tzinfo=timezone.utc))
 
     def test_rejects_history_txt_and_foreign_names(self):
         for name in ("history.txt", "index.html", "2026-08-04_harness.log",
                      "summary.txt", "weekly_2026-08-04_230501.log",
                      "nightly_2026-08-04.log", "nightly.log", ""):
-            self.assertIsNone(cr.parse_cadence_log_stamp(name), name)
+            self.assertIsNone(cr.parse_tier_run_log_stamp(name), name)
 
     def test_rejects_an_unparseable_stamp(self):
-        self.assertIsNone(cr.parse_cadence_log_stamp("daily_2026-13-45_999999.log"))
+        self.assertIsNone(cr.parse_tier_run_log_stamp("daily_2026-13-45_999999.log"))
 
 
-class SelectStaleCadenceLogsTests(unittest.TestCase):
+class SelectStaleTierRunLogsTests(unittest.TestCase):
     NOW = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
 
     def test_older_than_keep_days_is_selected_oldest_first(self):
         names = ["daily_2026-01-01_220000.log", "nightly_2026-03-01_230000.log",
                  "daily_2026-08-04_220000.log"]
-        self.assertEqual(cr.select_stale_cadence_logs(names, self.NOW, keep_days=60),
+        self.assertEqual(cr.select_stale_tier_run_logs(names, self.NOW, keep_days=60),
                          ["daily_2026-01-01_220000.log", "nightly_2026-03-01_230000.log"])
 
     def test_the_boundary_day_is_kept(self):
         exactly = "daily_2026-06-06_120000.log"   # exactly 60 days before NOW
-        self.assertEqual(cr.select_stale_cadence_logs([exactly], self.NOW, keep_days=60), [])
+        self.assertEqual(cr.select_stale_tier_run_logs([exactly], self.NOW, keep_days=60), [])
 
     def test_one_second_past_the_boundary_is_stale(self):
         just_over = "daily_2026-06-06_115959.log"
-        self.assertEqual(cr.select_stale_cadence_logs([just_over], self.NOW, keep_days=60),
+        self.assertEqual(cr.select_stale_tier_run_logs([just_over], self.NOW, keep_days=60),
                          [just_over])
 
     def test_a_future_stamp_is_never_deleted(self):
         """Clock skew (or a wake-timer machine whose RTC jumped) must not eat
         evidence."""
         self.assertEqual(
-            cr.select_stale_cadence_logs(["daily_2030-01-01_120000.log"], self.NOW), [])
+            cr.select_stale_tier_run_logs(["daily_2030-01-01_120000.log"], self.NOW), [])
 
     def test_never_selects_history_or_anything_it_cannot_identify(self):
         names = ["history.txt", "index.html", "2020-01-01_harness.log",
                  "notes_2020-01-01_120000.log", "daily_2020-01-01_120000.log.bak"]
-        self.assertEqual(cr.select_stale_cadence_logs(names, self.NOW), [])
+        self.assertEqual(cr.select_stale_tier_run_logs(names, self.NOW), [])
 
     def test_empty_directory_is_empty_selection(self):
-        self.assertEqual(cr.select_stale_cadence_logs([], self.NOW), [])
+        self.assertEqual(cr.select_stale_tier_run_logs([], self.NOW), [])
 
 
 class LockPreflightTests(unittest.TestCase):
@@ -362,7 +362,7 @@ class LockPreflightTests(unittest.TestCase):
 
     def test_a_probe_that_fails_closed_is_honoured_as_a_skip(self):
         """pid_alive fails CLOSED (reports alive), so an unprobeable holder
-        makes the cadence skip rather than queue behind it."""
+        makes the tier run skip rather than queue behind it."""
         lock = {"pid": 999, "timestamp": self.NOW}
         proceed, _ = cr.evaluate_lock_preflight(lock, 4242, self.NOW, lambda pid: True)
         self.assertFalse(proceed)
@@ -383,7 +383,7 @@ class LockPreflightTests(unittest.TestCase):
 
 
 class TierVocabularyTests(unittest.TestCase):
-    def test_only_the_three_cadence_tiers_are_offered(self):
+    def test_only_the_three_requestable_tiers_are_offered(self):
         self.assertEqual(cr.TIER_CHOICES, ("daily", "nightly", "operator"))
 
     def test_every_offered_tier_is_a_real_harness_tier(self):
@@ -429,7 +429,7 @@ class TeeLogConsoleLossTests(unittest.TestCase):
     under it at any moment."""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="parsek-cadence-teelog-")
+        self.dir = tempfile.mkdtemp(prefix="parsek-tierrun-teelog-")
         self.path = os.path.join(self.dir, "daily_2026-08-05_120000.log")
 
     def tearDown(self):
@@ -448,7 +448,7 @@ class TeeLogConsoleLossTests(unittest.TestCase):
         log.close()
         lines = self._read()
         self.assertIn("first", lines)
-        self.assertIn("[Cadence][Info][Invoke] second", lines)
+        self.assertIn("[TierRun][Info][Invoke] second", lines)
         self.assertIn("third", lines)
 
     def test_the_console_loss_warn_lands_in_the_file_and_never_on_the_console(self):
@@ -457,7 +457,7 @@ class TeeLogConsoleLossTests(unittest.TestCase):
         log.raw("first")
         log.close()
         lines = self._read()
-        self.assertTrue(any(l.startswith("[Cadence][Warn][Log] console lost") for l in lines),
+        self.assertTrue(any(l.startswith("[TierRun][Warn][Log] console lost") for l in lines),
                         lines)
         self.assertTrue(any("continuing file-only" in l for l in lines), lines)
         self.assertEqual(console.written, [])   # nothing ever reached the console
@@ -516,9 +516,9 @@ class TeeLogConsoleLossTests(unittest.TestCase):
         log = cr.TeeLog(self.path, console_write=seen.append)
         log.info("Start", "hello")
         log.close()
-        self.assertEqual(seen, ["[Cadence][Info][Start] hello"])
+        self.assertEqual(seen, ["[TierRun][Info][Start] hello"])
         self.assertFalse(log.console_dead)
-        self.assertEqual(self._read(), ["[Cadence][Info][Start] hello"])
+        self.assertEqual(self._read(), ["[TierRun][Info][Start] hello"])
 
 
 class MainErrorPathTests(unittest.TestCase):
@@ -580,13 +580,13 @@ class BuildRunArgvTests(unittest.TestCase):
     """The one shell-seam cell: reads an env var, touches nothing else."""
 
     def setUp(self):
-        self._saved = os.environ.get("PARSEK_CADENCE_RUNPY_ARGS")
-        os.environ.pop("PARSEK_CADENCE_RUNPY_ARGS", None)
+        self._saved = os.environ.get("PARSEK_TIER_RUNPY_ARGS")
+        os.environ.pop("PARSEK_TIER_RUNPY_ARGS", None)
 
     def tearDown(self):
-        os.environ.pop("PARSEK_CADENCE_RUNPY_ARGS", None)
+        os.environ.pop("PARSEK_TIER_RUNPY_ARGS", None)
         if self._saved is not None:
-            os.environ["PARSEK_CADENCE_RUNPY_ARGS"] = self._saved
+            os.environ["PARSEK_TIER_RUNPY_ARGS"] = self._saved
 
     def test_default_invocation_is_run_py_tier(self):
         argv = cr.build_run_argv("nightly")
@@ -595,12 +595,12 @@ class BuildRunArgvTests(unittest.TestCase):
         self.assertEqual(argv[2:], ["--tier", "nightly"])
 
     def test_the_test_seam_appends_and_never_removes_the_tier(self):
-        os.environ["PARSEK_CADENCE_RUNPY_ARGS"] = "--dry-run --no-coverage"
+        os.environ["PARSEK_TIER_RUNPY_ARGS"] = "--dry-run --no-coverage"
         argv = cr.build_run_argv("daily")
         self.assertEqual(argv[2:], ["--tier", "daily", "--dry-run", "--no-coverage"])
 
     def test_a_blank_seam_value_changes_nothing(self):
-        os.environ["PARSEK_CADENCE_RUNPY_ARGS"] = "   "
+        os.environ["PARSEK_TIER_RUNPY_ARGS"] = "   "
         self.assertEqual(cr.build_run_argv("operator")[2:], ["--tier", "operator"])
 
 

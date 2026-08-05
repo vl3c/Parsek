@@ -1,30 +1,30 @@
-"""The one-command tier entry point for unattended-STYLE harness runs.
+"""Fly ONE harness tier on request: the entry point an agent invokes.
 
-    cd harness && python tools/cadence_runner.py --tier {daily|nightly|operator}
+    cd harness && python tools/tier_runner.py --tier {daily|nightly|operator}
 
-HOW IT IS USED TODAY: on demand. A human types the line above, walks away, and
-comes back to a classified outcome and one skim line. Nothing on this machine
-invokes it on a schedule -- ``scripts/register-cadence-tasks.ps1`` can turn that
-on reproducibly if the decision is ever taken, and the exit-code contract below
-is shaped so a scheduler would be a correct SECOND consumer, but it is not the
-primary frame. (Operator decision 2026-08-05, pending the selection-layer
-refactor tracked as HARNESS-TIER-TAXONOMY in docs/dev/todo-and-known-bugs.md.)
+HOW IT IS USED. The operator asks an agent to run the tests "by type"; the agent
+runs this, monitors it, and reports back. The `run-tier` project skill
+(``.claude/skills/run-tier/SKILL.md``) encodes that request flow -- coordination
+preflight, build/instance agreement, invocation, and what to say about the
+result. A human can equally type the line above and walk away. Nothing invokes
+it on a schedule; the exit-code contract below happens to suit one, but that is
+a side effect, not the model.
 
 WHAT THIS IS. ``run.py`` already knows how to select, fly, verify and classify a
 tier. What it does NOT know is anything about running for hours with nobody
 watching the window: whether the box is about to fall asleep mid-flight, whether
 an interactive KSP is already up, what to do when a sibling holds the machine
-lock, and where to leave a one-line trace a human can skim afterwards. This
-runner owns exactly that shell, and nothing else. It never decides a verdict,
-never touches a result JSON, never re-runs a scenario, and never provisions.
+lock, and where to leave a one-line trace to read afterwards. This runner owns
+exactly that shell, and nothing else. It never decides a verdict, never touches
+a result JSON, never re-runs a scenario, and never provisions.
 
-INVOCATION. ``--tier`` is an argparse ``choices=`` over the three cadence tiers.
-That restriction is load-bearing: run.py's ``--tier`` takes any string, and a
-typo'd tier selects ZERO scenarios and exits 0 -- a walk-away run that reads
-green having flown nothing. Neither a tired human nor a scheduler should be able
-to express that.
+INVOCATION. ``--tier`` is an argparse ``choices=`` over the three tiers a run
+may be requested by. That restriction is load-bearing: run.py's ``--tier`` takes
+any string, and a typo'd tier selects ZERO scenarios and exits 0 -- a walk-away
+run that reads green having flown nothing. Neither a tired human nor an agent
+relaying a request should be able to express that.
 
-EXIT-CODE CONTRACT (also what Task Scheduler would show as "Last Run Result"):
+EXIT-CODE CONTRACT:
 
   0  GREEN            -- run.py exited 0 with at least one new result line.
   1  RED              -- something needs a human: a PARSEK-FAIL, a KILLED, an
@@ -44,15 +44,15 @@ is alive, the runner exits 3 without invoking run.py. Letting run.py refuse
 instead would be worse than useless: its refusal stamps one junk
 ``INVALID(instance-locked)`` result JSON PER SELECTED SPEC (46 of them for the
 nightly tier) into ``results/`` and onto the contact-sheet index, burying the
-real history under a run that never flew. A cadence that did not run is a
-missing history line, which is a cheaper and more honest signal.
+real history under a run that never flew. A requested run that did not happen is
+a missing history line, which is a cheaper and more honest signal -- and the
+agent reports the holder so the operator can decide when to ask again.
 
 POLICY 2 -- NEVER AUTO-PROVISION. ``NEEDS-PROVISION`` reports and stops. The
 provisioner DEPLOYs whatever ``Source/Parsek/bin/Debug/Parsek.dll`` the invoking
 worktree currently holds, which is as likely to be a half-finished build as a
-release candidate -- and the person who started this run walked away. Deciding
-which worktree's DLL the automation instance should carry is a human call,
-always:
+release candidate -- and whoever requested this run walked away. Deciding which
+worktree's DLL the automation instance should carry is a human call, always:
 
     cd harness && python provision/provision.py --profile stock-minimal
 
@@ -61,7 +61,7 @@ that reaches this runner is a finding to investigate, never something to fly
 again until it goes away.
 
 ARTIFACTS. Everything the runner itself produces lives under
-``harness/results/cadence/`` (gitignored):
+``harness/results/tier-runs/`` (gitignored):
 
   ``<tier>_<YYYY-MM-DD_HHMMSS>.log``  one per invocation, UTC-stamped; the full
                                       tee of the runner's own lines AND run.py's
@@ -78,7 +78,7 @@ The runner rotates ONLY its own ``*.log`` files (60 days). It never prunes
 result JSONs, ``summary.txt``, contact sheets or ``.claim`` stakes: those are
 permanent by design (harness/README.md, "Contact sheets").
 
-TEST SEAM. ``PARSEK_CADENCE_RUNPY_ARGS`` appends extra arguments to the run.py
+TEST SEAM. ``PARSEK_TIER_RUNPY_ARGS`` appends extra arguments to the run.py
 invocation (shlex-split). It exists so the shell can be smoke-tested end to end
 with ``--dry-run`` appended, which launches no game and takes no lock. It is
 NOT an operating knob: it cannot suppress, rewrite or fake a verdict, and a
@@ -87,8 +87,8 @@ were produced.
 
 Stdlib only, mirroring the rest of harness/. Pure decisions live at module level
 (``classify_outcome``, ``tally_verdicts``, ``format_history_line``,
-``select_stale_cadence_logs``, ``evaluate_lock_preflight``) and are unit-tested
-in ``harness/lib/test_cadence_runner.py``; everything below ``main`` is I/O.
+``select_stale_tier_run_logs``, ``evaluate_lock_preflight``) and are unit-tested
+in ``harness/lib/test_tier_runner.py``; everything below ``main`` is I/O.
 """
 
 from __future__ import annotations
@@ -109,8 +109,8 @@ HARNESS_ROOT = os.path.abspath(os.path.join(HERE, ".."))
 WORKTREE_ROOT = os.path.abspath(os.path.join(HARNESS_ROOT, ".."))
 UMBRELLA_ROOT = os.path.abspath(os.path.join(WORKTREE_ROOT, ".."))
 RESULTS_DIR = os.path.join(HARNESS_ROOT, "results")
-CADENCE_DIR = os.path.join(RESULTS_DIR, "cadence")
-HISTORY_PATH = os.path.join(CADENCE_DIR, "history.txt")
+TIER_RUNS_DIR = os.path.join(RESULTS_DIR, "tier-runs")
+HISTORY_PATH = os.path.join(TIER_RUNS_DIR, "history.txt")
 RUN_PY = os.path.join(HARNESS_ROOT, "run.py")
 SUMMARY_PATH = os.path.join(RESULTS_DIR, "summary.txt")
 
@@ -195,7 +195,7 @@ PROVISION_HINT = (
     "WIP); run `cd harness && python provision/provision.py --profile "
     "stock-minimal` from the intended worktree")
 
-CADENCE_LOG_KEEP_DAYS = 60
+TIER_RUN_LOG_KEEP_DAYS = 60
 LOG_STAMP_FORMAT = "%Y-%m-%d_%H%M%S"
 
 # How many evidence lines the streaming tee retains for classification. The tee
@@ -205,7 +205,7 @@ EVIDENCE_LINE_CAP = 200
 
 # Written INTO THE FILE (never to the console -- the console is what just died)
 # the first time a console write fails. See TeeLog.
-CONSOLE_LOST_TEMPLATE = "[Cadence][Warn][Log] console lost (%s); continuing file-only"
+CONSOLE_LOST_TEMPLATE = "[TierRun][Warn][Log] console lost (%s); continuing file-only"
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ CONSOLE_LOST_TEMPLATE = "[Cadence][Warn][Log] console lost (%s); continuing file
 
 
 @dataclass(frozen=True)
-class CadenceOutcome:
+class TierRunOutcome:
     outcome: str
     detail: str
 
@@ -282,7 +282,7 @@ def _contains_any(lines: Sequence[str], markers: Sequence[str]) -> bool:
 
 def classify_outcome(run_exit_code: int,
                      new_summary_lines: Sequence[str],
-                     runner_captured_lines: Sequence[str]) -> CadenceOutcome:
+                     runner_captured_lines: Sequence[str]) -> TierRunOutcome:
     """Turn (run.py exit code, new summary.txt lines, captured stdout) into the
     outcome a human reads in ``history.txt``.
 
@@ -324,24 +324,24 @@ def classify_outcome(run_exit_code: int,
     if run_exit_code == 2 or (run_exit_code == 0 and total == 0):
         reason = ("run.py reported no scenario selection" if run_exit_code == 2
                   else "run.py exited 0 but wrote no result line")
-        return CadenceOutcome(OUTCOME_NO_SELECTION,
+        return TierRunOutcome(OUTCOME_NO_SELECTION,
                               "%s -- nothing flew (%s)" % (reason, tally))
 
     if run_exit_code == 0:
-        return CadenceOutcome(OUTCOME_GREEN, tally)
+        return TierRunOutcome(OUTCOME_GREEN, tally)
 
     nothing_flew = counts.get("INVALID", 0) == total
     if nothing_flew and _contains_any(runner_captured_lines, INSTANCE_LOCKED_MARKERS):
-        return CadenceOutcome(
+        return TierRunOutcome(
             OUTCOME_LOCKED,
             "lost the preflight race -- run.py refused on the machine lock (%s)" % tally)
 
     if any(is_admission_drift_line(l) for l in runner_captured_lines) or \
             any(is_admission_drift_line(l) for l in new_summary_lines):
-        return CadenceOutcome(OUTCOME_NEEDS_PROVISION,
+        return TierRunOutcome(OUTCOME_NEEDS_PROVISION,
                               "%s (%s)" % (PROVISION_HINT, tally))
 
-    return CadenceOutcome(OUTCOME_RED, tally)
+    return TierRunOutcome(OUTCOME_RED, tally)
 
 
 def format_history_line(now_iso: str, tier: str, outcome: str, exit_code: int,
@@ -353,10 +353,10 @@ def format_history_line(now_iso: str, tier: str, outcome: str, exit_code: int,
         now_iso, tier, outcome, exit_code, flat, log_name)
 
 
-def parse_cadence_log_stamp(filename: str) -> Optional[datetime]:
+def parse_tier_run_log_stamp(filename: str) -> Optional[datetime]:
     """UTC datetime encoded in a ``<tier>_<YYYY-MM-DD_HHMMSS>.log`` name, or
     None when the name is not one of ours. Deliberately strict: the tier prefix
-    must be a known cadence tier, so nothing else in the directory can ever be
+    must be a known tier, so nothing else in the directory can ever be
     mistaken for a rotatable runner log."""
     name = filename or ""
     if not name.endswith(".log"):
@@ -372,19 +372,19 @@ def parse_cadence_log_stamp(filename: str) -> Optional[datetime]:
     return stamp.replace(tzinfo=timezone.utc)
 
 
-def select_stale_cadence_logs(filenames: Sequence[str], now: datetime,
-                              keep_days: int = CADENCE_LOG_KEEP_DAYS) -> List[str]:
+def select_stale_tier_run_logs(filenames: Sequence[str], now: datetime,
+                              keep_days: int = TIER_RUN_LOG_KEEP_DAYS) -> List[str]:
     """The runner's OWN logs older than ``keep_days``, oldest first.
 
     Never selects ``history.txt``, a non-``.log`` file, a name whose stamp does
     not parse, or a stamp in the FUTURE (clock skew must not delete evidence).
     A log exactly ``keep_days`` old is KEPT -- the boundary is strictly older.
-    Nothing outside ``results/cadence/`` is ever passed in.
+    Nothing outside ``results/tier-runs/`` is ever passed in.
     """
     cutoff = now - timedelta(days=keep_days)
     stale: List[Tuple[datetime, str]] = []
     for name in filenames:
-        stamp = parse_cadence_log_stamp(name)
+        stamp = parse_tier_run_log_stamp(name)
         if stamp is None or stamp > now:
             continue
         if stamp < cutoff:
@@ -396,7 +396,7 @@ def evaluate_lock_preflight(existing_lock: Optional[Dict], pid: int, now: float,
                             is_alive_fn: Callable[[int], bool],
                             lease_seconds: Optional[float] = provlib.DEFAULT_LEASE_SECONDS,
                             ) -> Tuple[bool, str]:
-    """Advisory preflight: may this cadence proceed to invoke run.py?
+    """Advisory preflight: may this tier run proceed to invoke run.py?
 
     Composes ``provlib.acquire_lock`` as a PURE decision over an already-read
     lock payload -- nothing is written, nothing is reclaimed, and run.py's own
@@ -427,7 +427,7 @@ def console_write_default(text: str) -> None:
 
 
 class TeeLog:
-    """Runner log: every line goes to the console AND the dated cadence log,
+    """Runner log: every line goes to the console AND the dated tier-run log,
     flushed per line so the file is tail-able while a multi-hour tier runs.
 
     THE FILE IS THE RECORD OF TRUTH; THE CONSOLE IS BEST-EFFORT.
@@ -477,7 +477,7 @@ class TeeLog:
         self._file_write(text)
 
     def log(self, level: str, step: str, message: str) -> None:
-        self.raw("[Cadence][%s][%s] %s" % (level, step, message))
+        self.raw("[TierRun][%s][%s] %s" % (level, step, message))
 
     def info(self, step, msg):
         self.log("Info", step, msg)
@@ -525,7 +525,7 @@ def ksp_pid() -> Optional[int]:
     """Pid of a live ``KSP_x64.exe``, ``-1`` when one is alive but its pid did
     not parse, else None. Deliberately COARSE, exactly like run.py's zombie
     preflight: the probe cannot bind a pid to an install, so an interactive dev
-    KSP also blocks the cadence -- correct on a one-GPU box, where it would
+    KSP also blocks a requested tier run -- correct on a one-GPU box, where it would
     perturb the flight anyway."""
     try:
         out = subprocess.run(
@@ -610,7 +610,7 @@ def read_summary_lines(path: str = SUMMARY_PATH) -> List[str]:
 
 def append_history(line: str, log: Optional[TeeLog] = None) -> None:
     try:
-        os.makedirs(CADENCE_DIR, exist_ok=True)
+        os.makedirs(TIER_RUNS_DIR, exist_ok=True)
         with open(HISTORY_PATH, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError as exc:
@@ -630,38 +630,38 @@ def refresh_index(log: TeeLog) -> None:
         os.makedirs(RESULTS_DIR, exist_ok=True)
         path = contact_sheet.generate_index(RESULTS_DIR)
         log.info("Index", "contact-sheet index refreshed %s" % path)
-    except Exception as exc:  # noqa: BLE001 - a sheet failure must never sink a cadence
+    except Exception as exc:  # noqa: BLE001 - a sheet failure must never sink a run
         log.warn("Index", "contact-sheet index refresh failed: %s" % exc)
 
 
-def rotate_cadence_logs(log: TeeLog, keep_days: int = CADENCE_LOG_KEEP_DAYS) -> int:
-    """Delete the runner's own stale logs. Scoped to ``results/cadence/*.log``
+def rotate_tier_run_logs(log: TeeLog, keep_days: int = TIER_RUN_LOG_KEEP_DAYS) -> int:
+    """Delete the runner's own stale logs. Scoped to ``results/tier-runs/*.log``
     and to names the strict parser recognises, so ``history.txt``, result JSONs,
     contact sheets and ``.claim`` stakes are structurally out of reach."""
     try:
-        names = os.listdir(CADENCE_DIR)
+        names = os.listdir(TIER_RUNS_DIR)
     except OSError:
         return 0
-    stale = select_stale_cadence_logs(names, utcnow(), keep_days)
+    stale = select_stale_tier_run_logs(names, utcnow(), keep_days)
     removed = 0
     for name in stale:
         try:
-            os.remove(os.path.join(CADENCE_DIR, name))
+            os.remove(os.path.join(TIER_RUNS_DIR, name))
             removed += 1
         except OSError as exc:
             log.warn("Rotate", "could not remove %s: %s" % (name, exc))
     if removed:
-        log.info("Rotate", "rotated %d cadence log(s) older than %d days (%d candidate(s))"
+        log.info("Rotate", "rotated %d tier-run log(s) older than %d days (%d candidate(s))"
                  % (removed, keep_days, len(stale)))
     return removed
 
 
 def build_run_argv(tier: str) -> List[str]:
-    """The run.py command line. ``PARSEK_CADENCE_RUNPY_ARGS`` (test seam, see the
+    """The run.py command line. ``PARSEK_TIER_RUNPY_ARGS`` (test seam, see the
     module docstring) appends extra args; it can add flags but never removes
     ``--tier``."""
     argv = [sys.executable, RUN_PY, "--tier", tier]
-    extra = os.environ.get("PARSEK_CADENCE_RUNPY_ARGS", "").strip()
+    extra = os.environ.get("PARSEK_TIER_RUNPY_ARGS", "").strip()
     if extra:
         argv.extend(shlex.split(extra))
     return argv
@@ -690,7 +690,7 @@ def spawn_run(argv: Sequence[str], log: TeeLog) -> Tuple[int, List[str]]:
     return proc.wait(), evidence
 
 
-def _finish(log: TeeLog, tier: str, outcome: CadenceOutcome, log_name: str) -> int:
+def _finish(log: TeeLog, tier: str, outcome: TierRunOutcome, log_name: str) -> int:
     """Common tail: history line, index refresh, log rotation, exit code."""
     exit_code = outcome.exit_code
     line = format_history_line(utcnow_iso(), tier, outcome.outcome, exit_code,
@@ -698,13 +698,13 @@ def _finish(log: TeeLog, tier: str, outcome: CadenceOutcome, log_name: str) -> i
     append_history(line, log)
     log.info("History", line)
     refresh_index(log)
-    rotate_cadence_logs(log)
+    rotate_tier_run_logs(log)
     log.info("Done", "tier=%s outcome=%s exit=%d" % (tier, outcome.outcome, exit_code))
     return exit_code
 
 
 def run(tier: str, log: TeeLog, log_name: str) -> int:
-    log.info("Start", "cadence tier=%s harness=%s umbrella=%s python=%s"
+    log.info("Start", "tier-run tier=%s harness=%s umbrella=%s python=%s"
              % (tier, HARNESS_ROOT, UMBRELLA_ROOT, sys.executable))
     assert_system_awake(log)
     try:
@@ -717,7 +717,7 @@ def run(tier: str, log: TeeLog, log_name: str) -> int:
             holder = machinelock.describe_holder(existing)
             log.warn("Preflight", "SKIP: machine lock held (%s) -- not queueing behind "
                                   "the holder (%s, lock=%s)" % (holder, reason, lock_path))
-            return _finish(log, tier, CadenceOutcome(
+            return _finish(log, tier, TierRunOutcome(
                 OUTCOME_SKIPPED, "machine lock held (%s)" % holder), log_name)
         log.info("Preflight", "machine lock free (decision=%s, lock=%s)" % (reason, lock_path))
 
@@ -725,7 +725,7 @@ def run(tier: str, log: TeeLog, log_name: str) -> int:
         if busy is not None:
             log.warn("Preflight", "SKIP: KSP_x64.exe already running (pid=%s; interactive "
                                   "session or zombie) -- not queueing" % busy)
-            return _finish(log, tier, CadenceOutcome(
+            return _finish(log, tier, TierRunOutcome(
                 OUTCOME_SKIPPED, "KSP_x64.exe alive (pid=%s)" % busy), log_name)
         log.info("Preflight", "no live KSP_x64.exe; proceeding")
 
@@ -751,25 +751,24 @@ def run(tier: str, log: TeeLog, log_name: str) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="One-command cadence-tier runner for the Parsek automated-test "
-                    "harness (invoked on demand; schedulable via "
-                    "scripts/register-cadence-tasks.ps1 if that is ever wanted)",
+        description="Fly one Parsek automated-test harness tier on request "
+                    "(see the run-tier project skill)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=("exit codes (also Task Scheduler's 'Last Run Result', if ever scheduled):\n"
+        epilog=("exit codes:\n"
                 "  0  GREEN            every selected scenario terminated green\n"
                 "  1  RED              a finding, a KILLED, an XPASS, or nothing flew\n"
                 "  2  NEEDS-PROVISION  the instance is not fit; provisioning is a HUMAN call\n"
                 "  3  SKIPPED          machine lock held / a KSP is running; nothing attempted\n"
                 "  4  ERROR            the runner itself broke\n"))
     parser.add_argument("--tier", required=True, choices=list(TIER_CHOICES),
-                        help="which cadence tier to fly (exact tier match; "
+                        help="which tier to fly (exact tier match; "
                              "run.py's own --tier accepts any string and silently "
                              "selects zero on a typo, which is why this is a choices set)")
     args = parser.parse_args(argv)
 
     stamp = utcnow().strftime(LOG_STAMP_FORMAT)
     log_name = "%s_%s.log" % (args.tier, stamp)
-    log_path = os.path.join(CADENCE_DIR, log_name)
+    log_path = os.path.join(TIER_RUNS_DIR, log_name)
     log: Optional[TeeLog] = None
     try:
         log = TeeLog(log_path)
@@ -790,7 +789,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if log:
                 log.error("Error", detail)
             else:
-                console_write_default("[Cadence][Error][Error] %s" % detail)
+                console_write_default("[TierRun][Error][Error] %s" % detail)
         except Exception:  # noqa: BLE001
             pass
         return EXIT_ERROR
