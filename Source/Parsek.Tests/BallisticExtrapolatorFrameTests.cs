@@ -238,13 +238,13 @@ namespace Parsek.Tests
         {
             var zup = new Vector3d(x, y, z);
 
-            Vector3d world = IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(zup);
+            Vector3d world = TrajectoryMath.SwizzleZupBodyRelativeToWorld(zup);
 
             Assert.Equal(zup.x, world.x);
             Assert.Equal(zup.z, world.y);
             Assert.Equal(zup.y, world.z);
 
-            Vector3d roundTrip = IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(world);
+            Vector3d roundTrip = TrajectoryMath.SwizzleZupBodyRelativeToWorld(world);
             Assert.Equal(zup.x, roundTrip.x);
             Assert.Equal(zup.y, roundTrip.y);
             Assert.Equal(zup.z, roundTrip.z);
@@ -272,7 +272,7 @@ namespace Parsek.Tests
             double x, double y, double z)
         {
             var zup = new Vector3d(x, y, z);
-            Vector3d world = IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(zup);
+            Vector3d world = TrajectoryMath.SwizzleZupBodyRelativeToWorld(zup);
 
             BallisticExtrapolator.GetApproximateLatitudeLongitude(
                 zup, out double zupLatitude, out double zupLongitude);
@@ -357,8 +357,108 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // THE SOI REFRAME (the fifth frame mismatch, fixed 2026-08-05 on branch
+        // `orbital-rotation-frame`): a handover must not rotate the vessel
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>BallisticExtrapolator.ReframeOrbitalFrameRotation</c>'s WHOLE CONTRACT: crossing an
+        /// SOI re-expresses the stored attitude against the new body's orbital frame, and the
+        /// WORLD attitude a consumer resolves must be unchanged by that — the vessel does not turn
+        /// because its reference body did.
+        /// <para>
+        /// The state either side of the handover is one inertial state written two ways: the child
+        /// body's own position/velocity relative to the parent is added, exactly as
+        /// <c>Extrapolate</c>'s ParentExit branch does. The consumer is transcribed at its
+        /// production frame (WORLD radial + WORLD velocity, see
+        /// <c>ParsekFlight.ComputeOrbitalRotation</c>) because that is the frame the preservation
+        /// has to hold in — preservation "in the extrapolator's own raw frame" is what the pre-fix
+        /// code had, and it is worth nothing to a world-frame renderer.
+        /// </para>
+        /// <para>
+        /// ANTI-VACUITY: the pre-fix reframe (decode and re-encode against RAW Zup state on both
+        /// sides) is transcribed below and required to BREAK the same preservation by a large
+        /// angle. Both bodies' frames are deliberately far apart — the two states differ in
+        /// direction, not just magnitude — because a handover where the two orbital frames happen
+        /// to coincide cannot discriminate any convention at all.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void ReframeOrbitalFrameRotation_PreservesTheWorldAttitude_WhereTheRawZupMathDoesNot()
+        {
+            // Zup-swizzled body-relative state on the child side of the handover, and the child
+            // body's own state relative to the parent. Neither is parallel to the other, so the
+            // two orbital frames are genuinely different frames.
+            var fromZupPosition = new Vector3d(184000.0, -96000.0, 61000.0);
+            var fromZupVelocity = new Vector3d(310.0, 742.0, -158.0);
+            var childZupPosition = new Vector3d(-9200000.0, 4310000.0, 118000.0);
+            var childZupVelocity = new Vector3d(-402.0, -851.0, 37.0);
+
+            var toZupPosition = new Vector3d(
+                fromZupPosition.x + childZupPosition.x,
+                fromZupPosition.y + childZupPosition.y,
+                fromZupPosition.z + childZupPosition.z);
+            var toZupVelocity = new Vector3d(
+                fromZupVelocity.x + childZupVelocity.x,
+                fromZupVelocity.y + childZupVelocity.y,
+                fromZupVelocity.z + childZupVelocity.z);
+
+            var vesselWorldRotation = TrajectoryMath.PureNormalize(
+                new UnityEngine.Quaternion(0.41f, 0.22f, -0.63f, 0.62f));
+
+            // Encoded the way every producer encodes: world radial + world velocity.
+            UnityEngine.Quaternion storedBefore =
+                BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                    vesselWorldRotation,
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(fromZupPosition),
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(fromZupVelocity));
+
+            UnityEngine.Quaternion storedAfter = BallisticExtrapolator.ReframeOrbitalFrameRotation(
+                storedBefore, fromZupPosition, fromZupVelocity, toZupPosition, toZupVelocity);
+
+            float error = TrajectoryMath.ComputeQuaternionAngleDegrees(
+                ResolveThroughWorldFrameConsumer(storedAfter, toZupPosition, toZupVelocity),
+                vesselWorldRotation);
+            Assert.True(error < 0.01f,
+                $"the SOI reframe moved the world attitude by {Format(error)} deg; a handover "
+                + "must not rotate the vessel");
+
+            // ANTI-VACUITY: the pre-fix reframe, raw Zup state on both sides.
+            UnityEngine.Quaternion rawWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
+                storedBefore, fromZupPosition, fromZupVelocity);
+            UnityEngine.Quaternion preFixStoredAfter =
+                BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                    rawWorldRotation, toZupPosition, toZupVelocity);
+            float preFixError = TrajectoryMath.ComputeQuaternionAngleDegrees(
+                ResolveThroughWorldFrameConsumer(preFixStoredAfter, toZupPosition, toZupVelocity),
+                vesselWorldRotation);
+            // MEASURED at 107.707 deg on this fixture - the size of the attitude jump a
+            // pre-fix SOI handover handed to a world-frame renderer.
+            Assert.InRange(preFixError, 100f, 115f);
+        }
+
+        /// <summary>
+        /// <c>ParsekFlight.ComputeOrbitalRotation</c>'s <c>hasOfr</c> branch, at its production
+        /// parameter contract: Zup state in, both halves lifted to world, orbital frame built
+        /// from world velocity + world radial.
+        /// </summary>
+        private static UnityEngine.Quaternion ResolveThroughWorldFrameConsumer(
+            UnityEngine.Quaternion orbitalFrameRotation, Vector3d zupPosition, Vector3d zupVelocity)
+        {
+            return BallisticExtrapolator.ResolveWorldRotation(
+                orbitalFrameRotation,
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(zupPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(zupVelocity));
+        }
+
+        // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
+
+        private static string Format(float value)
+        {
+            return value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         private static TwoBodyOrbit BuildOrbit(
             double semiMajorAxis,

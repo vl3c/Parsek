@@ -3568,24 +3568,24 @@ namespace Parsek.Tests
                 out Vector3d secondStartPosition,
                 out Vector3d secondStartVelocity));
 
-            // Decoded in the producer's own calibrated frame (run 2026-08-04_2142): the
-            // seeded rotation is relative to a WORLD radial + Zup velocity, so the position
-            // is unswizzled and the velocity passes through - exactly what
+            // Decoded in the producer's own calibrated frame (run 2026-08-04_2142, moved to
+            // WORLD/WORLD on branch `orbital-rotation-frame`): the seeded rotation is relative
+            // to a WORLD radial + WORLD velocity, so BOTH halves are unswizzled - exactly what
             // SeedPredictedSegmentOrbitalFrameRotations does internally, and what the
             // playback consumer (ParsekFlight.ComputeOrbitalRotation) does. Decoding with a
-            // raw Zup radial reads the rotation in a frame nothing writes it in.
+            // raw Zup half reads the rotation in a frame nothing writes it in.
             var startWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[0].orbitalFrameRotation,
-                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(startPosition),
-                startVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(startPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(startVelocity));
             var firstBoundaryWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[0].orbitalFrameRotation,
-                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(firstBoundaryPosition),
-                firstBoundaryVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(firstBoundaryPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(firstBoundaryVelocity));
             var secondStartWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 segments[1].orbitalFrameRotation,
-                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(secondStartPosition),
-                secondStartVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(secondStartPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(secondStartVelocity));
 
             AssertQuaternionEquivalent(frozenWorldRotation, startWorldRotation);
             AssertQuaternionEquivalent(firstBoundaryWorldRotation, secondStartWorldRotation);
@@ -3599,12 +3599,14 @@ namespace Parsek.Tests
         /// The consumer is modelled rather than called: <c>ParsekFlight.ComputeOrbitalRotation</c>
         /// needs a live KSP <c>Orbit</c> and goes through <c>Quaternion.LookRotation</c>, so
         /// this cell reproduces its <c>hasOfr</c> branch exactly -
-        /// <c>orbFrame = LookRotation(velocity, (worldPos - bodyPos).normalized)</c> then
+        /// <c>orbFrame = LookRotation(worldVelocity, (worldPos - bodyPos).normalized)</c> then
         /// <c>orbFrame * segment.orbitalFrameRotation</c> - using the pure-math
         /// <see cref="TrajectoryMath.PureLookRotation"/> the production frame builder itself
         /// uses. <c>worldPos - bodyPos</c> IS the unswizzled propagated position, which is
-        /// the whole content of the calibration. The live cell keeps the end-to-end claim;
-        /// this one keeps it from silently regressing between flights.
+        /// the whole content of the calibration; since branch <c>orbital-rotation-frame</c>
+        /// the velocity is unswizzled too, on BOTH sides, so the frame is world/world end to
+        /// end. The live cell keeps the end-to-end claim; this one keeps it from silently
+        /// regressing between flights.
         /// </para>
         /// <para>
         /// The anti-vacuity half re-seeds with a RAW Zup radial (the pre-fix producer) and
@@ -3675,17 +3677,21 @@ namespace Parsek.Tests
                 frozenWorldRotation,
                 ResolveThroughPlaybackConsumerFrame(
                     segments[0].orbitalFrameRotation,
-                    IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(startPosition),
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(startPosition),
                     startVelocity));
 
-            // Anti-vacuity: the pre-fix producer (raw Zup radial) against the same consumer.
+            // Anti-vacuity: the pre-fix producer (raw Zup RADIAL) against the same consumer.
+            // The velocity half is held at the shipping world convention so the only thing
+            // varied is the radial - this cell's subject is the site-4 position calibration,
+            // not the later fifth-frame-mismatch velocity correction, which has its own cells
+            // in StockOrbitElementFrameParityTests.
             Quaternion preFixOrbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                 frozenWorldRotation,
                 startPosition,
-                startVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(startVelocity));
             Quaternion preFixResolved = ResolveThroughPlaybackConsumerFrame(
                 preFixOrbitalFrameRotation,
-                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(startPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(startPosition),
                 startVelocity);
             Quaternion expected = NormalizeAndCanonicalizeQuaternion(frozenWorldRotation);
             Quaternion actual = NormalizeAndCanonicalizeQuaternion(preFixResolved);
@@ -3700,16 +3706,20 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The <c>hasOfr</c> branch of <c>ParsekFlight.ComputeOrbitalRotation</c>, verbatim:
-        /// build the orbital frame from the world radial and the Zup velocity, then apply the
-        /// stored orbital-frame-relative rotation.
+        /// The <c>hasOfr</c> branch of <c>ParsekFlight.ComputeOrbitalRotation</c>, verbatim,
+        /// including its PARAMETER contract: the radial offset arrives already in Y-up world
+        /// axes, the velocity arrives ZUP-swizzled body-relative (straight off
+        /// <c>Orbit.getOrbitalVelocityAtUT</c>, which is what every production call site holds)
+        /// and is lifted to world HERE, exactly as the production consumer does since branch
+        /// <c>orbital-rotation-frame</c>. Then apply the stored orbital-frame-relative rotation.
         /// </summary>
         private static Quaternion ResolveThroughPlaybackConsumerFrame(
             Quaternion orbitalFrameRotation,
             Vector3d worldRadialOffset,
-            Vector3d velocity)
+            Vector3d zupVelocity)
         {
-            Vector3 velocityNormalized = ((Vector3)velocity).normalized;
+            Vector3 velocityNormalized =
+                ((Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(zupVelocity)).normalized;
             Vector3 radialOut = ((Vector3)worldRadialOffset).normalized;
             Assert.True(Mathf.Abs(Vector3.Dot(velocityNormalized, radialOut)) <= 0.99f,
                 "fixture drove the consumer into its near-parallel LookRotation fallback; "
