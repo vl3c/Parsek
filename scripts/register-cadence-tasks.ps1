@@ -35,9 +35,18 @@
 #   ExecutionTimeLimit      an OUTER backstop only (4h daily / 12h nightly /
 #                           12h operator). run.py's per-spec budgets do the real
 #                           hang-killing; this only catches a wedged process.
+#   Daily->nightly GAP      load-bearing. Skip-don't-queue means a nightly
+#                           window that opens while the daily still holds the
+#                           machine lock SKIPS - every day, forever, if the gap
+#                           is shorter than the daily's real duration. The 2h
+#                           default gap covers the observed ~20 min daily with
+#                           margin; if the daily ever runs toward its 4h
+#                           backstop the nightly WILL skip (a SKIPPED history
+#                           line, not a hang). Keep the gap > the daily's worst
+#                           case whenever overriding these times.
 #
 # Flags:
-#   -DailyTime      HH:mm for the daily tier   (default 22:00)
+#   -DailyTime      HH:mm for the daily tier   (default 21:00)
 #   -NightlyTime    HH:mm for the nightly tier (default 23:00)
 #   -OperatorDay    weekday for the operator tier (default Saturday)
 #   -OperatorTime   HH:mm for the operator tier (default 10:00)
@@ -47,7 +56,7 @@
 #
 # Windows PowerShell 5.1 compatible (no pwsh-7-only syntax).
 param(
-    [string]$DailyTime = "22:00",
+    [string]$DailyTime = "21:00",
     [string]$NightlyTime = "23:00",
     [string]$OperatorDay = "Saturday",
     [string]$OperatorTime = "10:00",

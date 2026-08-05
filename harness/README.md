@@ -242,12 +242,17 @@ and never provisions.
 
 | Tier | Specs | Suggested schedule (if ever registered) |
 |---|---|---|
-| `daily` | 22 | daily 22:00 |
+| `daily` | 22 | daily 21:00 |
 | `nightly` | 46 | daily 23:00 |
 | `operator` | 6 | Saturday 10:00 |
 
 Spec counts are as of 2026-08-05 and DRIFT as specs land; recount with
-`python run.py --dry-run --tier <t>` (launches nothing, takes no lock).
+`python run.py --dry-run --tier <t>` (launches nothing, takes no lock). The
+daily->nightly gap in the suggested times is load-bearing: skip-don't-queue
+means a nightly window that opens while the daily still holds the machine lock
+SKIPS, so the gap must exceed the daily's real duration (observed ~20 min; 2h
+of margin here). If the daily ever runs toward its 4h backstop, the nightly
+skips visibly - a SKIPPED history line, never a queue.
 
 `--tier` is an EXACT match, so the three are disjoint: `--tier nightly` does not
 re-run the daily specs. `--cadence nightly` would be the cumulative alternative

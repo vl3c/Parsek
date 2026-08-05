@@ -171,8 +171,15 @@ UNPARSED_VERDICT = "UNPARSED"
 # strings run.py emits (run.py's ADMIT step and its whole-invocation lock
 # refusal); a change to either must be mirrored here, which is why they are
 # named constants rather than inline literals.
+#
+# `result=DRIFT` alone is NOT a marker: run.py also emits
+# `mission venv-admit stamp=... result=DRIFT` for a mission-VENV drift, which
+# provision.py does not fix (missions/bootstrap_venv.py does) -- so a bare
+# result=DRIFT match would label a venv problem NEEDS-PROVISION and send the
+# operator down the wrong recovery. The INSTANCE admit line is recognised only
+# by the `admit instance=` + `result=DRIFT` co-occurrence in
+# ``is_admission_drift_line``.
 ADMISSION_DRIFT_MARKERS: Tuple[str, ...] = (
-    "result=DRIFT",           # `admit instance=%s manifest=%s result=DRIFT`
     "admit drift field=",     # per-field drift detail
     "manifest-missing",
     "provision-incomplete",
@@ -249,11 +256,23 @@ def format_tally(counts: Dict[str, int]) -> str:
     return " ".join("%s=%d" % (v, counts[v]) for v in ordered)
 
 
+def is_admission_drift_line(line: str) -> bool:
+    """True when a line is genuine INSTANCE-admission drift evidence. The
+    instance admit summary (`admit instance=%s manifest=%s result=DRIFT`) is
+    matched by co-occurrence so the mission venv-admit line (`mission
+    venv-admit stamp=... result=DRIFT`) can never classify NEEDS-PROVISION --
+    provisioning does not touch the venv, so that hint would be wrong."""
+    text = line or ""
+    if "admit instance=" in text and "result=DRIFT" in text:
+        return True
+    return any(m in text for m in ADMISSION_DRIFT_MARKERS)
+
+
 def is_evidence_line(line: str) -> bool:
     """True for a run.py stdout line the classifier may need. Used by the
     streaming tee to keep memory bounded without weakening classification."""
     text = line or ""
-    return any(m in text for m in ADMISSION_DRIFT_MARKERS) or \
+    return is_admission_drift_line(text) or \
         any(m in text for m in INSTANCE_LOCKED_MARKERS)
 
 
@@ -317,8 +336,8 @@ def classify_outcome(run_exit_code: int,
             OUTCOME_LOCKED,
             "lost the preflight race -- run.py refused on the machine lock (%s)" % tally)
 
-    if _contains_any(runner_captured_lines, ADMISSION_DRIFT_MARKERS) or \
-            _contains_any(new_summary_lines, ADMISSION_DRIFT_MARKERS):
+    if any(is_admission_drift_line(l) for l in runner_captured_lines) or \
+            any(is_admission_drift_line(l) for l in new_summary_lines):
         return CadenceOutcome(OUTCOME_NEEDS_PROVISION,
                               "%s (%s)" % (PROVISION_HINT, tally))
 

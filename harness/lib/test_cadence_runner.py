@@ -155,6 +155,27 @@ class ClassifyOutcomeTests(unittest.TestCase):
         self.assertIn("provision/provision.py --profile stock-minimal", out.detail)
         self.assertIn("INVALID=1", out.detail)   # the tally still prints
 
+    def test_a_mission_venv_drift_is_not_needs_provision(self):
+        """run.py also emits `mission venv-admit stamp=... result=DRIFT` for a
+        VENV drift (run.py, Mission step). provision.py does not fix a venv --
+        missions/bootstrap_venv.py does -- so that line must never classify
+        NEEDS-PROVISION with its provision hint. It reds honestly instead."""
+        venv_line = ("[Harness][Info][Mission] mission venv-admit "
+                     "stamp=C:/x/harness/missions/.venv/.stamp result=DRIFT")
+        self.assertFalse(cr.is_admission_drift_line(venv_line))
+        self.assertFalse(cr.is_evidence_line(venv_line))
+        out = cr.classify_outcome(1, [_summary("INVALID")], [venv_line])
+        self.assertEqual(out.outcome, cr.OUTCOME_RED)
+        self.assertNotIn("provision is a HUMAN call", out.detail)
+
+    def test_the_instance_admit_drift_line_matches_by_co_occurrence(self):
+        """The instance admit summary is recognised by `admit instance=` +
+        `result=DRIFT` together; either alone is not drift evidence."""
+        self.assertTrue(cr.is_admission_drift_line(ADMIT_DRIFT_LINE))
+        ok_line = ("[Harness][Info][Admit] admit instance=stock-minimal "
+                   "manifest=present result=OK")
+        self.assertFalse(cr.is_admission_drift_line(ok_line))
+
     def test_needs_provision_on_a_manifest_missing_subkind_in_a_summary_note(self):
         out = cr.classify_outcome(1, [_summary("INVALID", note="manifest-missing")], [])
         self.assertEqual(out.outcome, cr.OUTCOME_NEEDS_PROVISION)
