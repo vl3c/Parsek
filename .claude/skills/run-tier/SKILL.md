@@ -18,6 +18,10 @@ The machine runs ONE automation KSP at a time.
 
 - Read `<umbrella>/automation/.ksp-machine.lock` (umbrella = parent of the
   worktree). A live holder means a sibling run or a provision owns the box.
+  Run from a SIBLING worktree of the umbrella (`<umbrella>/Parsek-<branch>/`):
+  a session worktree under `.claude/worktrees/` derives the wrong umbrella —
+  it reads a nonexistent lock (concluding "free" while a sibling really holds
+  it) and resolves no instance. Move to a sibling worktree first.
 - Check for a live `KSP_x64.exe` (`tasklist /FI "IMAGENAME eq KSP_x64.exe"`) —
   an interactive game session blocks a run too (one GPU).
 
