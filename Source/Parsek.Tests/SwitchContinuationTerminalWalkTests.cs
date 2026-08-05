@@ -321,6 +321,66 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // Half 1 — the cache-apply veto (PR #1427 review F1).
+        //
+        // A ballistic-extrapolator cache can carry a PREDICTED Destroyed for a
+        // vessel the player just switched TO, i.e. one that is provably alive.
+        // ScopeFinalizationCacheToBackgroundEnd clamps that terminal to the
+        // switch UT, so the applier's RejectedTerminalBeforeLastSample guard
+        // never fires; applying it would fire a false playback explosion and,
+        // if the segment is later discarded, become the row's terminal.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ClassifySwitchCloseCacheApply_AliveVesselWithDestroyedCache_VetoesToLive()
+        {
+            Assert.Equal(SwitchCloseCacheApplyDecision.SkipPredictedDestroyedWhileAlive,
+                SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+                    hasLiveVessel: true, cacheTerminal: TerminalState.Destroyed));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Orbiting)]
+        [InlineData(TerminalState.SubOrbital)]
+        [InlineData(TerminalState.Landed)]
+        [InlineData(TerminalState.Splashed)]
+        public void ClassifySwitchCloseCacheApply_AliveVesselWithNonDestroyedCache_Applies(
+            TerminalState cacheTerminal)
+        {
+            // A cached non-Destroyed verdict is a reading of the same live
+            // vessel and carries the recorder's own endpoint data; only
+            // Destroyed is vetoed.
+            Assert.Equal(SwitchCloseCacheApplyDecision.Apply,
+                SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+                    hasLiveVessel: true, cacheTerminal: cacheTerminal));
+        }
+
+        [Fact]
+        public void ClassifySwitchCloseCacheApply_NoVesselWithDestroyedCache_Applies()
+        {
+            // Defensive branch: the BG-member route dereferences the vessel to
+            // reach the stamp, so a null vessel means the switch target could not
+            // be resolved. The cache is then the ONLY evidence available and IS
+            // applied, matching EndDebrisRecording's v == null semantics.
+            Assert.Equal(SwitchCloseCacheApplyDecision.Apply,
+                SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+                    hasLiveVessel: false, cacheTerminal: TerminalState.Destroyed));
+        }
+
+        [Fact]
+        public void ClassifySwitchCloseCacheApply_NoCacheTerminal_Applies()
+        {
+            // "No cache resolved" is not the veto's business — the apply site
+            // self-diagnoses reason=no-cache and falls through to live.
+            Assert.Equal(SwitchCloseCacheApplyDecision.Apply,
+                SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+                    hasLiveVessel: true, cacheTerminal: null));
+            Assert.Equal(SwitchCloseCacheApplyDecision.Apply,
+                SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+                    hasLiveVessel: false, cacheTerminal: null));
+        }
+
+        // ------------------------------------------------------------------
         // Fixtures.
         // ------------------------------------------------------------------
 

@@ -764,6 +764,72 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PeekFinalizationCacheTerminal_ReportsThePredictedDestroyedTheClampWouldHide()
+        {
+            // PR #1427 review F1, the fact the veto exists for: the scoping clamp
+            // pulls a PREDICTED Destroyed back to the end UT, so nothing
+            // downstream of the apply can tell it apart from a real one. The peek
+            // reports that verdict BEFORE it lands, which is the only place the
+            // caller can still refuse it.
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1",
+                100u,
+                TerminalState.Destroyed,
+                terminalUT: 180.0,
+                Segment(100.0, 180.0));
+
+            TerminalState? peeked =
+                BackgroundRecorder.PeekFinalizationCacheTerminalForBackgroundEnd(
+                    cache, endUT: 130.0);
+
+            Assert.Equal(TerminalState.Destroyed, peeked);
+            // The peek mutates nothing.
+            Assert.Equal(180.0, cache.TerminalUT);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+        }
+
+        [Fact]
+        public void PeekFinalizationCacheTerminal_NullCache_ReturnsNull()
+        {
+            Assert.Null(BackgroundRecorder.PeekFinalizationCacheTerminalForBackgroundEnd(
+                null, endUT: 130.0));
+        }
+
+        [Fact]
+        public void TryPeekFinalizationCacheTerminal_ResolvesTheSameCacheTheApplyWould()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100,
+                "rec_bg1",
+                MakeFinalizationCache("rec_bg1", 100u, TerminalState.Orbiting, terminalUT: 120.0));
+
+            Assert.True(bgRecorder.TryPeekFinalizationCacheTerminalForBackgroundEnd(
+                rec, 100u, endUT: 130.0, out TerminalState? terminal));
+            Assert.Equal(TerminalState.Orbiting, terminal);
+
+            // Still unapplied — the peek is read-only.
+            Assert.Null(rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void TryPeekFinalizationCacheTerminal_NoCache_ReturnsFalse()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            Assert.False(bgRecorder.TryPeekFinalizationCacheTerminalForBackgroundEnd(
+                tree.Recordings["rec_bg1"], 100u, endUT: 130.0, out TerminalState? terminal));
+            Assert.Null(terminal);
+
+            Assert.False(bgRecorder.TryPeekFinalizationCacheTerminalForBackgroundEnd(
+                null, 100u, endUT: 130.0, out TerminalState? nullRecTerminal));
+            Assert.Null(nullRecTerminal);
+        }
+
+        [Fact]
         public void TryApplyFinalizationCacheForBackgroundEnd_RejectsNonDestroyedCacheForConfirmedDestroy()
         {
             var tree = MakeTree((100, "rec_bg1"));

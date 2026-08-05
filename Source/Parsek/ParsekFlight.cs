@@ -9199,18 +9199,44 @@ namespace Parsek
             {
                 try
                 {
-                    RecordingFinalizationCacheApplyResult cacheResult;
-                    if (backgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd(
-                            bgRec,
-                            focusedPid,
-                            switchUT,
-                            "SwitchSegment.BgMemberContinuation",
-                            allowStale: true,
-                            requireDestroyedTerminal: false,
-                            confirmedDestroyed: false,
-                            out cacheResult))
+                    // PR #1427 review F1: peek the cache's verdict BEFORE applying
+                    // it. This site is the only background close that knows the
+                    // vessel is alive (the player just switched TO it), so a
+                    // PREDICTED Destroyed from a ballistic-extrapolator cache must
+                    // be vetoed here — the scoping clamp pulls it back to switchUT,
+                    // so the applier's RejectedTerminalBeforeLastSample guard cannot.
+                    TerminalState? cacheTerminal;
+                    backgroundRecorder.TryPeekFinalizationCacheTerminalForBackgroundEnd(
+                        bgRec, focusedPid, switchUT, out cacheTerminal);
+
+                    var cacheDecision = SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+                        focusedVessel != null, cacheTerminal);
+
+                    if (cacheDecision == SwitchCloseCacheApplyDecision.SkipPredictedDestroyedWhileAlive)
                     {
-                        source = "cache";
+                        ParsekLog.Verbose("SwitchSegment",
+                            $"origin-terminal-stamp cache-skipped " +
+                            $"reason=predicted-destroyed-while-alive " +
+                            $"rejectedCacheTerminal={cacheTerminal?.ToString() ?? "<none>"} " +
+                            $"recId={bgRec.RecordingId ?? "<no-id>"} focusedPid={focusedPid} " +
+                            $"ut={switchUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            "— falling through to live classification");
+                    }
+                    else
+                    {
+                        RecordingFinalizationCacheApplyResult cacheResult;
+                        if (backgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                                bgRec,
+                                focusedPid,
+                                switchUT,
+                                "SwitchSegment.BgMemberContinuation",
+                                allowStale: true,
+                                requireDestroyedTerminal: false,
+                                confirmedDestroyed: false,
+                                out cacheResult))
+                        {
+                            source = "cache";
+                        }
                     }
                 }
                 catch (Exception ex)

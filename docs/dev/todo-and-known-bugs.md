@@ -1068,11 +1068,50 @@ would read `Destroyed` -> `reason=crashed` -> still UF. GS-1 / GS-2 are unchange
 (`SwitchSegmentNoOpClassifier` / `SceneExitInterceptor`) was deliberately NOT
 touched: the segment still persists, it just no longer hides the origin.
 
-Unit-covered by `SwitchContinuationTerminalWalkTests` (14 cells: single hop,
+Unit-covered by `SwitchContinuationTerminalWalkTests` (21 cells: single hop,
 chained double switch, Destroyed segment, Dock bp preserves `downstreamBp`,
 dangling bp, ambiguous bp, cycle guard, candidate-shape accept/reject, the
-end-to-end `CommitTree` promotion + `IsReapEligible == false`, and the three
-stamp-decision cells).
+end-to-end `CommitTree` promotion + `IsReapEligible == false`, the three
+stamp-decision cells, and the seven cache-apply-veto cells below) plus four
+peek cells in `BackgroundRecorderTests`.
+
+**PR #1427 review F1, hardened in the same change-set.** The stamp's cache half
+ran `TryApplyFinalizationCacheForBackgroundEnd` with `allowStale: true,
+requireDestroyedTerminal: false`, which could seal the switch-closed origin with a
+PREDICTED `TerminalState.Destroyed` out of a Fresh ballistic-extrapolator cache
+while the vessel is provably alive - the player just switched TO it.
+`ScopeFinalizationCacheToBackgroundEnd` clamps that terminal to
+`switchUT == lastAuthoredUT`, so the applier's own
+`RejectedTerminalBeforeLastSample` guard never fires. Consequences: a false
+`GhostPlaybackEngine` explosion at `switchUT` during playback, and - if the
+continuation segment is later discarded, since discard clears
+`ChildBranchPointId` - the false `Destroyed` becomes the row's EFFECTIVE terminal.
+Fixed with a pure veto, `SwitchSegmentBuilder.ClassifySwitchCloseCacheApply(
+hasLiveVessel, cacheTerminal)`, fed by a new read-only
+`BackgroundRecorder.TryPeekFinalizationCacheTerminalForBackgroundEnd` that mirrors
+the applier's cache resolution and scoping clamp without mutating. Alive +
+cache-`Destroyed` -> veto, fall through to live classification, Verbose
+`origin-terminal-stamp cache-skipped reason=predicted-destroyed-while-alive
+rejectedCacheTerminal=...`. Alive + any non-Destroyed cache -> apply (a reading of
+the same live vessel, carrying the recorder's own endpoint data). **No vessel +
+cache -> apply**, deliberately: that branch is defensive (the BG-member route
+dereferences the vessel to reach the stamp), and if it is ever reached the cache is
+the only evidence available - same semantics as `EndDebrisRecording`'s `v == null`
+path, with the existing Warn covering "neither cache nor vessel can classify".
+
+**Observation for a future UI pass (PR #1427 review F4), NOT fixed here.** The UF
+row now qualifies on the terminal read through the switch segment, but several
+consumers still read the ORIGIN's own stamped terminal via the plain
+`ResolveChainTerminalRecording`: `UnfinishedFlightSealHandler` (:127, :199),
+`UnfinishedFlightStashHandler` (:95), and the manual-stash gate at
+`UnfinishedFlightClassifier.cs:477`. Where the two differ - the origin stamped
+`Orbiting` at the switch UT while the segment ended `SubOrbital`, say - the seal /
+stash dialog names the origin's terminal rather than the one the row qualified on.
+Cosmetic divergence in dialog text only; no unsafe stash is constructible, since
+the stash gate's own predicate is strictly narrower than the walked one. Recorded
+so a future UI pass can route those four sites through
+`ResolveTerminalRecordingAcrossSwitchContinuations` deliberately rather than by
+accident.
 
 **`GS-3-switch-nudge-deployed`'s expected measurement now INVERTS** (`rewindPoints`
 0 -> 1, plus a `CommitTree promoted` line for the probe's origin). Its

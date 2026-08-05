@@ -1012,19 +1012,16 @@ the bug is now the REGRESSION GUARD for its fix. Awaiting the armed-confirm and
 negative-control flights. See GS3-NUDGE-DROPS-UNFINISHED-FLIGHT in
 todo-and-known-bugs.md.
 
-**GS-3's EXPECTED MEASUREMENT WILL INVERT - PENDING RE-FLY (2026-08-05).** The
-defect was FIXED the same day as an implementation change (S17 stands): a
+**GS-3's MEASUREMENT INVERTED, because the defect was FIXED (2026-08-05).** The
+fix was an implementation change, not a design amendment - S17 stands: a
 `VesselSwitchContinuation` branch point is now walked THROUGH by both Unfinished
 Flights gates, and a BG-member switch consumption now stamps a classified terminal
-on the recording it closes. Post-fix the nudged probe's origin should promote
-(`CommitTree promoted ... reason=stableLeafUnconcluded`) and the RewindPoint should
-SURVIVE, so GS-3's reading should become `rewindPoints 1` - the same as GS-2, since
-the glance is no longer meant to change the outcome. **The spec's
-`[expectations.rewind]` block is UNCHANGED by that fix, and the GS-3 row below
-still records the PRE-FIX measurement**; flipping the window and arming it is a
-separate harness step that must wait on a fresh report-only GS-3 run against the
-corrected build. Until that run exists, read the GS-3 row's measured facts as
-historical.
+on the recording it closes (the switch-closed origin used to end terminal-less,
+which is what actually hid it from the classifier). Mechanism and the review
+hardening in GS3-NUDGE-DROPS-UNFINISHED-FLIGHT, todo-and-known-bugs.md.
+**Every measured fact in the GS-3 row below is PRE-FIX and is retained as the
+historical record of the bug**; the post-fix re-fly, the inverted `{min = 1}`
+window and the arming are covered by the three-run note that follows.
 
 NO NEW CRAFT was authored for this lane, and that is the design decision worth
 recording. The committed docking `Kerbal X.craft` in `bdock-forge-base` ALREADY is

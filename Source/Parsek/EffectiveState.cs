@@ -1258,6 +1258,22 @@ namespace Parsek
         /// pre-commit, so the pending tree must be passed in rather than looked
         /// up in <see cref="RecordingStore.CommittedTrees"/>.
         /// </para>
+        ///
+        /// <para>
+        /// DELIBERATELY SUPERSEDE-BLIND. This walker follows tree topology only;
+        /// it does not consult <c>RecordingSupersedes</c>, so a hop can land on a
+        /// recording that a later re-fly has superseded. That is the SAME
+        /// one-level staleness the pre-existing chain hop inside
+        /// <see cref="ResolveChainTerminalRecording"/> already has, and it is
+        /// safe for the same reason: visibility / ERS filtering happens ABOVE
+        /// this call (see <see cref="IsVisible"/>,
+        /// <see cref="ComputeERS"/>, and the slot-anchor dedupe in
+        /// <c>TryResolveUnfinishedFlight</c>), and the composite chain+supersede
+        /// walk that slots need lives in
+        /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>.
+        /// Do not fold supersede hops in here without re-reading why those two
+        /// walkers are separate.
+        /// </para>
         /// </summary>
         internal static Recording ResolveTerminalRecordingAcrossSwitchContinuations(
             Recording rec,
