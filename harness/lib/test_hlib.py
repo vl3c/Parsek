@@ -4795,8 +4795,13 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # supersedeRows=0 tombstones=0 - every declared window already met, so arming
     # moved no verdict; the reap windows make the critical-regression-guard shape
     # (routine two-stage flight leaves no RP behind) load-bearing.
+    # GS-2-orbital-probe-deploy armed [expectations.rewind] 2026-08-05 after reading
+    # run 2026-08-05_0853 (flight 2, PASS attempt 1) measured rewindPoints=1
+    # supersedeRows=0 tombstones=0 - every declared window already met. The
+    # rewindPoints={min 1} floor is the EXACT INVERSION of GS-1's {max 0}: between
+    # them both branches of RewindPointReaper.IsReapEligible are load-bearing.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
-                       "GS-1-auto-chute-booster.toml"}
+                       "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

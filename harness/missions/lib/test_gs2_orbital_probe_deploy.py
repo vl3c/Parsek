@@ -82,8 +82,12 @@ def fly_nominal(state, dwell_end_ut=60.0):
     """The whole nominal profile: preload, settle, deploy, split, dwell."""
     frames = [orbiting(0.0)]                                   # PRELOAD -> SETTLE
     frames += [orbiting(float(i)) for i in (1, 2, 3)]          # SETTLE debounce -> DEPLOY
-    frames += [orbiting(4.0, vessel_count=6),                  # split, debounce 1
-               orbiting(5.0, vessel_count=6)]                  # debounce 2 -> POST-DEPLOY
+    # THE SPLIT: the watched vessel APPEARS. vessel_count is carried too, but it is
+    # no longer what decides (flight 1's lesson - it reads 0 on this control).
+    frames += [orbiting(4.0, vessel_count=6, sibling_situation="ORBITING",
+                        sibling_present=1),                    # split, debounce 1
+               orbiting(5.0, vessel_count=6, sibling_situation="ORBITING",
+                        sibling_present=1)]                    # debounce 2 -> POST-DEPLOY
     frames += [orbiting(float(t), vessel_count=6,
                         sibling_situation="ORBITING", sibling_present=1)
                for t in (6.0, 7.0, dwell_end_ut)]              # dwell
@@ -200,43 +204,96 @@ class Gs2DeployEvidenceTests(unittest.TestCase):
 
     def test_a_single_risen_frame_does_not_certify_the_split(self):
         """Debounced for the same reason the shared separation counter is: kRPC can
-        return a stale count on the single frame a vessel splits."""
+        return a stale reading on the single frame a vessel splits."""
         st = self._to_deploy()
-        st, _ = drive(st, [orbiting(4.0, vessel_count=6)])
+        st, _ = drive(st, [orbiting(4.0, vessel_count=6, sibling_present=1)])
         self.assertEqual(mlib.GS2_DEPLOY, st.phase)
         self.assertFalse(st.split_ever_confirmed)
 
     def test_the_streak_resets_on_a_frame_that_falls_back(self):
         st = self._to_deploy()
+        st, _ = drive(st, [orbiting(4.0, vessel_count=6, sibling_present=1),
+                           orbiting(5.0, vessel_count=5, sibling_present=0),
+                           orbiting(6.0, vessel_count=6, sibling_present=1)])
+        self.assertEqual(mlib.GS2_DEPLOY, st.phase)
+        self.assertFalse(st.split_ever_confirmed)
+
+    def test_an_unread_sibling_never_satisfies_the_split(self):
+        """-1 is the UNREAD sentinel: a faulted enumeration proves nothing."""
+        st = self._to_deploy()
+        st, _ = drive(st, [orbiting(4.0, sibling_present=-1),
+                           orbiting(5.0, sibling_present=-1)])
+        self.assertEqual(mlib.GS2_DEPLOY, st.phase)
+        self.assertFalse(st.split_ever_confirmed)
+
+    def test_THE_FLIGHT_1_REGRESSION_an_unread_vessel_count_no_longer_blinds_it(self):
+        """FLIGHT 1 REPLAYED (2026-08-05_0842). Every frame carries vessel_count=0 -
+        the UNREAD sentinel, because the control is built with read_docking=False and
+        that is the ONLY branch which populates the field - while the sibling watch
+        reports the deployed vessel present and ORBITING, exactly as the real run's
+        assert dump did. The old gate compared two sentinels and flaked "vessel_count
+        stayed at 0 against baseline 0" on a flight whose decoupler had plainly
+        fired. The split must now be observed."""
+        st = self._to_deploy()
+        st, _ = drive(st, [orbiting(4.0, vessel_count=0, sibling_situation="ORBITING",
+                                    sibling_present=1),
+                           orbiting(5.0, vessel_count=0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        self.assertEqual(mlib.GS2_POST_DEPLOY, st.phase)
+        self.assertTrue(st.split_ever_confirmed)
+
+    def test_a_vessel_already_present_before_the_stage_is_not_split_evidence(self):
+        """The gate is a TRANSITION, not a level. A watched vessel that existed
+        before the stage fired cannot be evidence that the stage created it - and on
+        a correct fixture it never does, because the forge's own `stackAttached` row
+        asserts the save holds ONE vessel."""
+        _p, st = fresh()
+        pre = [orbiting(0.0, sibling_situation="ORBITING", sibling_present=1)]
+        pre += [orbiting(float(i), sibling_situation="ORBITING", sibling_present=1)
+                for i in (1, 2, 3)]
+        st, _ = drive(st, pre)
+        self.assertEqual(mlib.GS2_DEPLOY, st.phase)
+        self.assertTrue(st.sibling_seen_before_deploy)
+        st, _ = drive(st, [orbiting(4.0, sibling_situation="ORBITING",
+                                    sibling_present=1),
+                           orbiting(5.0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        self.assertFalse(st.split_ever_confirmed)
+        st, _ = drive(st, [orbiting(400.0, sibling_situation="ORBITING",
+                                    sibling_present=1)])
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("ALREADY present", st.flake_reason)
+
+    def test_without_a_watch_name_the_gate_falls_back_to_vessel_count(self):
+        """A caller that configures no watch keeps the old evidence source."""
+        _p, st = fresh(siblingVesselName="")
+        st, _ = drive(st, [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)])
         st, _ = drive(st, [orbiting(4.0, vessel_count=6),
-                           orbiting(5.0, vessel_count=5),
-                           orbiting(6.0, vessel_count=6)])
-        self.assertEqual(mlib.GS2_DEPLOY, st.phase)
-        self.assertFalse(st.split_ever_confirmed)
+                           orbiting(5.0, vessel_count=6)])
+        self.assertEqual(mlib.GS2_POST_DEPLOY, st.phase)
 
-    def test_an_unread_vessel_count_never_satisfies_the_rise(self):
-        """0 is the documented UNREAD sentinel on TelemetrySnapshot.vessel_count, so
-        it must fail closed rather than read as 'fewer vessels'."""
-        st = self._to_deploy()
-        st, _ = drive(st, [orbiting(4.0, vessel_count=0),
-                           orbiting(5.0, vessel_count=0)])
-        self.assertEqual(mlib.GS2_DEPLOY, st.phase)
-        self.assertFalse(st.split_ever_confirmed)
+    def test_the_fallback_flake_names_the_read_docking_requirement(self):
+        """So the next author does not lose a flight to it the way this one did."""
+        _p, st = fresh(siblingVesselName="")
+        st, _ = drive(st, [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)])
+        st, _ = drive(st, [orbiting(400.0, vessel_count=0)])
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("read_docking=True", st.flake_reason)
 
-    def test_a_stuck_decoupler_flakes_and_names_both_counts(self):
+    def test_a_stuck_decoupler_flakes_and_names_the_watched_vessel(self):
         st = self._to_deploy()
-        st, _ = drive(st, [orbiting(200.0, vessel_count=5)])
+        st, _ = drive(st, [orbiting(200.0, vessel_count=5, sibling_present=0)])
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
         self.assertEqual(mlib.GS2_DEPLOY, st.flake_phase)
         self.assertIn("no split observed", st.flake_reason)
-        self.assertIn("baseline 5", st.flake_reason)
+        self.assertIn("Kerbal X Probe", st.flake_reason)
 
     def test_a_deploy_flake_is_never_an_assert_fail(self):
         """Mission-vs-Parsek orthogonality: a decoupler that did not fire is a driver
         problem, and classifying it as a product defect would file a retryable flake
         against the mod."""
         st = self._to_deploy()
-        st, _ = drive(st, [orbiting(200.0, vessel_count=5)])
+        st, _ = drive(st, [orbiting(200.0, vessel_count=5, sibling_present=0)])
         self.assertNotEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
 
 
@@ -254,7 +311,8 @@ class Gs2SettleAndDwellTests(unittest.TestCase):
         the recorder has not authored the post-split surfaces the commit needs."""
         _p, st = fresh()
         st, _ = drive(st, [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)]
-                      + [orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6)]
+                      + [orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1)]
                       + [orbiting(float(t), vessel_count=6) for t in (6.0, 7.0, 8.0)])
         self.assertEqual(mlib.GS2_POST_DEPLOY, st.phase)
         self.assertTrue(st.post_ever_stable)
@@ -262,7 +320,8 @@ class Gs2SettleAndDwellTests(unittest.TestCase):
     def test_a_decayed_orbit_after_the_split_flakes_with_the_was_stable_wording(self):
         _p, st = fresh()
         st, _ = drive(st, [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)]
-                      + [orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6)]
+                      + [orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1)]
                       + [orbiting(float(t), vessel_count=6) for t in (6.0, 7.0, 8.0)]
                       + [orbiting(400.0, vessel_count=6, periapsis=10000.0)])
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
@@ -272,7 +331,8 @@ class Gs2SettleAndDwellTests(unittest.TestCase):
     def test_a_post_deploy_that_was_never_stable_flakes_with_the_other_wording(self):
         _p, st = fresh()
         st, _ = drive(st, [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)]
-                      + [orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6)]
+                      + [orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1)]
                       + [orbiting(6.0, vessel_count=6, situation="SUB_ORBITAL"),
                          orbiting(400.0, vessel_count=6, situation="SUB_ORBITAL")])
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
@@ -398,7 +458,8 @@ class Gs2SiblingAssertionTests(unittest.TestCase):
         not reap. Only this row notices that the scenario measured something else."""
         _p, st = fresh()
         frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
-            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1),
             orbiting(6.0, vessel_count=6, sibling_situation="SUB_ORBITAL",
                      sibling_present=1)]
         st, _ = drive(st, frames)
@@ -417,7 +478,8 @@ class Gs2SiblingAssertionTests(unittest.TestCase):
         REAL bad one can."""
         _p, st = fresh()
         frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
-            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1),
             orbiting(6.0, vessel_count=6, sibling_situation="ORBITING",
                      sibling_present=1),
             orbiting(7.0, vessel_count=6, sibling_situation="SUB_ORBITAL",
@@ -434,7 +496,8 @@ class Gs2SiblingAssertionTests(unittest.TestCase):
         out-of-gate on the way. A probe that settles into its orbit is fine."""
         _p, st = fresh()
         frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
-            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1),
             orbiting(6.0, vessel_count=6, sibling_situation="SUB_ORBITAL",
                      sibling_present=1),
             orbiting(7.0, vessel_count=6, sibling_situation="ORBITING",
@@ -451,7 +514,8 @@ class Gs2SiblingAssertionTests(unittest.TestCase):
         the scenario's central premise from an absence of evidence."""
         _p, st = fresh()
         frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
-            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1),
             orbiting(6.0, vessel_count=6, sibling_situation="", sibling_present=1),
             orbiting(7.0, vessel_count=6, sibling_situation="", sibling_present=1)]
         st, _ = drive(st, frames)
@@ -498,7 +562,8 @@ class Gs2AssertionTests(unittest.TestCase):
         _p, st = fresh()
         live = {"sibling_situation": "ORBITING", "sibling_present": 1}
         frames = [orbiting(0.0)] + [orbiting(float(i)) for i in (1, 2, 3)] + [
-            orbiting(4.0, vessel_count=6), orbiting(5.0, vessel_count=6),
+            orbiting(4.0, vessel_count=6, sibling_present=1),
+            orbiting(5.0, vessel_count=6, sibling_present=1),
             orbiting(6.0, vessel_count=6, **live),
             orbiting(7.0, vessel_count=6, **live),
             orbiting(60.0, vessel_count=6, **live)]

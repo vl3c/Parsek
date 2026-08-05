@@ -2091,6 +2091,24 @@ class TelemetrySnapshot:
     # the count), load-bearing with docking_state != "Docked" (MINOR 10). 0 =
     # unread (fail closed: no increase can be measured against a 0 baseline that
     # never advanced).
+    #
+    # POPULATED ONLY UNDER `read_docking=True`. It sits inside that opt-in block
+    # (mission_runner.py:678-686), so a shell built without the flag leaves this at
+    # 0 FOREVER - which is why forge_lko's shell opts in explicitly and says the
+    # flag "is NOT about docking here". GS-2 flight 1 (2026-08-05_0842) was lost to
+    # a shell comment claiming the opposite; its machine now takes its split
+    # evidence from the sibling watch instead.
+    #
+    # THE TRAP, and it is the reason this note is longer than the field. The 0
+    # sentinel reads as a PLAUSIBLE VALUE, unlike crew_count's -1, ap_error's NaN
+    # or sibling_present's -1. Today's consumers are safe by the shape of the
+    # COMPARISON, not by the sentinel: every one asks `current > baseline` against
+    # a baseline captured from this same field, so an unread channel yields
+    # `0 > 0` = false and fails closed. A future consumer writing `if vessel_count
+    # == 0` (no vessels?) or `< N` would silently read an UNREAD channel as a real
+    # measurement and be wrong in the dangerous direction. If you add the next
+    # consumer, either keep the `> same-field baseline` shape or gate on the flag
+    # first.
     vessel_count: int = 0
     # The active ResourceTransfer poll (the runner owns the handle): complete
     # flag + amount transferred so far. transfer_amount NaN = unread (fail
@@ -14646,7 +14664,8 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
 #   SETTLE       debounce the loaded state in-gate (accepted situation AND a
 #                periapsis clear of the atmosphere) before touching anything.
 #   DEPLOY       fires exactly ONE stage on entry -- the istg=2 decoupler -- and
-#                waits for vessel_count to rise above the phase-entry baseline.
+#                waits for the NAMED deployed vessel to APPEAR (absent -> present
+#                on the sibling watch). That transition IS the split observation.
 #   POST-DEPLOY  dwells so BOTH vessels accumulate real post-split trajectory
 #                before the commit closes the tree, re-checking the same in-gate
 #                predicate the settle used.
@@ -14800,6 +14819,13 @@ class Gs2State:
     # faulted poll on the final frame cannot erase what the run observed.
     sibling_seen_present: bool = False
     sibling_last_situation: str = ""
+    # Was the watched vessel ALREADY present when DEPLOY was entered? Captured on
+    # the edge, and it is what makes the DEPLOY gate a TRANSITION rather than a
+    # level: a vessel that was there before the stage fired cannot be evidence
+    # that the stage created it. On a correct fixture this is always False (the
+    # forge's own `stackAttached` row asserts the save holds ONE vessel), so a
+    # True here is a FIXTURE fault and the flake says so by name.
+    sibling_seen_before_deploy: bool = False
 
 
 def gs2_initial_state(params: Gs2Params) -> Gs2State:
@@ -14919,6 +14945,7 @@ def gs2_decide(state: Gs2State, snapshot: TelemetrySnapshot
                                deploy_peak_vessel_count=int(
                                    snapshot.vessel_count or 0),
                                deploy_split_streak=0,
+                               sibling_seen_before_deploy=st.sibling_seen_present,
                                stage_activations=st.stage_activations + 1),
                     [Action(ACTION_ACTIVATE_STAGE)])
         if _gs2_over_budget(st, snapshot):
@@ -14931,11 +14958,45 @@ def gs2_decide(state: Gs2State, snapshot: TelemetrySnapshot
 
     if state.phase == GS2_DEPLOY:
         count = int(snapshot.vessel_count or 0)
-        # A count of 0 is the UNREAD sentinel (TelemetrySnapshot.vessel_count
-        # documents it as such), so it can never satisfy the rise: `count > 0`
-        # is part of the predicate, not defensive noise.
-        rose = (count > 0 and state.deploy_baseline_vessel_count > 0
-                and count > state.deploy_baseline_vessel_count)
+        # SPLIT EVIDENCE, and WHICH CHANNEL IT COMES FROM IS THE FLIGHT-1 LESSON.
+        #
+        # The first GS-2 run (2026-08-05_0842) flaked here with "vessel_count
+        # stayed at 0 against baseline 0" on a flight where the decoupler HAD
+        # fired: the same assert dump carried `deployedSiblingOrbiting
+        # value=ORBITING met=True`, i.e. the watch had already resolved the
+        # deployed vessel by name and read it orbiting. `vessel_count` is
+        # populated ONLY inside `if self._read_docking:` (mission_runner.py:678-686),
+        # and this mission builds its control with `read_docking=False` because it
+        # neither docks nor uses MechJeb - so the channel was never read at all and
+        # both baseline and current were the 0 UNREAD sentinel.
+        #
+        # BE EXACT ABOUT THE HAZARD CLASS, because the two deserve very different
+        # alarm. This was CAN-NEVER-SUCCEED, not silent-wrong-pass: the baseline is
+        # captured from the SAME always-0 field, so `0 > 0` is false on every frame
+        # and the gate could only ever flake. Nothing was at risk of being
+        # certified falsely - the run was guaranteed to fail, and to fail with a
+        # named reason that pointed straight at the field. That is the only reason
+        # it was diagnosable from the result JSON alone.
+        #
+        # So the PRIMARY evidence is the sibling watch's absent -> present
+        # TRANSITION, which is a strictly better signal than a global count: it
+        # names the exact vessel the scenario is about, it cannot be moved by an
+        # unrelated asteroid spawn or debris cleanup, and it is the same channel
+        # the `deployedSiblingOrbiting` row already depends on. It is a TRANSITION
+        # rather than a level so that a vessel which somehow already existed
+        # cannot be mistaken for one this stage created.
+        #
+        # `vessel_count` remains as the FALLBACK for a caller that configures no
+        # watch name, and its raw values stay in the assertion detail as report
+        # only - never again as the thing that decides.
+        if p.sibling_vessel_name:
+            rose = (snapshot.sibling_present == 1
+                    and not state.sibling_seen_before_deploy)
+        else:
+            # A count of 0 is the UNREAD sentinel, so it can never satisfy the
+            # rise: `count > 0` is part of the predicate, not defensive noise.
+            rose = (count > 0 and state.deploy_baseline_vessel_count > 0
+                    and count > state.deploy_baseline_vessel_count)
         streak = (min(state.deploy_split_streak + 1, p.deploy_debounce)
                   if rose else 0)
         st = replace(state, deploy_split_streak=streak,
@@ -14948,9 +15009,25 @@ def gs2_decide(state: Gs2State, snapshot: TelemetrySnapshot
                                          else st.split_ut),
                                post_stable_streak=0), [])
         if _gs2_over_budget(st, snapshot):
+            if p.sibling_vessel_name and st.sibling_seen_before_deploy:
+                return _gs2_flake(st, (
+                    "phase %s: the watched vessel %r was ALREADY present when the "
+                    "stage was fired, so its presence cannot be evidence of the "
+                    "split - the fixture is not the single ATTACHED stack this "
+                    "mission requires"
+                    % (GS2_DEPLOY, p.sibling_vessel_name))), []
+            if p.sibling_vessel_name:
+                return _gs2_flake(st, (
+                    "phase %s: no split observed after the stage activation (the "
+                    "watched vessel %r never appeared; last sibling_present=%d, "
+                    "where -1 is unread / 0 is enumerated-and-absent)"
+                    % (GS2_DEPLOY, p.sibling_vessel_name,
+                       int(snapshot.sibling_present)))), []
             return _gs2_flake(st, (
                 "phase %s: no split observed after the stage activation "
-                "(vessel_count stayed at %d against baseline %d)"
+                "(vessel_count stayed at %d against baseline %d; NOTE vessel_count "
+                "reads 0 unless the control is built with read_docking=True, and a "
+                "watch name is the preferred evidence)"
                 % (GS2_DEPLOY, st.deploy_peak_vessel_count,
                    st.deploy_baseline_vessel_count))), []
         return st, []
@@ -14995,8 +15072,12 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
     - ``settled``:     GS2_DEPLOY reached, i.e. the loaded fixture held the
       in-gate predicate for the debounce before anything was staged.
     - ``deployObserved``: the split latch is set AND the machine advanced to
-      POST-DEPLOY. The detail carries the baseline and the peak vessel_count so a
-      run that flaked is diagnosable without the frame dump.
+      POST-DEPLOY. `splitEvidence` names WHICH channel decided it - the sibling
+      watch's absent->present transition when a watch name is configured, the
+      global vessel_count otherwise. The raw counts stay in the detail as REPORT
+      ONLY: they read 0 on this mission (vessel_count is populated only under
+      `read_docking=True`), and flight 1 was lost to them being treated as
+      evidence rather than as diagnostics.
     - ``singleStageActivation``: EXACTLY one ACTIVATE_STAGE was emitted. On the
       docking Kerbal X the next stage down is the orbital Skipper, so a second
       activation would light an engine under a coasting stack; the row is here so
@@ -15004,7 +15085,13 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
       than in a flight.
     - ``focusStillOrbiting``: GS2_DEPLOYED reached AND the FINAL frame's situation
       is an accepted one. This is the mission-side half of what the spec then
-      asserts about the terminal classification.
+      asserts about the terminal classification. BOTH conjuncts are load-bearing
+      and the phase one is NOT redundant: a run that died in SETTLE or DEPLOY has
+      a perfectly good final situation, and reporting "the focus vessel was still
+      orbiting" about a flight that never deployed would be a true statement
+      making a false claim. That is why flight 1 showed `value=ORBITING met=False`
+      - correct, but illegible, so the detail now carries `terminalReached` to say
+      WHICH conjunct failed without needing the phase list.
     - ``periapsisSafe``: the LAST FINITE periapsis clears the floor. Scanning for
       the last finite read (rather than taking frames[-1]) means an unreadable
       final frame cannot fabricate a pass; a run with NO finite read at all is
@@ -15035,6 +15122,15 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
         (GS2_POST_DEPLOY if GS2_POST_DEPLOY in phases
          else (phases[-1] if phases else None)),
         {"required": GS2_POST_DEPLOY, "splitConfirmed": split_ev,
+         "splitEvidence": ("sibling-presence-transition"
+                           if params.sibling_vessel_name else "vessel-count"),
+         "watchedVessel": params.sibling_vessel_name or None,
+         "siblingSeenBeforeDeploy": bool(
+             getattr(state, "sibling_seen_before_deploy", False)),
+         # REPORT ONLY. Both read 0 on this mission: vessel_count is populated
+         # only under read_docking=True, which this control deliberately does not
+         # request. Kept because a nonzero pair would be a real signal for a
+         # caller that DID configure it.
          "baselineVesselCount": int(
              getattr(state, "deploy_baseline_vessel_count", 0)),
          "peakVesselCount": int(getattr(state, "deploy_peak_vessel_count", 0)),
@@ -15046,11 +15142,13 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
         {"expected": 1})
 
     final_situation = frames[-1].situation if frames else None
-    focus_met = (GS2_DEPLOYED in phases
-                 and final_situation in params.settle_situations)
+    terminal_reached = GS2_DEPLOYED in phases
+    focus_met = terminal_reached and final_situation in params.settle_situations
     focus = AssertionOutcome(
         "focusStillOrbiting", focus_met, final_situation,
-        {"required": GS2_DEPLOYED, "accepted": list(params.settle_situations)})
+        {"required": GS2_DEPLOYED, "terminalReached": terminal_reached,
+         "situationAccepted": final_situation in params.settle_situations,
+         "accepted": list(params.settle_situations)})
 
     pe_last = None
     for f in frames:

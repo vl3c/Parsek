@@ -836,6 +836,59 @@ WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
 
 ---
 
+## HARNESS-SHELL-READSET-UNCHECKED: a mission shell can read a telemetry field its own control flags never populate, and nothing catches it until a flight [RAISED 2026-08-05 by GS-2 flight 1, which was lost to exactly this. IDEA, NOT STARTED - recorded with its cost so a future wave can decide rather than rediscover]
+
+**What happened, as the concrete instance.** `gs2_orbital_probe_deploy`'s DEPLOY
+gate read `TelemetrySnapshot.vessel_count`, and its shell built the control with
+`read_docking=False`. That field is populated ONLY inside `if self._read_docking:`
+(`mission_runner.py:678-686`), so it sat at its `0` unread sentinel for the whole
+flight and the gate compared two sentinels. The shell even carried a comment
+asserting the field was "in the base snapshot" - a runner-population claim that was
+simply false, written by hand and checked by nobody. One flight lost
+(`2026-08-05_0842`).
+
+**Why the existing discipline did not catch it.** Every opt-in channel is carefully
+documented AT THE FIELD (`crew_count` says "Read only when the control was built
+with `read_crew=True`"), and `forge_lko`'s shell documents its own opt-in and why.
+The convention is good. What is missing is that nothing MECHANICALLY relates the
+two: a shell's flags and its machine's read-set are written in different files, by
+different authors, at different times, and drift silently.
+
+**The shape of the check.** For each mission shell: derive the set of snapshot
+fields its machine actually reads, derive the set the runner populates under that
+shell's control flags, and assert the first is a subset of the second. It would
+have caught this at unit time, and it covers every future shell for free.
+
+**Why it is not built.** The population side is easy (the flags are literals in
+`make_control`, and the runner's opt-in blocks are greppable). The READ side is
+not: "which snapshot fields does machine X read" needs either an AST walk over
+functions resolved per mission - fragile, since machines are named by convention
+rather than registered - or a declared read-set per machine, which is a new
+contract every mission must maintain and can itself go stale. For a three-lane
+wave that is more machinery than the bug costs. The judgement to revisit: **if the
+mission library grows past ~5 lanes, or the next shell adds a fourth opt-in flag,
+build it.**
+
+**The cheap 80% in the meantime**, which costs nothing and is where a future author
+should start: a cell asserting that any shell whose machine mentions a
+population-gated field sets the matching flag, for the SHORT closed list of gated
+fields (`vessel_count`/`read_docking`, `crew_count`/`read_crew`,
+`craft_chute_state`/`read_chute`, `node_executor_enabled`/`read_node_executor`,
+`time_to_periapsis`/`read_periapsis`, the landing block/`read_landing`,
+`read_camera`). That list is short, stable, and already written down at each field.
+
+**Blast radius of the instance, verified rather than assumed** (Lane A, 2026-08-05):
+`gs2_orbital_probe_deploy` was the ONLY `read_docking=False` shell reading
+`vessel_count`. Every consumer of `mlib.separation_evidence`
+(`bdock_dock_transfer`, `forge_lko`) sets the flag, as do b11/b12/b13/b14/b16 and
+v1; GS-1 reads the field nowhere. And the instance was a CAN-NEVER-SUCCEED hazard
+rather than a silent-wrong-pass: every consumer compares `current > baseline` with
+the baseline captured from the same always-0 field, so an unread channel yields
+`0 > 0` and fails closed. See the trap note on the field itself for the shapes
+(`== 0`, `< N`) that would NOT fail closed.
+
+---
+
 ## GS3-NUDGE-DROPS-UNFINISHED-FLIGHT: a switch onto a deployed vessel may silently close its Unfinished Flight and let its RewindPoint reap, against the design [RAISED 2026-08-05 by the Lane B code read. PREDICTED, UNFLOWN - `GS-3-switch-nudge-deployed` is the measurement, and it must be read against `GS-2-orbital-probe-deploy`'s flight, not on its own]
 
 NOT CONFIRMED. This is a code reading with an experiment attached, filed now so

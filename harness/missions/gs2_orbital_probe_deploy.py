@@ -59,13 +59,14 @@ def decide(state, snapshot):
 
 
 def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
-    # Four of the five rows read MACHINE-CARRIED evidence rather than re-deriving
-    # from the frame tail: the split latch is sticky (a vessel_count read that
-    # faults after the split must not erase something that really happened), the
+    # Five of the six rows read MACHINE-CARRIED evidence rather than re-deriving
+    # from the frame tail: the split latch is sticky (a sibling read that faults
+    # after the split must not erase something that really happened), the
     # activation count is a commanded fact no telemetry scan could recover, and
-    # the baseline/peak counts are single-frame facts. Only `periapsisSafe` scans
-    # the tail, and it scans for the LAST FINITE read so an unreadable final frame
-    # cannot fabricate a pass.
+    # the sibling latches keep the last NON-EMPTY situation so a single faulted
+    # poll cannot erase an observation. Only `periapsisSafe` scans the tail, and
+    # it scans for the LAST FINITE read so an unreadable final frame cannot
+    # fabricate a pass.
     return mlib.evaluate_gs2_assertions(frames, mlib.gs2_params_from_dict(params),
                                         phases_reached=getattr(state, "phases_reached", ()),
                                         state=state)
@@ -74,9 +75,24 @@ def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
 def make_control() -> mission_runner.MissionControl:
     # Raw kRPC (no MechJeb): nothing here steers, burns, or executes a node. The
     # fixture is already parked, and the only command the mission issues is one
-    # activate_stage. No opt-in telemetry channel is requested - the mission reads
-    # only situation / periapsis / vessel_count, all of which are in the base
-    # snapshot.
+    # activate_stage.
+    #
+    # NO OPT-IN TELEMETRY BLOCK IS REQUESTED, and the comment that used to sit here
+    # was WRONG in a way that cost flight 1 (2026-08-05_0842): it claimed
+    # `vessel_count` was "in the base snapshot". It is not. `vessel_count` is
+    # populated ONLY inside `if self._read_docking:` (mission_runner.py:678-686) -
+    # FORGE-LKO's shell opts in EXPLICITLY for exactly that reason, and says so.
+    # With `read_docking=False` the field stays at its 0 UNREAD sentinel forever,
+    # so the DEPLOY gate compared two sentinels and never saw a split that had
+    # plainly happened.
+    #
+    # The fix was to move the split evidence onto the sibling watch's
+    # absent->present transition (armed by the machine itself, no control flag
+    # needed), NOT to switch `read_docking` on: that block also issues
+    # target-controller and docking-AP reads, both of which are MechJeb calls this
+    # `use_mechjeb=False` control cannot serve, plus transfer / monoprop reads
+    # nothing here wants. Six RPCs a frame for a number now used only as report
+    # detail would be the wrong trade.
     return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME)
 
 

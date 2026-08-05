@@ -160,13 +160,18 @@ id = "GS-2-orbital-probe-deploy"
 # `harness/lib/test_saveparse.py` in the SAME commit (that sweep pins the committed
 # fixture set exactly and will red otherwise).
 #
-# PLANNED ARMING, per the S4.1 / CL-3 three-run discipline. `[expectations.rewind]` and
-# `[expectations.recordings.structure]` below are REPORT-ONLY (no `gating` key). The
-# sequence is: (1) a report-only READING run that MEASURES the facets; (2) if and only
-# if the measurement matches the windows declared here, arm `[expectations.rewind]`
-# with `gating = true` and add this spec to `ARMED_ALLOWLIST` in
-# `test_hlib.py::SaveStructureVerifierWiringTests` in the same commit, citing the run
-# ids; (3) a NEGATIVE CONTROL. Do NOT arm off this file's declarations alone.
+# ARMING, per the S4.1 / CL-3 three-run discipline - EXECUTED 2026-08-05:
+# (1) READING run = flight 2, run 2026-08-05_0853, PASS attempt 1 (flight 1,
+# 2026-08-05_0844, was driver-INVALID: the deployObserved gate read the unread
+# vessel_count sentinel - see the mission module header for the trap); measured
+# rewindPoints=1 supersedeRows=0 tombstones=0, all windows already met;
+# (2) ARMED run 2026-08-05_0856: PASS attempt 1, `gating=True armed=['rewind']
+# mismatches=[]` - `[expectations.rewind]` armed with `gating = true` + this spec
+# added to `ARMED_ALLOWLIST` in `test_hlib.py::SaveStructureVerifierWiringTests`;
+# (3) NEGATIVE CONTROL run 2026-08-05_0858: temporary `rewindPoints = { max = 0 }`
+# (asserting the reap GS-1 proves, which THIS scenario must refute)
+# -> PARSEK-FAIL(save-structure) `rewind.rewindPoints 1 > max 0`, then reverted.
+# `[expectations.recordings.structure]` stays REPORT-ONLY.
 #
 # THE MEASUREMENT THAT MATTERS MOST is `rewindPoints = { min = 1 }`. That IS the
 # non-reap, read out of the produced save rather than out of the log, and it is the
@@ -481,6 +486,12 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 # `rewindRetirements` is NOT declared: it is an OBSERVED facet only and is not a legal
 # spec key (saveparse.REWIND_BLOCK_KEYS), so declaring it would hard-reject the spec.
 [expectations.rewind]
+# ARMED 2026-08-05 after the reading run 2026-08-05_0853 (flight 2, PASS attempt 1)
+# measured rewindPoints=1 supersedeRows=0 tombstones=0 with every window already met -
+# arming moved no verdict (armed confirm: run 2026-08-05_0856, PASS gating=True).
+# Red direction proven by negative control run 2026-08-05_0858 (temporary
+# rewindPoints={max 0} -> PARSEK-FAIL(save-structure), reverted).
+gating = true
 rewindPoints  = { min = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
