@@ -1502,7 +1502,7 @@ reading it as a product defect.
 
 ---
 
-## W2-VACUOUS-CELLS: the wave-2 per-test read catalogued TEN cells that report PASSED having asserted nothing (or cannot assert what they claim), across four of its six categories [FOUND 2026-08-05, wire-wave-2. RECORDED, deliberately not fixed here - every conversion moves a committed pin and deserves its own pass. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names. COUNT CORRECTED from eleven by the wave's Fable review: the first draft double-counted ReplacementsAreValid across two shapes and mis-filed RosterAccessible, whose guard is unreachable in a driven batch so the cell actually executes there - it carries the bare-return PATTERN, not a vacuous pass]
+## ~~W2-VACUOUS-CELLS: the wave-2 per-test read catalogued TEN cells that report PASSED having asserted nothing (or cannot assert what they claim), across four of its six categories~~ [FOUND 2026-08-05, wire-wave-2. **CONVERTED 2026-08-05**, branch `vacuous-cells-conversion` - all ten dispositioned; the two pins the conversions move (H28, H31) are re-measured off re-flights and land in a follow-up commit. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names. COUNT CORRECTED from eleven by the wave's Fable review: the first draft double-counted ReplacementsAreValid across two shapes and mis-filed RosterAccessible, whose guard is unreachable in a driven batch so the cell actually executes there - it carries the bare-return PATTERN, not a vacuous pass]
 
 The inventory doc's fourth trap (a test that RUNS, PASSES and asserts over
 nothing, invisible to every tally gate) predicted "around a dozen more" across
@@ -1555,14 +1555,69 @@ tautologies - same expression compared to itself, same-frame re-derivation over
 the same dicts - but that is refactor-drift value by design, so they are noted
 in H27 rather than listed as defects.)
 
-WHY NOT FIXED HERE: converting shape-1/shape-3 cells to `InGameAssert.Skip`
-moves H28's pin (5/5/0/0 -> passed 3 skipped 2 under "none"; unchanged under
-the corpus H28 actually injects) and H31's pin (the three replacement-dict
-cells: passed 14 -> 11, skipped 1 -> 4), and H31's spec says so in its
-derivation comment. The conversions
-are one mechanical pass + two re-pins + two re-flights, best done together
-with the `ScenarioWriter.AddCrewReplacement` caller that would make the
-replacement-walking cells REAL instead of merely honest.
+### Conversion (2026-08-05): per-cell disposition
+
+Three dispositions: **(a)** silent guard -> `InGameAssert.Skip` naming the
+missing context AND how to produce it; **(b)** the cell gained a real assertion
+it did not have; **(c)** no code change needed.
+
+| # | Cell | Disp. | Reasoning |
+|---|------|-------|-----------|
+| 1 | `MapPresence.GhostPidsResolveToProtoVessels` | a | Two bare returns (empty `ghostMapVesselPids`, null `flightState`) -> Skip. Real orphan assertion unchanged. |
+| 2 | `MapPresence.NoPidCollisionWithRealVessels` | a + b | Same two guards -> Skip; PLUS a positive-evidence Info line (`N real vessel(s) checked against M ghost map PID(s)`) and `IsGreaterThan(checkedVessels, 0)`. A negative-only walk read identically over 40 vessels and over zero; now it states its span. |
+| 3 | `MapPresence.AntennaSpecsProduceRelayPower` | a | Counts recordings carrying non-empty `AntennaSpecs` while walking; zero -> Skip naming the generator gap. Per-spec assertions kept for the nonzero path. |
+| 4 | `CrewReservation.RosterAccessible` | a | Pattern consistency only - its `CurrentGame == null` guard is unreachable in a driven batch, so the cell already executes its real assertions in H31. Those are untouched. |
+| 5 | `CrewReservation.ReplacementsAreValid` | a | `replacements.Count == 0` -> Skip. Its second guard already used Skip; the cell is now internally consistent. |
+| 6 | `CrewReservation.NoSelfReplacements` | a | Gained an empty-dict Skip before the loop (it had no guard at all - it just iterated nothing). |
+| 7 | `CrewReservation.NoCircularReplacements` | a | Same. |
+| 8 | `CrewReservation.CrewAutoAssignPatch_SwapsReservedCrew` | c | Already honestly written with four Skip sites. NOT touched; its SPACECENTER scene scope is NOT relaxed. |
+| 9 | `LogContracts.ResourceValuesValid` | a | Mode checked up front: neither CAREER nor SCIENCE_SANDBOX -> Skip naming the required mode. Under CAREER all three blocks run exactly as before, so **H26's tally does not move**. |
+| 10 | `LogContracts.SessionStartFormatValid` | b | Rewritten to call the PRODUCTION formatter. Extracted `ParsekHarmony.FormatSessionStartMessage(long)`; `ParsekHarmony.Awake` now emits through it. The cell regex-validates + exact-matches + epoch-plausibility-checks the formatter's output and unifies on production's `DateTimeOffset.UtcNow.ToUnixTimeSeconds()` (it used to hand-roll `(DateTime.UtcNow - epoch).TotalSeconds`). Emitted string is BYTE-IDENTICAL (`SessionStart runUtc=<seconds>`); every consumer re-checked - `ParsekLogContractChecker` SES-001/SES-002, `ParsekKspLogParser`'s latest-session split, `harness/lib/_fake_ksp.py`'s fixture line. New xUnit cell `SessionStartFormatterTests` pins shape + InvariantCulture + both consumers. |
+
+**Pins:** the conversions move H28's and H31's `BATCH_COMPLETE` tallies; both are
+re-measured off re-flights and land in a follow-up commit together with their
+`IngameBatchWiringGroupTests.RUNTIME_SKIPS` declarations (the registry entry and
+the `.toml` pin must move in the SAME commit - the group's floor cell asserts
+`pin.skipped == attribute_skipped + RUNTIME_SKIPS[sid]`, so a registry entry
+alone reds). The tally gate itself is blind to PASS->Skip conversions (the
+attribute derivation does not scan method bodies), so `harness/lib` stays green
+in the meantime.
+
+**CORRECTION to the original entry's H28 prediction.** It said H28's pin was
+"unchanged under the corpus H28 actually injects". That holds for cells 1-2,
+which the injected corpus de-vacuates - but NOT for cell 3:
+`AntennaSpecsProduceRelayPower` is corpus-INDEPENDENT, because no generator sets
+`Recording.AntennaSpecs` at all. It will Skip under the corpus too, so **H28's
+pin does move** (by at least that one cell).
+
+PASS -> honest-Skip is a WIN even where the tally looks worse: the count of
+cells that actually executed an assertion is unchanged, and a SKIP is a standing
+statement of what the fixture cannot cover.
+
+### Deferred follow-ups (make these cells REAL, not merely honest)
+
+- **(i) Cell 3 / D6 `commnet-relay`:** add `RecordingBuilder.WithAntennaSpecs`
+  plus a corpus row carrying antennas. Touches the 272-pin in 8 specs, so PREFER
+  augmenting an EXISTING corpus row over adding one. Until then D6
+  `commnet-relay` stays honestly unclaimed.
+- **(ii) Cells 5-7:** a first caller for `ScenarioWriter.AddCrewReplacement`, or
+  a dedicated crew-replacement fixture. **NOT via editing `b2-lko-craft`** - it
+  is shared by 17 specs (the B-series missions, R1, R7a, S0.5, V1, H21, H31), so
+  seeding it would put a live replacement dict under every mission flight.
+
+### Audit-era silent-return sites noticed but OUT OF SCOPE
+
+Same bare-return-instead-of-Skip pattern, found while reading for the ten above.
+Recorded so a later pass does not re-derive them. Split by whether a committed
+spec drives the category (a conversion there moves that spec's pin):
+
+- **DRIVEN** (conversion moves a pin): `DataHealth` - `AllBodyNamesResolve`,
+  `OrbitSegmentBodiesValid`, `EveryRecordingHasResolvablePart` (H14);
+  `GhostVisuals` - `AllSnapshotPartNamesResolve`, `GhostHasRenderers` (two
+  guards: no-snapshot recording, null ghost build) (H15).
+- **UNDRIVEN** (no pin to move): `RecordingStore` -
+  `CommittedRecordingsHaveValidData`; `Settings` - `SettingsAccessible`;
+  `SaveLoad` - `ScenarioInstanceActive`, `ExternalFilesExist`.
 
 ---
 

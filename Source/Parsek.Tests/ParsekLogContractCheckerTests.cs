@@ -337,4 +337,72 @@ namespace Parsek.Tests
             Assert.Contains(violations, v => v.Code == "FMT-002");
         }
     }
+
+    /// <summary>
+    /// The SessionStart message body is a load-bearing contract shared by
+    /// <see cref="ParsekLogContractChecker"/> (SES-001 / SES-002),
+    /// <see cref="ParsekKspLogParser"/>'s latest-session split, and the harness log
+    /// fixtures. It now has a single production formatter
+    /// (<c>ParsekHarmony.FormatSessionStartMessage</c>, emitted from
+    /// <c>ParsekHarmony.Awake</c>) which the in-game SES-002 cell also calls, so pin
+    /// the formatter itself here: shape, InvariantCulture, and agreement with the two
+    /// consumers that read the line back.
+    /// </summary>
+    public class SessionStartFormatterTests
+    {
+        [Fact]
+        public void FormatSessionStartMessage_EmitsTheExactContractShape()
+        {
+            Assert.Equal("SessionStart runUtc=1754400000",
+                Parsek.ParsekHarmony.FormatSessionStartMessage(1754400000L));
+            Assert.Equal("SessionStart runUtc=0",
+                Parsek.ParsekHarmony.FormatSessionStartMessage(0L));
+        }
+
+        [Fact]
+        public void FormatSessionStartMessage_IsCultureInvariant()
+        {
+            // A comma/space group separator (de-DE, fr-FR) or a non-ASCII digit shape
+            // would break the checker's ^SessionStart runUtc=\d+$ regex.
+            var original = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal("SessionStart runUtc=1754400000",
+                    Parsek.ParsekHarmony.FormatSessionStartMessage(1754400000L));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = original;
+            }
+        }
+
+        [Fact]
+        public void FormatSessionStartMessage_IsAcceptedByBothLogConsumers()
+        {
+            // A plausible post-2020 epoch, formatted the way production does it.
+            long runUtc = new DateTimeOffset(
+                new DateTime(2026, 8, 5, 0, 0, 0, DateTimeKind.Utc)).ToUnixTimeSeconds();
+            string line = "[LOG] [Parsek][INFO][Init] " +
+                Parsek.ParsekHarmony.FormatSessionStartMessage(runUtc);
+
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                line,
+                "[LOG] [Parsek][TRACE][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 4 points, 0 orbit segments over 3.0s"
+            });
+
+            // ParsekKspLogParser's session split recognises it...
+            Assert.Single(ParsekKspLogParser.SelectLatestSession(entries).Where(e =>
+                (e.Message ?? string.Empty).StartsWith(
+                    "SessionStart runUtc=", StringComparison.Ordinal)));
+
+            // ...and the checker raises neither SES-001 (marker count) nor SES-002 (shape).
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+            Assert.DoesNotContain(violations, v => v.Code == "SES-001");
+            Assert.DoesNotContain(violations, v => v.Code == "SES-002");
+        }
+    }
 }

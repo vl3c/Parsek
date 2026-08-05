@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System;
+using System.Globalization;
 using System.Linq;
 using UnityEngine;
 
@@ -13,6 +14,19 @@ namespace Parsek
     public class ParsekHarmony : MonoBehaviour
     {
         private static bool initialized;
+
+        /// <summary>
+        /// The stable SessionStart message body (without the <c>[Parsek][LEVEL][Sub]</c>
+        /// prefix). Load-bearing contract, exactly like
+        /// <c>TestCommandMissionMark.FormatMarkMessage</c>: the session-marker rule in
+        /// <c>ParsekLogContractChecker</c> (SES-001 / SES-002), <c>ParsekKspLogParser</c>'s
+        /// latest-session split, and the harness log fixtures all match
+        /// <c>^SessionStart runUtc=&lt;digits&gt;$</c>. The in-game SES-002 cell validates
+        /// THIS formatter's output rather than a string it builds itself, so a drift here
+        /// reds the contract test instead of sailing past it.
+        /// </summary>
+        internal static string FormatSessionStartMessage(long runUtcSeconds)
+            => "SessionStart runUtc=" + runUtcSeconds.ToString(CultureInfo.InvariantCulture);
 
         void Awake()
         {
@@ -47,7 +61,8 @@ namespace Parsek
 
             initialized = true;
             DontDestroyOnLoad(gameObject);
-            ParsekLog.Info("Init", $"SessionStart runUtc={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
+            ParsekLog.Info("Init",
+                FormatSessionStartMessage(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
             ParsekLog.Info("Harmony", $"Harmony patches applied: {applied} succeeded, {failed} failed");
         }
     }

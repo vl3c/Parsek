@@ -124,13 +124,29 @@ namespace Parsek.InGameTests
             Description = "SES-002: SessionStart line uses 'SessionStart runUtc=<unix-seconds>' format")]
         public static void SessionStartFormatValid()
         {
-            // Verify the format by constructing what ParsekFlight emits at session start
-            long utcNow = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
-            string sessionLine = $"SessionStart runUtc={utcNow}";
+            // Exercise the PRODUCTION formatter (ParsekHarmony.FormatSessionStartMessage,
+            // the one ParsekHarmony.Awake emits through ParsekLog.Info) rather than a
+            // string this test builds itself — the same shape MSN-001 and BAT-001 use.
+            // The old form hand-rolled its own epoch math and its own line, so it could
+            // only ever confirm that the test agreed with itself.
+            long utcNow = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            string sessionLine = ParsekHarmony.FormatSessionStartMessage(utcNow);
 
             var pattern = new Regex(@"^SessionStart runUtc=(?<utc>\d+)$");
             InGameAssert.IsTrue(pattern.IsMatch(sessionLine),
                 $"SES-002: SessionStart format invalid: {sessionLine}");
+
+            // Spell out the exact expected line so a format drift is caught, not masked
+            // by the permissive regex (MSN-001 / BAT-001 do the same).
+            InGameAssert.AreEqual(
+                "SessionStart runUtc=" + utcNow.ToString(CultureInfo.InvariantCulture),
+                sessionLine, "SES-002: unexpected SessionStart line");
+
+            // The captured group must read back the value the formatter was handed.
+            var match = pattern.Match(sessionLine);
+            InGameAssert.AreEqual(utcNow.ToString(CultureInfo.InvariantCulture),
+                match.Groups["utc"].Value,
+                "SES-002: runUtc group does not round-trip the formatted value");
 
             // Also verify the UTC value is plausible (after year 2020)
             long minUtc = 1577836800; // 2020-01-01
@@ -364,6 +380,17 @@ namespace Parsek.InGameTests
         {
             if (HighLogic.CurrentGame == null)
                 InGameAssert.Skip("No active game");
+
+            // Every assertion block below is Mode-gated (funds + reputation on CAREER,
+            // science on CAREER or SCIENCE_SANDBOX). On a plain SANDBOX host ZERO blocks
+            // execute and the cell would report PASSED having asserted nothing, so state
+            // the missing context instead. Under CAREER all three blocks still run exactly
+            // as before; under SCIENCE_SANDBOX the science block runs.
+            Game.Modes mode = HighLogic.CurrentGame.Mode;
+            if (mode != Game.Modes.CAREER && mode != Game.Modes.SCIENCE_SANDBOX)
+                InGameAssert.Skip($"game mode {mode} exercises none of the " +
+                    "funds/science/reputation contracts — requires CAREER (or SCIENCE_SANDBOX " +
+                    "for the science block alone); H26 flies career-pad-craft for this.");
 
             // Funds
             if (HighLogic.CurrentGame.Mode == Game.Modes.CAREER)
