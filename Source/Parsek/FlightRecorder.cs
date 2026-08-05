@@ -9627,6 +9627,35 @@ namespace Parsek
             currentOrbitSegment = CreateOrbitSegmentWithRotation(v, Planetarium.GetUniversalTime());
         }
 
+        /// <summary>
+        /// THE RECORDER'S ORBITAL-FRAME ENCODE, and the reference implementation of the
+        /// orbital-frame contract: the stored rotation is the vessel's world attitude expressed
+        /// relative to <c>LookRotation(orbitalVelocity_WORLD, radialOut_WORLD)</c>.
+        /// <para>
+        /// Both halves are Y-up WORLD and that is not incidental — <c>v.obt_velocity</c> is
+        /// <c>orbit.GetRelativeVel()</c> == <c>orbit.vel.xzy</c> (decompiled <c>Vessel</c> /
+        /// <c>Orbit</c>), i.e. the SWIZZLE of what <c>Orbit.getOrbitalVelocityAtUT</c> returns,
+        /// and <c>v.CoMD - v.mainBody.position</c> is world. Recorder-authored segments are the
+        /// bulk of the recorded population and cannot be re-encoded, which is why the fifth
+        /// frame mismatch (docs/dev/todo-and-known-bugs.md) was closed by moving the CONSUMER
+        /// and the predicted-tail producer onto THIS convention rather than the other way round.
+        /// See the contract banner on <see cref="TrajectoryMath.SwizzleZupBodyRelativeToWorld"/>.
+        /// </para>
+        /// <para>
+        /// Shared by the go-on-rails capture and the SOI-change capture (they used to hold
+        /// two literal copies of it), and called directly by the in-game
+        /// <c>RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude</c> probe so the
+        /// live round trip runs the production encode rather than a transcription of it.
+        /// </para>
+        /// </summary>
+        internal static void StampVesselOrbitalFrameRotation(ref OrbitSegment segment, Vessel v)
+        {
+            Vector3d orbVel = v.obt_velocity;
+            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
+            segment.orbitalFrameRotation =
+                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+        }
+
         private OrbitSegment CreateOrbitSegmentWithRotation(Vessel v, double startUT)
         {
             var segment = CreateOrbitSegmentFromVessel(v, startUT);
@@ -9636,11 +9665,7 @@ namespace Parsek
                 ref segment,
                 "orbit-segment");
 
-            // Capture orbital-frame-relative rotation
-            Vector3d orbVel = v.obt_velocity;
-            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
-            segment.orbitalFrameRotation =
-                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+            StampVesselOrbitalFrameRotation(ref segment, v);
 
             // Capture angular velocity if PersistentRotation is active and vessel is spinning
             if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null)
@@ -9762,11 +9787,9 @@ namespace Parsek
                 ref currentOrbitSegment,
                 "soi-change");
 
-            // Capture orbital-frame-relative rotation for new SOI
-            Vector3d orbVel = v.obt_velocity;
-            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
-            currentOrbitSegment.orbitalFrameRotation =
-                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+            // Capture orbital-frame-relative rotation for new SOI, through the same encode the
+            // go-on-rails capture uses (world radial + world velocity).
+            StampVesselOrbitalFrameRotation(ref currentOrbitSegment, v);
 
             // Note: vessel is on rails during SOI change — rb is null, so angular velocity
             // is unavailable here. Spin data is only captured at the initial go-on-rails boundary.
@@ -9793,7 +9816,7 @@ namespace Parsek
 
             ParsekLog.Verbose("Recorder",
                 $"SOI changed {data.from.name} → {data.to.name} — new segment ofrRot={currentOrbitSegment.orbitalFrameRotation}, " +
-                $"angVel={currentOrbitSegment.angularVelocity}");
+                $"angVel={currentOrbitSegment.angularVelocity}, frame={TrajectoryMath.OrbitalFrameConventionTag}");
         }
 
         public void OnVesselWillDestroy(Vessel v)

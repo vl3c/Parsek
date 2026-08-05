@@ -475,6 +475,18 @@ namespace Parsek.Tests
         /// This is the cell that makes the diagnosis falsifiable: it derives a number the game
         /// produced, from stock's decompiled source, with no live KSP.
         /// </para>
+        /// <para>
+        /// FROZEN ARITHMETIC — DO NOT "UPDATE" THIS CELL TO THE CURRENT CONVENTION. Both halves
+        /// below transcribe code AS IT SHIPPED IN AUGUST 2026, before branch
+        /// <c>orbital-rotation-frame</c> moved the orbital frame to world/world: the producer
+        /// pairs a world radial with a RAW Zup velocity, and
+        /// <see cref="ResolveThroughPreWorldWorldConsumerFrame"/> is the matching pre-fix
+        /// consumer. That pairing is what produced 131.066 deg in flight, and reproducing a
+        /// measurement is this cell's entire job. Re-transcribing it against today's consumer
+        /// would land at exactly the Zup angle instead — a different (and, as it happens,
+        /// sharper) claim, which is pinned separately by
+        /// <see cref="ElementFrameSkew_UnderTheCurrentConsumer_IsExactlyTheZupAngle"/>.
+        /// </para>
         /// </summary>
         [Fact]
         public void MeasuredSite4Reading_IsReproducedByTheZupRotationAlone()
@@ -492,16 +504,17 @@ namespace Parsek.Tests
             Vector3d rawPosition = zup.LocalToWorld(stockPosition);
             Vector3d rawVelocity = zup.LocalToWorld(stockVelocity);
 
-            // Shipping producer: world radial + Zup velocity, both taken from the RAW state.
+            // Pre-fix producer: world radial + RAW Zup velocity, both taken from the RAW state.
             UnityEngine.Quaternion frozenWorldRotation =
                 TrajectoryMath.PureNormalize(new UnityEngine.Quaternion(0.33308f, -0.62567f, -0.62442f, -0.32816f));
             UnityEngine.Quaternion seeded = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                 frozenWorldRotation,
-                Parsek.IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(rawPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(rawPosition),
                 rawVelocity);
 
-            // Shipping consumer: the same frame shape, but off the live (Zup) orbit.
-            UnityEngine.Quaternion resolved = ResolveThroughConsumerFrame(seeded, stockPosition, stockVelocity);
+            // Pre-fix consumer: the same frame shape, but off the live (Zup) orbit.
+            UnityEngine.Quaternion resolved =
+                ResolveThroughPreWorldWorldConsumerFrame(seeded, stockPosition, stockVelocity);
             float angleError = TrajectoryMath.ComputeQuaternionAngleDegrees(resolved, frozenWorldRotation);
 
             Assert.InRange(angleError, 125f, 140f);
@@ -509,27 +522,171 @@ namespace Parsek.Tests
             // ...and correcting the producer into stock's frame collapses it.
             UnityEngine.Quaternion corrected = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                 frozenWorldRotation,
-                Parsek.IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(
                     zup.WorldToLocal(rawPosition)),
                 zup.WorldToLocal(rawVelocity));
             float correctedError = TrajectoryMath.ComputeQuaternionAngleDegrees(
-                ResolveThroughConsumerFrame(corrected, stockPosition, stockVelocity),
+                ResolveThroughPreWorldWorldConsumerFrame(corrected, stockPosition, stockVelocity),
                 frozenWorldRotation);
             Assert.True(correctedError < 0.01f,
                 $"correcting the producer into stock's orbit frame left {correctedError} deg of error");
         }
 
+        // ------------------------------------------------------------------
+        // 3b. THE FIFTH FRAME MISMATCH (fixed 2026-08-05, branch
+        //     `orbital-rotation-frame`): the orbital frame is WORLD/WORLD
+        // ------------------------------------------------------------------
+
         /// <summary>
-        /// The <c>hasOfr</c> branch of <c>ParsekFlight.ComputeOrbitalRotation</c>, verbatim, off a
-        /// stock-frame (Zup) state: <c>LookRotation(zupVelocity, worldRadial) * orbitalFrameRotation</c>.
+        /// THE RECORDER'S CLAIM, closed form. <c>FlightRecorder.CreateOrbitSegmentWithRotation</c>
+        /// and its SOI-change twin encode every orbital-frame rotation from
+        /// <c>v.obt_velocity</c> (which decompiled <c>Vessel</c> assigns from
+        /// <c>orbit.GetRelativeVel()</c> == <c>orbit.vel.xzy</c>, i.e. Y-up WORLD) paired with the
+        /// world radial <c>v.CoMD - v.mainBody.position</c>. Those encodings are on disk across
+        /// every recording ever made and cannot be rewritten, so the CONSUMER had to move to them.
+        /// This cell states that it did: a recorder-shaped world/world encode comes back out of
+        /// today's consumer exactly.
+        /// <para>
+        /// ANTI-VACUITY, second half: the same encoding decoded by the PRE-FIX consumer (Zup
+        /// velocity, world radial) is wrong by a large, quantified angle - and that error was not
+        /// theoretical, it is what every orbit-only ghost's attitude carried.
+        /// </para>
+        /// <para>
+        /// No <c>Planetarium.Zup</c> is installed and none is needed: this mismatch is between the
+        /// Zup-swizzled BODY-RELATIVE frame and the Y-up world frame - the <c>.xzy</c> axis swap -
+        /// which is present in stock's API regardless of the polar rotation the element-frame
+        /// cells above measure. Two independent frame questions, deliberately separated.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void RecorderStyleWorldWorldEncode_RoundTripsThroughTheConsumer_ButNotThroughTheOldMixedOne()
+        {
+            // An inclined circular Kerbin orbit at |r| = 700 km exactly, expressed the way
+            // stock's Orbit reports it: Zup-swizzled body-relative, polar axis on z.
+            var stockPosition = new Vector3d(600000.0, 300000.0, 200000.0);
+            // Perpendicular to the radius (dot == 0 by construction) and tilted out of the
+            // equatorial plane, so the flight-path angle sits 90 deg off radial - well clear of
+            // the near-parallel LookRotation fallback either frame builder would take, in either
+            // frame, which is what keeps the comparison about the frame and not the fallback.
+            var velocityDirection = new Vector3d(-300000.0, 600000.0, 0.0);
+            double speed = Math.Sqrt(KerbinMu / Magnitude(stockPosition));
+            double directionMagnitude = Magnitude(velocityDirection);
+            var stockVelocity = new Vector3d(
+                velocityDirection.x * speed / directionMagnitude,
+                velocityDirection.y * speed / directionMagnitude,
+                velocityDirection.z * speed / directionMagnitude);
+
+            var vesselWorldRotation =
+                TrajectoryMath.PureNormalize(new UnityEngine.Quaternion(0.31f, -0.52f, 0.44f, 0.66f));
+
+            // THE RECORDER, transcribed: both halves in Y-up world axes. `v.obt_velocity` is
+            // the swizzle of what `getOrbitalVelocityAtUT` returns, and `v.CoMD - body.position`
+            // is the swizzle of what `getRelativePositionAtUT` returns, so one state expressed
+            // two ways is exactly what the recorder and the consumer each see.
+            UnityEngine.Quaternion recorded = TrajectoryMath.ComputeOrbitalFrameRotation(
+                vesselWorldRotation,
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockVelocity),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockPosition));
+
+            float error = TrajectoryMath.ComputeQuaternionAngleDegrees(
+                ResolveThroughConsumerFrame(recorded, stockPosition, stockVelocity),
+                vesselWorldRotation);
+            Assert.True(error < 0.01f,
+                $"a recorder-shaped world/world encode did not round-trip through the shipping "
+                + $"consumer ({error} deg); the fifth frame mismatch has been reintroduced");
+
+            // ANTI-VACUITY: the SAME recorded rotation through the pre-fix mixed consumer.
+            float preFixError = TrajectoryMath.ComputeQuaternionAngleDegrees(
+                ResolveThroughPreWorldWorldConsumerFrame(recorded, stockPosition, stockVelocity),
+                vesselWorldRotation);
+            // MEASURED, not asserted loosely: this fixture reads 78.654 deg. That is the
+            // attitude error every orbit-only ghost decoded from a recorder-authored segment
+            // carried before the fix - not an edge case, the ordinary case.
+            Assert.InRange(preFixError, 78f, 79.5f);
+        }
+
+        /// <summary>
+        /// The element-frame skew (section 3 above) measured through TODAY's consumer, so the
+        /// historical reading and the current code are both on the record. With producer and
+        /// consumer in one frame, a producer that encodes off the RAW element frame is wrong by
+        /// EXACTLY the <c>Planetarium.Zup</c> polar angle - the closed form the section-3 cell
+        /// could only bracket, because its mixed consumer folded the <c>.xzy</c> reflection into
+        /// the same number.
+        /// </summary>
+        [Fact]
+        public void ElementFrameSkew_UnderTheCurrentConsumer_IsExactlyTheZupAngle()
+        {
+            var stockPosition = new Vector3d(-496283.195, 337326.756, -1018.081);
+            const double kerbinRotationPeriod = 21549.425;
+            double omega = (Math.PI * 2.0) / kerbinRotationPeriod;
+            var stockVelocity = new Vector3d(-omega * stockPosition.y, omega * stockPosition.x, 0.0);
+
+            var zup = StockOrbitPort.PlanetaryZup(MeasuredZupAngleDegrees);
+            Vector3d rawPosition = zup.LocalToWorld(stockPosition);
+            Vector3d rawVelocity = zup.LocalToWorld(stockVelocity);
+
+            var frozenWorldRotation =
+                TrajectoryMath.PureNormalize(new UnityEngine.Quaternion(0.33308f, -0.62567f, -0.62442f, -0.32816f));
+
+            // Today's producer shape (world/world) but fed the RAW element-frame state.
+            UnityEngine.Quaternion seededOffRawElements =
+                BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                    frozenWorldRotation,
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(rawPosition),
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(rawVelocity));
+
+            float angleError = TrajectoryMath.ComputeQuaternionAngleDegrees(
+                ResolveThroughConsumerFrame(seededOffRawElements, stockPosition, stockVelocity),
+                frozenWorldRotation);
+
+            // Quaternion.Angle reports the SHORT-WAY magnitude in [0, 180], so a 230.01 deg
+            // polar rotation reads as its 129.99 deg complement about the opposite axis. Same
+            // rotation, and the point stands: the residual is the Zup angle and nothing else.
+            double expectedShortWay = 360.0 - MeasuredZupAngleDegrees;
+            Assert.Equal(expectedShortWay, (double)angleError, 2);
+
+            // And the shipping producer - stock's frame, world/world - cancels exactly.
+            UnityEngine.Quaternion seededOffStockFrame =
+                BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
+                    frozenWorldRotation,
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockPosition),
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockVelocity));
+            Assert.True(
+                TrajectoryMath.ComputeQuaternionAngleDegrees(
+                    ResolveThroughConsumerFrame(seededOffStockFrame, stockPosition, stockVelocity),
+                    frozenWorldRotation) < 0.01f);
+        }
+
+        /// <summary>
+        /// The <c>hasOfr</c> branch of <c>ParsekFlight.ComputeOrbitalRotation</c> AS IT SHIPS,
+        /// verbatim, off a stock-frame (Zup) state: the Zup velocity is lifted into world axes,
+        /// the world radial is the unswizzled position, and the result is
+        /// <c>LookRotation(worldVelocity, worldRadial) * orbitalFrameRotation</c>.
         /// </summary>
         private static UnityEngine.Quaternion ResolveThroughConsumerFrame(
             UnityEngine.Quaternion orbitalFrameRotation, Vector3d stockPosition, Vector3d stockVelocity)
         {
+            UnityEngine.Vector3 velocity =
+                ((UnityEngine.Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockVelocity)).normalized;
+            UnityEngine.Vector3 radialOut =
+                ((UnityEngine.Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockPosition)).normalized;
+            return TrajectoryMath.PureMultiply(
+                TrajectoryMath.PureLookRotation(velocity, radialOut), orbitalFrameRotation);
+        }
+
+        /// <summary>
+        /// The <c>hasOfr</c> branch AS IT SHIPPED BEFORE branch <c>orbital-rotation-frame</c>:
+        /// <c>LookRotation(zupVelocity, worldRadial) * orbitalFrameRotation</c> — one frame built
+        /// out of two frames. Kept ONLY so the historical measurements above stay reproducible and
+        /// so the anti-vacuity halves can quantify what the mismatch cost. It is not a contract;
+        /// nothing in production builds this frame any more.
+        /// </summary>
+        private static UnityEngine.Quaternion ResolveThroughPreWorldWorldConsumerFrame(
+            UnityEngine.Quaternion orbitalFrameRotation, Vector3d stockPosition, Vector3d stockVelocity)
+        {
             UnityEngine.Vector3 velocity = ((UnityEngine.Vector3)stockVelocity).normalized;
             UnityEngine.Vector3 radialOut =
-                ((UnityEngine.Vector3)Parsek.IncompleteBallisticSceneExitFinalizer
-                    .SwizzleZupBodyRelativeToWorld(stockPosition)).normalized;
+                ((UnityEngine.Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(stockPosition)).normalized;
             return TrajectoryMath.PureMultiply(
                 TrajectoryMath.PureLookRotation(velocity, radialOut), orbitalFrameRotation);
         }

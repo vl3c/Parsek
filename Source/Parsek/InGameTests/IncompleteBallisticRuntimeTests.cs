@@ -302,6 +302,7 @@ namespace Parsek.InGameTests
 
         private const double PredictedProbeSegmentSeconds = 60.0;
         private const long Site4ProbeOrbitCacheKey = -4104L;
+        private const long RecorderProbeOrbitCacheKey = -4105L;
 
         [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
             Description = "SITE-1 FRAME PROBE: the finalizer's body-fixed surface-coordinate resolver reproduces the live vessel's lat/lon")]
@@ -512,6 +513,135 @@ namespace Parsek.InGameTests
                     + "is that the producer encodes against the SAME world radial + Zup velocity the "
                     + "consumer decodes with, so the round trip cancels. See "
                     + "docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' site 4.",
+                    angleError,
+                    FrameProbeAttitudeToleranceDegrees,
+                    ghostRotation.x,
+                    ghostRotation.y,
+                    ghostRotation.z,
+                    ghostRotation.w,
+                    vesselRotation.x,
+                    vesselRotation.y,
+                    vesselRotation.z,
+                    vesselRotation.w,
+                    body.name ?? "(null)",
+                    now));
+        }
+
+        /// <summary>
+        /// THE RECORDER SIDE OF THE ORBITAL-FRAME CONTRACT, measured against a live vessel.
+        /// <para>
+        /// The site-4 probe above runs the FINALIZER's producer against the playback consumer;
+        /// with both on the same convention it cancels whatever that convention is, so it cannot
+        /// see a mismatch that moves them together. This cell closes that gap from the other
+        /// side: it encodes through <c>FlightRecorder.StampVesselOrbitalFrameRotation</c> — the
+        /// shipping recorder encode, whose <c>v.obt_velocity</c> + <c>v.CoMD</c> world/world
+        /// frame is FIXED by KSP's own API and cannot be moved to match a wrong consumer — and
+        /// decodes through <c>ParsekFlight.ComputeOrbitalRotation</c> off the live orbit. If the
+        /// consumer ever drifts off world/world again, this reds where site 4 stays green.
+        /// </para>
+        /// <para>
+        /// It is the live half of the headless
+        /// <c>StockOrbitElementFrameParityTests.RecorderStyleWorldWorldEncode_*</c> cell, and the
+        /// population it speaks for is every orbit-only ghost in every existing recording. The
+        /// pre-fix mixed consumer measured 78.654 deg on that closed-form fixture, so the 5 deg
+        /// tolerance is not tight against the defect it guards.
+        /// </para>
+        /// </summary>
+        [InGameTest(Category = "IncompleteBallistic", Scene = GameScenes.FLIGHT,
+            Description = "RECORDER ATTITUDE ROUND-TRIP: an orbital-frame rotation encoded by the shipping recorder seam decodes back to the live vessel's attitude through playback")]
+        public void RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude()
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null || vessel.orbit == null || vessel.mainBody == null)
+            {
+                InGameAssert.Skip(
+                    "RECORDER ATTITUDE ROUND-TRIP needs a live active vessel carrying an orbit "
+                    + "and a main body; got "
+                    + (vessel == null
+                        ? "no active vessel"
+                        : vessel.orbit == null
+                            ? "an active vessel with no orbit"
+                            : "an active vessel with no main body"));
+                return;
+            }
+
+            double now = Planetarium.GetUniversalTime();
+            CelestialBody body = vessel.mainBody;
+
+            // PRODUCER: the recorder's own encode, off the LIVE vessel state.
+            OrbitSegment segment = FlightRecorder.CreateOrbitSegmentFromVessel(vessel, now);
+            segment.endUT = now + PredictedProbeSegmentSeconds;
+            FlightRecorder.StampVesselOrbitalFrameRotation(ref segment, vessel);
+
+            if (!TrajectoryMath.HasOrbitalFrameRotation(segment))
+            {
+                InGameAssert.Skip(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RECORDER ATTITUDE ROUND-TRIP needs a non-degenerate orbital frame; the "
+                    + "recorder encode returned the empty rotation for body={0} obtSpeed={1:F3}",
+                    body.name ?? "(null)",
+                    vessel.obt_speed));
+                return;
+            }
+
+            // CONSUMER: the shipping playback seam, at its production argument shape — world
+            // position from getPositionAtUT, ZUP velocity from getOrbitalVelocityAtUT (the
+            // consumer lifts it internally), body.position as the radial origin.
+            Vector3d worldPosition = vessel.orbit.getPositionAtUT(now);
+            Vector3d velocity = vessel.orbit.getOrbitalVelocityAtUT(now);
+            var (ghostRotation, _) = ParsekFlight.ComputeOrbitalRotation(
+                segment,
+                vessel.orbit,
+                now,
+                velocity,
+                worldPosition,
+                body.position,
+                Quaternion.identity,
+                RecorderProbeOrbitCacheKey,
+                TrajectoryMath.HasOrbitalFrameRotation(segment),
+                spinning: false);
+
+            Quaternion vesselRotation = vessel.transform.rotation;
+            float angleError = Quaternion.Angle(ghostRotation, vesselRotation);
+
+            ParsekLog.Info("IncompleteBallistic", string.Format(
+                CultureInfo.InvariantCulture,
+                "RecorderAttitudeRoundTrip: angleError={0:F3} tolDeg={1:F3} frame={2} "
+                + "recordedOfr=({3:F5},{4:F5},{5:F5},{6:F5}) resolved=({7:F5},{8:F5},{9:F5},{10:F5}) "
+                + "vessel=({11:F5},{12:F5},{13:F5},{14:F5}) body={15} ut={16:F3}",
+                angleError,
+                FrameProbeAttitudeToleranceDegrees,
+                TrajectoryMath.OrbitalFrameConventionTag,
+                segment.orbitalFrameRotation.x,
+                segment.orbitalFrameRotation.y,
+                segment.orbitalFrameRotation.z,
+                segment.orbitalFrameRotation.w,
+                ghostRotation.x,
+                ghostRotation.y,
+                ghostRotation.z,
+                ghostRotation.w,
+                vesselRotation.x,
+                vesselRotation.y,
+                vesselRotation.z,
+                vesselRotation.w,
+                body.name ?? "(null)",
+                now));
+
+            InGameAssert.IsTrue(
+                angleError < FrameProbeAttitudeToleranceDegrees,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "RECORDER FRAME REGRESSION: an orbital-frame rotation encoded by the shipping "
+                    + "recorder seam (v.obt_velocity + v.CoMD, both Y-up world) resolved back "
+                    + "through ParsekFlight.ComputeOrbitalRotation to angleError={0:F3} deg "
+                    + "against the live vessel attitude, tolerance {1:F3} deg. "
+                    + "resolved=({2:F5},{3:F5},{4:F5},{5:F5}) vessel=({6:F5},{7:F5},{8:F5},{9:F5}) "
+                    + "on {10} at ut={11:F3}. The consumer must lift its Zup "
+                    + "getOrbitalVelocityAtUT velocity into world axes before pairing it with the "
+                    + "world radial; pairing them raw is the fifth frame mismatch and measures "
+                    + "78.654 deg on the closed-form fixture. See "
+                    + "docs/dev/todo-and-known-bugs.md 'ComputeOrbitalRotation mixes a Zup "
+                    + "velocity with a world radial'.",
                     angleError,
                     FrameProbeAttitudeToleranceDegrees,
                     ghostRotation.x,

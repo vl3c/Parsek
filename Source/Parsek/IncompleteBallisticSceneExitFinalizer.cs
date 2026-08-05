@@ -2090,23 +2090,14 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>
-        /// The CALIBRATED axis map between the extrapolator's Zup-swizzled body-relative
-        /// frame and KSP's Y-up world frame (measurement run <c>2026-08-04_2142</c>; see
-        /// docs/dev/todo-and-known-bugs.md "BallisticExtrapolator frame mismatches").
-        /// The swap of the y and z slots is its own inverse, so the same call converts in
-        /// either direction — the same relationship <see cref="OrbitReseed"/> documents
-        /// for state-vector reseeding.
-        /// <para>
-        /// <c>internal</c> rather than <c>private</c> so the headless frame tests can pin
-        /// the map itself instead of a reimplementation of it (the production call sites
-        /// need a live <see cref="CelestialBody"/> and cannot run headless).
-        /// </para>
-        /// </summary>
-        internal static Vector3d SwizzleZupBodyRelativeToWorld(Vector3d zupBodyRelative)
-        {
-            return zupBodyRelative.xzy;
-        }
+        // THE ZUP -> WORLD AXIS MAP MOVED. It is now
+        // `TrajectoryMath.SwizzleZupBodyRelativeToWorld`, next to
+        // `TrajectoryMath.ComputeOrbitalFrameRotation` and the orbital-frame contract banner
+        // (branch `orbital-rotation-frame`, 2026-08-05). It was never finalizer-specific: the
+        // playback consumer `ParsekFlight.ComputeOrbitalRotation` needs the same map, and a
+        // rendering path referencing a scene-exit finalizer for a frame swizzle is the wrong
+        // shape. Same implementation, same calibration provenance (measurement run
+        // 2026-08-04_2142), same self-inverse property - only the home changed.
 
         // ------------------------------------------------------------------
         // THE ELEMENT FRAME CROSSING NO LONGER LIVES HERE
@@ -2136,9 +2127,12 @@ namespace Parsek
         // finiteness checks.
         //
         // NAMING, unchanged: "site 5" means THIS element-frame crossing. It is NOT the
-        // deferred "ComputeOrbitalRotation mixes a Zup velocity with a world radial" finding,
-        // which an older todo entry also calls "the fifth frame mismatch" and which is still
-        // untouched.
+        // "ComputeOrbitalRotation mixes a Zup velocity with a world radial" finding, which an
+        // older todo entry also calls "the fifth frame mismatch" - a DIFFERENT finding, fixed
+        // separately on branch `orbital-rotation-frame` (2026-08-05) by moving the whole
+        // orbital-frame family onto the recorder's WORLD/WORLD convention. That fix changed
+        // the VELOCITY half of this file's site-4 encode/decode; it did not touch the
+        // element-frame crossing described above.
 
         private static void ResolveBodyFixedSurfaceCoordinates(
             CelestialBody body,
@@ -2159,7 +2153,7 @@ namespace Parsek
                 // in-game probe read lat=34.204133 for a vessel at lat=-0.097208, and
                 // asin(zup.y / |zup|) = 34.21 deg reproduces that reading exactly while the
                 // z-polar (i.e. `.xzy`) reading reproduces the vessel's true latitude.
-                Vector3d worldPos = body.position + SwizzleZupBodyRelativeToWorld(position);
+                Vector3d worldPos = body.position + TrajectoryMath.SwizzleZupBodyRelativeToWorld(position);
                 latitude = body.GetLatitude(worldPos);
                 longitude = body.GetLongitude(worldPos);
 
@@ -2264,16 +2258,17 @@ namespace Parsek
                     && IsFinite(startVelocity))
                 {
                     // FRAME SITE #4, FIXED (calibration run 2026-08-04_2142, completed by the
-                    // site-5 frame correction after the confirm run 2026-08-04_2224) - see
-                    // todo-and-known-bugs.md "BallisticExtrapolator frame mismatches".
-                    // CONTRACT: the orbital frame is built RADIAL-FROM-WORLD +
-                    // VELOCITY-IN-ZUP, matching the consumer this rotation is resolved
-                    // against verbatim. `ParsekFlight.ComputeOrbitalRotation` builds
-                    // `radialOut = (worldPos - bodyPosition).normalized` from
-                    // `orbit.getPositionAtUT` (Y-up world) while its `velocity` argument
-                    // comes from `orbit.getOrbitalVelocityAtUT` (Zup body-relative), so the
-                    // producer unswizzles ONLY the position and passes the propagated
-                    // velocity through untouched.
+                    // site-5 element-frame correction after the confirm run 2026-08-04_2224,
+                    // and MOVED TO WORLD/WORLD on branch `orbital-rotation-frame`) - see
+                    // todo-and-known-bugs.md "BallisticExtrapolator frame mismatches" and
+                    // "ComputeOrbitalRotation mixes a Zup velocity with a world radial".
+                    // CONTRACT: the orbital frame is built WORLD RADIAL + WORLD VELOCITY -
+                    // both halves unswizzled - matching `ParsekFlight.ComputeOrbitalRotation`
+                    // verbatim now that the consumer lifts its Zup velocity to world before
+                    // building the frame. THIS PRODUCER AND THAT CONSUMER MOVE IN LOCKSTEP:
+                    // the H9 `Site4AttitudeRoundTrip` probe runs one against the other, so it
+                    // still reads 0.000 - swizzling only one of the two would red it by the
+                    // Zup-vs-world angle.
                     // The propagated state arrives from PLAIN `BallisticExtrapolator.TryPropagate`,
                     // which since 2026-08-05 (branch `twobody-element-frame`, FINDING A) already
                     // returns stock `Orbit`'s frame: the element-frame crossing is applied ONCE,
@@ -2282,15 +2277,10 @@ namespace Parsek
                     // before the radial half was corrected, 131.066 deg after, 0.000 once both
                     // halves live in stock's frame. DO NOT re-introduce a `Zup.WorldToLocal` here:
                     // it would double-rotate and red `Site4AttitudeRoundTrip` again.
-                    // NOT FIXED HERE, deliberately: the consumer's own internal mix of a
-                    // Zup velocity with a world radial is a further, wider mismatch shared
-                    // with recorder-authored orbital-frame rotations across ~6 call sites.
-                    // See the "ComputeOrbitalRotation mixes a Zup velocity with a world
-                    // radial" entry in todo-and-known-bugs.md.
                     segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                         currentWorldRotation,
-                        SwizzleZupBodyRelativeToWorld(startPosition),
-                        startVelocity);
+                        TrajectoryMath.SwizzleZupBodyRelativeToWorld(startPosition),
+                        TrajectoryMath.SwizzleZupBodyRelativeToWorld(startVelocity));
                     segments[i] = segment;
                     hasOrbitalFrameRotation = true;
                     seededCount++;
@@ -2310,15 +2300,16 @@ namespace Parsek
                 }
 
                 // Same calibrated contract as the seeding call above: the stored rotation is
-                // relative to a world radial + Zup velocity frame, so the decode that
-                // carries the attitude across to the next segment unswizzles the position
-                // and leaves the velocity alone - off a state that is already in stock's
-                // orbit frame (the propagator's own segment boundary put it there), which is
-                // the frame the stored rotation is relative to.
+                // relative to a WORLD radial + WORLD velocity frame, so the decode that
+                // carries the attitude across to the next segment unswizzles BOTH halves -
+                // off a state that is already in stock's orbit frame (the propagator's own
+                // segment boundary put it there), which is the frame the stored rotation is
+                // relative to. Unswizzling only the position here would carry a rotation
+                // across the segment boundary in a frame no producer writes.
                 currentWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                     segment.orbitalFrameRotation,
-                    SwizzleZupBodyRelativeToWorld(endPosition),
-                    endVelocity);
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(endPosition),
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(endVelocity));
             }
 
             if (seededCount > 0)
@@ -2332,10 +2323,11 @@ namespace Parsek
                         segments.Count),
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "TryFinalizeRecording: seeded orbital-frame rotation on {0}/{1} predicted segments for '{2}'",
+                        "TryFinalizeRecording: seeded orbital-frame rotation on {0}/{1} predicted segments for '{2}' frame={3}",
                         seededCount,
                         segments.Count,
-                        recordingId ?? "(null)"));
+                        recordingId ?? "(null)",
+                        TrajectoryMath.OrbitalFrameConventionTag));
             }
         }
 
@@ -2406,16 +2398,19 @@ namespace Parsek
                 bodyName = vessel.orbit.referenceBody.name,
                 position = position,
                 velocity = velocity,
-                // World radial + Zup velocity, the site-4 calibrated contract. NO element-frame
-                // (site-5) correction here, deliberately: `position` / `velocity` came straight
-                // off the LIVE orbit above, so they are already in stock's orbit frame. Only the
+                // WORLD radial + WORLD velocity, the site-4 calibrated contract as moved to
+                // world/world on branch `orbital-rotation-frame`: both halves are unswizzled,
+                // which is the frame `ParsekFlight.ComputeOrbitalRotation` decodes in and the
+                // frame `FlightRecorder` has always encoded in. NO element-frame (site-5)
+                // correction here, deliberately: `position` / `velocity` came straight off the
+                // LIVE orbit above, so they are already in stock's orbit frame. Only the
                 // ELEMENT-seeded path crosses that boundary, and it now does so inside
                 // `TwoBodyOrbit.TryCreateFromSegment` - see
                 // `BallisticExtrapolator.GetStockElementFrameZupAngleRadians`.
                 orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                     vessel.transform.rotation,
-                    SwizzleZupBodyRelativeToWorld(position),
-                    velocity)
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(position),
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(velocity))
             };
             return true;
         }

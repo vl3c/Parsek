@@ -1,6 +1,28 @@
 # Automated Testing System - Status
 
-Last updated: 2026-08-05 (THREE SMALL FIXES, branch `small-fixes-2`, each closed
+Last updated: 2026-08-05 (**H9 RE-PINNED TO `total=11`**, branch
+`orbital-rotation-frame`, for the FIFTH FRAME MISMATCH fix - the one the five-site
+calibration below deliberately deferred (`ParsekFlight.ComputeOrbitalRotation` built
+its orbital frame from a Zup velocity and a world radial; the whole family moved to
+WORLD/WORLD, the frame the RECORDER has always encoded in and the one population on
+disk that cannot be re-encoded). The eleventh cell,
+`RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude`, exists because the
+site-4 probe STRUCTURALLY CANNOT see that defect: it runs the finalizer producer
+against the playback consumer, so a mismatch shared by both cancels inside it. The
+new cell encodes through the recorder seam - `v.obt_velocity` + `v.CoMD`, world/world
+by KSP's own API and therefore unmovable - and decodes through the same consumer, so
+a consumer that drifts off world/world reds there while site 4 stays green. NOT YET
+FLOWN: the pin was bumped with the fix so `CommittedBatchTallySourceSyncTests` and
+the category-inventory sync stay green, and its `failed=0` currently rests on the
+headless closed form
+(`StockOrbitElementFrameParityTests.RecorderStyleWorldWorldEncode_*`, which measures
+the pre-fix consumer at 78.654 deg on the same fixture) plus the lockstep argument
+that keeps site 4 at 0.000. **Site 4 must STILL read 0.000** - producer and consumer
+moved together - and a red there on the next nightly means they did not, which is a
+finding to read rather than a probe to edit. Suites unchanged: lib 1272, provision
+237, missions/lib 1424.)
+
+Prior: 2026-08-05 (THREE SMALL FIXES, branch `small-fixes-2`, each closed
 on a MEASUREMENT rather than on an argument - six flights, all green at the end.
 (1) **D12 `dead-crew-strip` IS CLAIMED**, and the way it got there is the point:
 the crewed-root explanation for its failing half (ii) was SUFFICIENT but
@@ -44,7 +66,8 @@ the element-seeded propagator omits - and fixed as site 5; confirm #2
 dLon=-0.000001` / `angleError=0.000`, the site-4 resolved quaternion
 BIT-IDENTICAL to the vessel's. `H9-incomplete-ballistic.toml` was never edited
 through any of it: its `total=10 passed=10 failed=0 skipped=0` pin was always the
-right one, and only the reason it red'd is gone. Two wider findings the site-5
+right one, and only the reason it red'd is gone. (It WAS re-pinned to `total=11`
+later the same day, by the separate fifth-frame-mismatch fix - see the header.) Two wider findings the site-5
 cross-check turned up (the element-frame LAN offset, and stock's extreme-ecc
 solver vs plain Newton) are FILED OPEN, not fixed - each moves every extrapolated
 ground track and wants its own in-game proof. One INVALID(tooling-venv) CL-3
@@ -1215,7 +1238,7 @@ measured 2,825 s - the whole H7-H20 wave costs under a third of one landing miss
 |---|---|---|---|
 | H7-trajectory-math | nightly | Sampling predicate + quaternion helpers against LIVE Unity arithmetic; `ShouldRecordPoint` against the density preset the running game loaded (D2 density-presets/threshold-debounce) | LIVE-PROVEN 2026-07-27, 49 s: `total=8 passed=8 failed=0 skipped=0 category=TrajectoryMath scene=FLIGHT` matched token for token |
 | H8-spawn-rotation | nightly | The srfRelRotation-vs-world-rotation spawn-node contract and terminal-pose frame preference, as PURE arithmetic over fabricated quaternions - the review round withdrew the live-Kerbin/Mun claim and the D14 kerbin/mun tokens with it (D13 surface-orbit-reseed only) | LIVE-PROVEN 2026-07-27, 49 s, matched token for token: `total=10 passed=10 failed=0 skipped=0`. The scene inference is load-bearing here (all 10 are FLIGHT-scoped) |
-| H9-incomplete-ballistic | nightly | Ballistic tail extrapolation through atmosphere/terrain/SOI, patched-conic snapshot integration, extrapolated-segment map line (D1 ballistic-extrapolation/scene-exit-finalization), plus the two live-vessel frame-calibration probes added 2026-08-05 | LIVE-PROVEN 2026-07-27 at `total=8`, 49 s, matched token for token. **RE-PINNED 2026-08-05 to `total=10 passed=10 failed=0 skipped=0`, and the pin is now MEASURED MET.** The two added `FrameCalibration_Site*` cells began as MEASUREMENT instruments for the `BallisticExtrapolator frame mismatches` todo entry and flew twice red BY DESIGN before closing: `2026-08-04_2142` (`failed=2`, the calibration reading - Site1 `dLat=34.301341 dLon=34.321726`, Site4 `angleError=133.123`), then confirm #1 `2026-08-04_2224` (`failed=1` - Site1 EXACT at `dLat=0.000000 dLon=-0.000001`, Site4 still 131.066 deg). The site-4 residual was diagnosed HEADLESSLY off those two logged runs, with no third flight (a `Planetarium.Zup` polar rotation the element-seeded propagator omits; `StockOrbitElementFrameParityTests` transcribes stock's element-to-state chain and `StockOrbitFrameSeamTests` drives the real producer against a real non-identity `Zup`) and fixed 2026-08-05 as site 5. **Confirm #2 `2026-08-04_2323`: PASS attempt 1, 49 s, `failed=0`** - Site1 `dLat=0.000000 dLon=-0.000001`, Site4 `angleError=0.000` with the resolved quaternion BIT-IDENTICAL to the vessel's, i.e. the round trip cancels exactly rather than merely landing inside the 5 deg tolerance. Both cells are now PERMANENT frame-regression guards; the spec file was never edited through any of it - only the reason it red'd is gone |
+| H9-incomplete-ballistic | nightly | Ballistic tail extrapolation through atmosphere/terrain/SOI, patched-conic snapshot integration, extrapolated-segment map line (D1 ballistic-extrapolation/scene-exit-finalization), plus the three live-vessel frame-calibration probes added 2026-08-05 | LIVE-PROVEN 2026-07-27 at `total=8`, 49 s, matched token for token. **RE-PINNED 2026-08-05 to `total=10 passed=10 failed=0 skipped=0`, and that pin is MEASURED MET; then RE-PINNED AGAIN the same day to `total=11 passed=11` (branch `orbital-rotation-frame`) for the recorder attitude round trip, which is DERIVED, NOT YET FLOWN.** The two added `FrameCalibration_Site*` cells began as MEASUREMENT instruments for the `BallisticExtrapolator frame mismatches` todo entry and flew twice red BY DESIGN before closing: `2026-08-04_2142` (`failed=2`, the calibration reading - Site1 `dLat=34.301341 dLon=34.321726`, Site4 `angleError=133.123`), then confirm #1 `2026-08-04_2224` (`failed=1` - Site1 EXACT at `dLat=0.000000 dLon=-0.000001`, Site4 still 131.066 deg). The site-4 residual was diagnosed HEADLESSLY off those two logged runs, with no third flight (a `Planetarium.Zup` polar rotation the element-seeded propagator omits; `StockOrbitElementFrameParityTests` transcribes stock's element-to-state chain and `StockOrbitFrameSeamTests` drives the real producer against a real non-identity `Zup`) and fixed 2026-08-05 as site 5. **Confirm #2 `2026-08-04_2323`: PASS attempt 1, 49 s, `failed=0`** - Site1 `dLat=0.000000 dLon=-0.000001`, Site4 `angleError=0.000` with the resolved quaternion BIT-IDENTICAL to the vessel's, i.e. the round trip cancels exactly rather than merely landing inside the 5 deg tolerance. Both cells are now PERMANENT frame-regression guards; the spec file was never edited through any of THAT - only the reason it red'd is gone. The `total=11` bump is a SEPARATE event: the fifth frame mismatch (`ComputeOrbitalRotation` mixing a Zup velocity with a world radial, deliberately deferred by the five-site calibration) was fixed on `orbital-rotation-frame` by moving consumer + finalizer producer + SOI reframe onto the recorder's world/world convention, and `RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude` was added to guard the RECORDER side that site 4 structurally cannot see. Its first flight is a measurement: read a red there, do not loosen it |
 | H10-finalize-backfill | nightly | Terminal-orbit backfill from OrbitSegment, no-overwrite guards, and the four stale-cached-tuple endpoint realignments (D1 finalization-cache) | LIVE-PROVEN 2026-07-27, 56 s, matched token for token: `total=7 passed=7 failed=0 skipped=0` |
 | H11-pipeline-anchor | nightly | Anchor epsilon vs recorded geometric offset across all seven anchor situations. Only 1 of the 7 cells resolves through a live body; 4 install a constant-returning stub resolver, so the review round withdrew the D3 claims (D14 only) | LIVE-PROVEN 2026-07-27, 55 s, matched token for token: `total=7 passed=7 failed=0 skipped=0`. Seven frame-yielding coroutines, so this is the first budget to re-time |
 | H12-switch-segment | nightly | The Map Switch-To arming PREFIX gate across focus modes + intent arm/clear with no marker leak (D1 switch-segment) | LIVE-PROVEN 2026-07-27, 70 s, matched token for token: `total=6 passed=6 failed=0 skipped=0` |

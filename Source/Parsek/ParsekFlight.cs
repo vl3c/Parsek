@@ -1579,12 +1579,20 @@ namespace Parsek
                             Vector3d targetPos = rawOrbitPos + orbitContinuityOffset;
                             Quaternion targetRot = e.ghost.transform.rotation;
 
-                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+                            // FRAME: lifted to Y-up WORLD at the read, so every LookRotation in
+                            // this block pairs a world forward axis with the world radial built
+                            // from getPositionAtUT — the same orbital-frame contract
+                            // ComputeOrbitalRotation states and every producer encodes in. This
+                            // block is a hand-inlined copy of that decode (LateUpdate re-apply
+                            // after FloatingOrigin shifts) and MUST move with it.
+                            Vector3d vel = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                                orbit.getOrbitalVelocityAtUT(e.orbitUT));
 
                             if (e.isSpinning)
                             {
                                 // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
-                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                                Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                                    orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT));
                                 Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
 
                                 if (e.orbitBody != null)
@@ -1672,11 +1680,17 @@ namespace Parsek
                         Orbit orbit;
                         if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
                         {
-                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+                            // FRAME: same world/world orbital-frame contract as the Orbit-mode
+                            // block above (and as ComputeOrbitalRotation); the Zup velocity is
+                            // lifted at the read so nothing downstream can pair it with the
+                            // world radial by accident.
+                            Vector3d vel = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                                orbit.getOrbitalVelocityAtUT(e.orbitUT));
 
                             if (e.isSpinning)
                             {
-                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                                Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                                    orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT));
                                 Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
 
                                 if (e.orbitBody != null)
@@ -22272,6 +22286,39 @@ namespace Parsek
                 : "n/a";
         }
 
+        /// <summary>
+        /// Decodes an <see cref="OrbitSegment"/>'s stored <c>orbitalFrameRotation</c> into a world
+        /// attitude for playback (and, on the spinning path, spins it forward from the boundary).
+        /// <para>
+        /// FRAME CONTRACT — WORLD forward axis + WORLD radial up axis, on every branch. The
+        /// orbital frame is <c>LookRotation(orbitalVelocity_WORLD, radialOut_WORLD)</c>, which is
+        /// exactly the frame every producer encodes in: the recorder
+        /// (<c>FlightRecorder.CreateOrbitSegmentWithRotation</c> and the SOI-change capture, both
+        /// <c>v.obt_velocity</c> + <c>v.CoMD - v.mainBody.position</c>), the scene-exit finalizer
+        /// (<c>IncompleteBallisticSceneExitFinalizer.SeedPredictedSegmentOrbitalFrameRotations</c>)
+        /// and the extrapolator's SOI reframe
+        /// (<c>BallisticExtrapolator.ReframeOrbitalFrameRotation</c>). See the contract banner on
+        /// <see cref="TrajectoryMath.SwizzleZupBodyRelativeToWorld"/>.
+        /// </para>
+        /// <para>
+        /// PARAMETER CONTRACT, deliberately NOT the same thing: <paramref name="velocity"/> stays
+        /// ZUP-SWIZZLED BODY-RELATIVE — i.e. straight off <c>Orbit.getOrbitalVelocityAtUT</c>,
+        /// which is what all six production call sites and the H9 site-4 probe already hold — and
+        /// is converted to world HERE, once, per branch. <paramref name="worldPos"/> and
+        /// <paramref name="bodyPosition"/> are Y-up WORLD (<c>Orbit.getPositionAtUT</c> already
+        /// unswizzles; <c>CelestialBody.position</c> is world), so the radial needs no conversion.
+        /// Converting inside is one conversion point instead of seven, and it keeps the awkward
+        /// half of KSP's API — a velocity getter whose frame does not match its position getter —
+        /// behind one seam.
+        /// </para>
+        /// <para>
+        /// Until branch <c>orbital-rotation-frame</c> this built <c>LookRotation(zupVelocity,
+        /// worldRadial)</c>: one frame out of two frames, the FIFTH frame mismatch of
+        /// docs/dev/todo-and-known-bugs.md. Every recorder-authored segment — the bulk of the
+        /// recorded population — was decoded against a forward axis in the wrong frame.
+        /// DO NOT remove these swizzles without moving every producer in lockstep.
+        /// </para>
+        /// </summary>
         internal static (Quaternion ghostRot, Quaternion boundaryWorldRot) ComputeOrbitalRotation(
             OrbitSegment segment, Orbit orbit, double ut, Vector3d velocity, Vector3d worldPos,
             Vector3d bodyPosition, Quaternion currentRotation, long cacheKey, bool hasOfr, bool spinning)
@@ -22281,8 +22328,10 @@ namespace Parsek
 
             if (spinning)
             {
-                // Spin-forward path: reconstruct boundary world rotation from orbit at startUT
-                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(segment.startUT);
+                // Spin-forward path: reconstruct boundary world rotation from orbit at startUT.
+                // getOrbitalVelocityAtUT is Zup body-relative; getPositionAtUT is already world.
+                Vector3d velAtStart = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                    orbit.getOrbitalVelocityAtUT(segment.startUT));
                 Vector3d posAtStart = orbit.getPositionAtUT(segment.startUT);
                 Vector3d radialAtStart = (posAtStart - bodyPosition).normalized;
 
@@ -22298,18 +22347,24 @@ namespace Parsek
             }
             else if (hasOfr && velocity.sqrMagnitude > 0.001)
             {
-                // Orbital-frame-relative path
+                // Orbital-frame-relative path. The swizzle preserves magnitude, so the
+                // degenerate-velocity gate above reads the same either side of it.
+                Vector3d worldVelocity = TrajectoryMath.SwizzleZupBodyRelativeToWorld(velocity);
                 Vector3d radialOut = (worldPos - bodyPosition).normalized;
 
                 Quaternion orbFrame = SafeOrbitalLookRotation(
-                    velocity, radialOut, cacheKey, null);
+                    worldVelocity, radialOut, cacheKey, null);
 
                 ghostRot = orbFrame * segment.orbitalFrameRotation;
             }
             else if (velocity.sqrMagnitude > 0.001)
             {
-                // Prograde fallback (old recordings)
-                ghostRot = Quaternion.LookRotation(velocity);
+                // Prograde fallback (old recordings). No stored rotation to decode, but the
+                // ghost is still being oriented IN WORLD SPACE, so the Zup velocity has to be
+                // lifted just the same — pointing a world transform along a Zup axis is the
+                // same mismatch with one of the two halves missing.
+                ghostRot = Quaternion.LookRotation(
+                    (Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(velocity));
             }
 
             return (ghostRot, boundaryWorldRot);
@@ -22320,6 +22375,12 @@ namespace Parsek
         /// when velocity and radialOut are nearly parallel (dot > 0.99). Logs rate-limited
         /// diagnostic when the fallback is used. Pass suffix "start" for startUT context or
         /// null for current-time context.
+        /// <para>
+        /// BOTH arguments are Y-up WORLD (see <see cref="ComputeOrbitalRotation"/>'s frame
+        /// contract). That also makes the near-parallel test mean what it reads as: the dot of a
+        /// world velocity with a world radial is the sine of the flight-path angle, so the
+        /// fallback now fires on genuinely radial motion rather than on a cross-frame accident.
+        /// </para>
         /// </summary>
         private static Quaternion SafeOrbitalLookRotation(
             Vector3 velocity, Vector3 radialOut, long cacheKey, string suffix)

@@ -694,14 +694,20 @@ namespace Parsek.Tests
                 out Vector3d starBoundaryPosition,
                 out Vector3d starBoundaryVelocity));
 
+            // Decoded in the frame the stored rotation is authored in - WORLD radial + WORLD
+            // velocity, both halves unswizzled (branch `orbital-rotation-frame`). That is the
+            // frame `ReframeOrbitalFrameRotation` preserves the attitude ACROSS, and the frame
+            // `ParsekFlight.ComputeOrbitalRotation` renders it in; decoding both ends against raw
+            // Zup state (what this cell did before) asserts preservation in a frame no consumer
+            // reads and no producer writes.
             Quaternion homeWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 homeSegment.orbitalFrameRotation,
-                homeBoundaryPosition,
-                homeBoundaryVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(homeBoundaryPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(homeBoundaryVelocity));
             Quaternion starWorldRotation = BallisticExtrapolator.ResolveWorldRotation(
                 starSegment.orbitalFrameRotation,
-                starBoundaryPosition,
-                starBoundaryVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(starBoundaryPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(starBoundaryVelocity));
 
             AssertQuaternionEqual(homeWorldRotation, starWorldRotation);
         }

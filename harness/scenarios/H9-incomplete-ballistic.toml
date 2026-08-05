@@ -33,7 +33,19 @@ tier = "nightly"
 # BOTH CELLS ARE PERMANENT GUARDS, and the SECOND confirm re-fly PROVED them:
 # run `2026-08-04_2323` PASS attempt 1, Site1 dLat=0.000000 and Site4
 # angleError=0.000 with the resolved quaternion bit-identical to the vessel's.
-description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, the extrapolated-segment map line, and the two live-vessel frame-calibration probes."
+#
+# AN ELEVENTH CELL JOINED 2026-08-05 on branch `orbital-rotation-frame`, closing the
+# FIFTH FRAME MISMATCH (docs/dev/todo-and-known-bugs.md
+# "ComputeOrbitalRotation mixes a Zup velocity with a world radial"):
+# RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude. It exists because
+# the site-4 probe CANNOT see that defect - it runs the finalizer producer against
+# the playback consumer, and a mismatch shared by both cancels inside it. The new
+# cell encodes through the RECORDER's seam instead
+# (FlightRecorder.StampVesselOrbitalFrameRotation: v.obt_velocity + v.CoMD, a
+# world/world frame fixed by KSP's own API and unmovable) and decodes through the
+# same consumer, so a consumer that drifts off world/world reds HERE while site 4
+# stays green. NOT YET FLOWN as of the pin bump - see the tally block below.
+description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, the extrapolated-segment map line, and the three live-vessel frame-calibration probes."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ballistic", "extrapolation", "scene-exit", "H9"]
 
@@ -82,24 +94,29 @@ count = { min = 0, max = 0 }
 # perCategory=1) and the pre-flight derivation predicted every token of that line
 # correctly. The pin is a LITERAL pattern and evaluate_expectations requires it to
 # match, so a PASS means the runner printed the line TOKEN FOR TOKEN.
-#  - total=10 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 10
-#    [InGameTest(Category = "IncompleteBallistic")] methods (the original 8 plus the
-#    two frame-calibration probes). NOTE the file also hosts Ledger, Rewind,
+#  - total=11 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 11
+#    [InGameTest(Category = "IncompleteBallistic")] methods (the original 8, the two
+#    frame-calibration probes, and the recorder attitude round trip added
+#    2026-08-05). NOTE the file also hosts Ledger, Rewind,
 #    RouteLiveAnchor, TestRunnerIsolation and SwitchSegment declarations, and it DOES
 #    contain InGameAssert.Skip call sites in those - a per-file grep would mislead;
 #    the derivation is per-method-body. Kept in sync by
 #    IngameBatchWiringGroupTests.test_each_pinned_total_equals_the_source_derivation.
-#  - skipped=0 is ATTRIBUTE-DERIVED for all 10 (every one carries
+#  - skipped=0 is ATTRIBUTE-DERIVED for all 11 (every one carries
 #    Scene = GameScenes.FLIGHT, the batch runs at FLIGHT, none sets
 #    AllowBatchExecution = false) and, for the original 8, ALSO a reachable-Skip
 #    derivation - none of those bodies or their helpers contains an
 #    InGameAssert.Skip.
-#    IT IS NO LONGER A PURE DERIVATION FOR THE TWO ADDED CELLS. Both carry run-time
-#    InGameAssert.Skip guards (no active vessel / no orbit / no main body /
+#    IT IS NO LONGER A PURE DERIVATION FOR THE THREE ADDED CELLS. All three carry
+#    run-time InGameAssert.Skip guards (no active vessel / no orbit / no main body /
 #    FlightGlobals.Bodies unavailable / a live orbit whose elements are not
-#    propagatable), so skipped=0 is a claim about the gloops-airshow FIXTURE - the
-#    same standing H20 and H22 carry, and the same reading rule: a skip there is a
-#    fixture question, not an extrapolator regression.
+#    propagatable / a degenerate recorder encode), so skipped=0 is a claim about the
+#    gloops-airshow FIXTURE - the same standing H20 and H22 carry, and the same
+#    reading rule: a skip there is a fixture question, not an extrapolator
+#    regression. The gloops pod is a landed/prelaunch vessel whose orbit is the
+#    surface-rotation ellipse: site 4 already measured 0.000 on it, so its live
+#    orbit propagates and its orbital frame is non-degenerate, which is exactly what
+#    the eleventh cell's two guards ask for.
 #  - failed=0 is the ASSERTION. The two frame-calibration probes flew as
 #    deliberate-red measurement cells on run `2026-08-04_2142` (failed=2, the failure
 #    text and the `Site1FrameProbe:` / `Site4AttitudeRoundTrip:` Info lines carrying
@@ -113,10 +130,18 @@ count = { min = 0, max = 0 }
 #    dLat=34.3 deg and angleError=133 / 131 deg, orders of magnitude above tolerance.
 #    Site 4 in particular has now red TWICE, so a third red there says the closed
 #    form is incomplete and wants reading, not a relaxed cell.
-#  - passed=10 follows.
+#    THE ELEVENTH CELL IS DERIVED, NOT MEASURED. It has not flown: the pin was bumped
+#    with the fix that added it (branch `orbital-rotation-frame`) so the tally-sync
+#    cell stays green, and its total/skipped standing is the same derivation the two
+#    2026-08-04 probes carried before THEIR first flight. Its failed=0 rests on the
+#    headless closed-form half (Parsek.Tests
+#    StockOrbitElementFrameParityTests.RecorderStyleWorldWorldEncode_*) plus the
+#    lockstep argument that keeps site 4 at 0.000. Read a first red there as the
+#    measurement it is, not as noise.
+#  - passed=11 follows.
 #  - scene=FLIGHT is INFERRED from the fixture (Focusable route, as H5/S1.4
-#    MEASURED on it) and is LOAD-BEARING: at any other scene all 10 scene-skip.
-required  = ["BATCH_COMPLETE v1 total=10 passed=10 failed=0 skipped=0 category=IncompleteBallistic scene=FLIGHT"]
+#    MEASURED on it) and is LOAD-BEARING: at any other scene all 11 scene-skip.
+required  = ["BATCH_COMPLETE v1 total=11 passed=11 failed=0 skipped=0 category=IncompleteBallistic scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

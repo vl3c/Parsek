@@ -57,6 +57,65 @@ namespace Parsek
                 NormalizeQuaternionForComparison(to));
         }
 
+        // ==================================================================
+        // THE ORBITAL-FRAME CONTRACT: WORLD FORWARD AXIS + WORLD RADIAL UP AXIS
+        // ==================================================================
+        // Every `OrbitSegment.orbitalFrameRotation` on disk - recorder-authored,
+        // extrapolator-authored or finalizer-seeded - is relative to the frame
+        //
+        //     LookRotation(orbitalVelocity_WORLD, radialOut_WORLD)
+        //
+        // where BOTH axes are KSP's Y-up world axes. That is the frame
+        // `FlightRecorder.CreateOrbitSegmentWithRotation` has always encoded in
+        // (`v.obt_velocity` is `orbit.GetRelativeVel()` == `orbit.vel.xzy`, i.e. world;
+        // `v.CoMD - v.mainBody.position` is world), and since branch
+        // `orbital-rotation-frame` it is the frame every producer AND every consumer
+        // uses - see `SwizzleZupBodyRelativeToWorld` below and
+        // `ParsekFlight.ComputeOrbitalRotation`.
+        //
+        // THE TRAP: `Orbit.getOrbitalVelocityAtUT` / `Orbit.getRelativePositionAtUT`
+        // return the Zup-swizzled body-relative frame (KSP's own docstring on
+        // `getRelativePositionAtUT`: "All Vector3d's returned by Orbit class functions
+        // have their y and z axes flipped"), while `Orbit.getPositionAtUT` already
+        // unswizzles (`getRelativePositionAtUT(UT).xzy + referenceBody...`). Mixing the
+        // two - a Zup velocity with a world radial - builds ONE frame out of TWO frames
+        // and was the fifth frame mismatch (todo-and-known-bugs.md; fixed on branch
+        // `orbital-rotation-frame`). Anything feeding this family off a stock `Orbit`
+        // must swizzle the velocity, and must NOT swizzle `getPositionAtUT`.
+        // ==================================================================
+
+        /// <summary>
+        /// The CALIBRATED axis map between KSP's Zup-swizzled body-relative frame (what
+        /// <c>Orbit.getRelativePositionAtUT</c> / <c>Orbit.getOrbitalVelocityAtUT</c> and the
+        /// ballistic extrapolator's state vectors are in) and KSP's Y-up world frame
+        /// (measurement run <c>2026-08-04_2142</c>; see docs/dev/todo-and-known-bugs.md
+        /// "BallisticExtrapolator frame mismatches").
+        /// The swap of the y and z slots is its own inverse, so the same call converts in
+        /// either direction — the same relationship <see cref="OrbitReseed"/> documents for
+        /// state-vector reseeding, and the same <c>.xzy</c> stock itself applies in
+        /// <c>Orbit.Prograde</c> / <c>Orbit.Up</c> / <c>Orbit.GetRelativeVel</c>.
+        /// <para>
+        /// Lives here, next to <see cref="ComputeOrbitalFrameRotation"/>, because the
+        /// orbital-frame contract stated above is the reason it exists: it is the ONE call
+        /// that lifts a stock-<c>Orbit</c> velocity into the frame that builder requires.
+        /// It moved out of <c>IncompleteBallisticSceneExitFinalizer</c> on branch
+        /// <c>orbital-rotation-frame</c> so the playback consumer does not have to reference
+        /// a scene-exit finalizer for a frame swizzle.
+        /// </para>
+        /// </summary>
+        internal static Vector3d SwizzleZupBodyRelativeToWorld(Vector3d zupBodyRelative)
+        {
+            return zupBodyRelative.xzy;
+        }
+
+        /// <summary>
+        /// Grep-stable name of the orbital-frame convention stated in the banner above, logged by
+        /// every producer that authors an <c>OrbitSegment.orbitalFrameRotation</c> so a KSP.log
+        /// says which convention the segments in that session were written in. One token, one
+        /// meaning: WORLD radial up axis + WORLD velocity forward axis.
+        /// </summary>
+        internal const string OrbitalFrameConventionTag = "orbital-frame-world-radial-world-velocity";
+
         /// <summary>Spin threshold in rad/s (matches PersistentRotation's threshold).</summary>
         internal const float SpinThreshold = 0.05f;
 
@@ -81,6 +140,13 @@ namespace Parsek
         /// Falls back to LookRotation(velocity) without up hint if velocity
         /// and radialOut are near-parallel (dot > 0.99).
         /// Uses pure-math quaternion operations (no Unity native calls) for testability.
+        /// <para>
+        /// FRAME (binding, see the contract banner above): <paramref name="orbitalVelocity"/>
+        /// and <paramref name="radialOut"/> must BOTH be in KSP's Y-up world axes. A caller
+        /// holding a stock-<c>Orbit</c> velocity must pass it through
+        /// <see cref="SwizzleZupBodyRelativeToWorld"/> first. This function is pure and
+        /// cannot check the frame — it builds whatever frame it is handed.
+        /// </para>
         /// </summary>
         internal static Quaternion ComputeOrbitalFrameRotation(
             Quaternion worldRotation, Vector3d orbitalVelocity, Vector3d radialOut)

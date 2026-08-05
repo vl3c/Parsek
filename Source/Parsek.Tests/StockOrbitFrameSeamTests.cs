@@ -218,7 +218,10 @@ namespace Parsek.Tests
             OrbitSegment segment = BuildSegments()[0];
 
             // Pre-cancel the boundary's subtraction so the propagated state is the RAW
-            // element-frame state the producer encoded off before the fix.
+            // element-frame state the producer encoded off before the fix. The ORBITAL-frame
+            // convention below is held at the shipping world/world one on purpose: the only
+            // thing this cell varies is the ELEMENT frame, so the error it measures cannot be
+            // confused with the (separate, later) fifth-frame-mismatch correction.
             OrbitSegment unconverted = segment;
             unconverted.longitudeOfAscendingNode =
                 NormalizeDegrees(segment.longitudeOfAscendingNode + MeasuredZupAngleDegrees);
@@ -229,8 +232,8 @@ namespace Parsek.Tests
 
             segment.orbitalFrameRotation = BallisticExtrapolator.ComputeOrbitalFrameRotationFromState(
                 frozenWorldRotation,
-                IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld(rawPosition),
-                rawVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(rawPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(rawVelocity));
 
             float error = ResolveErrorThroughStockConsumer(
                 segment, MeasuredZupAngleDegrees, frozenWorldRotation);
@@ -276,6 +279,12 @@ namespace Parsek.Tests
         /// <summary>
         /// The <c>hasOfr</c> branch of <c>ParsekFlight.ComputeOrbitalRotation</c>, off the state a
         /// stock <c>Orbit</c> built from the same segment reports.
+        /// <para>
+        /// WORLD/WORLD since branch <c>orbital-rotation-frame</c>: the consumer lifts its
+        /// Zup-swizzled <c>getOrbitalVelocityAtUT</c> velocity into world axes before pairing it
+        /// with the world radial, so this transcription does the same. Dropping the velocity
+        /// swizzle here would re-pin the fifth frame mismatch as if it were the contract.
+        /// </para>
         /// </summary>
         private static float ResolveErrorThroughStockConsumer(
             OrbitSegment segment, double inverseRotAngleDegrees, Quaternion expectedWorldRotation)
@@ -283,9 +292,10 @@ namespace Parsek.Tests
             var stock = StockOrbitPort.FromSegment(
                 segment, KerbinMu, StockOrbitPort.PlanetaryZup(inverseRotAngleDegrees));
 
-            Vector3 velocity = ((Vector3)stock.GetOrbitalVelocityAtUT(segment.startUT)).normalized;
-            Vector3 radialOut = ((Vector3)IncompleteBallisticSceneExitFinalizer
-                .SwizzleZupBodyRelativeToWorld(stock.GetRelativePositionAtUT(segment.startUT))).normalized;
+            Vector3 velocity = ((Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                stock.GetOrbitalVelocityAtUT(segment.startUT))).normalized;
+            Vector3 radialOut = ((Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                stock.GetRelativePositionAtUT(segment.startUT))).normalized;
             Assert.True(Mathf.Abs(Vector3.Dot(velocity, radialOut)) <= 0.99f,
                 "fixture drove the consumer into its near-parallel LookRotation fallback; "
                 + "the round trip would not be measuring the orbital frame");

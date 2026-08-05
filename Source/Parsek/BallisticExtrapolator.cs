@@ -543,6 +543,19 @@ namespace Parsek
                 || orbitalFrameRotation.w != 0f;
         }
 
+        /// <summary>
+        /// Encodes a world attitude into the orbital frame of a state vector.
+        /// <para>
+        /// FRAME (binding): <paramref name="position"/> and <paramref name="velocity"/> must BOTH
+        /// be in KSP's Y-up WORLD axes — see the contract banner on
+        /// <see cref="TrajectoryMath.SwizzleZupBodyRelativeToWorld"/>. This function is pure and
+        /// takes whatever frame the caller feeds, so the contract lives with the CALLERS: every
+        /// one of them holds an extrapolator/stock-<c>Orbit</c> state vector in the Zup-swizzled
+        /// body-relative frame and must lift BOTH halves before calling. Feeding a Zup velocity
+        /// with a world radial builds one frame out of two and is the fifth frame mismatch
+        /// (docs/dev/todo-and-known-bugs.md), fixed on branch <c>orbital-rotation-frame</c>.
+        /// </para>
+        /// </summary>
         internal static Quaternion ComputeOrbitalFrameRotationFromState(
             Quaternion worldRotation,
             Vector3d position,
@@ -557,6 +570,12 @@ namespace Parsek
                 TrajectoryMath.ComputeOrbitalFrameRotation(worldRotation, velocity, radialOut));
         }
 
+        /// <summary>
+        /// Decodes a stored <c>orbitalFrameRotation</c> back into a world attitude — the exact
+        /// inverse of <see cref="ComputeOrbitalFrameRotationFromState"/>, and the same frame
+        /// contract: <paramref name="position"/> and <paramref name="velocity"/> BOTH in Y-up
+        /// WORLD axes.
+        /// </summary>
         internal static Quaternion ResolveWorldRotation(
             Quaternion orbitalFrameRotation,
             Vector3d position,
@@ -574,24 +593,40 @@ namespace Parsek
                 TrajectoryMath.PureMultiply(orbitalFrame, orbitalFrameRotation));
         }
 
+        /// <summary>
+        /// Re-expresses a stored <c>orbitalFrameRotation</c> across an SOI handover: decode the
+        /// world attitude in the OLD body's orbital frame, re-encode it in the NEW body's. Its
+        /// whole contract is that the world attitude a consumer resolves is unchanged by the
+        /// handover — the vessel does not turn because its reference body did.
+        /// <para>
+        /// FRAME: the four state arguments arrive in the extrapolator's ZUP-SWIZZLED
+        /// body-relative frame (that is what <see cref="BallisticStateVector"/> carries), and are
+        /// lifted to WORLD here — once, at this single boundary — because
+        /// <see cref="ResolveWorldRotation"/> and <see cref="ComputeOrbitalFrameRotationFromState"/>
+        /// are world/world. Before branch <c>orbital-rotation-frame</c> this decoded and re-encoded
+        /// against RAW Zup state on both sides, which is self-consistent only within itself: the
+        /// world attitude a WORLD-frame consumer read jumped at every SOI crossing, by the angle
+        /// between the two frames. Swizzling one end and not the other is worse than either.
+        /// </para>
+        /// </summary>
         internal static Quaternion ReframeOrbitalFrameRotation(
             Quaternion orbitalFrameRotation,
-            Vector3d fromPosition,
-            Vector3d fromVelocity,
-            Vector3d toPosition,
-            Vector3d toVelocity)
+            Vector3d fromZupPosition,
+            Vector3d fromZupVelocity,
+            Vector3d toZupPosition,
+            Vector3d toZupVelocity)
         {
             if (!HasOrbitalFrameRotation(orbitalFrameRotation))
                 return default(Quaternion);
 
             Quaternion worldRotation = ResolveWorldRotation(
                 orbitalFrameRotation,
-                fromPosition,
-                fromVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(fromZupPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(fromZupVelocity));
             return ComputeOrbitalFrameRotationFromState(
                 worldRotation,
-                toPosition,
-                toVelocity);
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(toZupPosition),
+                TrajectoryMath.SwizzleZupBodyRelativeToWorld(toZupVelocity));
         }
 
         private static Quaternion CanonicalizeQuaternionSign(Quaternion quaternion)

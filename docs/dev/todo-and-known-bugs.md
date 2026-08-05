@@ -2303,8 +2303,11 @@ recovers elements in the Zup frame and stays there). That is why site 1 - fed a 
 relative position - came back exact while site 4 - fed a segment's elements - did not.
 
 **Site 5 (ELEMENT FRAME), what shipped - AND WHERE IT LIVES NOW.** The name means THIS
-crossing; it is not the deferred "`ComputeOrbitalRotation` mixes a Zup velocity with a world
-radial" entry below, which is also called "the fifth frame mismatch" and is untouched.
+crossing; it is not the "`ComputeOrbitalRotation` mixes a Zup velocity with a world
+radial" entry below, which is also called "the fifth frame mismatch" - a DIFFERENT finding,
+fixed separately on branch `orbital-rotation-frame` later the same day. Its fix moved this
+site's velocity half too (see the table's site-4 row); the element-frame crossing described
+here is unchanged by it.
 
 *As originally shipped (2026-08-05, branch `small-fixes-2`)*:
 `IncompleteBallisticSceneExitFinalizer.ToStockOrbitFrame`
@@ -2401,16 +2404,22 @@ What shipped, per site (each `FRAME MISMATCH #n, PINNED NOT FIXED` banner replac
 | 1 | `ResolveBodyFixedSurfaceCoordinates` | `body.position + position` -> `body.position + SwizzleZupBodyRelativeToWorld(position)` |
 | 2 | `TryBuildStartStateFromVessel` | `getPositionAtUT` -> `getRelativePositionAtUT`; the orbital-frame seed takes `position.xzy` |
 | 3 | `ParentFrameState` resolver | `bodyOrbit.getPositionAtUT` -> `getRelativePositionAtUT` |
-| 4 | `SeedPredictedSegmentOrbitalFrameRotations` + its `ResolveWorldRotation` decode | pass `position.xzy` (world radial); velocity untouched (Zup) |
+| 4 | `SeedPredictedSegmentOrbitalFrameRotations` + its `ResolveWorldRotation` decode | pass `position.xzy` (world radial); velocity left Zup **as originally shipped - SUPERSEDED the same day, see below** |
 
-`IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld` is the one named
-home of the convention (the y/z swap is its own inverse, so it converts either way).
+`TrajectoryMath.SwizzleZupBodyRelativeToWorld` is the one named home of the convention
+(the y/z swap is its own inverse, so it converts either way). It lived on
+`IncompleteBallisticSceneExitFinalizer` as originally shipped and moved to `TrajectoryMath`
+on branch `orbital-rotation-frame`, next to the orbital-frame contract banner.
 
-**Site 4 is Option A: the PRODUCER was moved to match today's CONSUMER.**
-`ParsekFlight.ComputeOrbitalRotation` builds its frame from a WORLD radial and a Zup
-velocity, so the finalizer now encodes against exactly that and the round trip cancels.
-The consumer is untouched. Its own internal mix is a separate, wider finding - see
-"`ComputeOrbitalRotation` mixes a Zup velocity with a world radial" below.
+**Site 4 was Option A: the PRODUCER was moved to match the CONSUMER OF THE DAY**, which
+built its frame from a WORLD radial and a Zup velocity, so the finalizer encoded against
+exactly that and the round trip cancelled. **THAT IS NO LONGER THE CONVENTION.** The
+consumer's own internal mix was a separate, wider finding - "`ComputeOrbitalRotation` mixes
+a Zup velocity with a world radial" below - and fixing it on branch
+`orbital-rotation-frame` moved BOTH sides to WORLD/WORLD: site 4's encode and decode now
+unswizzle the velocity too. The round trip still cancels (the H9 probe still reads 0.000)
+because producer and consumer moved together; read that entry, not this row, for today's
+convention.
 
 **Site 2 owed the destroyed-vessel path a re-verification, and it needed a compensating
 change.** The old absolute-world seed collapsed to `|r| ~ 0` under KSP's vessel-centred
@@ -2641,8 +2650,9 @@ orbit's ascending node".
 double-rotate and re-red H9's `Site4AttitudeRoundTrip` (a permanent frame-regression guard
 currently at angleError=0.000). The two `SeedPredictedSegmentOrbitalFrameRotations` call
 sites now use plain `BallisticExtrapolator.TryPropagate` plus their own finiteness checks.
-Site 2 (`TryBuildStartStateFromVessel`) is untouched - its seed comes off the live orbit and
-is already stock-frame.
+Site 2 (`TryBuildStartStateFromVessel`) is untouched BY THE ELEMENT-FRAME FIX - its seed
+comes off the live orbit and is already stock-frame. (Its orbital-frame ENCODE did move
+later the same day, to world/world, with the fifth-frame-mismatch fix below.)
 
 **Consequences, as predicted by this entry:** tails finalized from a SEGMENT now land at
 the correct longitude; extrapolator-authored `OrbitSegment`s now replay unrotated through
@@ -2809,7 +2819,7 @@ decompiled transcription. Finding A's in-game proof is still owed and is unaffec
 
 ---
 
-## `ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world radial (the FIFTH frame mismatch; deferred, needs its own PR) [FOUND 2026-08-05 while fixing the four sites above, branch `small-fixes-2`] [NAMING: "the fifth" here is this consumer-side mix. The element-frame crossing fixed on 2026-08-05 is called SITE 5 (ELEMENT FRAME) in code and in the entry above; they are different findings]
+## ~~`ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world radial (the FIFTH frame mismatch)~~ [FOUND 2026-08-05 while fixing the four sites above, branch `small-fixes-2`. FIXED 2026-08-05, branch `orbital-rotation-frame`] [NAMING: "the fifth" here is this consumer-side mix. The element-frame crossing fixed on 2026-08-05 is called SITE 5 (ELEMENT FRAME) in code and in the entry above; they are different findings]
 
 ### What it is
 
@@ -2843,16 +2853,93 @@ different frame from the one it was encoded with.
   in-game against a live vessel's attitude, not derived - so it owns its own proof burden
   and its own PR.
 
-### Where it stands
+### Where it stood
 
 Site 4 of the entry above deliberately made the PRODUCER match this CONSUMER (Option A)
-rather than touching it, so predicted-tail attitude round-trips today. That leaves exactly
-one convention question open, in one function, with the recorder on the same side as the
-predicted tails. One further consumer is in the same family and is NOT covered by site 4:
-`BallisticExtrapolator.ReframeOrbitalFrameRotation`, used at the two SOI branches of
-`Extrapolate`, still decodes and re-encodes against a RAW Zup radial. Exposure is small
-(attitude only, and only for an extrapolation that both seeds an orbital-frame rotation
-and crosses an SOI), but it belongs to this entry's fix, not to the four above.
+rather than touching it, so predicted-tail attitude round-tripped. That left exactly one
+convention question open, in one function, with the recorder on the same side as the
+predicted tails.
+
+### What shipped (branch `orbital-rotation-frame`, 2026-08-05)
+
+**WORLD/WORLD EVERYWHERE, AND THE CONSUMER IS THE SIDE THAT MOVED.** The orbital frame is
+now `LookRotation(orbitalVelocity_WORLD, radialOut_WORLD)` at every producer and every
+consumer. The RECORDER's convention won, and not by preference: `v.obt_velocity` is
+`orbit.GetRelativeVel()` == `orbit.vel.xzy` (decompiled `Vessel` / `Orbit`), so the
+recorder's encode is world/world by KSP's own API, and those encodings are on disk across
+every recording ever made. They cannot be re-encoded, so everything else came to them.
+
+The canonical axis map moved with the fix: `SwizzleZupBodyRelativeToWorld` is now
+`TrajectoryMath.SwizzleZupBodyRelativeToWorld`, next to `ComputeOrbitalFrameRotation` and
+the contract banner that states all of the above, rather than living on a scene-exit
+finalizer that a rendering path had no business referencing. Same implementation, same
+2026-08-04_2142 calibration provenance.
+
+What moved, and where:
+
+- **`ParsekFlight.ComputeOrbitalRotation`** lifts its Zup velocity to world on all three
+  branches (spinning `velAtStart`, `hasOfr`, prograde fallback). The PARAMETER contract is
+  unchanged and deliberately so - `velocity` is still Zup-swizzled body-relative, because
+  all six call sites and the H9 site-4 probe hand it straight off
+  `orbit.getOrbitalVelocityAtUT`; converting inside is ONE conversion point instead of
+  seven. All six were audited and all six fed Zup (`ParsekFlight` :18936/:21942/:22769,
+  `FlightRecorder` :8379, `BackgroundRecorder` :5833, `RecordedRelativeAnchorPoseResolver`
+  :352, `Rendering/ProductionAnchorWorldFrameResolver` :592) - no double-conversion.
+- **TWO MORE CONSUMERS the original entry did not list**, found by grepping for the decode
+  rather than for the function: `ParsekFlight`'s LateUpdate ghost re-apply blocks (the
+  `GhostPosMode.Orbit` and `GhostPosMode.CheckpointPoint` cases, ~:1582 and ~:1675) are
+  hand-inlined copies of the same three-branch decode, reading `e.orbitFrameRot`, and
+  carried the identical mix. Both now swizzle at the read.
+- **`IncompleteBallisticSceneExitFinalizer`** (site 4) moved in LOCKSTEP: the seed encode,
+  the carry-across `ResolveWorldRotation` decode, and the `TryBuildStartStateFromVessel`
+  encode all unswizzle the velocity too. Producer and consumer moving together is what
+  keeps `FrameCalibration_Site4_PredictedSegmentAttitudeRoundTripsThroughPlayback` at
+  0.000; swizzling one and not the other would red it by the Zup-vs-world angle.
+- **`BallisticExtrapolator.ReframeOrbitalFrameRotation`** (the two SOI branches of
+  `Extrapolate`) lifts all four state vectors. This one was not merely inconsistent, it was
+  WRONG IN ITS OWN TERMS: decoding and re-encoding against raw Zup state is self-consistent
+  only within itself, so the world attitude a world-frame renderer read JUMPED at every SOI
+  crossing - measured at 107.707 deg on the new headless fixture. Its two helpers
+  (`ComputeOrbitalFrameRotationFromState` / `ResolveWorldRotation`) are pure and now carry
+  an explicit world/world contract in their docs; every caller, production and test, was
+  audited onto it.
+- **`FlightRecorder`**'s two literal copies of the encode collapsed into one seam,
+  `StampVesselOrbitalFrameRotation`, so the in-game probe can run the production encode
+  rather than a transcription of it.
+
+**CONSEQUENCE, stated plainly: this CHANGES how already-recorded flights replay, for the
+better.** Recorder-authored orbit segments are the bulk of the population and were being
+decoded against a forward axis in the wrong frame; a worked closed-form fixture measures
+the pre-fix attitude error at 78.654 deg. Predicted segments authored by PRE-FIX builds
+were encoded against the old mixed frame and will decode differently now (attitude only,
+render-with-difference, no migration - the ORBITSEGMENT-ANGLE-UNITS precedent). Nothing on
+disk is rewritten.
+
+**Proof.** Headless: `StockOrbitElementFrameParityTests.RecorderStyleWorldWorldEncode_*`
+(recorder-shaped world/world encode round-trips exactly through the new consumer;
+anti-vacuity half pins the old mixed consumer at 78.654 deg),
+`ElementFrameSkew_UnderTheCurrentConsumer_IsExactlyTheZupAngle` (with the two sides in one
+frame the element-frame residual is EXACTLY the Zup angle - a sharper statement than the
+mixed consumer could make, which is why
+`MeasuredSite4Reading_IsReproducedByTheZupRotationAlone` keeps its FROZEN pre-fix
+arithmetic and a renamed pre-fix transcription: it reproduces a 2026-08-04 flight reading
+and must not be re-transcribed), and
+`BallisticExtrapolatorFrameTests.ReframeOrbitalFrameRotation_PreservesTheWorldAttitude_WhereTheRawZupMathDoesNot`.
+Live: a NEW H9 cell, `RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude`,
+because the site-4 probe STRUCTURALLY CANNOT see this class of defect - it runs the
+finalizer producer against the playback consumer, so a mismatch shared by both cancels
+inside it. H9's pin moved to `total=11 passed=11`; that cell has NOT yet flown, and site 4
+must still read 0.000 on the next nightly.
+
+### Not covered here, and still open
+
+`TrajectoryPoint.velocity` is a DIFFERENT surface with the same smell, deliberately left
+alone: the recorder stores it in Y-up world axes (see the `OrbitReseed` docstring), but
+`OrbitalCheckpointDensifier` (~:532) and `ParsekFlight`'s orbit-only
+`InterpolationResult` construction (~:22726, ~:26290) fill it straight from
+`orbit.getOrbitalVelocityAtUT` without a swizzle. Its consumers are speed / FX / reseed
+paths, not the orbital frame, so its exposure and its proof are its own - it is not a
+residual of this fix, and it wants its own reading before anything is changed.
 
 ---
 
