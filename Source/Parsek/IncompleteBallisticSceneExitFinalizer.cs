@@ -2111,13 +2111,16 @@ namespace Parsek
         // ------------------------------------------------------------------
         // THE ELEMENT FRAME CROSSING NO LONGER LIVES HERE
         // ------------------------------------------------------------------
-        // It lives at exactly ONE boundary: TwoBodyOrbit's segment I/O
-        // (TwoBodyOrbit.TryCreateFromSegment in / CreateSegment out), whose contract,
-        // sign derivation and headless gate are stated on
-        // BallisticExtrapolator.GetStockElementFrameZupAngleRadians. Generalised there
-        // 2026-08-05, branch `twobody-element-frame`; see docs/dev/todo-and-known-bugs.md
-        // "TwoBodyOrbit's element-seeded propagation works in KSP's raw element frame,
-        // not stock Orbit's" (FINDING A).
+        // For the extrapolator and everything it feeds, it lives at exactly ONE boundary:
+        // TwoBodyOrbit's segment I/O (TwoBodyOrbit.TryCreateFromSegment in / CreateSegment
+        // out), whose contract, sign derivation, Zup time-dependence and headless gate are
+        // stated on BallisticExtrapolator.GetStockElementFrameZupAngleRadians. Generalised
+        // there 2026-08-05, branch `twobody-element-frame`; see
+        // docs/dev/todo-and-known-bugs.md "TwoBodyOrbit's element-seeded propagation works
+        // in KSP's raw element frame, not stock Orbit's" (FINDING A). Scoped deliberately:
+        // GhostExtender.PropagateOrbital reaches KSP-native elements by another route and is
+        // still a raw-frame reader (frame-naive longitude) - pre-existing, recorded in that
+        // entry, NOT covered here.
         //
         // WHAT USED TO BE HERE, and why it had to go. FRAME SITE #5 (ELEMENT FRAME) shipped
         // as a local `ToStockOrbitFrame` that applied `Planetarium.Zup.WorldToLocal` on top

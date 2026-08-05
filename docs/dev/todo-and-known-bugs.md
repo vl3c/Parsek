@@ -2586,7 +2586,8 @@ new boundary; Finding B is untouched and is the next PR.**
 `TwoBodyOrbit.TryCreateFromSegment` reads a segment's KSP-native
 elements and propagates without stock's `Planetarium.Zup.WorldToLocal`, so EVERY
 element-seeded state it produces is stock's rotated about the polar axis by
-`Planetarium.inverseRotAngle` (MEASURED at 230.01 deg in H9 run `2026-08-04_2224`). Two
+`Planetarium.inverseRotAngle` (MEASURED at 230.01 deg in H9 run `2026-08-04_2224` - a
+SNAPSHOT AT THAT RUN'S UT, not an install constant; see "Zup is not static" below). Two
 consequences, MOSTLY longitude-shaped (a polar rotation preserves radius, altitude and
 latitude, which is why nothing altitude-driven ever looked wrong) - but NOT strictly
 longitude-only on a multi-body tail: the vessel state stays in the raw element frame
@@ -2656,6 +2657,58 @@ original sites were held to is a measurement, not a headless argument - an impac
 recorded lat/lon is compared against the crash site. H9's two probes
 (`Site1FrameProbe`, `Site4AttitudeRoundTrip`) are the cheap first read: both must stay at
 zero, and a re-red on site 4 means the boundary and a surviving local rotation are stacking.
+
+### Zup is not static, and the boundary is built for that [CORRECTED 2026-08-05 by review of the Finding A commit]
+
+The first draft of `GetStockElementFrameZupAngleRadians`'s docstring claimed
+`Planetarium.Zup` is "assigned once in `Planetarium.Awake` and never mutated afterwards".
+**That is FALSE**, and the decompiled source says so plainly: `CelestialBody.CBUpdate` -
+reached from `Planetarium.FixedUpdate` -> `UpdateCBsRecursive` EVERY PHYSICS TICK -
+REBUILDS the static for a body in the inverse-rotation regime:
+
+```
+rotationAngle = (initialRotation + 360.0 * rotPeriodRecip * Planetarium.GetUniversalTime()) % 360.0;
+...
+Planetarium.InverseRotAngle = (rotationAngle - directRotAngle) % 360.0;
+Planetarium.CelestialFrame.PlanetaryFrame(0.0, 90.0, Planetarium.InverseRotAngle, ref Planetarium.Zup);
+```
+
+`rotationAngle` advances with UT, so the polar angle advances with it - roughly **1 deg per
+minute of game time** at Kerbin's rotation period - and a vessel on or near Kerbin below the
+inverse-rotation threshold is exactly that regime, i.e. exactly the H9 pad fixture. So
+**230.01 deg is a snapshot at that run's UT, not a per-install constant**, and any future
+reading of the same probe on a different flight will land on a different angle without
+anything being wrong.
+
+**The fix's per-call reads are correct PRECISELY BECAUSE the static moves.** The accessor
+reads `Planetarium.Zup` fresh on every call and nothing caches the angle. The real
+invariant is **one synchronous single-frame pass = one Zup**:
+`IncompleteBallisticSceneExitFinalizer.TryApply` is a plain synchronous call from
+`ParsekFlight.Finalization.cs` (:148 and :414), and seed -> propagate -> `CreateSegment` all
+run inside it on the main thread with no `yield`, so the angle subtracted on the way in and
+the angle added on the way out are the same number. Stock applies its own then-current Zup
+at query / replay time, and the LAN written to disk is inertial and time-stable, so the two
+sides agree at any later UT.
+
+**Consequence for future work: NEVER cache the angle across frames, and NEVER move the
+finalization pass into a coroutine or split it across frames.** Under time warp a
+multi-frame pass would seed against one Zup and write out against another, and the
+segment's LAN would come out wrong by the degrees the frame turned in between. The code
+doc on `GetStockElementFrameZupAngleRadians` now states this instead of the false claim.
+
+### Known raw-frame reader still OUTSIDE the boundary: `GhostExtender.PropagateOrbital`
+
+`GhostExtender.PropagateOrbital` (`Source/Parsek/GhostExtender.cs`, ~:100-137; fed from
+`RecordingEndpointResolver.cs:462` and `VesselGhoster.cs:992`) consumes KSP-native orbit
+elements and propagates them WITHOUT the Zup shift, then hands the raw Cartesian result to
+`CartesianToGeodetic`, whose longitude is a bare `Atan2` with no body-rotation term either.
+Latitude is safe (a polar rotation preserves it); **longitude is frame-naive**. This is
+PRE-EXISTING and is NOT a regression from Finding A - that fix covered `TwoBodyOrbit`'s
+segment I/O, which is the extrapolator's boundary, not every element reader in the codebase.
+Recorded here so the claim "the element-frame crossing lives at exactly one boundary" is
+read as scoped to the extrapolator: this consumer reaches elements by another route and
+still needs its own decision (and, on the same standard as the four original sites, its own
+measurement) before it can be called fixed.
 
 **Headless coverage added:** direct-agreement cells with a REAL non-identity
 `Planetarium.Zup` installed (`TryCreateFromSegment` -> `GetStateAtUT` equals the stock

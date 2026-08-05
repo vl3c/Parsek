@@ -673,12 +673,41 @@ namespace Parsek
         /// is exactly the pass-through the previous seam's orthonormality gate produced.
         /// </para>
         /// <para>
-        /// TIME DEPENDENCE. Stock applies the CURRENT <c>Planetarium.Zup</c> at every state query
-        /// regardless of query UT, and <c>Zup</c> is assigned once in <c>Planetarium.Awake</c> and
-        /// never mutated afterwards (<c>ZupAtT</c> writes a caller-owned temp, not the static), so
-        /// converting once at the segment boundary is equivalent. No <see cref="TwoBodyOrbit"/>
-        /// built from a segment is stored anywhere - every one is a call-local - so there is no
-        /// instance to go stale across frames.
+        /// TIME DEPENDENCE - <c>Planetarium.Zup</c> MOVES, AND THIS ACCESSOR IS BUILT FOR THAT.
+        /// <c>Planetarium.Awake</c> seeds <c>Zup</c>, but it does not own it:
+        /// <c>CelestialBody.CBUpdate</c> - reached from <c>Planetarium.FixedUpdate</c> -&gt;
+        /// <c>UpdateCBsRecursive</c> EVERY PHYSICS TICK - REBUILDS the static for a body in the
+        /// inverse-rotation regime:
+        /// <code>
+        /// rotationAngle = (initialRotation + 360 * rotPeriodRecip * UT) % 360;
+        /// Planetarium.InverseRotAngle = (rotationAngle - directRotAngle) % 360;
+        /// CelestialFrame.PlanetaryFrame(0, 90, Planetarium.InverseRotAngle, ref Planetarium.Zup);
+        /// </code>
+        /// <c>rotationAngle</c> advances with UT, so the polar angle advances with it - about
+        /// 1 deg per minute of game time at Kerbin's rotation period, and a vessel on or near
+        /// Kerbin below the inverse-rotation threshold (the H9 pad fixture) sits in exactly that
+        /// regime. THE 230.01 deg CITED ABOVE IS A SNAPSHOT AT THAT RUN'S UT, NOT AN INSTALL
+        /// CONSTANT.
+        /// </para>
+        /// <para>
+        /// WHY PER-CALL READS ARE CORRECT, AND WHAT THE INVARIANT ACTUALLY IS. Precisely BECAUSE
+        /// the static moves, this accessor reads it fresh on every call and nothing caches the
+        /// angle. The invariant the boundary relies on is ONE SYNCHRONOUS SINGLE-FRAME PASS = ONE
+        /// <c>Zup</c>: <c>IncompleteBallisticSceneExitFinalizer.TryApply</c> is invoked as a plain
+        /// synchronous call from <c>ParsekFlight.Finalization.cs</c> (:148 and :414), and seed -&gt;
+        /// propagate -&gt; <c>CreateSegment</c> all run inside it on the main thread with no
+        /// <c>yield</c> between them, so the angle subtracted on the way in and the angle added on
+        /// the way out are the same number. Stock then applies its own then-current <c>Zup</c> at
+        /// query / replay time, and the LAN written to disk is inertial and time-stable, so the
+        /// two sides agree at any later UT.
+        /// </para>
+        /// <para>
+        /// THEREFORE: never cache this angle across frames, and never move the finalization pass
+        /// into a coroutine or split it across frames. Under time warp a multi-frame pass would
+        /// seed against one <c>Zup</c> and write out against another, and the segment's LAN would
+        /// come out wrong by the degrees the frame turned in between. No
+        /// <see cref="TwoBodyOrbit"/> built from a segment is stored anywhere either - every one is
+        /// a call-local - so there is no propagator instance to go stale across frames.
         /// </para>
         /// </summary>
         internal static double GetStockElementFrameZupAngleRadians()
@@ -1613,9 +1642,13 @@ namespace Parsek
         // of the element frame), so TryCreateFromSegment / CreateSegment shift it
         // by the Planetarium.Zup polar angle at the same boundary they convert
         // degrees to radians - see GetStockElementFrameZupAngleRadians for the
-        // contract, the derivation and the headless gate. There is exactly ONE
-        // element-frame crossing and it is that boundary; nothing downstream may
-        // apply a second Zup rotation.
+        // contract, the derivation and the headless gate. Within THIS propagator
+        // and everything it feeds there is exactly ONE element-frame crossing and
+        // it is that boundary; nothing downstream may apply a second Zup rotation.
+        // Scoped deliberately: GhostExtender.PropagateOrbital reaches KSP-native
+        // elements by another route entirely and is still a raw-frame (frame-naive
+        // longitude) reader - pre-existing, recorded in todo-and-known-bugs.md
+        // under Finding A, and NOT covered here.
         // Known measure-zero divergence: for an EXACTLY equatorial
         // retrograde eccentric orbit the degenerate-node argPe branch below measures
         // CCW from +x where KSP flips on direction of motion, yielding 360-argPe.
