@@ -358,8 +358,17 @@ namespace Parsek
                     RecordingFinalizationTerminalOrbit.FromSegment(cache.PredictedSegments[cache.PredictedSegments.Count - 1]);
             }
 
-            int newlyClassified = result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart ? 1 : 0;
-            if (newlyClassified > 0)
+            // Either destroyed-vessel start fingerprint counts as a classification (the
+            // NoSolverStart half is the post-calibration route, see
+            // IncompleteBallisticSceneExitFinalizer.IsNoSolverDestroyedFallback); only the
+            // sub-surface half gets the sub-surface log line, because the no-solver route
+            // already emitted its own at the classification site.
+            int newlyClassified =
+                IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                    result.extrapolationFailureReason)
+                    ? 1
+                    : 0;
+            if (result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart)
             {
                 IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
                     recordingId,
@@ -1094,9 +1103,14 @@ namespace Parsek
                 out result);
         }
 
+        // Accepts BOTH destroyed-vessel start fingerprints. The `subsurface-destroyed-*`
+        // naming (decline reason string included) predates the 2026-08-04_2142 frame
+        // calibration that split the fingerprint in two; it is kept verbatim because the
+        // decline reason is asserted in-game and grepped in KSP.log.
         private static bool IsSuppressedSubSurfaceDestroyedDecline(IncompleteBallisticFinalizationResult result)
         {
-            return result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart
+            return IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                    result.extrapolationFailureReason)
                 && result.terminalState.HasValue
                 && result.terminalState.Value == TerminalState.Destroyed;
         }

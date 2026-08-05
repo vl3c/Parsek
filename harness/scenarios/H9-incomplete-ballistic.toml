@@ -8,7 +8,32 @@ tier = "nightly"
 # snapshot, a stripped maneuver node, and the three map-rendering cells that assert
 # the ghost draws a line from the extrapolated segment, continues past the recorded
 # end, and does NOT render foreign-SOI segments.
-description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, and the extrapolated-segment map line."
+#
+# TWO MORE CELLS JOINED THE CATEGORY as the FRAME-CALIBRATION INSTRUMENT for
+# docs/dev/todo-and-known-bugs.md "BallisticExtrapolator frame mismatches"
+# (FrameCalibration_Site1_* and FrameCalibration_Site4_*). Unlike the eight above
+# they read the LIVE vessel. They flew as MEASUREMENT cells on run
+# `2026-08-04_2142` (PARSEK-FAIL failed=2 BY DESIGN - the red carried the
+# measurement: Site1 dLat=34.30 dLon=34.32 deg, Site4 angleError=133.1 deg,
+# confirming the pinned axis-swap arithmetically). The four finalizer sites are
+# now FIXED to the calibrated convention, and both cells are permanent FRAME
+# REGRESSION guards expected to PASS.
+#
+# CONFIRM RUN `2026-08-04_2224` SPLIT THEM. Site 1 came back EXACT (dLat=0.000000
+# dLon=-0.000001) - fixed, and now a live guard. Site 4 stayed red at
+# angleError=131.066 deg. That residual was DIAGNOSED HEADLESSLY rather than by a
+# third measurement flight: decomposing the two runs' logged quaternions showed the
+# producer's whole state rotated 230.01 deg about the POLAR AXIS from the
+# consumer's, which a transcription of stock's own element-to-state chain
+# (Parsek.Tests StockOrbitElementFrameParityTests) reduced to one call stock makes
+# and the extrapolator's element-seeded propagator does not -
+# `Planetarium.Zup.WorldToLocal`. Fixed as SITE 5 (ELEMENT FRAME) 2026-08-05, and
+# proven headlessly end to end by StockOrbitFrameSeamTests, which installs a real
+# non-identity `Planetarium.Zup` and drives the production producer through it.
+# BOTH CELLS ARE PERMANENT GUARDS, and the SECOND confirm re-fly PROVED them:
+# run `2026-08-04_2323` PASS attempt 1, Site1 dLat=0.000000 and Site4
+# angleError=0.000 with the resolved quaternion bit-identical to the vessel's.
+description = "Run the in-game IncompleteBallistic category unattended: ballistic tail extrapolation through atmosphere/terrain/SOI events, patched-conic snapshot integration, the extrapolated-segment map line, and the two live-vessel frame-calibration probes."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ballistic", "extrapolation", "scene-exit", "H9"]
 
@@ -50,30 +75,48 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: tally pinned WHOLE.
 #
-# EVIDENCE STANDING: MEASURED. Flown 2026-07-27 in the `--tag ingame-batch` sweep
-# (result harness/results/2026-07-27_*_H9-incomplete-ballistic.json: PASS on attempt 1,
-# 49 s wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
-# perCategory=1). The pin below is a LITERAL pattern and evaluate_expectations
-# requires it to match, so a PASS means the runner printed this line TOKEN FOR
-# TOKEN: total, passed, failed, skipped, category and scene are all confirmed
-# against a live batch, not just failed=0. The pre-flight derivation recorded
-# below predicted every one of them correctly.
-#  - total=8 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 8
-#    [InGameTest(Category = "IncompleteBallistic")] methods. NOTE the file also hosts
-#    Ledger, Rewind, RouteLiveAnchor, TestRunnerIsolation and SwitchSegment
-#    declarations, and it DOES contain InGameAssert.Skip call sites - 4 in Ledger
-#    members, 1 in RouteLiveAnchor, 1 in TestRunnerIsolation, and NONE in an
-#    IncompleteBallistic or SwitchSegment one (Rewind's single declaration here has
-#    none either). A per-file grep would mislead; the derivation is per-method-body.
-#    Kept in sync by CommittedBatchTallySourceSyncTests.
-#  - skipped=0 is DERIVED: all 8 carry Scene = GameScenes.FLIGHT and the batch runs
-#    at FLIGHT; none sets AllowBatchExecution = false; and none of the 8 bodies, nor
-#    any helper they call, contains an InGameAssert.Skip.
-#  - failed=0 is the ASSERTION.
-#  - passed=8 follows.
+# EVIDENCE STANDING: MEASURED FOR THE ORIGINAL EIGHT, DERIVED FOR THE TWO ADDED.
+# The eight flew 2026-07-27 in the `--tag ingame-batch` sweep (result
+# harness/results/2026-07-27_*_H9-incomplete-ballistic.json: PASS on attempt 1, 49 s
+# wall, every verifier PASS or SKIPPED, batchComplete found=True failed=0
+# perCategory=1) and the pre-flight derivation predicted every token of that line
+# correctly. The pin is a LITERAL pattern and evaluate_expectations requires it to
+# match, so a PASS means the runner printed the line TOKEN FOR TOKEN.
+#  - total=10 is ATTRIBUTE-EXACT: IncompleteBallisticRuntimeTests declares exactly 10
+#    [InGameTest(Category = "IncompleteBallistic")] methods (the original 8 plus the
+#    two frame-calibration probes). NOTE the file also hosts Ledger, Rewind,
+#    RouteLiveAnchor, TestRunnerIsolation and SwitchSegment declarations, and it DOES
+#    contain InGameAssert.Skip call sites in those - a per-file grep would mislead;
+#    the derivation is per-method-body. Kept in sync by
+#    IngameBatchWiringGroupTests.test_each_pinned_total_equals_the_source_derivation.
+#  - skipped=0 is ATTRIBUTE-DERIVED for all 10 (every one carries
+#    Scene = GameScenes.FLIGHT, the batch runs at FLIGHT, none sets
+#    AllowBatchExecution = false) and, for the original 8, ALSO a reachable-Skip
+#    derivation - none of those bodies or their helpers contains an
+#    InGameAssert.Skip.
+#    IT IS NO LONGER A PURE DERIVATION FOR THE TWO ADDED CELLS. Both carry run-time
+#    InGameAssert.Skip guards (no active vessel / no orbit / no main body /
+#    FlightGlobals.Bodies unavailable / a live orbit whose elements are not
+#    propagatable), so skipped=0 is a claim about the gloops-airshow FIXTURE - the
+#    same standing H20 and H22 carry, and the same reading rule: a skip there is a
+#    fixture question, not an extrapolator regression.
+#  - failed=0 is the ASSERTION. The two frame-calibration probes flew as
+#    deliberate-red measurement cells on run `2026-08-04_2142` (failed=2, the failure
+#    text and the `Site1FrameProbe:` / `Site4AttitudeRoundTrip:` Info lines carrying
+#    the readings that calibrated the fix) and again on the confirm run
+#    `2026-08-04_2224` (failed=1: site 1 exact, site 4 still 131.066 deg - the
+#    residual now fixed as SITE 5, see the header); with all five sites corrected
+#    they are permanent frame-regression guards and failed=0 is a live assertion
+#    again. A future red on either probe is a FRAME REGRESSION, not noise: read the
+#    printed deltas before touching anything, and never clear it by loosening the
+#    probes' tolerances (0.01 deg / 5 deg) - the measured defect signatures were
+#    dLat=34.3 deg and angleError=133 / 131 deg, orders of magnitude above tolerance.
+#    Site 4 in particular has now red TWICE, so a third red there says the closed
+#    form is incomplete and wants reading, not a relaxed cell.
+#  - passed=10 follows.
 #  - scene=FLIGHT is INFERRED from the fixture (Focusable route, as H5/S1.4
-#    MEASURED on it) and is LOAD-BEARING: at any other scene all 8 scene-skip.
-required  = ["BATCH_COMPLETE v1 total=8 passed=8 failed=0 skipped=0 category=IncompleteBallistic scene=FLIGHT"]
+#    MEASURED on it) and is LOAD-BEARING: at any other scene all 10 scene-skip.
+required  = ["BATCH_COMPLETE v1 total=10 passed=10 failed=0 skipped=0 category=IncompleteBallistic scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

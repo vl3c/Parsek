@@ -284,7 +284,73 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[CrewReservations]") &&
-                l.Contains("Recomputed after tombstones: 1 reservations remain."));
+                l.Contains("Recomputed after tombstones: 1 reservations remain "
+                    + "(permanent=0 temporary=1)."));
+        }
+
+        [Fact]
+        public void RecomputeAfterTombstones_DeathRowStrippedUnderASurvivingLiveRow_DemotesPermanentToTemporary()
+        {
+            // THE `dead-crew-strip` OBSERVABILITY CELL, shaped from CL-3's measured
+            // re-fly (runs 2026-08-03_1834 and 2026-08-04_2136). The kerbal is carried
+            // by TWO rows: a Dead row on the superseded pod (inside the write-set) and
+            // a live row on the re-flown fork (outside it). Tombstoning the Dead row
+            // CANNOT drop the reservation count - ProcessAction still adds an entry for
+            // the surviving fork assignment - so "0 reservations remain" is structurally
+            // unreachable on any same-crew re-fly, and the bare count cannot tell a
+            // working strip from a no-op tombstone. What moves is IsPermanent: the Dead
+            // row's merge sets it, stripping the row demotes the entry to temporary.
+            // That demotion is what the new permanent=/temporary= counts expose, and it
+            // is also what MAKES the stand-in (PostWalk `continue`s permanents before
+            // slot creation), so a stand-in appearing here is the strip WORKING.
+            var pod = MakeRecording("rec_pod", "tree_1", new[] { "Jeb" });
+            var fork = MakeRecording("rec_fork", "tree_1", new[] { "Jeb" });
+            RecordingStore.AddRecordingWithTreeForTesting(pod);
+            RecordingStore.AddRecordingWithTreeForTesting(fork);
+
+            var deathOnPod = KerbalAssignmentAction(
+                "rec_pod", "Jeb", KerbalEndState.Dead, 100.0);
+            var liveOnFork = KerbalAssignmentAction(
+                "rec_fork", "Jeb", KerbalEndState.Unknown, 120.0);
+            Ledger.AddAction(deathOnPod);
+            Ledger.AddAction(liveOnFork);
+
+            var kerbals = new KerbalsModule();
+            LedgerOrchestrator.SetKerbalsForTesting(kerbals);
+
+            // Pre-tombstone: ONE entry, PERMANENT (the Dead row wins the merge).
+            InstallScenarioWithTombstones();
+            logLines.Clear();
+            CrewReservationManager.RecomputeAfterTombstones();
+
+            Assert.Single(kerbals.Reservations);
+            Assert.True(kerbals.Reservations["Jeb"].IsPermanent,
+                "Before the tombstone the Dead row must make the merged entry permanent");
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservations]") &&
+                l.Contains("Recomputed after tombstones: 1 reservations remain "
+                    + "(permanent=1 temporary=0)."));
+
+            // Post-tombstone: the COUNT IS UNCHANGED (the fork row survives), but the
+            // permanent/temporary split flips - the only log-visible proof of the strip.
+            InstallScenarioWithTombstones(new LedgerTombstone
+            {
+                TombstoneId = "tomb_death_on_pod",
+                ActionId = deathOnPod.ActionId,
+                RetiringRecordingId = "rec_fork",
+                UT = 150.0,
+                CreatedRealTime = DateTime.UtcNow.ToString("o"),
+            });
+            logLines.Clear();
+            CrewReservationManager.RecomputeAfterTombstones();
+
+            Assert.Single(kerbals.Reservations);
+            Assert.False(kerbals.Reservations["Jeb"].IsPermanent,
+                "After the tombstone the surviving fork row must leave a TEMPORARY entry");
+            Assert.Contains(logLines, l =>
+                l.Contains("[CrewReservations]") &&
+                l.Contains("Recomputed after tombstones: 1 reservations remain "
+                    + "(permanent=0 temporary=1)."));
         }
 
         [Fact]

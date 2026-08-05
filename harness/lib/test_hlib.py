@@ -2624,7 +2624,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     GROUP = {
         "H7-trajectory-math":        ("TrajectoryMath", 8, "FLIGHT"),
         "H8-spawn-rotation":         ("SpawnRotation", 10, "FLIGHT"),
-        "H9-incomplete-ballistic":   ("IncompleteBallistic", 8, "FLIGHT"),
+        "H9-incomplete-ballistic":   ("IncompleteBallistic", 10, "FLIGHT"),
         "H10-finalize-backfill":     ("FinalizeBackfill", 7, "FLIGHT"),
         "H11-pipeline-anchor":       ("Pipeline-Anchor", 7, "FLIGHT"),
         "H12-switch-segment":        ("SwitchSegment", 6, "FLIGHT"),
@@ -4453,29 +4453,31 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "R1-rewind-loop-flown.toml":   "tier=operator",
         # Landed 2026-08-03 with the CL stage-B re-fly lane. FLOWN since: three runs
         # (two PASS + a deliberate negative control) on 2026-08-03, armed the same
-        # day. The two debts this entry originally listed are BOTH DISCHARGED - the
-        # `vesselStateChanged` row was removed (it was constant-False on this lane),
-        # and the arming follow-up was done. What is recorded below is the ONE debt
-        # that is actually open, and it was discovered BY a flight rather than
-        # derived from the header.
+        # day, plus the crewless-root discrimination run on 2026-08-04. THREE of the
+        # four debts this entry has carried are DISCHARGED - the `vesselStateChanged`
+        # row was removed (it was constant-False on this lane), the arming follow-up
+        # was done, and the `dead-crew-strip` fixture-change-plus-re-fly was SPENT
+        # (2026-08-04_2136), which claimed the cell. What is recorded below is the one
+        # debt still open, and it is narrower than its predecessor.
         "CL-3-refly-crew-tombstone.toml":
                                        "tier=operator AND one open operator call: the "
-                                       "D12 `dead-crew-strip` cell. The 2026-08-03_1834 "
-                                       "flight measured half (i) of the registry's "
-                                       "two-part definition HOLDING (Tombstoned 1 ... "
-                                       "Kerbal=1) and half (ii) FAILING (Recomputed "
-                                       "after tombstones: 1 reservations remain, plus a "
-                                       "Stand-in generated for the same kerbal). The "
-                                       "surviving reservation is sourced from "
-                                       "cl-stack-root, OUTSIDE the supersede subtree, "
-                                       "so the fixture's crewed terminal-state-less "
-                                       "root is SUFFICIENT to explain it - but that is "
-                                       "NOT discriminated against a product defect, "
-                                       "because the crewless-root re-fly that would "
-                                       "settle it has not been run. A human decides "
-                                       "whether to spend that fixture change plus "
-                                       "flight, and the cell stays unclaimed until "
-                                       "someone does.",
+                                       "CONFIRM FLY of the D12 `dead-crew-strip` "
+                                       "token. The cell is CLAIMED as of 2026-08-05, "
+                                       "off a re-pinned half (ii) - `permanent=0` in "
+                                       "the `Recomputed after tombstones:` line - and "
+                                       "the 2026-08-04_2136 crewless-root re-fly that "
+                                       "measured the semantics: the death-sourced "
+                                       "reservation IS released, the survivor is the "
+                                       "re-flown fork's own live one, and the stand-in "
+                                       "is CREATED BY the release (a Dead row makes "
+                                       "the reservation permanent and PostWalk skips "
+                                       "permanents before slot creation, so the old "
+                                       "`forbidden=[Stand-in generated]` candidate was "
+                                       "INVERTED). The gate-armed confirm fly is "
+                                       "DONE: 2026-08-04_2324, PASS attempt 1, the "
+                                       "`permanent=0` token matched live. What the "
+                                       "tag still names is the human tier-promotion "
+                                       "call, nothing else.",
         "EVA-1-pad-flag.toml":         "open promotion call - 'the tier stays nightly until the "
                                        "operator promotes it'. P1/P3/P6 are all done and it has "
                                        "been LIVE-PROVEN since 2026-07-24, so nothing is blocked "

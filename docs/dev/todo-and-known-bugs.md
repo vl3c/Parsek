@@ -1068,7 +1068,68 @@ replacement-walking cells REAL instead of merely honest.
 
 ---
 
-## CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive" [FOUND 2026-08-04 while regression-flying CL stage B. Masked in normal operation; NOT fixed here]
+## ~~CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive"~~ [FOUND 2026-08-04 while regression-flying CL stage B. **FIXED + REGRESSION-FLOWN 2026-08-05**, branch `small-fixes-2` - the has-flown latch below; regression run `2026-08-04_2139`, PASS attempt 1, 158 s]
+
+### Fix (2026-08-05): the fourth conjunct, in the mlib predicate only
+
+The defect lived in exactly one layer - `mlib.cl1_decide`'s `crew-survived-impact`
+predicate (the spec asserts nothing a pad craft can satisfy, and the schema is
+params-only). The `landed` conjunction gained `state.has_flown`, an OBSERVED-state
+latch with two legs and no commanded input anywhere (the commanded-latch rule):
+
+- **Situation leg:** a non-empty observed situation that is neither a spec
+  `landedSituations` value nor `PRE_LAUNCH` (explicitly ground - it is in no spec's
+  landed set, so a naive "not landed" test would latch on the pad and re-open the
+  defect). Debounced at 2 consecutive airborne frames.
+- **Altitude leg:** `altitude - launch_altitude >= 100 m`, where `launch_altitude`
+  is the first finite altitude on a LIVE frame (the craft's own pad reading, 27 m
+  measured) - per-run, per-craft, so a craft that has not moved can never show it.
+
+Sticky once closed (a craft that flew and came back down has still flown - the
+terminal fires precisely when it is back down). Blind frames (`vessel_lost`, empty
+situation) classify `CL1_FRAME_BLIND` and neither advance nor reset the latch, and
+never seed `launch_altitude` (a `vessel_lost` snapshot's 0.0 default would invent a
+gain). The FLIGHT-budget flake gains a named `flight-never-left-the-ground` reason,
+gated on a sticky `ground_seen` set only by an OBSERVED ground frame - an all-blind
+timeout keeps the plain unnamed flake.
+
+**The certifying (MISSION-OK) side deliberately does NOT gate on the latch.** In the
+live-proven PASS `2026-08-04_0538_CL-1-pod-impact` every telemetry read raised
+`Maneuver node editing is not available` (career fixture, un-upgraded Tracking
+Station): all 431 frames arrived blind, `sit=?` on all window lines,
+`peakAltitude: 0.0`, and the MISSION-OK was carried by the roster channel alone.
+Gating certification on a craft-channel latch would red that proven nightly. The
+latch is REPORTED there instead (`hasFlownObserved` / `hasFlownEvidence` /
+`launchAltitude` facets); on the current fixture those read `false / null / null`,
+which is itself the proof CL-1 certifies purely on the roster channel. Corollary:
+the condemn-side conjunct is behaviour-neutral for CL-1 as currently configured (a
+blind frame never satisfied `landed` anyway) - it closes the hole for the
+tolerance-ON / upgraded-fixture case where frames are live.
+
+Cover: 28 new cells in `test_cl1_crew_loss.py` (`Cl1HasFlownLatchTests` + additions),
+including three that reproduce the measured defect with only the conjunct removed -
+the pad shape (situation LANDED, roster Assigned, altitude 27 m) never concludes,
+ends as the NAMED flake, and the end-to-end shell pad-sit returns
+`MISSION-ASSERT-FAIL crew-survived-impact` pre-fix, exactly the measured failure.
+
+**REGRESSION FLOWN (`2026-08-04_2139`, PASS attempt 1, 158 s, MISSION-OK,
+`phasesReached ["PRELAUNCH","FLIGHT","CREW-LOST"]`)** - indistinguishable from the
+prior PASS, which is the point: the latch changed no verdict. The new facets read off
+the run's `_mission.json` are exactly what the paragraph above predicts:
+
+| facet | reading |
+|---|---|
+| `hasFlownObserved` | `false` |
+| `hasFlownEvidence` | `null` |
+| `launchAltitude` | `null` |
+| `peakAltitude` | `0.0` |
+
+All four are the all-blind signature - no live frame ever arrived, so nothing seeded
+`launch_altitude` and nothing advanced the latch - and the MISSION-OK was carried by
+the roster channel alone (`crewLostObserved` value `Dead`, `crewLossUt` 120.52). That
+is the measured proof that CL-1 certifies on the roster channel, and the measured
+reason the certify side is deliberately ungated: had the fourth conjunct gated
+certification, this run would have red.
 
 ### Correcting the first version of this entry
 
@@ -1179,7 +1240,199 @@ file already carried the false positive silently - its own `rec_provisional` is
 NotCommitted with the zombie's pid and StartUT - which is why the bug survived
 unit cover until the harness surfaced it.
 
-## `dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. NOT RESOLVED - fixture change + a re-fly needed]
+## A re-fly fork latches every crew member at `KerbalEndState.Unknown` for the life of the recording [FOUND 2026-08-05, branch `small-fixes-2`, from the CL-3 forensic run `2026-08-04_2136`. FILED, NOT FIXED HERE]
+
+Secondary finding from the `dead-crew-strip` investigation. Benign today; NOT benign for
+a fork that ends `Recovered`, where it turns into a permanent crew leak.
+
+### The latch
+
+Three code facts compose into it:
+
+1. `RewindInvoker.TryRefreshForkSnapshotsFromLiveVessel` (~:390) sets the provisional's
+   `VesselSnapshot` (and `GhostVisualSnapshot`) AT REWIND TIME - correctly, so the fork
+   models the live craft. At that moment `TerminalStateValue` is still `null`: the fork
+   has not ended.
+2. `LedgerOrchestrator.NeedsCrewEndStatePopulation` (~:1248) admits on
+   `rec.VesselSnapshot != null` alone, with no terminal-state condition on that branch.
+   So the very next recalc admits the fork.
+3. `KerbalsModule.InferCrewEndState` returns `Unknown` for a null terminal state, and
+   `PopulateCrewEndStates` then sets `rec.CrewEndStatesResolved = true` (~:707).
+   That flag is SERIALIZED (`RecordingTreeRecordCodec` writes/reads
+   `crewEndStatesResolved`) and `NeedsCrewEndStatePopulation`'s first line treats it -
+   along with a non-null `CrewEndStates` - as a PERMANENT skip.
+
+Net: the fork's crew end states are decided during the rewind, before the fork has an
+outcome, and are never revisited.
+
+### Measured
+
+Run `2026-08-04_2136`: the fork was stamped `terminal=Landed` at `00:37:06.750`, yet the
+committed `KerbalAssignment` reads `Unknown` - inherited from the `00:37:01.680`
+inference, five seconds and one terminal state earlier.
+
+### Why it is benign now and not later
+
+`Unknown` and `Aboard` produce byte-identical reservations
+(`permanent = (endState == Dead)`, `endUT = +inf` for both), so a fork that ends
+`Landed`/`Aboard` behaves correctly by coincidence.
+
+A fork that ends **`Recovered`** does not. `Recovered` is the ONLY end state that sets a
+finite `endUT` (`meta.EndUT`), and it is the state the latch can never reach. So a
+re-flown-and-recovered kerbal keeps `endUT = +inf` and is **reserved forever** - the D12
+`missed-endut-auto-free` surface, arrived at from a new direction.
+
+### Affected paths
+
+- `Source/Parsek/RewindInvoker.cs:365-398`
+- `Source/Parsek/GameActions/LedgerOrchestrator.cs:1243-1290`
+- `Source/Parsek/KerbalsModule.cs:634-708`
+
+### Fix shape (not taken here)
+
+Either do not latch `CrewEndStatesResolved` when `TerminalStateValue == null`, or clear
+it when a terminal state is later stamped. The second is likelier the right one - the
+first leaves genuinely still-active recordings re-inferring on every recalc - but either
+way the change touches the one-shot contract `NeedsCrewEndStatePopulation` was written
+around, so it wants its own branch, its own unit cells over the `Recovered` case, and a
+re-fly that ends in Recovery to prove it.
+
+---
+
+## ~~`dead-crew-strip` is still unclaimable: the CL-3 fixture's crewed ROOT holds an independent reservation on the same kerbal~~ [FOUND 2026-08-03 by CL-3's measurement flight `2026-08-03_1834`. **RESOLVED 2026-08-05**, branch `small-fixes-2`, off the discriminating re-fly `2026-08-04_2136` - fixture hypothesis CONFIRMED, half (ii) RE-PINNED, cell CLAIMED. **GATE-ARMED CONFIRM FLY `2026-08-04_2324`, PASS attempt 1, 64 s - the new required token matched live**]
+
+### Outcome, measured
+
+The crewless-root re-fly (`2026-08-04_2136`, PASS; the run this entry called for)
+settled every open question in it.
+
+**The fixture hypothesis is CONFIRMED.** With the root made crewless, the
+`cl-stack-root`-sourced reservation is GONE from the log entirely - the thing this
+entry was filed about.
+
+**The death-sourced reservation IS released.** Pre-tombstone the log carries
+`Reservation: 'Jebediah Kerman' endUT=INDEFINITE (Dead), recording 'cl-pod-a'`; after
+the tombstone no `(Dead)` / `INDEFINITE` reservation line ever appears again. Half (i)
+held as before (`Tombstoned 1 career actions (... Kerbal=1 ...)`).
+
+**And `1 reservations remain` STILL.** The survivor is
+`endUT=Infinity (Unknown), recording 'rec_c5b16ffb9e7c41b5bfac5f132a00399e'` - the
+re-fly session's OWN live fork, with Jebediah alive and aboard the active vessel - and
+it generates `Stand-in generated: 'Tilan Kerman' (Pilot) for slot 'Jebediah Kerman'`.
+
+**That survivor is correct by design**, and both alternate hypotheses were ruled out
+with code plus log evidence before anything was re-pinned:
+
+- *Not the `Unknown` end state.* `KerbalsModule` sets
+  `permanent = (endState == KerbalEndState.Dead)`, so `Aboard` and `Unknown` produce
+  byte-identical non-permanent reservations (`endUT = +inf` both ways). The
+  `aboard=0/unknown=1` split is a red herring for this outcome.
+- *Not a failed identity resolution.* The fork's pid equals the live vessel's,
+  `CopyInheritedIdentityForFork` copies both pid and guid, and nothing in the
+  reservation path consults vessel identity at all.
+- *Not the fixture, this time.* `RewindInvoker` refreshed the fork snapshots FROM THE
+  LIVE VESSEL (`liveParts=8`), replacing the fixture-inherited surfaces - the identical
+  path a production re-fly runs.
+
+`0 reservations remain` is **structurally unreachable on any same-crew re-fly**:
+`CrewReservationManager` rebuilds from the ELS, `ProcessAction` adds an entry for every
+non-Tourist `KerbalAssignment` with resolvable meta, and the fork always carries the
+kerbal.
+
+### THE INVERSION: the candidate gate this entry proposed was backwards
+
+The old "Fix, for whoever picks this up" section below proposed
+`forbidden = ["Stand-in generated"]`. That gate is **inverted**, and the run proved it.
+
+Pre-tombstone, the pod's Dead row MERGES into the reservation entry and sets
+`IsPermanent = true`, and `PostWalk` `continue`s permanent reservations BEFORE slot
+creation - so a corpse gets no slot and no stand-in. Removing the Dead row (the strip
+WORKING) demotes the entry to temporary, which creates the slot, which generates the
+stand-in. Measured: pre-tombstone `reservations=1 permanent=1 temporary=0 slots=0`;
+post-tombstone `reservations=1 permanent=0 temporary=1 slots=1` + `Tilan`.
+
+So `forbidden = ["Stand-in generated"]` would have passed **exactly when the tombstone
+did nothing** and failed because it worked. Cheap to have shipped, expensive to have
+trusted.
+
+### The re-pin, and why it is not definition-bending
+
+Half (ii) is re-pinned DEATH-SCOPED (registry `[D12]` block, 2026-08-05): after the
+tombstone the recompute leaves **no PERMANENT (death-derived) reservation** for the
+kerbal - observable as `permanent=0` in the `Recomputed after tombstones:` line - while
+reservations sourced from live or committed recordings OUTSIDE the supersede write-set
+(the re-flown continuation itself) legitimately survive as temporary, and the stand-in
+that demotion triggers is the strip WORKING, not a leak.
+
+This is an EXPLICIT re-pin, made with the measurement cited, not a silent
+reinterpretation. It is warranted by the registry's own rationale sentence, which was
+already death-scoped: the tombstone's job is *"stopping the Effective Ledger Set from
+re-deriving a reservation and a stand-in for a corpse the merged timeline says never
+died."* The operative (ii) SENTENCE was name-scoped and fails on this shape; the
+rationale is about the corpse's derivation, not about the name never appearing again.
+
+**It is not the relaxation the section below forbids.** That warning stands: half (i)
+alone is already D9 `tombstones`, and a `dead-crew-strip` meaning the same thing is a
+second name for one fact. `permanent=0` is a separate observation of the ELS recompute
+and it is falsifiable in the right direction - a tombstone that fails to strip the Dead
+row leaves `permanent=1` and REDS the spec.
+
+### What landed
+
+- `CrewReservationManager.RecomputeFromEffectiveLedger` now emits
+  `Recomputed {reason}: N reservations remain (permanent=P temporary=T){detail}.` The
+  bare count could not discriminate a working strip from a no-op; the split can.
+- CL-3 requires `Recomputed after tombstones: [0-9]+ reservations remain \(permanent=0 `
+  and claims `D12 = ["dead-crew-strip"]`.
+- Registry D12 block carries the re-pin and its evidence.
+
+**CONFIRMED IN FLIGHT (`2026-08-04_2324`, PASS attempt 1, 64 s).** The
+`permanent=`/`temporary=` terms first shipped with this branch's DLL, so the token's
+exact SHAPE was derived from the call site rather than flight-observed; the gate-armed
+confirm fly settled it. The line the armed `logContract` matched, as flown:
+
+```
+[Parsek][INFO][CrewReservations] Recomputed after tombstones: 1 reservations remain
+  (permanent=0 temporary=1).
+```
+
+`saveParse status=PASS gating=True armed=['rewind'] mismatches=0` with observed
+`supersedeRows=1 tombstones=1`, and the demotion's stand-in appeared exactly as THE
+INVERSION predicts (`Stand-in generated: 'Macuki Kerman' (Pilot) for slot
+'Jebediah Kerman'` - a different stand-in name than the measurement run's, which is why
+no gate anywhere keys on the name). D12 `dead-crew-strip` is claimed on this reading.
+
+### The trail below: the fixture fix, and the reasoning as it stood BEFORE the run
+
+Kept unedited except where a passage would now read as a live instruction. The wrong
+predictions in it are the point - they are what the run corrected.
+
+#### Fixture fix (2026-08-05): the root is now crewless, and the "crewless" gates were vacuous
+
+`RewindCrewLossFixture.BuildRoot` now authors a crewless `ProbeShip` snapshot in
+place of the crewed `FleaRocket` (pid `210001`, name `CL Stack`, points, group and
+the absent terminal state all unchanged, so every id the spec and the harness sync
+cells read is untouched). The pod is now the tree's only crew source, which is
+exactly the discrimination experiment this entry calls for.
+
+Found while doing it: the pre-existing crewless assertions could NEVER have failed -
+snapshot sidecars are DEFLATE-compressed binary, and
+`Assert.DoesNotContain(DeadCrewName, File.ReadAllText(...))` over compressed bytes is
+vacuously true. Both cells (probe + new root cell
+`TheRootStaysCrewlessSoThePodIsTheOnlyCrewSourceInTheTree`) now decode through
+`SnapshotSidecarCodec.TryLoad` and carry an anti-vacuity anchor (the decoded text
+must CONTAIN the vessel name before the crew-absence assertion runs). Proven by
+negative control: reverting `BuildRoot` to the crewed snapshot reds exactly the new
+cell; the crewless build greens all 11. The root cell also pins that the root still
+carries NO terminal state, so a future author cannot "fix" a surviving reservation by
+stamping one and quietly leaving a second crew source. The RP quicksave needs no
+matching change - its slot VESSELs are cloned from the host save's donor VESSEL, and
+no fixture recording snapshot reaches the RP sidecar (verified empirically).
+
+~~REMAINING: the measurement re-fly~~ **DONE - `2026-08-04_2136`.** The read it asked
+for was written wrong in two places, and both are worth keeping visible: it expected
+`0 reservations remain` (structurally unreachable) and NO `Stand-in generated` (the
+inverted signal). See "Outcome, measured" above for what the run actually said.
 
 The registry pins `dead-crew-strip` as a TWO-part definition: (i) the kerbal-death
 action in the supersede subtree is tombstoned, AND (ii) the ELS recompute that follows
@@ -1189,7 +1442,7 @@ leaves NO surviving reservation or stand-in for that kerbal.
 failing**, so the cell stays unclaimed - claiming it off half a definition is what the
 registry note exists to forbid.
 
-### The measurement
+#### The measurement (`2026-08-03_1834`, the CREWED-root run)
 
 ```
 21:35:20.866  Added 1 supersede relations for subtree rooted at cl-pod-a
@@ -1207,7 +1460,10 @@ terminalState=Destroyed` -> `PopulateCrewEndStates: ... crew=1 aboard=0 dead=1`)
 tombstoned, and the tally's `Kerbal=1` term proves it was the KERBAL row rather than
 some other career action.
 
-### Why (ii) failed. WHETHER it is a product defect is NOT established
+#### Why (ii) failed. WHETHER it is a product defect is NOT established
+
+> DISCRIMINATED 2026-08-05: it WAS the fixture, and the crewless-root run additionally
+> revealed that (ii) itself was mis-stated. See the re-pin above.
 
 The surviving reservation is sourced from **`cl-stack-root`**, and the supersede subtree
 is `subtreeCount=1` rooted at `cl-pod-a`. The root is not in the subtree, so no tombstone
@@ -1227,14 +1483,16 @@ the defect is in the product and the fixture was a red herring. Until that run e
 a finding - and it should not be cited as one. (B9's root is also terminal-state-less, but B9 is crewless
 throughout, so the question never arose there.)
 
-### Fix, for whoever picks this up
+#### ~~Fix, for whoever picks this up~~ (DONE 2026-08-05; the candidate gate it proposed was WRONG)
 
 Make the pod the ONLY crew source inside the tree, so the pod's tombstone is the only
 thing reserving that kerbal. Cheapest version: give `BuildRoot` a crewless
 `ProbeShip` snapshot (the root models the stack, and the crew rides the pod). Then
 re-fly; if (ii) then holds, D12 `dead-crew-strip` becomes claimable with a gate on the
-recompute half - candidate: `forbidden = ["Stand-in generated"]` plus a
-`Recomputed after tombstones: 0 reservations remain` required token.
+recompute half - ~~candidate: `forbidden = ["Stand-in generated"]` plus a
+`Recomputed after tombstones: 0 reservations remain` required token.~~ **Both halves of
+that candidate are wrong** - the count is structurally unreachable and the stand-in
+signal is inverted. The gate that shipped is `permanent=0`; see THE INVERSION above.
 
 Do NOT instead relax the registry definition to just half (i). The tombstone half is
 already claimed as D9 `tombstones`; a `dead-crew-strip` that means the same thing is a
@@ -1469,9 +1727,220 @@ One unit contract, pinned by a doc comment on `OrbitSegment`: KSP-native degrees
 
 ---
 
-## BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration) [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. STILL NOT FIXED - the calibration flight has not been flown]
+## ~~BallisticExtrapolator frame mismatches (follow-up to ORBITSEGMENT-ANGLE-UNITS; needs in-game calibration)~~ [RE-VERIFIED + PINNED IN CODE 2026-08-01, branch `small-fixes-batch`. MEASUREMENT INSTRUMENT LANDED 2026-08-05, branch `small-fixes-2`. **CALIBRATION MEASURED on H9 run `2026-08-04_2142` and ALL FOUR SITES FIXED 2026-08-05, branch `small-fixes-2`**. **CONFIRM RUN `2026-08-04_2224` CONFIRMED SITE 1 AND RED'D SITE 4 AT 131.066 deg; the residual was DIAGNOSED HEADLESSLY and FIXED as SITE 5, 2026-08-05, same branch**. **FULLY RESOLVED: second confirm run `2026-08-04_2323`, PASS attempt 1, 49 s, BOTH PROBES AT 0.000**]
 
-### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two
+### The arc, end to end (all five sites closed)
+
+| Run | Verdict | Site 1 (`Site1FrameProbe`) | Site 4 (`Site4AttitudeRoundTrip`) |
+|---|---|---|---|
+| `2026-08-04_2142` (measurement) | `PARSEK-FAIL failed=2`, by design | `dLat=34.301341 dLon=34.321726` | `angleError=133.123` |
+| `2026-08-04_2224` (confirm #1) | `PARSEK-FAIL failed=1` | `dLat=0.000000 dLon=-0.000001` - EXACT | `angleError=131.066` - residual |
+| `2026-08-04_2323` (confirm #2) | **PASS attempt 1, 49 s** | `dLat=0.000000 dLon=-0.000001` | **`angleError=0.000`** |
+
+Sites 1-4 were fixed on the `_2142` reading; confirm #1 proved site 1 and isolated the
+site-4 residual, which was diagnosed HEADLESSLY off the two logged runs (no third
+flight) as the `Planetarium.Zup` polar rotation and fixed as SITE 5 (ELEMENT FRAME);
+confirm #2 closed it. On confirm #2 the site-4 `resolved` quaternion is BIT-IDENTICAL
+to the vessel's own - the round trip does not merely land inside the 5 deg tolerance,
+it cancels exactly, which is what the closed form predicts and what a tolerance alone
+would not have told us. `harness/scenarios/H9-incomplete-ballistic.toml` met its
+unchanged `total=10 passed=10 failed=0 skipped=0` pin; both probes are now PERMANENT
+frame-regression guards.
+
+Two findings the site-5 cross-check turned up remain OPEN and are deliberately not
+fixed here - each is wider than the seam that was red and wants its own in-game proof:
+"`TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame" (findings
+A and B) and "`ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world
+radial", both below.
+
+### The site-4 residual: diagnosed, and fixed as site 5 (phase 3)
+
+Confirm run `2026-08-04_2224` split the two probes:
+
+```
+Site1FrameProbe:          dLat=0.000000 dLon=-0.000001        -> site 1 CONFIRMED FIXED (was 34.30 / 34.32)
+Site4AttitudeRoundTrip:   angleError=131.066 tolDeg=5.000     -> still red (was 133.123)
+```
+
+The `seededOfr` quaternion changed between the runs, so the phase-2 producer change took
+effect; the round trip simply did not cancel. **The 2 deg the error moved is the tell:**
+correcting the radial half of the producer's frame should have swung a `LookRotation`'s
+roll by far more than that unless the two frames disagreed on their FORWARD axis - the
+velocity - as well.
+
+**Diagnosis, taken off the two logged runs and confirmed against the decompiled stock
+source, with no third flight.** Decomposing the logged quaternions
+(`orbFrame = worldRot * Inverse(ofr)` for the producer, `resolved * Inverse(ofr)` for the
+consumer) recovers each side's actual state:
+
+| | plane angle of radial | plane angle of velocity | polar component of radial |
+|---|---|---|---|
+| producer (`TwoBodyOrbit` from segment elements) | 15.806 deg | 105.806 deg | -0.001700 |
+| consumer (live stock `Orbit`) | 145.796 deg | 235.796 deg | -0.001697 |
+
+Position and velocity are rotated by **the same 230.01 deg**, the polar component survives
+to 3e-6, and `r . v = 0` holds on both sides. That is the exact signature of a rotation
+about the POLAR AXIS and rules out every other candidate - a wrong true anomaly moves the
+state along the orbit and preserves none of those three.
+
+**Closed form.** `BallisticExtrapolator.TwoBodyOrbit`'s element-to-state map and stock
+`Orbit`'s are arithmetically identical - the same 3-1-3 perifocal rotation
+(`Planetarium.CelestialFrame.SetFrame` matches `RotateFromPerifocal` term for term), the
+same `M = mEp + n(UT - epoch)` convention (stock's `ObTAtEpoch = mEp / meanMotion` and its
+`(-pi, pi]` wrap are equivalent to the `[0, 2pi)` one), the same handedness, the same
+velocity scale `sqrt(mu / p)` - **except that stock passes every state vector it returns
+through `Planetarium.Zup.WorldToLocal`, and `TwoBodyOrbit` does not.** `Planetarium.Zup`
+is `PlanetaryFrame(0, 90, inverseRotAngle)`, which reduces to a pure rotation about the
+polar axis by `inverseRotAngle` - the identity only when that angle is zero. Equivalently:
+**KSP's `LAN` is measured from `Planetarium.right`, not from the raw +x of the element
+frame.** The lead handedness / `.xzy`-reflection hypothesis is FALSE, and is now pinned
+false by a test.
+
+Element-seeded propagation crosses that boundary; state-vector-seeded propagation does
+not (it seeds from stock's own `getRelativePositionAtUT` / `getOrbitalVelocityAtUT`, so it
+recovers elements in the Zup frame and stays there). That is why site 1 - fed a stock
+relative position - came back exact while site 4 - fed a segment's elements - did not.
+
+**Site 5 (ELEMENT FRAME), what shipped.** The name means THIS crossing; it is not the
+deferred "`ComputeOrbitalRotation` mixes a Zup velocity with a world radial" entry below,
+which is also called "the fifth frame mismatch" and is untouched.
+`IncompleteBallisticSceneExitFinalizer.ToStockOrbitFrame`
+applies `Planetarium.Zup.WorldToLocal` to an element-seeded state vector, gated by
+`TryApplyCelestialFrame`'s orthonormality check (a default-constructed `CelestialFrame` -
+what `Planetarium.Zup` is in any process that never ran `Planetarium.Awake`, including the
+test run - has all three axes zero and would collapse every vector to the origin, so the
+gate declines and passes the vector through unchanged). The site-4 producer and its
+`ResolveWorldRotation` decode both reach their state through
+`TryPropagateInStockOrbitFrame` instead of raw `TryPropagate`. **Site 2 is deliberately
+NOT changed**: its seed already comes off the live orbit, so it is already in stock's
+frame.
+
+**Headless coverage - the cross-check IS the diagnosis, not a by-product of the fix.**
+
+- `StockOrbitElementFrameParityTests` carries a TEST-ONLY, elliptic-only transcription of
+  stock's element-to-state chain from `docs/decompiled/orbit.cs` plus the separately
+  decompiled `Planetarium.CelestialFrame`. It pins: (a) with `Zup` identity the two
+  propagators agree to 1e-9 relative at every element combination - the negative result
+  that kills the handedness hypothesis; (b) `stockState == Zup.WorldToLocal(tboState)` for
+  both halves at every UT - the closed form; (c) the rotation preserves the polar
+  component, the magnitudes and the flight-path angle, and shifts both halves' plane angle
+  by the same amount; (d) the MEASURED reading reproduced - the pad fixture the flight
+  actually ran (a=300.8 km, e=0.9948 at apoapsis, the surface-rotation ellipse of a
+  prelaunch vessel) lands in a 125-140 deg band and collapses below 0.01 deg once the
+  producer is corrected.
+- `StockOrbitFrameSeamTests` drives the REAL production producer with a REAL non-identity
+  `Planetarium.Zup` installed (it is a plain public static field, so a headless test can
+  install what `Awake` installs) and requires the seeded attitude to round-trip through a
+  STOCK-frame consumer at four different `inverseRotAngle` values including the measured
+  230.01 deg, with an anti-vacuity half requiring the pre-fix raw-element-frame encoding to
+  break by more than 10 deg.
+
+**Why the pre-existing headless round-trip cell stayed green through both red flights**,
+recorded because it is the reusable lesson:
+`SceneExitFinalizationIntegrationTests.SeedPredictedSegmentOrbitalFrameRotations_RoundTripsThroughThePlaybackConsumerFrame`
+models the consumer by propagating through the SAME `TwoBodyOrbit` the producer uses, so
+any disagreement between that propagation and stock's cancels inside the fixture. A
+round-trip fixture that reaches both ends through one implementation can only test the
+encoding, never the frame. Its docstring now says so and points at the new cell.
+
+**Two findings the cross-check turned up are NOT fixed here** - they are wider than site 4
+and get their own entry: see "TwoBodyOrbit's element-seeded propagation works in KSP's raw
+element frame" below.
+
+**CONFIRMED IN FLIGHT (`2026-08-04_2323`, PASS attempt 1, 49 s).** The prediction this
+section made - site 4 from 131.066 deg to under 5 deg, closed form says ~0 - measured
+`angleError=0.000`, with `resolved` bit-identical to `vessel`. Site 1 held at
+`dLat=0.000000 dLon=-0.000001`. `harness/scenarios/H9-incomplete-ballistic.toml` met its
+unchanged `total=10 passed=10 failed=0 skipped=0` pin and both probes are now permanent
+frame-regression guards. If either ever moves again, read the `seededOfr` / `resolved`
+pair in the `Site4AttitudeRoundTrip:` line against the decomposition table above - do NOT
+loosen the 5 deg tolerance.
+
+### The calibration was measured, and all four sites are fixed (phase 2)
+
+The instrument described further down took its reading on H9 run `2026-08-04_2142`
+(`PARSEK-FAIL failed=2`, BY DESIGN - the two probe cells):
+
+```
+Site1FrameProbe: measured lat=34.204133 lon=-40.235958 vesselLat=-0.097208 vesselLon=-74.557683 dLat=34.301341 dLon=34.321726 tolDeg=0.010000 body=Kerbin ut=21.720 zup=(-496283.195,337326.756,-1018.081)
+Site4AttitudeRoundTrip: angleError=133.123 tolDeg=5.000
+```
+
+**The site-1 offset is arithmetically exact for the axis swap**, which is what makes the
+convention MEASURED rather than derived: reading `zup.y` as the polar axis gives
+`asin(337326.756 / 600072.818) = 34.2041330 deg` - the measured wrong latitude to six
+decimals - while the z-polar (i.e. `.xzy`) reading gives `-0.0972078`, the vessel's own
+latitude to six decimals. `.xzy` it is. Site 4's 133.123 deg confirms the
+producer/consumer frame disagreement it was written to measure. Both readings are
+reproduced closed form by
+`BallisticExtrapolatorFrameTests.Site1_TheInGameProbeReadingIsReproducedByTheTwoPolarAxisReadings`.
+
+What shipped, per site (each `FRAME MISMATCH #n, PINNED NOT FIXED` banner replaced by a
+`FRAME SITE #n, FIXED` contract statement citing the run id):
+
+| # | Site | Change |
+|---|------|--------|
+| 1 | `ResolveBodyFixedSurfaceCoordinates` | `body.position + position` -> `body.position + SwizzleZupBodyRelativeToWorld(position)` |
+| 2 | `TryBuildStartStateFromVessel` | `getPositionAtUT` -> `getRelativePositionAtUT`; the orbital-frame seed takes `position.xzy` |
+| 3 | `ParentFrameState` resolver | `bodyOrbit.getPositionAtUT` -> `getRelativePositionAtUT` |
+| 4 | `SeedPredictedSegmentOrbitalFrameRotations` + its `ResolveWorldRotation` decode | pass `position.xzy` (world radial); velocity untouched (Zup) |
+
+`IncompleteBallisticSceneExitFinalizer.SwizzleZupBodyRelativeToWorld` is the one named
+home of the convention (the y/z swap is its own inverse, so it converts either way).
+
+**Site 4 is Option A: the PRODUCER was moved to match today's CONSUMER.**
+`ParsekFlight.ComputeOrbitalRotation` builds its frame from a WORLD radial and a Zup
+velocity, so the finalizer now encodes against exactly that and the round trip cancels.
+The consumer is untouched. Its own internal mix is a separate, wider finding - see
+"`ComputeOrbitalRotation` mixes a Zup velocity with a world radial" below.
+
+**Site 2 owed the destroyed-vessel path a re-verification, and it needed a compensating
+change.** The old absolute-world seed collapsed to `|r| ~ 0` under KSP's vessel-centred
+floating origin, manufacturing `alt ~ -Radius` - which is what `SubSurfaceStart`
+classified destroyed `NullSolver` vessels on (and, per the early-ascent note already in
+that file, what misfired on healthy ascending rockets). Fixing the seed removes that
+accident, so the same population is now carried by an explicitly named route:
+`ExtrapolationFailureReason.NoSolverStart`, raised by
+`IncompleteBallisticSceneExitFinalizer.IsNoSolverDestroyedFallback` when the LIVE-ORBIT
+FALLBACK was taken with a `NullSolver` snapshot and the extrapolator's own sub-surface
+guard did not already fire. It reproduces the pre-fix shape exactly - Destroyed at the
+fallback's own UT, no appended segments, predicted tail discarded - and flows through the
+SAME `PopulateSubSurfaceDestroyedDetails` -> recorded-point suppression -> recovery
+machinery, so EVA children and decoupled debris keep the protection they have always had
+(the suppression's altitude gate applies to the sub-surface route only, since the
+no-solver route makes no altitude claim). `ShouldApplyExtrapolatorResult`'s carve-out now
+covers both fingerprints via `IsDestroyedVesselStartFingerprint`; without that the verdict
+would be silently rewritten `SUB_ORBITAL` by `DetermineTerminalState(v.situation, v)`,
+which is exactly what that carve-out's docstring warns about.
+
+**Headless coverage added:** the site-1 swizzle identity, the measured-reading
+reproduction, and the two `GetApproximateLatitudeLongitude` copies agreeing
+(`BallisticExtrapolatorFrameTests`); site 3's parent-relative-vs-absolute handover driven
+through the real escape path
+(`BallisticExtrapolatorTests.ParentFrameState_MustBeParentRelative_AbsoluteWorldDisplacesTheSoiHandover`);
+site 4's producer/consumer round trip with a pre-fix anti-vacuity half, and the site-2
+`NoSolverStart` classification / suppression / anti-over-reach cells
+(`SceneExitFinalizationIntegrationTests`). Writing the agreement test turned up that the
+two `GetApproximateLatitudeLongitude` copies disagreed by ~1e-5 deg (about a metre of
+ground track) because one converted through the FLOAT `Mathf.Rad2Deg`; that copy now uses
+the file's double `RadToDeg`.
+
+**Known consequence, deliberately not migrated:** predicted `OrbitSegment`s already
+written to disk by earlier versions carry the OLD orbital-frame convention and will render
+with the frame difference, exactly as ORBITSEGMENT-ANGLE-UNITS decided for its own
+radian-valued legacy segments. Position is unaffected; this is attitude only.
+
+**[HISTORY - the confirm re-fly this paragraph called for.]**
+`harness/scenarios/H9-incomplete-ballistic.toml` is UNCHANGED and still pinned
+`total=10 passed=10 failed=0 skipped=0`; it was RED BY DESIGN and is now expected to
+actually pass. Its prose, and `docs/dev/autotest-status.md`, are updated after that
+flight - not here. [SUPERSEDED by phase 3 above: the confirm run flew as
+`2026-08-04_2224`, confirmed site 1 exactly, and left site 4 at 131.066 deg. Phase 3
+diagnosed that residual as site 5 and fixed it, and the SECOND confirm re-fly flew as
+`2026-08-04_2323` - PASS, both probes at 0.000. Nothing here is pending; the spec's
+prose and the status doc are updated as of 2026-08-05.]
+
+### Status 2026-08-01: all four re-verified present, and the finding SPLITS in two [HISTORY - all four are fixed as of 2026-08-05; the banners now read `FRAME SITE #n, FIXED`]
 
 Each site was re-read against current `HEAD` and carries a `FRAME MISMATCH #n,
 PINNED NOT FIXED` comment naming its frame, its likely correction, and the fact that
@@ -1500,7 +1969,7 @@ The split matters because it says which half is actually blocked on a flight:
   axis/sign mapping between the two frames, which is exactly what must be measured
   in-game rather than derived.
 
-### The calibration this is waiting on
+### The calibration this is waiting on [HISTORY - TAKEN 2026-08-04, H9 run `2026-08-04_2142`; the instrument below replaced steps 1-2 and read the answer]
 
 One flight answers all four, because they share the frame:
 
@@ -1516,6 +1985,64 @@ One flight answers all four, because they share the frame:
 
 Until that flight happens, do not "fix" any of the four on paper - that is the
 instruction this entry has carried since the units audit, and it still stands.
+[DISCHARGED 2026-08-04: the flight happened, the numbers are at the top of this entry,
+and the fix landed ON those numbers. The instruction is retained verbatim because it is
+the reason the fix is trustworthy - nothing here was derived on paper.]
+
+### The measurement instrument now exists (2026-08-05, phase 1 - MEASURES, does not fix) [phase 2 FIXED all four, phase 3 fixed site 5; the two cells are now REGRESSION GUARDS and PASSED on `2026-08-04_2323`]
+
+The step above that says "compare against the ACTUAL crash site" no longer needs a
+bespoke flight to be readable: the calibration is now an INSTRUMENT that any
+FLIGHT-scene in-game batch reports. Two `IncompleteBallistic` cells in
+`Source/Parsek/InGameTests/IncompleteBallisticRuntimeTests.cs`:
+
+- `FrameCalibration_Site1_SurfaceCoordinatesReproduceLiveVesselLatLon` drives the
+  PRODUCTION site-1 path - `TryBuildExtrapolationBodies` (visibility bumped
+  private -> internal, the only change to the finalizer) then that body's
+  `SurfaceCoordinates`, i.e. `ResolveBodyFixedSurfaceCoordinates` - with the
+  extrapolator's contract-frame position (`orbit.getRelativePositionAtUT`) and
+  compares the result against the live `Vessel.latitude` / `longitude`. It probes at
+  `ut == referenceUT` so the de-rotation term is exactly zero and the POSITION frame
+  is the only thing measured. Tolerance 0.01 deg, longitude wrap-safe.
+- `FrameCalibration_Site4_PredictedSegmentAttitudeRoundTripsThroughPlayback` runs the
+  real producer (`FlightRecorder.CreateOrbitSegmentFromVessel` ->
+  `SeedPredictedSegmentOrbitalFrameRotations`) against the real consumer
+  (`ParsekFlight.ComputeOrbitalRotation`) at the same UT and measures the round-trip
+  attitude error against `vessel.transform.rotation`. Tolerance 5 deg.
+
+[SUPERSEDED 2026-08-05: the fix landed and both cells PASSED on confirm run
+`2026-08-04_2323`, so a failure from here on is a genuine frame regression. Everything
+else in this paragraph still holds - the failure text and the Info lines re-take the
+reading automatically.]
+BOTH ARE EXPECTED TO FAIL until the fix lands, and that is the design: each failure
+message prints both sides of the comparison and the delta with InvariantCulture, and
+each also emits a grep-stable Info line so the numbers survive in KSP.log alone:
+
+```
+[Parsek][INFO][IncompleteBallistic] Site1FrameProbe: measured lat=... lon=... vesselLat=... vesselLon=... dLat=... dLon=... tolDeg=... body=... ut=... zup=(...)
+[Parsek][INFO][IncompleteBallistic] Site4AttitudeRoundTrip: angleError=... tolDeg=... seededOfr=(...) resolved=(...) vessel=(...) body=... ut=...
+```
+
+Consequence to read correctly: `harness/scenarios/H9-incomplete-ballistic.toml` is
+re-pinned to `total=10 passed=10 failed=0 skipped=0` and therefore REDS BY DESIGN
+until the four sites are corrected. That red is the instrument reporting, not a
+regression. Do NOT clear it by loosening the probes' tolerances or by trying to pin
+`failed=2` (the harness derives `passed = total - attribute_skipped` with
+`failed=0` and rejects the latter).
+[2026-08-05: the sites ARE corrected and the pin WAS MET, on confirm run
+`2026-08-04_2323` (PASS attempt 1, 49 s, `failed=0`). The spec file itself is
+deliberately unchanged - the pin was always the right one; only the reason it red'd is
+gone.]
+
+The headless half is `Source/Parsek.Tests/BallisticExtrapolatorFrameTests.cs` [and since
+phase 2 that file ALSO carries the site-1 cells, which DO encode the swizzle convention -
+it is measured now, not assumed]:
+closed-form pins on `TwoBodyOrbit.GetStateAtUT`'s element-to-inertial map (inc = 0
+=> z is exactly 0 in position and velocity and the normal is exactly +z;
+inc = 90 => the normal lies in the xy-plane along `(sin LAN, -cos LAN, 0)` and the
+position sweeps the full z extent). Those pin the CONTRACT, pass NOW, and must keep
+passing after the fix - none of them asserts the current wrong behaviour of any
+consumer site, and none encodes the swizzle convention the probes exist to measure.
 
 ### The original finding
 
@@ -1526,7 +2053,106 @@ Found during the units audit, deliberately NOT fixed there because world-frame s
 3. The `ParentFrameState` resolver in `TryBuildExtrapolationBodies` returns `bodyOrbit.getPositionAtUT(ut)` (absolute world) where SOI entry/exit logic compares against Zup parent-relative vessel states; should likely be `getRelativePositionAtUT(ut)`.
 4. `SeedPredictedSegmentOrbitalFrameRotations` computes `orbitalFrameRotation` from `TryPropagate`'s Zup-frame vectors, while playback's `ParsekFlight.ComputeOrbitalRotation` resolves that rotation against `orbit.getPositionAtUT` world-frame positions - predicted-segment ghost attitude is off by the frame difference (cosmetic; found by the PR #1386 review).
 
-Each is a behavioral change on live extrapolation paths; fix together with an in-game proof (a known-impact descent whose recorded terminal lat/lon can be compared against the actual crash site).
+Each is a behavioral change on live extrapolation paths; fix together with an in-game proof (a known-impact descent whose recorded terminal lat/lon can be compared against the actual crash site). [DONE 2026-08-05: all four fixed together, on the in-game proof taken by the phase-1 instrument on H9 run `2026-08-04_2142`. See the top of this entry.]
+
+---
+
+## `TwoBodyOrbit`'s element-seeded propagation works in KSP's raw element frame, not stock `Orbit`'s (two findings; deferred, each needs its own PR) [FOUND 2026-08-05 by the headless cross-check that diagnosed the site-4 residual, branch `small-fixes-2`]
+
+Both fall out of `StockOrbitElementFrameParityTests`, the transcription of stock's
+element-to-state chain written to diagnose site 4 (see "BallisticExtrapolator frame
+mismatches" -> phase 3 for the closed form and the measurement). Neither is fixed there:
+site 5 corrects the ONE seam that was red, and each of these is wider than that seam.
+
+**Finding A - the frame.** `TwoBodyOrbit.TryCreateFromSegment` reads a segment's KSP-native
+elements and propagates without stock's `Planetarium.Zup.WorldToLocal`, so EVERY
+element-seeded state it produces is stock's rotated about the polar axis by
+`Planetarium.inverseRotAngle` (MEASURED at 230.01 deg in H9 run `2026-08-04_2224`). Two
+consequences, MOSTLY longitude-shaped (a polar rotation preserves radius, altitude and
+latitude, which is why nothing altitude-driven ever looked wrong) - but NOT strictly
+longitude-only on a multi-body tail: the vessel state stays in the raw element frame
+while the SOI ephemerides (`ParentFrameState`, site-3-corrected to stock's frame) do
+not, and vessel-to-child-body distance is not invariant when only one of the two is
+rotated, so a segment-seeded tail's child-encounter geometry can shift beyond a pure
+longitude offset:
+
+- `TryBuildStartStateFromSegment` seeds the extrapolation loop with a raw-frame state;
+  `TwoBodyOrbit.TryCreate` then re-derives elements from it and the whole tail stays in the
+  raw frame, so the `TrajectoryPoint`s `ResolveBodyFixedSurfaceCoordinates` writes carry a
+  longitude rotated by that angle. Extrapolated ballistic tails finalized from a SEGMENT
+  (rather than from the live vessel, which seeds correctly - see site 2) land at the wrong
+  longitude.
+- The mirror image: `CreateSegment` writes the extrapolator's own elements back into
+  `OrbitSegment.longitudeOfAscendingNode`, but playback feeds those to a stock `Orbit`,
+  which applies `Zup` again. Extrapolator-authored segments replay rotated.
+
+The clean fix is the pair `TryCreateFromSegment: LAN -= zupAngle` /
+`CreateSegment: LAN += zupAngle`, which makes the element-seeded path agree with the
+state-vector-seeded path and with site 1 in one place. It is deliberately NOT taken here:
+it moves every extrapolated tail's ground track and every extrapolator-authored segment's
+replay orientation, which wants its own in-game proof (an impact whose recorded lat/lon is
+compared against the crash site - the same standard the four original sites were held to),
+not a headless argument.
+
+**Finding B - the solver.** Above e = 0.8 stock dispatches to
+`solveEccentricAnomalyExtremeEcc` (8 fixed Laguerre-style iterations seeded at
+`M + 0.85 e sign(sin M)`); `TwoBodyOrbit` keeps plain Newton seeded at `E = M`. At
+e = 0.9948 - not exotic: that is the surface-rotation ellipse of EVERY landed or prelaunch
+vessel, and the exact fixture the H9 probes fly on - Newton fails to converge inside its 16
+iterations near periapsis and lands double-digit degrees of true anomaly from the root,
+peaking around 134 deg over a mean-anomaly sweep. Stock stays exact throughout. Pinned as a
+DISAGREEMENT by
+`StockOrbitElementFrameParityTests.HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver`,
+so a later fix flips a test instead of being invisible. Not the site-4 cause (that was
+Finding A, proven by the polar-component and `r . v` invariants the measurement preserved),
+but it is a real robustness gap in the same propagator and should be fixed with it.
+
+---
+
+## `ParsekFlight.ComputeOrbitalRotation` mixes a Zup velocity with a world radial (the FIFTH frame mismatch; deferred, needs its own PR) [FOUND 2026-08-05 while fixing the four sites above, branch `small-fixes-2`] [NAMING: "the fifth" here is this consumer-side mix. The element-frame crossing fixed on 2026-08-05 is called SITE 5 (ELEMENT FRAME) in code and in the entry above; they are different findings]
+
+### What it is
+
+`ParsekFlight.ComputeOrbitalRotation` (`Source/Parsek/ParsekFlight.cs`, the `hasOfr`
+branch) builds the orbital frame as
+`LookRotation(velocity, (worldPos - bodyPosition).normalized)`. Its callers pass
+`velocity` from `orbit.getOrbitalVelocityAtUT` - **Zup-swizzled body-relative** - while
+`worldPos` comes from `orbit.getPositionAtUT` and `bodyPosition` from `body.position`, so
+the radial is **Y-up world**. The two arguments of one frame are in two different frames.
+The `spinning` branch above it does the same thing with `velAtStart` / `posAtStart`.
+
+The RECORDER authors its orbital-frame rotations in a consistent world/world frame -
+`FlightRecorder.CreateOrbitSegmentWithRotation` (~:9640) and the SOI-change capture
+(~:9766) both use `orbVel = v.obt_velocity` (world) with
+`radialOut = (v.CoMD - v.mainBody.position).normalized` (world). So every recorder-authored
+`orbitalFrameRotation` is decoded on playback against a frame whose forward axis is in a
+different frame from the one it was encoded with.
+
+### Why it was NOT fixed with the other four
+
+- **Five call sites share the consumer**, not one: `ParsekFlight.cs` (~:18816, ~:21822,
+  ~:22649), `FlightRecorder.cs` (~:8379), `BackgroundRecorder.cs` (~:5776),
+  `RecordedRelativeAnchorPoseResolver.cs` (~:352),
+  `Rendering/ProductionAnchorWorldFrameResolver.cs` (~:592) - every one of them feeds the
+  same Zup velocity + world radial pair, so a fix is a single decision applied in six
+  places, each with its own fixture.
+- **It reaches EVERY EXISTING RECORDING's orbit-only ghost attitude**, not just predicted
+  tails: recorder-authored segments are the bulk of the population. Changing the decode
+  changes how already-recorded flights replay.
+- Whichever side moves, the answer has to be proven the way the four above were - measured
+  in-game against a live vessel's attitude, not derived - so it owns its own proof burden
+  and its own PR.
+
+### Where it stands
+
+Site 4 of the entry above deliberately made the PRODUCER match this CONSUMER (Option A)
+rather than touching it, so predicted-tail attitude round-trips today. That leaves exactly
+one convention question open, in one function, with the recorder on the same side as the
+predicted tails. One further consumer is in the same family and is NOT covered by site 4:
+`BallisticExtrapolator.ReframeOrbitalFrameRotation`, used at the two SOI branches of
+`Extrapolate`, still decodes and re-encodes against a RAW Zup radial. Exposure is small
+(attitude only, and only for an extrapolation that both seeds an orbital-frame rotation
+and crosses an SOI), but it belongs to this entry's fix, not to the four above.
 
 ---
 

@@ -643,7 +643,10 @@ namespace Parsek.Tests
             AssertLogHasCutoffSummary(logLines, 3, 1, "0");
             Assert.Contains(logLines, l =>
                 l.Contains("[CrewReservations]")
-                && l.Contains("Recomputed after cutoff walk: 1 reservations remain")
+                // Aboard reserves open-ended but NON-permanent, so the split reads
+                // temporary=1 - the permanent term is reserved for Dead rows.
+                && l.Contains("Recomputed after cutoff walk: 1 reservations remain "
+                    + "(permanent=0 temporary=1)")
                 && l.Contains("cutoffUT=0"));
         }
 
@@ -692,7 +695,8 @@ namespace Parsek.Tests
             AssertLogHasCutoffSummary(logLines, 5, 3, "200");
             Assert.Contains(logLines, l =>
                 l.Contains("[CrewReservations]")
-                && l.Contains("Recomputed after cutoff walk: 2 reservations remain")
+                && l.Contains("Recomputed after cutoff walk: 2 reservations remain "
+                    + "(permanent=0 temporary=2)")
                 && l.Contains("cutoffUT=200"));
         }
 

@@ -1064,9 +1064,28 @@ namespace Parsek
                 kerbals.ApplyToRoster(HighLogic.CurrentGame?.CrewRoster);
 
             int remaining = kerbals.Reservations.Count;
+
+            // Permanent/temporary split. The bare count cannot discriminate a
+            // tombstone that released a death-derived reservation from one that
+            // did nothing: a same-crew re-fly always leaves at least one entry
+            // (ProcessAction adds one for every surviving KerbalAssignment), so
+            // "0 reservations remain" is structurally unreachable there. What the
+            // release actually moves is IsPermanent — the Dead row's merge sets it
+            // true, and stripping that row demotes the entry to temporary. Emit
+            // both counts so the strip is observable from the log alone.
+            int permanent = 0;
+            int temporary = 0;
+            foreach (var reservation in kerbals.Reservations.Values)
+            {
+                if (reservation == null) continue;
+                if (reservation.IsPermanent) permanent++;
+                else temporary++;
+            }
+
             string detailPart = string.IsNullOrEmpty(detail) ? "" : $" ({detail})";
             ParsekLog.Info("CrewReservations",
-                $"Recomputed {reason}: {remaining} reservations remain{detailPart}.");
+                $"Recomputed {reason}: {remaining} reservations remain " +
+                $"(permanent={permanent} temporary={temporary}){detailPart}.");
         }
 
         #endregion

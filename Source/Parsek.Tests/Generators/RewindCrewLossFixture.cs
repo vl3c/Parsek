@@ -48,6 +48,34 @@ namespace Parsek.Tests.Generators
     /// while still producing a green-looking Dead row. The other two recordings keep
     /// vessel snapshots because they are not destroyed.
     /// </para>
+    ///
+    /// <para>
+    /// THE POD IS THE TREE'S ONLY CREW SOURCE, and that is what makes the SECOND
+    /// half of the registry's <c>dead-crew-strip</c> definition measurable at all.
+    /// The cell is pinned as (i) the death action is tombstoned AND (ii) the ELS
+    /// recompute that follows leaves no PERMANENT (death-derived) reservation for
+    /// that kerbal - <c>permanent=0</c> in the <c>Recomputed after tombstones:</c>
+    /// line, RE-PINNED 2026-08-05 off the discriminating re-fly this fixture change
+    /// bought. (The 2026-08-02 wording was NAME-scoped and unsatisfiable by any
+    /// same-crew re-fly: the re-flown fork always carries the kerbal alive, so its
+    /// own temporary reservation legitimately survives. See the registry's D12
+    /// block.) CL-3's measurement flight <c>2026-08-03_1834</c> measured (i) holding
+    /// and (ii) failing, with the surviving reservation sourced from
+    /// <see cref="RootRecordingId"/> - which is OUTSIDE the supersede subtree
+    /// (<c>subtreeCount=1</c>, rooted at <see cref="PodRecordingId"/>), so no
+    /// tombstone of the pod could ever release it. The cause was this fixture: the
+    /// root carried a CREWED <c>FleaRocket</c> snapshot naming the same kerbal with
+    /// no terminal state, so <c>KerbalsModule.InferCrewEndState</c> returned
+    /// <see cref="KerbalEndState.Unknown"/> and the root held an indefinite
+    /// (<c>endUT=Infinity</c>) reservation on him independently of the pod.
+    /// The root is therefore a CREWLESS <c>ProbeShip</c> now: it models the stack,
+    /// and the crew rides the pod. Do not re-crew it - a second crew source in the
+    /// tree adds a confound ON TOP of the fork's own legitimate reservation, which is
+    /// what made the fixture-vs-product question undecidable in the first place.
+    /// Confirmed by <c>2026-08-04_2136</c>: with the root crewless, the root-sourced
+    /// reservation is gone and the death-sourced one IS released.
+    /// (B9's root stays crewed; B9 never asks this question.)
+    /// </para>
     /// </summary>
     public static class RewindCrewLossFixture
     {
@@ -57,7 +85,10 @@ namespace Parsek.Tests.Generators
         /// <summary>Weak link to the split BranchPoint (diagnostic only).</summary>
         public const string BranchPointId = "bp_cl_root";
 
-        /// <summary>Pre-split crewed ascent recording id (the tree root).</summary>
+        /// <summary>
+        /// Pre-split ascent recording id (the tree root). CREWLESS - see the class
+        /// docstring: the pod is the tree's only crew source.
+        /// </summary>
         public const string RootRecordingId = "cl-stack-root";
 
         /// <summary>Surviving probe upper stage: slot 0, the focus slot at the split.</summary>
@@ -163,8 +194,19 @@ namespace Parsek.Tests.Generators
 
         // ---- recording builders -------------------------------------------
 
-        // Pre-split crewed ascent (root): a short vertical climb from the pad, ending
-        // at the split UT where the pod separates from the upper stage.
+        // Pre-split ascent (root): a short vertical climb from the pad, ending at
+        // the split UT where the pod separates from the upper stage.
+        //
+        // CREWLESS ON PURPOSE (see the class docstring): the root models the stack and
+        // the crew rides the pod, so `cl-pod-a` is the ONLY crew source in the tree and
+        // its tombstone is the only thing that can release the DEATH-derived
+        // reservation on DeadCrewName. (The re-flown fork holds a live TEMPORARY one of
+        // its own, and that is correct - it is why half (ii) is pinned on `permanent=0`
+        // rather than on the reservation count.) A crewed root snapshot here holds an
+        // ADDITIONAL independent indefinite reservation from OUTSIDE the supersede
+        // subtree, which is what made CL-3's 2026-08-03_1834 flight measure `Recomputed
+        // after tombstones: 1 reservations remain` + a stand-in for the same kerbal,
+        // with no way to tell the fixture confound from a product defect.
         private static RecordingBuilder BuildRoot(double baseUT)
         {
             double t = baseUT;
@@ -177,7 +219,7 @@ namespace Parsek.Tests.Generators
             b.AddPoint(t + 45, BaseLat, BaseLon, 22000);
             b.AddPoint(t + 60, BaseLat, BaseLon, 41000);
             b.WithVesselSnapshot(
-                VesselSnapshotBuilder.FleaRocket("CL Stack", DeadCrewName, pid: 210001)
+                VesselSnapshotBuilder.ProbeShip("CL Stack", pid: 210001)
                     .AsLanded(BaseLat, BaseLon, 80));
             return b;
         }

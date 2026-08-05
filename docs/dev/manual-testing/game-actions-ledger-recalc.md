@@ -115,9 +115,12 @@ same kerbals are in use by a ghost while flying again.
 
 Grep:
 
-- `CrewReservations] Recomputed {reason}: N reservations remain` (always logs):
-  fires on every recalc, confirms the reservation set is recomputed on
-  rewind/warp/load.
+- `CrewReservations] Recomputed {reason}: N reservations remain (permanent=P
+  temporary=T)` (always logs): fires on every recalc, confirms the reservation
+  set is recomputed on rewind/warp/load. `permanent=` counts DEATH-derived
+  reservations only (`IsPermanent`), so it is the term that shows whether a
+  tombstone actually released a corpse - the bare `N` cannot, because a
+  same-crew re-fly always leaves the re-flown fork's own live reservation.
 - `CrewReservation] SwapReservedCrewInFlight` and
   `Orphan placement: 'X' -> 'Y' placed in part ...`: stand-in substitution when
   a reserved kerbal is busy.
