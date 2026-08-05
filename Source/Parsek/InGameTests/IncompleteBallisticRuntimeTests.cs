@@ -510,9 +510,18 @@ namespace Parsek.InGameTests
                     + "resolved=({2:F5},{3:F5},{4:F5},{5:F5}) vessel=({6:F5},{7:F5},{8:F5},{9:F5}) "
                     + "on {10} at ut={11:F3}. "
                     + "The calibrated contract (run 2026-08-04_2142, which measured 133.123 deg here) "
-                    + "is that the producer encodes against the SAME world radial + Zup velocity the "
-                    + "consumer decodes with, so the round trip cancels. See "
-                    + "docs/dev/todo-and-known-bugs.md 'BallisticExtrapolator frame mismatches' site 4.",
+                    + "is that the producer encodes against the SAME orbital frame the consumer "
+                    + "decodes with, so the round trip cancels. That frame is WORLD/WORLD since "
+                    + "branch orbital-rotation-frame - world radial AND world velocity, both halves "
+                    + "unswizzled - so DO NOT close a red here by reverting either side to the raw "
+                    + "Zup velocity Orbit.getOrbitalVelocityAtUT returns; that pairing is the fifth "
+                    + "frame mismatch. This probe runs the finalizer producer against the playback "
+                    + "consumer, so it cancels whatever convention BOTH are on: a red means they "
+                    + "stopped agreeing, and the recorder-side probe "
+                    + "RecorderEncodedOrbitalFrameRotationResolvesToTheVesselAttitude says which "
+                    + "of the two moved. See docs/dev/todo-and-known-bugs.md "
+                    + "'BallisticExtrapolator frame mismatches' site 4 and "
+                    + "'ComputeOrbitalRotation mixes a Zup velocity with a world radial'.",
                     angleError,
                     FrameProbeAttitudeToleranceDegrees,
                     ghostRotation.x,

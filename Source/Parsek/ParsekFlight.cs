@@ -22303,11 +22303,11 @@ namespace Parsek
         /// <para>
         /// PARAMETER CONTRACT, deliberately NOT the same thing: <paramref name="velocity"/> stays
         /// ZUP-SWIZZLED BODY-RELATIVE — i.e. straight off <c>Orbit.getOrbitalVelocityAtUT</c>,
-        /// which is what all six production call sites and the H9 site-4 probe already hold — and
-        /// is converted to world HERE, once, per branch. <paramref name="worldPos"/> and
+        /// which is what all SEVEN production call sites and both H9 frame probes already hold —
+        /// and is converted to world HERE, once, per branch. <paramref name="worldPos"/> and
         /// <paramref name="bodyPosition"/> are Y-up WORLD (<c>Orbit.getPositionAtUT</c> already
         /// unswizzles; <c>CelestialBody.position</c> is world), so the radial needs no conversion.
-        /// Converting inside is one conversion point instead of seven, and it keeps the awkward
+        /// Converting inside is one conversion point instead of nine, and it keeps the awkward
         /// half of KSP's API — a velocity getter whose frame does not match its position getter —
         /// behind one seam.
         /// </para>

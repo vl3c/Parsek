@@ -2880,14 +2880,16 @@ What moved, and where:
 - **`ParsekFlight.ComputeOrbitalRotation`** lifts its Zup velocity to world on all three
   branches (spinning `velAtStart`, `hasOfr`, prograde fallback). The PARAMETER contract is
   unchanged and deliberately so - `velocity` is still Zup-swizzled body-relative, because
-  all six call sites and the H9 site-4 probe hand it straight off
+  all SEVEN production call sites and both H9 frame probes hand it straight off
   `orbit.getOrbitalVelocityAtUT`; converting inside is ONE conversion point instead of
-  seven. All six were audited and all six fed Zup (`ParsekFlight` :18936/:21942/:22769,
-  `FlightRecorder` :8379, `BackgroundRecorder` :5833, `RecordedRelativeAnchorPoseResolver`
-  :352, `Rendering/ProductionAnchorWorldFrameResolver` :592) - no double-conversion.
+  nine. (The original entry said "five call sites" / "six places" while listing seven
+  file:line refs; SEVEN is the count.) All seven were audited and all seven fed Zup
+  (`ParsekFlight` :18950/:21956/:22830, `FlightRecorder` :8379, `BackgroundRecorder` :5833,
+  `RecordedRelativeAnchorPoseResolver` :352,
+  `Rendering/ProductionAnchorWorldFrameResolver` :592) - no double-conversion.
 - **TWO MORE CONSUMERS the original entry did not list**, found by grepping for the decode
   rather than for the function: `ParsekFlight`'s LateUpdate ghost re-apply blocks (the
-  `GhostPosMode.Orbit` and `GhostPosMode.CheckpointPoint` cases, ~:1582 and ~:1675) are
+  `GhostPosMode.Orbit` and `GhostPosMode.CheckpointPoint` cases, :1588 and :1687) are
   hand-inlined copies of the same three-branch decode, reading `e.orbitFrameRot`, and
   carried the identical mix. Both now swizzle at the read.
 - **`IncompleteBallisticSceneExitFinalizer`** (site 4) moved in LOCKSTEP: the seed encode,
@@ -2935,8 +2937,8 @@ must still read 0.000 on the next nightly.
 
 `TrajectoryPoint.velocity` is a DIFFERENT surface with the same smell, deliberately left
 alone: the recorder stores it in Y-up world axes (see the `OrbitReseed` docstring), but
-`OrbitalCheckpointDensifier` (~:532) and `ParsekFlight`'s orbit-only
-`InterpolationResult` construction (~:22726, ~:26290) fill it straight from
+`OrbitalCheckpointDensifier` (:532) and `ParsekFlight`'s orbit-only
+`InterpolationResult` construction (:22740, :26304) fill it straight from
 `orbit.getOrbitalVelocityAtUT` without a swizzle. Its consumers are speed / FX / reseed
 paths, not the orbital frame, so its exposure and its proof are its own - it is not a
 residual of this fix, and it wants its own reading before anything is changed.
