@@ -1,0 +1,146 @@
+schema = 1
+id = "H31-crew-reservation"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Inventory bucket B4's named exception -
+# the one category the 2026-08-04 doc correction put AHEAD of the rest of B4
+# ("plus CrewReservation from this bucket") - wired after the per-test read
+# that bucket demands.
+#
+# WHAT IT COVERS: the crew reservation / stand-in / seat-matching surface
+# against a LIVE KerbalRoster, which headless xUnit structurally cannot reach -
+# free-seat placement, orphan placement through all three seat-match outcomes
+# (pid tier, name-fallback tier with nameHitFallbacks=1, both-tiers-miss with
+# the exact reason=active-vessel-missing-snapshot-part diagnostic), the
+# assigned-stand-in duplication guard, the reserved-missing spawn-rescue
+# carve-out (Bug609/Bug687), the rescue-completion marker surviving
+# rescue->unreserve->apply, and the roster/replacement invariant walks.
+description = "Run the in-game CrewReservation category unattended against a live roster: free-seat crew add, orphan stand-in placement across all three seat-match tiers, assigned-stand-in dedup, reserved-missing spawn rescue, and the rescue-completion marker."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "crew-reservation", "B4", "H31"]
+
+[fixture]
+# b2-lko-craft, NOT the family's gloops-airshow host, and the substitution is
+# the whole reason this category could be wired at all. Both hard precondition
+# families must hold AT ONCE:
+#   1. A crew part with FREE seats on the ACTIVE vessel - five cells guard on
+#      finding a part with protoModuleCrew.Count < CrewCapacity. b2-lko-craft's
+#      mk1-3pod is capacity 3 with 1 aboard (Jeb) -> 2 free.
+#   2. Spare Available Crew-type kerbals NOT aboard - the stand-in selectors
+#      need one. b2-lko-craft leaves Bill, Bob and Val Available; the 3-spare
+#      margin is deliberate headroom (a single failed stand-in restore leaves
+#      later cells a candidate).
+# MEASURED across all twelve committed saves: gloops-airshow / career-pad-craft /
+# b1-pad-craft have ZERO free seats (full 1-seat pods - five cells would skip,
+# the category's entire seat-matching surface unexercised); eva3-pad-3crew /
+# bdock-station-pad have zero free seats AND zero spare kerbals;
+# eva2-lko-crewed satisfies both but with exactly ONE spare, no headroom.
+# gloops-airshow's comparison tally would be total=15 passed=9 skipped=6.
+#
+# injectedRecordings = "none" is LOAD-BEARING, not a default: all-synthetic
+# would put all four stock kerbals into synthetic snapshot crew lists, and
+# Bug578's stand-in selector requires a kerbal absent from EVERY ComputeERS()
+# snapshot crew list - injection would starve it into a skip. The orphan cells
+# inject their own synthetic Recording and remove it in finally.
+saveTemplate = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# NO isolated arg: all 15 declarations are AllowBatchExecution (default) with
+# no restore flag - identical admission either way.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "CrewReservation" },            expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# D12 claims are the two a gating assertion genuinely backs:
+#  - seat-matching: three cells drive TryResolveActiveVesselPartForSeat against
+#    a real Vessel.parts list across ALL THREE outcomes (pid hit, name-fallback
+#    hit, both-tiers-miss deferral with its exact reason token), plus the
+#    SkipAssigned duplication branch.
+#  - rescue-marker: the pid-scoped rescue-completion marker surviving
+#    rescue -> unreserve -> apply against a live KerbalRoster.
+# NOT claimed, each for a stated reason: stand-ins (CrewReplacements is empty
+# under every committed fixture x preset - no Parsek-generated stand-in is ever
+# created here; the "stand-ins" these cells use are pre-existing roster kerbals
+# behind a synthetic original), crew-swap (every cell calls
+# PlaceOrphanedReplacements directly, deliberately avoiding
+# SwapReservedCrewInFlight's side effects - the swap orchestrator never runs),
+# reservation-auto-hire / missed-endut-auto-free / hire-dismiss-patches /
+# crew-death-in-flight / dead-crew-strip / tombstone-rep-penalty (no producer
+# in the category).
+D12 = ["seat-matching", "rescue-marker"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+#
+# Event hygiene note: three cells (Bug609, Bug687, RescueCompletionGuard) used
+# to flip a kerbal Available->Missing OUTSIDE SuppressionGuard.Crew() while the
+# reverse flip ran inside the rescue's own guard, leaking one CrewStatusChanged
+# GameStateEvent each into the produced save. FIXED in the wave that wired this
+# spec (the three flips are now suppressed, matching the pattern
+# OrphanPlacement_AssignedStandIn always used), so an event-count gate is
+# armable here in principle - none is armed yet, per the measure-first rule.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: auto-record is off, the orphan cells remove their synthetic recordings
+# in finally, and a non-zero count here means a test leaked - red loudly.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED, TWICE. Flown 2026-08-04 (run
+# `2026-08-04_2212_H31-crew-reservation`: PASS on attempt 1, 49 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0), and re-confirmed the
+# same day (run `2026-08-04_2239`, PASS attempt 1, 52 s) after the review pass
+# wrapped the three cells' finally-restore roster flips in
+# SuppressionGuard.Crew() - members of THIS batch, so the re-fly proves the
+# wraps move nothing in the tally. The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
+# below held.
+#  - total=15 is ATTRIBUTE-EXACT: 15 [InGameTest(Category = "CrewReservation")]
+#    declarations (9 FLIGHT + 5 AnyScene + 1 SPACECENTER); CrewReservationLive
+#    is a distinct category and not counted. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=1 is ATTRIBUTE-DERIVED, single-source: only
+#    CrewAutoAssignPatch_SwapsReservedCrew is SPACECENTER-scoped, so it
+#    scene-skips at FLIGHT. (It is currently unreachable in ANY scene: at
+#    SPACECENTER it would self-skip on the same empty CrewReplacements dict no
+#    committed fixture can populate - see the wave notes. The scene skip is
+#    what the tally shows; the deeper gap is recorded rather than hidden.)
+#    No run-time skip fires on THIS fixture: every free-seat guard is satisfied
+#    by the mk1-3pod's 2 free seats, every spare-kerbal guard by Bill/Bob/Val,
+#    Bug456's pid-coincidence guard by the live pid != 100000, Bug578's
+#    ERS-absence guard by the empty store, and ReservedCrewNotAssigned's guard
+#    by ParsekScenario's unconditional LedgerOrchestrator.Initialize().
+#  - failed=0 is the ASSERTION.
+#  - passed=14 follows. THREE of the 14 are honest vacuous passes, all on the
+#    empty CrewReplacements dict (ReplacementsAreValid bare-returns on it;
+#    NoSelfReplacements and NoCircularReplacements loop over it zero times) -
+#    the tally proves they RAN, not that they measured anything. RosterAccessible
+#    shares the bare-return-instead-of-Skip PATTERN but its guard
+#    (CurrentGame == null) is unreachable in a driven batch, so here it executes
+#    its real assertions and is NOT vacuous. Converting the three to Skips is
+#    product work filed in the wave notes, and doing it will move this pin to
+#    passed=11 skipped=4 DELIBERATELY when it lands.
+#  - scene=FLIGHT is the b2-lko-craft Focusable route, MEASURED by the eleven
+#    committed flight specs that fly this template.
+required  = ["BATCH_COMPLETE v1 total=15 passed=14 failed=0 skipped=1 category=CrewReservation scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

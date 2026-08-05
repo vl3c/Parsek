@@ -1,0 +1,85 @@
+schema = 1
+id = "H29-localized-name"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Inventory bucket B6, wave 2 - and the one
+# member of B6 the inventory doc says "carries no self-skip and should simply
+# have been wired": it meets bucket A's admission test verbatim, identical on
+# all three criteria to RecordingFinalization (3/3/0) and SpawnHealth (3/3/0).
+#
+# WHAT IT COVERS: #autoLOC token resolution through the LIVE KSP Localizer -
+# Recording.ResolveLocalizedName on a stock craft token, the switch-segment
+# builder writing the RESOLVED name into a new segment recording, and the
+# VESSEL-snapshot rewrite path. Headless xUnit cannot reach any of these:
+# Localizer.Format needs the loaded localization dictionary. The one external
+# dependency (#autoLOC_501224 present in Squad's dictionary) was verified
+# against the provisioned instance's bytes; if a KSP/Squad update ever drops
+# the token, all three cells fail together, a clean self-naming red.
+description = "Run the in-game LocalizedName category unattended: #autoLOC resolution through the live Localizer for recording display names, switch-segment recording names, and VESSEL snapshot name rewrites."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "localized-name", "B6", "H29"]
+
+[fixture]
+# gloops-airshow, the family host. The choice is genuinely free - all three
+# cells are AnyScene, read no live vessel, no store, no save state (the builder
+# cell operates on a locally constructed tree; the snapshot cell on a local
+# ConfigNode) - so the tie breaks on sharing the other members' boot, the same
+# argument H25 makes for Serialization.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LocalizedName" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and deliberately minimal, the H13 shape: the value is the executed
+# contract, not a coverage token. NOT claimed: D16 sidecar-craft (the snapshot
+# cell builds a bare ConfigNode and writes no sidecar) and D1 switch-segment
+# (the builder cell calls the pure helper on a local tree; no live switch
+# occurs - H12 owns the live gate layer).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_2206_H29-localized-name`: PASS on attempt 1, 70 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
+# below held.
+#  - total=3 is ATTRIBUTE-EXACT: 3 [InGameTest(Category = "LocalizedName")]
+#    declarations, all AnyScene. Kept in sync by
+#    CommittedBatchTallySourceSyncTests.
+#  - skipped=0 is DERIVED on the strongest ground in this wave: zero
+#    InGameAssert.Skip sites anywhere in the three bodies or their transitive
+#    call graphs, nothing batch-disabled, nothing scene-scoped.
+#  - failed=0 is the ASSERTION.
+#  - passed=3 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
+#    S1.4 on this exact fixture. (The derivation would give 3/3 at SPACECENTER
+#    too; the token is pinned anyway as a statement about the fixture.)
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LocalizedName scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

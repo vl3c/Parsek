@@ -1,0 +1,106 @@
+schema = 1
+id = "H30-ghost-audio"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Inventory bucket B6, wave 2.
+#
+# WHAT IT COVERS: the ghost audio lifecycle - pause/unpause over null, empty and
+# REAL AudioSource state, decoupled-subtree FX+audio stop, engine-level
+# pause/unpause across the live ghost set, audio-source anchoring to the watch
+# pivot, part-visibility-driven source enable/disable after re-anchoring, and
+# camera-pivot recentring. D6 ghost-audio had no driving spec before this one.
+#
+# THE PROFILE PRECONDITION, stated loudly because this spec RED on any instance
+# provisioned before 2026-08-05: GhostPlaybackLogic.ComputeGhostAudioVolume
+# multiplies by GameSettings.SHIP_VOLUME, and the provision profiles used to pin
+# SHIP_VOLUME = "0" alongside the other five audio zeros - which made the looped
+# audio START path (EnforceLoopedAudioPlaybackCap's volume>0 branch ->
+# StartLoopedGhostAudio) structurally unreachable on every harness instance, and
+# the FollowPartVisibilityAfterReanchor cell's "should be playing" assertion a
+# guaranteed FAIL. This wave changed BOTH profiles + the provlib pin to
+# SHIP_VOLUME = "1": audible silence is owned by MASTER_VOLUME = "0" alone
+# (which zeroes the AudioListener, not per-source volumes), so the operator's
+# silent-instance request is preserved while the start path becomes testable.
+# Filed as W2-SHIP-VOLUME-ZERO in todo-and-known-bugs.md. A red on the reanchor
+# cell's "playing before the part is hidden" assertion means the instance was
+# provisioned with the OLD profile - re-provision before reading it as a
+# product defect.
+description = "Run the in-game GhostAudio category unattended over the 272-recording injected corpus: pause/unpause lifecycle, decoupled-subtree audio stop, watch-pivot anchoring, part-visibility source sync after reanchor, and camera-pivot recentring."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ghost-audio", "B6", "H30"]
+
+[fixture]
+# gloops-airshow + all-synthetic. Injection is worth the cost for exactly one
+# cell: EngineLevel_PauseUnpauseGhostAudio_NoCrash iterates the LIVE ghost set,
+# and the batch-start PerformBetweenRunCleanup empties it - under "none" nothing
+# repopulates it and both of its loops iterate zero states (a vacuous pass the
+# tally cannot see). Under all-synthetic, live ghosts respawn within frames of
+# batch start. The other cells build their own AudioSources and are
+# injection-independent.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# NO isolated arg: all 9 declarations are AllowBatchExecution (default) with no
+# restore flag - identical admission either way.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostAudio" },                 expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# D6 ghost-audio: previously UNCOVERED (no committed spec claimed it). Claimed
+# on direct exercise of the pause/unpause/stop/anchor/visibility surface plus -
+# after the SHIP_VOLUME profile fix - the real StartLoopedGhostAudio path in the
+# reanchor cell. Before that fix the claim would have carried the caveat "covers
+# everything except audio actually starting"; the fix is what makes it whole.
+D6  = ["ghost-audio"]
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec", "schema-gate"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# The corpus pin, exactly as H14-H17 carry it. If the corpus size moves,
+# re-derive here AND in H5 / H14 / H15 / H16 / H17 / H27 / H28 / S1.4 in one
+# commit.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: tally pinned WHOLE.
+#
+# EVIDENCE STANDING: MEASURED. Flown 2026-08-04 (run
+# `2026-08-04_2211_H30-ghost-audio`: PASS on attempt 1, 69 s wall, every
+# verifier PASS or SKIPPED, expectations mismatches=0). The pin is a LITERAL
+# pattern and evaluate_expectations requires it to match, so the PASS means the
+# runner printed this line TOKEN FOR TOKEN - the whole pre-flight derivation
+# below held.
+#  - total=9 is ATTRIBUTE-EXACT: 9 [InGameTest(Category = "GhostAudio")]
+#    declarations. Kept in sync by CommittedBatchTallySourceSyncTests.
+#  - skipped=1 is ATTRIBUTE-DERIVED: exactly one declaration
+#    (KscExplosionFallbackAudio_FireAndForgetSourceSurvivesGhostDestroy) is
+#    SPACECENTER-scoped, so FilterSceneEligibleBatchCandidates stamps it Skipped
+#    at FLIGHT and it still counts in total. The one in-body Skip guard
+#    ("needs ParsekFlight.Instance with Engine") cannot fire in FLIGHT with the
+#    addon loaded.
+#  - failed=0 is the ASSERTION - and it is the assertion that RESTS ON the
+#    SHIP_VOLUME profile fix (see the header note).
+#  - passed=8 follows.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
+#    S1.4 on this exact fixture.
+required  = ["BATCH_COMPLETE v1 total=9 passed=8 failed=0 skipped=1 category=GhostAudio scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

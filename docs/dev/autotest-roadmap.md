@@ -52,52 +52,54 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 55 committed
+### Scenarios: 68 committed
 
-`ls harness/scenarios/*.toml` returns **55** files. This baseline was written at
-38, correct at `origin/main` when the roadmap landed. Since then: #1358 took it to
-52 (14 in-game batch specs), #1357 added `R1-rewind-loop-flown` (53), #1366 added
-`CL-1-pod-impact` (54, the crew-loss atom), and #1367 added
-`H21-scene-exit-merge-isolated` (55, the first isolated-batch spec). Coverage moved
-to **97 of 242**: #1358's specs carried the bulk of the gain, CL-1 added AND covered
-the new D12 `crew-death-in-flight` value (which is also what moved the denominator
-to 242), H21 covered the isolated scene-exit merge, and R1 added none because it
-claims no registry value that was not already claimed. Adding a scenario is not the
-same as covering a cell. Re-derive these rather than editing them by memory; both
-numbers have moved five times in three days.
+`ls harness/scenarios/*.toml` returns **68** files (re-derived 2026-08-04 at
+`modded-compat-lane`; the count authority is `autotest-status.md`'s test-case
+tables, gated by `AutotestStatusScenarioCountTests`). The history below narrates
+the first waves and is kept as written: this baseline started at 38, #1358 took
+it to 52 (14 in-game batch specs), #1357 added `R1-rewind-loop-flown` (53),
+#1366 added `CL-1-pod-impact` (54, the crew-loss atom), and #1367 added
+`H21-scene-exit-merge-isolated` (55, the first isolated-batch spec); the
+EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
+55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
+these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 97 of 242 registry cells (was 83 of 241 at the baseline)
+### Coverage: 108 of 242 registry cells (was 83 of 241 at the baseline)
 
-`hlib.compute_coverage(specs, [], registry)` over the committed specs and
+Re-derived 2026-08-04 at `modded-compat-lane` (commit `5439b2e1b`), replacing
+the stale 97/145 snapshot - the intervening EVA / CL / rewind waves had already
+moved D1, D9 and D14 without this section being re-run.
+`hlib.compute_coverage(specs, [], registry)` over the 68 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 242   covered 97   uncovered 145   expectedFailValues 0   xpass 0
+values 242   covered 108   uncovered 134   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered):
 
 | Dim | Subject | Total | Uncovered |
 |---|---|---:|---:|
-| D1 | recording lifecycle | 18 | 8 |
+| D1 | recording lifecycle | 18 | 7 |
 | D2 | sampling | 4 | 1 |
 | D3 | reference frames | 7 | 4 |
 | D4 | track sections / optimizer | 12 | 6 |
 | D5 | tree topology | 12 | 7 |
 | D6 | playback / ghosts | 16 | 11 |
-| D7 | part events / FX | 16 | 12 |
+| D7 | part events / FX | 16 | 11 |
 | D8 | ledger / career | 18 | 6 |
-| D9 | rewind / re-fly | 16 | 9 |
+| D9 | rewind / re-fly | 16 | 4 |
 | D10 | logistics / routes | 20 | 12 |
 | D11 | missions abstraction | 18 | 10 |
 | D12 | crew | 10 | 8 |
 | D13 | spawn positioning | 11 | 7 |
-| D14 | bodies / scenes | 32 | 18 |
+| D14 | bodies / scenes | 32 | 16 |
 | D15 | timeline | 1 | 1 |
 | D16 | storage / sidecars | 13 | 9 |
-| D17 | mod compatibility | 6 | **6** |
+| D17 | mod compatibility | 6 | 4 |
 | D18 | re-fly / interaction | 12 | 10 |
-| | | **242** | **145** |
+| | | **242** | **134** |
 
 ### The headline
 
@@ -106,7 +108,12 @@ exercised, D13 spawn positioning 11 of 11 uncovered, D17 mod compatibility 6 of 
 One wave later (measured 2026-07-28 at `7f5efa738`) D1 is down to **8 of 18** -
 the R4-family batches, H21 and the R1 gates closed `commit-scene-exit`,
 `switch-segment`, `scene-exit-finalization`, `ballistic-extrapolation` and
-`finalization-cache` - and D13 is down to 7 of 11. D17 is untouched at 6 of 6.
+`finalization-cache` - and D13 is down to 7 of 11. D17 opened 2026-08-04: R14
+provisioned `automation/modded-compat` and MC-1/MC-2 flew the WaterfallCompat /
+ReStockCompat categories green there, closing `waterfall-swe-fallback` and
+`restock` (plus D7 `engine-fx-waterfall-fallback`), leaving D17 at 4 of 6:
+`persistent-rotation` + `remotetech-commnet` are source-blocked, and
+`better-time-warp` / `making-history` have the instance but no committed spec.
 
 The D1 cells still uncovered are ordinary player actions:
 
@@ -133,16 +140,25 @@ feature and its entire automated proof is nominal.
 The single largest cause is not a missing capability. It is that we own roughly five
 times the test surface we execute and have no way to point the harness at it.
 
-### Cause A: written, never driven (336 tests, 74 categories; was 414 / 89 pre-#1358)
+### Cause A: written, never driven (232 tests, 64 categories; was 414 / 89 pre-#1358, 336 / 74 pre-R7, 280 / 70 pre-wave-2)
 
 Measured with `hlib.parse_ingame_test_declarations` over every `.cs` under
-`Source/Parsek`:
+`Source/Parsek`, re-derived 2026-08-05 after `wire-wave-2` (H26-H31):
 
 ```
-542 [InGameTest] declarations in 98 categories, 0 unresolved
-206 declarations in the 24 categories any spec drives (184 of them execute)
-336 declarations in the 74 categories nothing drives
+543 [InGameTest] declarations in 98 categories, 0 unresolved
+311 declarations in the 34 categories a committed spec drives
+232 declarations in the 64 categories nothing drives
 ```
+
+The in-driven-declarations metric, continued honestly across the waves:
+125 (8 categories, pre-#1358) -> 216 (25, post-#1358+H21/H22/H23) -> 263 (28,
+post-R7/H24/H25) -> **311 (34, post-wave-2)**. The wave-2 delta is the whole of
+bucket B6 plus `CrewReservation`; per-category executed/skipped splits and the
+two fixture substitutions the per-test read forced are in the status doc's
+wave-2 section and the H26-H31 specs themselves. The paragraph and tables below
+this point predate the R7 and wave-2 recounts and are kept for history - the
+inventory doc is the current per-category authority.
 
 The 24 driven categories are the pre-#1358 eight - `GameActionsHealth`, `GhostMap`,
 `GhostPlayback`, `MapRender`, `Missions`, `Periodicity`, `RecordingInvariants`,
@@ -197,15 +213,15 @@ remaining work is legible against the original list:
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
 | `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
-| `GhostAudio` | 9 | D6 `ghost-audio` |
-| `MapPresence` | 5 | D6 `commnet-relay` |
+| ~~`GhostAudio`~~ | 9 | DRIVEN since wave-2 by `H30` (live-proven 2026-08-04; needed the W2-SHIP-VOLUME-ZERO provision fix). D6 `ghost-audio` |
+| ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
 | `ReentryFx` | 3 | D6 `reentry-fx` |
 | `Watch` | 2 | D6 `watch-mode-retarget-explosion-hold` |
 | `LedgerGroundTruth` | 1 | D8 `ground-truth-harness` |
 | `Contracts` | 2 | D8 `contracts` |
 | `StrategyLifecycle` | 2 | D8 `strategies` |
 | `SpawnRotation` + 7 more | 29 | D13, all 11 cells |
-| `CrewReservation` | 15 | D12 |
+| ~~`CrewReservation`~~ | 15 | DRIVEN since wave-2 by `H31` on b2-lko-craft (live-proven 2026-08-04, 14 of 15 executing). D12 `seat-matching`, `rescue-marker`; the rest of D12 has no producer in the category |
 
 ### Cause B: unreachable by ANY unattended path (68 tests) - CLOSED by R5, 2026-07-27
 
@@ -790,18 +806,21 @@ Flight? Yes - five flown (three R7 + two re-confirmations), 53-68 s each.
   still the cheapest whole-dimension close available.
 - D6: `GhostLifecycle` (15 of 17; the other 2 are TRACKSTATION-scene - no longer
   stranded, R12 SHIPPED `LoadGame scene=trackstation`, but they need a TRACKSTATION
-  spec of their own, since a batch names one category),
-  `GhostAudio` (9), `MapPresence` (5), `ReentryFx` (3), `Watch` (2). None of
-  these needs the reserved `StartLoopPlayback` / `EnterWatchMode` verbs;
-  `GhostLifecycle` measures the loop / overlap surface over a live corpus.
+  spec of their own, since a batch names one category - AND see the inventory
+  doc's B4 correction: a full-body read measured ~11 of 17 unreachable on any
+  committed fixture, so it is generator/product work, not the next spec),
+  ~~`GhostAudio` (9)~~ CLOSED by wave-2's `H30`, ~~`MapPresence` (5)~~ CLOSED by
+  wave-2's `H28`, `ReentryFx` (3), `Watch` (2). None of the remainder needs the
+  reserved `StartLoopPlayback` / `EnterWatchMode` verbs.
 - D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
   R11 is closed by `career-pad-craft`),
   `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
   in ledger trust available.
-- D12: `CrewReservation` (15).
+- ~~D12: `CrewReservation` (15).~~ CLOSED by wave-2's `H31` (b2-lko-craft, 14 of
+  15 executing; D12 `seat-matching` + `rescue-marker` claimed).
 
-Flight? No.
+Flight? No for what remains. (Wave-2's six flew 2026-08-04, 49-71 s each.)
 
 ### Tier 3: machinery that raises the ceiling.
 
@@ -1002,6 +1021,19 @@ second instance is load-bearing. Closes 3 or 4 of the 6 D17 cells
 `persistent-rotation` and `remotetech-commnet` are source-blocked, not
 capability-blocked. Side benefit: a second instance directory is a second possible
 run lane, and runs are currently strictly serial under a per-instance run lock.
+
+**OUTCOME 2026-08-04 (branch `modded-compat-lane`): CLOSED, with the claim
+smaller than the prediction.** The instance provisioned first try (the dev
+GameData really carried every pin; only the audio-silencing settings deltas were
+missing from the profile) and TWO specs landed, not one (MC-1/MC-2, both
+LIVE-PROVEN). Closed 2 D17 cells, not 3-4: `better-time-warp` and
+`making-history` need their own scenario subjects (BTW warp behavior, MH
+parts/sites), which no compat batch exercises - instance available, spec work
+open. The "second run lane" side benefit did NOT materialize: the 2026-08-02
+machine-lock rework made the lock machine-wide (one lockfile for both
+instances), deliberately, because kRPC ports and the GPU are machine-global.
+Status authority for what shipped: `autotest-status.md` "Modded-compat
+instance (D17), R14".
 
 ### Tier 4: the expensive residue. Schedule, do not attempt opportunistically.
 

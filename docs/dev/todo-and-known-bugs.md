@@ -969,6 +969,105 @@ they exercise is reachable in a real game. What is missing is fixture material.
 
 ---
 
+## W2-SHIP-VOLUME-ZERO: the provision profiles made the ghost-audio start path structurally unreachable on every harness instance [FOUND 2026-08-05 by wire-wave-2's per-test read of `GhostAudio`, BEFORE the first flight; FIXED in the same wave - both profiles + the provlib pin now carry SHIP_VOLUME = "1"]
+
+Found by reading, not by a red flight - which is the point of the per-test
+discipline: the wave's reader traced `GhostAudioSources_FollowPartVisibilityAfterReanchor`
+to `GhostPlaybackLogic.EnforceLoopedAudioPlaybackCap`, whose only source-starting
+branch is guarded by `ComputeGhostAudioVolume(...) > 0`, and
+`ComputeGhostAudioVolume` is `curveValue * ghostAudioVolume *
+GameSettings.SHIP_VOLUME * atmosphereFactor`. Both provision profiles pinned
+`SHIP_VOLUME = "0"` (all six audio keys zeroed per the 2026-07-19
+silent-instance request), so the product was identically 0, the `continue`
+always fired, `StartLoopedGhostAudio` was unreachable, and the cell's "Engine
+audio should be playing" assertion was a GUARANTEED FAIL on any provisioned
+instance - while passing under Ctrl+Shift+T on the dev install, whose player
+settings carry a nonzero ship volume. H30 would have red on its first flight
+and the red would have read exactly like a product regression.
+
+THE FIX IS THE PROFILE, NOT THE TEST OR A SOFTER PIN: audible silence is owned
+by `MASTER_VOLUME = "0"` alone (it zeroes the AudioListener; per-channel keys
+scale individual sources), so `SHIP_VOLUME = "1"` keeps unattended instances
+silent while letting per-source volume math run for real - and it makes the
+looped-audio START path exercised by an unattended batch for the first time,
+which is what H30's D6 `ghost-audio` claim rests on. Changed in BOTH profiles
+plus `test_provlib.py`'s UNATTENDED_SETTINGS pin (the contract requires the
+keys identical across profiles), each carrying a do-not-revert comment, because
+"all volumes 0 for silence" is exactly the symmetry a future cleanup would
+restore. No spec-level fix existed: `SettingWhitelist` exposes no stock
+GameSettings key, and `ghostAudioVolume` cannot rescue a zero factor.
+
+Requires a re-provision to reach a live instance; an H30 red on the reanchor
+cell's "playing before the part is hidden" assertion on some future run means
+the instance was provisioned with the OLD profile - re-provision before
+reading it as a product defect.
+
+---
+
+## W2-VACUOUS-CELLS: the wave-2 per-test read catalogued TEN cells that report PASSED having asserted nothing (or cannot assert what they claim), across four of its six categories [FOUND 2026-08-05, wire-wave-2. RECORDED, deliberately not fixed here - every conversion moves a committed pin and deserves its own pass. The fourth-trap census the inventory doc predicted "around a dozen" of, now with names. COUNT CORRECTED from eleven by the wave's Fable review: the first draft double-counted ReplacementsAreValid across two shapes and mis-filed RosterAccessible, whose guard is unreachable in a driven batch so the cell actually executes there - it carries the bare-return PATTERN, not a vacuous pass]
+
+The inventory doc's fourth trap (a test that RUNS, PASSES and asserts over
+nothing, invisible to every tally gate) predicted "around a dozen more" across
+the tree. The wave-2 read found eleven in its six categories alone, in three
+distinct shapes. Names recorded so the eventual fix pass does not re-derive
+them:
+
+**Shape 1 - silent `return` / bare guard instead of `InGameAssert.Skip` (3
+vacuous + 1 pattern-only):** `MapPresence.GhostPidsResolveToProtoVessels` and
+`.NoPidCollisionWithRealVessels` (both bail on an empty `ghostMapVesselPids`;
+H28 de-vacuates them by injecting the corpus so live ghosts exist - the
+batch-start cleanup empties the set and "none" never repopulates it), and
+`CrewReservation.ReplacementsAreValid` (`replacements.Count == 0` -> bare
+return; fires on EVERY committed fixture, see shape 3).
+`CrewReservation.RosterAccessible` carries the same bare-return PATTERN
+(`HighLogic.CurrentGame == null`) but that guard is unreachable in a driven
+batch, so the cell executes its real assertions in H31 - it belongs to the
+convert-to-Skip cleanup for consistency, not to the vacuous census.
+
+**Shape 2 - assertion-gated on state the fixture may not have (2):**
+`LogContracts.ResourceValuesValid` runs its three assertion blocks only under
+CAREER (funds/rep) or CAREER|SCIENCE_SANDBOX (science) - on any sandbox host it
+reports Passed with ZERO assertions executed, and the guard that DOES fire
+(`CurrentGame == null` -> Skip) is unreachable, so the inventory table's "2
+members with self-skip" reading was technically true and practically misleading.
+H26 flies career-pad-craft specifically to make this cell real.
+`LogContracts.SessionStartFormatValid` is worse: it regexes a string IT BUILDS
+ITSELF (`$"SessionStart runUtc={utcNow}"`) and never touches the production
+emitter, so it cannot detect drift in what ParsekFlight actually writes. Fixing
+it means extracting a shared `FormatSessionStartMessage` the way
+`FormatMarkMessage` / `FormatBatchCompleteLine` already work (both of which the
+sibling cells DO call - the pattern exists in the same file).
+
+**Shape 3 - loops over state no committed asset can produce (4, one of them
+`ReplacementsAreValid` already named in shape 1):**
+`CrewReservation.NoSelfReplacements` / `.NoCircularReplacements` /
+`.ReplacementsAreValid` all walk `CrewReservationManager.CrewReplacements`,
+which is EMPTY under every committed fixture x preset: `ScenarioWriter
+.AddCrewReplacement` exists with ZERO callers, and no fixture's ParsekScenario
+node carries CREW_REPLACEMENTS. The same emptiness makes
+`CrewReservation.CrewAutoAssignPatch_SwapsReservedCrew` unreachable in ANY
+scene (at FLIGHT it scene-skips as SPACECENTER-scoped; at SPACECENTER it would
+self-skip on the empty dict) - dead coverage until the generator gap closes.
+`MapPresence.AntennaSpecsProduceRelayPower` walks `rec.AntennaSpecs`, which no
+generator ever sets, so D6 `commnet-relay` stays honestly unclaimable; closing
+it is a `RecordingBuilder.WithAntennaSpecs` plus a corpus row, not a spec
+change. (`Diagnostics.RecordingCountMatchesStore` and
+`.DiagnosticsSnapshotMatchesEngineObservability` are NEAR-members: both are
+tautologies - same expression compared to itself, same-frame re-derivation over
+the same dicts - but that is refactor-drift value by design, so they are noted
+in H27 rather than listed as defects.)
+
+WHY NOT FIXED HERE: converting shape-1/shape-3 cells to `InGameAssert.Skip`
+moves H28's pin (5/5/0/0 -> passed 3 skipped 2 under "none"; unchanged under
+the corpus H28 actually injects) and H31's pin (the three replacement-dict
+cells: passed 14 -> 11, skipped 1 -> 4), and H31's spec says so in its
+derivation comment. The conversions
+are one mechanical pass + two re-pins + two re-flights, best done together
+with the `ScenarioWriter.AddCrewReplacement` caller that would make the
+replacement-walking cells REAL instead of merely honest.
+
+---
+
 ## ~~CL-1 has a LATENT terminal defect: a craft that never launched satisfies "landed with crew alive"~~ [FOUND 2026-08-04 while regression-flying CL stage B. **FIXED + REGRESSION-FLOWN 2026-08-05**, branch `small-fixes-2` - the has-flown latch below; regression run `2026-08-04_2139`, PASS attempt 1, 158 s]
 
 ### Fix (2026-08-05): the fourth conjunct, in the mlib predicate only
@@ -3944,7 +4043,22 @@ item and must not be counted as one:
   stage B remains.
 - **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
   tallies - OPEN.
-- **R14** provisioning `modded-compat` for D17 - OPEN.
+- **R14** provisioning `modded-compat` for D17 - ~~OPEN~~ **CLOSED 2026-08-04**
+  (branch `modded-compat-lane`): `automation/modded-compat` provisioned live
+  (exit=0, VERIFY drift=0; the profile gained the missing audio-silencing
+  settings deltas on the first run's inspection, now pinned by
+  `RealProfileFileTests.test_both_profiles_pin_the_unattended_settings`), and
+  `MC-1-waterfall-compat` + `MC-2-restock-compat` flew the WaterfallCompat /
+  ReStockCompat categories green there on attempt 1 (7/8 and 8/9 executed; the
+  2 skips are the by-design inverse gates). D17 `waterfall-swe-fallback` +
+  `restock` and D7 `engine-fx-waterfall-fallback` claimed. RESIDUE:
+  `persistent-rotation` and `remotetech-commnet` stay source-blocked (GT-8 /
+  not in the profile); `better-time-warp` and `making-history` have the
+  instance but no committed spec; the FX-fingerprint A/B diff ran REPORT-ONLY
+  and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
+  (the synthetic corpus is trajectory-only for all but a handful of
+  recordings, so a save-based A/B exercises ~1 engine key; a dedicated
+  engine-showcase fixture with real vessel snapshots is the follow-up).
 
 **Baseline caveat: three of these are already in flight.** Every count above was
 measured at `1591aa59f` and EXCLUDES work open in review at the time of writing. PR
@@ -7164,6 +7278,25 @@ To implement properly: prefer a stock-authoritative approach instead of another 
 ---
 
 ## TODO — Compatibility
+
+### T48. FX-fingerprint A/B coverage is starved by the trajectory-only synthetic corpus (filed 2026-08-04, branch `modded-compat-lane`)
+
+The first stock-minimal vs modded-compat `[FxFingerprint]` A/B (R14, report-only)
+worked mechanically but measured almost nothing: of the 342 recordings the
+all-synthetic corpus injects on a modded install, ~330 carry NO vessel snapshot
+(`Spawn suppressed: ... no vessel snapshot=330`), so no ghost visual - and no
+engine/RCS FX build - can ever happen for them. The engine/RCS "Part Showcase"
+rows loaded but did not spawn in the run window, leaving exactly ONE
+fingerprinted key per side (`solidBooster.sm.v2` from the Reentry East ghost's
+snapshot). That one key already shows the expected divergence (ReStock FX models
+`ReStock/FX/restock-fx-srb-{core,smoke}-1` on modded vs the stock prefabs), so
+the pipeline is sound - the corpus is the bottleneck. Fix: a dedicated
+engine-showcase fixture save whose recordings carry REAL vessel snapshots
+(one per engine/RCS part family, positioned inside spawn range of the pad
+host), then re-run `hlib.diff_fx_fingerprints` over the pair; only after that
+is a gate worth discussing. Extraction/diff tooling landed with R14
+(`hlib.parse_fx_fingerprint_lines` / `diff_fx_fingerprints` /
+`format_fx_fingerprint_diff` + `harness/tools/fx_fingerprint_diff.py`).
 
 ### T43. Mod compatibility testing (CustomBarnKit, Strategia, Contract Configurator)
 

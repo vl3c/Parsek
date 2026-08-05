@@ -2640,6 +2640,28 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H23-tracking-station":      ("TrackingStation", 10, "TRACKSTATION"),
         "H24-ksp-api-sanity":        ("KspApiSanity", 5, "FLIGHT"),
         "H25-serialization":         ("Serialization", 4, "FLIGHT"),
+        "H26-log-contracts":         ("LogContracts", 10, "FLIGHT"),
+        "H27-diagnostics":           ("Diagnostics", 6, "FLIGHT"),
+        "H28-map-presence":          ("MapPresence", 5, "FLIGHT"),
+        "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
+        "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
+        "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+    }
+
+    # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
+    # ATTRIBUTES cannot predict, each with its reason recorded in the spec's
+    # derivation comment and confirmed by a live run. The floor cells below add
+    # these to the attribute-derived skip floor, so a member whose fixture
+    # legitimately cannot satisfy one guard can still pin its tally WHOLE without
+    # the group asserting a wrong split. Discipline for adding an entry: the skip
+    # must be a FIXTURE property stated in the spec (H26: REC-002 skips on "No
+    # committed recordings to validate" because career-pad-craft carries zero
+    # recordings and injection is deliberately "none" - the corpus is not proven
+    # against REC-002's point-count rule), never a way to absorb an unexplained
+    # red. An empty entry and an absent entry mean the same thing; only nonzero
+    # counts belong here.
+    RUNTIME_SKIPS = {
+        "H26-log-contracts": 1,
     }
 
     # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
@@ -2715,11 +2737,18 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(18, len(self.GROUP),
-                         "the H7-H20 + H22-H25 group is 18 specs; if it genuinely changed "
+        self.assertEqual(24, len(self.GROUP),
+                         "the H7-H20 + H22-H31 group is 24 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
+        # A RUNTIME_SKIPS key for a non-member is silently inert (both floor
+        # cells read it via .get(sid, 0) over GROUP members only), so a stale
+        # entry for a removed/renamed spec would linger forever. Fail loud here.
+        self.assertLessEqual(
+            set(self.RUNTIME_SKIPS), set(self.GROUP),
+            "RUNTIME_SKIPS names spec ids that are not GROUP members: %s"
+            % sorted(set(self.RUNTIME_SKIPS) - set(self.GROUP)))
         self.assertEqual(len(self.GROUP), len(self.specs),
                          "GROUP names %d specs but only %d were loaded from %s - the "
                          "rest of this class would assert over the missing ones' "
@@ -2808,16 +2837,21 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
             with self.subTest(spec=sid):
                 category, _, scene = self.GROUP[sid]
                 derived = hlib.derive_batch_tally(self.decls, category, scene)
+                # RUNTIME_SKIPS entries are declared measured skips on top of the
+                # attribute floor (see the map's comment); zero for most members.
+                expected_skipped = (derived.attribute_skipped
+                                    + self.RUNTIME_SKIPS.get(sid, 0))
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 self.assertEqual(
                     (pin.passed, pin.failed, pin.skipped),
-                    (derived.total - derived.attribute_skipped, 0,
-                     derived.attribute_skipped),
-                    "%s: pinned tally disagrees with the attribute derivation at "
-                    "scene=%s (scene-skipped %s, batch-skipped %s)"
+                    (derived.total - expected_skipped, 0, expected_skipped),
+                    "%s: pinned tally disagrees with the attribute derivation "
+                    "plus declared RUNTIME_SKIPS at scene=%s (scene-skipped %s, "
+                    "batch-skipped %s, declared runtime %d)"
                     % (sid, scene, derived.scene_skipped_members,
-                       derived.batch_skipped_members))
+                       derived.batch_skipped_members,
+                       self.RUNTIME_SKIPS.get(sid, 0)))
 
     def test_the_interim_pin_member_is_declared_and_deliberately_loose(self):
         # Guards the OTHER direction: the interim form accepts 1-of-N by design, so
@@ -2849,7 +2883,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
             with self.subTest(spec=sid):
                 category, total, scene = self.GROUP[sid]
                 derived = hlib.derive_batch_tally(self.decls, category, scene)
-                skipped = derived.attribute_skipped
+                skipped = (derived.attribute_skipped
+                           + self.RUNTIME_SKIPS.get(sid, 0))
                 real = (prefix + "BATCH_COMPLETE v1 total=%d passed=%d failed=0 "
                         "skipped=%d category=%s scene=%s"
                         % (total, total - skipped, skipped, category, scene))
@@ -2879,8 +2914,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # `yield break` that is not even reported as a Skip). The tally cannot see
         # that; only the fixture can. So those four must inject the corpus AND pin a
         # non-zero recordings count, and the others must pin zero so a leak reds.
+        # Wave 2 added three: H27 (StorageBreakdown walks the store), H28 (two
+        # cells bail through a SILENT return on an empty ghost-map pid set -
+        # exactly the fourth-trap shape this cell exists for) and H30 (the
+        # engine-level pause/unpause cell iterates the live ghost set).
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
-                         "H16-corpus-spawn-health", "H17-flight-integration"}
+                         "H16-corpus-spawn-health", "H17-flight-integration",
+                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio"}
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}
@@ -9526,3 +9566,292 @@ class RunIdCollisionTests(unittest.TestCase):
         # format hlib names; a drift between them breaks the run-age readout.
         self.assertEqual("%Y-%m-%d_%H%M", hlib.RUN_ID_TIMESTAMP_FORMAT)
         self.assertRegex(run._run_id_stamp(), r"^\d{4}-\d{2}-\d{2}_\d{4}$")
+
+
+# The producer's own entry shape (GhostFxFingerprint.FormatEntry): an asset name,
+# its parent, and the placement/scale/size/speed fields, with SPACES and
+# PARENTHESES inside. Two of these joined by a bare '|' is the ordinary
+# multi-system payload -- the exact shape a naive split would destroy.
+FX_FLAME_ENTRY = ("flamejet<thrustTransform pos=(0.00,0.00,0.00) dir=(0.0,-1.0,0.0)"
+                  " scale=(1.00,1.00,1.00) size=1.00 speed=1.00")
+FX_SMOKE_ENTRY = ("smokeTrail<thrustTransform pos=(0.00,-0.20,0.00) dir=(0.0,-1.0,0.0)"
+                  " scale=(1.00,1.00,1.00) size=1.20 speed=0.80")
+FX_RCS_ENTRY = ("rcsJet<RCSthruster pos=(0.10,0.00,0.00) dir=(1.0,0.0,0.0)"
+                " scale=(1.00,1.00,1.00) size=0.35 speed=2.00")
+# A collected KSP.log stamps every line before the [Parsek] tag.
+FX_LOG_PREFIX = "[LOG 00:04:12.345] "
+
+
+def fx_line(part, kind, midx, systems, null_systems, curves, fp,
+            prefix=FX_LOG_PREFIX, suffix="", sep=" "):
+    """One on-disk KSP.log FxFingerprint line, built the way the producer builds it."""
+    return ("%s%s part='%s'%skind=%s%smidx=%d%ssystems=%d%snullSystems=%d%s"
+            "curves=%s%sfp=[%s]%s"
+            % (prefix, hlib.FX_FINGERPRINT_ANCHOR, part, sep, kind, sep, midx, sep,
+               systems, sep, null_systems, sep, curves, sep, fp, suffix))
+
+
+class FxFingerprintCaptureTests(unittest.TestCase):
+    """The capture must survive every shape the REAL producer + ParsekLog emit.
+
+    Guards the five parse traps the fingerprint line carries: a quoted part name
+    with dots, a payload full of spaces / parentheses / '|', the rate limiter's
+    " | suppressed=N" tail landing AFTER the closing bracket, the legitimate
+    `fp=[(none)]` empty payload, and a KSP.log timestamp ahead of the anchor. Any
+    one of them mis-handled silently SHRINKS the captured set, which reads as a
+    clean A/B rather than as a broken one."""
+
+    ENGINE = fx_line("liquidEngine.v2", "engine", 0, 2, 0, "em3/sp2",
+                     FX_FLAME_ENTRY + "|" + FX_SMOKE_ENTRY)
+    RCS = fx_line("RCSBlock.v2", "rcs", 1, 1, 1, "em2/sp2", FX_RCS_ENTRY)
+
+    def test_realistic_engine_and_rcs_lines_round_trip(self):
+        got = hlib.parse_fx_fingerprint_lines([self.ENGINE, self.RCS])
+        self.assertEqual(0, got.malformed)
+        self.assertEqual(
+            {("liquidEngine.v2", "engine", 0), ("RCSBlock.v2", "rcs", 1)},
+            set(got.entries))
+        # The captured value is the canonical head fields + the bracketed fp,
+        # byte-for-byte (the producer already sorted the entries Ordinal).
+        self.assertEqual(
+            ("systems=2 nullSystems=0 curves=em3/sp2 fp=[%s|%s]"
+             % (FX_FLAME_ENTRY, FX_SMOKE_ENTRY),),
+            got.entries[("liquidEngine.v2", "engine", 0)])
+        self.assertEqual(
+            ("systems=1 nullSystems=1 curves=em2/sp2 fp=[%s]" % FX_RCS_ENTRY,),
+            got.entries[("RCSBlock.v2", "rcs", 1)])
+
+    def test_the_dotted_part_name_and_the_module_index_survive_the_key(self):
+        # KSP's runtime part names are dot-form (cfg `solidBooster_v2` ->
+        # `solidBooster.v2`), and a part can carry more than one engine module, so
+        # midx is part of the identity and must be an INT (midx 10 sorts after 2).
+        lines = [fx_line("liquidEngine.v2", "engine", n, 1, 0, "em2/sp2",
+                         FX_FLAME_ENTRY) for n in (2, 10)]
+        got = hlib.parse_fx_fingerprint_lines(lines)
+        self.assertEqual([("liquidEngine.v2", "engine", 2),
+                          ("liquidEngine.v2", "engine", 10)], sorted(got.entries))
+
+    def test_a_ksp_log_timestamp_prefix_does_not_defeat_the_anchor(self):
+        # Anchored on the SUBSTRING, never on line start: a collected log always
+        # carries a stamp, so a start-anchored match would capture nothing at all.
+        stamped = hlib.parse_fx_fingerprint_lines([self.ENGINE])
+        bare = hlib.parse_fx_fingerprint_lines(
+            [fx_line("liquidEngine.v2", "engine", 0, 2, 0, "em3/sp2",
+                     FX_FLAME_ENTRY + "|" + FX_SMOKE_ENTRY, prefix="")])
+        self.assertEqual(stamped.entries, bare.entries)
+        self.assertEqual(1, len(stamped.entries))
+
+    def test_the_rate_limiter_suppressed_tail_is_stripped(self):
+        # ParsekLog appends " | suppressed=N" AFTER the closing "]" on the next
+        # changed emission. Cutting at the FIRST "]" or at the first " | " would
+        # slice the fingerprint open; cutting at the LAST "]" is what makes the
+        # suppressed line compare equal to the unsuppressed one.
+        suppressed = fx_line("liquidEngine.v2", "engine", 0, 2, 0, "em3/sp2",
+                             FX_FLAME_ENTRY + "|" + FX_SMOKE_ENTRY,
+                             suffix=" | suppressed=3")
+        got = hlib.parse_fx_fingerprint_lines([self.ENGINE, suppressed])
+        self.assertEqual(0, got.malformed)
+        # Same key, ONE value: the tail is not part of the fingerprint.
+        self.assertEqual(1, len(got.entries[("liquidEngine.v2", "engine", 0)]))
+        self.assertNotIn("suppressed",
+                         got.entries[("liquidEngine.v2", "engine", 0)][0])
+
+    def test_a_pipe_joined_multi_entry_payload_survives_whole(self):
+        # The '|' is the producer's own entry join AND the rate limiter's tail
+        # separator. Three entries with spaces inside must come back intact.
+        fp = "|".join([FX_FLAME_ENTRY, FX_RCS_ENTRY, FX_SMOKE_ENTRY])
+        got = hlib.parse_fx_fingerprint_lines(
+            [fx_line("someEngine.v1", "engine", 0, 3, 0, "em4/sp4", fp)])
+        value = got.entries[("someEngine.v1", "engine", 0)][0]
+        self.assertTrue(value.endswith("fp=[%s]" % fp), value)
+        self.assertEqual(2, value.count("|"))
+
+    def test_the_no_systems_payload_is_a_value_not_a_parse_failure(self):
+        # `fp=[(none)]` is what BuildFingerprint emits for zero systems. It must
+        # capture as an ordinary value: "(none) on one side, real systems on the
+        # other" is the single most interesting finding this diff can report.
+        got = hlib.parse_fx_fingerprint_lines(
+            [fx_line("strutConnector", "engine", 0, 0, 0, "em0/sp0", "(none)")])
+        self.assertEqual(0, got.malformed)
+        self.assertEqual(("systems=0 nullSystems=0 curves=em0/sp0 fp=[(none)]",),
+                         got.entries[("strutConnector", "engine", 0)])
+
+    def test_whitespace_jitter_between_tokens_normalizes_to_one_payload(self):
+        # The captured value is REBUILT from the parsed fields, so incidental
+        # spacing can never read as an A/B divergence.
+        loose = fx_line("liquidEngine.v2", "engine", 0, 2, 0, "em3/sp2",
+                        FX_FLAME_ENTRY + "|" + FX_SMOKE_ENTRY, sep="   ")
+        got = hlib.parse_fx_fingerprint_lines([self.ENGINE, loose])
+        self.assertEqual(1, len(got.entries[("liquidEngine.v2", "engine", 0)]))
+
+    def test_a_malformed_anchored_line_is_counted_not_raised(self):
+        # A producer-side format drift must surface as a NUMBER, not as a quietly
+        # smaller captured set and not as an exception mid-parse.
+        malformed = [
+            hlib.FX_FINGERPRINT_ANCHOR + " part='x' kind=engine midx=0",
+            hlib.FX_FINGERPRINT_ANCHOR + " kind=engine midx=0 systems=1 "
+            "nullSystems=0 curves=em1/sp1 fp=[a]",
+            hlib.FX_FINGERPRINT_ANCHOR + " part='x' kind=engine midx=zero "
+            "systems=1 nullSystems=0 curves=em1/sp1 fp=[a]",
+            hlib.FX_FINGERPRINT_ANCHOR + " part='x' kind=engine midx=0 systems=1 "
+            "nullSystems=0 curves=em1/sp1 fp=[a",
+        ]
+        got = hlib.parse_fx_fingerprint_lines(malformed + [self.ENGINE])
+        self.assertEqual(4, got.malformed)
+        self.assertEqual(1, len(got.entries), "the good line still captures")
+
+    def test_a_line_without_the_anchor_is_neither_captured_nor_counted(self):
+        # Every other line in a large KSP.log is not an FX line; counting them
+        # malformed would drown the drift signal the counter exists to carry.
+        noise = ["[LOG 00:00:01.000] [Parsek][INFO][Recorder] recording started",
+                 "", "some stock line with fp=[whatever] in it"]
+        got = hlib.parse_fx_fingerprint_lines(noise)
+        self.assertEqual(0, got.malformed)
+        self.assertEqual({}, got.entries)
+
+    def test_repeated_identical_lines_collapse_to_one_value(self):
+        # The 5 s rate limiter re-emits a stable fingerprint; a stable module must
+        # not read as unstable just because it was logged three times.
+        got = hlib.parse_fx_fingerprint_lines([self.ENGINE] * 3)
+        self.assertEqual((("systems=2 nullSystems=0 curves=em3/sp2 fp=[%s|%s]"
+                           % (FX_FLAME_ENTRY, FX_SMOKE_ENTRY)),),
+                         got.entries[("liquidEngine.v2", "engine", 0)])
+
+    def test_repeated_differing_lines_for_one_key_keep_every_distinct_value(self):
+        # A fingerprint that changes WITHIN one run is itself a reportable fact
+        # (an FX rebuild moved the geometry). Collapsing to the first (or last)
+        # value would hide a divergence inside a single side of the A/B.
+        rebuilt = fx_line("liquidEngine.v2", "engine", 0, 2, 0, "em3/sp2",
+                          FX_FLAME_ENTRY + "|" + FX_SMOKE_ENTRY.replace(
+                              "size=1.20", "size=2.40"))
+        got = hlib.parse_fx_fingerprint_lines([self.ENGINE, rebuilt, self.ENGINE])
+        values = got.entries[("liquidEngine.v2", "engine", 0)]
+        self.assertEqual(2, len(values))
+        self.assertEqual(tuple(sorted(values)), values, "values come back sorted")
+
+
+class FxFingerprintDiffTests(unittest.TestCase):
+    """The A/B set-diff: what the modded-compat lane actually reads.
+
+    Guards that a module built on only one side, a module built differently on
+    the two sides, and a module that disagreed with ITSELF are three distinct
+    findings -- and that the proven-equivalent set is counted, so a clean diff
+    reads as coverage rather than as silence."""
+
+    A_KEY = ("liquidEngine.v2", "engine", 0)
+    B_KEY = ("RCSBlock.v2", "rcs", 1)
+    V1 = "systems=2 nullSystems=0 curves=em3/sp2 fp=[%s]" % FX_FLAME_ENTRY
+    V2 = "systems=1 nullSystems=1 curves=em3/sp2 fp=[(none)]"
+
+    def test_shared_identical_keys_count_as_matches(self):
+        cap = {self.A_KEY: (self.V1,), self.B_KEY: (self.V2,)}
+        d = hlib.diff_fx_fingerprints(cap, dict(cap))
+        self.assertEqual(2, d.match_count)
+        self.assertEqual([], d.changed)
+        self.assertEqual([], d.keys_only_in_a)
+        self.assertEqual([], d.keys_only_in_b)
+
+    def test_a_key_only_one_side_built_is_reported_on_that_side(self):
+        # The coverage half: a config pack deleting a stock particle definition
+        # makes the module vanish from one install's fingerprint set entirely.
+        d = hlib.diff_fx_fingerprints({self.A_KEY: (self.V1,)},
+                                      {self.B_KEY: (self.V2,)})
+        self.assertEqual([self.A_KEY], d.keys_only_in_a)
+        self.assertEqual([self.B_KEY], d.keys_only_in_b)
+        self.assertEqual(0, d.match_count)
+        self.assertEqual([], d.changed)
+
+    def test_a_differing_payload_is_reported_as_changed_with_both_values(self):
+        d = hlib.diff_fx_fingerprints({self.A_KEY: (self.V1,)},
+                                      {self.A_KEY: (self.V2,)})
+        self.assertEqual([(self.A_KEY, (self.V1,), (self.V2,))], d.changed)
+        self.assertEqual(0, d.match_count)
+
+    def test_an_unstable_key_is_flagged_on_its_own_side_and_still_diffs(self):
+        # An unstable key is NOT excused from the diff -- it reports its
+        # disagreement AND says the evidence is untrustworthy.
+        d = hlib.diff_fx_fingerprints({self.A_KEY: (self.V1, self.V2)},
+                                      {self.A_KEY: (self.V1,)})
+        self.assertEqual([self.A_KEY], d.unstable_a)
+        self.assertEqual([], d.unstable_b)
+        # Values come back sorted on both sides (the parser's own order), so the
+        # compare cannot depend on which payload the log happened to emit first.
+        self.assertEqual([(self.A_KEY, tuple(sorted((self.V1, self.V2))), (self.V1,))],
+                         d.changed)
+        self.assertEqual(0, d.match_count)
+
+    def test_a_capture_diffs_straight_out_of_the_parser(self):
+        # End to end over the real line shape: the parser's `entries` mapping is
+        # exactly what the diff consumes.
+        a = hlib.parse_fx_fingerprint_lines(
+            [fx_line("liquidEngine.v2", "engine", 0, 1, 0, "em3/sp2", FX_FLAME_ENTRY)])
+        b = hlib.parse_fx_fingerprint_lines(
+            [fx_line("liquidEngine.v2", "engine", 0, 0, 0, "em3/sp2", "(none)")])
+        d = hlib.diff_fx_fingerprints(a.entries, b.entries)
+        self.assertEqual(1, len(d.changed))
+        self.assertIn("fp=[(none)]", d.changed[0][2][0])
+
+    def test_empty_and_missing_captures_diff_cleanly(self):
+        d = hlib.diff_fx_fingerprints({}, {})
+        self.assertEqual(hlib.FxFingerprintDiff([], [], [], [], [], 0), d)
+        self.assertEqual(d, hlib.diff_fx_fingerprints(None, None))
+
+    def test_every_list_comes_back_sorted_by_key(self):
+        # Numeric midx ordering (2 before 10) is what makes the report readable
+        # for a part carrying more than nine modules; a lexical key would not.
+        a = {("p", "engine", n): (self.V1,) for n in (10, 2, 1)}
+        d = hlib.diff_fx_fingerprints(a, {})
+        self.assertEqual([("p", "engine", 1), ("p", "engine", 2),
+                          ("p", "engine", 10)], d.keys_only_in_a)
+
+
+class FxFingerprintReportTests(unittest.TestCase):
+    """The report render must be byte-stable: one header, one line per finding.
+
+    A report that reordered between two invocations could not itself be diffed,
+    which is the whole point of pasting it into a PR."""
+
+    KEY_A = ("liquidEngine.v2", "engine", 0)
+    KEY_B = ("RCSBlock.v2", "rcs", 1)
+    KEY_C = ("solidBooster.v2", "engine", 2)
+    V1 = "systems=1 nullSystems=0 curves=em3/sp2 fp=[%s]" % FX_FLAME_ENTRY
+    V2 = "systems=0 nullSystems=0 curves=em0/sp0 fp=[(none)]"
+
+    def test_a_clean_diff_renders_only_the_summary_header(self):
+        d = hlib.diff_fx_fingerprints({self.KEY_A: (self.V1,)},
+                                      {self.KEY_A: (self.V1,)})
+        self.assertEqual(
+            ["fx-fingerprint-diff a=stock b=waterfall match=1 changed=0 "
+             "only-in-a=0 only-in-b=0 unstable-a=0 unstable-b=0"],
+            hlib.format_fx_fingerprint_diff(d, "stock", "waterfall"))
+
+    def test_every_finding_renders_exactly_one_grep_stable_line(self):
+        a = {self.KEY_A: (self.V1,), self.KEY_B: (self.V1, self.V2)}
+        b = {self.KEY_B: (self.V1,), self.KEY_C: (self.V2,)}
+        got = hlib.format_fx_fingerprint_diff(
+            hlib.diff_fx_fingerprints(a, b), "stock", "waterfall")
+        self.assertEqual([
+            "fx-fingerprint-diff a=stock b=waterfall match=0 changed=1 "
+            "only-in-a=1 only-in-b=1 unstable-a=1 unstable-b=0",
+            "only-in-a side=stock part='liquidEngine.v2' kind=engine midx=0",
+            "only-in-b side=waterfall part='solidBooster.v2' kind=engine midx=2",
+            "changed part='RCSBlock.v2' kind=rcs midx=1 :: stock -> %s ;; %s "
+            ":: waterfall -> %s" % (self.V2, self.V1, self.V1),
+            "unstable-a side=stock part='RCSBlock.v2' kind=rcs midx=1",
+        ], got)
+
+    def test_the_render_is_byte_stable_across_input_insertion_order(self):
+        keys = [self.KEY_A, self.KEY_B, self.KEY_C]
+        forward = {k: (self.V1,) for k in keys}
+        backward = {k: (self.V1,) for k in reversed(keys)}
+        self.assertEqual(
+            hlib.format_fx_fingerprint_diff(
+                hlib.diff_fx_fingerprints(forward, {}), "stock", "waterfall"),
+            hlib.format_fx_fingerprint_diff(
+                hlib.diff_fx_fingerprints(backward, {}), "stock", "waterfall"))
+
+    def test_a_label_with_spaces_cannot_break_the_leading_grep_token(self):
+        d = hlib.diff_fx_fingerprints({self.KEY_A: (self.V1,)}, {})
+        lines = hlib.format_fx_fingerprint_diff(d, "stock minimal", "modded compat")
+        self.assertTrue(lines[0].startswith("fx-fingerprint-diff "))
+        self.assertTrue(lines[1].startswith("only-in-a side=stock minimal part='"))
