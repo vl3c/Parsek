@@ -29,6 +29,17 @@ namespace Parsek.Tests
     /// class that DOES install one must not run concurrently with these cells, hence
     /// <c>[Collection("Sequential")]</c>.
     /// </para>
+    /// <para>
+    /// SCOPE, since Finding B (2026-08-05, branch <c>twobody-extreme-ecc-solver</c>): every cell
+    /// here is SOLVER-AGNOSTIC by construction - conic geometry, conserved quantities, periodicity
+    /// and Kepler-equation self-consistency, all of which any correct elliptic solve satisfies.
+    /// None of them pinned the old plain-Newton-seeded-at-<c>E = M</c> implementation, which is
+    /// why replacing it with stock's 0.8 dispatch left this file untouched and green - including
+    /// its e = 0.82, 0.9 and 0.95 cells, which now take the extreme-eccentricity branch. The
+    /// contract that the solve IS stock's - the threshold, both seeds, the fixed 8 iterations,
+    /// the capped standard loop - belongs to <c>StockOrbitElementFrameParityTests</c> section 4;
+    /// do not restate it here.
+    /// </para>
     /// </summary>
     [Collection("Sequential")]
     public class BallisticExtrapolatorKeplerTests

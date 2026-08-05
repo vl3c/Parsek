@@ -55,8 +55,17 @@ namespace Parsek.Tests
     /// <c>WorldToLocal</c> applied. The closed form that WAS the diagnosis is still pinned, on the
     /// state reached by PRE-CANCELLING the boundary (feeding a segment whose LAN carries the
     /// boundary's own correction) - the only way to reproduce the pre-fix encoding through the
-    /// production API now. FINDING B, the extreme-eccentricity solver, remains OPEN and is still
-    /// pinned as a disagreement at the bottom of this file.
+    /// production API now.
+    /// </para>
+    /// <para>
+    /// <b>FINDING B IS ALSO FIXED</b> (2026-08-05, branch <c>twobody-extreme-ecc-solver</c>).
+    /// <c>TwoBodyOrbit</c> used to run plain Newton seeded at <c>E = M</c> at every eccentricity;
+    /// it now ports stock's <c>solveEccentricAnomaly</c> dispatch and BOTH of its branches, so the
+    /// two propagators agree in every eccentricity regime rather than only below 0.8. Section 4
+    /// at the bottom of this file used to pin that disagreement and now pins the agreement, on
+    /// the same fixture and the same full mean-anomaly sweep - and the pad-fixture cell, which
+    /// deliberately sampled near apoapsis only because the solver divergence dominated everywhere
+    /// else, now sweeps a whole period.
     /// </para>
     /// <para>
     /// Since the production boundary reads the process-wide <c>Planetarium.Zup</c>, these cells
@@ -126,9 +135,11 @@ namespace Parsek.Tests
         /// stock's - the lead hypothesis for the site-4 residual is false, and the entire
         /// discrepancy is the single <c>Zup</c> rotation isolated in the next cell.
         /// <para>
-        /// Eccentricities stay at or below 0.9 here on purpose; see
-        /// <see cref="HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver"/>
-        /// for the separate solver finding above that.
+        /// Eccentricities stay at or below 0.9 here because this cell is about the FRAME; the
+        /// solver's own regimes - both sides of stock's 0.8 dispatch, and extreme eccentricity in
+        /// particular - are covered in section 4 by
+        /// <see cref="HighEccentricity_TwoBodyOrbitTracksStocksExtremeEccSolverOverTheFullSweep"/>
+        /// and <see cref="DispatchThreshold_IsContinuousAcrossTheTwoSolvers"/>.
         /// </para>
         /// </summary>
         [Theory]
@@ -235,14 +246,16 @@ namespace Parsek.Tests
         /// surface-rotation ellipse (a = 300.8 km, e = 0.9948) at 230.01 deg. The element-seeded
         /// state agrees with stock's directly.
         /// <para>
-        /// SAMPLED NEAR APOAPSIS ONLY, and that restriction is FINDING B, not a weakening of this
-        /// claim: at e = 0.9948 <c>TwoBodyOrbit</c>'s plain Newton solve diverges from stock's
+        /// SAMPLED OVER THE WHOLE ORBIT since 2026-08-05, branch
+        /// <c>twobody-extreme-ecc-solver</c>. It used to sample near APOAPSIS ONLY, and that
+        /// restriction was Finding B rather than a weakening of this claim: at e = 0.9948
+        /// <c>TwoBodyOrbit</c>'s plain Newton solve diverged from stock's
         /// <c>solveEccentricAnomalyExtremeEcc</c> near periapsis by double-digit degrees of true
-        /// anomaly (pinned by
-        /// <see cref="HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver"/>), so
-        /// a full-orbit sweep here would red on the SOLVER and say nothing about the FRAME. The
-        /// site-4 measurement itself was taken at apoapsis, where the solve is exact - so this is
-        /// the fixture the flight ran, at the anomaly the flight ran it at.
+        /// anomaly, so a full-orbit sweep would have red'd on the SOLVER and said nothing about
+        /// the FRAME. Finding B is fixed - the solve is now stock's dispatch, pinned by
+        /// <see cref="HighEccentricity_TwoBodyOrbitTracksStocksExtremeEccSolverOverTheFullSweep"/>
+        /// - so the frame claim is stated where it always should have been: at every anomaly on
+        /// the fixture the flight ran, periapsis included.
         /// </para>
         /// </summary>
         [Fact]
@@ -262,7 +275,8 @@ namespace Parsek.Tests
             var zup = StockOrbitPort.PlanetaryZup(MeasuredZupAngleDegrees);
             var stock = StockOrbitPort.FromSegment(segment, KerbinMu, zup);
 
-            for (int i = -4; i <= 4; i++)
+            // A full period in 64 steps, from periapsis through apoapsis and back.
+            for (int i = 0; i <= 64; i++)
             {
                 double ut = segment.epoch + (stock.Period * i) / 64.0;
                 orbit.GetStateAtUT(ut, out Vector3d position, out Vector3d velocity);
@@ -521,25 +535,33 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
-        // 4. A SECOND, independent finding the cross-check turned up
+        // 4. THE SOLVER (Finding B), fixed 2026-08-05 on branch
+        //    twobody-extreme-ecc-solver: these cells pin the AGREEMENT
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// SEPARATE FINDING, not the site-4 cause: above e = 0.8 stock switches to
+        /// THE FLIPPED PIN. This cell was written on 2026-08-05 as
+        /// <c>HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver</c> and it
+        /// asserted the DISAGREEMENT: above e = 0.8 stock dispatches to
         /// <c>solveEccentricAnomalyExtremeEcc</c> (a fixed 8-iteration Laguerre-style solve seeded
-        /// at <c>M + 0.85 e sign(sin M)</c>) while <c>TwoBodyOrbit</c> keeps plain Newton seeded at
-        /// <c>E = M</c>. At e = 0.9948 - which is not exotic, it is the eccentricity of EVERY
-        /// landed or prelaunch vessel's surface-rotation orbit - Newton fails to converge in its
-        /// 16 iterations near periapsis and lands double-digit degrees of true anomaly away from
-        /// the root, where stock stays exact.
+        /// at <c>M + 0.85 e sign(sin M)</c>) while <c>TwoBodyOrbit</c> kept plain Newton seeded at
+        /// <c>E = M</c> and capped at 16 iterations. At e = 0.9948 - not exotic: the
+        /// surface-rotation ellipse of EVERY landed or prelaunch vessel, and the fixture the H9
+        /// probes fly on - that Newton solve failed to converge near periapsis and landed
+        /// double-digit degrees of true anomaly from the root over this exact sweep, peaking
+        /// around 134 deg, where stock stayed exact throughout. The cell's failure message said to
+        /// retire it if the divergence was ever deliberately fixed.
         /// <para>
-        /// This cell asserts the DISAGREEMENT rather than a fix: it is a real robustness gap in
-        /// the element-seeded propagator, filed with the frame finding, and pinning it here means
-        /// a later fix has a test that flips instead of a bug nobody wrote down.
+        /// It was, on branch <c>twobody-extreme-ecc-solver</c> (Finding B of the todo entry
+        /// "TwoBodyOrbit's element-seeded propagation works in KSP's raw element frame, not stock
+        /// Orbit's"): <c>TwoBodyOrbit.SolveEllipticKepler</c> now ports stock's 0.8 dispatch and
+        /// BOTH branches. So the cell is kept and INVERTED - same fixture, same full 360-sample
+        /// mean-anomaly sweep, agreement instead of divergence - because the sweep that exposed
+        /// the gap is the sweep that proves it closed.
         /// </para>
         /// </summary>
         [Fact]
-        public void HighEccentricity_TwoBodyOrbitNewtonDivergesFromStocksExtremeEccSolver()
+        public void HighEccentricity_TwoBodyOrbitTracksStocksExtremeEccSolverOverTheFullSweep()
         {
             // Identity Zup so the element-frame boundary is inert and only the SOLVER is measured.
             InstallZup(0.0);
@@ -561,16 +583,178 @@ namespace Parsek.Tests
                 Assert.True(TwoBodyOrbit.TryCreateFromSegment(segment, KerbinMu, out TwoBodyOrbit orbit));
                 var stock = StockOrbitPort.FromSegment(segment, KerbinMu, StockOrbitPort.IdentityZup());
 
-                orbit.GetStateAtUT(0.0, out Vector3d position, out _);
-                double disagreement = AngleBetweenDegrees(position, stock.GetRelativePositionAtUT(0.0));
+                orbit.GetStateAtUT(0.0, out Vector3d position, out Vector3d velocity);
+                Vector3d stockPosition = stock.GetRelativePositionAtUT(0.0);
+
+                AssertVectorsAgree(stockPosition, position, 1e-9, $"position at M={k} deg");
+                AssertVectorsAgree(
+                    stock.GetOrbitalVelocityAtUT(0.0), velocity, 1e-9, $"velocity at M={k} deg");
+
+                double disagreement = AngleBetweenDegrees(position, stockPosition);
                 if (disagreement > worstDisagreementDegrees)
                     worstDisagreementDegrees = disagreement;
             }
 
-            Assert.True(worstDisagreementDegrees > 5.0,
-                "TwoBodyOrbit's Newton solve now tracks stock's extreme-eccentricity solver; if "
-                + "that is a deliberate fix, retire this cell and the matching todo entry "
-                + $"(worst disagreement {worstDisagreementDegrees:F3} deg)");
+            // The SHARP claim is the per-sample vector agreement above (1e-9 relative). This
+            // angular summary is the one the pre-fix cell measured at ~134 deg, kept so the
+            // before/after reads on one number - but its floor is the arc-cosine's, not the
+            // solver's: acos loses half the mantissa near an argument of 1, so two vectors that
+            // agree to double precision still report ~sqrt(2 * 2.2e-16) rad = 8e-7 deg. The bound
+            // is set an order of magnitude above that floor and four orders below the old
+            // divergence.
+            Assert.True(worstDisagreementDegrees < 1e-4,
+                "the extreme-eccentricity solver has drifted from stock's; worst true-anomaly "
+                + $"disagreement {worstDisagreementDegrees:E3} deg over the full mean-anomaly sweep");
+        }
+
+        /// <summary>
+        /// THE CONVERGENCE PROPERTY, stated against Kepler's equation itself rather than against
+        /// the port - so it holds even if the transcription and the production copy were BOTH
+        /// wrong in the same way. Over a full mean-anomaly sweep at extreme eccentricity,
+        /// INCLUDING the periapsis neighbourhood where the old 16-iteration Newton solve gave up,
+        /// the returned E satisfies <c>M = E - e sin E</c> to near machine precision.
+        /// <para>
+        /// Periapsis is the hard region on purpose: there <c>1 - e cos E</c> collapses toward
+        /// <c>1 - e</c> (5.2e-3 at e = 0.9948), so a Newton step is amplified by ~190 and the
+        /// iteration overshoots into the wrong basin. Laguerre's order-5 step is what tames that.
+        /// </para>
+        /// </summary>
+        [Theory]
+        [InlineData(0.8)]
+        [InlineData(0.9)]
+        [InlineData(0.9948)]
+        [InlineData(0.999)]
+        [InlineData(0.99999)]
+        public void ExtremeEccentricity_TheSolvedAnomalySatisfiesKeplersEquation(double eccentricity)
+        {
+            double worstResidual = 0.0;
+            double worstAtMeanAnomaly = 0.0;
+
+            // 0.5-degree steps, so the periapsis neighbourhood (M near 0 and near 2pi) is sampled
+            // densely rather than stepped over.
+            for (int k = 0; k < 720; k++)
+            {
+                double meanAnomaly = k * 0.5 * DegToRad;
+                double eccentricAnomaly =
+                    TwoBodyOrbit.SolveEllipticKepler(meanAnomaly, eccentricity);
+                Assert.False(double.IsNaN(eccentricAnomaly) || double.IsInfinity(eccentricAnomaly),
+                    $"non-finite E at M={meanAnomaly}, e={eccentricity}");
+
+                double residual = Math.Abs(
+                    (eccentricAnomaly - (eccentricity * Math.Sin(eccentricAnomaly))) - meanAnomaly);
+                if (residual > worstResidual)
+                {
+                    worstResidual = residual;
+                    worstAtMeanAnomaly = meanAnomaly;
+                }
+            }
+
+            Assert.True(worstResidual < 1e-10,
+                $"Kepler residual {worstResidual:E3} at M={worstAtMeanAnomaly} rad, e={eccentricity} "
+                + "- the extreme-eccentricity solve is not converging");
+        }
+
+        /// <summary>
+        /// NO DISCONTINUITY AT THE DISPATCH THRESHOLD. The 0.8 boundary is stock's, and it is a
+        /// switch between two solvers of the SAME equation, not between two models - so straddling
+        /// it must not move the answer by more than the eccentricity step itself explains.
+        /// <para>
+        /// Pinned because the threshold is the one place a porting mistake hides: a seed or a sign
+        /// wrong in only one branch leaves both branches individually plausible and shows up only
+        /// as a step at 0.8. The first two assertions keep the cell from passing vacuously if the
+        /// dispatch ever stopped straddling the constant it names.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void DispatchThreshold_IsContinuousAcrossTheTwoSolvers()
+        {
+            const double step = 1e-9;
+            double below = TwoBodyOrbit.ExtremeEccentricityThreshold - step;
+            double above = TwoBodyOrbit.ExtremeEccentricityThreshold;
+
+            Assert.Equal(
+                TwoBodyOrbit.SolveEllipticKeplerStandard(1.0, below),
+                TwoBodyOrbit.SolveEllipticKepler(1.0, below),
+                12);
+            Assert.Equal(
+                TwoBodyOrbit.SolveEllipticKeplerExtremeEccentricity(1.0, above),
+                TwoBodyOrbit.SolveEllipticKepler(1.0, above),
+                12);
+
+            double worstJump = 0.0;
+            for (int k = 0; k < 720; k++)
+            {
+                double meanAnomaly = k * 0.5 * DegToRad;
+                double jump = Math.Abs(
+                    TwoBodyOrbit.SolveEllipticKepler(meanAnomaly, above)
+                    - TwoBodyOrbit.SolveEllipticKepler(meanAnomaly, below));
+                if (jump > worstJump)
+                    worstJump = jump;
+            }
+
+            // dE/de = sin E / (1 - e cos E), bounded by 1/(1 - e) = 5 at e = 0.8, so a 1e-9
+            // eccentricity step can legitimately move E by ~5e-9. Anything larger is a solver step.
+            Assert.True(worstJump < 1e-7,
+                $"the eccentric anomaly jumps by {worstJump:E3} rad across the 0.8 dispatch "
+                + "threshold - the two branches disagree where they meet");
+        }
+
+        /// <summary>
+        /// TOTALITY of the standard branch's iteration cap, which is this port's ONE structural
+        /// deviation from stock (stock's <c>solveEccentricAnomalyStd</c> loop is uncapped; a
+        /// propagator the physics-frame recorder calls before every sample may not hang).
+        /// <para>
+        /// Driven with a NON-PHYSICAL negative eccentricity, which is the only way to reach the
+        /// cap at all: for <c>0 &lt;= e &lt; 0.8</c> Newton from stock's series seed converges in a
+        /// handful of iterations at every mean anomaly, and no production entry point can deliver
+        /// anything else - <c>AreSegmentElementsPropagatable</c> refuses <c>e &lt; 0</c> outright
+        /// and <c>TryCreate</c> derives e as a vector magnitude. At e = -5 the equation
+        /// <c>M = E + 5 sin E</c> is non-monotonic, <c>1 + 5 cos E</c> passes through zero, and
+        /// Newton wanders instead of converging. The contract is: FINITE result, a rate-limited
+        /// log naming the cap, and a return rather than a throw or a hang.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void StandardBranchIterationCap_ReturnsFiniteAndLogsRatherThanHanging()
+        {
+            var logLines = new System.Collections.Generic.List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // M = 25 deg with e = -5: Newton cycles and the cap is what ends the loop.
+                double eccentricAnomaly = TwoBodyOrbit.SolveEllipticKepler(25.0 * DegToRad, -5.0);
+
+                Assert.False(double.IsNaN(eccentricAnomaly) || double.IsInfinity(eccentricAnomaly),
+                    $"the capped solve must return a finite best estimate, got {eccentricAnomaly}");
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Extrapolator]") && l.Contains("iteration cap"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        /// <summary>
+        /// NaN-IN, NaN-OUT survives the port. Both stock branches call <c>Math.Sign</c>, which
+        /// THROWS <c>ArithmeticException</c> on NaN instead of propagating it - the exact
+        /// mechanism that once cost the recorder every sample of every frame through the
+        /// HYPERBOLIC solve (see <c>SolveHyperbolicKepler</c>'s docstring and the "AN ORBITAL EVA
+        /// RECORDS NOTHING" todo entry). Porting two more <c>Math.Sign</c> call sites into the
+        /// elliptic path re-opened that door, so the guard is pinned rather than assumed.
+        /// </summary>
+        [Theory]
+        [InlineData(double.NaN, 0.9948)]
+        [InlineData(double.PositiveInfinity, 0.9948)]
+        [InlineData(double.NegativeInfinity, 0.3)]
+        [InlineData(1.0, double.NaN)]
+        [InlineData(1.0, double.PositiveInfinity)]
+        public void NonFiniteInputs_ReturnNaNRatherThanThrowing(double meanAnomaly, double eccentricity)
+        {
+            double eccentricAnomaly = TwoBodyOrbit.SolveEllipticKepler(meanAnomaly, eccentricity);
+            Assert.True(double.IsNaN(eccentricAnomaly),
+                $"expected NaN for M={meanAnomaly}, e={eccentricity}, got {eccentricAnomaly}");
         }
 
         // ------------------------------------------------------------------
