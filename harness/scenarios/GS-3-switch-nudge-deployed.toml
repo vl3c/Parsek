@@ -1,0 +1,493 @@
+schema = 1
+id = "GS-3-switch-nudge-deployed"
+# =====================================================================================
+# THE S17 SWITCH NUDGE. GS-2's flight, EXACTLY - same fixture, same mission, same
+# commit route - plus ONE stock map Switch-To click onto the vessel the decoupler just
+# released. One variable. That is the whole design of this spec, and it is why it
+# exists as a sibling rather than as a step inside GS-2.
+#
+# THE RESEARCH DOC SAYS ONE THING AND THE CODE SAYS ANOTHER, and measuring which is
+# true is what this run is for.
+#   docs/dev/research/extending-rewind-to-stable-leaves.md section 8, scenario S17:
+#   a briefly-nudged probe STAYS in the Unfinished Flights list - "v1 over-includes
+#   nudged probes; player handles via Seal". The player is expected to keep the re-fly
+#   affordance and to close it themselves if they do not want it.
+#   THE CODE, READ RATHER THAN ASSUMED, SAYS THE OPPOSITE (see the next block).
+# If the flight confirms the code reading, that is a DESIGN-VS-IMPLEMENTATION
+# DIVERGENCE that silently costs the player the re-fly affordance the design promised,
+# and it belongs in docs/dev/todo-and-known-bugs.md with this run's id as evidence -
+# not softened away by weakening the scenario.
+#
+# =====================================================================================
+# MEASURED 2026-08-05, run `2026-08-05_0903` (PASS attempt 1), against GS-2's
+# `0853`/`0856` on the SAME fixture and mission with ONE changed step. The
+# divergence is CONFIRMED - and the prediction below was RIGHT ABOUT THE OUTCOME
+# AND WRONG ABOUT THE MECHANISM. Both are kept, because being able to see which
+# half of a code reading survived contact with a flight is the point of writing
+# the reading down.
+#
+#   MEASURED OUTCOME    GS-2 save `rewindPoints 1` (probe in Unfinished Flights)
+#                       GS-3 save `rewindPoints 0` (probe dropped, RP reaped)
+#                       `supersedeRows 0` / `tombstones 0` on both.
+#
+#   MEASURED MECHANISM  NOT `downstreamBp` - that string does not appear in the
+#                       run's KSP.log even once. The switch segment DISPLACES the
+#                       origin as the classifier's subject: only TWO evaluations
+#                       happen for a three-recording tree, the focus leaf
+#                       (`stableTerminalFocusSlot`) and the SEGMENT
+#                       (`not promoted reason=noMatchingRP parentBp=<the
+#                       VesselSwitchContinuation bp>`, UnfinishedFlightClassifier.cs:53).
+#                       The probe's ORIGIN recording - the one the RP slot points
+#                       at, closed at terminal `Orbiting` - is never evaluated at
+#                       all. Zero promotions, both slots Immutable, RP reaped
+#                       (`Reaped rp=... slots=2`, `reaped=1 remaining=0`).
+#
+# The full write-up, the A/B table and the OPEN DESIGN QUESTION live in
+# docs/dev/todo-and-known-bugs.md under GS3-NUDGE-DROPS-UNFINISHED-FLIGHT. The
+# call - tolerate an inert switch bp in the classifier, or amend section 8 S17 -
+# is Vlad's, and this spec deliberately does not encode either answer.
+#
+# THE ORIGINAL PREDICTION, PRESERVED AS WRITTEN:
+#
+# `SwitchSegmentBuilder.CreateSwitchContinuationSegment` (SwitchSegmentBuilder.cs:422-465)
+# attaches the new segment under a `BranchPointType.VesselSwitchContinuation` branch
+# point and, in doing so, writes
+#     parentRec.ChildBranchPointId = newBranchPointId;
+# onto the PARENT - which, for a switch to the released core, is that core's ORIGIN
+# recording: the very recording the RewindPoint's slot points at.
+#
+# `UnfinishedFlightClassifier.TryQualify` then hits its downstream-branch gate BEFORE
+# it ever reaches the terminal-outcome logic (UnfinishedFlightClassifier.cs:115-132):
+#     if (!string.IsNullOrEmpty(chainTip.ChildBranchPointId)
+#         && !string.Equals(chainTip.ChildBranchPointId, rp.BranchPointId, ...))
+#     { ... reason = "downstreamBp"; ... return false; }
+# The switch bp is not the Breakup bp the RP hangs off, so the gate fires and the
+# non-focus leaf is NOT promoted. The focus leaf is still refused by the focus gate
+# (`stableTerminalFocusSlot`, :313-322). With BOTH slots left Immutable,
+# `RewindPointReaper.IsReapEligible` (RewindPointReaper.cs:184-222) finds nothing
+# NotCommitted or CommittedProvisional and the RewindPoint REAPS.
+#
+# So the predicted divergence from GS-2, on one changed variable, is:
+#   GS-2   non-focus leaf -> reason=stableLeafUnconcluded -> CommittedProvisional
+#          -> RP NOT eligible -> "ReapOrphanedRPs: reaped=0 remaining=1", RP survives.
+#   GS-3   non-focus leaf -> reason=downstreamBp          -> stays Immutable
+#          -> RP eligible  -> "Reaped rp=... slots=2", RP gone.
+#          [MEASURED: the RP is indeed gone and the reap tokens fired verbatim,
+#          but via `noMatchingRP` on the SEGMENT rather than `downstreamBp` on the
+#          origin. The origin was never classified. See the measurement block at
+#          the top of this file.]
+#
+# =====================================================================================
+# WHY A NO-INPUT NUDGE IS ENOUGH, i.e. why the no-op auto-discard does NOT rescue it.
+# This was the first thing checked, because if the segment evaporated at scene exit the
+# child's leaf status would be restored and this spec would collapse into GS-2 with no
+# divergence to measure.
+#
+# `SwitchSegmentNoOpClassifier.IsNoOpSegment` (SwitchSegmentNoOpClassifier.cs:91-237)
+# WILL likely call this segment a no-op: a segment with no positive throttle, no
+# structural part event and no orbit change is inert by construction (engine/RCS
+# shutdown and zero-throttle resume seeds are explicitly non-meaningful,
+# SwitchSegmentNoOpClassifier.cs:493-524), and a coasting orbit moves less than the
+# 1e-3 SMA / 1e-3 eccentricity / 0.1 deg tolerances at :67-71. But the no-op verdict
+# is only half the decision. The other half is the DISPOSITION, computed at
+# RecordingStore.cs:3274-3286:
+#     else if (tree.Recordings.Count == subtreeIds.Count)  disposition = Standalone;
+#     else                                                 disposition = BgMemberOrMixed;
+# Here the tree holds the pod stack's root recording AND the released core's origin
+# AND the new segment, while the segment's own subtree is just the segment - so the
+# counts differ and the disposition is `BgMemberOrMixed`.
+#
+# And `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` (SceneExitInterceptor.cs:407-415)
+# DEFERS exactly that disposition:
+#     if (disposition != Standalone && disposition != CommittedRestoreClone)
+#     { ...Info("...no-op detected but disposition={disposition} is deferred at scene
+#         exit dest={destination} - falling through to normal commit"); return false; }
+# because the rest of the live tree must still commit. NOTHING IS DISCARDED, the
+# VesselSwitchContinuation branch point persists into the commit, and the
+# `downstreamBp` divergence above is real for a no-input nudge.
+#
+# THEREFORE THE NUDGE IS DELIBERATELY NO-INPUT. A positive-throttle blip on the
+# released core would ALSO make the segment persist (it would fail the no-op
+# classifier outright), but it would change TWO things at once - the branch point AND
+# the child's orbit, and hence its terminal classification - which is exactly what a
+# one-variable A/B against GS-2 must not do. The weaker, more surprising stimulus is
+# the better experiment: if merely LOOKING at a deployed probe costs the player its
+# re-fly row, that is a far more important finding than if burning its engine does.
+# (Had the disposition been `Standalone`, the discard WOULD have fired and this spec
+# would have needed a meaningful nudge to have anything to measure. It is not.)
+#
+# =====================================================================================
+# THERE IS NO SWITCH BACK, AND THAT IS A v1 CONTRACT RATHER THAN AN OMISSION.
+# The obvious shape for S17 is "switch to the probe and back". It cannot be driven.
+# `TestCommandSimulateSwitchClick.DecideSwitchGate` (TestCommandSimulateSwitchClick.cs:414-434)
+# consults the patch's own pure predicate, `MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`
+# (MapFocusObjectOnSelectPatch.cs:1166-1198), which returns `OpenDialog` whenever a
+# SwitchSegmentSession is armed and the new target differs from the session's focused
+# pid - Case A. The gate then answers `RefusedDialogRequired`, whose msg token is
+# `dialog-required case=A-session` (`DialogCaseToken`, :442-447). The verb does NOT
+# auto-answer the dialog and does NOT call `SetActiveVessel`: v1 drives the plain
+# arm-and-switch path only, by design.
+#
+# So the second step below is a DELIBERATE `expect = "REJECTED"` PROBE, not an
+# accident. It pins the v1 contract this spec's shape is built around, so that if a
+# future version teaches the verb to answer the dialog, THIS is the cell that notices
+# and the "there is no switch back" reasoning above stops being true silently.
+# (`hlib.SEAM_EXPECT_VERDICTS` includes REJECTED and step matching is
+# `met = found and verdict == expect`, so an OK there would red the step.)
+#
+# =====================================================================================
+# WHAT IS REQUIRED AND WHAT IS ONLY MEASURED. The divergence facts were carried as
+# report-only on flight 1 because they were a PREDICTION from code; that flight has
+# now happened (`2026-08-05_0903`) and the measurement block at the top of this file
+# records what it found - including that one of the three predicted facts,
+# `reason=downstreamBp`, did NOT occur and was replaced by `noMatchingRP` on the
+# switch segment. They REMAIN report-only rather than being promoted to required
+# tokens, because the behaviour they describe is filed as a defect and pinning it
+# would make this spec assert the bug. The required set is only what is mechanically certain: the
+# click was gated and armed as the patch would have armed it, a segment was created on
+# the named vessel, the marker was consumed INTO that segment, the switch-back was
+# refused with the documented case token, and the run committed and left FLIGHT.
+# Everything else is read off the reading run and armed afterwards, if it holds.
+#
+# =====================================================================================
+# STATUS: FLOWN AND MEASURED 2026-08-05 (`2026-08-05_0903`, PASS attempt 1), and it
+# shares GS-2's now-committed fixture. `fixtures/saves/gs2-orbital-stack`
+# is produced by `FORGE-gs2-orbital-stack` plus
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name gs2-orbital-stack \
+#       --expect-situation ORBITING
+# FLY GS-2 FIRST - and it was: GS-2's reading (`0853`) and armed (`0856`) runs both
+# preceded this one, so the difference was measured against a flown baseline rather
+# than an assumed one. That ordering is the whole reason this spec's result means
+# anything, and it must be preserved on any re-fly.
+#
+# IT STAYS REPORT-ONLY AND UNARMED, PERMANENTLY UNTIL THE DESIGN CALL IS MADE. This
+# is NOT the usual "unflown, arm after a reading run" caveat - it has flown, and its
+# facets matched the declared windows exactly, which is normally the trigger to arm.
+# Arming is refused here for a different reason: `rewindPoints = { max = 0 }` is a
+# statement that the RewindPoint SHOULD be reaped, and that is the behaviour filed as
+# a defect. Arming it would pin the bug as the contract, and whichever way the design
+# call goes, the gate would have to be un-armed to fix it. If the call is
+# "implementation change", this spec's expectation INVERTS to `{min = 1}` and the run
+# that reds is the fix landing.
+# =====================================================================================
+tier = "operator"
+description = "GS-2's in-orbit deploy plus ONE stock map Switch-To click onto the released vessel: the switch opens a VesselSwitchContinuation branch point on the deployed leaf, which is predicted to knock it out of the Unfinished Flights classifier via the downstreamBp gate and let the staging RewindPoint reap - the opposite of GS-2, on one changed variable."
+instanceProfile = "stock-minimal"
+tags = ["GS3", "GS2", "rewind", "unfinished-flights", "switch-segment", "stock-click", "R12", "orbital", "auto-merge", "scene-exit"]
+
+[fixture]
+# THE SAME committed fixture GS-2 consumes, and that is the experiment: one fixture,
+# one mission, one changed step. See GS-2-orbital-probe-deploy.toml's [fixture] block
+# for what it holds and why (the ATTACHED docking Kerbal X at ~100 km, two crew, the
+# inert ParsekScenario node, the landed booster remnants downrange).
+#
+# ONE PROPERTY IS LOAD-BEARING HERE AND NOWHERE ELSE: after the deploy, the released
+# vessel is named `Kerbal X Probe`. That is not this spec's invention - EVA-2 and
+# S0.8-switch-click-segment both MEASURED that exact name on eva2-lko-crewed, which
+# the SAME decoupler on the SAME craft produced. It is nevertheless a name resolved at
+# RUNTIME here rather than read out of a committed save, so if KSP names it otherwise
+# the switch step reds `target-not-found` and the fix is a one-line spec edit against
+# the run's own `switchclick start ... selector=` line. A pid cannot be used instead:
+# the vessel does not exist until the mission stages.
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# THE SAME mission as GS-2, unmodified. It settles, fires ONE stage, and dwells; it
+# knows nothing about the switch, which is driven entirely as post-mission seam steps.
+# That is the shape S0.8 established for this verb and it is the right one here: the
+# switch has to happen AFTER both vessels have accumulated real trajectory, and a
+# post-mission step is both simpler than a mid-mission `parsek_seam_command` and
+# strictly ordered after MISSION-OK.
+mission = "gs2_orbital_probe_deploy"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be TOML-scoped to driver.missionParams.steps and
+# the spec would validate as having ZERO steps).
+#
+# TEN STEPS: GS-2's eight, with two `SimulateStockSwitchClick` inserted between the
+# mission and the exit.
+#   - the FIRST switch is THE experiment. `vessel` carries the RAW vessel name; run.py
+#     percent-encodes step args on the wire itself, so a spec that pre-encodes ships a
+#     mangled selector and the seam refuses target-not-found (S0.8's lesson). `site` is
+#     omitted, exercising the documented absent-defaults-to-map path. Its 120 s budget
+#     only ever bounds a not-in-flight DEFER: the verb's own arm-and-switch path runs
+#     synchronously inside `SetActiveVessel`.
+#   - the SECOND is the REFUSAL PROBE described in the header. It targets the vessel
+#     the run started on, which is now the session's non-focused vessel, so Case A
+#     fires and the verb answers REJECTED `dialog-required case=A-session`. `expect =
+#     "REJECTED"` makes that the PASS condition; an OK would red the step and would
+#     mean the v1 contract this spec is built on had changed.
+#
+# Both switch steps sit AFTER the mission, so `hlib.SEAM_VERB_POST_MISSION_ROLE`
+# classes them: `SimulateStockSwitchClick` is a `recording`-role verb, not an
+# `outcome` one, so a miss is a PARSEK-FAIL(expectation) through the verifier chain
+# rather than a retryable driver-INVALID that would discard the evidence.
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                                    expect = "OK" },
+  { phase = "mission",                                                                         expect = "MISSION-OK", budget = 300 },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X" },                          expect = "REJECTED", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+# IDENTICAL to GS-2's block, key for key and value for value. That is not laziness: a
+# controlled A/B is only controlled if the mission parameters do not move, and any
+# future re-pin of GS-2's numbers must be mirrored here in the same commit.
+[driver.missionParams]
+settleSituations = ["ORBITING"]
+settleDebounceFrames = 3
+settleTimeoutSeconds = 120
+deployTimeoutSeconds = 60
+deployDebounceFrames = 2
+postDeployDwellSeconds = 45
+postDeployDebounceFrames = 3
+postDeployTimeoutSeconds = 180
+minSafePeriapsisMeters = 75000
+# IDENTICAL to GS-2's, and it must stay so. THE DEPLOYED VESSEL, watched by name. kRPC telemetry is
+# active-vessel-scoped, so without this the mission is blind to the very leaf this
+# scenario is about, and the SCENE EXIT is what stamps a recording's terminal state -
+# GS-1 flight 3 flew that hole with a still-descending booster whose recording closed
+# SubOrbital.
+#
+# HERE IT WOULD BITE SILENTLY, WHICH IS WORSE. Every REQUIRED token below would still
+# pass with a SubOrbital deployed leaf: `TerminalOutcomeQualifiesInternal` sends
+# Orbiting AND SubOrbital down the SAME non-focus branch
+# (UnfinishedFlightClassifier.cs:270, :334) and both return `stableLeafUnconcluded`,
+# which GS-1 flight 3 MEASURED. The promotion fires, the RP still does not reap, the
+# run is green - and it has measured a different scenario from the one described.
+# `deployedSiblingOrbiting` is what makes "both halves stay Orbiting" a MEASURED
+# premise rather than an assumed one, and it is an ASSERT-FAIL row on purpose: an
+# UNMET mission SKIPS the world-mutating tail, so such a run never commits a tree
+# that would later be read as this scenario's evidence.
+#
+# THE NAME IS MEASURED, not invented: EVA-2 and S0.8 both read `Kerbal X Probe` off
+# `eva2-lko-crewed`, which THIS decoupler on THIS craft produced. Reading it here also
+# de-risks GS-3 for free - GS-3 targets the same vessel by name with
+# `SimulateStockSwitchClick`, and a name that does not resolve there is a whole wasted
+# flight, so GS-2 is where that name is proven.
+siblingVesselName = "Kerbal X Probe"
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's own
+# logContracts. Nothing is claimed off the report-only predictions.
+#
+# `switch-segment` <- the "[SwitchSegment] created ... reason=MapSwitchTo" line AND
+#   "[SwitchIntent] cleared: ... reason=consumed-into-segment". S0.8 and H12 already
+#   claim the same value, deliberately: H12 drives the ARMING DECISION as an in-game
+#   batch, S0.8 drives the real patched click onto a fixture-provided co-orbiting
+#   vessel, and this cell drives it onto a vessel THIS RUN's own decoupler created
+#   moments earlier - which is the only one of the three where the target is a
+#   BackgroundMap member of the live tree.
+# `commit-scene-exit` / `auto-merge` <- as GS-2.
+D1 = ["switch-segment", "commit-scene-exit", "auto-merge"]
+# `controlled-decoupled-child` <- "ProcessBreakupEvent: controlled child created:
+#   pid=...", as GS-2.
+#
+# NOT claimed, on S0.8's own ground: `chain-continuation-switch`. A switch segment is
+# attached under a BRANCH POINT, never a chain link - `CreateSwitchContinuationSegment`
+# writes no ChainId (SwitchSegmentBuilder.cs:422-465) - so the D5 topology value has
+# no proving token here either.
+D5 = ["controlled-decoupled-child"]
+# D9 IS DELIBERATELY UNCLAIMED. The reaper's behaviour on this run is the PREDICTION
+# under test, carried as a report-only expectation; claiming `rp-disk-reaper` off it
+# would be claiming coverage from a block that cannot red. GS-2 claims that cell for
+# the refusal branch, and this cell may claim it for the reap branch AFTER the reading
+# run promotes the prediction to a required token.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form), so
+# this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# THREE is the expected shape: GS-2's two (the pod stack's root recording and the
+# released core's origin) plus the switch-continuation segment the click opens on the
+# core. The FLOOR of 3 is the numeric guard on the branch - the logContracts below are
+# `re.search` PRESENCE checks, so a consume that logged its creation but wrote no
+# third recording would satisfy every pattern and only move this number. It is also
+# the numeric statement of the no-op-discard finding in the header: a segment that had
+# been auto-discarded at scene exit would leave 2, i.e. GS-2's count.
+#
+# RE-PIN CONTRACT: the first reading run measures the real count. Re-pin to the
+# MEASURED value; do not widen blindly.
+count = { min = 3, max = 5 }
+
+[expectations.logContracts]
+# ONLY THE MECHANICALLY CERTAIN, per the measure-then-arm discipline. The three
+# divergence facts this spec exists to measure are NOT here - they are in the
+# report-only rewind block and in the header's prediction. Ordered as the run emits
+# them.
+#
+# GROUP 1 - THE FLIGHT AND THE SPLIT (GS-2's tokens, unchanged; they must hold before
+# any switch reasoning means anything).
+#   "Recording started"                       FlightRecorder.cs:6140      (Info) [MEASURED - B1, CL-1, CL-2]
+#   "Controllable split children: [a,b] ..."  SegmentBoundaryLogic.cs:418 (Info) [MEASURED - GS-1 flight 1]
+#   "RewindPoint begin: ... slots=2 controllablePids=2 focusSlot=N"
+#                                             RewindPointAuthor.cs:152    (Info) [MEASURED - GS-1 flight 1]
+#       The RP must EXIST for its fate to be interesting. focusSlot=[01] rejects the
+#       -1 no-focus-signal value.
+#
+# GROUP 2 - THE CLICK. Every line here was MEASURED verbatim by S0.8's 2026-07-30
+# flight against the same verb; only the pid literals are relaxed to `[0-9]+` because
+# this target is created at runtime rather than baked into a committed fixture.
+#   "switchclick gate targetPid=... targetName=Kerbal X Probe ... dialogDecision=NoPriorSession"
+#                                             ParsekTestCommandAddon.SimulateSwitchClick.cs:150 (Info)
+#       The whole input set the classification saw. `hasActiveSession=false` and
+#       `priorFocusedPid=0` together with `dialogDecision=NoPriorSession` say
+#       EXPLICITLY that Cases A / B / C were evaluated and none applied, rather than
+#       leaving it inferred from the run not having refused - and they are what makes
+#       the SECOND step's Case-A refusal a measured contrast rather than a guess.
+#   "switchclick armed intent: ... action=MapSwitchTo ... ttl=2s route=plain-arm-and-switch"
+#                                             ...SimulateSwitchClick.cs:186 (Info)
+#   "[SwitchSegment] created ... focusedName='Kerbal X Probe' reason=MapSwitchTo"
+#                                             SwitchSegmentBuilder.cs:475 (Info)
+#       THE SEGMENT EXISTS. This is the line whose side effect
+#       (`parentRec.ChildBranchPointId = ...`) is the entire predicted divergence.
+#   "[SwitchIntent] cleared: ... reason=consumed-into-segment"
+#                                             ParsekScenario.cs:148       (Info)
+#       The strongest token in the group: it is emitted by the CONSUME site
+#       (TryConsumeStockActionIntent), not by the verb, so it proves the marker
+#       reached the real patched-handler pipeline and was spent there - the exact
+#       thing a kRPC active_vessel setter cannot produce.
+#   "switchclick complete site=map targetPid=... targetName=Kerbal X Probe ... switched=true"
+#                                             ...SimulateSwitchClick.cs:256 (Info)
+#
+# GROUP 3 - THE REFUSED SWITCH BACK, the v1-contract probe.
+#   "switchclick refused gate=RefusedDialogRequired reason=dialog-required case=A-session targetPid=..."
+#                                             ...SimulateSwitchClick.cs:169 (WARN) [DERIVED]
+#       Pinned as a log token AS WELL AS a step `expect = "REJECTED"`, because the two
+#       assert different things: the step verdict says the verb refused, and this line
+#       says WHICH gate refused and WHY. A refusal for `target-unloaded` or
+#       `target-already-active` would satisfy the step and not this.
+#
+# GROUP 4 - THE COMMIT. GS-2's tokens; the commit must still happen for the save-side
+# facets to mean anything.
+#   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed="  (Info) [MEASURED - CL-2]
+#   "OnSave: saving 1 committed tree(s)"                                      (Info) [MEASURED - CL-2]
+#
+# DELIBERATELY NOT REQUIRED, and each is a reading-run measurement + arming candidate:
+#   "[SwitchSegment] route=bg-member-continuation ..."  ParsekFlight.cs:9141 (Info)
+#       PREDICTED. The released core is registered in the live tree's BackgroundMap by
+#       the breakup itself (`activeTree.BackgroundMap[pid] = childRec.RecordingId`,
+#       ParsekFlight.cs:7600), and the committed-clone branch declines because the live
+#       tree is not in CommittedTrees - so the route selector at ParsekFlight.cs:8664-8686
+#       should pick BG-member. It is NOT required because S0.8 MEASURED `route=standalone`
+#       on a superficially similar setup (its target was NOT a BackgroundMap member,
+#       which is exactly the difference), and a route token is precisely the kind of
+#       thing that deserves to be measured before it is asserted. If it reads
+#       bg-member-continuation, this spec also becomes the first legitimate claimant of
+#       D5 `chain-continuation-switch`... it does not: see the D5 note above.
+#   "TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=BgMemberOrMixed is deferred at scene exit"
+#                                             SceneExitInterceptor.cs:410  (Info)
+#       THE HEADER'S CENTRAL CLAIM, stated by the code itself. If this line is absent
+#       the no-op classifier did not call the segment a no-op at all (most likely
+#       `insufficient-data`, SwitchSegmentNoOpClassifier.cs:199-206) - which reaches the
+#       same place by a different route, since only Standalone / CommittedRestoreClone
+#       ever discard.
+#   "IsUnfinishedFlight=false rec=... reason=downstreamBp chainTipChildBp=... matchedRpBp=..."
+#                                             UnfinishedFlightClassifier.cs:127 (VERBOSE)
+#       THE PREDICTION, stated directly. `verboseLogging=true` is pinned so the reading
+#       run captures it.
+#   "Reaped rp=... slots=2" / "ReapOrphanedRPs: reaped=[1-9]... remaining=0"
+#                                             RewindPointReaper.cs:155 / :160 (Info)
+#       THE CONSEQUENCE. GS-2 FORBIDS the first of these; if this run emits it, the two
+#       specs have measured both branches of `IsReapEligible` on one changed variable.
+#   The ABSENCE of "CommitTree promoted ... to CommittedProvisional", which GS-2
+#       REQUIRES. It is not added to `forbidden` on flight 1 for the same reason the
+#       rest of this list is report-only.
+required  = ["Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2 focusSlot=[01]",
+             "switchclick gate targetPid=[0-9]+ targetName=Kerbal X Probe .*hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 .*dialogDecision=NoPriorSession",
+             "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=[0-9]+ sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
+             "\\[SwitchSegment\\] created intentId=.* focusedName='Kerbal X Probe' reason=MapSwitchTo",
+             "\\[SwitchIntent\\] cleared: intentId=.* reason=consumed-into-segment",
+             "switchclick complete site=map targetPid=[0-9]+ targetName=Kerbal X Probe .* switched=true",
+             "switchclick refused gate=RefusedDialogRequired reason=dialog-required case=A-session targetPid=[0-9]+",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "OnSave: saving 1 committed tree\\(s\\)"]
+# The suite-wide ERROR pattern ONLY. In particular `Reaped rp=` is NOT forbidden here -
+# GS-2 forbids it and this spec PREDICTS it, which is the whole contrast. Adding it to
+# either list on the other side would be asserting the conclusion before the
+# measurement.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# REPORT-ONLY (no `gating` key), and every window here is a PREDICTION derived from
+# code, not a measurement. Read against GS-2's block, which declares the opposite from
+# the same fixture and the same mission:
+#
+#   rewindPoints  = { max = 0 }  THE PREDICTED REAP. GS-2 declares `min = 1` for the
+#                                same flight without the click. If both hold, the
+#                                nudge cost the player the re-fly affordance, and the
+#                                design-vs-implementation divergence named at the top
+#                                of this file is confirmed with two run ids as
+#                                evidence. If this reads 1 instead, the research doc's
+#                                S17 was right, the `downstreamBp` reading is wrong,
+#                                and THAT is the finding.
+#   supersedeRows = { max = 0 }  No re-fly happened, so no supersede relation may
+#                                exist.
+#   tombstones    = { max = 0 }  Nobody dies here; the tombstone path runs strictly
+#                                inside the re-fly merge tail.
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY (no `gating` key). GS-2's block plus the switch segment.
+#
+# `recordings = { min = 3 }` is the structural statement of the same fact
+# [expectations.recordings].count makes from the sidecar side, and the two are
+# deliberately both present: one counts what the run produced, the other counts what
+# the SAVE holds after the commit, and a segment that was written and then discarded
+# would show as a difference between them.
+#
+# `terminalStates.Orbiting` stays at min 2 rather than 3: the released core's ORIGIN
+# recording and its switch SEGMENT are two recordings on one vessel, and which of them
+# carries the Orbiting terminal (or whether both do) is exactly the kind of thing this
+# reading run exists to measure rather than to assert.
+#
+# `branchPoints` pins BOTH: the bp the decoupler authored, and the
+# VesselSwitchContinuation bp whose existence IS the predicted cause of the divergence.
+# The decoupler's type is `JointBreak`, NOT `Breakup` - a MEASURED correction (GS-1
+# flight 2 declared `Breakup` off the `ProcessBreakupEvent` handler name and the facet
+# read 0; the coalescer writes `Type = BranchPointType.JointBreak` with
+# `SplitCause = "DECOUPLE"`, CrashCoalescer.cs:161). On disk BranchPointType is NUMERIC
+# (saveparse maps VesselSwitchContinuation = 8), which is why the SECOND row is the one
+# worth watching: it is the durable statement that the switch segment survived the
+# commit rather than being auto-discarded, i.e. the save-side half of the header's
+# no-op-disposition finding.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 3 }
+terminalStates = { Orbiting = { min = 2 } }
+branchPoints   = { JointBreak = { min = 1 }, VesselSwitchContinuation = { min = 1 } }
+
+[runtime]
+# WALL clock, bounding the WHOLE drive phase INCLUDING KSP boot: GS-2's 1100 plus the
+# two 120 s switch-click budgets. Both are effectively instantaneous on the nominal
+# path (the verb's arm-and-switch runs synchronously inside SetActiveVessel, and the
+# refusal is a pure gate decision), so this is slack rather than an expectation.
+budgetSeconds = 1350
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately - and pointedly so on this spec. If the predicted divergence IS
+# a Parsek defect (the player losing a re-fly affordance because they glanced at the
+# probe), an `expectedFail` key here would be the mechanism by which that defect was
+# filed once and then never seen again.
+bugId = ""

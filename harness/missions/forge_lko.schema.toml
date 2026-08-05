@@ -103,6 +103,25 @@ required = true
 type = "number"
 min = 0.0
 
+# --- park attached (the GS-2 / GS-3 orbital-deploy lane) --------------------
+
+# OPTIONAL, default FALSE = the live-proven behaviour (CIRCULARIZE -> SEPARATE ->
+# PARK). TRUE skips the SEPARATE phase entirely, so the forge parks and stamps the
+# craft with its spent core STILL ATTACHED -- one vessel instead of two. The GS-2 /
+# GS-3 lane needs that ATTACHED stack as its START state, because the decoupler
+# firing is the gameplay moment those scenarios record rather than something the
+# fixture should have already done.
+#
+# On the true path the `separated` assertion row is replaced by `stackAttached`,
+# which asserts the POSITIVE fact (SEPARATE never entered, no split confirmed, and
+# vessel_count never rose above the CIRCULARIZE-entry baseline).
+# separationTimeoutSeconds stays REQUIRED and is simply unused there; it is not
+# made conditional, because a schema whose required-set depends on another key is
+# a validator feature this file should not be the first to need.
+[params.parkAttached]
+required = false
+type = "bool"
+
 # --- separation (the two-step contract) -------------------------------------
 
 # Give-up (GAME seconds) spanning BOTH separation steps: drop the spent core AND

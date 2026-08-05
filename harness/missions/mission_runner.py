@@ -562,6 +562,10 @@ class KrpcMissionControl(MissionControl):
         # _read_crew_roster_status returns "" without issuing an RPC, so every
         # mission that does not arm it keeps a byte-identical snapshot.
         self._roster_watch_name: str = ""
+        # The vessel name ACTION_SET_SIBLING_WATCH armed, or "" (unarmed). Unarmed
+        # means _read_sibling_situation returns the UNREAD pair without issuing an
+        # RPC, so every mission that does not watch a sibling is untouched.
+        self._sibling_watch_name: str = ""
         self.client_version = ""
         self.server_version = ""
         # Native-warp service (Path A): built lazily on the first warp_to_ut
@@ -720,6 +724,11 @@ class KrpcMissionControl(MissionControl):
             # fail-closed discipline as the chute read, and it never counts toward the
             # vessel-lost read-fail streak.
             crew_roster_status = self._read_crew_roster_status(sc)
+            # Watched SIBLING vessel's situation (armed by ACTION_SET_SIBLING_WATCH;
+            # GS-1). Own try/except inside the helper with the UNREAD sentinel pair,
+            # same fail-closed discipline as the chute and roster reads, and it never
+            # counts toward the vessel-lost read-fail streak.
+            sibling_situation, sibling_present = self._read_sibling_situation(sc)
             # MechJeb NodeExecutor.Enabled (opt-in, B11/B12). Own try/except with
             # the -1 UNREAD sentinel: an executor read fault must degrade to
             # fail-closed (no executor verdict is granted on a blind frame),
@@ -843,6 +852,8 @@ class KrpcMissionControl(MissionControl):
                 # a burn is commanded = the active stage is dry/flamed out
                 # (the machine pops the next stage, bounded).
                 available_thrust=float(v.available_thrust),
+                sibling_situation=sibling_situation,
+                sibling_present=sibling_present,
                 # Warp-toward-node + SOI-approach warp bounds (operator
                 # directive 2026-07-22). Node.UT is the burn instant of the
                 # first pending node (NaN with no node: the machine's
@@ -949,6 +960,15 @@ class KrpcMissionControl(MissionControl):
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Roster", "roster watch armed kerbal=%r"
                 % (self._roster_watch_name,)))
+            return
+        # Same placement rationale as the roster watch: it issues no RPC of its own,
+        # and the watched vessel is NOT the active one, so binding it to the active
+        # vessel resolve below would be exactly wrong.
+        if action.kind == mlib.ACTION_SET_SIBLING_WATCH:
+            self._sibling_watch_name = str(action.text or "")
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Sibling", "sibling watch armed vessel=%r"
+                % (self._sibling_watch_name,)))
             return
         sc = self._conn.space_center
         v = sc.active_vessel
@@ -2734,6 +2754,72 @@ class KrpcMissionControl(MissionControl):
             return mlib.normalize_roster_status(getattr(kerbal.roster_status, "name", ""))
         except Exception:
             return ""
+
+    def _read_sibling_situation(self, sc):
+        """The WATCHED SIBLING vessel's situation as ``(situation, present)``, or the
+        UNREAD pair ``("", -1)`` when no watch is armed / the read faulted (GS-1).
+
+        WHY A MISSION NEEDS THIS AT ALL. GS-1 stages a booster it never flies and then
+        has to wait for it to reach the ground, because a sibling still under canopy
+        at scene exit closes its recording SubOrbital rather than Landed. kRPC's
+        telemetry is active-vessel-scoped, so the only way to see the booster is to
+        enumerate `SpaceCenter.vessels` and match by name.
+
+        THREE distinct outcomes, and keeping them distinct is the whole point:
+          ("", -1)          the enumeration RAISED, or no watch is armed. Fail-closed:
+                            matches no gate, and a caller must neither advance nor
+                            erase a streak on it.
+          ("", 0)           the enumeration SUCCEEDED and no vessel of that name is in
+                            it - an OBSERVATION, not a failure. That is what a
+                            DESTROYED booster reads, and it is also what a misspelled
+                            watch name reads, which is why the caller is required to
+                            have seen `present=1` at least once before treating it as
+                            a conclusion.
+          ("<Situation>", 1) the live situation of the matched vessel.
+
+        Resolved LIVE from the connection every poll and never through a captured
+        handle: the watched vessel is CREATED MID-FLIGHT by a staging split, and a
+        handle taken across that split is exactly the stale-handle trap that blinded
+        the B-DOCK docking gates post-reload."""
+        name = self._sibling_watch_name
+        if not name:
+            return "", -1
+        try:
+            vessels = list(sc.vessels)
+        except Exception:
+            return "", -1
+        match = None
+        faulted = False
+        for candidate in vessels:
+            try:
+                if candidate.name == name:
+                    match = candidate
+                    break
+            except Exception:
+                # A PER-VESSEL read fault. It is NOT evidence that this vessel is
+                # some other vessel: the name is exactly what could not be read, so
+                # the watched one cannot be ruled out. Keep sweeping (the match may
+                # still be ahead of us) but remember that the sweep was BLIND.
+                faulted = True
+                continue
+        if match is None and faulted:
+            # NOT FOUND, BUT THE SWEEP WAS BLIND somewhere - so "not found" is
+            # unproven and this must be the FAULT sentinel, never the
+            # enumerated-and-absent OBSERVATION. Returning ("", 0) here would let
+            # two such polls satisfy a caller's absent-debounce and conclude a LIVE
+            # vessel destroyed; on GS-1 that ends the mission early, the
+            # world-mutating tail is skipped, and the scenario reds on a missing
+            # reap - a driver fault misattributed as a product red, which is the
+            # exact class this lane spent three flights eliminating.
+            return "", -1
+        if match is None:
+            # A CLEAN sweep that did not find the name: a real observation.
+            return "", 0
+        try:
+            return str(getattr(match.situation, "name", "")).upper(), 1
+        except Exception:
+            # Present but unreadable: report presence, withhold the situation.
+            return "", 1
 
     def _read_nodes(self, control_handle):
         """The maneuver-node list, or the EMPTY-LIST sentinel when kRPC refuses.

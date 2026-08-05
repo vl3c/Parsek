@@ -20,6 +20,12 @@ not assumed anywhere in this tool:
   FORGE-eva2-lko      (forge_lko)      --target-name eva2-lko-crewed
       a CREWED orbital stage parked in a ~100 km circular Kerbin orbit
       (ORBITING, not PRELAUNCH).
+  FORGE-gs1-two-stage (forge_station)  --target-name gs1-two-stage-pad
+      the GS-1 two-stage auto-chute booster on the LaunchPad (PRELAUNCH), one
+      named crew. NO NEW TOOL was written for it: `--target-name` and
+      `--expect-situation` were already the only two things that differed, which
+      is what the generic-over-the-forges claim above is for. A FIFTH forge should
+      reuse this the same way rather than fork it.
 
 The only pad-shaped thing left is the OPTIONAL sanity gate: pass
 `--expect-situation ORBITING` (or any comma-separated set) to require that the

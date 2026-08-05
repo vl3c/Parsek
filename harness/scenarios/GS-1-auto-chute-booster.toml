@@ -1,0 +1,856 @@
+schema = 1
+id = "GS-1-auto-chute-booster"
+# =====================================================================================
+# THE ROUTINE TWO-STAGE FLIGHT. A craft launches, stages at low altitude, the booster
+# comes down on its own chutes, the upper stage comes down on its own chute, and BOTH
+# LAND. That is the entire scenario, and the whole point is that NOTHING SHOULD HAPPEN:
+# no Unfinished Flight is opened, and the RewindPoint the split authored is REAPED.
+#
+# It is the design doc's "Critical regression guard" shape (scenarios S3 / S19 / S20 of
+# docs/dev/research/extending-rewind-to-stable-leaves.md section 8), and it is the
+# in-game test `AutoParachuteBoosterFocusUpperStageTest` that
+# docs/parsek-rewind-to-separation-design.md section 13.2 names and nobody ever wrote.
+# The regression it guards: routine two-stage flights must NOT flood the Unfinished
+# Flights list, and their RewindPoints must not leak onto disk.
+#
+# THE ONE DELIBERATE DEVIATION FROM SECTION 13.2, stated up front because it changes
+# what the test proves. That section's named test ends with the UPPER STAGE ORBITING.
+# That is PHYSICALLY IMPOSSIBLE in stock while the booster survives: stock DELETES an
+# unloaded vessel below ~25 km and the physics bubble is ~2.25 km, so a craft that
+# actually climbs to orbit leaves its separated booster behind and stock destroys it
+# long before it can land. An orbiting focus stage and a landed booster cannot coexist
+# in one flight. BOTH-STAGES-LAND is the honest shape, and it is the one that exercises
+# the classifier branch this scenario is about (non-focus Landed and focus Landed BOTH
+# resolve `stableTerminal`, both stay Immutable, and the RP therefore reaps).
+# The Orbiting / focus-gate direction - where the focus slot's Orbiting terminal seals
+# the engagement while a non-focus leaf stays open - is a SEPARATE lane and is not
+# claimed here.
+#
+# =====================================================================================
+# WHY THE SPLIT AUTHORS A REWINDPOINT AT ALL. Cited rather than assumed, because the
+# obvious call site is the WRONG one and reading it would send the next author down a
+# blind alley.
+#
+#   `ParsekFlight.CreateSplitBranch` authors an RP for `BranchPointType.Undock` and
+#   `BranchPointType.EVA` ONLY (ParsekFlight.cs:5520-5523, and its own comment says
+#   "JointBreak flows through ProcessBreakupEvent; its RP hook lives there").
+#
+# A DECOUPLER STAGING SEPARATION is not either of those. It flows:
+#   the decoupler fires -> the deferred split check feeds each new vessel to the crash
+#   coalescer (`ParsekFlight.cs:6965 crashCoalescer.OnSplitEvent`, with
+#   `splitCause` classified by `SegmentBoundaryLogic.ClassifyForegroundSplitChildCause`
+#   from KSP's own onPartDeCoupleNewVesselComplete callback)
+#   -> the coalescing window expires and `ParsekFlight.ProcessBreakupEvent` runs
+#   -> it builds `breakupControllablePairs`, which INCLUDES THE SURVIVING PARENT
+#      (ParsekFlight.cs:7550-7553 - the parent recording survives the breakup in the
+#      breakup-continuous design, so it participates in the classifier alongside the
+#      children)
+#   -> `ParsekFlight.TryAuthorRewindPointForBreakup` (ParsekFlight.cs:7635)
+#   -> `SegmentBoundaryLogic.IdentifyControllableChildren` filters the pids by
+#      `ParsekFlight.IsTrackableVessel` (SpaceObject OR has ModuleCommand)
+#   -> `SegmentBoundaryLogic.IsMultiControllableSplit(count)` is `count >= 2`
+#      (SegmentBoundaryLogic.cs:446)
+#   -> `RewindPointAuthor.Begin` (RewindPointAuthor.cs:52).
+#
+# So the RP exists IF AND ONLY IF BOTH SIDES OF THE DECOUPLER CARRY A ModuleCommand.
+# That is exactly why the fixture craft puts a probeCoreOcto2.v2 on the BOOSTER: an
+# ordinary spent booster has no command authority, the classifier returns ONE
+# controllable, and `TryAuthorRewindPointForBreakup` logs
+# `Single-controllable split: no RP` and returns. This scenario would then be vacuous -
+# there would be no RewindPoint to fail to reap.
+#
+# THE FIXTURE IS THE FIRST FLIGHT-AUTHORED RP IN THE SUITE. Every other rewind spec
+# (S4.1, CL-3, R1) INJECTS its RewindPoint from a C# fixture. This one is authored by
+# KSP physics during a real staging event, which is the only way to exercise the
+# `SessionProvisional = true` -> `PromoteNormalStagingRewindPoints` -> reap lifecycle
+# an injected RP skips (an injected RP is written with `CreatingSessionId = null` and
+# is promoted by the fixture writer, not by a commit).
+#
+# =====================================================================================
+# WHAT PROVES THE R5 CLASSIFIER VERDICT, and why it is the REAP rather than the verdict
+# lines. This is the one place where the obvious token is the weak one.
+#
+# `RecordingStore.ApplyRewindProvisionalMergeStates` (RecordingStore.cs:1145) runs
+# inside CommitTree. For each RP-child recording it calls
+# `UnfinishedFlightClassifier.TryQualify`; a LANDED chain tip that is not an EVA, not
+# stashed, and not Orbiting / SubOrbital falls through to `reason = "stableTerminal"`
+# and returns FALSE (UnfinishedFlightClassifier.cs:270-277). A false verdict means the
+# recording is NOT demoted to CommittedProvisional, i.e. it stays Immutable.
+#
+# THE VERDICT ITSELF EMITS ONLY AT VERBOSE. `LogVerdict` (UnfinishedFlightClassifier.cs:940)
+# goes through `ParsekLog.VerboseRateLimited`, and the non-promotion branch inside
+# ApplyRewindProvisionalMergeStates is Verbose too. The ONLY Info-level lines that path
+# emits are the PROMOTIONS. So this spec states the verdict two ways, both at Info:
+#
+#   NEGATIVELY, as a forbidden pattern. `CommitTree promoted rec=` and
+#   `CommitTree promoted chain-tip rec=` (RecordingStore.cs:1235 / :1265) are the exact
+#   lines a demotion to CommittedProvisional emits - which is to say, they are the
+#   signature of an Unfinished Flight being opened. Zero of them is the assertion. This
+#   is the regression guard in its purest form: the thing that must not happen has a
+#   grep-stable name, and if a future change opens an Unfinished Flight for a routine
+#   landed two-stage flight, this spec reds on THAT LINE.
+#
+#   POSITIVELY, and STRICTLY MORE STRONGLY, as the REAP.
+#   `RewindPointReaper.IsReapEligible` (RewindPointReaper.cs:184) returns false if ANY
+#   slot's effective tip is NotCommitted or CommittedProvisional. So a `Reaped rp=...`
+#   line is not merely consistent with both slots resolving Immutable - it is only
+#   reachable when they do. The reap token subsumes both per-slot verdicts.
+#
+# The Verbose verdict line is NOT required (it might legitimately not be reached if a
+# recording fails the earlier candidate-shape or RP-resolution gates and takes the
+# other Verbose branch instead), but `verboseLogging` IS turned on so the reading run
+# captures it. If the reap does not fire, THIS is the line to grep first:
+#   IsUnfinishedFlight=false rec=<id> reason=stableTerminal terminal=Landed
+# and its two rivals, `not promoted reason=<slotRejectReason>` and
+# `not promoted reason=<qualifyReason>`, which name the earlier gate instead.
+#
+# =====================================================================================
+# THE COMMIT ROUTE, and why it is ExitToSpaceCenter and not CommitTree.
+#
+# B1 concludes with a seam `CommitTree`, which works here too (the vessel lands, so the
+# recorder is live and `HasActiveTree` holds - CL-1's blocker does not apply). It would
+# be WRONG anyway, because it never reaches the reaper: `RewindPointReaper.ReapOrphanedRPs`
+# runs from `ParsekScenario.OnLoad` (ParsekScenario.cs:3645 scene-change branch, :3990
+# cold start), from the merge-journal orchestrator, and from the seal handler. A
+# `CommitTree` + `FlushAndQuit` tail never leaves FLIGHT, so no OnLoad ever runs and the
+# RP would still be on disk at quit - indistinguishable from the leak this spec exists
+# to detect.
+#
+# `ExitToSpaceCenter` is the CL-2-proven route and it reaches BOTH halves in ONE OnLoad,
+# in the right order:
+#   1. the exit interceptor finalizes the live tree and STASHES it
+#      (`CommitTreeSceneExit: stashed pending tree`, ParsekFlight.cs:14891 - S0.7's own
+#      measured token, and S0.7 exits with exactly this state: hasActiveTree=true,
+#      hasPendingTree=false);
+#   2. the SPACECENTER `OnLoad` scene-change branch calls
+#      `AutoCommitPendingTreeOutsideFlight("scene-exit")` at ParsekScenario.cs:3552,
+#      which runs the full `CommitTree` -> `ApplyRewindProvisionalMergeStates` (the R5
+#      verdicts) -> `PromoteNormalStagingRewindPoints` (RecordingStore.cs:1078, :1394;
+#      this is what flips the staging RP's `SessionProvisional` false, WITHOUT which
+#      `IsReapEligible` refuses on its very first line);
+#   3. the SAME OnLoad then reaches `rewind-point-reap` at ParsekScenario.cs:3645 and
+#      reaps.
+# The 3552-before-3645 ordering inside one OnLoad is what makes a single run enough.
+#
+# `SetSetting autoMerge=true` is MANDATORY, not stylistic, and CL-2 derived why:
+# `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns `RegularMerge` when
+# autoMerge is off, and `TestCommandExitToSpaceCenter.DecideExitGate` then REJECTS with
+# `msg=dialog-required` - the run would prove nothing.
+#
+# =====================================================================================
+# FLIGHT 1, 2026-08-05, run `2026-08-05_0725_GS-1-auto-chute-booster_a2`:
+# INVALID(mission), MISSION-ASSERT-FAIL, both attempts, 6.1 s of mission wall clock.
+#
+# EVERY FAILURE WAS IN THE DRIVER. The product side did exactly what this spec's
+# header predicts it would, on its first try, and the run is therefore the LIVE PROOF
+# of the RP-authoring derivation above rather than a refutation of it. Measured in
+# `logs/2026-08-05_1026_GS-1-auto-chute-booster/KSP.log`:
+#
+#   Decouple created vessel during recording: pid=4093180920
+#     name='GS1 Auto-Chute Booster Probe' type=Probe parts=13 hasController=True
+#     rootPartPid=1500054019 seedSource=joint-child-part-origin splitUT=31.10
+#   DECOUPLE emitted: ut=31.10 type=JointBreak splitCause=DECOUPLE
+#     decouplerPartId=1500054019 controlledChildren=1 debris=0
+#   Controllable split children: [2200110033,4093180920]
+#     (orig=2200110033, checked=2, unresolved=0)
+#   ProcessBreakupEvent: refreshed VesselSnapshot post-breakup (parts=2, snapshot=True)
+#   ProcessBreakupEvent: controlled child created: pid=4093180920
+#     name='GS1 Auto-Chute Booster Probe' recId=2b73cf4fc0b64a7194b2abd7a0f3185e
+#   RewindPoint begin: rp=rp_48edec9ae88a4244acef65611a943457
+#     bp=7d020c4dadea4d2b80e7168a2e8e3676 slots=2 controllablePids=2 focusSlot=0
+#     ut=31.62
+#   RewindPoint slot capture: rp=rp_48edec9... populated=2/2 disabled=0
+#   Wrote rp=rp_48edec9... path=Parsek/RewindPoints\rp_48edec9....sfs bytes=144646 ms=102
+#
+# THAT IS THE FIRST FLIGHT-AUTHORED REWINDPOINT IN THE SUITE'S HISTORY. It also
+# incidentally validates the whole by-construction craft: `2200110033` is the
+# `persistentId` `build_gs1_craft.py` writes into the .craft header, the 15-part stack
+# split cleanly into a 2-part upper and a 13-part booster, and the staging fired the
+# decoupler exactly as the istg table intended. Assumptions A1-A4 in that builder's
+# docstring are all DISCHARGED; A5 (touchdown mass) is untouched, because nothing
+# landed - see below.
+#
+# THE FOUR DRIVER DEFECTS, and the fixes, since three of them share one root cause:
+#
+#   ROOT CAUSE - THERE WAS NO COAST PHASE. The machine staged the moment ASCENT
+#   ended, on the assumption that the throttle cut happens "at the apoapsis". It does
+#   not: the cut is gated on the ORBIT's apoapsis and the craft reaches its own apex
+#   many seconds later. MEASURED: cut at ut 29.58, alt 172 m, +117 m/s; separation at
+#   ut 31.10, alt 339 m, still +100 m/s; and the machine then sat in DESCENT while the
+#   craft went UP (alt 339 -> 444). FIXED by inserting COAST, which waits for the
+#   vertical speed to actually go negative, so STAGE now runs AT the apex.
+#
+#   (1) chute-arm-window-missed, the verdict. Two independent bugs, both fixed:
+#       (a) the give-up counts UNARMED frames below chuteFullDeployAltMeters, which
+#           was 1000 m against a ~850 m apex - ABOVE THE WHOLE HOP - so the predicate
+#           was satisfiable from the pad and tripped after two frames ON THE WAY UP.
+#           Fixed twice over: the streak is now gated on the craft actually FALLING
+#           (below the floor while climbing means nothing), and the floor is lowered
+#           to 600 m so it sits below the apex where it can mean something.
+#       (b) the arm gate (|v| <= 30 m/s) is only satisfiable at the apex, which COAST
+#           now guarantees the machine is at when it enters DESCENT.
+#   (2) separationObserved met=False with value=170393. NOT a broken predicate: the
+#       observation was right and simply never got to run. The frame that emitted the
+#       stage read the PRE-split thrust (170393.0 N) and the very NEXT poll read
+#       0.000 - the give-up fired between them, so the debounce reached 1 of 2. The
+#       predicate is UNCHANGED (the coordinator's instruction was to fix the
+#       observation, not weaken it, and there was nothing wrong with it); what is
+#       added is a `postStageThrustReads` counter in the row's detail, because the
+#       row as it stood could not distinguish "the split never happened" from "we
+#       never looked". A replay of the measured telemetry through the fixed machine
+#       reaches 136 post-stage reads.
+#   (3) craftCanopyObserved value=null. A MISDIAGNOSIS in the failure report, and the
+#       evidence is in the same log: `chute=Stowed` appears on EVERY telemetry line,
+#       so the parachute channel was working (`_read_craft_chute_state` re-enumerates
+#       `v.parts.parachutes` live every poll and holds no handle - it cannot go stale
+#       across a separation). The null was the row's `value`, which is the arm
+#       ALTITUDE, absent because the arm never fired - i.e. a downstream symptom of
+#       (1). No runner change. The row's detail now carries `observedState` so it says
+#       `Stowed` (never armed) vs `Armed` (armed, never opened) instead of nothing.
+#   (4) stagedBelowCeiling met=True at 338 m. It passed, and that is the problem: the
+#       ceiling is a physics-range guard, not a profile check, so it could not notice
+#       that the intended stage-at-apex had silently become stage-at-a-third-of-the-way
+#       up. Reconciled by the COAST fix; the row is unchanged and now measures the
+#       apex.
+#
+#   A FIFTH DEFECT was found while reading the telemetry, and it had not yet bitten:
+#   KSP reports `situation = LANDED` up to ut 30.08, at alt 230 m, climbing at
+#   113 m/s. The LANDED terminal was an unguarded `situation in landedSituations`, so
+#   a machine that reached DESCENT slightly earlier would have declared the flight
+#   over while the craft was still going up, and every terminal row would have been
+#   resolved against it. That is the same defect filed against CL-1 ("a craft that
+#   never launched satisfies landed with crew alive"). Closed here before it could be
+#   flown into: the terminal now requires an OBSERVED airborne situation first
+#   (`GS1_AIRBORNE_SITUATIONS`), and the assertion reads the machine's gated terminal
+#   rather than the raw final frame.
+#
+# WHY GROUPS 3 AND 4 OF THE LOG CONTRACT ARE STILL UNMEASURED. An unmet mission makes
+# the harness drive the CLEANUP TAIL ONLY, and `ExitToSpaceCenter` is classed
+# WORLD-MUTATING, so it was SKIPPED - by design, so a failed attempt never commits a
+# junk tree. The whole commit-and-reap half of this scenario was therefore unreachable
+# in this run: grepping the collected log for `exittospacecenter`, `CommitTreeSceneExit`,
+# `auto-commit`, `Committed tree`, `normal staging` and `Reaped` returns ZERO hits
+# each, and the only `ReapOrphanedRPs` line is the Verbose `reaped=0 remaining=0`
+# housekeeping pass from before the flight. Those tokens stay [DERIVED] and are marked
+# so; the next flight is what turns them.
+#
+# =====================================================================================
+# FLIGHT 2, 2026-08-05, run `2026-08-05_0749_GS-1-auto-chute-booster` (attempt 1):
+# MISSION-OK in 107 s, verdict PARSEK-FAIL(expectations), 3 required-token mismatches.
+#
+# THE FLIGHT WAS GOOD AND THE PRODUCT WAS RIGHT. The COAST fix worked, the commit
+# route worked end to end, and the RewindPoint did NOT reap - correctly. What killed
+# the run is a DRIVER defect that destroyed the booster in mid-air, and every step
+# Parsek took afterwards was the correct response to a destroyed booster.
+#
+# THE THREE MISMATCHES:
+#   logContracts.required not matched: Reaped rp=\S+ bp=\S+ slots=2
+#   logContracts.required not matched: ReapOrphanedRPs: reaped=[1-9][0-9]* remaining=0
+#   logContracts.forbidden matched:    CommitTree promoted rec=
+# and the REPORT-ONLY save parse read `rewindPoints 1`, `terminalStates {Destroyed 1,
+# Landed 1}`, `branchPoints {JointBreak 1}`, points total 487 (upper 470, booster 17).
+#
+# THE CAUSAL CHAIN, every link measured:
+#   1. `Decoupler.1 Exploded!! - blast awesomeness: 0.5` at ut 43.62
+#   2. `Destroy-reason override: rec=defcf77c... pid=717880265 reason=background_destroy
+#      situation=FLYING terminalUT=43.620`
+#      -> `Applied terminal destruction to recording defcf77c...: Destroyed at UT=43.6`
+#   3. `IsUnfinishedFlight=true rec=defcf77c... reason=crashed terminal=Destroyed
+#      side=child`   (UnfinishedFlightClassifier.cs:186 - a Destroyed terminal IS a
+#      re-flyable unfinished flight, which is the correct reading)
+#   4. `CommitTree promoted rec=defcf77c... vessel='GS1 Auto-Chute Booster Probe'
+#      slot=1 rp=rp_b17103eb... reason=crashed to CommittedProvisional`
+#   5. `ReapOrphanedRPs: reaped=0 remaining=1` - `IsReapEligible` refuses while any
+#      slot tip is CommittedProvisional, so the RP survived.
+# Every one of those is the documented contract behaving as designed. A crashed
+# booster SHOULD open an Unfinished Flight and SHOULD keep its RewindPoint: that is
+# the feature, and this scenario asserts the OTHER branch of it.
+#
+# WHY THE BOOSTER DIED - AND IT IS THIS SPEC'S OWN FIX FROM FLIGHT 1 THAT KILLED IT.
+# Flight 1's remedy put COAST between ASCENT and STAGE, so the separation happened AT
+# THE APEX. At the apex there is no airspeed, so there is no differential drag, and a
+# stack decoupler's ejection impulse is negligible against 2.3 t + 0.9 t. Measured:
+#   the halves parted by `seedLiveRootDist=5.49m` and then FELL TOGETHER - over the
+#   3.6 s to the collision the upper fell 84.1 m (636.3 -> 552.2 AGL) and the booster
+#   85.9 m (636.1 -> 550.2 AGL);
+#   both deployed canopies within ~1 s of each other (booster: six
+#   `ParachuteSemiDeployed 'parachuteRadial'` at ut ~41 then six `ParachuteDeployed`
+#   at ut ~42.3; upper: `parachuteSingle` semi at ut ~41.7, full at ut ~42.7);
+#   at ut 43.62 the upper stage was 2.0 m ABOVE the booster when the booster's
+#   TOPMOST part exploded.
+# (The AGL/ASL reconciliation is anchored on one vessel at one UT: Parsek logs the
+# upper at ASL 710.2 for the same frame kRPC reports AGL 636.319, so the pad offset is
+# 73.9 m and the booster's ASL 624.1 at the break is AGL 550.2.)
+#
+# It was NOT a canopy snap load (the full deploy was at only ~24 m/s), NOT a touchdown
+# (624 m up), and NOT a Parsek defect. It was a COLLISION, and the reason the two
+# halves were still 2 m apart four seconds after separating is that they were staged
+# somewhere with no force available to push them apart.
+#
+# THE FIX IS THE PHASE ORDER, not the spec. The machine is now
+# PRELAUNCH -> ASCENT -> STAGE -> COAST -> DESCENT -> LANDED: separate WITH AIRSPEED
+# (the booster's canopies bite immediately and it decelerates hard while the upper
+# stage coasts on), THEN coast to the apex, THEN arm the upper chute there. Replaying
+# flight 2's own telemetry through the reordered machine separates at 327 m climbing
+# at +81 m/s instead of at the apex at -7.7 m/s, and still arms at the apex.
+# `mlib`'s module docstring carries the full derivation; the regression cell is
+# `test_the_separation_happens_WITH_AIRSPEED_not_at_the_apex`.
+#
+# NOTHING BELOW WAS RELAXED, and that is deliberate. The two reap tokens and the
+# forbidden `CommitTree promoted rec=` are the assertion this scenario exists to make:
+# a routine two-stage flight whose stages BOTH LAND must open no Unfinished Flight and
+# must reap its RewindPoint. Flight 2 did not land both stages, so it correctly failed
+# them. Widening `rewindPoints` to `{min = 1}`, or dropping the forbidden pattern,
+# would convert the guard into a description of whatever happened to fly - the exact
+# failure mode `expectedFail` and the arming discipline exist to prevent.
+#
+# ONE thing WAS re-pinned, because it was a genuine spec-side error:
+# `[expectations.recordings.structure] branchPoints` said `Breakup` and the persisted
+# type is `JointBreak`. See that block.
+#
+# THE OPEN RISK the next flight settles, stated plainly: A5 in
+# `build_gs1_craft.py` - the booster's TOUCHDOWN survival - is STILL untested. Flight 2
+# never got there. If the reordered profile separates the halves cleanly and the
+# booster then breaks up on contact, the finding moves from the driver to the craft and
+# the remedy is more canopy (or a lighter engine), NOT a softer expectation.
+#
+# =====================================================================================
+# FLIGHT 3, 2026-08-05, run `2026-08-05_0807` (collected `2026-08-05_1110`):
+# MISSION-OK, verdict PARSEK-FAIL(expectations). The collision is FIXED - the booster's
+# recording ran to 146+ points instead of 17 - and `branchPoints {JointBreak: 1}`
+# matched. What remained:
+#   logContracts.required not matched: Reaped rp=\S+ bp=\S+ slots=2
+#   logContracts.required not matched: ReapOrphanedRPs: reaped=[1-9][0-9]* remaining=0
+#   logContracts.forbidden matched:    CommitTree promoted rec=
+#   saveParse: rewindPoints 1 > max 0, terminalStates.Landed 1 < min 2
+#
+# THE BOOSTER WAS STILL IN THE AIR WHEN THE RUN EXITED. Measured:
+#   `FinalizeIndividualRecording 'a4d4b634...' with stable terminal state Landed
+#    (vessel.situation=LANDED, isSceneExit=True)`      <- the POD, down and finalized
+#   `IsUnfinishedFlight=true rec=81e48efe... reason=stableLeafUnconcluded slot=1
+#    focusSlot=0 terminal=SubOrbital side=child`
+#   `CommitTree promoted rec=81e48efe... vessel='GS1 Auto-Chute Booster Probe' slot=1
+#    rp=rp_6881c324... reason=stableLeafUnconcluded to CommittedProvisional`
+#
+# So Parsek was correct for the THIRD time running: a sibling still under canopy at
+# scene exit IS a stable leaf whose engagement is unconcluded, and an unconcluded leaf
+# keeps its RewindPoint. The defect was again mine: the mission's LANDED terminal
+# watched ONLY THE ACTIVE VESSEL, and on this craft the stage the mission does NOT fly
+# is the one that lands LAST - six Mk2-R from a higher separation descend slower than
+# the pod's single Mk16. The pod's touchdown was being treated as the end of the flight.
+#
+# FIX: a new bounded SIBLING-DOWN phase between DESCENT and LANDED, and a new
+# kRPC channel to feed it. The mission now arms a SIBLING WATCH on its very first
+# frame (`ACTION_SET_SIBLING_WATCH`, by NAME - the booster is created mid-flight by
+# the split, so a handle taken earlier would be stale), and after the pod lands it
+# holds until the booster's own situation reads LANDED/SPLASHED on
+# `GS1_SIBLING_DEBOUNCE_K` consecutive reads.
+#
+# THE READ IS GUARDED LIKE THE ROSTER WATCH, which is the discipline this lane has
+# needed three times now. `_read_sibling_situation` returns a TRI-STATE pair:
+#   ("", -1)           the enumeration RAISED, or no watch armed - fail-closed, and it
+#                      neither advances NOR erases either streak;
+#   ("", 0)            the enumeration SUCCEEDED and no vessel of that name is in it;
+#   ("<Situation>", 1) the live situation.
+# and an ABSENT reading only counts as "the booster is gone" AFTER the vessel has been
+# OBSERVED PRESENT at least once - so a misspelled `siblingVesselName` produces a named
+# timeout carrying `everObservedPresent=false` rather than an instant silent pass.
+#
+# A DESTROYED BOOSTER CONCLUDES THE MISSION RATHER THAN FAILING IT, and that is the
+# mission-vs-Parsek orthogonality rule rather than leniency. A booster that blew up
+# still STOPPED FLYING, which is all the mission was waiting for; it stays MISSION-OK,
+# the tail runs, the tree commits, and THIS SPEC reds on the CommittedProvisional
+# promotion and the missing reap. Failing the driver row instead would make the run
+# driver-INVALID and DISCARD the very evidence those contracts read. The
+# `boosterConcluded` row is unmet only on a TIMEOUT - a real driver failure - and
+# carries `observedOutcome` / `lastSituation` so "the wait was too short" and "the
+# watch never resolved" are distinguishable without another flight.
+#
+# MEASURED SITE A EVIDENCE, recorded even though this spec asserts its ABSENCE. Flight
+# 3 pinned the exact CP-promotion line format for a SubOrbital NON-FOCUS child:
+#   `IsUnfinishedFlight=true rec=<id> reason=stableLeafUnconcluded slot=1 focusSlot=0
+#    terminal=SubOrbital side=child`     (Verbose, UnfinishedFlightClassifier)
+#   `CommitTree promoted rec=<id> vessel='<name>' slot=<n> rp=<rp> reason=<reason>
+#    to CommittedProvisional`            (Info, RecordingStore.cs:1235)
+# Two `reason=` values are now measured on this line: `crashed` (flight 2, a Destroyed
+# child) and `stableLeafUnconcluded` (flight 3, a SubOrbital non-focus child). A lane
+# whose child legitimately ends OPEN - GS-2's orbiting probe - wants that Info line as
+# a REQUIRED token with its own `reason=`; the format above is what to pin against.
+#
+# STILL NOT RELAXED: the two reap tokens, the forbidden `CommitTree promoted rec=`,
+# `rewindPoints = {max = 0}` and `terminalStates.Landed = {min = 2}`. Three flights in,
+# every one of them has red for a DIFFERENT driver reason and none for a product one,
+# which is exactly the evidence that they are pinned in the right place.
+#
+# STILL OPEN: assumption A5 in `build_gs1_craft.py` - whether the booster SURVIVES
+# TOUCHDOWN under six Mk2-R at a computed ~4.3 m/s against `fuelTankSmall`'s
+# crashTolerance of 6. Flight 3 got closest (146+ points, still descending) and the
+# POD side of the mass/canopy math is now proven by its own intact touchdown
+# (`stable terminal state Landed`). If the booster breaks up on contact, the
+# `boosterConcluded` row will report `DESTROYED`, the run will red on the tokens above,
+# and the remedy is more canopy or a lighter engine - NOT a softer expectation.
+#
+# =====================================================================================
+# STATUS: FLOWN FOUR TIMES (flight 1 driver-INVALID; flights 2 and 3 MISSION-OK /
+# PARSEK-FAIL(expectations), each on a DIFFERENT driver defect, all three fixed
+# above; flight 4 PASS, which is the reading run the arming block below cites).
+# Parsek has been correct on every one. Its fixture exists.
+#
+# `fixtures/saves/gs1-two-stage-pad` is produced by `FORGE-gs1-two-stage` (which
+# launches the committed `GS1 Auto-Chute Booster.craft` onto the pad) plus
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name gs1-two-stage-pad \
+#       --expect-situation PRELAUNCH
+# The craft is authored BY CONSTRUCTION by `harness/tools/build_gs1_craft.py`, whose
+# module docstring is the derivation record and whose five numbered assumptions are the
+# diagnosis order for a failed forge. BOTH ARE DONE as of 2026-08-05: the forge flew,
+# the harvest stamped the fixture, and `gs1-two-stage-pad` is registered in
+# `EXPECTED_SCENARIO_PRESENCE` in `harness/lib/test_saveparse.py` (that sweep pins the
+# committed fixture set exactly and would red otherwise).
+#
+# ARMING, per the S4.1 / CL-3 three-run discipline - EXECUTED 2026-08-05:
+# (1) READING run = flight 4, run 2026-08-05_0824, PASS attempt 1 after three driver
+# defects were fixed across flights 1-3 (see FLIGHT FORENSICS above): measured
+# rewindPoints=0 supersedeRows=0 tombstones=0, structure facets all inside windows;
+# (2) ARMED run 2026-08-05_0832: PASS attempt 1, `gating=True armed=['rewind']
+# mismatches=[]` - `[expectations.rewind]` armed with `gating = true` + this spec
+# added to `ARMED_ALLOWLIST` in `test_hlib.py::SaveStructureVerifierWiringTests`;
+# (3) NEGATIVE CONTROL run 2026-08-05_0836: temporary `supersedeRows = { min = 1 }`
+# -> PARSEK-FAIL(save-structure) `rewind.supersedeRows 0 < min 1`, then reverted.
+# `[expectations.recordings.structure]` stays REPORT-ONLY: single-sample windows.
+#
+# THE MEASUREMENT THAT MATTERS MOST is `rewindPoints = { max = 0 }`. That IS the reap,
+# read out of the produced save rather than out of the log, and it is the half the log
+# tokens cannot give: a `Reaped` line proves the reaper ran, and a zero RP count in the
+# .sfs proves nothing came back.
+# =====================================================================================
+tier = "operator"
+description = "Routine two-stage flight: a probe-cored auto-chute booster separates at low altitude and lands, the focus upper stage lands under its own chute, and the commit leaves BOTH slots Immutable so the staging RewindPoint reaps and no Unfinished Flight is opened."
+instanceProfile = "stock-minimal"
+tags = ["GS1", "rewind", "unfinished-flights", "staging", "auto-merge", "scene-exit"]
+
+[fixture]
+# PRODUCED BY FORGE-gs1-two-stage + harvest_bdock_station.py --target-name
+# gs1-two-stage-pad. See the STATUS block above. SANDBOX, inherited from the forge
+# base: nothing here asserts a ledger fact, and CL-2's reason for needing career (a
+# death that moves the reputation pool) does not apply - this flight kills nobody and
+# recovers nothing.
+#
+# The pod IS crewed (one kerbal, seeded by the forge). That is load-bearing rather
+# than flavour: mk1pod.v2's ModuleCommand carries minimumCrew = 1, so an empty pod is
+# an UNCONTROLLED upper stage and the mission's throttle and staging commands would do
+# nothing. It has no other consequence here - the kerbal lands with the pod.
+#
+# The harvested fixture inherits the forge base's INERT `SCENARIO{name=ParsekScenario}`
+# node, which is the CL-1 trap: the seam's FLIGHT focus route does not run
+# `UpdateScenarioModules` (autotest-status known-gate 6), so a fixture without that
+# node never gets the ScenarioModule added, `OnSave` never runs, and the entire flight
+# is recorded in memory and thrown away. CL-1 flight 1 flew a perfect profile and
+# produced ZERO recordings for exactly this reason. The forge base already carries it
+# (it has flown three forges) and the harvest copies it through while pruning any
+# accumulated Parsek state, so the fixture arrives with the node PRESENT and EMPTY.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a
+# key after the sub-table header would be TOML-scoped to driver.missionParams.steps and
+# the spec would validate as having ZERO steps).
+#
+# SIX STEPS.
+#   - `autoRecordOnLaunch=true` so the launch records itself (B1's route). Without it
+#     there is no tree, no commit, and nothing for the RP to hang off.
+#   - `autoMerge=true` BEFORE the flight, so the setting is already live on every path
+#     the exit interceptor can take. MANDATORY - see the header.
+#   - `verboseLogging=true`. NOT load-bearing for any REQUIRED token (every one below is
+#     Info), but the Verbose classifier verdict lines are the FIRST thing to grep if the
+#     reap does not fire, and a reading run that did not capture them would have to be
+#     re-flown to get them. ParsekSettings defaults it true; this pins it.
+#   - `ExitToSpaceCenter`, the whole point. Its 120 s budget matches its C#
+#     `DeferralBudget`. `hlib.SEAM_VERB_POST_MISSION_ROLE` classes it `recording`, not
+#     `outcome`, so its verdict does not gate as PARSEK-FAIL(mission-outcome) - whether
+#     the commit and the reap then happened is proven by the grep-stable tokens below,
+#     which is the intended carve-out: a good flight Parsek then mishandled is a
+#     PARSEK-FAIL(expectation), never a retryable driver-INVALID. And because
+#     `hlib.SEAM_VERB_TAIL_ROLE` classes it WORLD-MUTATING, an UNMET mission runs the
+#     cleanup tail only and SKIPS it, so a failed attempt never commits a junk tree.
+#
+# Deliberately ABSENT: no `CommitTree` (it would succeed and still never reach the
+# reaper - see the header), no `StopRecording` (the scene-exit interceptor finalizes
+# the tree itself), no `RunTests` (this spec owns no in-game batch, which keeps it out
+# of `CommittedBatchTallySourceSyncTests` entirely).
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                                  expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+# Mission parameters are TOLERANCES / WINDOWS / BUDGETS, never golden trajectories;
+# validated against gs1_auto_chute_booster.schema.toml.
+#
+# THE WHOLE PROFILE IS SIZED BY ONE STOCK RULE: an unloaded vessel below ~25 km is
+# DELETED, and the physics bubble is ~2.25 km. The separated booster must stay inside
+# that bubble until it lands, so this is a LOW VERTICAL HOP - hundreds of metres, not
+# kilometres - and both stages come down within a few hundred metres of the pad. Every
+# number below serves that, and the ceiling is asserted (stagingMaxAltMeters) rather
+# than merely intended.
+#
+# THE ARITHMETIC, from the craft's own committed masses (build_gs1_craft.py):
+#   launch mass  pod 0.8 + Mk16 0.1 + decoupler 0.05 + OKTO2 0.04 + FL-T200 dry 0.125
+#                + 6x Mk2-R 0.6 + LV-T45 1.5 + 3x basicFin 0.03 + propellant 0.2
+#                = ~3.45 t
+#   LV-T45 ASL thrust = 215 kN * 250/320 = ~168 kN, so pad TWR ~5
+#   the tank carries 20 percent of a full FL-T200 (0.2 t), so the WHOLE tank is
+#   ~154 m/s of dv before gravity losses - the craft physically cannot climb out of
+#   the bubble even at full throttle for the entire burn.
+# The apex therefore lands in the high hundreds of metres. MEASURED on flight 1: the
+# burn ran ~2.6 s (LiquidFuel 18.0 -> 0.118), burnout at alt 172 m and +117 m/s, and
+# the ballistic apex works out at ~850 m. So the arithmetic above was right and the
+# window below is now pinned to what flew rather than to what was computed.
+[driver.missionParams]
+throttle = 1.0
+# STEERING TARGET: cut throttle on the first frame whose ORBIT apoapsis reaches this.
+# MEASURED to fire at ut 29.58, by which point the reading had already jumped to 950
+# (it crosses 700 between polls) and the tank was all but dry. On this craft the cut
+# therefore lands at burnout either way, so the knob is a guard against a future fuel
+# change rather than an active steering input. LEFT AT 700: it is the value the
+# measured profile was flown with.
+stagingApoapsisMeters = 700
+# ASSERTION CEILING on the altitude the separation actually happened at. The machine
+# now stages AT THE APEX (see the COAST note in the flight-1 block above), which the
+# telemetry puts at ~850 m. 1500 clears that with room for run-to-run variance while
+# staying an order of magnitude below the ~25 km unloaded-vessel deletion floor and
+# well inside the ~2.25 km physics bubble.
+stagingMaxAltMeters = 1500
+# JUDGING WINDOW on the PEAK apoapsis. RE-PINNED FROM MEASUREMENT (was { 200, 2000 },
+# a guess made before anything flew): flight 1 read a peak of 957.180. Note what this
+# assertion actually reads - the running max of the ORBIT apoapsis, which peaks at 957
+# and then DECAYS under drag (940, 926, 908) while the craft is still CLIMBING, so it
+# is not the apex altitude and must not be mistaken for one. The floor still rejects a
+# craft that fizzled on the pad; the ceiling still rejects the regime where the booster
+# would leave the bubble.
+apoapsisWindowMeters = { min = 600, max = 1600 }
+# Frames to hold in STAGE before the separation click. REDUCED 3 -> 2 with the COAST
+# phase. The original job (waiting out LV-T45 thrust decay after the cut) is now done
+# by COAST, which spends ~11 s coasting to the apex at zero throttle; what the wait
+# still guards is the FALLBACK path where ASCENT exits on an already-negative vertical
+# speed and the cut and the apex coincide. Every frame here is spent falling away from
+# the apex and eating the arming window, so 2 is the smallest value that still puts a
+# poll between the cut and the decoupler on that fallback path.
+stageSettleFrames = 2
+# ARM-WHILE-SLOW bound for the UPPER stage's Mk16 (B1's live-proven technique). The
+# machine arms on the first DESCENT frame whose |vertical speed| is within this. With
+# the separation now AT the apex the craft is doing ~5-15 m/s down on that frame, so 30
+# leaves roughly a poll and a half of slack (Kerbin adds ~9.4 m/s of fall per second,
+# and the MEASURED cadence is ~0.5 s with one 1.1 s stretch).
+chuteArmMaxRateMps = 30
+# The stock deployAltitude written onto the upper stage's chute when it is armed.
+# LOWERED 1000 -> 600, and this was one of the two halves of the flight-1 kill. The
+# measured apex is ~850 m, so a 1000 m floor sat ABOVE THE WHOLE HOP: the craft was
+# below it from the pad onward, which made the arm-window-missed give-up (unarmed
+# frames below this altitude) satisfiable BY CONSTRUCTION. 600 puts the floor ~250 m
+# BELOW the apex, so there is real sky in which that give-up means what it says, and it
+# still leaves the pod ~530 m of full canopy to settle to its ~6.6 m/s terminal rate.
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+# BACKSTOPS, not the guards: every named terminal in the machine fires on OBSERVED
+# state within a couple of polls. MEASURED on flight 1: ASCENT 3.14 s, STAGE 1.52 s.
+# COAST is the cut-to-apex coast, ~11 s on this profile. DESCENT is the ONE leg nothing
+# has timed - the pod falls ~250 m semi-deployed and ~530 m under full canopy at
+# ~6.6 m/s, so ~85-100 s expected and 300 is ~3x. Trim from evidence once a run that
+# reaches the ground times it.
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+# THE BOOSTER, watched but never flown. MEASURED: KSP auto-named the separated stage
+# `GS1 Auto-Chute Booster Probe` on every flight so far (`Decouple created vessel
+# during recording: pid=... name='GS1 Auto-Chute Booster Probe' type=Probe parts=13`),
+# derived from the craft name plus the probe-core type. A wrong value here cannot pass
+# silently: the machine only treats an ABSENT reading as "destroyed" after the vessel
+# has been OBSERVED PRESENT at least once, so a typo reds as a named timeout carrying
+# `everObservedPresent=false`.
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+# 240 s to see the booster reach the ground AFTER the pod has. Sized on the craft's
+# own numbers rather than measured, because no flight has yet followed the booster
+# down: six Mk2-R on a ~2.3 t booster give a computed ~4.3 m/s terminal rate, and from
+# a separation near 800 m that is ~180 s of canopy descent, of which the pod's own
+# ~90 s descent runs concurrently. So the RESIDUAL wait after the pod lands is
+# ~90-120 s and 240 is ~2x. Re-pin from the first flight that watches it land.
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's own
+# logContracts. Nothing is claimed off a report-only block.
+#
+# `auto-record-launch` <- the pinned SetSetting plus "Recording started".
+# `commit-scene-exit`  <- "Silent full-fidelity auto-commit (scene-exit)".
+# `auto-merge`         <- the same token, whose branch predicate
+#                         `ShouldSilentFullFidelityCommit` requires isAutoMerge, plus
+#                         the pinned `autoMerge=true` on the exit start line.
+D1 = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
+# `controlled-decoupled-child` <- "ProcessBreakupEvent: controlled child created:
+#   pid=...". The booster is exactly that population: a probe-cored child that comes
+#   off through a decoupler, IsDebris=false with a ParentAnchorRecordingId. It is the
+#   only D5 cell claimed - `staging-debris-ttl` / `staging-debris-promotion` are about
+#   the DEBRIS population this craft deliberately does not produce, and `crash-coalescing`
+#   is not named by any token here even though the split routes through the coalescer.
+D5 = ["controlled-decoupled-child"]
+# `rp-disk-reaper` <- the two REQUIRED reap tokens ("Reaped rp=... slots=2" and
+#   "ReapOrphanedRPs: reaped=[1-9]... remaining=0"). This is the FIRST spec in the suite
+#   to gate on the reaper against an RP that KSP physics actually authored.
+#
+# DELIBERATELY NOT CLAIMED, and each absence has a reason:
+#   `rewind-to-separation` / `refly-gate` / `supersede-relation` / `head-tip-split` /
+#   `terminal-kind-classify` / `merge-journal` / `reconciliation-bundle` /
+#   `read-back-guard` - this scenario invokes NO rewind. It authors an RP and watches
+#   it die of natural causes; it never flies one.
+#   `unfinished-flights-stash` / `seal-stash-fly` - the whole assertion here is that
+#   NO Unfinished Flight is opened, so there is nothing to stash. Claiming the cell
+#   would invert the scenario's meaning.
+#   `load-time-sweep` - it runs (ParsekScenario.cs:3645's OnLoad calls it immediately
+#   before the reaper) but no token here names it.
+D9 = ["rp-disk-reaper"]
+# `scene-ksc` <- "exittospacecenter complete scene=SPACECENTER game-loaded=true", a
+#   token DecideExitCompletion emits only from its CompleteOk branch.
+# `sandbox` <- the harvested fixture's Mode, inherited from the forge base.
+# NOT claimed: `atmosphere` (the hop is atmospheric, but no token here asserts an
+# environment classification - B1 owns that surface).
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced form), so
+# this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# TWO is the expected shape and the floor is what matters: the parent recording (the
+# upper stage, which CONTINUES through the breakup in the breakup-continuous design)
+# plus the controlled child the split creates for the booster. A count of 1 would mean
+# the split produced no child recording at all, which is the failure the whole scenario
+# is downstream of.
+#
+# The ceiling absorbs touchdown debris. The booster comes down on six canopies at a
+# computed ~4.3 m/s against the fins' crashTolerance of 4, so a tip-over that sheds one
+# or more fins is EXPECTED; `PruneSinglePointDebrisLeaves` removes the single-point
+# stubs, but a fin that tumbles for a few frames can persist. 6 is deliberately loose
+# rather than pinned: redding on breakup-timing variance would be a false negative, and
+# the analyzer (Forbid) over the produced recordings is the real correctness gate.
+#
+# RE-PIN CONTRACT: the first reading run measures the real count. Re-pin to the MEASURED
+# value and record WHICH recordings the run produced; do not widen blindly.
+count = { min = 2, max = 6 }
+
+[expectations.logContracts]
+# FOUR GROUPS, ordered as the run emits them. Every REQUIRED token is Info or Warn, so
+# none depends on the verboseLogging step. Each is quoted from its emitting ParsekLog
+# call site; where a sibling spec has already MEASURED the same line verbatim on a live
+# run that is noted, and where a token is DERIVED and unmeasured it is noted too, since
+# the first run is what turns the second kind into the first.
+#
+# GROUP 1 - THE FLIGHT AND THE SPLIT.
+#   "Recording started"                       FlightRecorder.cs:6140   (Info)
+#       [MEASURED - B1, CL-1, CL-2, and GS-1 flight 1 2026-08-05_0725 (n=2)]
+#   "Controllable split children: [a,b] ..."  SegmentBoundaryLogic.cs  (Info)
+#       [MEASURED - GS-1 flight 1 2026-08-05_0725, VERBATIM:
+#        `Controllable split children: [2200110033,4093180920] (orig=2200110033,
+#         checked=2, unresolved=0)`]
+#       The regex requires TWO comma-separated pids. That is the non-vacuity: the same
+#       line is emitted with one pid, or with an empty list, on a single-controllable
+#       split - which is precisely the case where NO RewindPoint is authored and this
+#       whole scenario silently becomes a plain pad hop. `[0-9]+,[0-9]+` is the
+#       difference between "the classifier ran" and "the classifier saw two commanders".
+#   "ProcessBreakupEvent: controlled child created: pid=..."  ParsekFlight.cs:7622 (Info)
+#       [MEASURED - GS-1 flight 1 2026-08-05_0725, VERBATIM:
+#        `ProcessBreakupEvent: controlled child created: pid=4093180920,
+#         name='GS1 Auto-Chute Booster Probe', recId=2b73cf4fc0b64a7194b2abd7a0f3185e`]
+#       The booster got its own recording. Backs the D5 controlled-decoupled-child claim.
+#
+# GROUP 2 - THE REWINDPOINT, authored by KSP physics rather than injected by a fixture.
+#   "RewindPoint begin: rp=... slots=2 controllablePids=2"  RewindPointAuthor.cs:152 (Info)
+#       [MEASURED - GS-1 flight 1 2026-08-05_0725, VERBATIM:
+#        `RewindPoint begin: rp=rp_48edec9ae88a4244acef65611a943457
+#         bp=7d020c4dadea4d2b80e7168a2e8e3676 slots=2 controllablePids=2
+#         focusSlot=0 ut=31.62`. `focusSlot=0` is measured but deliberately NOT
+#         pinned: one sample, and it is an output of ResolveFocusSlotIndex rather
+#         than a property this scenario drives.]
+#       BOTH literals are numeric guards, because logContract matching is presence-only
+#       `re.search`: slots=2 rejects a degenerate one-slot RP, and controllablePids=2
+#       restates the classifier's own count at the authoring site.
+#   "RewindPoint slot capture: rp=... populated=2/2 disabled=0"  RewindPointAuthor.cs:283 (Info)
+#       [MEASURED - GS-1 flight 1 2026-08-05_0725, VERBATIM]
+#       Both slots correlated to a LIVE vessel. `disabled=0` is load-bearing: a slot
+#       that failed to correlate is marked Disabled with reason no-live-vessel, and an
+#       RP with a disabled slot is a different (and broken) object than the one this
+#       scenario is about.
+#
+# GROUP 3 IS NOW MEASURED ON THIS LANE. Flight 2 reached MISSION-OK, so the tail ran
+# and every one of the seven commit tokens below matched in
+# `logs/2026-08-05_1052_GS-1-auto-chute-booster/KSP.log`. GROUP 4 (the reap) did NOT,
+# and that is this spec working: see the flight-2 block in the header - the booster was
+# destroyed in mid-air, so its slot legitimately stayed open and the RP legitimately
+# survived. The group-4 tokens are NOT relaxed.
+#
+# GROUP 3 - THE COMMIT. The first three are S0.7's and CL-2's MEASURED tokens verbatim.
+#   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false"
+#                                             TestCommandExitToSpaceCenter (Info) [MEASURED - S0.7, and GS-1 flight 2 2026-08-05_0749]
+#       PREFIX ONLY, deliberately. S0.7 pins the whole line including
+#       `activeTreeVariant=None pendingTreeVariant=None`; those two are computed from
+#       `ShouldShowDialogBeforeSceneChange` and are None whenever autoMerge is on and
+#       the destination is not MAINMENU, but S0.7 measured them on a ONE-POINT idle tree
+#       and this is a real flight. The prefix pins every guard input that decides
+#       whether the verb proceeds (the autoMerge pin and the live-tree state, which is
+#       what distinguishes this route from CL-2's stashed-tree one); the variants are
+#       left for the reading run to measure and can be tightened afterwards.
+#   "CommitTreeSceneExit: stashed pending tree"  ParsekFlight.cs:14891
+#                                             (Info) [MEASURED - S0.7 + GS-1 flight 2]
+#   "Silent full-fidelity auto-commit (scene-exit): tree='...' recordings=N"
+#                                             ParsekScenario.cs:7034  (Info) [MEASURED - CL-2, and GS-1 flight 2 2026-08-05_0749]
+#       `recordings=[1-9][0-9]*` stops an EMPTY commit from satisfying the token.
+#   "Committed tree '...' (N recordings). Total committed: N recordings, 1 trees"
+#                                             RecordingStore.cs        (Info) [MEASURED - CL-2]
+#   "CommitTree: promoted 1 normal staging RP(s)"  RecordingStore.cs:1434 (Info)
+#       [MEASURED - GS-1 flight 2, VERBATIM: `CommitTree: promoted normal staging
+#        rp=rp_b17103eb... tree=3acd3e36... to persistent` followed by
+#        `CommitTree: promoted 1 normal staging RP(s)`]
+#       THE STEP EVERY INJECTED-RP SPEC SKIPS. A staging RP is born
+#       `SessionProvisional = true` and `IsReapEligible` refuses on its very first line
+#       until a commit clears it. The summary line is emitted ONLY when promoted > 0, so
+#       the literal 1 is both the count and the non-vacuity.
+#   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed="
+#                                             TestCommandExitToSpaceCenter (Info) [MEASURED - CL-2]
+#   "OnSave: saving 1 committed tree(s)"      ParsekScenario.cs        (Info) [MEASURED - CL-2]
+#       CL-2's before/after discriminator: an uncommitted run logs `saving 0`.
+#
+# GROUP 4 - THE REAP, which is the whole scenario.
+#   "Reaped rp=... bp=... slots=2"            RewindPointReaper.cs:155 (Info) [DERIVED]
+#   "ReapOrphanedRPs: reaped=N remaining=0"   RewindPointReaper.cs:160 (Info) [DERIVED]
+#       `reaped=[1-9][0-9]*` rejects the no-op summary (the zero cases are Verbose, but
+#       pinning a positive count costs nothing and says what is meant). `remaining=0` is
+#       the LEAK assertion: nothing survived the sweep.
+#       Both tokens are only reachable when `IsReapEligible` found EVERY slot's
+#       effective tip Immutable, which is the R5 classifier verdict for both slots
+#       stated as one Info-level fact. See the header.
+required  = ["Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+             "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+             "CommitTreeSceneExit: stashed pending tree",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)\\. Total committed: [1-9][0-9]* recordings, 1 trees",
+             "CommitTree: promoted 1 normal staging RP\\(s\\)",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "OnSave: saving 1 committed tree\\(s\\)",
+             "Reaped rp=\\S+ bp=\\S+ slots=2",
+             "ReapOrphanedRPs: reaped=[1-9][0-9]* remaining=0"]
+# THE TWO PROMOTION PATTERNS ARE THE REGRESSION GUARD ITSELF, and they are the reason
+# this spec is worth flying rather than reasoning about. `CommitTree promoted rec=`
+# (RecordingStore.cs:1235) and `CommitTree promoted chain-tip rec=` (:1265) are the
+# EXACT lines emitted when `ApplyRewindProvisionalMergeStates` demotes a recording to
+# CommittedProvisional - which is to say, when an Unfinished Flight is opened. A routine
+# two-stage flight whose stages both LAND must open none. If a future change makes one
+# of these fire here, the Unfinished Flights list starts filling up with every ordinary
+# staging event, and this spec reds on the line that did it.
+#
+# They are FORBIDDEN rather than merely absent from `required` because logContract
+# matching is presence-only: an absent required token and an unexpected present token
+# are different failures, and only the forbidden list can express the second.
+#
+# The ERROR pattern is the suite-wide one. Nothing on the author -> commit -> reap path
+# has a `ParsekLog.Error` call site that a healthy run reaches; the reaper's own error
+# surface is a failed quicksave DELETE, which is counted into `fileDeleteFail` and
+# logged at Warn, not Error.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "CommitTree promoted rec=",
+             "CommitTree promoted chain-tip rec="]
+
+# REPORT-ONLY (no `gating` key - gating is PER BLOCK, and arming is a per-scenario
+# operator decision taken only after a reading run whose facets match). These are the
+# SAVE-side statements of the same three facts the log tokens make, read out of the
+# produced .sfs by the M-C2 parser rather than out of KSP.log:
+#
+#   rewindPoints  = { max = 0 }  THE REAP, as durable state. A `Reaped` log line proves
+#                                the reaper ran; a zero RP count in the save proves
+#                                nothing came back. This is the facet the log cannot
+#                                give, and it is the one to watch on the reading run.
+#   supersedeRows = { max = 0 }  No re-fly happened, so no supersede relation may exist.
+#                                A nonzero here would mean something invoked a merge
+#                                tail this scenario never drives.
+#   tombstones    = { max = 0 }  Same: `SupersedeCommit.CommitTombstones` runs strictly
+#                                inside the re-fly merge tail, which no auto-commit
+#                                reaches (CL-2's scope fence). Nobody dies here either.
+#
+# `rewindRetirements` is NOT declared: it is an OBSERVED facet only and is not a legal
+# spec key (saveparse.REWIND_BLOCK_KEYS), so declaring it would hard-reject the spec.
+[expectations.rewind]
+# ARMED 2026-08-05 after the reading run 2026-08-05_0824 (flight 4, PASS attempt 1)
+# measured rewindPoints=0 supersedeRows=0 tombstones=0 with every window already met -
+# arming moved no verdict (armed confirm: run 2026-08-05_0832, PASS gating=True).
+# The red direction was proven by the negative control run 2026-08-05_0836
+# (temporary supersedeRows={min 1} -> PARSEK-FAIL(save-structure), reverted).
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY (no `gating` key): the structural shape the reading run should show, so a
+# later regression is legible. Best-guess windows, not measurements.
+#
+# `terminalStates` is the one that carries this scenario's heart in save form: BOTH the
+# upper stage and the booster must close at `Landed`, because that is the classifier
+# input (`TerminalOutcomeQualifiesInternal` reads the chain tip's TerminalStateValue)
+# that makes both slots resolve `stableTerminal` and lets the RP reap. A run whose
+# booster closed `Destroyed` instead would still emit most of the tokens above and
+# would NOT reap - and this row is where that shows up as a fact rather than an
+# inference. `Splashed` is deliberately not declared: the pad hop lands on land, and
+# declaring an alternative would blur what is being measured.
+#
+# `branchPoints` pins the branch point the decoupler split authors - the node the
+# RewindPoint hangs off (`RewindPoint begin: ... bp=<id>`). THE KEY IS `JointBreak`,
+# RE-PINNED FROM MEASUREMENT: the first draft said `Breakup`, reasoning from the
+# `ProcessBreakupEvent` handler name, and flight 2 read `branchPoints {JointBreak: 1}`
+# with `Breakup: 0`. The persisted type comes from the coalescer
+# (`DECOUPLE emitted: ut=40.02 type=JointBreak splitCause=DECOUPLE`) and is written by
+# `SaveBranchPoint: id=cc7c4f17... type=JointBreak ut=40.0 splitCause=DECOUPLE`, so a
+# decoupler separation is a `JointBreak` branch point whose SPLIT CAUSE is `DECOUPLE`.
+# `Breakup` is a different producer. This was a genuine spec-side error and is the
+# only one of flight 2's three saveParse mismatches that was.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2 }
+terminalStates = { Landed = { min = 2 } }
+branchPoints   = { JointBreak = { min = 1 } }
+
+[runtime]
+# WALL clock, bounding the WHOLE drive phase INCLUDING KSP boot: 300 LoadGame + 900
+# mission + 120 ExitToSpaceCenter + the fast SetSetting / FlushAndQuit verbs + ~380 for
+# boot and margin. RAISED 1400 -> 1700 with the SIBLING-DOWN wait. The mission never
+# warps, so game and wall run 1:1, and the 900 mission budget must clear the worst-case
+# phase sum: 90 ASCENT + 120 COAST + 60 STAGE + 300 DESCENT + 240 SIBLING-DOWN = 810.
+# The real profile is far shorter (flight 3 flew the whole thing to a landed pod in
+# 107 s); the sum is what stops a wedged phase from being killed by the run budget
+# instead of surfacing its own named flake.
+budgetSeconds = 1700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately. An `expectedFail` key here would demote EVERY failure of its
+# subkind under one bug id - including the exact Unfinished-Flights regression this
+# spec exists to catch - which is the active-masking failure mode S4.1's removed keys
+# document at length.
+bugId = ""

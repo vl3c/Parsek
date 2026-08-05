@@ -1,0 +1,260 @@
+# =============================================================================
+# MISSION PROFILE - the full ordered step list, and it is FORGE-eva2-lko's list
+# with exactly ONE phase removed. Read that file's profile block first; only the
+# difference is restated here.
+#
+#   PRELAUNCH    the boot save's own active vessel (the bdock-forge-base airshow
+#                flight). The forge does not fly it; it launches over it.
+#   LAUNCH       launch_vessel puts the FULL STACK docking Kerbal X on the
+#                LaunchPad with TWO named crew aboard. Same craft, same crew
+#                names, same PRE_LAUNCH + crew_count gate as FORGE-eva2-lko.
+#   ASCENT       MechJeb AscentAutopilot with autostage drops the 6 radial
+#                boosters + nose cones.
+#   CIRCULARIZE  the Rockomax core burns the circularization node, autowarp
+#                EXPLICIT (B-DOCK flight-12 lesson).
+#   PARK         <- THE DIFFERENCE. FORGE-eva2-lko goes CIRCULARIZE -> SEPARATE
+#                -> PARK; this one goes CIRCULARIZE -> PARK. No stage is
+#                activated after circularization, so the spent Rockomax core
+#                STAYS BOLTED ON. Throttle CUT, nodes CLEARED, attitude HELD,
+#                and the same stable-park dwell.
+#   ORBIT        MISSION-OK; the seam's SaveGame + FlushAndQuit persist the state.
+#
+# WHAT THE FIXTURE PROMISES ITS CONSUMERS (GS-2 and GS-3): ONE vessel, the
+# ATTACHED two-controllable stack, parked on a stable ~100 km circular Kerbin
+# orbit, throttle cut, no maneuver nodes, not tumbling, crewed, with NO
+# RECORDINGS / NO TREES / NO LEDGER STATE. The consumers start recording and then
+# fire ONE stage, which blows the istg=2 decoupler IN ORBIT.
+#
+# =============================================================================
+# WHY THIS CRAFT, AND WHY NO NEW ONE WAS BUILT. The GS-2 lane needs an ATTACHED
+# stack whose staging decoupler has a ModuleCommand on BOTH sides, so the in-orbit
+# firing is a MULTI-CONTROLLABLE split that authors a real RewindPoint. The
+# committed docking `Kerbal X.craft` in this very forge base ALREADY IS THAT
+# CRAFT, which was verified by walking its own part tree rather than assumed.
+# Cutting the tree at `Decoupler.2_4294169290` (istg = 2, the one
+# FORGE-eva2-lko's SEPARATE phase fires):
+#
+#   ABOVE (keeps the root, so it keeps FOCUS)  28 parts:
+#       mk1-3pod (CREWED, ModuleCommand) + dockingPort2 + HeatShield2 +
+#       8x RCSBlock.v2 + 4x rcsTankRadialLong + Rockomax16.BW + liquidEngine2-2.v2
+#       (the orbital Skipper) + 2x ksp.r.largeBatteryPack + 4x solarPanels5 +
+#       mediumDishAntenna + ladders + the istg=0 Decoupler.2.
+#   BELOW (becomes the NEW vessel)  21 parts after the ascent has shed the
+#       radial boosters and the clamps:
+#       3x Rockomax32.BW + liquidEngineMainsail.v2 + asasmodule1-2 +
+#       **probeStackLarge** - the RC-L01 Remote Guidance Unit, a real
+#       ModuleCommand - plus the spent radial-decoupler halves.
+#
+# So both sides are controllable, and `SegmentBoundaryLogic.IsMultiControllableSplit`
+# (SegmentBoundaryLogic.cs:446, `count >= 2`) passes. The 28/21 part split is not
+# a derivation: `EVA-2-orbital-board` and `S0.8-switch-click-segment` both MEASURED
+# it on the eva2-lko-crewed fixture this same decoupler produced, and they also
+# measured the new vessel's NAME - `Kerbal X Probe` - which is what GS-3's switch
+# step targets by name.
+#
+# AND THE SPLIT AUTHORS AN RP IN ORBIT EXACTLY AS IT WOULD IN ATMOSPHERE. The
+# whole authoring path was re-read for a situation / altitude / atmosphere /
+# packed gate and there is NONE: ParsekFlight.ProcessBreakupEvent ->
+# TryAuthorRewindPointForBreakup (ParsekFlight.cs:7635) ->
+# SegmentBoundaryLogic.IdentifyControllableChildren (which filters only by
+# ParsekFlight.IsTrackableVessel, ParsekFlight.cs:4218-4236 - SpaceObject, EVA, or
+# a part carrying ModuleCommand) -> RewindPointAuthor.Begin. The ONLY environment
+# gate on the path is `HighLogic.LoadedScene != GameScenes.FLIGHT`
+# (RewindPointAuthor.cs:82), which is a SCENE check, not a situation check.
+#
+# Building a purpose-made orbital two-probe craft by construction (the
+# build_gs1_craft.py route) was considered and REJECTED: it would have to be flown
+# to orbit by MechJeb on its first ever flight, which is a large bet for zero new
+# coverage, while this craft's ascent is the one B-DOCK has flown 18 times and
+# FORGE-eva2-lko stamped green on 2026-07-24. The deviation it costs is that the
+# focus vessel is a CREWED pod rather than a probe "mothership" - which is not a
+# deviation at all from the design doc's OTHER named test for this shape,
+# `InvertedFocusBoosterUpperStageOrbitingTest` (docs/parsek-rewind-to-separation-
+# design.md section 13.2): a booster and an upper stage, focus on the upper stage,
+# both Orbiting.
+#
+# =============================================================================
+# HARVEST. After a MISSION-OK run the produced save is at
+# `<ksp-instance>/saves/bdock-forge-base/`; turn it into the committed fixture with
+#
+#   python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+#       --run-save bdock-forge-base --target-name gs2-orbital-stack \
+#       --expect-situation ORBITING
+#
+# NO NEW HARVEST TOOL, for the fifth forge running - its docstring already asks
+# the next lane to reuse it rather than fork it, and `--target-name` +
+# `--expect-situation` are still the only two things that differ. When the harvest
+# lands, add `gs2-orbital-stack` to `EXPECTED_SCENARIO_PRESENCE` in
+# `harness/lib/test_saveparse.py` in the SAME commit (that sweep pins the
+# committed fixture set exactly and will red otherwise).
+#
+# =============================================================================
+# UNFLOWN. Its first scheduled run IS its live-prove. A failure classifies
+# driver-INVALID (retryable), never PARSEK-FAIL: the forge asserts nothing about
+# Parsek and its logContracts.required list is empty on purpose.
+#
+# THE ONE NEW RISK THE eva2 FORGE DOES NOT CARRY, and how it is caught. Nothing
+# but MechJeb's AUTOSTAGE could fire the istg=2 decoupler before the park, and
+# autostage only fires on an EMPTY stage - FORGE-eva2-lko's own header records
+# that "the spent core never autostages off ... the Kerbal X core keeps residual
+# fuel", and its SEPARATE phase's first explicit ACTIVATE_STAGE dropping the core
+# is positive proof that stage 2 was still unfired after circularization. If the
+# core nevertheless ran dry and autostaged, this forge would stamp a SPLIT fixture
+# and both consumers would then measure nothing. The `stackAttached` assertion row
+# (mlib.evaluate_forge_lko_assertions, parkAttached branch) is the catch: it reads
+# the carried `attached_split_seen` latch, set on any CIRCULARIZE / PARK frame
+# whose vessel_count rises above the CIRCULARIZE-entry baseline. CAVEAT, stated
+# because it is a real false-positive channel: `vessel_count` is `len(sc.vessels)`,
+# so a stock asteroid spawning during the coast would also raise it and would fail
+# this row on a perfectly good forge. That errs SAFE (an operator re-run costs one
+# flight; a bad fixture costs every consumer of it), and the row's detail carries
+# the baseline and the peak so the operator can tell the two apart.
+# =============================================================================
+schema = 1
+id = "FORGE-gs2-orbital-stack"
+# operator tier: a FIXTURE-FORGE run, not a coverage flight. It NEVER runs on a
+# cadence (hlib.CADENCE_TIERS maps no cadence to `operator`), only under an
+# explicit `--id FORGE-gs2-orbital-stack` / `--tier operator`. It is the FIFTH
+# forge and the SECOND orbital one.
+tier = "operator"
+description = "FIXTURE-FORGE (ORBITAL, ATTACHED): boot the committed forge base, launch_vessel the docking Kerbal X with two named crew, fly the proven MechJeb ascent + circularize, and park the FULL STACK with the spent core still attached (parkAttached=true skips the SEPARATE phase), SaveGame -- headlessly stamps the gs2-orbital-stack fixture (harvest with --target-name gs2-orbital-stack --expect-situation ORBITING)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "GS2", "GS3", "rewind", "orbital", "mechjeb", "pending-flight"]
+
+[fixture]
+# The SAME committed bootable base all four existing forges boot: gloops-airshow's
+# FLIGHT state (an active vessel, so LoadGame's IsLoadedGameFocusable gate passes)
+# plus the docking Kerbal X in Ships/VAB (so launch_vessel resolves
+# <save>/Ships/VAB/Kerbal X.craft). NOTHING is added to the base by this lane -
+# the craft it needs is already committed there, which is the whole point of the
+# reuse argument in the header. Deliberately NOT chained off eva2-lko-crewed: a
+# forge must not chain off another forge's output.
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# UNCHANGED mission id: `forge_lko` gains a `parkAttached` parameter rather than a
+# sibling copy. The parameter defaults FALSE, so FORGE-eva2-lko's behaviour is
+# byte-identical and its live-proven separation contract is untouched.
+mission = "forge_lko"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header would be TOML-scoped to
+# driver.missionParams.steps and the spec would validate as having zero steps).
+#
+# The step list is FORGE-eva2-lko's verbatim, and each SetSetting carries the same
+# reason. autoRecordOnLaunch is pinned FALSE because this forge STAGES and FLIES:
+# an auto-record would start a real recording and leave Parsek metadata inside the
+# persisted persistent.sfs. The harvest prunes the Parsek/ sidecar dir, but the
+# .sfs is copied verbatim - so the recording is PREVENTED, not cleaned up after.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                           expect = "MISSION-OK", budget = 1800 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+# All tolerances / windows / budgets (validated against forge_lko.schema.toml),
+# never a golden trajectory. Phase timeouts are GAME seconds. Every value below is
+# FORGE-eva2-lko's, verbatim and deliberately so, EXCEPT `parkAttached`.
+[driver.missionParams]
+craftName                   = "Kerbal X"
+launchSite                  = "LaunchPad"
+# THE ONE NEW PARAMETER. True -> CIRCULARIZE hands straight to PARK with the park
+# entry actions and NO stage activation, so the spent core stays attached and the
+# stamped save holds ONE vessel instead of two. False (the default, and what
+# FORGE-eva2-lko leaves unset) is the live-proven two-step SEPARATE contract.
+parkAttached                = true
+# TWO named crew, by NAME (kRPC 0.5.4 has no roster-enumeration API). LOAD-BEARING
+# rather than flavour: mk1-3pod's ModuleCommand carries minimumCrew = 1, so an
+# EMPTY pod is an UNCONTROLLED stack and MechJeb's ascent would do nothing. The
+# same two names EVA-2 / EVA-3 use, so one roster convention spans the lane. It is
+# a SANDBOX save; nothing about the roster is asserted downstream.
+crewNames                   = ["Valentina Kerman", "Bob Kerman"]
+# The crew gate's floor. Fails CLOSED on the -1 unread sentinel: a silent
+# crew-seeding failure flakes ON THE PAD instead of stamping an uncrewed fixture.
+minCrew                     = 2
+launchTimeoutSeconds        = 300
+launchSettleDebounceFrames  = 3
+# ~100 km circular. NOT a stylistic inheritance from eva2 - it is LOAD-BEARING for
+# what GS-2 measures. `RecordingTree.DetermineTerminalState` (RecordingTree.cs:869-905)
+# DEMOTES a terminal from Orbiting to SubOrbital whenever the periapsis is inside
+# the atmosphere, and `UnfinishedFlightClassifier`'s focus-slot gate
+# (UnfinishedFlightClassifier.cs:313-322) fires ONLY for terminal == Orbiting. A
+# park that closed SubOrbital would make BOTH slots qualify and the focus-gate
+# novelty would go unproven while every other token still passed. 100 km leaves
+# ~30 km of margin over Kerbin's 70 km atmosphere against the few m/s the
+# decoupler's ejection force adds.
+targetApoapsisMeters        = 100000
+targetPeriapsisMeters       = 100000
+apoErrorMeters              = 10000
+periErrorMeters             = 10000
+eccentricityMax             = 0.02
+# Loose on purpose: a due-east KSC launch targets ~0 deg and the fixture does not
+# care about inclination, so this row only catches a wildly wrong ascent.
+inclinationErrorDeg         = 5.0
+launchSiteLatitude          = 0.0
+ascentTimeoutSeconds        = 900
+circularizeTimeoutSeconds   = 2400
+# REQUIRED by forge_lko.schema.toml and UNUSED on this run: with parkAttached the
+# SEPARATE phase is never entered, so this budget bounds nothing. It is kept at
+# the live-proven value rather than dropped, so the schema's required-key set does
+# not have to change for one caller.
+separationTimeoutSeconds    = 120
+parkSituations              = ["ORBITING"]
+parkDwellSeconds            = 60
+parkTimeoutSeconds          = 600
+parkDebounceFrames          = 3
+# With SAS stability-assist + RCS on, a stabilized stack reads ~0 rad/s. The
+# ATTACHED park is if anything EASIER than eva2's: no mass is dropped (the
+# flight-10 tumble source), and the spent core brings its own asasmodule1-2
+# reaction wheel into the same vessel. The eva2 value is kept unchanged.
+maxAngularVelocityRadPerSec = 0.05
+# Kerbin's atmosphere ends at 70 km: a park below this is not the on-rails-safe
+# stable orbit the fixture promises, whatever the apsis tolerance would allow.
+minSafePeriapsisMeters      = 75000
+
+# A fixture stamp, not a coverage flight: it commits no recording, so only the
+# honest environment cells are cited. NO warp / orbital-checkpoint cells - nothing
+# here asserts a Parsek surface.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read (hlib.validate_spec REJECTS the misplaced
+# form), so this table must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# autoRecordOnLaunch is pinned false and nothing calls StartRecording, so the
+# expected count is 0. max 1 absorbs a nascent auto-record without redding an
+# otherwise perfect forge run (the harvest prunes Parsek state regardless, and a
+# real leak would show up as the fixture's own Parsek dir in the harvest log).
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+# EMPTY required list, deliberately: a forge asserts nothing about Parsek, and a
+# required token here would convert a fixture-stamping failure into a PARSEK-FAIL.
+# The forbidden ERROR pattern stays - a forge that makes Parsek throw is still a
+# finding, and the four sibling forges have never emitted one.
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 2400 >= 240 LoadGame + 3 SetSetting + 1800 mission + SaveGame + FlushAndQuit +
+# margin, matching FORGE-eva2-lko. This run is strictly SHORTER than that one (it
+# drops the SEPARATE phase entirely), so the budget is if anything more generous.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
