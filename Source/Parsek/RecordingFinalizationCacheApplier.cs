@@ -112,7 +112,8 @@ namespace Parsek
             if (retainedSegments.Count > 0)
                 recording.OrbitSegments.AddRange(retainedSegments);
 
-            recording.TerminalStateValue = cache.TerminalState.Value;
+            recording.StampTerminalState(
+                cache.TerminalState.Value, "RecordingFinalizationCacheApplier");
             ApplyTerminalMetadata(recording, cache, retainedSegments);
 
             recording.ExplicitEndUT = cache.TerminalUT;

@@ -252,7 +252,8 @@ namespace Parsek
                 }
 
                 var inferredState = InferTerminalStateFromTrajectory(activeRec);
-                activeRec.TerminalStateValue = inferredState;
+                activeRec.StampTerminalState(
+                    inferredState, "FinalizeTreeRecordings.SceneExitNonLeaf");
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: active recording '{activeRec.RecordingId}' " +
                     $"vessel pid={activeRec.VesselPersistentId} not found on scene exit — " +
@@ -450,7 +451,9 @@ namespace Parsek
                 {
                     if (isSceneExit)
                         rec.SceneExitSituation = (int)finalizeVessel.situation;
-                    rec.TerminalStateValue = vesselAccess.DetermineTerminalState(finalizeVessel);
+                    rec.StampTerminalState(
+                        vesselAccess.DetermineTerminalState(finalizeVessel),
+                        "FinalizeTreeRecordings.liveVessel");
                     vesselAccess.CaptureTerminalOrbit(rec, finalizeVessel);
                     vesselAccess.CaptureTerminalPosition(rec, finalizeVessel);
 
@@ -532,7 +535,8 @@ namespace Parsek
                     else
                     {
                         var inferredState = InferTerminalStateFromTrajectory(rec);
-                        rec.TerminalStateValue = inferredState;
+                        rec.StampTerminalState(
+                            inferredState, "FinalizeTreeRecordings.sceneExitInferred");
                         ParsekLog.Info("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
                             $"not found on scene exit for recording '{rec.RecordingId}' — " +
                             $"inferred {inferredState} from trajectory (vessel was alive when unloaded)");
@@ -553,8 +557,13 @@ namespace Parsek
                 else
                 {
                     // Not a scene exit — vessel genuinely missing. Mark as destroyed.
-                    rec.TerminalStateValue = TerminalState.Destroyed;
+                    // Drop the (now meaningless) end snapshot BEFORE stamping so the
+                    // crew-end-state invalidation seam evaluates re-derivability against
+                    // the final surface (GhostVisualSnapshot + Destroyed), not against a
+                    // VesselSnapshot that is about to disappear.
                     rec.VesselSnapshot = null;
+                    rec.StampTerminalState(
+                        TerminalState.Destroyed, "FinalizeTreeRecordings.vesselMissing");
                     ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
                         $"not found for recording '{rec.RecordingId}' — marking Destroyed");
 

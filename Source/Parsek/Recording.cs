@@ -701,6 +701,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// THE seam every production site that DECIDES a terminal verdict for a
+        /// recording goes through. Assigns <see cref="TerminalStateValue"/> and hands
+        /// the (previous -> updated) transition to
+        /// <see cref="KerbalsModule.InvalidateCrewEndStatesForTerminalStamp"/>, which
+        /// retires crew end states inferred against the OLD verdict and re-infers them
+        /// against this one. See that method for the transition guard, the deliberate
+        /// retraction carve-out, why re-inference is immediate, and why the
+        /// invalidation is non-lossy.
+        ///
+        /// <para>Structural copy sites are deliberately NOT routed through here, because
+        /// none of them can leave a populated crew-end-state surface sitting under a
+        /// changed verdict: <c>RecordingTreeRecordCodec</c>'s load and the recording
+        /// clone/copy helpers restore both surfaces together, and <c>SessionMerger</c>
+        /// plus <c>RecordingOptimizer.SplitAtUT</c> move the verdict onto a FRESH
+        /// recording whose end states are still null (the split's HEAD keeps its end
+        /// states with a nulled terminal, which is exactly the retraction carve-out).</para>
+        ///
+        /// Returns true when crew end states were invalidated by this stamp.
+        /// </summary>
+        internal bool StampTerminalState(TerminalState? value, string context)
+        {
+            TerminalState? previous = TerminalStateValue;
+            TerminalStateValue = value;
+            return KerbalsModule.InvalidateCrewEndStatesForTerminalStamp(
+                this, previous, value, context);
+        }
+
+        /// <summary>
         /// Centralized "mark this recording as destroyed at <paramref name="terminalUT"/>"
         /// hygiene helper. Sets the terminal verdict (<see cref="TerminalStateValue"/>,
         /// <see cref="VesselDestroyed"/>, <see cref="ExplicitEndUT"/>) AND clears every
@@ -716,7 +744,7 @@ namespace Parsek
                 && TerminalStateValue == TerminalState.Destroyed;
 
             VesselDestroyed = true;
-            TerminalStateValue = TerminalState.Destroyed;
+            StampTerminalState(TerminalState.Destroyed, "MarkDestroyedAtTerminal:" + (source ?? "(none)"));
             ExplicitEndUT = terminalUT;
 
             // Clear surface-terminal data — leaving these set produces contradictory

@@ -1499,11 +1499,13 @@ namespace Parsek
             {
                 if (v == null)
                 {
-                    rec.TerminalStateValue = TerminalState.Destroyed;
+                    rec.StampTerminalState(TerminalState.Destroyed, "EndDebrisRecording.vesselGone");
                 }
                 else
                 {
-                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)v.situation, v);
+                    rec.StampTerminalState(
+                        RecordingTree.DetermineTerminalState((int)v.situation, v),
+                        "EndDebrisRecording.situation");
                     ParsekFlight.CaptureTerminalOrbit(rec, v);
                 }
             }

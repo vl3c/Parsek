@@ -1738,7 +1738,100 @@ file already carried the false positive silently - its own `rec_provisional` is
 NotCommitted with the zombie's pid and StartUT - which is why the bug survived
 unit cover until the harness surfaced it.
 
-## A re-fly fork latches every crew member at `KerbalEndState.Unknown` for the life of the recording [FOUND 2026-08-05, branch `small-fixes-2`, from the CL-3 forensic run `2026-08-04_2136`. FILED, NOT FIXED HERE]
+## ~~A re-fly fork latches every crew member at `KerbalEndState.Unknown` for the life of the recording~~ [FOUND 2026-08-05, branch `small-fixes-2`, from the CL-3 forensic run `2026-08-04_2136`. **FIXED 2026-08-05**, branch `refly-crew-endstate-latch`]
+
+### What shipped
+
+The entry's **second** option, as it recommended: the latch is not weakened, it is
+*retired* when a terminal verdict is stamped. Do not latch-on-null was rejected for the
+reason the entry gives (still-active recordings would re-infer on every recalc), and on
+its own it is insufficient anyway - a non-null `CrewEndStates` blocks re-admission
+independently of the flag, so BOTH have to be cleared.
+
+- **One seam.** `Recording.StampTerminalState(TerminalState?, string context)` is now the
+  single door for every production site that DECIDES a terminal verdict - 26 call sites
+  across 12 files (23 verdicts + the 3 retractions below): the flight finalizer,
+  terminal-event handlers, the BG debris close, the finalization cache applier/producer,
+  the incomplete-ballistic scene-exit finalizer, the chain-segment commit, the Gloops
+  commit, `ParsekScenario.UpdateRecordingsForTerminalEvent`,
+  `Recording.MarkDestroyedAtTerminal`, `RecordingOptimizer.AbsorbInto`. It delegates to
+  `KerbalsModule.InvalidateCrewEndStatesForTerminalStamp`, which clears BOTH
+  `CrewEndStates` and the serialized `CrewEndStatesResolved`, re-infers, and logs the
+  grep-stable `crew-end-states-stale-after-terminal-stamp` line (recording id, `old->new`
+  terminal, how many end states were dropped and re-inferred, context). Structural copies
+  (`RecordingTreeRecordCodec` load, the recording clone/copy helpers, `SessionMerger`,
+  `RecordingOptimizer.SplitAtUT`) deliberately do NOT route through it: none can leave a
+  populated end-state surface under a changed verdict - the load/clone helpers restore both
+  surfaces together, and the merger/splitter move the verdict onto a FRESH recording whose
+  end states are still null (the split's HEAD keeps its end states with a nulled terminal,
+  which is the retraction carve-out).
+- **Transition guard: any stamp of a NON-NULL terminal that differs from the previous
+  value** - null->X (the filed finding) AND X->Y. X->Y is not hypothetical, which is the
+  one place this went wider than the entry's scope, deliberately:
+  `ParsekScenario.CanOverwriteTerminalState` explicitly permits
+  Landed/Orbiting/Splashed/SubOrbital -> Recovered|Destroyed (a craft that lands and is
+  recovered later from KSC), and `ParsekFlight`'s active-recorder destruction override
+  re-stamps any prior verdict to Destroyed. Landed->Recovered is the SAME D12
+  `missed-endut-auto-free` leak arrived at from a second direction, and Landed->Destroyed
+  leaves an `Aboard` verdict on a dead crew. Both are covered.
+- **Retractions (stamping null) deliberately do NOT invalidate.** A null terminal can only
+  ever re-infer to `Unknown` - the latched state this fix exists to escape - and the
+  retraction sites (post-spawn revert/rewind clears, `ClearStaleDestroyedTerminalForResume`,
+  the optimizer split's HEAD) would otherwise wipe end states derived from a real flight.
+  Any later stamp runs the seam again.
+- **Non-lossy.** End states are dropped only when the SAME predicate that drives
+  population (`LedgerOrchestrator.NeedsCrewEndStatePopulation`) re-admits the recording
+  with the flags cleared, and a start crew source still exists; otherwise the previous
+  answer is restored (through a `finally`, so an exception in the probe cannot lose it)
+  and a Verbose `not re-derivable` line is logged. Without that guard a verdict change
+  that also removes the crew source (e.g. the KSC-recovery site, which nulls
+  `VesselSnapshot`) would leave the recording reading as crewless in both the ledger rows
+  and the Kerbals window. Two sites (that one and `FinalizeTreeRecordings.vesselMissing`)
+  had their snapshot-nulling moved BEFORE the stamp so the guard judges the surface that
+  survives.
+- **Re-inference is IMMEDIATE, not deferred to the next recalc.** Review of the first cut
+  found the same hazard as those two reorders arriving two steps later: the ghost-only
+  commit paths (`ParsekFlight`'s silent full-fidelity auto-commit, `MergeDialog.Commit`)
+  null `VesselSnapshot` well after the stamp, so a guard that said "re-derivable" could be
+  judging a surface that no longer exists when population finally ran - stranding the
+  recording permanently unresolved for terminal states the ghost-visual-only branch does
+  not admit (SubOrbital, Landed on a non-chain recording). Inferring inside the stamp,
+  against the surface the guard actually judged, closes the window and leaves every later
+  reader consistent. Pinned by
+  `GhostOnlyConversionAfterTheStamp_CannotStrandTheRecordingUnresolved`.
+
+**Reach, stated honestly.** The recording itself is corrected at the stamp. The LEDGER row
+is rebuilt by `CreateKerbalAssignmentActions`, which runs at commit
+(`OnRecordingCommitted`) and, for committed recordings, in `MigrateKerbalAssignments` on
+KSP load - NOT on every recalc (`RecalculateAndPatchCore`'s
+`PopulateUnpopulatedCrewEndStates` refreshes recordings but does not rewrite rows). Every
+routed stamp site is pre-commit for the recording it touches
+(`UpdateRecordingsForTerminalEvent` explicitly refuses to modify committed recordings), so
+the corrected end state reaches the ledger at commit time. A hypothetical future
+post-commit stamp would correct the recording immediately and its ledger rows on the next
+load.
+
+**Serialization boundary, also honest.** `crewEndStatesResolved` is persisted, and the
+clear happens synchronously inside the stamp, so a save written after a stamp always
+carries the cleared (or already re-populated) state - there is no window where a save
+records a stamped terminal alongside a stale latch. Saves written BEFORE this fix that
+already carry a latched `Unknown` under a stamped terminal are NOT migrated (the entry
+does not ask for it): they self-correct only if a later terminal stamp lands on them.
+
+**Cover:** `CrewEndStateTerminalStampInvalidationTests` (12 cells) drives the production
+path end to end - the fork lifecycle to a finite-endUT `Recovered` reservation, the benign
+`Landed` case, the Landed->Recovered and Landed->Destroyed re-stamps, same-value re-stamp,
+crewless no-op, retraction, the not-re-derivable restore, the post-stamp ghost-only
+conversion, `MarkDestroyedAtTerminal`, plus a
+raw-field-assignment cell that reproduces the original latch and so pins WHAT fixes it. The
+destroyed-vessel ghost-visual admission gate
+(`CreateKerbalAssignmentActions_GhostOnlyStableChainTip_DoesNotForceRecovered`) is
+untouched and still passes.
+
+**Still owed:** a live re-fly that ends in Recovery, as the entry asked. The unit cover
+proves the mechanism; only a flight proves the sequencing in a real career.
+
+### The finding, as filed
 
 Secondary finding from the `dead-crew-strip` investigation. Benign today; NOT benign for
 a fork that ends `Recovered`, where it turns into a permanent crew leak.
@@ -1786,7 +1879,7 @@ re-flown-and-recovered kerbal keeps `endUT = +inf` and is **reserved forever** -
 - `Source/Parsek/GameActions/LedgerOrchestrator.cs:1243-1290`
 - `Source/Parsek/KerbalsModule.cs:634-708`
 
-### Fix shape (not taken here)
+### Fix shape (as proposed when filed - the second option is what shipped)
 
 Either do not latch `CrewEndStatesResolved` when `TerminalStateValue == null`, or clear
 it when a terminal state is later stamped. The second is likelier the right one - the
@@ -1831,6 +1924,18 @@ with code plus log evidence before anything was re-pinned:
 - *Not the fixture, this time.* `RewindInvoker` refreshed the fork snapshots FROM THE
   LIVE VESSEL (`liveParts=8`), replacing the fixture-inherited surfaces - the identical
   path a production re-fly runs.
+
+**Cross-reference (2026-08-05, branch `refly-crew-endstate-latch`).** Nothing above is
+superseded: the survivor is a MID-FLIGHT reading, taken while the fork was still flying,
+and a live crewed fork holding a temporary reservation is correct at that moment whatever
+its end-state label says. What has since changed is that the label is no longer
+*permanent*. The `Unknown` this run observed used to be latched for the life of the
+recording (filed as the entry above, now fixed): the fork's end states are cleared when
+its terminal verdict is stamped and re-inferred against the real ending, so the same fork
+ending in Recovery now resolves to `Recovered` with a finite endUT instead of staying
+`Unknown` at `+inf`. The first bullet's reasoning still holds exactly as written -
+`Unknown` and `Aboard` remain byte-identical reservations, which is why this was invisible
+here.
 
 `0 reservations remain` is **structurally unreachable on any same-crew re-fly**:
 `CrewReservationManager` rebuilds from the ELS, `ProcessAction` adds an entry for every

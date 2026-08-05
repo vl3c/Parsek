@@ -962,7 +962,8 @@ namespace Parsek
             bool eagerStamp = false;
             if (recording != null && !recording.TerminalStateValue.HasValue)
             {
-                recording.TerminalStateValue = TerminalState.Destroyed;
+                recording.StampTerminalState(
+                    TerminalState.Destroyed, "RecordingFinalizationCacheProducer.eagerStamp");
                 eagerStamp = true;
             }
 

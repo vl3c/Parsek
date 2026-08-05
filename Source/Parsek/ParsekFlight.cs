@@ -4616,7 +4616,7 @@ namespace Parsek
             if (captured.VesselDestroyed)
             {
                 targetRec.VesselDestroyed = true;
-                targetRec.TerminalStateValue = TerminalState.Destroyed;
+                targetRec.StampTerminalState(TerminalState.Destroyed, "TryAppendCapturedToTree");
             }
 
             if (captured.MaxDistanceFromLaunch > targetRec.MaxDistanceFromLaunch)
@@ -4695,7 +4695,7 @@ namespace Parsek
 
             if (captured.VesselDestroyed)
             {
-                rec.TerminalStateValue = TerminalState.Destroyed;
+                rec.StampTerminalState(TerminalState.Destroyed, "FallbackCommitSplitRecorder");
                 ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
             }
         }
@@ -6101,8 +6101,10 @@ namespace Parsek
             {
                 AppendCapturedDataToRecording(activeParentRec, stoppedRecorder.CaptureAtStop, mergeUT);
                 // Set terminal state based on merge type
-                activeParentRec.TerminalStateValue = (branchType == BranchPointType.Dock)
-                    ? TerminalState.Docked : TerminalState.Boarded;
+                activeParentRec.StampTerminalState(
+                    (branchType == BranchPointType.Dock)
+                        ? TerminalState.Docked : TerminalState.Boarded,
+                    "MergeBranch.activeParent");
             }
 
             // 3. End background parent recording (if two-parent merge)
@@ -6113,8 +6115,10 @@ namespace Parsek
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec))
                 {
                     bgParentRec.ExplicitEndUT = mergeUT;
-                    bgParentRec.TerminalStateValue = (branchType == BranchPointType.Dock)
-                        ? TerminalState.Docked : TerminalState.Boarded;
+                    bgParentRec.StampTerminalState(
+                        (branchType == BranchPointType.Dock)
+                            ? TerminalState.Docked : TerminalState.Boarded,
+                        "MergeBranch.backgroundParent");
 
                     // Remove background vessel from BackgroundMap and notify BackgroundRecorder
                     uint bgVesselPid = bgParentRec.VesselPersistentId;
@@ -7249,7 +7253,8 @@ namespace Parsek
             {
                 // Vessel destroyed during coalescing window — use pre-captured snapshot (#157)
                 SeedBreakupChildSnapshots(childRec, pid, liveSnapshot: null, preCapturedSnapshot: fallbackSnapshot);
-                childRec.TerminalStateValue = TerminalState.Destroyed;
+                childRec.StampTerminalState(
+                    TerminalState.Destroyed, "CreateBreakupChildRecording.preCapturedSnapshot");
                 childRec.ExplicitEndUT = breakupBp.UT;
                 if (structuralSeedPoint.HasValue)
                     BackgroundRecorder.ApplyTrajectoryPointToRecording(childRec, structuralSeedPoint.Value);
@@ -7258,7 +7263,8 @@ namespace Parsek
             }
             else
             {
-                childRec.TerminalStateValue = TerminalState.Destroyed;
+                childRec.StampTerminalState(
+                    TerminalState.Destroyed, "CreateBreakupChildRecording.noSnapshot");
                 childRec.ExplicitEndUT = breakupBp.UT;
                 if (structuralSeedPoint.HasValue)
                 {
@@ -16525,7 +16531,7 @@ namespace Parsek
             if (captureAtStop != null)
             {
                 rec.VesselSnapshot = captureAtStop.VesselSnapshot;
-                rec.TerminalStateValue = captureAtStop.TerminalStateValue;
+                rec.StampTerminalState(captureAtStop.TerminalStateValue, "CommitGloopsRecording");
                 rec.TerminalPosition = captureAtStop.TerminalPosition;
                 rec.Controllers = captureAtStop.Controllers != null
                     ? new List<ControllerInfo>(captureAtStop.Controllers)

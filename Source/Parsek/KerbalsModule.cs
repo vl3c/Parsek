@@ -627,6 +627,148 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The one condition under which <see cref="PopulateCrewEndStates(Recording)"/>
+        /// can reach an answer at all: it reads the recording-START crew from the
+        /// ghost visual snapshot, falling back to the EVA crew name. With neither
+        /// present the method returns leaving the recording unresolved, so
+        /// <see cref="InvalidateCrewEndStatesForTerminalStamp"/> must refuse to drop
+        /// end states it could not have re-derived.
+        /// </summary>
+        internal static bool HasStartCrewSource(Recording rec)
+        {
+            return rec != null
+                && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName));
+        }
+
+        /// <summary>
+        /// Grep-stable key for the crew-end-state invalidation line. Emitted whenever a
+        /// terminal stamp retires end states that were inferred against a different
+        /// (usually absent) terminal verdict.
+        /// </summary>
+        internal const string CrewEndStateStaleAfterTerminalStampKey =
+            "crew-end-states-stale-after-terminal-stamp";
+
+        /// <summary>
+        /// Single invalidation seam behind <see cref="Recording.StampTerminalState"/>.
+        ///
+        /// <para>WHY: <c>PopulateCrewEndStates</c> latches BOTH <c>CrewEndStates</c> and the
+        /// serialized <c>CrewEndStatesResolved</c> flag, and
+        /// <c>LedgerOrchestrator.NeedsCrewEndStatePopulation</c> treats EITHER as a permanent
+        /// skip. A re-fly fork gets its <c>VesselSnapshot</c> at rewind time, while
+        /// <c>TerminalStateValue</c> is still null, so the very next recalc infers every crew
+        /// member as <c>Unknown</c> (<c>InferCrewEndState</c>'s null-terminal answer) and latches
+        /// that for the life of the recording. <c>Unknown</c> and <c>Aboard</c> produce identical
+        /// reservations, but <c>Recovered</c> — the ONLY end state carrying a finite
+        /// <c>endUT</c> — is unreachable once latched, so a re-flown-and-recovered kerbal stays
+        /// reserved forever (the D12 <c>missed-endut-auto-free</c> surface).</para>
+        ///
+        /// <para>TRANSITION GUARD: fires on any stamp of a NON-NULL terminal that DIFFERS from
+        /// the previous value — both null-&gt;X (the filed finding) and X-&gt;Y. X-&gt;Y is a real
+        /// production transition, not a hypothetical: <c>ParsekScenario.CanOverwriteTerminalState</c>
+        /// deliberately lets a situation-based verdict (Landed/Orbiting/Splashed/SubOrbital) be
+        /// overwritten by Recovered or Destroyed, and
+        /// <c>ParsekFlight.TryApplyActiveRecorderDestructionOverride</c> overrides any prior
+        /// verdict with Destroyed. Those are exactly the transitions where re-inference matters
+        /// (Aboard -&gt; Recovered buys the finite endUT; Aboard -&gt; Dead makes the reservation
+        /// permanent).</para>
+        ///
+        /// <para>RETRACTIONS (stamping null) deliberately do NOT invalidate. A null terminal can
+        /// only ever re-infer to <c>Unknown</c>, which is the latched state this seam exists to
+        /// escape, and the retraction sites (post-spawn revert/rewind clears, the optimizer's
+        /// split HEAD) would otherwise wipe end states derived from a real flight. Any later
+        /// stamp runs this seam again.</para>
+        ///
+        /// <para>NON-LOSSY: end states are dropped only when the same predicate that drives
+        /// population (<c>NeedsCrewEndStatePopulation</c>) re-admits the recording AND a start
+        /// crew source still exists. Otherwise the previous answer is restored, because a
+        /// dropped-and-never-re-derived recording would read as crewless everywhere
+        /// (ledger rows and the Kerbals window alike).</para>
+        ///
+        /// <para>RE-INFERENCE IS IMMEDIATE, not deferred to the next recalc. The admission
+        /// predicate reads the recording's snapshot surface, and several stamp sites go on to
+        /// MUTATE that surface after stamping (the ghost-only commit paths null
+        /// <c>VesselSnapshot</c> a few steps later). Deferring would let the guard judge a
+        /// surface that no longer exists when population finally runs, stranding the recording
+        /// unresolved for terminal states the ghost-visual-only branch does not admit. Inferring
+        /// here, against the surface the guard actually judged, closes that window and leaves the
+        /// recording consistent for every later reader.</para>
+        ///
+        /// Returns true when end states were actually invalidated and re-inferred.
+        /// </summary>
+        internal static bool InvalidateCrewEndStatesForTerminalStamp(
+            Recording rec,
+            TerminalState? previous,
+            TerminalState? updated,
+            string context)
+        {
+            if (rec == null) return false;
+
+            // Retraction, or no actual change: nothing to re-infer against.
+            if (!updated.HasValue) return false;
+            if (previous.HasValue && previous.Value == updated.Value) return false;
+
+            // Nothing to invalidate. A crewless recording resolves with a null dictionary
+            // (PopulateCrewEndStates' "no crew in ghost snapshot" branch) — re-running it
+            // would produce the identical answer, so leave the resolved flag alone.
+            if (rec.CrewEndStates == null || rec.CrewEndStates.Count == 0) return false;
+
+            var savedStates = rec.CrewEndStates;
+            bool savedResolved = rec.CrewEndStatesResolved;
+            bool invalidated = false;
+
+            // The admission predicate is a one-shot skip on either field, so both have to be
+            // cleared before it can answer. The finally restores them on every path that does
+            // NOT complete the re-inference — refusal or exception alike.
+            rec.CrewEndStates = null;
+            rec.CrewEndStatesResolved = false;
+            try
+            {
+                if (!HasStartCrewSource(rec)
+                    || !LedgerOrchestrator.NeedsCrewEndStatePopulation(rec))
+                {
+                    ParsekLog.Verbose(Tag,
+                        CrewEndStateStaleAfterTerminalStampKey +
+                        $": kept {savedStates.Count} end state(s) on recording " +
+                        $"'{rec.RecordingId ?? "(null)"}' — {previous?.ToString() ?? "null"}->" +
+                        $"{updated.Value} is not re-derivable " +
+                        $"(startCrewSource={HasStartCrewSource(rec)}, context={context ?? "(none)"})");
+                    return false;
+                }
+
+                PopulateCrewEndStates(rec);
+                invalidated = rec.CrewEndStatesResolved;
+                if (!invalidated)
+                {
+                    // Population declined to answer after all — keep the old verdict rather
+                    // than leaving the recording permanently unresolved.
+                    ParsekLog.Verbose(Tag,
+                        CrewEndStateStaleAfterTerminalStampKey +
+                        $": kept {savedStates.Count} end state(s) on recording " +
+                        $"'{rec.RecordingId ?? "(null)"}' — re-inference against " +
+                        $"{updated.Value} produced no answer (context={context ?? "(none)"})");
+                    return false;
+                }
+
+                ParsekLog.Info(Tag,
+                    CrewEndStateStaleAfterTerminalStampKey +
+                    $": recording='{rec.RecordingId ?? "(null)"}' ({rec.VesselName ?? "(null)"}) " +
+                    $"terminal {previous?.ToString() ?? "null"}->{updated.Value} — dropped " +
+                    $"{savedStates.Count} end state(s) inferred against the old verdict and " +
+                    $"re-inferred {rec.CrewEndStates?.Count ?? 0} " +
+                    $"(context={context ?? "(none)"})");
+                return true;
+            }
+            finally
+            {
+                if (!invalidated)
+                {
+                    rec.CrewEndStates = savedStates;
+                    rec.CrewEndStatesResolved = savedResolved;
+                }
+            }
+        }
+
+        /// <summary>
         /// Populates CrewEndStates on a recording by extracting crew from the
         /// ghost visual snapshot (start-of-recording crew roster) and inferring
         /// each crew member's end state.
@@ -639,7 +781,7 @@ namespace Parsek
                 return;
             }
 
-            bool hasStartCrewSource = rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName);
+            bool hasStartCrewSource = HasStartCrewSource(rec);
 
             // Extract starting crew from ghost visual snapshot (recording-start state)
             var startingCrew = CrewReservationManager.ExtractCrewFromSnapshot(rec.GhostVisualSnapshot);
