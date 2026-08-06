@@ -85,7 +85,13 @@ cameraHeadingDeg     = 0
 cameraDistanceMeters = 2000000000
 armTimeoutSeconds    = 300
 cameraTimeoutSeconds = 120
-warpTimeoutSeconds   = 5000000
+# GAME seconds per warp leg. The depart leg is the long one: the ENGAGED
+# unit phase-locks up to ONE SYNODIC PERIOD ahead (~19.65M s) and flight 2
+# (2026-08-06_1809) measured 15.2M s arm-to-window, which the previous 5M
+# budget expired inside BY CONSTRUCTION. 30M covers synodic + tof + margin;
+# a genuinely stuck warp is still bounded by the runner's warp-stall
+# watchdog and the mission wall budget.
+warpTimeoutSeconds   = 30000000
 holdTimeoutSeconds   = 600
 
 # CLAIM-IS-NOT-GATE, reading-run minimalism (the V1 first-flight shape): only
