@@ -1,0 +1,196 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 4653505.7839999441
+	type = 4
+	actionId = act_0f7c6c36645f471a8445115385a97c15
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 1
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4653508.3639998864
+	type = 4
+	actionId = act_d1d0478825c4443681f516c9071b42a0
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 2
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 4653515.7439997215
+	type = 4
+	actionId = act_61bff9efbd8f4925b16d71e9e4da7dcd
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 3
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 4653530.483999392
+	type = 4
+	actionId = act_faa4f0cbd4a44804ba6a485e9ed2dfa2
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 4
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 4653654.2238905169
+	type = 4
+	actionId = act_e12d8334e79649bebc05f92025e50abe
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 5
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4653681.8638905426
+	type = 4
+	actionId = act_9541baf9f4574b4b80ba74972bcb1b8a
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 6
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4653681.9038905427
+	type = 4
+	actionId = act_70dde1aeb751427cb9e14557b411e258
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 7
+	milestoneId = ReachedSpace
+	milestoneFundsAwarded = 8000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4653839.2178600337
+	type = 4
+	actionId = act_449a16c6ec9244dba3d8a10fe480ee77
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 8
+	milestoneId = Orbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 4655278.2553432817
+	type = 4
+	actionId = act_197e1035d05b4360baf25921ea39bb57
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 9
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4742953.2210230371
+	type = 4
+	actionId = act_a112528fed494ea3988d79f6be518498
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 10
+	milestoneId = Kerbin/Escape
+	milestoneFundsAwarded = 13200
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 4742953.2210230371
+	type = 4
+	actionId = act_841996b3038649719eb97ac77cdfc9b0
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 11
+	milestoneId = Sun/Flyby
+	milestoneFundsAwarded = 19000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4742953.2210230371
+	type = 4
+	actionId = act_1d8621c67d9b4c638abb3e26c931933b
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 12
+	milestoneId = Orbit
+	milestoneFundsAwarded = 18240
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9128108.75539902
+	type = 4
+	actionId = act_3fb5e977eb48430aa73681cbbf0e3189
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 13
+	milestoneId = Duna/Flyby
+	milestoneFundsAwarded = 22000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9128108.75539902
+	type = 4
+	actionId = act_df94e0d2957c473ea42529f730892bb1
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 14
+	milestoneId = Sun/Escape
+	milestoneFundsAwarded = 13680
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9160199.4036960285
+	type = 4
+	actionId = act_6b7aca6877d040e4ad0bcfc3e69a6bbc
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 15
+	milestoneId = Orbit
+	milestoneFundsAwarded = 21120
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_473589355f974d45ad65035ab66a12f2
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_7c39efd538de48129b12fb8b3bc5679c
+	initialReputation = 0
+}

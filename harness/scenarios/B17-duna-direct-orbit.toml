@@ -50,12 +50,14 @@ id = "B17-duna-direct-orbit"
 # (CommitTreeImpl returns ERROR no-active-tree when no tree is live ->
 # driver-INVALID; the B11 accounting rule verbatim).
 #
-# UNFLOWN. Was tier = "pending-fixture" until FORGE-b17-duna-pad flew (PASS
-# attempt 1, 2026-08-06) and the harvest landed the committed b17-duna-pad
-# fixture; now "nightly". Expect GS-1-style
-# multi-flight iteration (three driver defects before green was the norm); file
-# findings, never relax the cleanliness constraints -- a fixture with loiter or an
-# Ike brush is worse than no fixture.
+# FLOWN GREEN + ARMED, 2026-08-06 (see the status doc row for the full run
+# ledger): flight 1 (2026-08-05_2143/_2253) INVALID on the circularize floors
+# (spec-side; PAD-ALIGN itself live-proven with a confirmed 54-day pad epoch
+# jump), reading run 2026-08-06_0007 PASS attempt 1, armed run _1455 PASS,
+# negative control _1511 correctly PARSEK-FAIL(save-structure) then reverted,
+# post-revert _1527 PASS -- whose produced save is the committed
+# duna-direct-recorded fixture. Nothing was relaxed: the one spec change
+# across all flights was an entry floor widened to a measured ascent profile.
 #
 # BUDGET ARITHMETIC (wall). LoadGame 240 + mission 4200 (ascent ~200 wall-s at 4x;
 # pad TimeJump instant; ejection plan+burn minutes; heliocentric coast ~6.85M game-s
@@ -67,7 +69,7 @@ id = "B17-duna-direct-orbit"
 tier = "nightly"
 description = "Pad-aligned DIRECT Kerbin->Duna transfer (no parking-orbit loiter: pre-launch seam TimeJump to the ejection window + ASAP ejection) + capture into an Ike-clear 300 km park + mid-mission CommitTree: produces the clean direct looped-recording fixture the re-aim option-3 validation requires."
 instanceProfile = "stock-minimal"
-tags = ["B17", "interplanetary", "duna", "pad-align", "capture", "commit", "pending-flight"]
+tags = ["B17", "flown", "interplanetary", "duna", "pad-align", "capture", "commit"]
 
 [fixture]
 # Stamped by FORGE-b17-duna-pad + harvest_bdock_station.py --target-name
@@ -230,14 +232,14 @@ D14 = ["kerbin", "duna", "warp-rails", "warp-high", "scene-flight", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# PROVISIONAL WINDOW, not a pin -- this lane has never flown. The DD1 topology
-# predicts 2 (+1 the root/main recording, +1 the single booster stack as
-# parent-anchored debris; A8 made the booster command-free so there is no
-# controlled-decoupled child), but the count is COMMIT-BLIND (`.prec` sidecars,
-# the B16 note verbatim) and a flameout-staging variance can add one. PIN IT FROM
-# THE FIRST GREEN FLIGHT: read verifiers.expectations.observed.recordings.count
-# out of that run's results/*.json and narrow to {n, n}.
-count = { min = 1, max = 4 }
+# PINNED FROM THE GREEN FLIGHT (run 2026-08-06_0007, PASS attempt 1): observed
+# count = 2, exactly the predicted DD1 topology (+1 the root/main recording,
+# +1 the single booster stack as plain debris; A8 made the booster
+# command-free so there is no controlled-decoupled child). The count is
+# COMMIT-BLIND (`.prec` sidecars, the B16 note verbatim), but this craft has
+# no third stage for a flameout-staging variance to pop, so the topology is
+# deterministic and the pin is exact.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary
@@ -285,17 +287,44 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
 ]
 
+[expectations.rewind]
+# ARMED on the three-run discipline (the S4.1/GS-1 shape): reading run
+# 2026-08-06_0007 (report-only, every window met: rewindPoints 0,
+# supersedeRows 0, tombstones 0), armed run + negative control recorded in
+# the status doc row. A clean single-launch flight must never author a
+# RewindPoint (single controllable: the booster carries no command part), a
+# supersede row, or a tombstone -- any of those appearing in this lane's
+# produced save is structural contamination of the option-3 fixture.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
 [expectations.recordings.structure]
-# REPORT-ONLY (no gating key) until the arming discipline's reading run: land,
-# fly, read observed.structure out of results/*.json, arm only windows the
-# reading already satisfies, prove the red direction, and add this spec to
-# test_hlib's ARMED_ALLOWLIST in the same commit. The windows below are the
-# STRUCTURAL half of the cleanliness contract the saveParse vocabulary CAN
-# express: one committed tree whose main recording terminates Orbiting (the
-# terminal BODY rides the commit logContract token above -- no saveParse facet
-# carries a terminal body).
-committedTrees = { min = 1 }
-terminalStates = { Orbiting = { min = 1 } }
+# ARMED on the same discipline, same runs. The windows are the STRUCTURAL
+# half of the cleanliness contract the saveParse vocabulary CAN express: ONE
+# tree committed, EXACTLY the two-recording topology, the main recording
+# terminating Orbiting (the terminal BODY rides the commit logContract token
+# above -- no saveParse facet carries a terminal body) and the booster
+# closing Destroyed as plain debris. trees admits 2 for the documented
+# duplicate-tree writer hazard (OnSave re-writes a still-active tree on ~3%
+# of production saves; observed 1 here).
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 1 }, Destroyed = { max = 1 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+
+[expectations.recordings.points]
+# REPORT-ONLY, deliberately: measured on the reading run (total 574, largest
+# 512, smallest 62, trivial 0), but this is a WARPING scenario (the saveparse
+# caveat: FlightRecorder samples no flat points on rails), so per-run point
+# totals swing with warp timing far more than structure does. The windows
+# below are generous sanity bands around the single sample; arming them
+# would need a variance base several runs deep.
+total             = { min = 100 }
+trivialRecordings = { max = 0 }
 
 [runtime]
 # The B16 arithmetic (same machine, same warp policy, one fewer autowarped wait):

@@ -4841,7 +4841,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # experiment that found it.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
-                       "GS-3-switch-nudge-deployed.toml"}
+                       "GS-3-switch-nudge-deployed.toml",
+                       # B17: rewind (all max 0 - a clean single-launch flight
+                       # authors no RP/supersede/tombstone) + structure (the
+                       # exact two-recording committed topology) armed
+                       # 2026-08-06 on the three-run discipline; reading run
+                       # 2026-08-06_0007 (every window already met), armed +
+                       # negative-control runs cited in the status doc row.
+                       "B17-duna-direct-orbit.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
