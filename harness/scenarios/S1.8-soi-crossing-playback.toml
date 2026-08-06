@@ -15,8 +15,9 @@ id = "S1.8-soi-crossing-playback"
 #   - the pure seam enumerator finds EXACTLY the two flown cross-body handoffs
 #     (Kerbin->Sun, Sun->Duna) and the loop flag survived injection;
 #   - at each handoff the two sides' resolved WORLD positions agree within
-#     50 km (the re-aim center-to-center defect class is a ~50-90 THOUSAND km
-#     teleport -- four orders of magnitude above the tolerance);
+#     25 km (MEASURED flight 3: 10,146 m Kerbin->Sun, 7,284 m Sun->Duna; the
+#     re-aim center-to-center defect class is a ~50-90 THOUSAND km teleport,
+#     three-plus orders of magnitude above the pin);
 #   - at arrival the resolved position sits INSIDE Duna's SOI with a
 #     Duna-bodied covering segment (the todo's validation criterion is the
 #     ENCOUNTER, not a seam number).
@@ -31,14 +32,16 @@ id = "S1.8-soi-crossing-playback"
 # injection actually landed (the HARNESS-INJECT-FAILS-OPEN lesson; the preset's
 # fail-closed staging postcondition is the other half).
 #
-# UNFLOWN. Its first run is its live-prove; the seam tolerance (50 km) is a
-# PROVISIONAL pre-flight sizing to be re-pinned from the reading run's measured
-# seam gaps (logged per-seam by the cell at Info).
+# LIVE-PROVEN 2026-08-06, three flights: flight 1 scene-skipped all three cells
+# (SPACECENTER cells on the FLIGHT-booting template) and the skipped=0 tally
+# correctly RED the run; flight 2 measured both seams + arrival and found the
+# loopability launch-identity fixture gap; flight 3 PASS attempt 1. The seam
+# tolerance is re-pinned from flight 3's measurements (see the cell constant).
 # =====================================================================================
 tier = "daily"
 description = "Inject the looped-interplanetary corpus (the real flown duna-direct Kerbin->Sun->Duna geometry) and gate segment playback RESOLUTION across both SOI handoffs + the arrival into Duna's SOI: the D6 soi-crossing-playback cell, and Tier 1 of the re-aim option-3 validation lane."
 instanceProfile = "stock-minimal"
-tags = ["playback", "S1.8", "soi-crossing", "interplanetary", "pending-flight"]
+tags = ["playback", "S1.8", "flown", "soi-crossing", "interplanetary"]
 
 [fixture]
 # The same bootable FLIGHT-state template S1.4 uses; the corpus arrives via the

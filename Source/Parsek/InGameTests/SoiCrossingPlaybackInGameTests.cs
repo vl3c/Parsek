@@ -46,16 +46,15 @@ namespace Parsek.InGameTests
         // Parsek.Tests LoopedInterplanetaryFixture.RecordingId).
         internal const string CorpusRecordingId = "loopedinterp0000000000000000dd17";
 
-        // Seam-continuity tolerance (metres). PROVISIONAL pre-flight sizing,
-        // to be re-pinned from the first reading run's measured seam deltas:
-        // the two sides of a recorded SOI handoff are one physical vessel at
-        // one instant expressed in two frames, so the recorded mismatch is
-        // capture jitter (the recorder samples the two segments a frame
-        // apart) plus element round-trip error -- kilometres at worst. The
-        // defect class this guards (the re-aim center-to-center seam) is a
-        // ~50-90 THOUSAND km teleport, four orders of magnitude above this
-        // tolerance, so the provisional value cannot mask it.
-        internal const double SeamContinuityToleranceMeters = 50_000.0;
+        // Seam-continuity tolerance (metres), RE-PINNED FROM MEASUREMENT
+        // (S1.8 flight 3, 2026-08-06, PASS attempt 1): the flown corpus reads
+        // gap=10,146.3 m at Kerbin->Sun and 7,284.0 m at Sun->Duna -- capture
+        // jitter (the recorder samples the two segments a frame apart at
+        // ~7 km/s) plus element round-trip error. 25 km = ~2.5x the larger
+        // measured gap; the defect class this guards (the re-aim
+        // center-to-center seam) is a ~50-90 THOUSAND km teleport, still
+        // three-plus orders of magnitude above the pin.
+        internal const double SeamContinuityToleranceMeters = 25_000.0;
 
         // Evaluation offset used for the paired samples around a seam. Small
         // enough that real orbital motion over the interval (< 8 km at the
