@@ -29,7 +29,9 @@ namespace Parsek.TestCommands
     /// ARGS. <c>tree=&lt;treeId&gt;</c> (the committed RECORDING_TREE id; the
     /// stable handle a fixture pins) + <c>loop=&lt;true|false&gt;</c>, plus
     /// optional <c>intervalSeconds=&lt;positive double&gt;</c> applied before
-    /// the enable so the anchor stamp sees the final configuration. The
+    /// the enable so the anchor stamp sees the final configuration (and ONLY
+    /// on an enable: a <c>loop=false</c> round trip must not rewrite
+    /// persisted mission config it is switching off). The
     /// mission is resolved via <c>MissionStore.FindOriginalMission(treeId)</c>
     /// (the default mission EnsureDefaultsForTrees seeds at OnLoad for every
     /// committed tree, so a fixture needs no MISSION node of its own).
@@ -78,7 +80,7 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (intervalSeconds > 0.0)
+            if (loopOn && intervalSeconds > 0.0)
             {
                 mission.LoopIntervalSeconds = intervalSeconds;
                 mission.LoopTimeUnit = LoopTimeUnit.Sec;
@@ -87,6 +89,11 @@ namespace Parsek.TestCommands
             MissionStore.SetLoopEnabled(mission, loopOn, currentUT,
                 RecordingStore.CommittedTrees);
 
+            // [ERS-exempt] Raw CommittedTrees/CommittedRecordings reads: the
+            // loop-unit builder's member indices are committed-LIST indices
+            // (the same alignment rationale as RouteOrchestrator's exemption);
+            // a supersede-aware ERS filter would re-index the list under the
+            // builder. File allowlisted in scripts/ers-els-audit-allowlist.txt.
             // Build the loop unit through the PRODUCTION single-selection door
             // (TryBuildLoopUnitForSelection: same pipeline the render seams
             // run) so the response carries the unit's ACTUAL span clock.

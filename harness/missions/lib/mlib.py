@@ -15642,8 +15642,13 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
 # loop anchor UT off the seam response payload, and then dwells the (already
 # map-positioned) camera through three recorded-offset windows -- departure
 # (the Kerbin->Sun handoff), cruise, and arrival (the Sun->Duna handoff + the
-# parked tail) -- holding 1x inside each window and riding native warp_to_ut
-# between them. Every window UT is anchorUt + (recordedUT - recordingStartUT),
+# parked tail) -- holding 1x inside each window. The inter-window legs are
+# seam TimeJump EPOCH SHIFTS, not rails warps (flight 3, 2026-08-06_1845: the
+# parked-at-Duna vessel's altitude caps legal rails rates so low the 15.2M
+# game-s depart leg needed hours of wall clock; the TimeJump is instant and
+# is the mechanism the B17 pad-align lane live-proved), each bounded by
+# arm_timeout in the pre-jump epoch and completed on UT ARRIVAL before any
+# budget check. Every window UT is anchorUt + (recordedUT - recordingStartUT),
 # the span-clock identity the FIRST reading flight exists to measure (the
 # assertions on window arrival are therefore machine-carried UT stamps, and
 # the RENDER truth rides the probe/tracer log lines the spec pins).
@@ -15688,7 +15693,6 @@ class M3Params:
     camera_distance_m: float = 2_000_000_000.0
     arm_timeout: float = 300.0
     camera_timeout: float = 120.0
-    warp_timeout: float = 5_000_000.0   # game-s budget per warp leg
     hold_timeout: float = 600.0
 
 
@@ -15712,7 +15716,6 @@ def m3_params_from_dict(params: Dict) -> M3Params:
         camera_distance_m=float(params.get("cameraDistanceMeters", 2_000_000_000.0)),
         arm_timeout=float(params.get("armTimeoutSeconds", 300.0)),
         camera_timeout=float(params.get("cameraTimeoutSeconds", 120.0)),
-        warp_timeout=float(params.get("warpTimeoutSeconds", 5_000_000.0)),
         hold_timeout=float(params.get("holdTimeoutSeconds", 600.0)),
     )
 

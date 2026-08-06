@@ -95,13 +95,14 @@ cameraHeadingDeg     = 0
 cameraDistanceMeters = 2000000000
 armTimeoutSeconds    = 300
 cameraTimeoutSeconds = 120
-# GAME seconds per warp leg. The depart leg is the long one: the ENGAGED
-# unit phase-locks up to ONE SYNODIC PERIOD ahead (~19.65M s) and flight 2
-# (2026-08-06_1809) measured 15.2M s arm-to-window, which the previous 5M
-# budget expired inside BY CONSTRUCTION. 30M covers synodic + tof + margin;
-# a genuinely stuck warp is still bounded by the runner's warp-stall
-# watchdog and the mission wall budget.
-warpTimeoutSeconds   = 30000000
+# The inter-window legs are seam TimeJump EPOCH SHIFTS (flight 3,
+# 2026-08-06_1845: the parked-at-Duna vessel's altitude caps legal rails
+# rates so low the 15.2M game-s depart leg needed hours of wall clock; the
+# jump is instant). Each leg is bounded by armTimeoutSeconds in the pre-jump
+# epoch; there is no per-leg warp budget because nothing warps between
+# windows. History: flight 2 (2026-08-06_1809) measured 15.2M game-s
+# arm-to-window and expired a 5M warp budget BY CONSTRUCTION - that finding
+# is what forced the legs off rails warp entirely.
 holdTimeoutSeconds   = 600
 
 # CLAIM-IS-NOT-GATE, reading-run minimalism (the V1 first-flight shape): only
@@ -177,8 +178,9 @@ required  = [
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-# 300 LoadGame + 1500 mission (arm + camera + three native-warp legs, the long
-# one ~4.4M game-s, + three 60 game-s 1x holds) + fast tail verbs + margin.
+# 300 LoadGame + 1500 mission (arm + camera + three instant TimeJump legs +
+# three 300 game-s 1x holds spanning the handoff instants) + fast tail verbs
+# + margin; the four green flights measured 955 s wall end to end.
 budgetSeconds = 2100
 
 [retry]

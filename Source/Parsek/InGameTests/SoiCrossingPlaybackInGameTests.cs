@@ -194,6 +194,13 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+            {
+                InGameAssert.Fail("looped-interplanetary corpus recording is present "
+                    + "but carries no OrbitSegments - corrupted injection");
+                return;
+            }
+
             // Arrival = one second past the last SOI seam into the
             // destination (the hyperbolic entry), plus the terminal end of
             // the recording (the committed park): both must resolve inside

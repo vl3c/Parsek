@@ -7,7 +7,8 @@ The Tier-2 playback half of the looped-interplanetary arrival-validation lane
 SOLVER and S1.8 gates segment position RESOLUTION; this mission is the first
 thing in the suite that makes a looped interplanetary mission actually REPLAY
 under observation. It flies nothing (no MechJeb): one seam round trip, three
-camera actions, three native warps, three 1x holds. The RENDER truth (ghost
+camera actions, three seam TimeJump epoch-shift legs, three 1x holds. The
+RENDER truth (ghost
 sampled frames, parity counters, anomaly raises, the [ReaimDiag]/ENGAGED mode
 evidence) rides the spec's log contracts over the probe/tracer lines; the
 machine carries only its own arm/camera/window evidence.
@@ -59,8 +60,11 @@ SPEC = mission_runner.MissionSpec(
     decide=decide,
     evaluate=evaluate,
     make_control=make_control,
-    # The three inter-window legs are native warp_to_ut (the game picks legal
-    # rates); the holds are 1x. No physics warp anywhere.
+    # The three inter-window legs are seam TimeJump epoch shifts (rails
+    # rates are capped by the parked vessel's altitude - flight 3); the
+    # holds are 1x. allow_rails_warp stays True so the runner's watchdog
+    # tolerates the game's own residual warp state around the jumps. No
+    # physics warp anywhere.
     allow_rails_warp=True,
     max_physics_warp=1.0,
     settle_frames=0,

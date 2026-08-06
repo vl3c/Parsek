@@ -70,11 +70,6 @@ required = false
 type = "number"
 min = 0.0
 
-[params.warpTimeoutSeconds]
-required = false
-type = "number"
-min = 0.0
-
 [params.holdTimeoutSeconds]
 required = false
 type = "number"
