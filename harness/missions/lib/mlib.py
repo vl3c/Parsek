@@ -361,6 +361,19 @@ B4_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_CIRCULARIZE, B4_ORB
 # on-rails in Kerbin SOI. Like B4, survival is the contract: any vessel-lost /
 # frozen terminal in ANY phase is an ASSERT-FAIL loss.
 B5_PRELAUNCH = "PRELAUNCH"
+# PAD-ALIGN (B17 duna-direct; reachable ONLY when ``padAlignEjection`` is set,
+# so every flown lane's machine is byte-identical with the flag off): one
+# forward-only seam TimeJump issued ON THE PAD moves the epoch to the
+# ejection window BEFORE launch, so the phase alignment that B7 buys with a
+# ~200-day parking-orbit NodeExecutor autowarp happens pre-recording instead.
+# This is the "no parking-orbit loiter" half of the recording-cleanliness
+# contract in the "Looped re-aim interplanetary transfer" todo entry; the
+# ejection then plans with WaitForPhaseAngle OFF (ASAP mode), which by
+# MechJeb's own construction places the burn within ONE park orbit
+# (decompiled 2.15.1 DeltaVAndTimeForInterplanetaryTransferEjection: the
+# burnUT true-anomaly pick at the end wraps into [num - period/2, num +
+# period/2] and forward of UT).
+B5_PAD_ALIGN = "PAD-ALIGN"
 B5_MJ_ASCENT = "MJ-ASCENT"
 B5_CIRCULARIZE = "CIRCULARIZE"
 B5_ORBIT = "ORBIT"
@@ -411,7 +424,7 @@ B5_DESCENT = "DESCENT"
 B5_LANDED_SETTLE = "LANDED-SETTLE"
 B5_SURFACE_COMMIT = "SURFACE-COMMIT"
 B5_SURFACE_COMMITTED = "SURFACE-COMMITTED"
-B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
+B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_PAD_ALIGN, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
                               B5_PLAN_TRANSFER, B5_TRANSFER_BURN, B5_PLAN_CORRECTION,
                               B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
                               B5_RETURN, B5_PLAN_CAPTURE, B5_CAPTURE_BURN, B5_PARK,
@@ -458,7 +471,8 @@ _B5_LANDING_PHASES: Tuple[str, ...] = (
 # watched); at most ONE frozen frame can slip through it, because the
 # DESCENT -> LANDED-SETTLE handoff fires on the FIRST observed landed situation
 # with no debounce, against a limit of 10.
-_B5_FROZEN_EXEMPT_PHASES: Tuple[str, ...] = (B5_LANDED_SETTLE, B5_SURFACE_COMMIT)
+_B5_FROZEN_EXEMPT_PHASES: Tuple[str, ...] = (B5_PAD_ALIGN, B5_LANDED_SETTLE,
+                                             B5_SURFACE_COMMIT)
 
 # FORGE phase names (mission forge_station: the FIXTURE-FORGE runner). A minimal
 # two-phase shell that boots an EXISTING valid save (so LoadGame passes), launches
@@ -738,7 +752,7 @@ ACTION_SET_TARGET_BODY = "set_target_body"                 # text = body name
 ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
 # B7 interplanetary transfer plan (MechJeb OperationInterplanetaryTransfer with
 # WaitForPhaseAngle). Same PLAN_* try/except contract as ACTION_MJ_PLAN_TRANSFER.
-ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER = "mj_plan_interplanetary_transfer"  # value None
+ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER = "mj_plan_interplanetary_transfer"  # value: None = WaitForPhaseAngle ON (every proven lane); 0.0 = ASAP (pad-align)
 ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
@@ -1696,6 +1710,168 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
             best = idx
     return best
 
+
+# ---------------------------------------------------------------------------
+# Stock heliocentric ephemeris (PAD-ALIGN's pure window math). COMMITTED DATA,
+# the STOCK_WARP_ALTITUDE_LIMITS precedent: KSP's planets are on rails with
+# elements that never change, so the phase angle between two planets is a pure
+# function of UT and these constants. Values are the stock 1.12.5 system
+# (KSP wiki-canonical; all stock planets carry argumentOfPeriapsis = 0, so the
+# longitude offset below is the LAN alone). The end-to-end check is the
+# flight itself: a wrong constant lands the pad jump off-window, the ASAP
+# ejection prices the miss into the correction rounds, and the
+# padAlignedDirectEjection assertion's window-guard names it -- so a drifted
+# constant cannot silently produce a 2-year in-park autowarp.
+#
+# Per body: (semiMajorAxis m, eccentricity, meanAnomalyAtEpoch rad at UT 0,
+# longitudeOffsetDeg = LAN + argPe).
+# ---------------------------------------------------------------------------
+STOCK_SUN_GRAV_PARAMETER: float = 1.1723328e18
+STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
+    "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
+    "Duna": (20_726_155_264.0, 0.051, 3.14, 135.5),
+    "Eve": (9_832_684_544.0, 0.01, 3.14, 15.0),
+}
+# Bisection refinement iterations for the window solve. 60 halvings of a
+# synodic-period bracket resolve to far below one second of UT.
+_EJECTION_WINDOW_BISECT_ITERS = 60
+# Coarse forward-scan step (seconds) used to bracket the window crossing.
+# Must be small enough that the wrapped phase error cannot alias a whole
+# crossing inside one step: the fastest stock pair (Eve-Kerbin) drifts
+# ~1.5e-5 deg/s, so a 50,000 s step moves the phase < 1 degree.
+_EJECTION_WINDOW_SCAN_STEP = 50_000.0
+
+
+def _helio_elements(body: str) -> Tuple[float, float, float, float]:
+    elements = STOCK_HELIO_ELEMENTS.get(str(body or ""))
+    if elements is None:
+        raise ValueError("no stock heliocentric elements for body %r; "
+                         "known: %s" % (body, sorted(STOCK_HELIO_ELEMENTS)))
+    return elements
+
+
+def heliocentric_mean_motion_rad_s(body: str) -> float:
+    """Mean motion (rad/s) of a stock planet around the Sun."""
+    a, _e, _m0, _off = _helio_elements(body)
+    return math.sqrt(STOCK_SUN_GRAV_PARAMETER / (a * a * a))
+
+
+def heliocentric_true_longitude_deg(body: str, ut: float) -> float:
+    """The planet's heliocentric TRUE longitude (degrees, [0, 360)) at ``ut``:
+    longitude offset + true anomaly from the Kepler solve. The stock planets
+    are all low-eccentricity (Duna's 0.051 is the largest this table
+    carries), so the plain Newton iteration on E - e sinE = M converges in a
+    handful of steps."""
+    a, e, m0, off_deg = _helio_elements(body)
+    del a
+    n = heliocentric_mean_motion_rad_s(body)
+    mean = m0 + n * float(ut)
+    mean = math.fmod(mean, 2.0 * math.pi)
+    if mean < 0.0:
+        mean += 2.0 * math.pi
+    ecc_anom = mean
+    for _ in range(32):
+        delta = ((ecc_anom - e * math.sin(ecc_anom)) - mean) / \
+            (1.0 - e * math.cos(ecc_anom))
+        ecc_anom -= delta
+        if abs(delta) < 1e-14:
+            break
+    true_anom = 2.0 * math.atan2(
+        math.sqrt(1.0 + e) * math.sin(ecc_anom / 2.0),
+        math.sqrt(1.0 - e) * math.cos(ecc_anom / 2.0))
+    lon = off_deg + math.degrees(true_anom)
+    lon = math.fmod(lon, 360.0)
+    if lon < 0.0:
+        lon += 360.0
+    return lon
+
+
+def interplanetary_phase_angle_deg(home: str, target: str, ut: float) -> float:
+    """Target's true longitude MINUS home's, wrapped to [-180, 180): the
+    signed angle the target leads the home planet by, the quantity a launch
+    window pins."""
+    diff = (heliocentric_true_longitude_deg(target, ut)
+            - heliocentric_true_longitude_deg(home, ut))
+    diff = math.fmod(diff + 180.0, 360.0)
+    if diff < 0.0:
+        diff += 360.0
+    return diff - 180.0
+
+
+def classical_hohmann_phase_angle_deg(home: str, target: str) -> float:
+    """The classical circular-coplanar Hohmann departure phase angle
+    (degrees, signed like interplanetary_phase_angle_deg): 180 minus the
+    angle the target sweeps during the half-ellipse transfer, computed from
+    the two SEMI-MAJOR AXES. Deliberately NOT a replication of MechJeb's
+    TwoImpulseTransfer optimizer: PAD-ALIGN only needs the window to within
+    a degree or two (a phase miss corrected EARLY in the coast prices at
+    roughly 65 m/s per degree against the 450 m/s correction budget), and
+    the classical constant is exact under the same circular-coplanar
+    approximation the stock system nearly satisfies."""
+    a1, _e1, _m1, _o1 = _helio_elements(home)
+    a2, _e2, _m2, _o2 = _helio_elements(target)
+    transfer_time = math.pi * math.sqrt(
+        ((a1 + a2) ** 3) / (8.0 * STOCK_SUN_GRAV_PARAMETER))
+    target_period = 2.0 * math.pi / heliocentric_mean_motion_rad_s(target)
+    swept_deg = 360.0 * transfer_time / target_period
+    phase = 180.0 - swept_deg
+    phase = math.fmod(phase + 180.0, 360.0)
+    if phase < 0.0:
+        phase += 360.0
+    return phase - 180.0
+
+
+def next_ejection_window_ut(home: str, target: str, from_ut: float) -> float:
+    """The next UT at/after ``from_ut`` when the home->target phase angle
+    equals the classical Hohmann departure angle. Coarse forward scan on the
+    WRAPPED error to bracket the crossing, then bisection; the scan is
+    bounded to 1.1 synodic periods, which by construction contains exactly
+    one crossing."""
+    ideal = classical_hohmann_phase_angle_deg(home, target)
+
+    def wrapped_error(ut: float) -> float:
+        err = interplanetary_phase_angle_deg(home, target, ut) - ideal
+        err = math.fmod(err + 180.0, 360.0)
+        if err < 0.0:
+            err += 360.0
+        return err - 180.0
+
+    n_home = heliocentric_mean_motion_rad_s(home)
+    n_target = heliocentric_mean_motion_rad_s(target)
+    synodic = 2.0 * math.pi / abs(n_home - n_target)
+    start = float(from_ut)
+    prev_ut = start
+    prev_err = wrapped_error(start)
+    if abs(prev_err) < 1e-9:
+        return start
+    limit = start + 1.1 * synodic
+    ut = start
+    while ut < limit:
+        ut = min(ut + _EJECTION_WINDOW_SCAN_STEP, limit)
+        err = wrapped_error(ut)
+        # A sign change WITHOUT a wrap jump is the crossing. The phase error
+        # drifts at the slow synodic rate (< 1 deg per scan step), so a jump
+        # of ~360 across one step can only be the [-180,180) seam, never a
+        # real crossing.
+        if (prev_err < 0.0 <= err or err <= 0.0 < prev_err) \
+                and abs(err - prev_err) < 180.0:
+            lo, hi = prev_ut, ut
+            lo_err = prev_err
+            for _ in range(_EJECTION_WINDOW_BISECT_ITERS):
+                mid = 0.5 * (lo + hi)
+                mid_err = wrapped_error(mid)
+                if (lo_err < 0.0 <= mid_err) or (mid_err <= 0.0 < lo_err):
+                    hi = mid
+                else:
+                    lo, lo_err = mid, mid_err
+            return 0.5 * (lo + hi)
+        prev_ut, prev_err = ut, err
+    # By construction unreachable (one crossing per synodic period); return
+    # the scan limit rather than raising so a caller can still fail loudly
+    # with a NAMED give-up.
+    return limit
+
+
 # classify_correction_plan verdicts (review SF-3: the runner's plan
 # accept/remove decision extracted into a pure, threshold-testable decider).
 PLAN_FLY = "fly"
@@ -2428,6 +2604,14 @@ SEAM_COMMAND_POLL_SECONDS_BY_VERB: Dict[str, float] = {
     # ABSENT: it is single-phase (the switch and Parsek's consume both run synchronously
     # inside SetActiveVessel), so it answers within a frame and the default is correct.
     "ExitToSpaceCenter": 240.0,
+    # PAD-ALIGN's pre-launch epoch shift. TimeJump is a DEFERRED verb whose C#
+    # dispatch budget is 120 s (hlib's per-verb table) -- the same
+    # zero-margin-at-default arithmetic that put ExitToSpaceCenter in this
+    # table: polling a 120 s-budget verb for exactly 120 s manufactures a
+    # TIMEOUT out of a healthy dispatch that used its whole budget. In
+    # practice the jump defers ~1 frame; 240 s is the bound, not the
+    # expectation.
+    "TimeJump": 240.0,
 }
 
 
@@ -2939,6 +3123,46 @@ class B5Params:
                                            # B7: (20_000_000, 500_000). () = altitude
                                            # mode (B5/B6). Spec key
                                            # correctionTriggerTimeToSoiSeconds.
+    pad_align_ejection: bool = False       # True: PRELAUNCH first computes the
+                                           # next home->target ejection window
+                                           # from the committed stock ephemeris
+                                           # and issues ONE forward-only seam
+                                           # TimeJump ON THE PAD to (window -
+                                           # pad_align_margin), so the phase
+                                           # alignment happens BEFORE launch
+                                           # and the recording carries no
+                                           # parking-orbit loiter; the
+                                           # interplanetary ejection then plans
+                                           # with WaitForPhaseAngle OFF (ASAP),
+                                           # which MechJeb's own burnUT pick
+                                           # bounds to within one park orbit.
+                                           # False: byte-identical to the
+                                           # LIVE-PROVEN B7/B16 shape. Spec key
+                                           # padAlignEjection. Requires
+                                           # interplanetary_transfer.
+    pad_align_margin: float = 1500.0       # seconds BEFORE the computed window
+                                           # the pad jump lands: the ascent +
+                                           # circularize + trim + plan pipeline
+                                           # should deliver the ejection burn
+                                           # AT the window. A miss either side
+                                           # is priced into the correction
+                                           # rounds, not waited out (spec key
+                                           # padAlignMarginSeconds).
+    pad_align_timeout: float = 300.0       # PAD-ALIGN phase budget (game s) for
+                                           # the TimeJump round trip; the C#
+                                           # verb's own dispatch budget is 120 s
+                                           # (spec key padAlignTimeoutSeconds).
+    pad_align_window_guard: float = 21600.0
+                                           # PLAN-TRANSFER guard (game s), pad-
+                                           # align mode only: a planned ejection
+                                           # node further ahead than this means
+                                           # the pad jump MISSED the window (the
+                                           # ephemeris constants or the margin
+                                           # are wrong) -- ASSERT-FAIL with a
+                                           # named reason INSTEAD of letting the
+                                           # NodeExecutor autowarp the recording
+                                           # through the wait (spec key
+                                           # padAlignWindowGuardSeconds).
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -3142,6 +3366,23 @@ def b5_params_from_dict(params: Dict) -> B5Params:
             "DESCENT phase is the capture lane's PARK dwell, so landingEnabled "
             "alone is INERT and the mission would silently degrade to the "
             "flyby machine and its flyby assertion rows")
+    if bool(params.get("padAlignEjection", False)) \
+            and not bool(params.get("interplanetaryTransfer", False)):
+        raise ValueError(
+            "padAlignEjection requires interplanetaryTransfer: the pad jump "
+            "aligns an INTERPLANETARY phase angle, and the ASAP-mode plan it "
+            "arms only exists on the OperationInterplanetaryTransfer path -- "
+            "on a moon lane the flag would jump the epoch for nothing")
+    if bool(params.get("padAlignEjection", False)):
+        home = str(params.get("homeBodyName", "Kerbin"))
+        target = str(params.get("targetBodyName", "Mun"))
+        for body in (home, target):
+            if body not in STOCK_HELIO_ELEMENTS:
+                raise ValueError(
+                    "padAlignEjection needs committed stock heliocentric "
+                    "elements for %r (known: %s); add the body to "
+                    "STOCK_HELIO_ELEMENTS with a cited source before flying"
+                    % (body, sorted(STOCK_HELIO_ELEMENTS)))
     return B5Params(
         target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
         target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
@@ -3182,6 +3423,11 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         ejection_ecc_floor=float(params.get("ejectionEccFloor", 0.0)),
         correction_trigger_time_to_soi=tuple(
             float(t) for t in params.get("correctionTriggerTimeToSoiSeconds", ())),
+        pad_align_ejection=bool(params.get("padAlignEjection", False)),
+        pad_align_margin=float(params.get("padAlignMarginSeconds", 1500.0)),
+        pad_align_timeout=float(params.get("padAlignTimeoutSeconds", 300.0)),
+        pad_align_window_guard=float(
+            params.get("padAlignWindowGuardSeconds", 21600.0)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         capture_enabled=bool(params.get("captureEnabled", False)),
         capture_plan_timeout=float(params.get("capturePlanTimeoutSeconds", 300.0)),
@@ -7429,6 +7675,19 @@ class B5State:
     park_trim_execs: int = 0       # of those, how many were handed to the
                                    # executor (execs < attempts is the
                                    # "this attempt still needs burning" edge)
+    # --- PAD-ALIGN bookkeeping. The window/jump fields are set only when
+    # pad_align_ejection is on; launch_ut / transfer_node_ut /
+    # transfer_handoff_ut are stamped on EVERY lane (launch and ejection-
+    # handoff observability), and the padAlignedDirectEjection assertion
+    # reads them only in pad-align mode (evaluate discards the frames for
+    # this machine).
+    pad_align_window_ut: Optional[float] = None
+    pad_align_target_ut: Optional[float] = None
+    pad_align_jump_issued: bool = False
+    launch_ut: Optional[float] = None          # UT entering MJ-ASCENT
+    transfer_node_ut: Optional[float] = None   # planned ejection node UT at
+                                               # the PLAN-TRANSFER handoff
+    transfer_handoff_ut: Optional[float] = None
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -7447,9 +7706,48 @@ def b5_initial_state(params: B5Params) -> B5State:
     return B5State(params=params)
 
 
+# PAD-ALIGN's generalized-seam tag (the R1 tag discipline: the runner folds it
+# into the wire command-id, and the machine reads results tag-gated so a stale
+# result from a DIFFERENT command can never advance this phase).
+B5_TAG_PAD_ALIGN = "padalign"
+
+
+def _b5_ascent_kickoff_actions(params: B5Params) -> List[Action]:
+    """The four launch actions PRELAUNCH has always emitted, shared by the
+    direct path and the PAD-ALIGN arrival path."""
+    return [
+        Action(ACTION_MJ_SET_TARGET_APOAPSIS, params.target_apoapsis),
+        Action(ACTION_MJ_ENABLE_AUTOSTAGE),
+        Action(ACTION_MJ_ENGAGE_ASCENT),
+        Action(ACTION_ACTIVATE_STAGE),
+    ]
+
+
+def _b5_seam_result(snapshot: TelemetrySnapshot, tag: str) -> str:
+    """The terminal generalized-seam token for ``tag``, or "" when the latest
+    result belongs to a DIFFERENT command (or none has landed). Tag-gated,
+    fail-closed -- the R1 stale-result lesson verbatim."""
+    if snapshot.seam_command_tag != tag:
+        return ""
+    return snapshot.seam_command_result or ""
+
+
+def _b5_seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
+    """A single payload field of the terminal seam response for ``tag``, or
+    "". Tag-gated for the same fail-closed reason."""
+    if snapshot.seam_command_tag != tag:
+        return ""
+    for k, v in (snapshot.seam_command_payload or ()):
+        if k == key:
+            return v
+    return ""
+
+
 def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
     """The bounded game-time budget for a timed B5 phase, or None for the
     untimed PRELAUNCH / one-frame ORBIT waypoint / terminal RETURN."""
+    if phase == B5_PAD_ALIGN:
+        return params.pad_align_timeout
     if phase == B5_MJ_ASCENT:
         return params.ascent_timeout
     if phase == B5_CIRCULARIZE:
@@ -7655,8 +7953,15 @@ def _b5_correction_via_bodies(params: B5Params) -> Tuple[str, ...]:
 
 def _b5_transfer_plan_action(params: B5Params) -> Action:
     """The transfer plan action: interplanetary (WaitForPhaseAngle) when
-    interplanetary_transfer, else the moon Hohmann transfer."""
+    interplanetary_transfer, else the moon Hohmann transfer. In PAD-ALIGN
+    mode the interplanetary plan carries ``value=0.0`` -> the runner plans
+    with WaitForPhaseAngle OFF (ASAP ejection): the pad jump already did the
+    phase alignment, and decompiled 2.15.1 places the ASAP burnUT within one
+    park orbit -- the structural no-loiter guarantee. ``value=None`` (every
+    other lane) keeps the LIVE-PROVEN WaitForPhaseAngle=True path."""
     if params.interplanetary_transfer:
+        if params.pad_align_ejection:
+            return Action(ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER, 0.0)
         return Action(ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER)
     return Action(ACTION_MJ_PLAN_TRANSFER)
 
@@ -9143,13 +9448,74 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             state = replace(state, min_target_altitude=float(snapshot.altitude))
 
     if state.phase == B5_PRELAUNCH:
-        actions = [
-            Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
-            Action(ACTION_MJ_ENABLE_AUTOSTAGE),
-            Action(ACTION_MJ_ENGAGE_ASCENT),
-            Action(ACTION_ACTIVATE_STAGE),
-        ]
-        return _b5_enter(state, B5_MJ_ASCENT, snapshot.ut, peak), actions
+        if state.params.pad_align_ejection:
+            # PAD-ALIGN: compute the ejection window from the committed stock
+            # ephemeris and issue ONE forward-only seam TimeJump on the pad.
+            # An already-in-window pad (window closer than the margin, e.g. a
+            # re-run against an already-jumped save) launches immediately: the
+            # jump exists to kill the wait, so a zero wait needs no jump.
+            window = next_ejection_window_ut(
+                state.params.home_body, state.params.target_body, snapshot.ut)
+            target_ut = window - state.params.pad_align_margin
+            armed = replace(state, pad_align_window_ut=window,
+                            pad_align_target_ut=target_ut)
+            if not _is_finite(snapshot.ut) or target_ut <= snapshot.ut:
+                launched = _b5_enter(armed, B5_MJ_ASCENT, snapshot.ut, peak)
+                launched = replace(launched, launch_ut=snapshot.ut)
+                return launched, _b5_ascent_kickoff_actions(state.params)
+            issued = _b5_enter(armed, B5_PAD_ALIGN, snapshot.ut, peak)
+            issued = replace(issued, pad_align_jump_issued=True)
+            return issued, [Action(
+                ACTION_PARSEK_SEAM_COMMAND, seam_verb="TimeJump",
+                seam_args=(("ut", "%.3f" % target_ut),),
+                seam_tag=B5_TAG_PAD_ALIGN)]
+        launched = _b5_enter(state, B5_MJ_ASCENT, snapshot.ut, peak)
+        launched = replace(launched, launch_ut=snapshot.ut)
+        return launched, _b5_ascent_kickoff_actions(state.params)
+
+    if state.phase == B5_PAD_ALIGN:
+        # COMPLETION FIRST, before any budget logic: the jump itself advances
+        # snapshot.ut by the whole wait (possibly hundreds of days), so a
+        # game-time budget comparison on the arrival frame would read as a
+        # gigantic overrun. Arrival = UT at/after the jump target.
+        target_ut = state.pad_align_target_ut
+        if (target_ut is not None and _is_finite(snapshot.ut)
+                and snapshot.ut >= target_ut - 1.0):
+            launched = _b5_enter(state, B5_MJ_ASCENT, snapshot.ut, peak)
+            launched = replace(launched, launch_ut=snapshot.ut)
+            return launched, _b5_ascent_kickoff_actions(state.params)
+        # A terminal seam result that is NOT the arrival is the named failure:
+        # REJECTED / ERROR / TIMEOUT all mean the epoch never moved.
+        seam = _b5_seam_result(snapshot, B5_TAG_PAD_ALIGN)
+        if seam and seam != "OK":
+            reason = decode_seam_value(
+                _b5_seam_payload(snapshot, B5_TAG_PAD_ALIGN, "msg"))
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_FLAKE,
+                flake_phase=state.phase,
+                flake_reason=("pad-align TimeJump did not move the epoch: "
+                              "seam result %s%s" % (
+                                  seam,
+                                  ("; Parsek's reason: %s" % reason)
+                                  if reason else ""))), []
+        # An OK result whose UT has not (yet) reached the target is held for
+        # a frame or two (the runner samples after the poll); the phase
+        # budget bounds a jump that claims OK but never lands -- with a
+        # NAMED give-up (every give-up names itself): the generic phase-
+        # timeout line cannot distinguish "never answered" from "answered OK
+        # short of the target", and a short-landing jump would otherwise
+        # read as a giant budget overrun measured from the PRE-jump entry UT.
+        if _b5_over_budget(state, snapshot):
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_FLAKE,
+                flake_phase=state.phase,
+                flake_reason=("pad-align TimeJump did not arrive: budget "
+                              "expired with ut=%.1f short of target %.1f "
+                              "(seam result %r)"
+                              % (snapshot.ut,
+                                 state.pad_align_target_ut or float("nan"),
+                                 seam or "<none>"))), []
+        return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_MJ_ASCENT:
         target = state.params.target_apoapsis
@@ -9181,11 +9547,46 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         ]
 
     if state.phase == B5_PLAN_TRANSFER:
-        return _b5_plan_phase(
+        # PAD-ALIGN window guard: an ejection node further ahead than the
+        # guard means the pad jump MISSED the window (bad ephemeris constant
+        # or margin) -- name it NOW instead of letting the NodeExecutor
+        # autowarp the recording through a parking-orbit wait, which is the
+        # exact loiter this mode exists to remove.
+        if (state.params.pad_align_ejection
+                and snapshot.node_count >= 1
+                and _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut)
+                and (snapshot.node_ut - snapshot.ut)
+                > state.params.pad_align_window_guard):
+            return replace(
+                state, peak_apoapsis=peak, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("missed-ejection-window: planned ejection node "
+                             "is %.0f s ahead (guard %.0f s); the pad-align "
+                             "jump landed off-window (computed window UT "
+                             "%.0f, jump target UT %.0f)"
+                             % (snapshot.node_ut - snapshot.ut,
+                                state.params.pad_align_window_guard,
+                                state.pad_align_window_ut or float("nan"),
+                                state.pad_align_target_ut or float("nan")))), []
+        handled, actions = _b5_plan_phase(
             state, snapshot, peak,
             plan_action=_b5_transfer_plan_action(state.params),
             burn_phase=B5_TRANSFER_BURN,
             on_timeout_phase=None)
+        if handled.phase == B5_TRANSFER_BURN and not handled.done:
+            # Handoff stamps: the padAlignedDirectEjection assertion's
+            # evidence, stamped UNCONDITIONALLY (they are useful launch/eject
+            # observability on any lane). Flag-off lanes' DECISIONS and
+            # ACTIONS are unchanged; their machine-state dump gains these
+            # inert fields, the accepted FORGE/B-DOCK field-addition
+            # precedent.
+            handled = replace(
+                handled,
+                transfer_node_ut=(float(snapshot.node_ut)
+                                  if _is_finite(snapshot.node_ut) else None),
+                transfer_handoff_ut=(float(snapshot.ut)
+                                     if _is_finite(snapshot.ut) else None))
+        return handled, actions
 
     if state.phase == B5_TRANSFER_BURN:
         # Exit = the executor CONSUMED the first (TLI) node -- node_count fell
@@ -12632,6 +13033,29 @@ def evaluate_b5_assertions(frames, params: B5Params,
                               else float("nan")),
                              {"floor": floor})
 
+    # PAD-ALIGN row (pad_align_ejection lanes only; every flown lane's row
+    # list is unchanged with the flag off). The claim is the recording-
+    # cleanliness contract itself: the ejection node the executor flew was
+    # planned within padAlignWindowGuardSeconds of LAUNCH -- no parking-orbit
+    # loiter separates the ascent from the departure. Evidence is machine-
+    # carried (launch_ut / transfer_node_ut stamps); either stamp missing
+    # fails CLOSED.
+    pad_rows: List[AssertionOutcome] = []
+    if params.pad_align_ejection:
+        launch_ut = getattr(state, "launch_ut", None)
+        node_ut = getattr(state, "transfer_node_ut", None)
+        window_ut = getattr(state, "pad_align_window_ut", None)
+        delta = ((node_ut - launch_ut)
+                 if (launch_ut is not None and node_ut is not None) else None)
+        pad_met = (delta is not None
+                   and delta <= params.pad_align_window_guard)
+        pad_rows = [AssertionOutcome(
+            "padAlignedDirectEjection", pad_met, delta,
+            {"launchUt": launch_ut, "ejectionNodeUt": node_ut,
+             "computedWindowUt": window_ut,
+             "jumpIssued": bool(getattr(state, "pad_align_jump_issued", False)),
+             "maxLaunchToNodeSeconds": params.pad_align_window_guard})]
+
     if params.capture_enabled and params.landing_enabled:
         # LANDING MODE (b13_mun_landing / b14_minmus_landing). Inherits the four
         # ORBIT rows through PARK, then REPLACES the orbit terminal rows with
@@ -12729,7 +13153,8 @@ def evaluate_b5_assertions(frames, params: B5Params,
             {"required": B5_SURFACE_COMMITTED, "body": params.target_body,
              "terminal": "landed"})
 
-        return [orbit, soi, flyby, captured, parked, on_body, settled, committed]
+        return [orbit, soi, flyby, captured, parked, on_body, settled,
+                committed] + pad_rows
 
     if params.capture_enabled:
         cap_ap = getattr(state, "capture_apoapsis", None)
@@ -12768,7 +13193,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
             "treeCommitted", commit_met, (commit_result or None),
             {"required": B5_ORBIT_COMMITTED, "body": params.target_body})
 
-        return [orbit, soi, flyby, captured, parked, committed]
+        return [orbit, soi, flyby, captured, parked, committed] + pad_rows
 
     return_body = _b5_return_body(params)
     ret_met = B5_RETURN in phases
@@ -12779,7 +13204,7 @@ def evaluate_b5_assertions(frames, params: B5Params,
                            (return_body if ret_met else None),
                            {"required": B5_RETURN, "returnBody": return_body})
 
-    return [orbit, soi, flyby, ret]
+    return [orbit, soi, flyby, ret] + pad_rows
 
 
 def _value_or_nan(v: Optional[float]) -> float:
@@ -13393,6 +13818,17 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
+    # PAD-ALIGN carried state. B5-family lanes carry these fields (None /
+    # "-" when the flag is off -- their DECISION stream is unchanged, only
+    # the state line gains inert tokens, the accepted FORGE/B-DOCK
+    # field-addition precedent); non-B5 machines lack the attrs entirely and
+    # their lines are byte-identical.
+    ("pad_align_window_ut", "padAlignWindowUt"),
+    ("pad_align_target_ut", "padAlignTargetUt"),
+    ("pad_align_jump_issued", "padAlignJumpIssued"),
+    ("launch_ut", "launchUt"),
+    ("transfer_node_ut", "transferNodeUt"),
+    ("transfer_handoff_ut", "transferHandoffUt"),
     # FORGE + B-DOCK carried state (getattr-generic: absent on B1..B7 states, so
     # their machine-state dict/line is unchanged; present only for those runs).
     ("settle_streak", "settleStreak"),
@@ -13525,6 +13961,17 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
+    # PAD-ALIGN carried state. B5-family lanes carry these fields (None /
+    # "-" when the flag is off -- their DECISION stream is unchanged, only
+    # the state line gains inert tokens, the accepted FORGE/B-DOCK
+    # field-addition precedent); non-B5 machines lack the attrs entirely and
+    # their lines are byte-identical.
+    ("pad_align_window_ut", "padAlignWindowUt"),
+    ("pad_align_target_ut", "padAlignTargetUt"),
+    ("pad_align_jump_issued", "padAlignJumpIssued"),
+    ("launch_ut", "launchUt"),
+    ("transfer_node_ut", "transferNodeUt"),
+    ("transfer_handoff_ut", "transferHandoffUt"),
     # B1 canopy: the observed latch is the one gate this whole scenario turns on, and
     # the commanded latch beside it is what a reader must NOT confuse it with, so both
     # get a loud gate line naming which is which.

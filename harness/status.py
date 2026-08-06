@@ -642,6 +642,9 @@ PHASE_BUDGET_KEYS = {
     "DEORBIT": "deorbitTimeoutSeconds",
     "REENTRY": "reentryTimeoutSeconds",
     "SPLASHDOWN": "descentTimeoutSeconds",
+    # B17 pad-aligned ejection (the pre-launch epoch jump; PRELAUNCH itself
+    # stays untimed).
+    "PAD-ALIGN": "padAlignTimeoutSeconds",
     # B5 / B6 / B7 / B11 / B12 transfer lane.
     "PLAN-TRANSFER": "planTimeoutSeconds",
     "PLAN-CORRECTION": "planTimeoutSeconds",

@@ -1,0 +1,347 @@
+schema = 1
+id = "B17-duna-direct-orbit"
+# =====================================================================================
+# B17: PAD-ALIGNED direct Kerbin -> Duna transfer + capture into an IKE-CLEAR park +
+# mid-mission commit. THE RECORDING IS THE PRODUCT.
+#
+# WHY THIS MISSION EXISTS. The "Looped re-aim interplanetary transfer" todo entry
+# (docs/dev/todo-and-known-bugs.md) gates any re-attempt of the deferred option-3
+# product fix on precondition (a): "a clean direct no-park no-moon Kerbin->Duna
+# looped recording to validate against. No such mission exists in the test save."
+# This lane produces that recording as a committed, reflyable scenario, and its
+# produced save is harvested into the committed fixture the arrival-validation lane
+# consumes WITHOUT re-flying the mission. The two cleanliness constraints are the
+# whole point and are engineered STRUCTURALLY:
+#
+#   NO PARKING-ORBIT LOITER -- the machine's PAD-ALIGN phase (new, this lane,
+#   flag-gated) computes the ejection window from mlib's committed stock ephemeris
+#   and epoch-jumps to it ON THE PAD via one forward-only seam TimeJump BEFORE
+#   launch; recording starts at launch (autoRecordOnLaunch), so the wait never
+#   enters the recording. The ejection then plans ASAP (WaitForPhaseAngle OFF;
+#   decompiled 2.15.1 bounds the burnUT to within ONE park orbit). Three
+#   independent guards keep this honest: the machine's missed-ejection-window
+#   ASSERT-FAIL (padAlignWindowGuardSeconds), the deliberately SMALL
+#   transferBurnTimeoutSeconds below (a B7-style ~200-day autowarped window wait
+#   cannot fit inside it), and the padAlignedDirectEjection assertion row.
+#
+#   NO MOON ENCOUNTER -- an Ike (or Mun/Minmus) SOI transition is a NAMED failure,
+#   never a tolerable variance, because it poisons the fixture: the forbidden
+#   logContract tokens below red the run on the exact production line a real
+#   encounter emits (format verified: logs/2026-07-25_1216_B7-duna-flyby/KSP.log
+#   carries `Duna to Ike` verbatim -- the measured B7 flake this lane must never
+#   admit). The committed park is chosen INSIDE Ike's orbital shell (Ike at
+#   ~3,296 km, SOI ~1,049 km => danger band starts ~1,830 km altitude;
+#   parkMaxApoapsisMeters = 1,500,000 sits under it with margin), so the COMMITTED
+#   orbit is permanently Ike-safe; the residual risk is the single INBOUND shell
+#   transit, priced by retry.policy and named by the forbidden token.
+#
+# THE CRAFT is the DD1 Duna Direct Probe, authored by construction
+# (harness/tools/build_dd1_craft.py, assumptions A1-A8 + drift gate): probe-only
+# (UNCREWED fixture -- no crew surfaces in the committed tree), single
+# ModuleCommand (the booster split authors plain debris, A8), ~4,190 m/s vacuum on
+# the transfer stage against ~2,060 required (A6), three RA-2 relays for full
+# probe control across the whole mission envelope (A7), and torque sized so the
+# Kerbal-X-derived flip/attitude budgets are ceilings, not cliffs.
+#
+# MACHINE SHAPE: b17_duna_direct is a THIN ALIAS over the B16 combination (B7's
+# five interplanetary params + B11/B12's capture tail) PLUS the PAD-ALIGN group.
+# The commit is MID-MISSION (ORBIT-COMMIT via the route-1 seam bridge); there is
+# EXACTLY ONE commit and deliberately NO post-mission CommitTree step
+# (CommitTreeImpl returns ERROR no-active-tree when no tree is live ->
+# driver-INVALID; the B11 accounting rule verbatim).
+#
+# FLOWN GREEN + ARMED, 2026-08-06 (see the status doc row for the full run
+# ledger): flight 1 (2026-08-05_2143/_2253) INVALID on the circularize floors
+# (spec-side; PAD-ALIGN itself live-proven with a confirmed 54-day pad epoch
+# jump), reading run 2026-08-06_0007 PASS attempt 1, armed run _1455 PASS,
+# negative control _1511 correctly PARSEK-FAIL(save-structure) then reverted,
+# post-revert _1527 PASS -- whose produced save is the committed
+# duna-direct-recorded fixture. Nothing was relaxed: the one spec change
+# across all flights was an entry floor widened to a measured ascent profile.
+#
+# BUDGET ARITHMETIC (wall). LoadGame 240 + mission 4200 (ascent ~200 wall-s at 4x;
+# pad TimeJump instant; ejection plan+burn minutes; heliocentric coast ~6.85M game-s
+# at factor 7 = ~70 wall-s; two correction rounds with 2x-physics flips; capture
+# autowarp RAILS; park dwell 180 game-s at 1x; commit seam round trip) + fast
+# FlushAndQuit + margin -> budgetSeconds 4700, the B16 sizing for the same profile
+# shape (B16 is the wall-cost precedent: same machine, same warp policy).
+# =====================================================================================
+tier = "nightly"
+description = "Pad-aligned DIRECT Kerbin->Duna transfer (no parking-orbit loiter: pre-launch seam TimeJump to the ejection window + ASAP ejection) + capture into an Ike-clear 300 km park + mid-mission CommitTree: produces the clean direct looped-recording fixture the re-aim option-3 validation requires."
+instanceProfile = "stock-minimal"
+tags = ["B17", "flown", "interplanetary", "duna", "pad-align", "capture", "commit"]
+
+[fixture]
+# Stamped by FORGE-b17-duna-pad + harvest_bdock_station.py --target-name
+# b17-duna-pad (see that spec's header for the exact command). The DD1 sits
+# PRELAUNCH on the pad, UNCREWED, in a sandbox save whose difficulty carries
+# requireSignalForControl = False (the A7 comm-link margin note).
+saveTemplate       = "fixtures/saves/b17-duna-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b17_duna_direct"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header would be TOML-scoped into it and the spec would
+# validate as having zero steps).
+#
+# ONE commit, MID-MISSION (ORBIT-COMMIT). No post-mission CommitTree step -- the
+# B11/B12/B13 accounting rule: a second CommitTree against a no-longer-active tree
+# answers ERROR no-active-tree and would make every green flight driver-INVALID.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 4200 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+# --- Ascent to a MINIMAL 100 km park. B7/B16 park at 700 km SOLELY to make the
+# WaitForPhaseAngle window wait warp-legal; B17 never waits (the pad jump killed
+# the wait), so the park is the cheapest legal one: circularize low, trim round,
+# eject on the next plan. The low park also makes the ejection marginally cheaper.
+targetApoapsisMeters       = 100000
+targetPeriapsisMeters      = 100000
+apoErrorMeters             = 15000
+# MEASURED, flight 1 (2026-08-05_2143 + _2253, both attempts): the DD1's
+# hot-staged Terrier ascent + MechJeb circularization delivers 106.7 x 92.8 km
+# (ecc 0.010) against the 100 km target, and the original 5,000 m floors sat
+# the machine in CIRCULARIZE at 1x until the wall budget died. The gates are
+# ENTRY sanity floors, not the roundness contract -- parkTrimEccMax = 0.02 is
+# the roundness contract (flight 1's 0.010 already passes it) -- so they are
+# widened to admit the measured profile (B16's equivalent window is ~21% of
+# target; these are 15-20%).
+periErrorMeters            = 20000
+ascentTimeoutSeconds       = 2400
+circularizeTimeoutSeconds  = 12000
+# The B15 lesson, applied from day one: an eccentric park breaks MechJeb's
+# ejection sizing (park_trim_verdict's measured 123 m/s shortfall); B7 never set
+# this and B17 must.
+parkTrimEccMax             = 0.02
+
+# --- PAD-ALIGN (the no-loiter mechanism; the four keys this lane adds).
+padAlignEjection           = true
+# Ascent (~600 game-s) + circularize/trim (~600) + plan latency, so the ejection
+# burn lands AT the window. A miss either side is priced into the correction
+# budget (roughly 65-70 m/s per degree of phase when corrected at round 0), never
+# waited out.
+padAlignMarginSeconds      = 1500
+padAlignTimeoutSeconds     = 300
+# 6 h: the named missed-window ASSERT-FAIL fires far below any autowarpable wait
+# (one synodic period is ~19.6M s) while admitting every healthy ASAP plan (the
+# decompiled burnUT pick is within ONE ~35-min park orbit). NOTE this value does
+# double duty: the machine guard measures node-vs-PLAN-TIME, while the
+# padAlignedDirectEjection row measures node-vs-LAUNCH (absorbing ascent +
+# circularize, worst-case ~14,700 game-s under the budgets above) -- keep it
+# comfortably above ascent+circularize+plan or a healthy slow flight could fail
+# the row while passing the guard.
+padAlignWindowGuardSeconds = 21600
+
+# --- Interplanetary transfer (B7's five, retargeted at Duna).
+targetBodyName             = "Duna"
+homeBodyName               = "Kerbin"
+interplanetaryTransfer     = true
+# "Sun" ONLY, deliberately NOT B16's ["Sun", "Mun"]: a Mun (or Minmus) transit on
+# the ejection leg would break the "clean direct" escape structure exactly the way
+# Ike breaks the arrival, so the machine's ejected-terminal ASSERT-FAIL plus the
+# forbidden tokens below make a moon graze a NAMED failure, not a legal via.
+viaBodyNames               = ["Sun"]
+returnBodyName             = "Sun"
+transferMinApoapsisMeters  = 0
+# Ejection burn-done evidence is the hyperbolic Kerbin-frame ecc. At a 100 km park
+# the Duna-transfer v-inf (~920 m/s) prices ecc-1 at ~0.16, so the B7 floor 1.05
+# discriminates cleanly.
+ejectionEccFloor           = 1.05
+# SMALL, deliberately (B16 uses 18,000,000 because its NodeExecutor autowarp
+# legitimately carries the window wait). B17's ejection node is minutes ahead by
+# construction; 20,000 game-s admits the aim + autowarp + burn with an order of
+# magnitude to spare while making a silently-waited window PHYSICALLY unable to
+# fit inside the phase budget -- the second structural no-loiter guard.
+transferBurnTimeoutSeconds = 20000
+
+# --- Correction rounds (time-to-SOI mode; the B7 shape, B15-sized budget).
+courseCorrectPeriapsisMeters = 300000
+maxCorrectionDvMps         = 450
+correctionTriggerAltsMeters       = []
+# Round 0 right after Sun-SOI entry: with an ASAP ejection the transfer reaches
+# Duna's ORBIT but not necessarily Duna (the pad jump owns the phase), so the
+# finding-18 no-encounter early trigger + this round CREATE the encounter
+# mid-course; round 1 at ~5.8 days out fine-tunes the arrival periapsis.
+correctionTriggerTimeToSoiSeconds = [20000000, 500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+coastTimeoutSeconds        = 9500000
+flybyTimeoutSeconds        = 600000
+coastWarpFactor            = 7
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# Duna's atmosphere tops out at 50 km; the sampled in-SOI floor must clear it
+# (an atmospheric graze would both perturb the trajectory and pollute the
+# recording with an Atmospheric section).
+targetPeriapsisFloorMeters = 55000
+
+# --- Capture + Ike-clear park + commit (B11/B12 tail, B16-proven after a
+# heliocentric traverse).
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 400000
+# The park IS the cleanliness contract in numbers: periapsis above the
+# atmosphere with margin, apoapsis far inside Ike's inner shell edge
+# (~1,830 km altitude), eccentricity tight enough that the committed orbit is a
+# real 300 km-class park rather than a grazing ellipse.
+parkMinPeriapsisMeters     = 120000
+parkMaxApoapsisMeters      = 1500000
+parkMaxEccentricity        = 0.2
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- Shared machine housekeeping.
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# CLAIM-IS-NOT-GATE. Every value below is backed by a gate in THIS spec's own
+# contract: auto-record-launch by the Recording-started token + the SetSetting
+# step; commit-in-foreign-soi by the terminalOrbitBody=Duna commit token; the
+# D14 bodies by the SOI-traverse tokens; warp cells by the mission's rails/high
+# warp policy the machine cannot complete without (coast budget vs 1x is the
+# ~111-wall-hour arithmetic). NOT claimed, deliberately: D14 "ike" (this lane's
+# contract is Ike's ABSENCE), D14 "soi-count" (nothing here gates a count beyond
+# the two required transitions), and any Sun cell (the registry carries no sun
+# value; the B7 gap note).
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "duna", "warp-rails", "warp-high", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED FROM THE GREEN FLIGHT (run 2026-08-06_0007, PASS attempt 1): observed
+# count = 2, exactly the predicted DD1 topology (+1 the root/main recording,
+# +1 the single booster stack as plain debris; A8 made the booster
+# command-free so there is no controlled-decoupled child). The count is
+# COMMIT-BLIND (`.prec` sidecars, the B16 note verbatim), but this craft has
+# no third stage for a flameout-staging variance to pop, so the topology is
+# deterministic and the pin is exact.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# Every token sourced from its ACTUAL emitting call site; the interplanetary
+# format is VERIFIED against a real flight log
+# (logs/2026-07-25_1216_B7-duna-flyby/KSP.log: `Kerbin to Sun`, `Sun to Duna`,
+# `Duna to Ike` all present verbatim -- the third is this lane's named poison).
+#
+#   "Recording started" / "Recording stopped" -- the lifecycle pair every flown
+#       scenario asserts.
+#   "SOI change boundary suppressed in tree mode: Kerbin to Sun" / "... Sun to
+#       Duna" -- ParsekFlight.HandleSoiChangeSplit (ParsekFlight.cs:12392, the
+#       tree-mode production branch): together they assert the full
+#       Kerbin -> Sun -> Duna traverse.
+#   "CommitTreeFlight: starting tree commit at UT=" +
+#   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting
+#       terminalOrbitBody=Duna" -- ParsekFlight.LogCommitTerminalVerdicts (the
+#       B11 pattern): the committed tree's MAIN recording terminates ORBITING
+#       DUNA. This is the "terminal orbit body = Duna" structural claim -- the
+#       saveParse vocabulary cannot express a terminal body, so the commit
+#       token is the single gate for it (per-recording debris terminals are
+#       deliberately unpinned until measured; pin them from the green run).
+#
+# FORBIDDEN, the cleanliness contract itself:
+#   any SOI transition INTO or OUT OF Ike / Mun / Minmus -- a moon encounter
+#       anywhere in the flight is a NAMED PARSEK-FAIL(expectation), because the
+#       fixture it would produce is worse than no fixture;
+#   "terminalOrbitBody=Ike" -- the capture must never end around the moon;
+#   the ERROR floor every committed spec carries.
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to Duna",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Duna",
+]
+forbidden = [
+  "SOI change boundary suppressed in tree mode: \\w+ to Ike",
+  "SOI change boundary suppressed in tree mode: Ike to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Mun\\b",
+  "SOI change boundary suppressed in tree mode: Mun to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Minmus",
+  "SOI change boundary suppressed in tree mode: Minmus to \\w+",
+  "terminalOrbitBody=Ike",
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[expectations.rewind]
+# ARMED on the three-run discipline (the S4.1/GS-1 shape): reading run
+# 2026-08-06_0007 (report-only, every window met: rewindPoints 0,
+# supersedeRows 0, tombstones 0), armed run + negative control recorded in
+# the status doc row. A clean single-launch flight must never author a
+# RewindPoint (single controllable: the booster carries no command part), a
+# supersede row, or a tombstone -- any of those appearing in this lane's
+# produced save is structural contamination of the option-3 fixture.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED on the same discipline, same runs. The windows are the STRUCTURAL
+# half of the cleanliness contract the saveParse vocabulary CAN express: ONE
+# tree committed, EXACTLY the two-recording topology, the main recording
+# terminating Orbiting (the terminal BODY rides the commit logContract token
+# above -- no saveParse facet carries a terminal body) and the booster
+# closing Destroyed as plain debris. trees admits 2 for the documented
+# duplicate-tree writer hazard (OnSave re-writes a still-active tree on ~3%
+# of production saves; observed 1 here).
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 1 }, Destroyed = { max = 1 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+
+[expectations.recordings.points]
+# REPORT-ONLY, deliberately: measured on the reading run (total 574, largest
+# 512, smallest 62, trivial 0), but this is a WARPING scenario (the saveparse
+# caveat: FlightRecorder samples no flat points on rails), so per-run point
+# totals swing with warp timing far more than structure does. The windows
+# below are generous sanity bands around the single sample; arming them
+# would need a variance base several runs deep.
+total             = { min = 100 }
+trivialRecordings = { max = 0 }
+
+[runtime]
+# The B16 arithmetic (same machine, same warp policy, one fewer autowarped wait):
+# LoadGame 240 + mission 4200 + fast tail verbs + margin.
+budgetSeconds = 4700
+
+[retry]
+# The single inbound Ike-shell transit is a real per-attempt encounter risk (the
+# measured B7 flake was ~50% per attempt at a 300 km flyby target; a capture lane
+# crosses the shell once, not twice, so the residual is smaller but not zero).
+# One retry keeps a phase-of-Ike loss from discarding an otherwise-green lane.
+policy = "once"
+
+[expectedFail]
+bugId = ""

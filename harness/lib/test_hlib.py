@@ -4568,6 +4568,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # fixture is not committed yet; that debt rides the `pending-flight` tag
         # and GS-2's STATUS block, not an operator-REVIEW debt.
         "FORGE-gs2-orbital-stack.toml":     "forge-mechanism - manual by design; FLOWN 2026-08-05 (PASS attempt 1), fixture gs2-orbital-stack committed + pinned",
+        # The SIXTH forge, same mechanism again: it stamps b17-duna-pad by
+        # launching the committed DD1 Duna Direct Probe (built by construction,
+        # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
+        # 2026-08-06; the tier is the forge mechanism, not a review debt.
+        "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-06 (PASS attempt 1 after the UInt32 uid finding), fixture b17-duna-pad committed + registered",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
@@ -4835,7 +4840,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # experiment that found it.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
-                       "GS-3-switch-nudge-deployed.toml"}
+                       "GS-3-switch-nudge-deployed.toml",
+                       # B17: rewind (all max 0 - a clean single-launch flight
+                       # authors no RP/supersede/tombstone) + structure (the
+                       # exact two-recording committed topology) armed
+                       # 2026-08-06 on the three-run discipline; reading run
+                       # 2026-08-06_0007 (every window already met), armed +
+                       # negative-control runs cited in the status doc row.
+                       "B17-duna-direct-orbit.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

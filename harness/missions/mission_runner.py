@@ -1181,7 +1181,11 @@ class KrpcMissionControl(MissionControl):
             # stays 0, and the machine's bounded re-plan owns the retry.
             try:
                 op = self._mechjeb.maneuver_planner.operation_interplanetary_transfer
-                op.wait_for_phase_angle = True
+                # value=0.0 selects ASAP mode (WaitForPhaseAngle OFF) for the
+                # PAD-ALIGN lanes, whose phase alignment already happened via
+                # the pre-launch epoch jump; every other lane emits the action
+                # with value=None and keeps the LIVE-PROVEN window wait.
+                op.wait_for_phase_angle = not (action.value == 0.0)
                 planned = op.make_nodes()
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(

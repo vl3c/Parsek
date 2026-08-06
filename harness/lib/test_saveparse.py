@@ -639,6 +639,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     # fixture dir -> ParsekScenario node present in persistent.sfs
     EXPECTED_SCENARIO_PRESENCE = {
         "b1-pad-craft": True,
+        "b17-duna-pad": True,
         "b2-lko-craft": True,
         "bdock-forge-base": True,
         "bdock-station-craft": True,
@@ -654,11 +655,66 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "gs2-orbital-stack": True,
     }
 
+    # RECORDED-STATE fixtures (harvest --keep-parsek): produced saves whose
+    # COMMITTED RECORDING is the fixture payload, so the zero-trees contract
+    # above is exactly what they deliberately break. Pinned per fixture from
+    # the harvest-time parse; a drift reds here instead of on the consumer
+    # lane's next flight. duna-direct-recorded is the B17 green flight
+    # (run 2026-08-06_1527, PASS at the armed spec): the clean direct
+    # Kerbin->Sun->Duna recording the "Looped re-aim interplanetary transfer"
+    # todo entry's option-3 validation consumes -- 1 committed tree, main
+    # recording Orbiting (Duna, gated by the flight's terminalOrbitBody token),
+    # booster debris Destroyed, no RP/supersede/tombstone rows.
+    RECORDED_FIXTURES = {
+        "duna-direct-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1, "Destroyed": 1},
+            "branchPoints": {"JointBreak": 1},
+            "minSidecars": 10,
+        },
+    }
+
     def test_fixture_set_is_exactly_the_committed_set(self):
         found = sorted(d for d in os.listdir(FIXTURE_SAVES_DIR)
                        if os.path.isdir(os.path.join(FIXTURE_SAVES_DIR, d)))
-        self.assertEqual(sorted(self.EXPECTED_SCENARIO_PRESENCE), found,
+        expected = sorted(set(self.EXPECTED_SCENARIO_PRESENCE)
+                          | set(self.RECORDED_FIXTURES))
+        self.assertEqual(expected, found,
                          "committed fixture set changed - re-pin this sweep")
+
+    def test_recorded_fixtures_carry_their_pinned_payload(self):
+        for name, want in sorted(self.RECORDED_FIXTURES.items()):
+            path = os.path.join(FIXTURE_SAVES_DIR, name, "persistent.sfs")
+            snap = saveparse.parse_parsek_scenario(_read(path))
+            obs = saveparse.observed_structure_facets(snap)
+            structure = obs["recordings"]["structure"]
+            with self.subTest(fixture=name):
+                self.assertTrue(snap.parsed, "%s: %s" % (name, snap.error))
+                self.assertTrue(snap.scenario_found, name)
+                self.assertEqual(want["trees"], structure["trees"], name)
+                self.assertEqual(want["committedTrees"],
+                                 structure["committedTrees"], name)
+                self.assertEqual(want["recordings"],
+                                 structure["recordings"], name)
+                self.assertEqual(want["terminalStates"],
+                                 structure["terminalStates"], name)
+                self.assertEqual(want["branchPoints"],
+                                 structure["branchPoints"], name)
+                self.assertEqual(want["supersedes"], len(snap.supersedes), name)
+                self.assertEqual(want["tombstones"], len(snap.tombstones), name)
+                self.assertEqual(want["rewind_points"],
+                                 len(snap.rewind_points), name)
+                self.assertEqual(want["rewind_retirements"],
+                                 len(snap.rewind_retirements), name)
+                # The sidecars ARE the payload: metadata pointing at nothing
+                # is the failure --keep-parsek exists to prevent.
+                recordings_dir = os.path.join(FIXTURE_SAVES_DIR, name,
+                                              "Parsek", "Recordings")
+                self.assertTrue(os.path.isdir(recordings_dir), name)
+                self.assertGreaterEqual(len(os.listdir(recordings_dir)),
+                                        want["minSidecars"], name)
 
     def test_every_persistent_sfs_parses_with_pinned_counts(self):
         for name, has_scenario in sorted(self.EXPECTED_SCENARIO_PRESENCE.items()):
