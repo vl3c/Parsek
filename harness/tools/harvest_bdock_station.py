@@ -249,6 +249,22 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     elif expected_situations:
         log("situation gate passed: %s" % detail)
 
+    # Sanity 3 (--keep-parsek only), BEFORE the destructive write like every
+    # other gate: a recorded-state harvest of a save with no recording
+    # sidecars must refuse while the existing committed fixture is still
+    # intact, not after deleting it.
+    if keep_parsek:
+        src_recordings = os.path.join(save_dir, "Parsek", "Recordings")
+        n_sidecars = (len(os.listdir(src_recordings))
+                      if os.path.isdir(src_recordings) else 0)
+        if n_sidecars == 0:
+            msg = ("--keep-parsek was passed but the produced save carries no "
+                   "Parsek/Recordings sidecars: a recorded-state fixture whose "
+                   "metadata points at nothing")
+            if not force:
+                raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+            log("warning: " + msg + " (writing anyway, --force)")
+
     target = os.path.join(_FIXTURES_SAVES, target_name)
     if os.path.isdir(target):
         log("removing existing fixture %s" % target)
@@ -292,14 +308,8 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
         recordings = os.path.join(target, "Parsek", "Recordings")
         sidecars = sorted(os.listdir(recordings)) if os.path.isdir(recordings) \
             else []
+        # The refusal gate ran BEFORE the write (Sanity 3); this is the tally.
         log("fixture Parsek/Recordings: %d file(s)" % len(sidecars))
-        if not sidecars:
-            msg = ("--keep-parsek was passed but the produced save carries no "
-                   "Parsek/Recordings sidecars: a recorded-state fixture whose "
-                   "metadata points at nothing")
-            if not force:
-                raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
-            log("warning: " + msg + " (writing anyway, --force)")
 
     craft = os.path.join(target, "Ships", "VAB")
     craft_files = sorted(os.listdir(craft)) if os.path.isdir(craft) else []

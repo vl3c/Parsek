@@ -35,9 +35,13 @@ id = "FORGE-b17-duna-pad"
 # crewNames = [] -> kRPC launch_vessel(crew=[]) -> an empty probe stack, which is
 # fully controlled through the OKTO2.
 #
-# UNFLOWN. Its first scheduled run IS its live-prove. A failure classifies
-# driver-INVALID (retryable), never a PARSEK-FAIL: the forge asserts nothing about
-# Parsek and its logContracts.required list is empty on purpose.
+# FLOWN 2026-08-06. Run 1 (2026-08-05_2135/_2136) was INVALID both attempts on
+# a CRAFT finding (the part-uid UInt32 ceiling, documented + asserted in the
+# builder); run 2 PASSED attempt 1 and its harvest stamped the committed
+# b17-duna-pad fixture with the PRELAUNCH gate passing on the DD1 by name. A
+# failure classifies driver-INVALID (retryable), never a PARSEK-FAIL: the forge
+# asserts nothing about Parsek and its logContracts.required list is empty on
+# purpose.
 #
 # WHAT A FAILED FIRST RUN MEANS, in the order the assumptions bite (full derivation +
 # the eight numbered assumptions in build_dd1_craft.py's module docstring):

@@ -752,7 +752,7 @@ ACTION_SET_TARGET_BODY = "set_target_body"                 # text = body name
 ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
 # B7 interplanetary transfer plan (MechJeb OperationInterplanetaryTransfer with
 # WaitForPhaseAngle). Same PLAN_* try/except contract as ACTION_MJ_PLAN_TRANSFER.
-ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER = "mj_plan_interplanetary_transfer"  # value None
+ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER = "mj_plan_interplanetary_transfer"  # value: None = WaitForPhaseAngle ON (every proven lane); 0.0 = ASAP (pad-align)
 ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
@@ -7675,11 +7675,12 @@ class B5State:
     park_trim_execs: int = 0       # of those, how many were handed to the
                                    # executor (execs < attempts is the
                                    # "this attempt still needs burning" edge)
-    # --- PAD-ALIGN bookkeeping (pad_align_ejection only; all inert otherwise).
-    # The computed window / jump target are carried so the assertions and the
-    # machine-state dump can show computed-vs-arrived without re-deriving, and
-    # the three UT stamps are the padAlignedDirectEjection assertion's
-    # evidence (evaluate discards the frames for this machine).
+    # --- PAD-ALIGN bookkeeping. The window/jump fields are set only when
+    # pad_align_ejection is on; launch_ut / transfer_node_ut /
+    # transfer_handoff_ut are stamped on EVERY lane (launch and ejection-
+    # handoff observability), and the padAlignedDirectEjection assertion
+    # reads them only in pad-align mode (evaluate discards the frames for
+    # this machine).
     pad_align_window_ut: Optional[float] = None
     pad_align_target_ut: Optional[float] = None
     pad_align_jump_issued: bool = False
@@ -9499,7 +9500,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                                   if reason else ""))), []
         # An OK result whose UT has not (yet) reached the target is held for
         # a frame or two (the runner samples after the poll); the phase
-        # budget bounds a jump that claims OK but never lands.
+        # budget bounds a jump that claims OK but never lands -- with a
+        # NAMED give-up (every give-up names itself): the generic phase-
+        # timeout line cannot distinguish "never answered" from "answered OK
+        # short of the target", and a short-landing jump would otherwise
+        # read as a giant budget overrun measured from the PRE-jump entry UT.
+        if _b5_over_budget(state, snapshot):
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_FLAKE,
+                flake_phase=state.phase,
+                flake_reason=("pad-align TimeJump did not arrive: budget "
+                              "expired with ut=%.1f short of target %.1f "
+                              "(seam result %r)"
+                              % (snapshot.ut,
+                                 state.pad_align_target_ut or float("nan"),
+                                 seam or "<none>"))), []
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_MJ_ASCENT:
@@ -9560,7 +9575,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             on_timeout_phase=None)
         if handled.phase == B5_TRANSFER_BURN and not handled.done:
             # Handoff stamps: the padAlignedDirectEjection assertion's
-            # evidence (inert when the flag is off; evaluate discards frames).
+            # evidence, stamped UNCONDITIONALLY (they are useful launch/eject
+            # observability on any lane). Flag-off lanes' DECISIONS and
+            # ACTIONS are unchanged; their machine-state dump gains these
+            # inert fields, the accepted FORGE/B-DOCK field-addition
+            # precedent.
             handled = replace(
                 handled,
                 transfer_node_ut=(float(snapshot.node_ut)
@@ -13799,8 +13818,11 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
-    # PAD-ALIGN carried state (getattr-generic: absent/None on every
-    # non-pad-align lane, so their machine-state dict/line is unchanged).
+    # PAD-ALIGN carried state. B5-family lanes carry these fields (None /
+    # "-" when the flag is off -- their DECISION stream is unchanged, only
+    # the state line gains inert tokens, the accepted FORGE/B-DOCK
+    # field-addition precedent); non-B5 machines lack the attrs entirely and
+    # their lines are byte-identical.
     ("pad_align_window_ut", "padAlignWindowUt"),
     ("pad_align_target_ut", "padAlignTargetUt"),
     ("pad_align_jump_issued", "padAlignJumpIssued"),
@@ -13939,8 +13961,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
-    # PAD-ALIGN carried state (getattr-generic: absent/None on every
-    # non-pad-align lane, so their machine-state dict/line is unchanged).
+    # PAD-ALIGN carried state. B5-family lanes carry these fields (None /
+    # "-" when the flag is off -- their DECISION stream is unchanged, only
+    # the state line gains inert tokens, the accepted FORGE/B-DOCK
+    # field-addition precedent); non-B5 machines lack the attrs entirely and
+    # their lines are byte-identical.
     ("pad_align_window_ut", "padAlignWindowUt"),
     ("pad_align_target_ut", "padAlignTargetUt"),
     ("pad_align_jump_issued", "padAlignJumpIssued"),

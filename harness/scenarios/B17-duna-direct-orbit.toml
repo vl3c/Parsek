@@ -132,7 +132,12 @@ padAlignMarginSeconds      = 1500
 padAlignTimeoutSeconds     = 300
 # 6 h: the named missed-window ASSERT-FAIL fires far below any autowarpable wait
 # (one synodic period is ~19.6M s) while admitting every healthy ASAP plan (the
-# decompiled burnUT pick is within ONE ~35-min park orbit).
+# decompiled burnUT pick is within ONE ~35-min park orbit). NOTE this value does
+# double duty: the machine guard measures node-vs-PLAN-TIME, while the
+# padAlignedDirectEjection row measures node-vs-LAUNCH (absorbing ascent +
+# circularize, worst-case ~14,700 game-s under the budgets above) -- keep it
+# comfortably above ascent+circularize+plan or a healthy slow flight could fail
+# the row while passing the guard.
 padAlignWindowGuardSeconds = 21600
 
 # --- Interplanetary transfer (B7's five, retargeted at Duna).
