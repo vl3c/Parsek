@@ -15724,6 +15724,12 @@ class M3State:
     phase_entry_ut: float = 0.0
     arm_issued: bool = False
     anchor_ut: Optional[float] = None
+    # Per-leg TimeJump bookkeeping (legs are EPOCH SHIFTS, not rails warps:
+    # flight 3, 2026-08-06_1845, measured the parked-at-Duna vessel altitude
+    # capping legal rails so low that the 15.2M game-s depart leg needed
+    # hours of wall clock; the seam TimeJump is instant and is the same
+    # mechanism the B17 pad-align lane live-proved).
+    jump_issued_for: str = ""
     camera_commanded: bool = False
     hold_started_ut: Optional[float] = None
     # Window arrival stamps (the machine-carried assertion evidence).
@@ -15797,6 +15803,40 @@ def _m3_hold_step(state: M3State, snapshot: TelemetrySnapshot,
     return stayed, []
 
 
+def _m3_jump_leg(state: M3State, snapshot: TelemetrySnapshot,
+                 offset: float, next_phase: str, tag: str,
+                 enter_on_arrival: bool = True
+                 ) -> Tuple[M3State, List[Action]]:
+    """One inter-window leg as a seam TimeJump (epoch shift): issue once,
+    then complete on UT ARRIVAL, checked BEFORE any budget (the B17
+    PAD-ALIGN ordering: the jump itself moves the clock past any game-time
+    budget). A terminal non-OK seam result is a named flake; arm_timeout
+    bounds the round trip in the pre-jump epoch."""
+    target = _m3_window_ut(state, offset) - state.params.dwell_lead
+    if _is_finite(snapshot.ut) and snapshot.ut >= target - 1.0:
+        if enter_on_arrival:
+            return _m3_enter(state, next_phase, snapshot.ut), []
+        return state, []
+    if state.jump_issued_for != tag:
+        return (replace(state, jump_issued_for=tag),
+                [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="TimeJump",
+                        seam_args=(("ut", "%.3f" % target),),
+                        seam_tag=tag)])
+    seam = _b5_seam_result(snapshot, tag)
+    if seam and seam != "OK":
+        reason = decode_seam_value(_b5_seam_payload(snapshot, tag, "msg"))
+        return _m3_flake(state, "%s TimeJump did not move the epoch: seam "
+                                "result %s%s" % (
+                                    tag, seam,
+                                    ("; the seam reason: %s" % reason)
+                                    if reason else "")), []
+    if _m3_over_budget(state, snapshot, state.params.arm_timeout):
+        return _m3_flake(state, "%s TimeJump never arrived (ut=%.1f short "
+                                "of target %.1f)"
+                                % (tag, snapshot.ut, target)), []
+    return state, []
+
+
 def m3_decide(state: M3State, snapshot: TelemetrySnapshot
               ) -> Tuple[M3State, List[Action]]:
     """One decision frame. See the section header for the contract."""
@@ -15864,58 +15904,38 @@ def m3_decide(state: M3State, snapshot: TelemetrySnapshot
         # OBSERVED gate, the V1 lesson: advance on the camera actually
         # reading Map, never on having commanded it.
         if snapshot.camera_mode == CAMERA_MODE_MAP:
-            target = _m3_window_ut(state, state.params.depart_offset) \
-                - state.params.dwell_lead
-            entered = _m3_enter(state, M3_WARP_DEPART, snapshot.ut)
-            return entered, [Action(ACTION_WARP_TO_UT, target)]
+            return _m3_enter(state, M3_WARP_DEPART, snapshot.ut), []
         if _m3_over_budget(state, snapshot, state.params.camera_timeout):
             return _m3_flake(state, "map camera never observed (camera_mode "
                                     "stayed %r)" % (snapshot.camera_mode,)), []
         return state, []
 
     if state.phase == M3_WARP_DEPART:
-        target = _m3_window_ut(state, state.params.depart_offset) \
-            - state.params.dwell_lead
-        if _is_finite(snapshot.ut) and snapshot.ut >= target:
-            return _m3_enter(state, M3_HOLD_DEPART, snapshot.ut), []
-        if _m3_over_budget(state, snapshot, state.params.warp_timeout):
-            return _m3_flake(state, "depart warp never arrived"), []
-        return state, []
+        return _m3_jump_leg(state, snapshot, state.params.depart_offset,
+                            M3_HOLD_DEPART, "m3jumpdepart")
 
     if state.phase == M3_HOLD_DEPART:
-        stayed, actions = _m3_hold_step(state, snapshot, M3_WARP_ARRIVE,
-                                        "depart_window_ut")
-        if stayed.phase == M3_WARP_ARRIVE and not stayed.done:
-            target = _m3_window_ut(stayed, stayed.params.arrive_offset) \
-                - stayed.params.dwell_lead
-            actions = actions + [Action(ACTION_WARP_TO_UT, target)]
-        return stayed, actions
+        return _m3_hold_step(state, snapshot, M3_WARP_ARRIVE,
+                             "depart_window_ut")
 
     if state.phase == M3_WARP_ARRIVE:
-        target = _m3_window_ut(state, state.params.arrive_offset) \
-            - state.params.dwell_lead
-        if _is_finite(snapshot.ut) and snapshot.ut >= target:
-            return _m3_enter(state, M3_HOLD_ARRIVE, snapshot.ut), []
-        if _m3_over_budget(state, snapshot, state.params.warp_timeout):
-            return _m3_flake(state, "arrival warp never arrived"), []
-        return state, []
+        return _m3_jump_leg(state, snapshot, state.params.arrive_offset,
+                            M3_HOLD_ARRIVE, "m3jumparrive")
 
     if state.phase == M3_HOLD_ARRIVE:
-        stayed, actions = _m3_hold_step(state, snapshot, M3_HOLD_PARK,
-                                        "arrive_window_ut")
-        if stayed.phase == M3_HOLD_PARK and not stayed.done:
-            target = _m3_window_ut(stayed, stayed.params.park_offset)
-            actions = actions + [Action(ACTION_WARP_TO_UT, target)]
-        return stayed, actions
+        return _m3_hold_step(state, snapshot, M3_HOLD_PARK,
+                             "arrive_window_ut")
 
     if state.phase == M3_HOLD_PARK:
-        # The parked-tail window doubles as the terminal: stamp, hold, done.
-        target = _m3_window_ut(state, state.params.park_offset)
+        # The parked-tail window doubles as the terminal: jump, stamp, hold,
+        # done (dwell_lead applies like the other legs).
+        target = _m3_window_ut(state, state.params.park_offset) \
+            - state.params.dwell_lead
         if state.hold_started_ut is None and _is_finite(snapshot.ut) \
-                and snapshot.ut < target:
-            if _m3_over_budget(state, snapshot, state.params.warp_timeout):
-                return _m3_flake(state, "park warp never arrived"), []
-            return state, []
+                and snapshot.ut < target - 1.0:
+            return _m3_jump_leg(state, snapshot, state.params.park_offset,
+                                M3_HOLD_PARK, "m3jumppark",
+                                enter_on_arrival=False)
         stayed, actions = _m3_hold_step(state, snapshot, M3_DONE,
                                         "park_window_ut")
         if stayed.phase == M3_DONE:

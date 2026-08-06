@@ -125,9 +125,15 @@ class M3DwellFlowTests(unittest.TestCase):
         self.assertEqual([], acts)
         moved, acts = mlib.m3_decide(st, snap(ut=3.0, camera_mode="Map"))
         self.assertEqual(mlib.M3_WARP_DEPART, moved.phase)
-        self.assertEqual(mlib.ACTION_WARP_TO_UT, acts[-1].kind)
+        # The leg is a seam TimeJump issued on the NEXT frame (the legs are
+        # epoch shifts since flight 3 measured warp-rate capping at Duna).
+        moved, acts = mlib.m3_decide(moved, snap(ut=3.5))
+        self.assertEqual(mlib.ACTION_PARSEK_SEAM_COMMAND, acts[-1].kind)
+        self.assertEqual("TimeJump", acts[-1].seam_verb)
+        self.assertEqual("m3jumpdepart", acts[-1].seam_tag)
         # anchor 10000 + depart offset - lead
-        self.assertAlmostEqual(10000.0 + 89448.917 - 120.0, acts[-1].value, 3)
+        self.assertAlmostEqual(10000.0 + 89448.917 - 120.0,
+                               float(dict(acts[-1].seam_args)["ut"]), 3)
 
     def test_full_dwell_sequence_stamps_ordered_windows(self):
         st = self._armed()
@@ -135,17 +141,21 @@ class M3DwellFlowTests(unittest.TestCase):
         depart = 10000.0 + 89448.917
         arrive = 10000.0 + 4474604.451
         park = 10000.0 + 4506361.14
-        st, _ = mlib.m3_decide(st, snap(ut=depart - 119.0))   # warp arrived
+        st, _ = mlib.m3_decide(st, snap(ut=3.5))              # jump issued
+        st, _ = mlib.m3_decide(st, snap(ut=depart - 119.0))   # jump arrived
         st, _ = mlib.m3_decide(st, snap(ut=depart - 119.0))   # stamp + hold
         st, acts = mlib.m3_decide(st, snap(ut=depart - 50.0))  # hold done
         self.assertEqual(mlib.M3_WARP_ARRIVE, st.phase)
-        self.assertEqual(mlib.ACTION_WARP_TO_UT, acts[-1].kind)
+        st, acts = mlib.m3_decide(st, snap(ut=depart - 49.0))  # jump issued
+        self.assertEqual("m3jumparrive", acts[-1].seam_tag)
         st, _ = mlib.m3_decide(st, snap(ut=arrive - 119.0))
         st, _ = mlib.m3_decide(st, snap(ut=arrive - 119.0))
         st, acts = mlib.m3_decide(st, snap(ut=arrive - 50.0))
         self.assertEqual(mlib.M3_HOLD_PARK, st.phase)
-        st, _ = mlib.m3_decide(st, snap(ut=park + 1.0))
-        st, _ = mlib.m3_decide(st, snap(ut=park + 62.0))
+        st, acts = mlib.m3_decide(st, snap(ut=arrive - 49.0))  # park jump issued
+        self.assertEqual("m3jumppark", acts[-1].seam_tag)
+        st, _ = mlib.m3_decide(st, snap(ut=park - 119.0))     # stamp + hold
+        st, _ = mlib.m3_decide(st, snap(ut=park - 50.0))
         self.assertTrue(st.done)
         rows = mlib.evaluate_m3_assertions((), st.params, st.phases_reached, st)
         self.assertTrue(all(r.met for r in rows),
@@ -176,11 +186,14 @@ class M3DwellFlowTests(unittest.TestCase):
         st, _ = mlib.m3_decide(st, snap(ut=arrive - 119.0))
         st, _ = mlib.m3_decide(st, snap(ut=arrive - 50.0))
         self.assertEqual(mlib.M3_HOLD_PARK, st.phase)
-        # the long in-phase warp: many quiet frames, then arrival WAY past
-        # the 600 s hold budget as measured from phase entry
-        st, _ = mlib.m3_decide(st, snap(ut=arrive + 20000.0))
-        self.assertFalse(st.done, "waiting for the park warp must not flake")
-        st, _ = mlib.m3_decide(st, snap(ut=park + 1.0))     # stamp
+        # the in-phase jump leg: issue, then land WAY past the 600 s hold
+        # budget as measured from phase entry -- the stamp frame must not
+        # trip a phase-entry budget (the flight-1 bug, now under the jump
+        # shape; the jump lands at target - lead by construction but a late
+        # sample is legal)
+        st, _ = mlib.m3_decide(st, snap(ut=arrive - 49.0))  # jump issued
+        self.assertFalse(st.done)
+        st, _ = mlib.m3_decide(st, snap(ut=park + 1.0))     # stamp (late)
         self.assertFalse(st.done,
                          "the stamp frame must not trip a phase-entry budget")
         st, _ = mlib.m3_decide(st, snap(ut=park + 62.0))    # hold done
