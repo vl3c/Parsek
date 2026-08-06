@@ -4578,7 +4578,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # its first flight is a deliberately under-gated READING run whose red,
         # if any, is evidence; promotion is the post-reading arming call, not a
         # review debt.
-        "V2-loop-arrival-dwell.toml":       "reading-run instrument (V1 calibration discipline); UNFLOWN, arms + dwells the duna-direct loop",
+        "V2-loop-arrival-dwell.toml":       "operator by the calibration discipline (V1 precedent); FLOWN 2026-08-06 (nine runs: six findings iterated, true armed run PASS, negative control correctly red, reverted) - promotion past operator is the open human call",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
@@ -4853,7 +4853,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading run
                        # 2026-08-06_0007 (every window already met), armed +
                        # negative-control runs cited in the status doc row.
-                       "B17-duna-direct-orbit.toml"}
+                       "B17-duna-direct-orbit.toml",
+                       # V2: rewind (all max 0 - the dwell authors nothing
+                       # durable) + structure (exactly one committed tree; the
+                       # scene-entry promotion stub never commits) armed
+                       # 2026-08-06 on the three-run discipline; reading runs =
+                       # V2 flights 4-6 (all reads 0 / committedTrees 1), armed
+                       # + negative-control runs cited in the status doc row.
+                       "V2-loop-arrival-dwell.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

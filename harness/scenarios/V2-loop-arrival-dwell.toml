@@ -45,7 +45,7 @@ id = "V2-loop-arrival-dwell"
 tier = "operator"
 description = "Arm mission-level loop on the committed duna-direct tree (MissionConfig seam verb) and dwell the map camera through the recorded Kerbin->Sun and Sun->Duna handoffs and the parked Duna tail with mapRenderTracing armed: the Tier-2 playback half of the re-aim option-3 validation lane. First flight is the reading run; the re-aim mode's arrival dead-end is the EXPECTED red."
 instanceProfile = "stock-minimal"
-tags = ["V2", "loop-arrival", "interplanetary", "reaim", "map-dwell", "pending-flight"]
+tags = ["V2", "flown", "loop-arrival", "interplanetary", "reaim", "map-dwell"]
 
 [fixture]
 # The recorded-state fixture the B17 lane produced (--keep-parsek harvest of the
@@ -131,9 +131,21 @@ allowedAnomalies = []
 # structure block below (exactly ONE committed tree - the stub never commits).
 count = { min = 2, max = 3 }
 
+[expectations.rewind]
+# ARMED with the structure block below on the three-run discipline (reading
+# runs = flights 4-6 + the pre-arm re-run; armed + negative-control runs cited
+# in the status doc row): the dwell must author NOTHING durable - no RP, no
+# supersede row, no tombstone. All read 0 on every reading run.
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
 [expectations.recordings.structure]
-# REPORT-ONLY until the arming pass (the standing discipline): the windows the
-# arming run must satisfy are exactly these - the dwell commits NOTHING new.
+# ARMED, same discipline: exactly ONE committed tree survives the dwell (the
+# scene-entry promotion stub never commits); trees admits the documented
+# duplicate-writer hazard.
+gating = true
 committedTrees = { min = 1, max = 1 }
 trees          = { min = 1, max = 2 }
 
@@ -150,6 +162,17 @@ required  = [
   "SetLoopEnabled: loop ON",
   "\\[ReaimDiag\\] mission=",
   "probe frame summary frame=\\d+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]*",
+  # ARMED FROM THE READING RUNS (flights 4-6 + the pre-arm re-run, all
+  # MISSION-OK with a clean sweep):
+  #   the ENGAGED pin - this fixture member is re-aim-supported and MUST stay
+  #   engaged; a classifier regression that silently declines to faithful
+  #   reds here instead of vacuously passing the dwell;
+  "MissionLoopUnit: mission='DD1 Duna Direct Probe' ENGAGED re-aim Kerbin->Duna via Sun",
+  #   the ARRIVAL pin - the re-aimed member's proto orbit hands into the DUNA
+  #   frame at the arrival dwell (MapRenderTrace Tier-B body-orbit truth,
+  #   measured on every green dwell): the ENCOUNTER criterion's structural
+  #   half per the todo's validation standard.
+  "phase=body-orbit surface=ProtoOrbitLine pid=\\d+ recId=\\w+ frame=\\d+ currentUT=[0-9.]+ effUT=[0-9.]+ body=Duna",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
