@@ -172,6 +172,7 @@ namespace Parsek.TestCommands
 
         // ----- R12 (stock switch click; the promoted reserved verb) -----
         void SimulateStockSwitchClick(ParsedCommand cmd);
+        void MissionConfig(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -252,6 +253,9 @@ namespace Parsek.TestCommands
                 // sub-gate question for that change, not a reason to widen this entry now -
                 // both are typed REJECTED (site-not-implemented) today.
                 ["SimulateStockSwitchClick"] = VerbSceneRequirement.RequiresFlight,
+                // MissionConfig mutates a committed tree's mission loop state; the
+                // dwell lane arms it in FLIGHT before entering map view.
+                ["MissionConfig"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>

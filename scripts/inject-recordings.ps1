@@ -14,18 +14,20 @@ param(
 )
 
 $injectFilterByPreset = @{
-    "all-synthetic"    = "InjectAllRecordings"
-    "rewind-b9"        = "InjectRewindB9"
-    "rewind-crew-loss" = "InjectRewindCrewLoss"
+    "all-synthetic"         = "InjectAllRecordings"
+    "rewind-b9"             = "InjectRewindB9"
+    "rewind-crew-loss"      = "InjectRewindCrewLoss"
+    "looped-interplanetary" = "InjectLoopedInterplanetary"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
 # bare `-Preset rewind-b9` off the shared "test career" corpus save so a manual run
 # cannot CleanSaveStart-purge it; it targets its own rewind-b9-fixture save instead.
 $defaultSaveByPreset = @{
-    "all-synthetic"    = "test career"
-    "rewind-b9"        = "rewind-b9-fixture"
-    "rewind-crew-loss" = "rewind-crew-loss-fixture"
+    "all-synthetic"         = "test career"
+    "rewind-b9"             = "rewind-b9-fixture"
+    "rewind-crew-loss"      = "rewind-crew-loss-fixture"
+    "looped-interplanetary" = "looped-interplanetary-fixture"
 }
 
 $ErrorActionPreference = "Stop"

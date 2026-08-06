@@ -926,10 +926,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The remaining TEN names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
-        # WAS in this list and left it in R12 - see the R12 cells below.
+        # The remaining NINE names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
+        # WAS in this list and left it in R12; MissionConfig left it for the
+        # arrival-validation lane - see the promotion cells below.
         for verb in ("StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot",
-                     "StashSlot", "FlySlot", "RouteCommand", "MissionConfig",
+                     "StashSlot", "FlySlot", "RouteCommand",
                      "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
@@ -974,8 +975,8 @@ class SpecValidationRejectTests(unittest.TestCase):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 21)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 10)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 22)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 9)
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
@@ -4573,6 +4574,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
         # 2026-08-06; the tier is the forge mechanism, not a review debt.
         "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-06 (PASS attempt 1 after the UInt32 uid finding), fixture b17-duna-pad committed + registered",
+        # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
+        # its first flight is a deliberately under-gated READING run whose red,
+        # if any, is evidence; promotion is the post-reading arming call, not a
+        # review debt.
+        "V2-loop-arrival-dwell.toml":       "operator by the calibration discipline (V1 precedent); FLOWN 2026-08-06 (nine runs: six findings iterated, true armed run PASS, negative control correctly red, reverted) - promotion past operator is the open human call",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
@@ -4847,7 +4853,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading run
                        # 2026-08-06_0007 (every window already met), armed +
                        # negative-control runs cited in the status doc row.
-                       "B17-duna-direct-orbit.toml"}
+                       "B17-duna-direct-orbit.toml",
+                       # V2: rewind (all max 0 - the dwell authors nothing
+                       # durable) + structure (exactly one committed tree; the
+                       # scene-entry promotion stub never commits) armed
+                       # 2026-08-06 on the three-run discipline; reading runs =
+                       # V2 flights 4-6 (all reads 0 / committedTrees 1), armed
+                       # + negative-control runs cited in the status doc row.
+                       "V2-loop-arrival-dwell.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -5089,7 +5102,7 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**98 categories / %d declarations**" % stated_decls, body,
+        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

@@ -309,8 +309,64 @@ class PadAlignAssertionRowTests(unittest.TestCase):
         rows = mlib.evaluate_b5_assertions(
             (), params, phases_reached=(),
             state=mlib.b5_initial_state(params))
-        self.assertNotIn("padAlignedDirectEjection",
-                         [r.name for r in rows])
+        names = [r.name for r in rows]
+        self.assertNotIn("padAlignedDirectEjection", names)
+        self.assertNotIn("padAlignLaunchPhaseNearIdeal", names)
+
+    def test_phase_row_met_when_launch_sits_on_a_real_window(self):
+        # The drift row IS the ephemeris check the in-flight window guard
+        # cannot perform (ASAP plans within one park orbit regardless of
+        # phase): launching AT a solved window must sit on the ideal.
+        window = mlib.next_ejection_window_ut("Kerbin", "Duna", 1_000.0)
+        state = self._state_with(launch_ut=window,
+                                 transfer_node_ut=window + 1_800.0)
+        rows = mlib.evaluate_b5_assertions(
+            (), state.params, phases_reached=(), state=state)
+        row = {r.name: r for r in rows}["padAlignLaunchPhaseNearIdeal"]
+        self.assertTrue(row.met)
+        self.assertLess(
+            abs(row.value - row.detail["idealPhaseDeg"]), 1.0)
+
+    def test_phase_row_unmet_when_launch_is_a_quarter_synodic_off(self):
+        # A drifted STOCK_HELIO_ELEMENTS constant moves the launch phase by
+        # tens of degrees; a quarter synodic period (~90 deg of relative
+        # drift) is squarely in that class and must red.
+        window = mlib.next_ejection_window_ut("Kerbin", "Duna", 1_000.0)
+        off = window + 19_645_697.0 / 4.0
+        state = self._state_with(launch_ut=off,
+                                 transfer_node_ut=off + 1_800.0)
+        rows = mlib.evaluate_b5_assertions(
+            (), state.params, phases_reached=(), state=state)
+        row = {r.name: r for r in rows}["padAlignLaunchPhaseNearIdeal"]
+        self.assertFalse(row.met)
+
+    def test_phase_row_fails_closed_without_a_launch_stamp(self):
+        state = self._state_with(launch_ut=None, transfer_node_ut=3_000.0)
+        rows = mlib.evaluate_b5_assertions(
+            (), state.params, phases_reached=(), state=state)
+        row = {r.name: r for r in rows}["padAlignLaunchPhaseNearIdeal"]
+        self.assertFalse(row.met)
+
+    def test_the_window_guard_headroom_arithmetic_still_holds(self):
+        # The guard does double duty: in-flight it measures node-vs-plan-time,
+        # the terminal row measures node-vs-LAUNCH (absorbing ascent +
+        # circularize + plan + up to one park orbit). The row is strictly
+        # stricter, so the committed budgets must leave real headroom under
+        # the shared constant -- raising either timeout without raising the
+        # guard silently converts a healthy slow flight into a terminal red.
+        import tomllib
+        spec_path = os.path.join(HARNESS_ROOT, "scenarios",
+                                 "B17-duna-direct-orbit.toml")
+        with open(spec_path, "rb") as fh:
+            spec = tomllib.load(fh)
+        mp = spec["driver"]["missionParams"]
+        worst = (mp["ascentTimeoutSeconds"] + mp["circularizeTimeoutSeconds"]
+                 + 300.0   # plan round-trip allowance
+                 + 2_000.0)  # one ~100 km park orbit (ASAP burnUT ceiling)
+        self.assertLessEqual(
+            worst + 1_000.0, mp["padAlignWindowGuardSeconds"],
+            "budgets crowd the pad-align window guard: raise the guard or "
+            "shrink the ascent/circularize timeouts")
 
 
 class TimeJumpPollWindowTests(unittest.TestCase):

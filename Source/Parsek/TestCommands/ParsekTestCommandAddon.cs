@@ -1102,6 +1102,10 @@ namespace Parsek.TestCommands
         // has no TryComplete* counterpart in TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.SimulateStockSwitchClick(ParsedCommand cmd) => SimulateStockSwitchClickImpl(cmd);
 
+        // ParsekTestCommandAddon.MissionConfig.cs partial. Single-phase: SetLoopEnabled
+        // is synchronous state mutation, so there is no TryComplete* counterpart.
+        void ITestCommandExecutor.MissionConfig(ParsedCommand cmd) => MissionConfigImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1128,6 +1132,7 @@ namespace Parsek.TestCommands
                 case "EvaChuteDeploy": exec.EvaChuteDeploy(cmd); break;
                 case "ExitToSpaceCenter": exec.ExitToSpaceCenter(cmd); break;
                 case "SimulateStockSwitchClick": exec.SimulateStockSwitchClick(cmd); break;
+                case "MissionConfig": exec.MissionConfig(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

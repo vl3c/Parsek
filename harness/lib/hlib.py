@@ -106,7 +106,8 @@ INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 # Keep in step with run.py's RP_SIDECAR_BY_PRESET (the fail-closed inject
 # postcondition) and scripts/inject-recordings.ps1's $injectFilterByPreset.
 INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
-                                        "rewind-crew-loss")
+                                        "rewind-crew-loss",
+                                        "looped-interplanetary")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -160,14 +161,21 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     response changes (REJECTED not-implemented-v1 -> a real terminal), so no
     #     committed spec's bytes move.
     # R12's THIRD piece needs no entry here at all: `scene=` is an additive ARG on the
-    # existing LoadGame verb (see the scene-arg note in validate_spec). 21 total,
-    # mirroring the C# TestCommandVerbs.ImplementedVerbs set exactly.
+    # existing LoadGame verb (see the scene-arg note in validate_spec).
     "ExitToSpaceCenter", "SimulateStockSwitchClick",
+    # The arrival-validation lane promoted MissionConfig out of RESERVED (the second
+    # strict promotion, same shape as R12's: wire token byte-identical, only the
+    # response changes). It arms MISSION-level loop playback on a committed tree
+    # through the production MissionStore.SetLoopEnabled path -- the switch re-aim
+    # engagement gates on, which nothing driveable previously reached. 22 total,
+    # mirroring the C# TestCommandVerbs.ImplementedVerbs set exactly.
+    "MissionConfig",
 )
-# The remaining TEN stay RESERVED (SimulateStockSwitchClick left this set in R12).
+# The remaining NINE stay RESERVED (SimulateStockSwitchClick left this set in R12;
+# MissionConfig left it for the arrival-validation lane).
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
     "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",
-    "FlySlot", "RouteCommand", "MissionConfig",
+    "FlySlot", "RouteCommand",
     "CrashAfterJournalPhase", "RunInvariantReport",
 )
 
@@ -436,6 +444,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     in-world action against a mission that never reached its envelope, exactly the
     #     class the unmet tail exists to stop firing.
     "SimulateStockSwitchClick": TAIL_ROLE_WORLD_MUTATING,
+    # MissionConfig arms/disarms a committed mission's LOOP (production
+    # SetLoopEnabled: anchor stamp + one-loop-per-tree clearing) -- persisted
+    # mission state, so an unmet-mission tail must not drive it.
+    "MissionConfig": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -511,6 +523,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     #     verdict would certify nothing while a failed arm rode through green anyway. The
     #     consume ROUTE is asserted from its own log line.
     "SimulateStockSwitchClick": POST_MISSION_ROLE_RECORDING,
+    # MissionConfig's OK means "the mission's loop state is as commanded" -- a
+    # Parsek playback claim, not a kerbal's physical outcome.
+    "MissionConfig": POST_MISSION_ROLE_RECORDING,
 }
 
 

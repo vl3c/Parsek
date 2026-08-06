@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12): 21 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane): 22 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -72,10 +72,13 @@ namespace Parsek.TestCommands
             "EvaChuteDeploy",
             "ExitToSpaceCenter",
             "SimulateStockSwitchClick",
+            "MissionConfig",
         };
 
-        // Reserved (recognized, not implemented in v1): 10 verbs.
-        // SimulateStockSwitchClick left this set in R12 (see the implemented-table comment).
+        // Reserved (recognized, not implemented in v1): 9 verbs.
+        // SimulateStockSwitchClick left this set in R12; MissionConfig left it for the
+        // arrival-validation lane (the second strict promotion: wire token byte-identical,
+        // only the response changes -- REJECTED not-implemented-v1 -> a real terminal).
         private static readonly HashSet<string> ReservedVerbs = new HashSet<string>
         {
             "StartLoopPlayback",
@@ -85,7 +88,6 @@ namespace Parsek.TestCommands
             "StashSlot",
             "FlySlot",
             "RouteCommand",
-            "MissionConfig",
             "CrashAfterJournalPhase",
             "RunInvariantReport",
         };

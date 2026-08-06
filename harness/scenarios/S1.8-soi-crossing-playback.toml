@@ -1,0 +1,109 @@
+schema = 1
+id = "S1.8-soi-crossing-playback"
+# =====================================================================================
+# S1.8: SOI-CROSSING PLAYBACK RESOLUTION over the looped-interplanetary corpus --
+# Tier 1 of the arrival-validation lane for the "Looped re-aim interplanetary
+# transfer" todo entry.
+#
+# WHAT THIS GATES. The injected corpus recording is the REAL flown duna-direct
+# Kerbin -> Sun -> Duna geometry (byte-pinned from the committed
+# duna-direct-recorded fixture by LoopedInterplanetaryFixture; see its provenance +
+# deliberate no-rebase contract). Three FLIGHT-scene cells (category
+# SoiCrossingPlayback; the corpus template boots into FLIGHT) drive the PRODUCTION segment position-resolution seam
+# (TrajectoryMath.FindOrbitSegment* + EvaluateOrbitSegmentTruePositionAtUT) and
+# assert, GATING:
+#   - the pure seam enumerator finds EXACTLY the two flown cross-body handoffs
+#     (Kerbin->Sun, Sun->Duna) and the loop flag survived injection;
+#   - at each handoff the two sides' resolved WORLD positions agree within
+#     25 km (MEASURED flight 3: 10,146 m Kerbin->Sun, 7,284 m Sun->Duna; the
+#     re-aim center-to-center defect class is a ~50-90 THOUSAND km teleport,
+#     three-plus orders of magnitude above the pin);
+#   - at arrival the resolved position sits INSIDE Duna's SOI with a
+#     Duna-bodied covering segment (the todo's validation criterion is the
+#     ENCOUNTER, not a seam number).
+#
+# WHAT THIS DOES NOT GATE, deliberately: no ghost is spawned, no clock advances,
+# nothing renders. M1/M2 gate the re-aim SOLVER; this lane gates faithful segment
+# PLAYBACK RESOLUTION; the Tier-2 map-dwell lane gates the RENDERED truth (and is
+# where the re-aim mode's known dead-end reds by design). Three layers, no overlap.
+#
+# THE TALLY IS THE ANTI-VACUITY GATE: all three cells SELF-SKIP when the corpus
+# recording is absent, so `skipped=0` in the pinned tally is what proves the
+# injection actually landed (the HARNESS-INJECT-FAILS-OPEN lesson; the preset's
+# fail-closed staging postcondition is the other half).
+#
+# LIVE-PROVEN 2026-08-06, three flights: flight 1 scene-skipped all three cells
+# (SPACECENTER cells on the FLIGHT-booting template) and the skipped=0 tally
+# correctly RED the run; flight 2 measured both seams + arrival and found the
+# loopability launch-identity fixture gap; flight 3 PASS attempt 1. The seam
+# tolerance is re-pinned from flight 3's measurements (see the cell constant).
+# =====================================================================================
+tier = "daily"
+description = "Inject the looped-interplanetary corpus (the real flown duna-direct Kerbin->Sun->Duna geometry) and gate segment playback RESOLUTION across both SOI handoffs + the arrival into Duna's SOI: the D6 soi-crossing-playback cell, and Tier 1 of the re-aim option-3 validation lane."
+instanceProfile = "stock-minimal"
+tags = ["playback", "S1.8", "flown", "soi-crossing", "interplanetary"]
+
+[fixture]
+# The same bootable FLIGHT-state template S1.4 uses; the corpus arrives via the
+# injection preset, not the template.
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "looped-interplanetary"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Pin auto-record OFF (the S1.4 note verbatim): the fixture save carries
+  # autoRecordOnLaunch=True in its persisted settings, and a stray recording
+  # would dirty the corpus the cells assert over.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SoiCrossingPlayback" },         expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE. D6 soi-crossing-playback is gated by the pinned WHOLE tally
+# below (skipped=0 makes vacuity red) plus the forbidden ERROR floor; it is the
+# first spec to claim that registry value. D16 sidecar-prec is gated by the
+# preset's fail-closed staging postcondition (non-empty Parsek/Recordings) plus
+# the same tally (the cells read the recording the sidecar carried). NOT
+# claimed: any D11 re-aim cell (nothing here engages re-aim), any render cell
+# (nothing here draws), loop-period-modes (the loop flag is asserted present,
+# but no loop CYCLE elapses).
+[dimensionsCovered]
+D6  = ["soi-crossing-playback"]
+D16 = ["sidecar-prec"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Exactly the one injected corpus recording; the count is `.prec` sidecars.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# The WHOLE tally, pinned pre-flight from the source derivation (3 FLIGHT-scene
+# cells, none batch-disabled): total=3 is kept in step with the C# attributes
+# by CommittedBatchTallySourceSyncTests' sweep, and skipped=0 is the
+# anti-vacuity half (a self-skipped cell means the injection never landed --
+# that must red, not pass). The two `SoiCrossPlay` Info lines are the cells'
+# own measured evidence (seam gaps + arrival distances), required so the
+# reading run's numbers are always in the collected log.
+required  = [
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SoiCrossingPlayback scene=FLIGHT",
+  "seam Kerbin->Sun ut=4742953.221 gap=",
+  "seam Sun->Duna ut=9128108.755 gap=",
+  "arrival probe ut=",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 300 LoadGame + 300 batch + fast tail verbs + margin. The batch is three
+# pure-computation cells (no warp, no scene change); 300 s is generous.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -34,6 +34,7 @@ namespace Parsek.Tests
         [InlineData("EvaChuteDeploy")]
         [InlineData("ExitToSpaceCenter")]
         [InlineData("SimulateStockSwitchClick")]
+        [InlineData("MissionConfig")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -47,7 +48,6 @@ namespace Parsek.Tests
         [InlineData("StashSlot")]
         [InlineData("FlySlot")]
         [InlineData("RouteCommand")]
-        [InlineData("MissionConfig")]
         [InlineData("CrashAfterJournalPhase")]
         [InlineData("RunInvariantReport")]
         public void ReservedVerbs_ClassifyReserved(string verb)
@@ -69,9 +69,10 @@ namespace Parsek.Tests
         [Fact]
         public void Table_HasExpectedCounts()
         {
-            // 21 = v1 (10) + M-C1 batch 1 (4) + M-C1.1 SaveGame (1) + M-C2 EVA (3)
+            // 22 = v1 (10) + M-C1 batch 1 (4) + M-C1.1 SaveGame (1) + M-C2 EVA (3)
             // + EVA-4 EvaChuteDeploy (1) + R12 ExitToSpaceCenter (1)
-            // + R12 SimulateStockSwitchClick (1). Mirrored by hlib.IMPLEMENTED_SEAM_VERBS.
+            // + R12 SimulateStockSwitchClick (1) + the arrival-validation lane's
+            // MissionConfig promotion (1). Mirrored by hlib.IMPLEMENTED_SEAM_VERBS.
             //
             // The two R12 verbs move the counts DIFFERENTLY, and the difference is the
             // point: ExitToSpaceCenter is ADDITIVE (the reserved envelope never carried a
@@ -80,8 +81,8 @@ namespace Parsek.Tests
             // (20 -> 21 implemented, 11 -> 10 reserved) - its wire token is byte-identical
             // before and after and only the response changed. A future name that appears in
             // BOTH sets, or in neither, is what these two numbers catch.
-            Assert.Equal(21, TestCommandVerbs.ImplementedVerbNames.Count);
-            Assert.Equal(10, TestCommandVerbs.ReservedVerbNames.Count);
+            Assert.Equal(22, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(9, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
         [Fact]

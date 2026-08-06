@@ -470,7 +470,10 @@ _B5_LANDING_PHASES: Tuple[str, ...] = (
 # DESCENT is deliberately NOT exempt (a craft on the way down must still be
 # watched); at most ONE frozen frame can slip through it, because the
 # DESCENT -> LANDED-SETTLE handoff fires on the FIRST observed landed situation
-# with no debounce, against a limit of 10.
+# with no debounce, against a limit of 10. PAD-ALIGN is exempt for the same
+# reason as PRELAUNCH: the vessel sits on the pad, legitimately static,
+# through the seam TimeJump round trip; the phase budget still bounds a
+# wedged jump.
 _B5_FROZEN_EXEMPT_PHASES: Tuple[str, ...] = (B5_PAD_ALIGN, B5_LANDED_SETTLE,
                                              B5_SURFACE_COMMIT)
 
@@ -1718,10 +1721,13 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 # function of UT and these constants. Values are the stock 1.12.5 system
 # (KSP wiki-canonical; all stock planets carry argumentOfPeriapsis = 0, so the
 # longitude offset below is the LAN alone). The end-to-end check is the
-# flight itself: a wrong constant lands the pad jump off-window, the ASAP
-# ejection prices the miss into the correction rounds, and the
-# padAlignedDirectEjection assertion's window-guard names it -- so a drifted
-# constant cannot silently produce a 2-year in-park autowarp.
+# flight itself: a wrong constant lands the pad jump off-window, and the
+# padAlignLaunchPhaseNearIdeal assertion row names the drift DIRECTLY --
+# phase at launch vs the classical ideal, the quantity a wrong constant
+# actually moves. The 2-year in-park autowarp stays structurally impossible
+# either way: the ASAP ejection plans within ONE PARK ORBIT regardless of
+# phase (see the PLAN-TRANSFER guard comment for what that guard can and
+# cannot see) and prices the miss into the correction rounds.
 #
 # Per body: (semiMajorAxis m, eccentricity, meanAnomalyAtEpoch rad at UT 0,
 # longitudeOffsetDeg = LAN + argPe).
@@ -1738,7 +1744,8 @@ _EJECTION_WINDOW_BISECT_ITERS = 60
 # Coarse forward-scan step (seconds) used to bracket the window crossing.
 # Must be small enough that the wrapped phase error cannot alias a whole
 # crossing inside one step: the fastest stock pair (Eve-Kerbin) drifts
-# ~1.5e-5 deg/s, so a 50,000 s step moves the phase < 1 degree.
+# ~2.45e-5 deg/s, so a 50,000 s step moves the phase ~1.23 degrees
+# (Kerbin-Duna ~0.92); the wrap filter only trips at 180, >100x margin.
 _EJECTION_WINDOW_SCAN_STEP = 50_000.0
 
 
@@ -1821,6 +1828,16 @@ def classical_hohmann_phase_angle_deg(home: str, target: str) -> float:
     return phase - 180.0
 
 
+# padAlignLaunchPhaseNearIdeal tolerance (degrees). Generous by design: the
+# classical circular-coplanar ideal is itself ~2-3 deg off the true optimum
+# for Duna's e=0.051, the pad jump undershoots the window by
+# padAlignMarginSeconds (~0.03 deg of drift), and ascent+circularize+plan
+# add < 0.4 deg worst case -- while the failure this row exists to name (a
+# drifted STOCK_HELIO_ELEMENTS constant, a broken window solve) moves the
+# launch phase by TENS of degrees.
+PAD_ALIGN_PHASE_TOLERANCE_DEG = 15.0
+
+
 def next_ejection_window_ut(home: str, target: str, from_ut: float) -> float:
     """The next UT at/after ``from_ut`` when the home->target phase angle
     equals the classical Hohmann departure angle. Coarse forward scan on the
@@ -1866,9 +1883,10 @@ def next_ejection_window_ut(home: str, target: str, from_ut: float) -> float:
                     lo, lo_err = mid, mid_err
             return 0.5 * (lo + hi)
         prev_ut, prev_err = ut, err
-    # By construction unreachable (one crossing per synodic period); return
-    # the scan limit rather than raising so a caller can still fail loudly
-    # with a NAMED give-up.
+    # By construction unreachable (one crossing per synodic period). Return
+    # the scan limit: PRELAUNCH would jump there and launch off-phase, and
+    # the padAlignLaunchPhaseNearIdeal assertion row is the NAMED give-up
+    # that reds that flight (phase at launch vs the classical ideal).
     return limit
 
 
@@ -9416,11 +9434,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 state, snapshot,
                 "vessel-lost (unreadable after repeated telemetry failures)")), []
 
-    # FROZEN-TELEMETRY vessel-lost detector. PRELAUNCH is exempt (the pad is
-    # legitimately static) and so is the LANDING tail's settled dwell -- see
-    # _B5_FROZEN_EXEMPT_PHASES for why a LANDED craft is the one case that can
-    # legitimately reproduce the dead-vessel signature. Both exemptions are
-    # unreachable for every non-landing mission.
+    # FROZEN-TELEMETRY vessel-lost detector. Three exemptions: PRELAUNCH and
+    # PAD-ALIGN (the pad is legitimately static, including through the pad
+    # jump's seam round trip -- PAD-ALIGN is reachable on any
+    # pad_align_ejection lane, landing or not) and the LANDING tail's settled
+    # dwell -- see _B5_FROZEN_EXEMPT_PHASES for why a LANDED craft can
+    # legitimately reproduce the dead-vessel signature. The landing
+    # exemptions are unreachable for every non-landing mission.
     if (state.phase != B5_PRELAUNCH
             and state.phase not in _B5_FROZEN_EXEMPT_PHASES):
         limit = state.params.frozen_sample_limit
@@ -9547,11 +9567,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         ]
 
     if state.phase == B5_PLAN_TRANSFER:
-        # PAD-ALIGN window guard: an ejection node further ahead than the
-        # guard means the pad jump MISSED the window (bad ephemeris constant
-        # or margin) -- name it NOW instead of letting the NodeExecutor
-        # autowarp the recording through a parking-orbit wait, which is the
-        # exact loiter this mode exists to remove.
+        # PAD-ALIGN window guard. What it CAN catch: the ASAP selector
+        # regressing (wait_for_phase_angle accidentally ON plans the node up
+        # to a whole phase wait ahead) -- name that NOW instead of letting
+        # the NodeExecutor autowarp the recording through the parking-orbit
+        # loiter this mode exists to remove. What it CANNOT catch: an
+        # ephemeris/phase miss -- decompiled MechJeb's ASAP pick lands
+        # burnUT within ONE PARK ORBIT (~2,000 s at the committed park)
+        # regardless of phase, far under any sane guard; a drifted constant
+        # is named by the padAlignLaunchPhaseNearIdeal row instead.
         if (state.params.pad_align_ejection
                 and snapshot.node_count >= 1
                 and _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut)
@@ -9561,8 +9585,9 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 state, peak_apoapsis=peak, done=True,
                 verdict=MISSION_ASSERT_FAIL,
                 loss_reason=("missed-ejection-window: planned ejection node "
-                             "is %.0f s ahead (guard %.0f s); the pad-align "
-                             "jump landed off-window (computed window UT "
+                             "is %.0f s ahead (guard %.0f s); the transfer "
+                             "plan waited for a phase window instead of "
+                             "planning ASAP (computed window UT "
                              "%.0f, jump target UT %.0f)"
                              % (snapshot.node_ut - snapshot.ut,
                                 state.params.pad_align_window_guard,
@@ -13055,6 +13080,31 @@ def evaluate_b5_assertions(frames, params: B5Params,
              "computedWindowUt": window_ut,
              "jumpIssued": bool(getattr(state, "pad_align_jump_issued", False)),
              "maxLaunchToNodeSeconds": params.pad_align_window_guard})]
+        # The EPHEMERIS-DRIFT row: the in-flight window guard structurally
+        # cannot see a phase miss (ASAP plans within one park orbit
+        # regardless), so THIS is the named catch for a drifted
+        # STOCK_HELIO_ELEMENTS constant or a broken window solve -- the
+        # measured phase angle at LAUNCH must sit near the classical ideal.
+        # Fails CLOSED on a missing launch stamp or unknown body.
+        phase_at_launch = None
+        ideal_phase = None
+        phase_met = False
+        if launch_ut is not None:
+            try:
+                phase_at_launch = interplanetary_phase_angle_deg(
+                    params.home_body, params.target_body, float(launch_ut))
+                ideal_phase = classical_hohmann_phase_angle_deg(
+                    params.home_body, params.target_body)
+                err = math.fmod(
+                    phase_at_launch - ideal_phase + 540.0, 360.0) - 180.0
+                phase_met = abs(err) <= PAD_ALIGN_PHASE_TOLERANCE_DEG
+            except ValueError:
+                phase_met = False
+        pad_rows.append(AssertionOutcome(
+            "padAlignLaunchPhaseNearIdeal", phase_met, phase_at_launch,
+            {"idealPhaseDeg": ideal_phase,
+             "toleranceDeg": PAD_ALIGN_PHASE_TOLERANCE_DEG,
+             "launchUt": launch_ut}))
 
     if params.capture_enabled and params.landing_enabled:
         # LANDING MODE (b13_mun_landing / b14_minmus_landing). Inherits the four
@@ -15630,3 +15680,358 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
          "accepted": list(params.settle_situations)})
 
     return [settled, deploy, single_stage, focus, periapsis, sibling]
+
+
+# ---------------------------------------------------------------------------
+# M3 loop-arrival dwell (the Tier-2 playback half of the looped-interplanetary
+# arrival-validation lane; V1 is the dwell precedent, B17's PAD-ALIGN is the
+# generalized-seam precedent). Pure.
+#
+# The machine ARMS mission-level loop playback on a committed tree via the
+# MissionConfig seam verb (the switch re-aim engagement gates on), reads the
+# loop anchor UT off the seam response payload, and then dwells the (already
+# map-positioned) camera through three recorded-offset windows -- departure
+# (the Kerbin->Sun handoff), arrival (the Sun->Duna handoff), and the
+# parked tail -- holding 1x inside each window. The inter-window legs are
+# seam TimeJump EPOCH SHIFTS, not rails warps (flight 3, 2026-08-06_1845: the
+# parked-at-Duna vessel's altitude caps legal rails rates so low the 15.2M
+# game-s depart leg needed hours of wall clock; the TimeJump is instant and
+# is the mechanism the B17 pad-align lane live-proved), each bounded by
+# arm_timeout in the pre-jump epoch and completed on UT ARRIVAL before any
+# budget check. Every window UT is anchorUt + (recordedUT - recordingStartUT),
+# the span-clock identity the FIRST reading flight exists to measure (the
+# assertions on window arrival are therefore machine-carried UT stamps, and
+# the RENDER truth rides the probe/tracer log lines the spec pins).
+#
+# WHAT THE MACHINE DELIBERATELY DOES NOT DO: fly anything (no MechJeb), touch
+# the recorder, or decide whether re-aim ENGAGED -- the [ReaimDiag]/ENGAGED
+# lines in the collected log are the mode evidence, and which mode this
+# fixture classifies into is a MEASUREMENT the first flight makes, not an
+# input the machine assumes.
+# ---------------------------------------------------------------------------
+
+M3_ARM_LOOP = "ARM-LOOP"
+M3_CAMERA = "CAMERA"
+M3_WARP_DEPART = "WARP-DEPART"
+M3_HOLD_DEPART = "HOLD-DEPART"
+M3_WARP_ARRIVE = "WARP-ARRIVE"
+M3_HOLD_ARRIVE = "HOLD-ARRIVE"
+M3_HOLD_PARK = "HOLD-PARK"
+M3_DONE = "DONE"
+M3_PHASES: Tuple[str, ...] = (
+    M3_ARM_LOOP, M3_CAMERA, M3_WARP_DEPART, M3_HOLD_DEPART,
+    M3_WARP_ARRIVE, M3_HOLD_ARRIVE, M3_HOLD_PARK, M3_DONE)
+
+M3_TAG_ARM = "m3arm"
+
+
+@dataclass(frozen=True)
+class M3Params:
+    """Spec [driver.missionParams] for m3_loop_arrival_dwell. Offsets are
+    RECORDED-UT deltas from the recording's own start (pinned per fixture);
+    the machine turns them into absolute UTs with the seam-returned anchor."""
+    tree_id: str
+    depart_offset: float          # recorded seam-1 UT - recording start UT
+    arrive_offset: float          # recorded seam-2 UT - recording start UT
+    park_offset: float            # recorded parked-tail UT - recording start UT
+    loop_interval_seconds: float = 0.0   # 0 = leave the mission's interval alone
+    dwell_lead: float = 120.0     # arrive this many game-s BEFORE each window
+    dwell_hold: float = 300.0     # game-s of 1x; must SPAN the window
+                                  # instant (flight 5: [w-120, w-60] holds
+                                  # LEFT before each handoff; keep >= 2x
+                                  # dwell_lead so the instant is inside)
+    camera_focus_body: str = "Duna"
+    camera_pitch_deg: float = -60.0
+    camera_heading_deg: float = 0.0
+    camera_distance_m: float = 2_000_000_000.0
+    arm_timeout: float = 300.0
+    camera_timeout: float = 120.0
+    hold_timeout: float = 600.0
+
+
+def m3_params_from_dict(params: Dict) -> M3Params:
+    params = params or {}
+    tree = str(params.get("treeId", ""))
+    if not tree:
+        raise ValueError("m3_loop_arrival_dwell requires treeId (the committed "
+                         "RECORDING_TREE id the fixture pins)")
+    return M3Params(
+        tree_id=tree,
+        depart_offset=float(params.get("departOffsetSeconds", 0.0)),
+        arrive_offset=float(params.get("arriveOffsetSeconds", 0.0)),
+        park_offset=float(params.get("parkOffsetSeconds", 0.0)),
+        loop_interval_seconds=float(params.get("loopIntervalSeconds", 0.0)),
+        dwell_lead=float(params.get("dwellLeadSeconds", 120.0)),
+        dwell_hold=float(params.get("dwellHoldSeconds", 300.0)),
+        camera_focus_body=str(params.get("cameraFocusBody", "Duna")),
+        camera_pitch_deg=float(params.get("cameraPitchDeg", -60.0)),
+        camera_heading_deg=float(params.get("cameraHeadingDeg", 0.0)),
+        camera_distance_m=float(params.get("cameraDistanceMeters", 2_000_000_000.0)),
+        arm_timeout=float(params.get("armTimeoutSeconds", 300.0)),
+        camera_timeout=float(params.get("cameraTimeoutSeconds", 120.0)),
+        hold_timeout=float(params.get("holdTimeoutSeconds", 600.0)),
+    )
+
+
+@dataclass(frozen=True)
+class M3State:
+    params: M3Params
+    phase: str = M3_ARM_LOOP
+    phase_entry_ut: float = 0.0
+    arm_issued: bool = False
+    anchor_ut: Optional[float] = None
+    # Per-leg TimeJump bookkeeping (legs are EPOCH SHIFTS, not rails warps:
+    # flight 3, 2026-08-06_1845, measured the parked-at-Duna vessel altitude
+    # capping legal rails so low that the 15.2M game-s depart leg needed
+    # hours of wall clock; the seam TimeJump is instant and is the same
+    # mechanism the B17 pad-align lane live-proved).
+    jump_issued_for: str = ""
+    camera_commanded: bool = False
+    hold_started_ut: Optional[float] = None
+    # Window arrival stamps (the machine-carried assertion evidence).
+    depart_window_ut: Optional[float] = None
+    arrive_window_ut: Optional[float] = None
+    park_window_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = (M3_ARM_LOOP,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    done: bool = False
+
+
+def m3_initial_state(params: M3Params) -> M3State:
+    return M3State(params=params)
+
+
+def _m3_enter(state: M3State, phase: str, ut: float) -> M3State:
+    return replace(state, phase=phase,
+                   phase_entry_ut=(ut if _is_finite(ut) else 0.0),
+                   hold_started_ut=None,
+                   phases_reached=state.phases_reached + (phase,),
+                   done=(phase == M3_DONE))
+
+
+def _m3_flake(state: M3State, reason: str) -> M3State:
+    """Every give-up names itself (the R1 discipline)."""
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _m3_over_budget(state: M3State, snapshot: TelemetrySnapshot,
+                    budget: float) -> bool:
+    return (_is_finite(snapshot.ut)
+            and (snapshot.ut - state.phase_entry_ut) > budget)
+
+
+def _m3_window_ut(state: M3State, offset: float) -> float:
+    """anchorUt + recorded offset: the span-clock identity under measurement."""
+    return (state.anchor_ut or 0.0) + offset
+
+
+def _m3_hold_step(state: M3State, snapshot: TelemetrySnapshot,
+                  next_phase: str, stamp_field: str
+                  ) -> Tuple[M3State, List[Action]]:
+    """Shared 1x hold: cancel any residual warp on entry, hold dwell_hold
+    game-seconds, then advance. The window-arrival stamp is taken on the
+    FIRST held frame (the machine-carried assertion evidence)."""
+    actions: List[Action] = []
+    stayed = state
+    if state.hold_started_ut is None:
+        if _is_finite(snapshot.warping_to) or snapshot.warp_mode != WARP_NONE:
+            actions.append(Action(ACTION_CANCEL_WARP))
+        stamps = {stamp_field: float(snapshot.ut)} if stamp_field else {}
+        stayed = replace(state, hold_started_ut=float(snapshot.ut), **stamps)
+        return stayed, actions
+    if (snapshot.ut - stayed.hold_started_ut) >= stayed.params.dwell_hold:
+        return _m3_enter(stayed, next_phase, snapshot.ut), []
+    # The stall budget runs from the HOLD STAMP, deliberately not from phase
+    # entry: HOLD-PARK warps to its window INSIDE the phase (the first V2
+    # reading flight, 2026-08-06_1732/_1741: a 31,756 s in-phase warp wait
+    # made a phase-entry budget fire on the very frame the stamp landed,
+    # with zero hold time accumulated -- the machine's own bug, not the
+    # game's). A frozen/cancel-ignored hold still trips this within
+    # hold_timeout of the stamp.
+    if (_is_finite(snapshot.ut)
+            and (snapshot.ut - stayed.hold_started_ut)
+            > stayed.params.hold_timeout):
+        return _m3_flake(stayed, "dwell hold never accumulated its game time "
+                                 "(warp cancel ignored?)"), []
+    return stayed, []
+
+
+def _m3_jump_leg(state: M3State, snapshot: TelemetrySnapshot,
+                 offset: float, next_phase: str, tag: str,
+                 enter_on_arrival: bool = True
+                 ) -> Tuple[M3State, List[Action]]:
+    """One inter-window leg as a seam TimeJump (epoch shift): issue once,
+    then complete on UT ARRIVAL, checked BEFORE any budget (the B17
+    PAD-ALIGN ordering: the jump itself moves the clock past any game-time
+    budget). A terminal non-OK seam result is a named flake; arm_timeout
+    bounds the round trip in the pre-jump epoch."""
+    target = _m3_window_ut(state, offset) - state.params.dwell_lead
+    if _is_finite(snapshot.ut) and snapshot.ut >= target - 1.0:
+        if enter_on_arrival:
+            return _m3_enter(state, next_phase, snapshot.ut), []
+        return state, []
+    if state.jump_issued_for != tag:
+        return (replace(state, jump_issued_for=tag),
+                [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="TimeJump",
+                        seam_args=(("ut", "%.3f" % target),),
+                        seam_tag=tag)])
+    seam = _b5_seam_result(snapshot, tag)
+    if seam and seam != "OK":
+        reason = decode_seam_value(_b5_seam_payload(snapshot, tag, "msg"))
+        return _m3_flake(state, "%s TimeJump did not move the epoch: seam "
+                                "result %s%s" % (
+                                    tag, seam,
+                                    ("; the seam reason: %s" % reason)
+                                    if reason else "")), []
+    if _m3_over_budget(state, snapshot, state.params.arm_timeout):
+        return _m3_flake(state, "%s TimeJump never arrived (ut=%.1f short "
+                                "of target %.1f)"
+                                % (tag, snapshot.ut, target)), []
+    return state, []
+
+
+def m3_decide(state: M3State, snapshot: TelemetrySnapshot
+              ) -> Tuple[M3State, List[Action]]:
+    """One decision frame. See the section header for the contract."""
+    if state.done:
+        return state, []
+
+    if state.phase == M3_ARM_LOOP:
+        if not state.arm_issued:
+            args = [("tree", state.params.tree_id), ("loop", "true")]
+            if state.params.loop_interval_seconds > 0.0:
+                args.append(("intervalSeconds",
+                             "%.3f" % state.params.loop_interval_seconds))
+            return (replace(state, arm_issued=True),
+                    [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="MissionConfig",
+                            seam_args=tuple(args), seam_tag=M3_TAG_ARM)])
+        result = _b5_seam_result(snapshot, M3_TAG_ARM)
+        if result == "OK":
+            # THE UNIT PHASE ANCHOR, not the arm-time LoopAnchorUT. Measured
+            # on the first V2 reading flight (2026-08-06_2053): a re-aim-
+            # ENGAGED unit phase-locks its span clock to the NEXT faithful
+            # launch window (phaseAnchorUT ~24.3M vs LoopAnchorUT ~9.16M),
+            # and a dwell riding the arm-time anchor watched 127 probe frames
+            # of EMPTY map. The identity that DOES hold (verified against the
+            # ENGAGED line: phaseAnchor + departOffset == D0 to the ms) is
+            # window = phaseAnchorUt + recorded offset -- one formula for
+            # both modes.
+            built_raw = _b5_seam_payload(snapshot, M3_TAG_ARM, "unitBuilt")
+            if built_raw != "true":
+                return _m3_flake(state, "MissionConfig armed the loop but the "
+                                        "loop unit did not build "
+                                        "(unitBuilt=%r); no span clock to "
+                                        "dwell against" % (built_raw,)), []
+            anchor_raw = _b5_seam_payload(snapshot, M3_TAG_ARM, "phaseAnchorUt")
+            try:
+                anchor = float(anchor_raw)
+            except (TypeError, ValueError):
+                anchor = float("nan")
+            if not _is_finite(anchor):
+                return _m3_flake(state, "MissionConfig answered OK but the "
+                                        "phaseAnchorUt payload was unreadable: "
+                                        "%r" % (anchor_raw,)), []
+            armed = replace(state, anchor_ut=anchor)
+            return (_m3_enter(armed, M3_CAMERA, snapshot.ut),
+                    [Action(ACTION_CAMERA_SET_MAP),
+                     Action(ACTION_CAMERA_FOCUS_BODY,
+                            text=state.params.camera_focus_body),
+                     Action(ACTION_CAMERA_SET_POSE, camera_pose=(
+                         state.params.camera_pitch_deg,
+                         state.params.camera_heading_deg,
+                         state.params.camera_distance_m))])
+        if result and result != "OK":
+            reason = decode_seam_value(
+                _b5_seam_payload(snapshot, M3_TAG_ARM, "msg"))
+            return _m3_flake(state, "MissionConfig did not arm the loop: seam "
+                                    "result %s%s" % (
+                                        result,
+                                        ("; Parsek's reason: %s" % reason)
+                                        if reason else "")), []
+        if _m3_over_budget(state, snapshot, state.params.arm_timeout):
+            return _m3_flake(state, "MissionConfig round trip never "
+                                    "terminated"), []
+        return state, []
+
+    if state.phase == M3_CAMERA:
+        # OBSERVED gate, the V1 lesson: advance on the camera actually
+        # reading Map, never on having commanded it.
+        if snapshot.camera_mode == CAMERA_MODE_MAP:
+            return _m3_enter(state, M3_WARP_DEPART, snapshot.ut), []
+        if _m3_over_budget(state, snapshot, state.params.camera_timeout):
+            return _m3_flake(state, "map camera never observed (camera_mode "
+                                    "stayed %r)" % (snapshot.camera_mode,)), []
+        return state, []
+
+    if state.phase == M3_WARP_DEPART:
+        return _m3_jump_leg(state, snapshot, state.params.depart_offset,
+                            M3_HOLD_DEPART, "m3jumpdepart")
+
+    if state.phase == M3_HOLD_DEPART:
+        return _m3_hold_step(state, snapshot, M3_WARP_ARRIVE,
+                             "depart_window_ut")
+
+    if state.phase == M3_WARP_ARRIVE:
+        return _m3_jump_leg(state, snapshot, state.params.arrive_offset,
+                            M3_HOLD_ARRIVE, "m3jumparrive")
+
+    if state.phase == M3_HOLD_ARRIVE:
+        return _m3_hold_step(state, snapshot, M3_HOLD_PARK,
+                             "arrive_window_ut")
+
+    if state.phase == M3_HOLD_PARK:
+        # The parked-tail window doubles as the terminal: jump, stamp, hold,
+        # done (dwell_lead applies like the other legs).
+        target = _m3_window_ut(state, state.params.park_offset) \
+            - state.params.dwell_lead
+        if state.hold_started_ut is None and _is_finite(snapshot.ut) \
+                and snapshot.ut < target - 1.0:
+            return _m3_jump_leg(state, snapshot, state.params.park_offset,
+                                M3_HOLD_PARK, "m3jumppark",
+                                enter_on_arrival=False)
+        stayed, actions = _m3_hold_step(state, snapshot, M3_DONE,
+                                        "park_window_ut")
+        if stayed.phase == M3_DONE:
+            actions = actions + [Action(ACTION_CANCEL_WARP)]
+        return stayed, actions
+
+    return state, []
+
+
+def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
+                           state=None) -> List[AssertionOutcome]:
+    """Machine-carried rows (frames deliberately unused, the B5 shape):
+
+    - loopArmed: the MissionConfig round trip terminated OK with a readable
+      anchor (the machine cannot leave ARM-LOOP otherwise).
+    - mapCameraObserved: the CAMERA phase's observed-mode gate passed.
+    - dwelledAllWindows: all three window stamps exist and are ordered --
+      departure, arrival and parked-tail holds each actually happened at
+      their span-clock UTs.
+    The RENDER truth (ghosts sampled, parity, anomalies, arrival body) rides
+    the spec's log contracts over the probe/tracer lines, not these rows."""
+    del frames
+    phases = tuple(phases_reached or ())
+    anchor = getattr(state, "anchor_ut", None)
+    armed = AssertionOutcome(
+        "loopArmed", anchor is not None, anchor,
+        {"tree": params.tree_id, "required": M3_CAMERA})
+    cam = AssertionOutcome(
+        "mapCameraObserved", M3_WARP_DEPART in phases,
+        (M3_WARP_DEPART if M3_WARP_DEPART in phases else
+         (phases[-1] if phases else None)),
+        {"required": M3_WARP_DEPART, "channel": "observed"})
+    d = getattr(state, "depart_window_ut", None)
+    a = getattr(state, "arrive_window_ut", None)
+    pk = getattr(state, "park_window_ut", None)
+    ordered = (d is not None and a is not None and pk is not None
+               and d < a < pk)
+    dwelled = AssertionOutcome(
+        "dwelledAllWindows", M3_DONE in phases and ordered,
+        [d, a, pk],
+        {"required": M3_DONE, "departWindowUt": d, "arriveWindowUt": a,
+         "parkWindowUt": pk})
+    return [armed, cam, dwelled]

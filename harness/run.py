@@ -109,12 +109,15 @@ INJECT_TIMEOUT_SECONDS = 600
 # hlib.validate_spec checks a spec against hlib's OWN INJECTED_RECORDINGS tuple, NOT
 # against this table. A preset added there but missed here would validate clean,
 # stage with NO injection and NO postcondition check, and the run would boot against
-# an un-injected save - the HARNESS-INJECT-FAILS-OPEN shape. The sync is manual; a
-# cell asserting the two sets are equal is the fix, and is not yet written.
+# an un-injected save - the HARNESS-INJECT-FAILS-OPEN shape. The sync is asserted by
+# harness/lib/test_injection_preset_sync.py across all FOUR surfaces (hlib tuple,
+# this table, the ps1 filter map, the xUnit Inject* facts).
 RP_SIDECAR_BY_PRESET = {
     "all-synthetic": None,
     "rewind-b9": "rp_b9_root",
     "rewind-crew-loss": "rp_cl_root",
+    # The S1.8 SoiCrossingPlayback corpus: a committed tree only, no RP.
+    "looped-interplanetary": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -798,7 +801,9 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
     - ``rewind-b9``        -> the same, plus ``Parsek/RewindPoints/rp_b9_root.sfs``
       (the RP every rewind-b9 consumer's ``InvokeRewind rp=rp_b9_root`` needs).
     - ``rewind-crew-loss`` -> the same, plus ``Parsek/RewindPoints/rp_cl_root.sfs``
-      (CL stage B's crewed re-fly target)."""
+      (CL stage B's crewed re-fly target).
+    - ``looped-interplanetary`` -> a non-empty ``Parsek/Recordings/`` only (a
+      committed looped tree, no RP; the S1.8 SoiCrossingPlayback corpus)."""
     missing: List[str] = []
     rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
     try:

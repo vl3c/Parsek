@@ -330,3 +330,13 @@ Source/Parsek/RecordingTreeSplitter.cs
 # CommittedRecordings/CommittedTrees read only. Documented at the call site with
 # an inline [ERS-exempt] comment.
 Source/Parsek/Logistics/RouteOrchestrator.cs
+
+# [ERS-exempt] MissionConfig seam verb (test-command surface, unreachable
+# without PARSEK_TEST_COMMANDS=1): passes RecordingStore.CommittedTrees /
+# CommittedRecordings raw into MissionLoopUnitBuilder.TryBuildLoopUnitForSelection
+# so the seam response carries the unit's actual span clock. The builder's
+# member indices are committed-LIST indices - the same list-alignment rationale
+# as RouteOrchestrator's exemption above; an ERS-filtered list would re-index
+# members under the builder. Documented at the call site with an inline
+# [ERS-exempt] comment.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.MissionConfig.cs

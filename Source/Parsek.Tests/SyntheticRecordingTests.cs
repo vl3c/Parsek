@@ -6215,6 +6215,92 @@ namespace Parsek.Tests
                 $"Crew-loss RP quicksave sidecar missing: {rpSidecar}");
         }
 
+        /// <summary>
+        /// Injects the LOOPED-INTERPLANETARY corpus into the target save: ONE
+        /// looped recording whose OrbitSegment chain is the REAL flown
+        /// duna-direct Kerbin -> Sun -> Duna geometry, byte-pinned (see
+        /// <see cref="LoopedInterplanetaryFixture"/> for the provenance and
+        /// the deliberate no-rebase contract). Harness-callable via
+        /// <c>dotnet test --filter InjectLoopedInterplanetary</c> (the
+        /// <c>looped-interplanetary</c> injection preset consumed by the
+        /// S1.8 SoiCrossingPlayback lane).
+        ///
+        /// <para>
+        /// Same env contract and guarded purge as the sibling injectors
+        /// (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START); distinct
+        /// default save name so a bare full-suite run no-ops here. Unlike the
+        /// rewind presets there is NO RP sidecar: the fixture is a committed
+        /// tree only, and the harness postcondition for this preset checks
+        /// the recording sidecars alone.
+        /// </para>
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectLoopedInterplanetary()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "looped-interplanetary-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            var writer = new ScenarioWriter().WithV3Format();
+            LoopedInterplanetaryFixture.PopulateWriter(writer);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains(
+                        "vesselName = " + LoopedInterplanetaryFixture.VesselName,
+                        content);
+                    Assert.Contains(LoopedInterplanetaryFixture.RecordingId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
         [Trait("Category", "Manual")]
         [Fact]
         public void InjectAllRecordings()

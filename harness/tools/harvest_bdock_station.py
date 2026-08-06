@@ -267,6 +267,20 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
 
     target = os.path.join(_FIXTURES_SAVES, target_name)
     if os.path.isdir(target):
+        # The refusal belongs AT the destructive site: a default-mode
+        # (Parsek-clean) harvest aimed at an existing RECORDED-state fixture
+        # would rmtree the recorded payload and rewrite it clean, exiting 0.
+        existing_recordings = os.path.join(target, "Parsek", "Recordings")
+        if ((not keep_parsek) and os.path.isdir(existing_recordings)
+                and os.listdir(existing_recordings)):
+            msg = ("target fixture %s is a RECORDED-state fixture "
+                   "(Parsek/Recordings is non-empty) but --keep-parsek was "
+                   "not passed; a clean harvest would silently destroy the "
+                   "recorded payload" % target_name)
+            if not force:
+                raise SystemExit("harvest: " + msg
+                                 + " (pass --force to overwrite anyway)")
+            log("warning: " + msg + " (overwriting anyway, --force)")
         log("removing existing fixture %s" % target)
         shutil.rmtree(target)
     os.makedirs(target)

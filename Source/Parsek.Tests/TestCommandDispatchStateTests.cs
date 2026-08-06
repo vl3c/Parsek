@@ -39,6 +39,7 @@ namespace Parsek.Tests
             public void EvaChuteDeploy(ParsedCommand cmd) => Calls.Add("EvaChuteDeploy");
             public void ExitToSpaceCenter(ParsedCommand cmd) => Calls.Add("ExitToSpaceCenter");
             public void SimulateStockSwitchClick(ParsedCommand cmd) => Calls.Add("SimulateStockSwitchClick");
+            public void MissionConfig(ParsedCommand cmd) => Calls.Add("MissionConfig");
         }
 
         [Fact]
@@ -108,6 +109,7 @@ namespace Parsek.Tests
             fake.EvaChuteDeploy(cmd);
             fake.ExitToSpaceCenter(cmd);
             fake.SimulateStockSwitchClick(cmd);
+            fake.MissionConfig(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();
