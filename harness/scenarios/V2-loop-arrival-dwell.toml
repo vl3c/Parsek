@@ -1,0 +1,137 @@
+schema = 1
+id = "V2-loop-arrival-dwell"
+# =====================================================================================
+# V2: LOOP-ARRIVAL MAP DWELL over the committed duna-direct recording -- Tier 2 of
+# the arrival-validation lane, and the FIRST time a looped interplanetary mission
+# actually REPLAYS under unattended observation (M1/M2 gate the solver/plan and say
+# so; S1.8 gates segment position resolution; the playback half lived nowhere).
+#
+# WHAT THIS RUN DOES. Loads the committed duna-direct-recorded fixture (the REAL
+# B17 flight: Kerbin -> Sun -> Duna, committed parked in a 0.002-ecc Duna orbit),
+# arms MISSION-LEVEL loop playback on its tree via the newly promoted MissionConfig
+# seam verb (the production MissionStore.SetLoopEnabled path -- the switch re-aim
+# engagement gates on), reads the loop anchor off the seam payload, and dwells the
+# map camera through three span-clock windows: the recorded Kerbin->Sun handoff,
+# the recorded Sun->Duna handoff, and the parked tail. mapRenderTracing +
+# verboseLogging are armed, so the probe/tracer emit the full Tier-A/B/C surface
+# across every dwell.
+#
+# THE FIRST FLIGHT IS A READING RUN, deliberately under-gated (the V1 calibration
+# discipline): it MEASURES (a) whether the loop's ghost renders at all at the
+# windows (the required ghosts>0 probe token is the one anti-vacuity pin), (b)
+# which mode the classifier picks for this member -- the [ReaimDiag] per-member
+# verdict and, if supported, the MissionLoopUnit ENGAGED line -- and (c) the
+# anomaly/parity behavior across both SOI handoffs. THE EXPECTED OUTCOME on the
+# known open defect ("Looped re-aim interplanetary transfer", option 3 deferred):
+# if re-aim ENGAGES, the arrival dwell should show the dead-end -- seam teleports
+# (gated icon-teleport / icon-off-orbit tokens with allowedAnomalies = []) and/or
+# the [ReaimSeam] jump lines -- and the RED is the lane earning its keep as the
+# armed regression target the deferred fix has been waiting for. Post-reading,
+# the GS-3 discipline applies: pin the measured divergence, arm the mode that
+# passes, and record the re-aim red (expectedFail) as the guard that flips when
+# the product fix lands. Do NOT relax the arrival criterion: the todo's
+# validation standard is the ENCOUNTER into the destination SOI, not a smaller
+# seam number.
+#
+# SPAN-CLOCK OFFSETS, pinned from the committed recording's own flown segment
+# table (recording start 4653504.304):
+#   depart (Kerbin->Sun seam 4742953.221)  -> offset  89448.917
+#   arrive (Sun->Duna seam 9128108.755)    -> offset 4474604.451
+#   park   (parked tail, end - 287 s)      -> offset 4506361.140
+# The machine computes each window as anchorUt + offset; whether that identity
+# holds against the engine's own loop clock is itself a reading-run measurement
+# (the dwelledAllWindows row carries the stamped UTs for comparison).
+# =====================================================================================
+tier = "operator"
+description = "Arm mission-level loop on the committed duna-direct tree (MissionConfig seam verb) and dwell the map camera through the recorded Kerbin->Sun and Sun->Duna handoffs and the parked Duna tail with mapRenderTracing armed: the Tier-2 playback half of the re-aim option-3 validation lane. First flight is the reading run; the re-aim mode's arrival dead-end is the EXPECTED red."
+instanceProfile = "stock-minimal"
+tags = ["V2", "loop-arrival", "interplanetary", "reaim", "map-dwell", "pending-flight"]
+
+[fixture]
+# The recorded-state fixture the B17 lane produced (--keep-parsek harvest of the
+# 2026-08-06_1527 PASS run): 1 committed tree, 2 recordings (main Orbiting Duna +
+# booster debris Destroyed), 14 recording sidecars.
+saveTemplate       = "fixtures/saves/duna-direct-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "m3_loop_arrival_dwell"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No stray recording may dirty the committed corpus while the dwell runs.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Both tracer pins are load-bearing: the probe's frame/parity summary lines
+  # are VerboseRateLimited, so verboseLogging=false would silence the exact
+  # tokens this spec requires (the V1 lesson verbatim).
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1500 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+treeId               = "ccb5e4afd7974dbe9118090468ac00ae"
+departOffsetSeconds  = 89448.917
+arriveOffsetSeconds  = 4474604.451
+parkOffsetSeconds    = 4506361.140
+dwellLeadSeconds     = 120
+dwellHoldSeconds     = 60
+cameraFocusBody      = "Duna"
+cameraPitchDeg       = -60
+cameraHeadingDeg     = 0
+cameraDistanceMeters = 2000000000
+armTimeoutSeconds    = 300
+cameraTimeoutSeconds = 120
+warpTimeoutSeconds   = 5000000
+holdTimeoutSeconds   = 600
+
+# CLAIM-IS-NOT-GATE, reading-run minimalism (the V1 first-flight shape): only
+# the two cells the required tokens below actually gate. Everything this lane
+# will eventually claim (D6 loop-period-modes when a cycle demonstrably
+# elapses, D11 arrival cells, D14 duna-at-map) waits for the armed follow-up.
+[dimensionsCovered]
+D14 = ["scene-map", "sandbox"]
+
+[expectations]
+# ARMED SWEEP, deliberately, even on the reading run: an anomaly raise at the
+# handoff dwells is EVIDENCE (V1's own first flights were "RED BY FINDING" and
+# that was called the intended shape of a calibration flight). Known residual
+# risk, accepted: the todo's post-cutover backlog lists an icon-off-orbit
+# ~1-3 deg residual on looped re-aim -- if it raises here, the red names it
+# and the follow-up pins it explicitly rather than pre-budgeting it away.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The committed fixture's two recordings; the dwell must add none
+# (autoRecordOnLaunch pinned off, nothing launches).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# Reading-run pins, each sourced:
+#   "missionconfig applied:" -- the verb's own Info line (the arming evidence);
+#   "SetLoopEnabled: loop ON" -- the PRODUCTION MissionStore path fired;
+#   "[ReaimDiag] mission=" -- the per-member classifier verdict
+#     (MissionLoopUnitBuilder), the mode-evidence line the follow-up arms on;
+#   the ghosts>0 probe token -- the V1 anti-vacuity pin: a dwell that watched
+#     an EMPTY map proves nothing and must red.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "\\[ReaimDiag\\] mission=",
+  "probe frame summary frame=\\d+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]*",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 300 LoadGame + 1500 mission (arm + camera + three native-warp legs, the long
+# one ~4.4M game-s, + three 60 game-s 1x holds) + fast tail verbs + margin.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

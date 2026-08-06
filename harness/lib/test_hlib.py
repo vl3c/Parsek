@@ -4574,6 +4574,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # build_dd1_craft.py) onto the pad UNCREWED. Flown + harvested
         # 2026-08-06; the tier is the forge mechanism, not a review debt.
         "FORGE-b17-duna-pad.toml":          "forge-mechanism - manual by design; FLOWN 2026-08-06 (PASS attempt 1 after the UInt32 uid finding), fixture b17-duna-pad committed + registered",
+        # The V2 dwell is operator BY THE CALIBRATION DISCIPLINE (V1 precedent):
+        # its first flight is a deliberately under-gated READING run whose red,
+        # if any, is evidence; promotion is the post-reading arming call, not a
+        # review debt.
+        "V2-loop-arrival-dwell.toml":       "reading-run instrument (V1 calibration discipline); UNFLOWN, arms + dwells the duna-direct loop",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human

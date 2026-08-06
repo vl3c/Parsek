@@ -1,0 +1,81 @@
+# Declared param schema for mission m3_loop_arrival_dwell (the Tier-2
+# loop-arrival map dwell). Consumed by run.py's schema registry and driven by
+# hlib._validate_mission_params; shape:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+#
+# The three *OffsetSeconds are RECORDED-UT deltas from the committed
+# recording's own start (pinned per fixture from its flown segment table);
+# the machine adds the MissionConfig-returned loop anchor to each. Every
+# value is a tolerance / threshold / budget or a pinned recorded offset,
+# never a golden trajectory.
+
+[params.treeId]
+required = true
+type = "string"
+
+[params.departOffsetSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.arriveOffsetSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.parkOffsetSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.loopIntervalSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.dwellLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.dwellHoldSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.cameraFocusBody]
+required = false
+type = "string"
+
+[params.cameraPitchDeg]
+required = false
+type = "number"
+
+[params.cameraHeadingDeg]
+required = false
+type = "number"
+
+[params.cameraDistanceMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.armTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.cameraTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.warpTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.holdTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0

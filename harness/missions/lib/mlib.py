@@ -15630,3 +15630,308 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
          "accepted": list(params.settle_situations)})
 
     return [settled, deploy, single_stage, focus, periapsis, sibling]
+
+
+# ---------------------------------------------------------------------------
+# M3 loop-arrival dwell (the Tier-2 playback half of the looped-interplanetary
+# arrival-validation lane; V1 is the dwell precedent, B17's PAD-ALIGN is the
+# generalized-seam precedent). Pure.
+#
+# The machine ARMS mission-level loop playback on a committed tree via the
+# MissionConfig seam verb (the switch re-aim engagement gates on), reads the
+# loop anchor UT off the seam response payload, and then dwells the (already
+# map-positioned) camera through three recorded-offset windows -- departure
+# (the Kerbin->Sun handoff), cruise, and arrival (the Sun->Duna handoff + the
+# parked tail) -- holding 1x inside each window and riding native warp_to_ut
+# between them. Every window UT is anchorUt + (recordedUT - recordingStartUT),
+# the span-clock identity the FIRST reading flight exists to measure (the
+# assertions on window arrival are therefore machine-carried UT stamps, and
+# the RENDER truth rides the probe/tracer log lines the spec pins).
+#
+# WHAT THE MACHINE DELIBERATELY DOES NOT DO: fly anything (no MechJeb), touch
+# the recorder, or decide whether re-aim ENGAGED -- the [ReaimDiag]/ENGAGED
+# lines in the collected log are the mode evidence, and which mode this
+# fixture classifies into is a MEASUREMENT the first flight makes, not an
+# input the machine assumes.
+# ---------------------------------------------------------------------------
+
+M3_ARM_LOOP = "ARM-LOOP"
+M3_CAMERA = "CAMERA"
+M3_WARP_DEPART = "WARP-DEPART"
+M3_HOLD_DEPART = "HOLD-DEPART"
+M3_WARP_ARRIVE = "WARP-ARRIVE"
+M3_HOLD_ARRIVE = "HOLD-ARRIVE"
+M3_HOLD_PARK = "HOLD-PARK"
+M3_DONE = "DONE"
+M3_PHASES: Tuple[str, ...] = (
+    M3_ARM_LOOP, M3_CAMERA, M3_WARP_DEPART, M3_HOLD_DEPART,
+    M3_WARP_ARRIVE, M3_HOLD_ARRIVE, M3_HOLD_PARK, M3_DONE)
+
+M3_TAG_ARM = "m3arm"
+
+
+@dataclass(frozen=True)
+class M3Params:
+    """Spec [driver.missionParams] for m3_loop_arrival_dwell. Offsets are
+    RECORDED-UT deltas from the recording's own start (pinned per fixture);
+    the machine turns them into absolute UTs with the seam-returned anchor."""
+    tree_id: str
+    depart_offset: float          # recorded seam-1 UT - recording start UT
+    arrive_offset: float          # recorded seam-2 UT - recording start UT
+    park_offset: float            # recorded parked-tail UT - recording start UT
+    loop_interval_seconds: float = 0.0   # 0 = leave the mission's interval alone
+    dwell_lead: float = 120.0     # arrive this many game-s BEFORE each window
+    dwell_hold: float = 60.0      # game-s of 1x held INSIDE each window
+    camera_focus_body: str = "Duna"
+    camera_pitch_deg: float = -60.0
+    camera_heading_deg: float = 0.0
+    camera_distance_m: float = 2_000_000_000.0
+    arm_timeout: float = 300.0
+    camera_timeout: float = 120.0
+    warp_timeout: float = 5_000_000.0   # game-s budget per warp leg
+    hold_timeout: float = 600.0
+
+
+def m3_params_from_dict(params: Dict) -> M3Params:
+    params = params or {}
+    tree = str(params.get("treeId", ""))
+    if not tree:
+        raise ValueError("m3_loop_arrival_dwell requires treeId (the committed "
+                         "RECORDING_TREE id the fixture pins)")
+    return M3Params(
+        tree_id=tree,
+        depart_offset=float(params.get("departOffsetSeconds", 0.0)),
+        arrive_offset=float(params.get("arriveOffsetSeconds", 0.0)),
+        park_offset=float(params.get("parkOffsetSeconds", 0.0)),
+        loop_interval_seconds=float(params.get("loopIntervalSeconds", 0.0)),
+        dwell_lead=float(params.get("dwellLeadSeconds", 120.0)),
+        dwell_hold=float(params.get("dwellHoldSeconds", 60.0)),
+        camera_focus_body=str(params.get("cameraFocusBody", "Duna")),
+        camera_pitch_deg=float(params.get("cameraPitchDeg", -60.0)),
+        camera_heading_deg=float(params.get("cameraHeadingDeg", 0.0)),
+        camera_distance_m=float(params.get("cameraDistanceMeters", 2_000_000_000.0)),
+        arm_timeout=float(params.get("armTimeoutSeconds", 300.0)),
+        camera_timeout=float(params.get("cameraTimeoutSeconds", 120.0)),
+        warp_timeout=float(params.get("warpTimeoutSeconds", 5_000_000.0)),
+        hold_timeout=float(params.get("holdTimeoutSeconds", 600.0)),
+    )
+
+
+@dataclass(frozen=True)
+class M3State:
+    params: M3Params
+    phase: str = M3_ARM_LOOP
+    phase_entry_ut: float = 0.0
+    arm_issued: bool = False
+    anchor_ut: Optional[float] = None
+    camera_commanded: bool = False
+    hold_started_ut: Optional[float] = None
+    # Window arrival stamps (the machine-carried assertion evidence).
+    depart_window_ut: Optional[float] = None
+    arrive_window_ut: Optional[float] = None
+    park_window_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = (M3_ARM_LOOP,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    done: bool = False
+
+
+def m3_initial_state(params: M3Params) -> M3State:
+    return M3State(params=params)
+
+
+def _m3_enter(state: M3State, phase: str, ut: float) -> M3State:
+    return replace(state, phase=phase,
+                   phase_entry_ut=(ut if _is_finite(ut) else 0.0),
+                   hold_started_ut=None,
+                   phases_reached=state.phases_reached + (phase,),
+                   done=(phase == M3_DONE))
+
+
+def _m3_flake(state: M3State, reason: str) -> M3State:
+    """Every give-up names itself (the R1 discipline)."""
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _m3_over_budget(state: M3State, snapshot: TelemetrySnapshot,
+                    budget: float) -> bool:
+    return (_is_finite(snapshot.ut)
+            and (snapshot.ut - state.phase_entry_ut) > budget)
+
+
+def _m3_window_ut(state: M3State, offset: float) -> float:
+    """anchorUt + recorded offset: the span-clock identity under measurement."""
+    return (state.anchor_ut or 0.0) + offset
+
+
+def _m3_hold_step(state: M3State, snapshot: TelemetrySnapshot,
+                  next_phase: str, stamp_field: str
+                  ) -> Tuple[M3State, List[Action]]:
+    """Shared 1x hold: cancel any residual warp on entry, hold dwell_hold
+    game-seconds, then advance. The window-arrival stamp is taken on the
+    FIRST held frame (the machine-carried assertion evidence)."""
+    actions: List[Action] = []
+    stayed = state
+    if state.hold_started_ut is None:
+        if _is_finite(snapshot.warping_to) or snapshot.warp_mode != WARP_NONE:
+            actions.append(Action(ACTION_CANCEL_WARP))
+        stamps = {stamp_field: float(snapshot.ut)} if stamp_field else {}
+        stayed = replace(state, hold_started_ut=float(snapshot.ut), **stamps)
+        return stayed, actions
+    if (snapshot.ut - stayed.hold_started_ut) >= stayed.params.dwell_hold:
+        return _m3_enter(stayed, next_phase, snapshot.ut), []
+    if _m3_over_budget(stayed, snapshot, stayed.params.hold_timeout):
+        return _m3_flake(stayed, "dwell hold never accumulated its game time "
+                                 "(warp cancel ignored?)"), []
+    return stayed, []
+
+
+def m3_decide(state: M3State, snapshot: TelemetrySnapshot
+              ) -> Tuple[M3State, List[Action]]:
+    """One decision frame. See the section header for the contract."""
+    if state.done:
+        return state, []
+
+    if state.phase == M3_ARM_LOOP:
+        if not state.arm_issued:
+            args = [("tree", state.params.tree_id), ("loop", "true")]
+            if state.params.loop_interval_seconds > 0.0:
+                args.append(("intervalSeconds",
+                             "%.3f" % state.params.loop_interval_seconds))
+            return (replace(state, arm_issued=True),
+                    [Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="MissionConfig",
+                            seam_args=tuple(args), seam_tag=M3_TAG_ARM)])
+        result = _b5_seam_result(snapshot, M3_TAG_ARM)
+        if result == "OK":
+            anchor_raw = _b5_seam_payload(snapshot, M3_TAG_ARM, "anchorUt")
+            try:
+                anchor = float(anchor_raw)
+            except (TypeError, ValueError):
+                anchor = float("nan")
+            if not _is_finite(anchor):
+                return _m3_flake(state, "MissionConfig answered OK but the "
+                                        "anchorUt payload was unreadable: %r"
+                                        % (anchor_raw,)), []
+            armed = replace(state, anchor_ut=anchor)
+            return (_m3_enter(armed, M3_CAMERA, snapshot.ut),
+                    [Action(ACTION_CAMERA_SET_MAP),
+                     Action(ACTION_CAMERA_FOCUS_BODY,
+                            text=state.params.camera_focus_body),
+                     Action(ACTION_CAMERA_SET_POSE, camera_pose=(
+                         state.params.camera_pitch_deg,
+                         state.params.camera_heading_deg,
+                         state.params.camera_distance_m))])
+        if result and result != "OK":
+            reason = decode_seam_value(
+                _b5_seam_payload(snapshot, M3_TAG_ARM, "msg"))
+            return _m3_flake(state, "MissionConfig did not arm the loop: seam "
+                                    "result %s%s" % (
+                                        result,
+                                        ("; Parsek's reason: %s" % reason)
+                                        if reason else "")), []
+        if _m3_over_budget(state, snapshot, state.params.arm_timeout):
+            return _m3_flake(state, "MissionConfig round trip never "
+                                    "terminated"), []
+        return state, []
+
+    if state.phase == M3_CAMERA:
+        # OBSERVED gate, the V1 lesson: advance on the camera actually
+        # reading Map, never on having commanded it.
+        if snapshot.camera_mode == CAMERA_MODE_MAP:
+            target = _m3_window_ut(state, state.params.depart_offset) \
+                - state.params.dwell_lead
+            entered = _m3_enter(state, M3_WARP_DEPART, snapshot.ut)
+            return entered, [Action(ACTION_WARP_TO_UT, target)]
+        if _m3_over_budget(state, snapshot, state.params.camera_timeout):
+            return _m3_flake(state, "map camera never observed (camera_mode "
+                                    "stayed %r)" % (snapshot.camera_mode,)), []
+        return state, []
+
+    if state.phase == M3_WARP_DEPART:
+        target = _m3_window_ut(state, state.params.depart_offset) \
+            - state.params.dwell_lead
+        if _is_finite(snapshot.ut) and snapshot.ut >= target:
+            return _m3_enter(state, M3_HOLD_DEPART, snapshot.ut), []
+        if _m3_over_budget(state, snapshot, state.params.warp_timeout):
+            return _m3_flake(state, "depart warp never arrived"), []
+        return state, []
+
+    if state.phase == M3_HOLD_DEPART:
+        stayed, actions = _m3_hold_step(state, snapshot, M3_WARP_ARRIVE,
+                                        "depart_window_ut")
+        if stayed.phase == M3_WARP_ARRIVE and not stayed.done:
+            target = _m3_window_ut(stayed, stayed.params.arrive_offset) \
+                - stayed.params.dwell_lead
+            actions = actions + [Action(ACTION_WARP_TO_UT, target)]
+        return stayed, actions
+
+    if state.phase == M3_WARP_ARRIVE:
+        target = _m3_window_ut(state, state.params.arrive_offset) \
+            - state.params.dwell_lead
+        if _is_finite(snapshot.ut) and snapshot.ut >= target:
+            return _m3_enter(state, M3_HOLD_ARRIVE, snapshot.ut), []
+        if _m3_over_budget(state, snapshot, state.params.warp_timeout):
+            return _m3_flake(state, "arrival warp never arrived"), []
+        return state, []
+
+    if state.phase == M3_HOLD_ARRIVE:
+        stayed, actions = _m3_hold_step(state, snapshot, M3_HOLD_PARK,
+                                        "arrive_window_ut")
+        if stayed.phase == M3_HOLD_PARK and not stayed.done:
+            target = _m3_window_ut(stayed, stayed.params.park_offset)
+            actions = actions + [Action(ACTION_WARP_TO_UT, target)]
+        return stayed, actions
+
+    if state.phase == M3_HOLD_PARK:
+        # The parked-tail window doubles as the terminal: stamp, hold, done.
+        target = _m3_window_ut(state, state.params.park_offset)
+        if state.hold_started_ut is None and _is_finite(snapshot.ut) \
+                and snapshot.ut < target:
+            if _m3_over_budget(state, snapshot, state.params.warp_timeout):
+                return _m3_flake(state, "park warp never arrived"), []
+            return state, []
+        stayed, actions = _m3_hold_step(state, snapshot, M3_DONE,
+                                        "park_window_ut")
+        if stayed.phase == M3_DONE:
+            actions = actions + [Action(ACTION_CANCEL_WARP)]
+        return stayed, actions
+
+    return state, []
+
+
+def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
+                           state=None) -> List[AssertionOutcome]:
+    """Machine-carried rows (frames deliberately unused, the B5 shape):
+
+    - loopArmed: the MissionConfig round trip terminated OK with a readable
+      anchor (the machine cannot leave ARM-LOOP otherwise).
+    - mapCameraObserved: the CAMERA phase's observed-mode gate passed.
+    - dwelledAllWindows: all three window stamps exist and are ordered --
+      departure, arrival and parked-tail holds each actually happened at
+      their span-clock UTs.
+    The RENDER truth (ghosts sampled, parity, anomalies, arrival body) rides
+    the spec's log contracts over the probe/tracer lines, not these rows."""
+    del frames
+    phases = tuple(phases_reached or ())
+    anchor = getattr(state, "anchor_ut", None)
+    armed = AssertionOutcome(
+        "loopArmed", anchor is not None, anchor,
+        {"tree": params.tree_id, "required": M3_CAMERA})
+    cam = AssertionOutcome(
+        "mapCameraObserved", M3_WARP_DEPART in phases,
+        (M3_WARP_DEPART if M3_WARP_DEPART in phases else
+         (phases[-1] if phases else None)),
+        {"required": M3_WARP_DEPART, "channel": "observed"})
+    d = getattr(state, "depart_window_ut", None)
+    a = getattr(state, "arrive_window_ut", None)
+    pk = getattr(state, "park_window_ut", None)
+    ordered = (d is not None and a is not None and pk is not None
+               and d < a < pk)
+    dwelled = AssertionOutcome(
+        "dwelledAllWindows", M3_DONE in phases and ordered,
+        [d, a, pk],
+        {"required": M3_DONE, "departWindowUt": d, "arriveWindowUt": a,
+         "parkWindowUt": pk})
+    return [armed, cam, dwelled]
