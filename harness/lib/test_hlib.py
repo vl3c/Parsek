@@ -926,10 +926,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The remaining TEN names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
-        # WAS in this list and left it in R12 - see the R12 cells below.
+        # The remaining NINE names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
+        # WAS in this list and left it in R12; MissionConfig left it for the
+        # arrival-validation lane - see the promotion cells below.
         for verb in ("StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot",
-                     "StashSlot", "FlySlot", "RouteCommand", "MissionConfig",
+                     "StashSlot", "FlySlot", "RouteCommand",
                      "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
@@ -974,8 +975,8 @@ class SpecValidationRejectTests(unittest.TestCase):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 21)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 10)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 22)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 9)
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:

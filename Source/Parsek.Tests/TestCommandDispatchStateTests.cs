@@ -39,6 +39,7 @@ namespace Parsek.Tests
             public void EvaChuteDeploy(ParsedCommand cmd) => Calls.Add("EvaChuteDeploy");
             public void ExitToSpaceCenter(ParsedCommand cmd) => Calls.Add("ExitToSpaceCenter");
             public void SimulateStockSwitchClick(ParsedCommand cmd) => Calls.Add("SimulateStockSwitchClick");
+            public void MissionConfig(ParsedCommand cmd) => Calls.Add("MissionConfig");
         }
 
         [Fact]
