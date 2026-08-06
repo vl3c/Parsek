@@ -35,6 +35,7 @@ evaluator raises a named mismatch).
 """
 
 import os
+import re
 import tomllib
 import unittest
 
@@ -673,6 +674,17 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "terminalStates": {"Orbiting": 1, "Destroyed": 1},
             "branchPoints": {"JointBreak": 1},
             "minSidecars": 10,
+            # The recorded payload's IDENTITY, not just its shape: a
+            # re-harvest that swapped in a different flight with the same
+            # topology would otherwise pass every cell in the suite.
+            "recordingIds": ["311d98e32547491e8dd37aec2526d25d",
+                             "3397c2e5d9f2433caca2e419d7e356b7"],
+            # Pinned against the C# loader constant below: a generation bump
+            # makes RecordingStore reject these recordings at load
+            # (generation-older) while saveparse still parses the sfs fine,
+            # so without this pin the fixture would degrade SILENTLY into
+            # one that loads zero recordings and tests nothing.
+            "schemaGeneration": 4,
         },
     }
 
@@ -715,6 +727,31 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 self.assertTrue(os.path.isdir(recordings_dir), name)
                 self.assertGreaterEqual(len(os.listdir(recordings_dir)),
                                         want["minSidecars"], name)
+                for rid in want["recordingIds"]:
+                    prec = os.path.join(recordings_dir, rid + ".prec")
+                    self.assertTrue(os.path.isfile(prec),
+                                    "%s: %s.prec missing" % (name, rid))
+                    self.assertGreater(os.path.getsize(prec), 0,
+                                       "%s: %s.prec is empty" % (name, rid))
+                text = _read(path)
+                gens = set(re.findall(
+                    r"recordingSchemaGeneration = (\d+)", text))
+                self.assertEqual({str(want["schemaGeneration"])}, gens,
+                                 "%s: schema generations drifted" % name)
+                store_cs = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                    "Source", "Parsek", "RecordingStore.cs")
+                with open(store_cs, encoding="utf-8") as fh:
+                    src = fh.read()
+                m = re.search(
+                    r"CurrentRecordingSchemaGeneration\s*=\s*(\d+)", src)
+                self.assertIsNotNone(m, "schema-generation constant moved")
+                self.assertEqual(
+                    want["schemaGeneration"], int(m.group(1)),
+                    "%s: RecordingStore.CurrentRecordingSchemaGeneration "
+                    "no longer accepts this fixture's recordings - the "
+                    "fixture must be re-harvested at the new generation "
+                    "(or the consumer lane silently tests nothing)" % name)
 
     def test_every_persistent_sfs_parses_with_pinned_counts(self):
         for name, has_scenario in sorted(self.EXPECTED_SCENARIO_PRESENCE.items()):

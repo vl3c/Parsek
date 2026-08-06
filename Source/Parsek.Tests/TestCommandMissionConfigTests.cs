@@ -44,5 +44,16 @@ namespace Parsek.Tests
             if (ok)
                 Assert.Equal(want, s, 9);
         }
+
+        [Theory]
+        [InlineData(true, 300.0, true)]
+        [InlineData(true, 0.0, false)]    // 0 = the leave-alone sentinel
+        [InlineData(false, 300.0, false)] // disable must not rewrite config
+        [InlineData(false, 0.0, false)]
+        public void Interval_applies_only_on_an_enable(bool loopOn, double s, bool want)
+        {
+            Assert.Equal(want,
+                TestCommandMissionConfig.ShouldApplyInterval(loopOn, s));
+        }
     }
 }

@@ -470,7 +470,10 @@ _B5_LANDING_PHASES: Tuple[str, ...] = (
 # DESCENT is deliberately NOT exempt (a craft on the way down must still be
 # watched); at most ONE frozen frame can slip through it, because the
 # DESCENT -> LANDED-SETTLE handoff fires on the FIRST observed landed situation
-# with no debounce, against a limit of 10.
+# with no debounce, against a limit of 10. PAD-ALIGN is exempt for the same
+# reason as PRELAUNCH: the vessel sits on the pad, legitimately static,
+# through the seam TimeJump round trip; the phase budget still bounds a
+# wedged jump.
 _B5_FROZEN_EXEMPT_PHASES: Tuple[str, ...] = (B5_PAD_ALIGN, B5_LANDED_SETTLE,
                                              B5_SURFACE_COMMIT)
 
@@ -1718,10 +1721,13 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
 # function of UT and these constants. Values are the stock 1.12.5 system
 # (KSP wiki-canonical; all stock planets carry argumentOfPeriapsis = 0, so the
 # longitude offset below is the LAN alone). The end-to-end check is the
-# flight itself: a wrong constant lands the pad jump off-window, the ASAP
-# ejection prices the miss into the correction rounds, and the
-# padAlignedDirectEjection assertion's window-guard names it -- so a drifted
-# constant cannot silently produce a 2-year in-park autowarp.
+# flight itself: a wrong constant lands the pad jump off-window, and the
+# padAlignLaunchPhaseNearIdeal assertion row names the drift DIRECTLY --
+# phase at launch vs the classical ideal, the quantity a wrong constant
+# actually moves. The 2-year in-park autowarp stays structurally impossible
+# either way: the ASAP ejection plans within ONE PARK ORBIT regardless of
+# phase (see the PLAN-TRANSFER guard comment for what that guard can and
+# cannot see) and prices the miss into the correction rounds.
 #
 # Per body: (semiMajorAxis m, eccentricity, meanAnomalyAtEpoch rad at UT 0,
 # longitudeOffsetDeg = LAN + argPe).
@@ -1738,7 +1744,8 @@ _EJECTION_WINDOW_BISECT_ITERS = 60
 # Coarse forward-scan step (seconds) used to bracket the window crossing.
 # Must be small enough that the wrapped phase error cannot alias a whole
 # crossing inside one step: the fastest stock pair (Eve-Kerbin) drifts
-# ~1.5e-5 deg/s, so a 50,000 s step moves the phase < 1 degree.
+# ~2.45e-5 deg/s, so a 50,000 s step moves the phase ~1.23 degrees
+# (Kerbin-Duna ~0.92); the wrap filter only trips at 180, >100x margin.
 _EJECTION_WINDOW_SCAN_STEP = 50_000.0
 
 
@@ -1821,6 +1828,16 @@ def classical_hohmann_phase_angle_deg(home: str, target: str) -> float:
     return phase - 180.0
 
 
+# padAlignLaunchPhaseNearIdeal tolerance (degrees). Generous by design: the
+# classical circular-coplanar ideal is itself ~2-3 deg off the true optimum
+# for Duna's e=0.051, the pad jump undershoots the window by
+# padAlignMarginSeconds (~0.03 deg of drift), and ascent+circularize+plan
+# add < 0.4 deg worst case -- while the failure this row exists to name (a
+# drifted STOCK_HELIO_ELEMENTS constant, a broken window solve) moves the
+# launch phase by TENS of degrees.
+PAD_ALIGN_PHASE_TOLERANCE_DEG = 15.0
+
+
 def next_ejection_window_ut(home: str, target: str, from_ut: float) -> float:
     """The next UT at/after ``from_ut`` when the home->target phase angle
     equals the classical Hohmann departure angle. Coarse forward scan on the
@@ -1866,9 +1883,10 @@ def next_ejection_window_ut(home: str, target: str, from_ut: float) -> float:
                     lo, lo_err = mid, mid_err
             return 0.5 * (lo + hi)
         prev_ut, prev_err = ut, err
-    # By construction unreachable (one crossing per synodic period); return
-    # the scan limit rather than raising so a caller can still fail loudly
-    # with a NAMED give-up.
+    # By construction unreachable (one crossing per synodic period). Return
+    # the scan limit: PRELAUNCH would jump there and launch off-phase, and
+    # the padAlignLaunchPhaseNearIdeal assertion row is the NAMED give-up
+    # that reds that flight (phase at launch vs the classical ideal).
     return limit
 
 
@@ -9416,11 +9434,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 state, snapshot,
                 "vessel-lost (unreadable after repeated telemetry failures)")), []
 
-    # FROZEN-TELEMETRY vessel-lost detector. PRELAUNCH is exempt (the pad is
-    # legitimately static) and so is the LANDING tail's settled dwell -- see
-    # _B5_FROZEN_EXEMPT_PHASES for why a LANDED craft is the one case that can
-    # legitimately reproduce the dead-vessel signature. Both exemptions are
-    # unreachable for every non-landing mission.
+    # FROZEN-TELEMETRY vessel-lost detector. Three exemptions: PRELAUNCH and
+    # PAD-ALIGN (the pad is legitimately static, including through the pad
+    # jump's seam round trip -- PAD-ALIGN is reachable on any
+    # pad_align_ejection lane, landing or not) and the LANDING tail's settled
+    # dwell -- see _B5_FROZEN_EXEMPT_PHASES for why a LANDED craft can
+    # legitimately reproduce the dead-vessel signature. The landing
+    # exemptions are unreachable for every non-landing mission.
     if (state.phase != B5_PRELAUNCH
             and state.phase not in _B5_FROZEN_EXEMPT_PHASES):
         limit = state.params.frozen_sample_limit
@@ -9547,11 +9567,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         ]
 
     if state.phase == B5_PLAN_TRANSFER:
-        # PAD-ALIGN window guard: an ejection node further ahead than the
-        # guard means the pad jump MISSED the window (bad ephemeris constant
-        # or margin) -- name it NOW instead of letting the NodeExecutor
-        # autowarp the recording through a parking-orbit wait, which is the
-        # exact loiter this mode exists to remove.
+        # PAD-ALIGN window guard. What it CAN catch: the ASAP selector
+        # regressing (wait_for_phase_angle accidentally ON plans the node up
+        # to a whole phase wait ahead) -- name that NOW instead of letting
+        # the NodeExecutor autowarp the recording through the parking-orbit
+        # loiter this mode exists to remove. What it CANNOT catch: an
+        # ephemeris/phase miss -- decompiled MechJeb's ASAP pick lands
+        # burnUT within ONE PARK ORBIT (~2,000 s at the committed park)
+        # regardless of phase, far under any sane guard; a drifted constant
+        # is named by the padAlignLaunchPhaseNearIdeal row instead.
         if (state.params.pad_align_ejection
                 and snapshot.node_count >= 1
                 and _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut)
@@ -9561,8 +9585,9 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 state, peak_apoapsis=peak, done=True,
                 verdict=MISSION_ASSERT_FAIL,
                 loss_reason=("missed-ejection-window: planned ejection node "
-                             "is %.0f s ahead (guard %.0f s); the pad-align "
-                             "jump landed off-window (computed window UT "
+                             "is %.0f s ahead (guard %.0f s); the transfer "
+                             "plan waited for a phase window instead of "
+                             "planning ASAP (computed window UT "
                              "%.0f, jump target UT %.0f)"
                              % (snapshot.node_ut - snapshot.ut,
                                 state.params.pad_align_window_guard,
@@ -13055,6 +13080,31 @@ def evaluate_b5_assertions(frames, params: B5Params,
              "computedWindowUt": window_ut,
              "jumpIssued": bool(getattr(state, "pad_align_jump_issued", False)),
              "maxLaunchToNodeSeconds": params.pad_align_window_guard})]
+        # The EPHEMERIS-DRIFT row: the in-flight window guard structurally
+        # cannot see a phase miss (ASAP plans within one park orbit
+        # regardless), so THIS is the named catch for a drifted
+        # STOCK_HELIO_ELEMENTS constant or a broken window solve -- the
+        # measured phase angle at LAUNCH must sit near the classical ideal.
+        # Fails CLOSED on a missing launch stamp or unknown body.
+        phase_at_launch = None
+        ideal_phase = None
+        phase_met = False
+        if launch_ut is not None:
+            try:
+                phase_at_launch = interplanetary_phase_angle_deg(
+                    params.home_body, params.target_body, float(launch_ut))
+                ideal_phase = classical_hohmann_phase_angle_deg(
+                    params.home_body, params.target_body)
+                err = math.fmod(
+                    phase_at_launch - ideal_phase + 540.0, 360.0) - 180.0
+                phase_met = abs(err) <= PAD_ALIGN_PHASE_TOLERANCE_DEG
+            except ValueError:
+                phase_met = False
+        pad_rows.append(AssertionOutcome(
+            "padAlignLaunchPhaseNearIdeal", phase_met, phase_at_launch,
+            {"idealPhaseDeg": ideal_phase,
+             "toleranceDeg": PAD_ALIGN_PHASE_TOLERANCE_DEG,
+             "launchUt": launch_ut}))
 
     if params.capture_enabled and params.landing_enabled:
         # LANDING MODE (b13_mun_landing / b14_minmus_landing). Inherits the four
@@ -15641,8 +15691,8 @@ def evaluate_gs2_assertions(frames, params: Gs2Params, phases_reached=(),
 # MissionConfig seam verb (the switch re-aim engagement gates on), reads the
 # loop anchor UT off the seam response payload, and then dwells the (already
 # map-positioned) camera through three recorded-offset windows -- departure
-# (the Kerbin->Sun handoff), cruise, and arrival (the Sun->Duna handoff + the
-# parked tail) -- holding 1x inside each window. The inter-window legs are
+# (the Kerbin->Sun handoff), arrival (the Sun->Duna handoff), and the
+# parked tail -- holding 1x inside each window. The inter-window legs are
 # seam TimeJump EPOCH SHIFTS, not rails warps (flight 3, 2026-08-06_1845: the
 # parked-at-Duna vessel's altitude caps legal rails rates so low the 15.2M
 # game-s depart leg needed hours of wall clock; the TimeJump is instant and
@@ -15686,7 +15736,10 @@ class M3Params:
     park_offset: float            # recorded parked-tail UT - recording start UT
     loop_interval_seconds: float = 0.0   # 0 = leave the mission's interval alone
     dwell_lead: float = 120.0     # arrive this many game-s BEFORE each window
-    dwell_hold: float = 60.0      # game-s of 1x held INSIDE each window
+    dwell_hold: float = 300.0     # game-s of 1x; must SPAN the window
+                                  # instant (flight 5: [w-120, w-60] holds
+                                  # LEFT before each handoff; keep >= 2x
+                                  # dwell_lead so the instant is inside)
     camera_focus_body: str = "Duna"
     camera_pitch_deg: float = -60.0
     camera_heading_deg: float = 0.0
@@ -15709,7 +15762,7 @@ def m3_params_from_dict(params: Dict) -> M3Params:
         park_offset=float(params.get("parkOffsetSeconds", 0.0)),
         loop_interval_seconds=float(params.get("loopIntervalSeconds", 0.0)),
         dwell_lead=float(params.get("dwellLeadSeconds", 120.0)),
-        dwell_hold=float(params.get("dwellHoldSeconds", 60.0)),
+        dwell_hold=float(params.get("dwellHoldSeconds", 300.0)),
         camera_focus_body=str(params.get("cameraFocusBody", "Duna")),
         camera_pitch_deg=float(params.get("cameraPitchDeg", -60.0)),
         camera_heading_deg=float(params.get("cameraHeadingDeg", 0.0)),

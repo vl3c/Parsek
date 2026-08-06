@@ -16,22 +16,23 @@ id = "V2-loop-arrival-dwell"
 # verboseLogging are armed, so the probe/tracer emit the full Tier-A/B/C surface
 # across every dwell.
 #
-# THE FIRST FLIGHT IS A READING RUN, deliberately under-gated (the V1 calibration
-# discipline): it MEASURES (a) whether the loop's ghost renders at all at the
-# windows (the required ghosts>0 probe token is the one anti-vacuity pin), (b)
-# which mode the classifier picks for this member -- the [ReaimDiag] per-member
-# verdict and, if supported, the MissionLoopUnit ENGAGED line -- and (c) the
-# anomaly/parity behavior across both SOI handoffs. THE EXPECTED OUTCOME on the
-# known open defect ("Looped re-aim interplanetary transfer", option 3 deferred):
-# if re-aim ENGAGES, the arrival dwell should show the dead-end -- seam teleports
-# (gated icon-teleport / icon-off-orbit tokens with allowedAnomalies = []) and/or
-# the [ReaimSeam] jump lines -- and the RED is the lane earning its keep as the
-# armed regression target the deferred fix has been waiting for. Post-reading,
-# the GS-3 discipline applies: pin the measured divergence, arm the mode that
-# passes, and record the re-aim red (expectedFail) as the guard that flips when
-# the product fix lands. Do NOT relax the arrival criterion: the todo's
-# validation standard is the ENCOUNTER into the destination SOI, not a smaller
-# seam number.
+# FLOWN 2026-08-06 (nine runs; the six-finding ledger lives on the status-doc
+# row) and ARMED the same night on the three-run discipline (reading runs ->
+# armed PASS attempt 1 -> negative control correctly PARSEK-FAIL -> revert).
+# THE MEASURED OUTCOME: re-aim ENGAGES for this member (the required ENGAGED
+# pin below; plan.Supported=True, the property Duna One and Kerbal X #2 both
+# lacked), the engaged replay crosses BOTH recorded handoffs with a CLEAN
+# gated anomaly sweep at map scale, and the proto orbit hands into the DUNA
+# frame at arrival (the required body-orbit pin). The originally EXPECTED red
+# -- the "Looped re-aim interplanetary transfer" arrival dead-end -- did NOT
+# reproduce on this surface: the [ReaimSeam] teleport instrument lives on the
+# FLIGHT-scene engine path, which a map/TS dwell never drives. This spec is
+# therefore the ARMED REGRESSION FLOOR for the deferred option-3 fix, not its
+# reproduction: a red here is a REAL regression (engagement lost, the arrival
+# hand-off gone, an anomaly raise at a handoff, or new durable rows) -- never
+# a documented-expected calibration outcome. Do NOT relax a gate on a red;
+# diagnose it. The todo's validation standard for the eventual product fix
+# stays the ENCOUNTER into the destination SOI, on the FLIGHT surface.
 #
 # SPAN-CLOCK OFFSETS, pinned from the committed recording's own flown segment
 # table (recording start 4653504.304):
@@ -43,7 +44,7 @@ id = "V2-loop-arrival-dwell"
 # (the dwelledAllWindows row carries the stamped UTs for comparison).
 # =====================================================================================
 tier = "operator"
-description = "Arm mission-level loop on the committed duna-direct tree (MissionConfig seam verb) and dwell the map camera through the recorded Kerbin->Sun and Sun->Duna handoffs and the parked Duna tail with mapRenderTracing armed: the Tier-2 playback half of the re-aim option-3 validation lane. First flight is the reading run; the re-aim mode's arrival dead-end is the EXPECTED red."
+description = "Arm mission-level loop on the committed duna-direct tree (MissionConfig seam verb) and dwell the map camera through the recorded Kerbin->Sun and Sun->Duna handoffs and the parked Duna tail with mapRenderTracing armed: the Tier-2 playback half of the re-aim option-3 validation lane. Flown + armed 2026-08-06: re-aim engages, both handoffs sweep clean at map scale, and the Duna-frame arrival hand-off is a hard-required token - a red here is a real regression, not an expected calibration outcome."
 instanceProfile = "stock-minimal"
 tags = ["V2", "flown", "loop-arrival", "interplanetary", "reaim", "map-dwell"]
 
@@ -105,20 +106,19 @@ cameraTimeoutSeconds = 120
 # is what forced the legs off rails warp entirely.
 holdTimeoutSeconds   = 600
 
-# CLAIM-IS-NOT-GATE, reading-run minimalism (the V1 first-flight shape): only
-# the two cells the required tokens below actually gate. Everything this lane
-# will eventually claim (D6 loop-period-modes when a cycle demonstrably
-# elapses, D11 arrival cells, D14 duna-at-map) waits for the armed follow-up.
+# CLAIM-IS-NOT-GATE: only the cells the armed tokens below actually gate.
+# Richer claims (D6 loop-period-modes when a cycle demonstrably elapses,
+# D11 arrival cells) deliberately wait for a full-cycle observation.
 [dimensionsCovered]
 D14 = ["scene-map", "sandbox"]
 
 [expectations]
-# ARMED SWEEP, deliberately, even on the reading run: an anomaly raise at the
-# handoff dwells is EVIDENCE (V1's own first flights were "RED BY FINDING" and
-# that was called the intended shape of a calibration flight). Known residual
-# risk, accepted: the todo's post-cutover backlog lists an icon-off-orbit
-# ~1-3 deg residual on looped re-aim -- if it raises here, the red names it
-# and the follow-up pins it explicitly rather than pre-budgeting it away.
+# ARMED SWEEP: every reading run and the armed run swept CLEAN across both
+# handoff dwells, so an anomaly raise here is a regression, full stop. Known
+# residual risk, accepted: the todo's post-cutover backlog lists an
+# icon-off-orbit ~1-3 deg residual on looped re-aim -- it did NOT raise on
+# any V2 flight; if it ever does, the red names it and the follow-up pins it
+# explicitly rather than pre-budgeting it away.
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -151,7 +151,7 @@ committedTrees = { min = 1, max = 1 }
 trees          = { min = 1, max = 2 }
 
 [expectations.logContracts]
-# Reading-run pins, each sourced:
+# Armed pins, each sourced:
 #   "missionconfig applied:" -- the verb's own Info line (the arming evidence);
 #   "SetLoopEnabled: loop ON" -- the PRODUCTION MissionStore path fired;
 #   "[ReaimDiag] mission=" -- the per-member classifier verdict

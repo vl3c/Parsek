@@ -80,7 +80,7 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (loopOn && intervalSeconds > 0.0)
+            if (TestCommandMissionConfig.ShouldApplyInterval(loopOn, intervalSeconds))
             {
                 mission.LoopIntervalSeconds = intervalSeconds;
                 mission.LoopTimeUnit = LoopTimeUnit.Sec;
@@ -89,11 +89,6 @@ namespace Parsek.TestCommands
             MissionStore.SetLoopEnabled(mission, loopOn, currentUT,
                 RecordingStore.CommittedTrees);
 
-            // [ERS-exempt] Raw CommittedTrees/CommittedRecordings reads: the
-            // loop-unit builder's member indices are committed-LIST indices
-            // (the same alignment rationale as RouteOrchestrator's exemption);
-            // a supersede-aware ERS filter would re-index the list under the
-            // builder. File allowlisted in scripts/ers-els-audit-allowlist.txt.
             // Build the loop unit through the PRODUCTION single-selection door
             // (TryBuildLoopUnitForSelection: same pipeline the render seams
             // run) so the response carries the unit's ACTUAL span clock.
@@ -117,6 +112,13 @@ namespace Parsek.TestCommands
                 TransitedBodyRotationMode tbrMode =
                     ParsekSettings.Current?.TransitedBodyRotationMode
                     ?? TransitedBodyRotationMode.Loose;
+                // [ERS-exempt] The raw CommittedRecordings read below (the
+                // audited pattern; the CommittedTrees reads here and at the
+                // SetLoopEnabled call are not audited) feeds the loop-unit
+                // builder, whose member indices are committed-LIST indices -
+                // the RouteOrchestrator list-alignment rationale; an
+                // ERS-filtered list would re-index members under the builder.
+                // File allowlisted in scripts/ers-els-audit-allowlist.txt.
                 unitBuilt = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
                     mission, RecordingStore.CommittedTrees,
                     RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
@@ -187,6 +189,14 @@ namespace Parsek.TestCommands
                 return false;
             return !double.IsNaN(seconds) && !double.IsInfinity(seconds)
                 && seconds > 0.0;
+        }
+
+        /// <summary>The interval is configuration for the loop being SWITCHED
+        /// ON; a disable round trip must not rewrite persisted mission config
+        /// it is switching off.</summary>
+        internal static bool ShouldApplyInterval(bool loopOn, double seconds)
+        {
+            return loopOn && seconds > 0.0;
         }
     }
 }

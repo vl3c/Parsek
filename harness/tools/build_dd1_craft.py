@@ -96,10 +96,10 @@ HOW A FAILED FORGE RUN IS DIAGNOSED WITHOUT RE-DERIVING ANY OF THIS:
       = 5.63 t, dry 1.63 t; dv = 345 * 9.80665 * ln(5.63/1.63) = 4,193 m/s
       vacuum against a mission requirement of ~2,060 (ejection ~1,080 from a
       ~100 km park + corrections <= 450 per the B15 sizing + capture to a
-      300 km circular Duna park ~460 + trim ~70). Booster: TD-25 0.4 +
-      X200-16 9.0 + X200-32 18.0 + Skipper 3.0 + 4*0.078 winglet = 30.71 t;
-      pad mass 36.34 t; pad TWR = 650*(280/320) / (36.34*9.80665) = 1.60;
-      booster vacuum dv = 320 * 9.80665 * ln(36.34/12.34) = 3,390 m/s. The
+      300 km circular Duna park ~460 + trim ~70). Booster: TD-25 0.16 +
+      X200-16 9.0 + X200-32 18.0 + Skipper 3.0 + 4*0.078 winglet = 30.47 t;
+      pad mass 36.10 t; pad TWR = 650*(280/320) / (36.10*9.80665) = 1.61;
+      booster vacuum dv = 320 * 9.80665 * ln(36.10/12.10) = 3,429 m/s. The
       Terrier tops off the ascent; the margin left for the interplanetary
       legs stays > 1,700 m/s. If the forge or the B17 flight runs dry, this
       arithmetic (or the ascent-loss estimate ~3,400-3,500) was wrong.
@@ -130,6 +130,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -145,6 +146,16 @@ BASE_NAME = "bdock-forge-base"
 SHIP_NAME = "DD1 Duna Direct Probe"
 CRAFT_PATH = os.path.join(_HARNESS_ROOT, "fixtures", "saves", BASE_NAME,
                           "Ships", "VAB", SHIP_NAME + ".craft")
+# EVERY committed copy of the craft. The forge launches from
+# bdock-forge-base, but b17-duna-pad and duna-direct-recorded each carry
+# their own harvested copy under Ships/VAB -- and B17 boots b17-duna-pad,
+# so a drift gate that checks only the forge base would stay green while
+# the copy the nightly actually flies goes stale. --check and --write
+# both walk this whole list.
+COMMITTED_CRAFT_PATHS = tuple(
+    os.path.join(_HARNESS_ROOT, "fixtures", "saves", base,
+                 "Ships", "VAB", SHIP_NAME + ".craft")
+    for base in (BASE_NAME, "b17-duna-pad", "duna-direct-recorded"))
 
 # Root placement (assumption A1).
 ROOT_Y = 15.0
@@ -208,7 +219,14 @@ _PART_UID = {
     "wing3": 4250000043,
 }
 assert max(_PART_UID.values()) <= 0xFFFFFFFF, "part uid exceeds UInt32"
+assert len(set(_PART_UID.values())) == len(_PART_UID), \
+    "duplicate part uid: part references would be ambiguous"
 _PERSISTENT_ID = {k: 1600000000 + i * 7717 for i, k in enumerate(sorted(_PART_UID))}
+# The UInt32 ceiling applies to EVERY id kRPC/KSP parses, not just part
+# uids: the per-part persistentIds and the ship-level persistentId ride the
+# same parse (the original >UInt32 uids cost a live forge run).
+assert max(_PERSISTENT_ID.values()) <= 0xFFFFFFFF, \
+    "persistentId exceeds UInt32"
 
 # THE STAGING TABLE (assumption A3). KSP fires stages in DESCENDING istg
 # order: istg 1 ignites the Skipper on the pad click; istg 0 fires the TD-25
@@ -538,6 +556,23 @@ def verify(lines):
     """Every post-condition the craft must satisfy. Returns a list of
     problems (empty = good). Pure text, no KSP."""
     problems = []
+    # Reference resolvability: every link/sym/attN/srfN target must be a
+    # declared part. Part names are dot-form in a .craft, so 'name_uid' has
+    # exactly one underscore and parses unambiguously.
+    declared = set()
+    for ln in lines:
+        m = re.match(r"\s*part = ([^_\s]+_\d+)\s*$", ln)
+        if m:
+            declared.add(m.group(1))
+    for ln in lines:
+        m = re.match(r"\s*(link|sym) = ([^_\s]+_\d+)\s*$", ln)
+        if m and m.group(2) not in declared:
+            problems.append("%s references undeclared part %s"
+                            % (m.group(1), m.group(2)))
+        m = re.match(r"\s*(attN|srfN) = [^,]+,([^_\s|]+_\d+)", ln)
+        if m and m.group(2) not in declared:
+            problems.append("%s references undeclared part %s"
+                            % (m.group(1), m.group(2)))
     text = "\n".join(lines)
     if not lines or not lines[0].startswith("ship = %s" % SHIP_NAME):
         problems.append("first line must be `ship = %s`" % SHIP_NAME)
@@ -643,25 +678,28 @@ def main(argv=None) -> int:
 
     built = build()
     if args.write:
-        os.makedirs(os.path.dirname(CRAFT_PATH), exist_ok=True)
-        # CRLF, matching what KSP itself writes on Windows and what the
-        # sibling committed craft carry. read_lines normalizes, so the drift
-        # comparison is line-based either way.
-        with open(CRAFT_PATH, "w", encoding="utf-8", newline="\r\n") as fh:
-            fh.write("\n".join(built))
-        sys.stdout.write("[DD1Craft] wrote %s (%d lines)\n"
-                         % (CRAFT_PATH, len(built)))
+        for path in COMMITTED_CRAFT_PATHS:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            # CRLF, matching what KSP itself writes on Windows and what the
+            # sibling committed craft carry. read_lines normalizes, so the
+            # drift comparison is line-based either way.
+            with open(path, "w", encoding="utf-8", newline="\r\n") as fh:
+                fh.write("\n".join(built))
+            sys.stdout.write("[DD1Craft] wrote %s (%d lines)\n"
+                             % (path, len(built)))
 
     problems = verify(built)
-    if os.path.isfile(CRAFT_PATH):
-        committed = read_lines(CRAFT_PATH)
-        problems.extend(verify(committed))
-        if committed != built:
-            problems.append("the committed craft has DRIFTED from what this "
-                            "script produces; re-run with --write and "
-                            "commit, or explain the divergence")
-    else:
-        problems.append("committed craft not found at %s" % CRAFT_PATH)
+    for path in COMMITTED_CRAFT_PATHS:
+        if os.path.isfile(path):
+            committed = read_lines(path)
+            problems.extend(verify(committed))
+            if committed != built:
+                problems.append("the committed craft at %s has DRIFTED from "
+                                "what this script produces; re-run with "
+                                "--write and commit, or explain the "
+                                "divergence" % path)
+        else:
+            problems.append("committed craft not found at %s" % path)
 
     for problem in problems:
         sys.stdout.write("[DD1Craft] PROBLEM: %s\n" % problem)
