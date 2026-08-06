@@ -103,8 +103,16 @@ steps = [
 # eject on the next plan. The low park also makes the ejection marginally cheaper.
 targetApoapsisMeters       = 100000
 targetPeriapsisMeters      = 100000
-apoErrorMeters             = 5000
-periErrorMeters            = 5000
+apoErrorMeters             = 15000
+# MEASURED, flight 1 (2026-08-05_2143 + _2253, both attempts): the DD1's
+# hot-staged Terrier ascent + MechJeb circularization delivers 106.7 x 92.8 km
+# (ecc 0.010) against the 100 km target, and the original 5,000 m floors sat
+# the machine in CIRCULARIZE at 1x until the wall budget died. The gates are
+# ENTRY sanity floors, not the roundness contract -- parkTrimEccMax = 0.02 is
+# the roundness contract (flight 1's 0.010 already passes it) -- so they are
+# widened to admit the measured profile (B16's equivalent window is ~21% of
+# target; these are 15-20%).
+periErrorMeters            = 20000
 ascentTimeoutSeconds       = 2400
 circularizeTimeoutSeconds  = 12000
 # The B15 lesson, applied from day one: an eccentric park breaks MechJeb's
