@@ -85,7 +85,10 @@ departOffsetSeconds  = 89448.917
 arriveOffsetSeconds  = 4474604.451
 parkOffsetSeconds    = 4506361.140
 dwellLeadSeconds     = 120
-dwellHoldSeconds     = 60
+# The hold must SPAN the window (flight 5: holds of [window-120, window-60]
+# left the map BEFORE each handoff instant, so the seam crossing itself was
+# never watched). 300 s dwells [window-120, window+180] at 1x.
+dwellHoldSeconds     = 300
 cameraFocusBody      = "Duna"
 cameraPitchDeg       = -60
 cameraHeadingDeg     = 0
@@ -118,9 +121,21 @@ D14 = ["scene-map", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The committed fixture's two recordings; the dwell must add none
-# (autoRecordOnLaunch pinned off, nothing launches).
-count = { min = 2, max = 2 }
+# The fixture's two committed recordings PLUS the scene-entry promotion stub:
+# loading this save with its own parked craft active makes the committed-tree
+# restore path resume recording ~1 s into the scene (flights 4-5, measured:
+# 'Recording started: ... promotion, treeRec=rec[311d98e3...]'), the harness
+# steps stop it within a frame (2-point stub), and DiscardTree rightly answers
+# nothing (it is a restore attempt, not a plain active tree). The stub is what
+# ANY load of this fixture produces; the CLEANLINESS claim lives in the
+# structure block below (exactly ONE committed tree - the stub never commits).
+count = { min = 2, max = 3 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the arming pass (the standing discipline): the windows the
+# arming run must satisfy are exactly these - the dwell commits NOTHING new.
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
 
 [expectations.logContracts]
 # Reading-run pins, each sourced:
