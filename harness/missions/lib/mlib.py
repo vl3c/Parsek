@@ -15782,7 +15782,16 @@ def _m3_hold_step(state: M3State, snapshot: TelemetrySnapshot,
         return stayed, actions
     if (snapshot.ut - stayed.hold_started_ut) >= stayed.params.dwell_hold:
         return _m3_enter(stayed, next_phase, snapshot.ut), []
-    if _m3_over_budget(stayed, snapshot, stayed.params.hold_timeout):
+    # The stall budget runs from the HOLD STAMP, deliberately not from phase
+    # entry: HOLD-PARK warps to its window INSIDE the phase (the first V2
+    # reading flight, 2026-08-06_1732/_1741: a 31,756 s in-phase warp wait
+    # made a phase-entry budget fire on the very frame the stamp landed,
+    # with zero hold time accumulated -- the machine's own bug, not the
+    # game's). A frozen/cancel-ignored hold still trips this within
+    # hold_timeout of the stamp.
+    if (_is_finite(snapshot.ut)
+            and (snapshot.ut - stayed.hold_started_ut)
+            > stayed.params.hold_timeout):
         return _m3_flake(stayed, "dwell hold never accumulated its game time "
                                  "(warp cancel ignored?)"), []
     return stayed, []
@@ -15805,15 +15814,30 @@ def m3_decide(state: M3State, snapshot: TelemetrySnapshot
                             seam_args=tuple(args), seam_tag=M3_TAG_ARM)])
         result = _b5_seam_result(snapshot, M3_TAG_ARM)
         if result == "OK":
-            anchor_raw = _b5_seam_payload(snapshot, M3_TAG_ARM, "anchorUt")
+            # THE UNIT PHASE ANCHOR, not the arm-time LoopAnchorUT. Measured
+            # on the first V2 reading flight (2026-08-06_2053): a re-aim-
+            # ENGAGED unit phase-locks its span clock to the NEXT faithful
+            # launch window (phaseAnchorUT ~24.3M vs LoopAnchorUT ~9.16M),
+            # and a dwell riding the arm-time anchor watched 127 probe frames
+            # of EMPTY map. The identity that DOES hold (verified against the
+            # ENGAGED line: phaseAnchor + departOffset == D0 to the ms) is
+            # window = phaseAnchorUt + recorded offset -- one formula for
+            # both modes.
+            built_raw = _b5_seam_payload(snapshot, M3_TAG_ARM, "unitBuilt")
+            if built_raw != "true":
+                return _m3_flake(state, "MissionConfig armed the loop but the "
+                                        "loop unit did not build "
+                                        "(unitBuilt=%r); no span clock to "
+                                        "dwell against" % (built_raw,)), []
+            anchor_raw = _b5_seam_payload(snapshot, M3_TAG_ARM, "phaseAnchorUt")
             try:
                 anchor = float(anchor_raw)
             except (TypeError, ValueError):
                 anchor = float("nan")
             if not _is_finite(anchor):
                 return _m3_flake(state, "MissionConfig answered OK but the "
-                                        "anchorUt payload was unreadable: %r"
-                                        % (anchor_raw,)), []
+                                        "phaseAnchorUt payload was unreadable: "
+                                        "%r" % (anchor_raw,)), []
             armed = replace(state, anchor_ut=anchor)
             return (_m3_enter(armed, M3_CAMERA, snapshot.ut),
                     [Action(ACTION_CAMERA_SET_MAP),

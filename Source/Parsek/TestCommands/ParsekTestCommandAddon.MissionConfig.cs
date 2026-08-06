@@ -87,12 +87,50 @@ namespace Parsek.TestCommands
             MissionStore.SetLoopEnabled(mission, loopOn, currentUT,
                 RecordingStore.CommittedTrees);
 
+            // Build the loop unit through the PRODUCTION single-selection door
+            // (TryBuildLoopUnitForSelection: same pipeline the render seams
+            // run) so the response carries the unit's ACTUAL span clock.
+            // Load-bearing for the dwell lane, measured on the first V2
+            // reading flight: a re-aim-ENGAGED unit phase-locks its anchor to
+            // the NEXT faithful launch window (phaseAnchorUT ~24.3M on a save
+            // whose arm-time LoopAnchorUT was ~9.16M), so a consumer that
+            // dwells at LoopAnchorUT-relative windows watches an empty map.
+            // Parameter sourcing mirrors ParsekFlight.DriveMissionLoopUnits
+            // exactly (settings-derived interval + rotation mode, the live
+            // body seam).
+            bool unitBuilt = false;
+            double phaseAnchorUt = double.NaN;
+            double spanStartUt = double.NaN;
+            double cadenceSeconds = double.NaN;
+            if (loopOn)
+            {
+                double autoLoopIntervalSeconds =
+                    ParsekSettings.Current?.autoLoopIntervalSeconds
+                    ?? LoopTiming.DefaultLoopIntervalSeconds;
+                TransitedBodyRotationMode tbrMode =
+                    ParsekSettings.Current?.TransitedBodyRotationMode
+                    ?? TransitedBodyRotationMode.Loose;
+                unitBuilt = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
+                    mission, RecordingStore.CommittedTrees,
+                    RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
+                    FlightGlobalsBodyInfo.Instance, tbrMode,
+                    out GhostPlaybackLogic.LoopUnit unit);
+                if (unitBuilt)
+                {
+                    phaseAnchorUt = unit.PhaseAnchorUT;
+                    spanStartUt = unit.SpanStartUT;
+                    cadenceSeconds = unit.CadenceSeconds;
+                }
+            }
+
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
                 "missionconfig applied: mission='{0}' tree={1} loop={2} " +
-                "intervalSeconds={3} anchorUt={4}",
+                "intervalSeconds={3} anchorUt={4} unitBuilt={5} phaseAnchorUt={6}",
                 mission.Name, treeArg, mission.LoopPlayback,
                 mission.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture),
-                mission.LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture)));
+                mission.LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture),
+                unitBuilt,
+                phaseAnchorUt.ToString("R", CultureInfo.InvariantCulture)));
 
             SetExecResult("OK", Payload(
                 Kv("mission", mission.Name ?? string.Empty),
@@ -101,7 +139,14 @@ namespace Parsek.TestCommands
                 Kv("intervalSeconds",
                     mission.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)),
                 Kv("anchorUt",
-                    mission.LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture))), null);
+                    mission.LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture)),
+                Kv("unitBuilt", unitBuilt ? "true" : "false"),
+                Kv("phaseAnchorUt",
+                    phaseAnchorUt.ToString("R", CultureInfo.InvariantCulture)),
+                Kv("spanStartUt",
+                    spanStartUt.ToString("R", CultureInfo.InvariantCulture)),
+                Kv("cadenceSeconds",
+                    cadenceSeconds.ToString("R", CultureInfo.InvariantCulture))), null);
         }
     }
 

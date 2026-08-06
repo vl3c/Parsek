@@ -65,9 +65,9 @@ class M3ArmLoopTests(unittest.TestCase):
         st, _ = mlib.m3_decide(mlib.m3_initial_state(params()), snap(ut=1.0))
         st, acts = mlib.m3_decide(st, snap(
             ut=2.0, seam_command_result="OK", seam_command_tag=mlib.M3_TAG_ARM,
-            seam_command_payload=(("anchorUt", "9160500.25"),)))
+            seam_command_payload=(("anchorUt", "9160500.25"), ("unitBuilt", "true"), ("phaseAnchorUt", "24306580.07"),)))
         self.assertEqual(mlib.M3_CAMERA, st.phase)
-        self.assertEqual(9160500.25, st.anchor_ut)
+        self.assertEqual(24306580.07, st.anchor_ut)  # the UNIT phase anchor, never LoopAnchorUT
         kinds = [a.kind for a in acts]
         self.assertEqual([mlib.ACTION_CAMERA_SET_MAP,
                           mlib.ACTION_CAMERA_FOCUS_BODY,
@@ -77,7 +77,7 @@ class M3ArmLoopTests(unittest.TestCase):
         st, _ = mlib.m3_decide(mlib.m3_initial_state(params()), snap(ut=1.0))
         st, acts = mlib.m3_decide(st, snap(
             ut=2.0, seam_command_result="OK", seam_command_tag="othertag",
-            seam_command_payload=(("anchorUt", "5.0"),)))
+            seam_command_payload=(("anchorUt", "5.0"), ("unitBuilt", "true"), ("phaseAnchorUt", "5.0"),)))
         self.assertEqual(mlib.M3_ARM_LOOP, st.phase)
         self.assertFalse(st.done)
 
@@ -90,13 +90,24 @@ class M3ArmLoopTests(unittest.TestCase):
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
         self.assertIn("unknown-tree", st.flake_reason)
 
+    def test_unit_not_built_is_a_named_flake(self):
+        # A loop armed whose unit never builds has no span clock; dwelling
+        # against the arm-time anchor is exactly the first reading flight
+        # empty-map failure, so the machine names it instead.
+        st, _ = mlib.m3_decide(mlib.m3_initial_state(params()), snap(ut=1.0))
+        st, _ = mlib.m3_decide(st, snap(
+            ut=2.0, seam_command_result="OK", seam_command_tag=mlib.M3_TAG_ARM,
+            seam_command_payload=(("anchorUt", "1.0"), ("unitBuilt", "false"),)))
+        self.assertTrue(st.done)
+        self.assertIn("unit did not build", st.flake_reason)
+
     def test_unreadable_anchor_is_a_named_flake(self):
         st, _ = mlib.m3_decide(mlib.m3_initial_state(params()), snap(ut=1.0))
         st, _ = mlib.m3_decide(st, snap(
             ut=2.0, seam_command_result="OK", seam_command_tag=mlib.M3_TAG_ARM,
-            seam_command_payload=(("anchorUt", "bogus"),)))
+            seam_command_payload=(("anchorUt", "1.0"), ("unitBuilt", "true"), ("phaseAnchorUt", "bogus"),)))
         self.assertTrue(st.done)
-        self.assertIn("anchorUt", st.flake_reason)
+        self.assertIn("phaseAnchorUt", st.flake_reason)
 
 
 class M3DwellFlowTests(unittest.TestCase):
@@ -104,7 +115,7 @@ class M3DwellFlowTests(unittest.TestCase):
         st, _ = mlib.m3_decide(mlib.m3_initial_state(params()), snap(ut=1.0))
         st, _ = mlib.m3_decide(st, snap(
             ut=2.0, seam_command_result="OK", seam_command_tag=mlib.M3_TAG_ARM,
-            seam_command_payload=(("anchorUt", "10000.0"),)))
+            seam_command_payload=(("anchorUt", "9999.0"), ("unitBuilt", "true"), ("phaseAnchorUt", "10000.0"),)))
         return st
 
     def test_camera_gate_is_observed_not_commanded(self):
@@ -147,6 +158,34 @@ class M3DwellFlowTests(unittest.TestCase):
         st, _ = mlib.m3_decide(st, snap(ut=depart - 119.0))
         st, acts = mlib.m3_decide(st, snap(ut=depart - 119.0, warp_mode="RAILS"))
         self.assertIn(mlib.ACTION_CANCEL_WARP, [a.kind for a in acts])
+
+    def test_hold_park_survives_a_long_in_phase_warp_wait(self):
+        # The first V2 reading flight's machine bug, pinned: HOLD-PARK warps
+        # to its window INSIDE the phase, so the stall budget must run from
+        # the hold STAMP, never from phase entry (a 31,756 s warp wait made
+        # the old phase-entry budget fire with zero hold accumulated).
+        st = self._armed()
+        st, _ = mlib.m3_decide(st, snap(ut=3.0, camera_mode="Map"))
+        depart = 10000.0 + 89448.917
+        arrive = 10000.0 + 4474604.451
+        park = 10000.0 + 4506361.14
+        st, _ = mlib.m3_decide(st, snap(ut=depart - 119.0))
+        st, _ = mlib.m3_decide(st, snap(ut=depart - 119.0))
+        st, _ = mlib.m3_decide(st, snap(ut=depart - 50.0))
+        st, _ = mlib.m3_decide(st, snap(ut=arrive - 119.0))
+        st, _ = mlib.m3_decide(st, snap(ut=arrive - 119.0))
+        st, _ = mlib.m3_decide(st, snap(ut=arrive - 50.0))
+        self.assertEqual(mlib.M3_HOLD_PARK, st.phase)
+        # the long in-phase warp: many quiet frames, then arrival WAY past
+        # the 600 s hold budget as measured from phase entry
+        st, _ = mlib.m3_decide(st, snap(ut=arrive + 20000.0))
+        self.assertFalse(st.done, "waiting for the park warp must not flake")
+        st, _ = mlib.m3_decide(st, snap(ut=park + 1.0))     # stamp
+        self.assertFalse(st.done,
+                         "the stamp frame must not trip a phase-entry budget")
+        st, _ = mlib.m3_decide(st, snap(ut=park + 62.0))    # hold done
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
 
     def test_missing_window_stamp_fails_the_dwell_row_closed(self):
         p = params()
