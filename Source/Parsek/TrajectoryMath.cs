@@ -134,6 +134,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: enumerate the CROSS-BODY SOI seams of a recorded OrbitSegment
+        /// chain — every adjacent pair whose bodies differ and whose endUT /
+        /// startUT touch within <paramref name="adjacencyToleranceSeconds"/>.
+        /// Returns (indexBefore, indexAfter, seamUT) triples in recorded
+        /// order; seamUT is the AFTER segment's startUT (the instant the new
+        /// SOI's elements take over, which is where a playback seam teleport
+        /// would surface). Pairs separated by a gap wider than the tolerance
+        /// are NOT seams — a burn or a recording pause sits between them and
+        /// position continuity across it is not a recorded property.
+        ///
+        /// <para>
+        /// The soi-crossing-playback (D6) cells gate on this enumeration over
+        /// the looped-interplanetary corpus recording; headless generator
+        /// tests pin it against the fixture's two known seams. Same-body
+        /// adjacency (segment splits within one SOI) is deliberately excluded:
+        /// those boundaries are covered by the map-display carry helpers
+        /// above, and this enumerator's single job is the SOI handoff.
+        /// </para>
+        /// </summary>
+        internal static List<(int beforeIndex, int afterIndex, double seamUT)>
+            FindCrossBodySoiSeams(List<OrbitSegment> segments,
+                                  double adjacencyToleranceSeconds = 1.0)
+        {
+            var seams = new List<(int, int, double)>();
+            if (segments == null || segments.Count < 2)
+                return seams;
+            for (int i = 0; i + 1 < segments.Count; i++)
+            {
+                OrbitSegment before = segments[i];
+                OrbitSegment after = segments[i + 1];
+                if (string.IsNullOrEmpty(before.bodyName)
+                    || string.IsNullOrEmpty(after.bodyName)
+                    || string.Equals(before.bodyName, after.bodyName,
+                                     System.StringComparison.Ordinal))
+                    continue;
+                double gap = after.startUT - before.endUT;
+                if (!IsFinite(gap)
+                    || System.Math.Abs(gap) > adjacencyToleranceSeconds)
+                    continue;
+                seams.Add((i, i + 1, after.startUT));
+            }
+            return seams;
+        }
+
+        /// <summary>
+        /// Like <see cref="EvaluateOrbitSegmentAtUT"/> but EPOCH-CONSISTENT
+        /// across reference frames: resolves through stock
+        /// <c>Orbit.getTruePositionAtUT</c>, which recursively propagates the
+        /// REFERENCE BODY to the same UT (decompiled 1.12.5:
+        /// <c>getRelativePositionAtUT(UT).xzy + referenceBody.getTruePositionAtUT(UT)</c>),
+        /// where <c>getPositionAtUT</c> anchors at the body's CURRENT
+        /// position. The distinction is load-bearing exactly when two
+        /// evaluations at a RECORDED UT are compared across DIFFERENT bodies
+        /// -- the SoiCrossingPlayback seam cells' case: current-anchored
+        /// positions would disagree by each body's own displacement since the
+        /// recorded instant (millions of km), drowning the seam signal.
+        /// Same null/fail-closed contract as the sibling.
+        /// </summary>
+        internal static Vector3d? EvaluateOrbitSegmentTruePositionAtUT(
+            List<OrbitSegment> checkpoints,
+            double ut,
+            Func<string, CelestialBody> bodyResolver)
+        {
+            if (checkpoints == null || checkpoints.Count == 0) return null;
+            if (bodyResolver == null) return null;
+
+            OrbitSegment? maybeSeg = FindOrbitSegment(checkpoints, ut);
+            if (!maybeSeg.HasValue)
+            {
+                if (ut <= checkpoints[0].startUT)
+                    maybeSeg = checkpoints[0];
+                else
+                    maybeSeg = checkpoints[checkpoints.Count - 1];
+            }
+            OrbitSegment seg = maybeSeg.Value;
+            if (!HasUsableOrbitSegmentElements(seg))
+                return null;
+
+            CelestialBody body = bodyResolver(seg.bodyName);
+            if (object.ReferenceEquals(body, null)) return null;
+
+            try
+            {
+                Orbit orbit = new Orbit(
+                    seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch, body);
+                Vector3d pos = orbit.getTruePositionAtUT(ut);
+                if (double.IsNaN(pos.x) || double.IsNaN(pos.y) || double.IsNaN(pos.z))
+                    return null;
+                return pos;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Returns true when a stored Kepler segment has enough finite data to construct
         /// and propagate a KSP Orbit. Suborbital ellipses can have semi-major axes below
         /// the body's radius, so validity is intentionally independent of body radius.

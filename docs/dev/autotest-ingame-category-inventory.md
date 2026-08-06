@@ -1,4 +1,4 @@
-# In-game test category inventory (all 98 categories)
+# In-game test category inventory (all 99 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -161,6 +161,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
+| `SoiCrossingPlayback` | 3 | 0 | 3 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
@@ -188,11 +189,12 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **98 categories / 546 declarations**. Buckets **A 26 categories
-(189 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **34 of 98 categories**, up from 28
-(and from 8 two waves ago). Measured against declarations rather than categories,
-that is 314 of 546 inside a driven category (was 263; 125 two waves ago).
+Totals, re-derived: **99 categories / 549 declarations**. Buckets **A 27 categories
+(192 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **35 of 99 categories**, up from 34
+(the S1.8 SoiCrossingPlayback wave; before that 28, and 8 two waves earlier).
+Measured against declarations rather than categories, that is 317 of 549 inside a
+driven category (was 314; 263 the wave before).
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that

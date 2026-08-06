@@ -106,7 +106,8 @@ INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 # Keep in step with run.py's RP_SIDECAR_BY_PRESET (the fail-closed inject
 # postcondition) and scripts/inject-recordings.ps1's $injectFilterByPreset.
 INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
-                                        "rewind-crew-loss")
+                                        "rewind-crew-loss",
+                                        "looped-interplanetary")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
