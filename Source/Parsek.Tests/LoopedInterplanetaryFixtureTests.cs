@@ -35,6 +35,16 @@ namespace Parsek.Tests
             Assert.Equal(16, rec.OrbitSegments.Count);
             Assert.True(rec.LoopPlayback,
                 "the corpus recording must be flagged for loop playback");
+            // The flag alone is not enough: RecordingStore's load-time
+            // sanitizer clears it on any recording the PRODUCTION predicate
+            // calls non-loopable (measured on the S1.8 corpus's first flight:
+            // a pure orbital coast without launch identity lost the flag in
+            // game while this suite stayed green). Pin the predicate itself.
+            Assert.True(Recording.IsLoopableRecording(rec),
+                "the corpus recording must satisfy Recording.IsLoopableRecording "
+                + "(launch identity: Prelaunch start + a named launch site)");
+            Assert.Equal("Prelaunch", rec.StartSituation);
+            Assert.Equal("Launch Pad", rec.LaunchSiteName);
             Assert.Equal(LoopedInterplanetaryFixture.RecordingId, rec.RecordingId);
         }
 

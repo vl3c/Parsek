@@ -981,6 +981,8 @@ namespace Parsek.Tests.Generators
                 ExplicitStartUT = builder.GetStartUT(),
                 ExplicitEndUT = builder.GetEndUT(),
                 LoopPlayback = builder.GetLoopPlayback(),
+                LaunchSiteName = builder.GetLaunchSiteName(),
+                StartSituation = builder.GetStartSituation(),
                 LoopIntervalSeconds = builder.GetLoopIntervalSeconds(),
                 PlaybackEnabled = builder.GetPlaybackEnabled(),
                 VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),

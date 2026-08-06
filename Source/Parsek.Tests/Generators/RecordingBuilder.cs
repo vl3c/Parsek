@@ -30,6 +30,8 @@ namespace Parsek.Tests.Generators
         private bool loopPlayback;
         private double loopIntervalSeconds = 0.0;
         private string segmentPhase;
+        private string launchSiteName;
+        private string startSituation;
         private string segmentBodyName;
         private bool playbackEnabled = true;
         private List<string> recordingGroups = new List<string>();
@@ -328,6 +330,22 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithSegmentPhase(string phase)
         {
             segmentPhase = phase;
+            return this;
+        }
+
+        /// <summary>
+        /// Launch identity: what makes a recording LOOPABLE under the
+        /// production predicate (Recording.IsLoopableRecording: a named
+        /// launch site or a Prelaunch start). Without one of these,
+        /// RecordingStore.SanitizeNonLoopableLoopPlayback clears a stamped
+        /// LoopPlayback flag at load (a pure orbital coast is deliberately
+        /// non-loopable) -- measured on the S1.8 corpus's first flight.
+        /// </summary>
+        public RecordingBuilder WithLaunchIdentity(string launchSiteName,
+            string startSituation = "Prelaunch")
+        {
+            this.launchSiteName = launchSiteName;
+            this.startSituation = startSituation;
             return this;
         }
 
@@ -721,6 +739,10 @@ namespace Parsek.Tests.Generators
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 node.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
+            if (!string.IsNullOrEmpty(launchSiteName))
+                node.AddValue("launchSiteName", launchSiteName);
+            if (!string.IsNullOrEmpty(startSituation))
+                node.AddValue("startSituation", startSituation);
             node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
 
             if (!string.IsNullOrEmpty(parentRecordingId))
@@ -898,6 +920,10 @@ namespace Parsek.Tests.Generators
                 node.AddValue("chainBranch", chainBranch);
 
             node.AddValue("loopPlayback", loopPlayback.ToString());
+            if (!string.IsNullOrEmpty(launchSiteName))
+                node.AddValue("launchSiteName", launchSiteName);
+            if (!string.IsNullOrEmpty(startSituation))
+                node.AddValue("startSituation", startSituation);
             node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
 
             if (vesselSnapshot != null)
@@ -1003,6 +1029,8 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns whether loop playback is enabled.</summary>
         public bool GetLoopPlayback() => loopPlayback;
+        public string GetLaunchSiteName() => launchSiteName;
+        public string GetStartSituation() => startSituation;
 
         /// <summary>
         /// Returns the loop interval in seconds for serialization. When loop playback is

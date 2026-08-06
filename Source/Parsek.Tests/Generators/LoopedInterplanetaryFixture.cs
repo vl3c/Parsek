@@ -100,6 +100,12 @@ namespace Parsek.Tests.Generators
                 .WithRecordingGroup(GroupName)
                 .WithSegmentBodyName("Kerbin")
                 .WithLoopPlayback(true, 0.0)
+                // The flown recording's launch identity (verbatim from its
+                // sfs tree node: startSituation = Prelaunch, launchSiteName =
+                // Launch Pad) -- ALSO the production loopability predicate's
+                // satisfied clause: without it, SanitizeNonLoopableLoopPlayback
+                // clears the loop flag at load (measured, S1.8 flight 2).
+                .WithLaunchIdentity("Launch Pad")
                 .WithTerminalState((int)global::Parsek.TerminalState.Orbiting);
             foreach (object[] row in Segments)
             {

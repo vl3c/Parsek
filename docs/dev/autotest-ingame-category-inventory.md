@@ -161,7 +161,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
-| `SoiCrossingPlayback` | 3 | 0 | 3 | 0 | 0 | 3 | S1.8 | A |
+| `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |

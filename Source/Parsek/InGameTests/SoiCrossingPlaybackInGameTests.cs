@@ -29,7 +29,11 @@ namespace Parsek.InGameTests
     /// </para>
     ///
     /// <para>
-    /// Every cell self-skips (never asserts against an assumed context) when
+    /// Cells are FLIGHT-scene because the S1.4-family injected-corpus template
+    /// (gloops-airshow) boots into FLIGHT (measured: the first reading run
+    /// scene-skipped all three as SPACECENTER, and the pinned skipped=0 tally
+    /// red the run -- the anti-vacuity gate working). Every cell self-skips
+    /// (never asserts against an assumed context) when
     /// the corpus recording is absent: the cells are meaningful only on a
     /// save injected with the looped-interplanetary preset.
     /// </para>
@@ -80,7 +84,7 @@ namespace Parsek.InGameTests
             return FlightGlobals.Bodies.Find(b => b != null && b.bodyName == name);
         }
 
-        [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.SPACECENTER,
+        [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.FLIGHT,
             Description = "The looped-interplanetary corpus recording is present, loopable, and its OrbitSegment chain carries EXACTLY the two flown cross-body SOI seams (Kerbin->Sun, Sun->Duna) via the pure seam enumerator the other cells gate on.")]
         public static void CorpusRecordingCarriesBothSoiSeams()
         {
@@ -119,7 +123,7 @@ namespace Parsek.InGameTests
                 rec.StartUT, rec.EndUT));
         }
 
-        [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.SPACECENTER,
+        [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.FLIGHT,
             Description = "GATING seam-continuity assertion (D6 soi-crossing-playback): at each recorded cross-body SOI handoff, the production segment resolution (EvaluateOrbitSegmentAtUT over each side's segment) yields world positions that agree within the seam tolerance -- the property whose ABSENCE is the re-aim dead-end defect (~1-SOI-radius teleports, four orders of magnitude above this tolerance).")]
         public static void SoiSeamWorldPositionsAreContinuous()
         {
@@ -172,7 +176,7 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.SPACECENTER,
+        [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.FLIGHT,
             Description = "GATING arrival assertion (D6 soi-crossing-playback): at arrival UT the resolved position sits INSIDE the destination (Duna) SOI, and the covering segment IS Duna-bodied -- the todo entry's validation criterion is the ENCOUNTER into the destination SOI, not a seam number.")]
         public static void ArrivalResolvesInsideDestinationSoi()
         {

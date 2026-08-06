@@ -8,8 +8,8 @@ id = "S1.8-soi-crossing-playback"
 # WHAT THIS GATES. The injected corpus recording is the REAL flown duna-direct
 # Kerbin -> Sun -> Duna geometry (byte-pinned from the committed
 # duna-direct-recorded fixture by LoopedInterplanetaryFixture; see its provenance +
-# deliberate no-rebase contract). Three SPACECENTER cells (category
-# SoiCrossingPlayback) drive the PRODUCTION segment position-resolution seam
+# deliberate no-rebase contract). Three FLIGHT-scene cells (category
+# SoiCrossingPlayback; the corpus template boots into FLIGHT) drive the PRODUCTION segment position-resolution seam
 # (TrajectoryMath.FindOrbitSegment* + EvaluateOrbitSegmentTruePositionAtUT) and
 # assert, GATING:
 #   - the pure seam enumerator finds EXACTLY the two flown cross-body handoffs
@@ -79,7 +79,7 @@ allowedAnomalies = []
 count = { min = 1, max = 1 }
 
 [expectations.logContracts]
-# The WHOLE tally, pinned pre-flight from the source derivation (3 SPACECENTER
+# The WHOLE tally, pinned pre-flight from the source derivation (3 FLIGHT-scene
 # cells, none batch-disabled): total=3 is kept in step with the C# attributes
 # by CommittedBatchTallySourceSyncTests' sweep, and skipped=0 is the
 # anti-vacuity half (a self-skipped cell means the injection never landed --
@@ -87,7 +87,7 @@ count = { min = 1, max = 1 }
 # own measured evidence (seam gaps + arrival distances), required so the
 # reading run's numbers are always in the collected log.
 required  = [
-  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SoiCrossingPlayback scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SoiCrossingPlayback scene=FLIGHT",
   "seam Kerbin->Sun ut=4742953.221 gap=",
   "seam Sun->Duna ut=9128108.755 gap=",
   "arrival probe ut=",
