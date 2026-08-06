@@ -61,7 +61,14 @@ mission = "m3_loop_arrival_dwell"
 
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
-  # No stray recording may dirty the committed corpus while the dwell runs.
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (flight 4, 2026-08-06_2219: the
+  # parked DD1 auto-resumes recording ~1 s into the scene, BEFORE any step can
+  # run, and its sidecar flush made recordings.count read 3). StopRecording is
+  # idempotent-OK by construction (the R1 note) and DiscardTree answers OK
+  # with nothing-discarded when no tree is live, so the pair is safe on any
+  # entry state; the SetSetting then keeps anything later from starting one.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   # Both tracer pins are load-bearing: the probe's frame/parity summary lines
   # are VerboseRateLimited, so verboseLogging=false would silence the exact
