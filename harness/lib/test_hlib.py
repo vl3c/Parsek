@@ -4583,8 +4583,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # discipline: reading runs first (the faithful half's clean sweep and
         # the re-aim half's EXPECTED PARSEK-FAIL(anomaly) are both
         # measurements), arming is the post-reading call.
-        "V3F-flight-arrival-faithful.toml": "reading-run instrument (calibration discipline); UNFLOWN, the faithful A/B baseline over the new forceFaithfulLoopPlayback knob",
-        "V3R-flight-arrival-reaim.toml":    "reading-run instrument (calibration discipline); UNFLOWN, the re-aim reproduction half - the expected red IS the deliverable (GS-3 inversion)",
+        "V3F-flight-arrival-faithful.toml": "operator by the calibration discipline; FLOWN 2026-08-07 PASS attempt 1 - the reading run measured the hidden-by-zone gate (vacuous for seams, decisive as a finding); keeps the knob mode-discrimination gate",
+        "V3R-flight-arrival-reaim.toml":    "operator by the calibration discipline; FLOWN 2026-08-07 PASS attempt 1 - expected red did not occur for the measured structural reason (hidden-by-zone); the GS-3 flip moved to V3C; keeps the ENGAGED mode gate",
+        "V3C-flight-arrival-companion.toml": "reading-run instrument (calibration discipline); THREE reading attempts flown 2026-08-07 (run 1 green-but-vacuous: cycle misalignment; runs 2a/2b INVALID: trace REACHED (dist[] x48) but the cycle-2 encounter missed) - encounter tuning is the documented next step",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human

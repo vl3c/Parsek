@@ -7,29 +7,26 @@ id = "V3R-flight-arrival-reaim"
 # line at map scale), and the dwell traverses both recorded SOI handoffs ON THE
 # FLIGHT-SCENE ENGINE PATH, where the 2026-06-15 defect lives.
 #
-# THE EXPECTED OUTCOME, stated before the first flight: the "Looped re-aim
-# interplanetary transfer" todo entry's forensics measured ~62-deg ghost
-# transform teleports at BOTH handoffs on this path (Kerbin->Sun jump=87.76 Mm =
-# 1.043x Kerbin SOI; Sun->Duna jump=49.19 Mm = 1.027x Duna SOI) -- the
-# center-to-center Lambert endpoint substitution, option-3 fix deferred. The NEW
-# Tier-C loop-seam-teleport instrument (floor 1,000 km, this lane) should raise
-# at both handoff seams, and on the READING run that raise reds the armed sweep:
-# PARSEK-FAIL(anomaly) IS the lane earning its keep (the GS-3 inversion). The
-# post-reading arming then flips this spec to the PINNED-REPRODUCTION shape:
-# tolerate the token explicitly (documented defect) AND REQUIRE the anomaly line,
-# so the spec goes green as "defect reproduced and pinned" and RED THE DAY THE
-# OPTION-3 FIX LANDS -- the mechanical flip that tells the fix author to claim it.
-#
-# IF IT DOES NOT REPRODUCE even here: that is a MAJOR finding that re-scopes the
-# 2026-06-15 defect (the map surface was already clean; a clean flight surface
-# too would mean the defect is confined to a path neither dwell drives, or was
-# fixed incidentally) -- bound what was measured, update the todo entry honestly,
-# and say so loudly. Do NOT relax the faithful baseline to match.
+# FLOWN 2026-08-07 (run 2026-08-07_2233, PASS attempt 1, 977 s) - and the
+# EXPECTED red did NOT occur, for a measured structural reason, not a fixed
+# defect: the reading run is VACUOUS for the seam question. The engine hides
+# a far loop ghost BEFORE positioning (GuardSkip hidden-by-zone x903; zero
+# [ReaimSeam] lines, zero dist[] samples - the trace that fired continuously
+# in the 2026-06-15 forensics never ran once), because the 2026-06-15
+# observer was FLYING ALONGSIDE the ghost while this dwell parks at Duna.
+# The defect is therefore NOT bounded by this run either way; its surface
+# needs the companion shape (V3C: a live craft inside the ghost's zone,
+# which run 2026-08-07_2324 PROVED reaches the trace - dist[] x48). What
+# this spec gates meanwhile: the classifier's ENGAGED verdict for this
+# member (required), FORCED FAITHFUL forbidden-absent, zero durable rows,
+# structure clean. The GS-3 pinned-reproduction flip described below MOVES
+# TO V3C; this spec stays the cheap engaged-mode discrimination gate.
+# Rewind/structure blocks stay REPORT-ONLY until the companion completes.
 # =====================================================================================
 tier = "operator"
 description = "FLIGHT-scene loop-arrival dwell over the committed duna-direct fixture in ENGAGED re-aim mode: TimeJump legs + 1x holds spanning both recorded SOI handoffs with ghostRenderTracing and the new loop-seam-teleport Tier-C instrument armed. The reproduction half of the A/B: the known re-aim seam teleport is EXPECTED to raise here, and the post-reading arming pins it as the regression target that flips when the option-3 fix lands."
 instanceProfile = "stock-minimal"
-tags = ["V3", "flight-arrival", "reaim", "interplanetary", "loop-dwell", "pending-flight"]
+tags = ["V3", "flight-arrival", "reaim", "interplanetary", "loop-dwell", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-direct-recorded"

@@ -1,0 +1,292 @@
+schema = 1
+id = "V3C-flight-arrival-companion"
+# =====================================================================================
+# V3C: the COMPANION FLIGHT -- the only shape that can reach the re-aim seam
+# defect's actual surface. V3F/V3R measured WHY a parked observer cannot: the
+# flight engine's zone LOD hides a far loop ghost BEFORE positioning
+# (GuardSkip reason=hidden-by-zone, 903 frames per dwell, both modes), so no
+# seam instrument can fire for it by construction. The 2026-06-15 forensics
+# fired because the PLAYER was flying a fresh Duna mission ALONGSIDE the
+# looped ghost -- this spec mechanizes exactly that: the flown B17 pad-align
+# mission (verbatim missionParams) flies a fresh DD1 to Duna while the
+# INJECTED looped-interplanetary recording (the same flown geometry, the
+# S1.8 corpus) replays ENGAGED RE-AIM beside it. Both the live craft and the
+# phase-locked ghost target the same next synodic window, so the live vessel
+# rides inside the ghost's zone through the transfer, the engine positions
+# the ghost every frame, and the [ReaimSeam] trace + the new Tier-C
+# loop-seam-teleport instrument finally sample the handoff seams.
+#
+# READING RUN, armed sweep: the EXPECTED outcome is the ~62-deg seam teleport
+# (87.76 Mm at Kerbin->Sun, 49.19 Mm at Sun->Duna, ~1.03-1.04x SOI) raising
+# loop-seam-teleport at one or both handoffs -> PARSEK-FAIL(anomaly) IS the
+# lane earning its keep (the GS-3 inversion; the post-reading arming pins the
+# reproduction as tolerate-plus-require). A clean sweep with the [ReaimSeam]
+# dist[] trace demonstrably LIVE would instead re-scope the 2026-06-15
+# defect honestly. A run where the trace never fires at the seam instants is
+# VACUOUS for the seam question (the V3F/V3R lesson) and must be treated as
+# a finding about zone reach, never as a clean bill.
+#
+# READING LEDGER (three attempts 2026-08-07, spec iterated once):
+#   Run 1 (2026-08-07_2257, PASS 913 s, the pre-cycle-alignment spec): GREEN
+#   BUT VACUOUS - the engaged anchor floors at the recording's SPAN END, so
+#   the ghost's cycle begins one synodic (D0=24,396,028.99) after the 4.65M
+#   window a fresh pad flies; the whole flight ended before the unit ever
+#   activated (unit-span-clock-unresolved x694, zero trace lines). That
+#   measurement produced the TimeJump-to-23.0M cycle alignment below.
+#   Run 2 attempts 1+2 (2026-08-07_2315/_2324, both INVALID MISSION-FLAKE):
+#   the cycle-aligned flight REACHED THE TRACE - [ReaimSeam] dist[] x48 with
+#   full Sun/Kerbin/Duna range readings while inside the ghost's zone
+#   (in/out churn: hidden-by-zone x290) - the FIRST time any unattended run
+#   drove the flight-engine seam surface. But the mission itself MISSED the
+#   Duna encounter at the cycle-2 window (post-apoapsis tgtD growing, COAST
+#   timeout at ~UT 34.2M): the B17 window solve + correction budget are
+#   tuned on the cycle-1 window, and Duna's e=0.051 makes window quality
+#   cycle-dependent. The seam instants were crossed out-of-zone, so the
+#   seams remain UNMEASURED. NEXT STEP (this spec stays reading-posture):
+#   encounter tuning for the ghost-cycle window - likely a wider correction
+#   budget or a planner-matched window solve - then the GS-3 pin.
+# =====================================================================================
+tier = "operator"
+description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside - the only shape that reaches the flight-engine seam surface (a parked observer is hidden-by-zone before positioning). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; the known ~62-deg handoff teleport is the EXPECTED red on this reading run."
+instanceProfile = "stock-minimal"
+tags = ["V3", "flight-arrival", "companion", "reaim", "interplanetary", "pending-flight", "reading-iteration"]
+
+[fixture]
+# Stamped by FORGE-b17-duna-pad + harvest_bdock_station.py --target-name
+# b17-duna-pad (see that spec's header for the exact command). The DD1 sits
+# PRELAUNCH on the pad, UNCREWED, in a sandbox save whose difficulty carries
+# requireSignalForControl = False (the A7 comm-link margin note).
+saveTemplate       = "fixtures/saves/b17-duna-pad"
+injectedRecordings = "looped-interplanetary"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b17_duna_direct"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header would be TOML-scoped into it and the spec would
+# validate as having zero steps).
+#
+# ONE commit, MID-MISSION (ORBIT-COMMIT). No post-mission CommitTree step -- the
+# B11/B12/B13 accounting rule: a second CommitTree against a no-longer-active tree
+# answers ERROR no-active-tree and would make every green flight driver-INVALID.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  # THE COMPANION ARM: loop the injected synthetic tree (the flown geometry)
+  # BEFORE launch, so the engaged unit phase-locks to the same next synodic
+  # window the pad-align mission is about to jump to and fly.
+  { cmd = "MissionConfig", args = { tree = "tree-loopedinterp0000000000000000dd17", loop = "true" }, expect = "OK" },
+  # FLIGHT-scene tracer (the loop-seam-teleport raise gate) + verbose floor.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # THE CYCLE ALIGNMENT (reading run 1, 2026-08-07_2257, measured): the
+  # engaged unit's phase anchor FLOORS AT THE RECORDING'S SPAN END (9.16M),
+  # so its replay cycle starts at D0=24,396,028.99 (anchor 24,299,389.85) -
+  # one synodic AFTER the 4.65M window a fresh pad flies. Run 1 flew the
+  # 4.65M window and ENDED before the ghost's cycle even began
+  # (unit-span-clock-unresolved x694; zero [ReaimSeam] lines - vacuous for
+  # the seam question). Jump the pad epoch to 23.0M so the pad-align machine
+  # targets the SAME 24.3M-family window the ghost replays, and the live
+  # craft flies alongside the engaged replay.
+  { cmd = "TimeJump", args = { ut = "23000000" },  expect = "OK", budget = 300 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 4200 },
+  # THE ARRIVAL-SEAM DWELL: the ghost's Sun->Duna handoff replays at
+  # anchor + arriveOffset = 24,299,389.85 + 4,474,604.45 = 28,773,994.30,
+  # ~an hour after the live craft parks at Duna. Bracket the instant with
+  # epoch jumps; the 1x frames between the step round trips carry the
+  # crossing, and a mid-hop crossing is still measured (the 49 Mm defect
+  # discontinuity clears the predicate's dt-scaled threshold at these hop
+  # sizes). The depart seam (24,388,838.77, mid-coast) is measured by the
+  # un-predicated [ReaimSeam] SEAM jump line instead - the Tier-C raise is
+  # warp-suppressed by design at coast warp.
+  { cmd = "TimeJump", args = { ut = "28773800" },  expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28773930" },  expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28774150" },  expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+# --- Ascent to a MINIMAL 100 km park. B7/B16 park at 700 km SOLELY to make the
+# WaitForPhaseAngle window wait warp-legal; B17 never waits (the pad jump killed
+# the wait), so the park is the cheapest legal one: circularize low, trim round,
+# eject on the next plan. The low park also makes the ejection marginally cheaper.
+targetApoapsisMeters       = 100000
+targetPeriapsisMeters      = 100000
+apoErrorMeters             = 15000
+# MEASURED, flight 1 (2026-08-05_2143 + _2253, both attempts): the DD1's
+# hot-staged Terrier ascent + MechJeb circularization delivers 106.7 x 92.8 km
+# (ecc 0.010) against the 100 km target, and the original 5,000 m floors sat
+# the machine in CIRCULARIZE at 1x until the wall budget died. The gates are
+# ENTRY sanity floors, not the roundness contract -- parkTrimEccMax = 0.02 is
+# the roundness contract (flight 1's 0.010 already passes it) -- so they are
+# widened to admit the measured profile (B16's equivalent window is ~21% of
+# target; these are 15-20%).
+periErrorMeters            = 20000
+ascentTimeoutSeconds       = 2400
+circularizeTimeoutSeconds  = 12000
+# The B15 lesson, applied from day one: an eccentric park breaks MechJeb's
+# ejection sizing (park_trim_verdict's measured 123 m/s shortfall); B7 never set
+# this and B17 must.
+parkTrimEccMax             = 0.02
+
+# --- PAD-ALIGN (the no-loiter mechanism; the four keys this lane adds).
+padAlignEjection           = true
+# Ascent (~600 game-s) + circularize/trim (~600) + plan latency, so the ejection
+# burn lands AT the window. A miss either side is priced into the correction
+# budget (roughly 65-70 m/s per degree of phase when corrected at round 0), never
+# waited out.
+padAlignMarginSeconds      = 1500
+padAlignTimeoutSeconds     = 300
+# 6 h: the named missed-window ASSERT-FAIL fires far below any autowarpable wait
+# (one synodic period is ~19.6M s) while admitting every healthy ASAP plan (the
+# decompiled burnUT pick is within ONE ~35-min park orbit). NOTE this value does
+# double duty: the machine guard measures node-vs-PLAN-TIME, while the
+# padAlignedDirectEjection row measures node-vs-LAUNCH (absorbing ascent +
+# circularize, worst-case ~14,700 game-s under the budgets above) -- keep it
+# comfortably above ascent+circularize+plan or a healthy slow flight could fail
+# the row while passing the guard.
+padAlignWindowGuardSeconds = 21600
+
+# --- Interplanetary transfer (B7's five, retargeted at Duna).
+targetBodyName             = "Duna"
+homeBodyName               = "Kerbin"
+interplanetaryTransfer     = true
+# "Sun" ONLY, deliberately NOT B16's ["Sun", "Mun"]: a Mun (or Minmus) transit on
+# the ejection leg would break the "clean direct" escape structure exactly the way
+# Ike breaks the arrival, so the machine's ejected-terminal ASSERT-FAIL plus the
+# forbidden tokens below make a moon graze a NAMED failure, not a legal via.
+viaBodyNames               = ["Sun"]
+returnBodyName             = "Sun"
+transferMinApoapsisMeters  = 0
+# Ejection burn-done evidence is the hyperbolic Kerbin-frame ecc. At a 100 km park
+# the Duna-transfer v-inf (~920 m/s) prices ecc-1 at ~0.16, so the B7 floor 1.05
+# discriminates cleanly.
+ejectionEccFloor           = 1.05
+# SMALL, deliberately (B16 uses 18,000,000 because its NodeExecutor autowarp
+# legitimately carries the window wait). B17's ejection node is minutes ahead by
+# construction; 20,000 game-s admits the aim + autowarp + burn with an order of
+# magnitude to spare while making a silently-waited window PHYSICALLY unable to
+# fit inside the phase budget -- the second structural no-loiter guard.
+transferBurnTimeoutSeconds = 20000
+
+# --- Correction rounds (time-to-SOI mode; the B7 shape, B15-sized budget).
+courseCorrectPeriapsisMeters = 300000
+maxCorrectionDvMps         = 450
+correctionTriggerAltsMeters       = []
+# Round 0 right after Sun-SOI entry: with an ASAP ejection the transfer reaches
+# Duna's ORBIT but not necessarily Duna (the pad jump owns the phase), so the
+# finding-18 no-encounter early trigger + this round CREATE the encounter
+# mid-course; round 1 at ~5.8 days out fine-tunes the arrival periapsis.
+correctionTriggerTimeToSoiSeconds = [20000000, 500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+coastTimeoutSeconds        = 9500000
+flybyTimeoutSeconds        = 600000
+coastWarpFactor            = 7
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# Duna's atmosphere tops out at 50 km; the sampled in-SOI floor must clear it
+# (an atmospheric graze would both perturb the trajectory and pollute the
+# recording with an Atmospheric section).
+targetPeriapsisFloorMeters = 55000
+
+# --- Capture + Ike-clear park + commit (B11/B12 tail, B16-proven after a
+# heliocentric traverse).
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 400000
+# The park IS the cleanliness contract in numbers: periapsis above the
+# atmosphere with margin, apoapsis far inside Ike's inner shell edge
+# (~1,830 km altitude), eccentricity tight enough that the committed orbit is a
+# real 300 km-class park rather than a grazing ellipse.
+parkMinPeriapsisMeters     = 120000
+parkMaxApoapsisMeters      = 1500000
+parkMaxEccentricity        = 0.2
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# --- Shared machine housekeeping.
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+# CLAIM-IS-NOT-GATE. Every value below is backed by a gate in THIS spec's own
+# contract: auto-record-launch by the Recording-started token + the SetSetting
+# step; commit-in-foreign-soi by the terminalOrbitBody=Duna commit token; the
+# D14 bodies by the SOI-traverse tokens; warp cells by the mission's rails/high
+# warp policy the machine cannot complete without (coast budget vs 1x is the
+# ~111-wall-hour arithmetic). NOT claimed, deliberately: D14 "ike" (this lane's
+# contract is Ike's ABSENCE), D14 "soi-count" (nothing here gates a count beyond
+# the two required transitions), and any Sun cell (the registry carries no sun
+# value; the B7 gap note).
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE, reading-run minimalism: the companion's coverage claims
+# wait for the armed follow-up; the subject flight's cells stay claimed by
+# B17 itself (this spec deliberately claims nothing it shares with B17).
+D14 = ["scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+allowedAnomalies = []
+
+[expectations.recordings]
+# Injected synthetic recording + the live flight's main recording + debris;
+# generous reading window (the exact census gets pinned from this run).
+count = { min = 2, max = 6 }
+
+[expectations.rewind]
+# REPORT-ONLY on the reading run.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+# Reading-run pins:
+#   the loop-arm evidence (missionconfig applied / SetLoopEnabled);
+#   the mode evidence: ReaimDiag classify + the ENGAGED line for the injected
+#     member (no mission-name prefix: the injected tree's default mission
+#     name is seeded, not pinned);
+#   FORCED FAITHFUL is forbidden (no knob step in this spec).
+# The subject flight's own health rides MISSION-OK; B17's commit/SOI tokens
+# stay B17's contract, deliberately not duplicated here.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "\\[ReaimDiag\\] mission=",
+  "ENGAGED re-aim Kerbin->Duna via Sun",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FORCED FAITHFUL",
+]
+
+[runtime]
+# The B16 arithmetic (same machine, same warp policy, one fewer autowarped wait):
+# LoadGame 240 + mission 4200 + fast tail verbs + margin.
+budgetSeconds = 4700
+
+[retry]
+# The single inbound Ike-shell transit is a real per-attempt encounter risk (the
+# measured B7 flake was ~50% per attempt at a 300 km flyby target; a capture lane
+# crosses the shell once, not twice, so the residual is smaller but not zero).
+# One retry keeps a phase-of-Ike loss from discarding an otherwise-green lane.
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -20,16 +20,21 @@ id = "V3F-flight-arrival-faithful"
 # samples EVERY orbit-segment change (faithful members included -- the
 # mode-agnostic tracker this lane added).
 #
-# READING RUN (V1/V2 calibration discipline): measures (a) whether the flight
-# engine positions the loop ghost at all this far from the active vessel at the
-# depart handoff (~10 Gm away; the anti-vacuity liveness token gets pinned from
-# what this run actually emits), (b) the faithful mode's seam behavior at both
-# handoffs under the armed sweep. EXPECTED: faithful seams are the recorded
-# ones -- S1.8 measured 10,146.3 / 7,284.0 m continuity, THREE orders below the
-# 1,000 km anomaly floor -- so the sweep should stay CLEAN and this spec arms as
-# the A/B baseline. A loop-seam-teleport raise HERE means faithful playback
-# itself teleports, which would be a brand-new product finding, not the known
-# re-aim defect.
+# FLOWN 2026-08-07 (run 2026-08-07_2214, PASS attempt 1, 978 s): the reading
+# run ANSWERED its own question (a) in the negative, and that answer is the
+# lane's first FLIGHT-surface finding. The engine NEVER positions the loop
+# ghost from a parked observer: GuardSkip reason=hidden-by-zone x903 (plus
+# mission-loop-unit-inactive / historical-not-replayed), and the zone hide
+# happens BEFORE PositionFromOrbit, so NO seam instrument can fire for a
+# hidden ghost by construction. The clean sweep is therefore VACUOUS for the
+# seam question - what this spec ACTUALLY gates, and gates well: the knob's
+# mode discrimination (FORCED FAITHFUL fired x2, ENGAGED forbidden-absent,
+# ReaimDiag proves the member is supported while faithful), zero durable
+# rows, structure clean, and no anomaly of any kind at 1x. The faithful
+# ENGINE-path seam baseline needs the companion shape (V3C) - a live craft
+# flying inside the ghost's zone - same as the re-aim half. Rewind/structure
+# blocks stay REPORT-ONLY until the companion completes and the pair's final
+# shape settles; arming before that would pin a spec about to be reshaped.
 #
 # SPAN-CLOCK OFFSETS: the recording's own flown segment table (start
 # 4653504.304) -- identical to V2's. Faithful anchors at
@@ -39,7 +44,7 @@ id = "V3F-flight-arrival-faithful"
 tier = "operator"
 description = "FLIGHT-scene loop-arrival dwell over the committed duna-direct fixture in FORCED FAITHFUL mode (the new forceFaithfulLoopPlayback knob): TimeJump legs + 1x holds spanning both recorded SOI handoffs with ghostRenderTracing and the new loop-seam-teleport Tier-C instrument armed. The A/B baseline half; a clean sweep here is the armed floor the re-aim half is measured against."
 instanceProfile = "stock-minimal"
-tags = ["V3", "flight-arrival", "faithful", "interplanetary", "loop-dwell", "pending-flight"]
+tags = ["V3", "flight-arrival", "faithful", "interplanetary", "loop-dwell", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-direct-recorded"
