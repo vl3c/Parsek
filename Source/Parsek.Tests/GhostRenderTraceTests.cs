@@ -625,6 +625,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SeamTeleport_BoundaryValues()
+        {
+            // Exactly at the 1,000 km floor: strict >, no raise.
+            Assert.False(SeamCall(GhostRenderTrace.LoopSeamTeleportFloorMeters));
+            Assert.True(SeamCall(GhostRenderTrace.LoopSeamTeleportFloorMeters + 1.0));
+            // Clock step exactly 60 s at small dt: NOT suppressed (strict >).
+            Assert.True(SeamCall(49_190_000.0, clockDelta: 60.0));
+            Assert.False(SeamCall(49_190_000.0, clockDelta: 60.0 + 1e-6));
+            // Paused / zero and negative real dt: suppressed.
+            Assert.False(SeamCall(49_190_000.0, dt: 0.0));
+            Assert.False(SeamCall(49_190_000.0, dt: -1.0));
+        }
+
+        [Fact]
         public void EmitAnomaly_CarriesSweepContractAndRoutesToInfo()
         {
             GhostRenderTrace.ForceEnabledForTesting = true;

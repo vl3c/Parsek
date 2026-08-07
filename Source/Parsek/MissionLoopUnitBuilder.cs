@@ -573,6 +573,7 @@ namespace Parsek
             // unsupported and loop faithfully alongside.
             ReaimMissionPlan plan = ReaimMissionPlan.Unsupported(null, "no member yields a re-aim transfer");
             List<OrbitSegment> transferSegments = null;
+            int supportedMemberIndex = -1;
             int gatheredCount = 0;
             for (int mi = 0; mi < memberIndices.Count; mi++)
             {
@@ -604,10 +605,11 @@ namespace Parsek
                     plan = mp;
                     transferSegments = msegs;
                     // The destination transfer member's committed index: the member whose OWN segments
-                    // classified Supported. This is the canonical transfer-member identity - the SAME
-                    // member that drives transferSegments / loiterRuns / descentRun / seamUT below - so
-                    // the loiter-gap clamp can gate on it exactly (excluding the ride-along probe).
-                    transferMemberIndex = midx;
+                    // classified Supported. Held LOCALLY here and published to the ref only in the
+                    // ENGAGED branch below - a forced-faithful unit must carry the classifier-decline
+                    // sentinel (-1) so nothing downstream can mistake it for a re-aim-shaped unit
+                    // (review finding, flight-arrival lane).
+                    supportedMemberIndex = midx;
                     // keep scanning only to finish the gatheredCount tally for the diagnostic
                 }
             }
@@ -624,6 +626,9 @@ namespace Parsek
             // auto-engaged build.
             if (plan.Supported && !forceFaithful)
             {
+                // Publish the transfer-member identity ONLY on the engaged path (see the
+                // classify-loop comment: forced-faithful keeps the decline sentinel).
+                transferMemberIndex = supportedMemberIndex;
                 // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
                 // (the bodies' relative configuration recurs every synodic period), and each
                 // window re-solves the transfer for the target's actual position using the
@@ -1195,9 +1200,10 @@ namespace Parsek
             else if (plan.Supported)
             {
                 // forceFaithfulLoopPlayback (product knob): the mission IS re-aim eligible but the
-                // player asked for the verbatim recorded trajectory on the loop clock. Leave EVERY
-                // ref sentinel untouched so the resulting unit is byte-identical to a classifier
-                // decline (faithful anchor = Math.Max(mission.LoopAnchorUT, spanEndUT), raw cadence,
+                // player asked for the verbatim recorded trajectory on the loop clock. Every ref
+                // sentinel stays untouched - INCLUDING transferMemberIndex, published only on the
+                // engaged path - so the resulting unit is byte-identical to a classifier decline
+                // (faithful anchor = Math.Max(mission.LoopAnchorUT, spanEndUT), raw cadence,
                 // no loiter cuts / launch hold / descent members). Info, not Verbose: this is a
                 // deliberate player choice that explains an otherwise surprising playback.
                 if (!SuppressLogging)

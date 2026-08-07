@@ -1220,6 +1220,9 @@ namespace Parsek.Tests
             Assert.Null(unit.ReaimSchedule);
             Assert.Null(unit.LoiterCuts);
             Assert.False(unit.LaunchHoldEngaged);
+            // The transfer-member identity must stay the classifier-DECLINE sentinel:
+            // a forced-faithful unit may not be re-aim-shaped anywhere downstream.
+            Assert.Equal(-1, unit.TransferMemberIndex);
             Assert.Equal(0.0, unit.ArrivalHoldSeconds);
             Assert.True(unit.DescentMemberIndices == null || unit.DescentMemberIndices.Length == 0,
                 "a forced-faithful unit must carry no descent members");

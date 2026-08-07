@@ -20926,14 +20926,23 @@ namespace Parsek
                 // teleport at a segment seam or an arrival where the target is NOT is visible in the log.
                 if (state.ghost != null)
                 {
-                    Vector3 ghostWorldPos = state.ghost.transform.position;
-                    if (traj is Parsek.Reaim.ReaimedTrajectory)
-                        LogReaimGhostTrace(index, seg, segmentIndex, ut, ghostWorldPos);
-                    // Mode-AGNOSTIC Tier-C seam-teleport instrument: unlike the
-                    // [ReaimSeam] verbose trace above, this samples FAITHFUL
-                    // members too, so a faithful-vs-re-aim A/B measures both
-                    // modes' seam behavior with the same predicate.
-                    TrackLoopSeamTeleport(index, traj, seg, segmentIndex, ut, ghostWorldPos);
+                    // The transform read stays inside the gated arms so a
+                    // tracing-off faithful ghost costs zero extra ECalls.
+                    bool isReaim = traj is Parsek.Reaim.ReaimedTrajectory;
+                    bool seamTracing = ParsekSettings.Current != null
+                        && ParsekSettings.Current.ghostRenderTracing;
+                    if (isReaim || seamTracing)
+                    {
+                        Vector3 ghostWorldPos = state.ghost.transform.position;
+                        if (isReaim)
+                            LogReaimGhostTrace(index, seg, segmentIndex, ut, ghostWorldPos);
+                        // Mode-AGNOSTIC Tier-C seam-teleport instrument: unlike the
+                        // [ReaimSeam] verbose trace above, this samples FAITHFUL
+                        // members too, so a faithful-vs-re-aim A/B measures both
+                        // modes' seam behavior with the same predicate.
+                        if (seamTracing)
+                            TrackLoopSeamTeleport(index, traj, seg, segmentIndex, ut, ghostWorldPos);
+                    }
                 }
             }
         }
