@@ -217,6 +217,18 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
     # Promoted 2026-08-04 (see the calibration evidence above).
     "icon-teleport", "icon-off-orbit", "gap-vs-retire", "decision-vs-old-truth",
     "clock-not-ready", "retire-not-held", "anchor-resolve-fail",
+    # Gated at birth 2026-08-07 (flight-arrival lane): the FLIGHT-scene
+    # loop-seam teleport instrument (GhostRenderTrace.EmitAnomaly, raised from
+    # ParsekFlight.TrackLoopSeamTeleport at orbit-segment changes, faithful
+    # AND re-aimed members). Calibration is the pure predicate itself
+    # (IsLoopSeamTeleport, unit-tested against the two measured populations:
+    # healthy seams 7-10 km vs the 49-88 THOUSAND km re-aim defect class,
+    # floor 1,000 km, warp-scaled expected-motion term, epoch-shift /
+    # stale-prev / floating-origin suppressions). ghostRenderTracing-gated,
+    # so only specs that arm that tracer can raise it; the V3 flight lanes
+    # arm the faithful baseline on allowedAnomalies=[] and the re-aim
+    # reproduction on an explicit documented tolerance + required token.
+    "loop-seam-teleport",
 )
 
 # GROUND TRUTH: every `reason=` token the mod raises from PRODUCTION code (outside

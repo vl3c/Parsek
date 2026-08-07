@@ -191,7 +191,9 @@ namespace Parsek.Tests
                 out Mission mission, out RecordingTree tree, out Recording rec);
             bool built = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
                 mission, new List<RecordingTree> { tree }, new List<Recording> { rec },
-                30.0, fake, TransitedBodyRotationMode.Loose,
+                // forceFaithful: false - this headless mirror measures the RE-AIM arrival-hold path,
+                // pinned exactly like the rotation mode beside it.
+                30.0, fake, TransitedBodyRotationMode.Loose, false,
                 out GhostPlaybackLogic.LoopUnit unit);
             Assert.True(built, "the real builder must resolve a loop unit for the shared joint fixture");
             return unit;

@@ -18637,6 +18637,10 @@ namespace Parsek
             // Zero-drift A/B flag: how a looped mission's transited-body landing rotation is treated.
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
+            // Force-faithful product knob: when on, a re-aim-SUPPORTED mission stays on the verbatim
+            // recorded trajectory instead of auto-engaging re-aim. Folded into the signature too, so
+            // flipping it in Settings rebuilds the cached set.
+            bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 
             // === Supply-route render union (Phase 3) ===
             // Append each ghost-driving route's route-owned backing Mission to a NEW unioned list
@@ -18653,11 +18657,13 @@ namespace Parsek
             unioned.AddRange(routeMissions);
 
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
+                forceFaithful);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                    unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
+                    forceFaithful);
                 lastLoopUnitSignature = signature;
                 // The committed set / missions changed: drop every cached per-window re-aim adapter so a
                 // stale window transfer can never survive a recording edit / re-classification.
@@ -20918,14 +20924,91 @@ namespace Parsek
 
                 // Re-aim seam/arrival diagnostic: trace the orbit-only re-aim ghost vs the live bodies so a
                 // teleport at a segment seam or an arrival where the target is NOT is visible in the log.
-                if (traj is Parsek.Reaim.ReaimedTrajectory && state.ghost != null)
-                    LogReaimGhostTrace(index, seg, segmentIndex, ut, state.ghost.transform.position);
+                if (state.ghost != null)
+                {
+                    Vector3 ghostWorldPos = state.ghost.transform.position;
+                    if (traj is Parsek.Reaim.ReaimedTrajectory)
+                        LogReaimGhostTrace(index, seg, segmentIndex, ut, ghostWorldPos);
+                    // Mode-AGNOSTIC Tier-C seam-teleport instrument: unlike the
+                    // [ReaimSeam] verbose trace above, this samples FAITHFUL
+                    // members too, so a faithful-vs-re-aim A/B measures both
+                    // modes' seam behavior with the same predicate.
+                    TrackLoopSeamTeleport(index, traj, seg, segmentIndex, ut, ghostWorldPos);
+                }
             }
         }
 
         // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
         private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> reaimLastGhostFrame
             = new Dictionary<int, (int, Vector3, double)>();
+
+        // Per-member last orbit-positioned ghost frame for the mode-agnostic
+        // loop-seam teleport instrument (Tier-C, ghostRenderTracing-gated;
+        // faithful AND re-aimed members). Unity frame number rides along so a
+        // hide/show gap suppresses the stale-prev comparison.
+        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT, double currentUT, int frame)>
+            loopSeamLastGhostFrame
+                = new Dictionary<int, (int, Vector3, double, double, int)>();
+
+        // Generous upper bound on a loop ghost's own speed (m/s), added to the
+        // segment body's orbital speed for the warp-scaled expected-motion term
+        // of the teleport threshold. Interplanetary coast speeds run ~3-12 km/s.
+        internal const double LoopSeamGhostSpeedAllowanceMps = 15_000.0;
+
+        /// <summary>
+        /// Loop-seam teleport tracker: on an orbit-segment change, measure the
+        /// ghost's world-position discontinuity and raise the Tier-C
+        /// <c>loop-seam-teleport</c> anomaly through
+        /// <see cref="GhostRenderTrace.EmitAnomaly"/> when
+        /// <see cref="GhostRenderTrace.IsLoopSeamTeleport"/> says the jump is
+        /// defect-class (floor 1,000 km vs the ~7-10 km healthy seams and the
+        /// ~1-SOI-radius defect population). Cheap early-out when
+        /// ghostRenderTracing is off; never throws.
+        /// </summary>
+        private void TrackLoopSeamTeleport(int memberIndex, IPlaybackTrajectory traj,
+            OrbitSegment seg, int segmentIndex, double loopUT, Vector3 ghostPos)
+        {
+            try
+            {
+                if (ParsekSettings.Current == null || !ParsekSettings.Current.ghostRenderTracing)
+                    return;
+                var ic = CultureInfo.InvariantCulture;
+                double nowUT = Planetarium.GetUniversalTime();
+                int frame = Time.frameCount;
+                if (loopSeamLastGhostFrame.TryGetValue(memberIndex, out var last)
+                    && last.segIdx != segmentIndex)
+                {
+                    double jump = (ghostPos - last.pos).magnitude;
+                    CelestialBody segBody = FlightGlobals.Bodies?.Find(
+                        b => b != null && b.bodyName == seg.bodyName);
+                    double bodySpeed = segBody != null && segBody.orbit != null
+                        ? segBody.orbit.orbitalSpeed
+                        : 0.0;
+                    if (GhostRenderTrace.IsLoopSeamTeleport(
+                            jump,
+                            bodySpeed + LoopSeamGhostSpeedAllowanceMps,
+                            nowUT - last.currentUT,
+                            frame,
+                            last.frame,
+                            ReFlySettleStabilityTracker.LastFloatingOriginShiftFrame,
+                            loopUT - last.loopUT))
+                    {
+                        double soi = segBody != null ? segBody.sphereOfInfluence : double.NaN;
+                        GhostRenderTrace.EmitAnomaly(
+                            traj.RecordingId, memberIndex, nowUT, loopUT,
+                            "loop-seam-teleport",
+                            "member=" + memberIndex.ToString(ic)
+                            + " seg=" + last.segIdx.ToString(ic) + "->" + segmentIndex.ToString(ic)
+                            + " body=" + (seg.bodyName ?? "<none>")
+                            + " jump=" + jump.ToString("F0", ic) + "m"
+                            + " soi=" + soi.ToString("F0", ic) + "m"
+                            + " reaim=" + (traj is Parsek.Reaim.ReaimedTrajectory ? "true" : "false"));
+                    }
+                }
+                loopSeamLastGhostFrame[memberIndex] = (segmentIndex, ghostPos, loopUT, nowUT, frame);
+            }
+            catch { /* diagnostic only */ }
+        }
 
         /// <summary>
         /// Diagnostic trace of a re-aimed orbit ghost vs the live bodies. Logs (rate-limited) the ghost's

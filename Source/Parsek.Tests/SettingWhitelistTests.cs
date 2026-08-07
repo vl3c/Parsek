@@ -24,6 +24,8 @@ namespace Parsek.Tests
         [InlineData("autoMerge", "true", true)]
         [InlineData("verboseLogging", "false", false)]
         [InlineData("ghostRenderTracing", "true", true)]
+        [InlineData("forceFaithfulLoopPlayback", "true", true)]
+        [InlineData("forceFaithfulLoopPlayback", "false", false)]
         public void Accept_Bool(string name, string raw, bool expected)
         {
             var r = SettingWhitelist.TryApply(name, raw);
@@ -63,6 +65,7 @@ namespace Parsek.Tests
         [InlineData("ghostAudioVolume", "1.5")] // out of range 0..1
         [InlineData("ghostAudioVolume", "0,7")] // comma locale -> InvariantCulture rejects
         [InlineData("autoMerge", "yes")]        // non-bool
+        [InlineData("forceFaithfulLoopPlayback", "1")] // non-bool (bool.TryParse rejects "1")
         [InlineData("samplingDensity", "abc")]  // non-int
         public void Reject_ValueInvalid(string name, string raw)
         {
@@ -86,7 +89,7 @@ namespace Parsek.Tests
             Assert.Null(r.RecordMethod);
         }
 
-        // ----- Persistence route for all 16 -----
+        // ----- Persistence route for all 17 -----
 
         [Theory]
         [InlineData("autoRecordOnLaunch")]
@@ -97,6 +100,7 @@ namespace Parsek.Tests
         [InlineData("samplingDensity")]
         [InlineData("ghostAudioVolume")]
         [InlineData("transitedBodyRotationModeIndex")]
+        [InlineData("forceFaithfulLoopPlayback")]
         public void Route_GameParametersOnly_NoRecordMethod(string name)
         {
             var r = SettingWhitelist.TryApply(name, DefaultRawFor(name));
@@ -123,9 +127,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Whitelist_HasExactly16Entries_8Tracked()
+        public void Whitelist_HasExactly17Entries_8Tracked()
         {
-            Assert.Equal(16, SettingWhitelist.WhitelistedNames.Count);
+            Assert.Equal(17, SettingWhitelist.WhitelistedNames.Count);
 
             int tracked = 0;
             foreach (string name in SettingWhitelist.WhitelistedNames)

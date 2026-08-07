@@ -2248,7 +2248,13 @@ namespace Parsek
                     string.Format(ic,
                         "CreateGhostVessel: ghost already exists for chain pid={0}",
                         chain.OriginalVesselPid));
-                return vesselsByChainPid[chain.OriginalVesselPid];
+                // The chain tip may have advanced since the ghost was first
+                // created (write-once map staleness); keep the reverse map on
+                // the recording that drives the ghost NOW.
+                Vessel existingChainGhost = vesselsByChainPid[chain.OriginalVesselPid];
+                if (existingChainGhost != null && traj != null)
+                    RebindGhostRecordingId(existingChainGhost.persistentId, traj.RecordingId);
+                return existingChainGhost;
             }
 
             // Intent-line: chain-pid terminal-orbit creation about to fire.
@@ -8087,6 +8093,12 @@ namespace Parsek
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return false;
 
+            // Per-frame rebind seam: the index-keyed ghost can outlive the
+            // recording that created it (committed-list reorder / stub churn);
+            // the trajectory driving THIS update is the truth.
+            if (vessel != null && traj != null)
+                RebindGhostRecordingId(vessel.persistentId, traj.RecordingId);
+
             if (vessel.orbitDriver == null)
             {
                 var miss = NewDecisionFields("update-state-vector-miss");
@@ -9148,13 +9160,17 @@ namespace Parsek
             // builder's parameter default here.
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
+            // Force-faithful product knob: same explicit-pass rule as tbrMode (the builder default is
+            // false, but read the running setting so this startup pass matches the per-frame passes).
+            bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
             return MissionLoopUnitBuilder.Build(
                 missions,
                 RecordingStore.CommittedTrees,
                 committed,
                 autoLoopIntervalSeconds,
                 bodyInfo,
-                tbrMode);
+                tbrMode,
+                forceFaithful);
         }
 
         internal static int CreateGhostVesselsFromCommittedRecordings()
@@ -9521,6 +9537,28 @@ namespace Parsek
             return vesselPidToRecordingId.TryGetValue(vesselPid, out string recordingId)
                 ? recordingId
                 : null;
+        }
+
+        /// <summary>
+        /// Refresh the pid -> recordingId reverse map when the recording
+        /// DRIVING a live ghost changes (chain-tip advance, index reuse).
+        /// The map was write-once-at-create, which froze the label on the
+        /// FIRST recording that bound the pid - the V2 lane measured a looped
+        /// ghost's probe lines attributed to a scene-entry stub's recId. The
+        /// probe and the polyline-ownership checks all read this map, so a
+        /// stale entry mislabels Tier-B/C truth AND coverage bookkeeping.
+        /// </summary>
+        internal static void RebindGhostRecordingId(uint vesselPid, string recordingId)
+        {
+            if (vesselPid == 0u || string.IsNullOrEmpty(recordingId))
+                return;
+            if (vesselPidToRecordingId.TryGetValue(vesselPid, out string existing)
+                && string.Equals(existing, recordingId, StringComparison.Ordinal))
+                return;
+            vesselPidToRecordingId[vesselPid] = recordingId;
+            ParsekLog.Verbose(Tag, string.Format(ic,
+                "ghost recId rebind: pid={0} {1} -> {2}",
+                vesselPid, existing ?? "(none)", recordingId));
         }
 
         /// <summary>

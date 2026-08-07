@@ -550,6 +550,24 @@ namespace Parsek
                     $"Setting changed: transitedBodyRotationMode={s.TransitedBodyRotationMode}");
             }
             GUILayout.EndHorizontal();
+
+            // Force-faithful A/B knob: an interplanetary looped mission normally re-aims each
+            // transfer at the destination's actual position per launch window. Turning this on
+            // replays the recorded trajectory verbatim on the loop clock instead.
+            bool forceFaithful = GUILayout.Toggle(s.forceFaithfulLoopPlayback,
+                new GUIContent(" Force faithful loop playback (no re-aim)",
+                    "Replay a looped interplanetary mission exactly as recorded instead of re-aiming "
+                    + "each transfer at the destination's actual position for that launch window. Off "
+                    + "(default) = re-aim engages automatically wherever it is supported, so the ghost "
+                    + "still arrives at the destination. On = the verbatim recorded trajectory, which "
+                    + "will miss the destination on most cycles. Affects only looped inter-body "
+                    + "missions."));
+            if (forceFaithful != s.forceFaithfulLoopPlayback)
+            {
+                s.forceFaithfulLoopPlayback = forceFaithful;
+                ParsekLog.Info("UI",
+                    $"Setting changed: forceFaithfulLoopPlayback={s.forceFaithfulLoopPlayback}");
+            }
         }
 
         /// <summary>The cycle-button label for the landing-body alignment A/B mode. Pure.</summary>

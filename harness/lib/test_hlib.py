@@ -4579,6 +4579,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # if any, is evidence; promotion is the post-reading arming call, not a
         # review debt.
         "V2-loop-arrival-dwell.toml":       "operator by the calibration discipline (V1 precedent); FLOWN 2026-08-06 (nine runs: six findings iterated, true armed run PASS, negative control correctly red, reverted) - promotion past operator is the open human call",
+        # The V3 flight-scene A/B pair is operator by the SAME calibration
+        # discipline: reading runs first (the faithful half's clean sweep and
+        # the re-aim half's EXPECTED PARSEK-FAIL(anomaly) are both
+        # measurements), arming is the post-reading call.
+        "V3F-flight-arrival-faithful.toml": "reading-run instrument (calibration discipline); UNFLOWN, the faithful A/B baseline over the new forceFaithfulLoopPlayback knob",
+        "V3R-flight-arrival-reaim.toml":    "reading-run instrument (calibration discipline); UNFLOWN, the re-aim reproduction half - the expected red IS the deliverable (GS-3 inversion)",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
@@ -5120,7 +5126,8 @@ _REASON_TOKEN_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)+\Z")
 # for a reason.
 #   MapRenderTrace.EmitAnomaly(surface, pidKey, currentUT, effUT, reason, details, recId)
 #   LedgerTrace.EmitAnomaly(resource, id, reason, details)
-_REASON_ARG_INDEX = {"MapRenderTrace": 4, "LedgerTrace": 2, "": 4}
+#   GhostRenderTrace.EmitAnomaly(recordingId, ghostIndex, currentUT, playbackUT, reason, details)
+_REASON_ARG_INDEX = {"MapRenderTrace": 4, "LedgerTrace": 2, "GhostRenderTrace": 4, "": 4}
 
 
 def _split_top_level_args(blob):
@@ -5315,7 +5322,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
                 # A gated token that nothing raises is the dead-token mistake the
                 # icon-jump retirement fixed; do not repeat it by promoting prose.
                 self.assertIn(reason, self.raised)
-        self.assertEqual(13, len(hlib.ANOMALY_TOKENS))
+        self.assertEqual(14, len(hlib.ANOMALY_TOKENS))
         # ORDER IS A CONTRACT: grep_anomaly_tokens returns hits in tuple order, so
         # the original six must stay first and keep their relative order.
         self.assertEqual(

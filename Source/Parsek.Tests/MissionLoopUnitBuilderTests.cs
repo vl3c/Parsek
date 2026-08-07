@@ -1065,5 +1065,177 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(MissionLoopUnitBuilder.SelectDeorbitTailLegStartUT(null, "Duna", 1000.0, 1.0)));
         }
 
+        // --- forceFaithfulLoopPlayback (the product knob) -------------------------------
+        //
+        // A behavioral PAIR over the flown duna-direct chain (LoopedInterplanetaryFixture, the
+        // 16-segment B17 geometry): the SAME inputs, the knob the only difference. Cell (a)
+        // pins that this fixture really does engage re-aim (without it, cell (b) would pass
+        // vacuously against a chain the classifier declines anyway); cell (b) pins that the
+        // knob turns the unit into a plain faithful unit, byte-identical to a classifier
+        // decline. Pure builder - the flag is passed directly, no ParsekSettings involved.
+
+        private const double StockKerbinOrbitPeriod = 9203545.0;
+        private const double StockDunaOrbitPeriod = 17315400.0;
+        private const double StockKerbinRotationPeriod = 21549.425;
+        private const double StockDunaRotationPeriod = 65517.86;
+
+        // Stock-like Sun/Kerbin/Duna seam, trimmed to what the re-aim classifier + synodic
+        // planner read off the flown chain (same shape as MissionPeriodicityTests' StockFake).
+        private sealed class ReaimFakeBodyInfo : IBodyInfo
+        {
+            public double RotationPeriod(string b)
+            {
+                if (b == "Kerbin") return StockKerbinRotationPeriod;
+                if (b == "Duna") return StockDunaRotationPeriod;
+                if (b == "Sun") return 432000.0;
+                return double.NaN;
+            }
+
+            public double OrbitPeriod(string b)
+            {
+                if (b == "Kerbin") return StockKerbinOrbitPeriod;
+                if (b == "Duna") return StockDunaOrbitPeriod;
+                return double.NaN; // the Sun does not orbit
+            }
+
+            public string ReferenceBodyName(string b)
+                => (b == "Kerbin" || b == "Duna") ? "Sun" : null;
+
+            public double SoiRadius(string b)
+            {
+                if (b == "Kerbin") return 84159286.0;
+                if (b == "Duna") return 47921949.0;
+                return double.NaN;
+            }
+
+            public double OrbitalVelocity(string b)
+            {
+                if (b == "Kerbin") return 9284.5;
+                if (b == "Duna") return 5670.0;
+                return double.NaN;
+            }
+
+            public double GravParameter(string b)
+            {
+                if (b == "Kerbin") return 3.5316e12;
+                if (b == "Duna") return 3.0136321e11;
+                if (b == "Sun") return 1.1723328e18;
+                return double.NaN;
+            }
+
+            public double Radius(string b)
+            {
+                if (b == "Kerbin") return 6.0e5;
+                if (b == "Duna") return 3.2e5;
+                return double.NaN;
+            }
+
+            public bool TryGetVesselOrbit(uint pid, string recordedVesselGuid,
+                out double periodSeconds, out string orbitBodyName)
+            {
+                periodSeconds = double.NaN;
+                orbitBodyName = null;
+                return false; // no rendezvous anchor in this fixture
+            }
+        }
+
+        // The flown duna-direct recording (LoopedInterplanetaryFixture) as a single-member
+        // looping mission over a one-recording tree.
+        private static void BuildFlownDunaDirectMission(
+            out Mission mission, out RecordingTree tree, out List<Recording> committed)
+        {
+            Generators.RecordingBuilder builder =
+                Generators.LoopedInterplanetaryFixture.BuildRecording();
+            var rec = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(builder.BuildV3Metadata(), rec);
+            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+
+            tree = Tree("t-duna-direct", new[] { rec });
+            committed = new List<Recording> { rec };
+            mission = new Mission("m-duna-direct", tree.Id, "Duna Direct")
+            {
+                LoopPlayback = true,
+                LoopTimeUnit = LoopTimeUnit.Auto,
+                LoopIntervalSeconds = 0.0,
+                // A realistic loop-enable anchor (the player armed the loop after the flight
+                // finished), deliberately PAST the span end so the faithful-anchor assertion below
+                // discriminates: Math.Max picks the anchor, not the span end, so a branch that
+                // recomputed the anchor would not accidentally land on the same value.
+                LoopAnchorUT = Generators.LoopedInterplanetaryFixture.RecordingEndUT + 100000.0
+            };
+        }
+
+        private static GhostPlaybackLogic.LoopUnit BuildFlownDunaDirectUnit(bool forceFaithful)
+        {
+            BuildFlownDunaDirectMission(
+                out Mission mission, out RecordingTree tree, out List<Recording> committed);
+            bool built = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
+                mission,
+                new List<RecordingTree> { tree },
+                committed,
+                DefaultAutoInterval,
+                new ReaimFakeBodyInfo(),
+                TransitedBodyRotationMode.Loose,
+                forceFaithful,
+                out GhostPlaybackLogic.LoopUnit unit);
+            Assert.True(built,
+                "the flown duna-direct fixture must resolve a loop unit (no unit => the pair proves nothing)");
+            return unit;
+        }
+
+        [Fact]
+        public void ForceFaithfulOff_TheFlownDunaDirectMissionEngagesReaim()
+        {
+            GhostPlaybackLogic.LoopUnit unit = BuildFlownDunaDirectUnit(forceFaithful: false);
+
+            Assert.True(unit.IsReaim,
+                "the flown Kerbin->Duna chain must auto-engage re-aim with the knob off "
+                + "(otherwise the knob-on cell below is vacuous)");
+            Assert.NotNull(unit.ReaimPlan);
+            Assert.True(unit.ReaimPlan.Value.Supported);
+            Assert.Equal("Kerbin", unit.ReaimPlan.Value.LaunchBody);
+            Assert.Equal("Duna", unit.ReaimPlan.Value.TargetBody);
+        }
+
+        [Fact]
+        public void ForceFaithfulOn_TheSameMissionStaysFaithfulWithNoReaimState()
+        {
+            BuildFlownDunaDirectMission(
+                out Mission mission, out RecordingTree tree, out List<Recording> committed);
+            bool built = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
+                mission,
+                new List<RecordingTree> { tree },
+                committed,
+                DefaultAutoInterval,
+                new ReaimFakeBodyInfo(),
+                TransitedBodyRotationMode.Loose,
+                forceFaithful: true,
+                out GhostPlaybackLogic.LoopUnit unit);
+            Assert.True(built);
+
+            // Not re-aim, and NO half-applied re-aim state: the unit must be indistinguishable
+            // from one the classifier declined.
+            Assert.False(unit.IsReaim);
+            Assert.Null(unit.ReaimPlan);
+            Assert.Null(unit.ReaimSchedule);
+            Assert.Null(unit.LoiterCuts);
+            Assert.False(unit.LaunchHoldEngaged);
+            Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+            Assert.True(unit.DescentMemberIndices == null || unit.DescentMemberIndices.Length == 0,
+                "a forced-faithful unit must carry no descent members");
+
+            // The faithful anchor the pre-re-aim block computed, untouched by the skipped branch.
+            Assert.Equal(Math.Max(mission.LoopAnchorUT, unit.SpanEndUT), unit.PhaseAnchorUT, 6);
+            Assert.True(unit.PhaseAnchorUT > unit.SpanEndUT,
+                "the fixture's loop anchor is past the span end, so the assertion above is not "
+                + "satisfied by a coincidental span-end anchor");
+
+            // And the decision is greppable: the mission IS re-aim supported, the knob declined it.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]")
+                && l.Contains("FORCED FAITHFUL (re-aim supported Kerbin->Duna "
+                              + "but forceFaithfulLoopPlayback is on)"));
+        }
+
     }
 }

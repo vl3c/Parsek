@@ -566,6 +566,95 @@ namespace Parsek.Tests
         // Helpers
         // ----------------------------------------------------------------
 
+        // ----------------------------------------------------------------
+        // Loop-seam teleport predicate + Tier-C anomaly emitter (the
+        // FLIGHT-scene sibling of MapRenderTrace's icon-teleport; the
+        // flight-arrival lane's instrument for the re-aim seam defect).
+        // ----------------------------------------------------------------
+
+        private static bool SeamCall(
+            double jump,
+            double expectedMps = 10_000.0,
+            double dt = 0.02,
+            int frame = 100,
+            int lastFrame = 99,
+            int foFrame = -1,
+            double clockDelta = 0.02)
+        {
+            return GhostRenderTrace.IsLoopSeamTeleport(
+                jump, expectedMps, dt, frame, lastFrame, foFrame, clockDelta);
+        }
+
+        [Fact]
+        public void SeamTeleport_DefectClassJumpRaises_HealthySeamStaysSilent()
+        {
+            // The two measured populations: the 2026-06-15 defect (49.19 Mm at
+            // Sun->Duna, 87.76 Mm at Kerbin->Sun) vs S1.8's healthy recorded
+            // seams (10,146.3 m / 7,284.0 m).
+            Assert.True(SeamCall(49_190_000.0));
+            Assert.True(SeamCall(87_760_000.0));
+            Assert.False(SeamCall(10_146.3));
+            Assert.False(SeamCall(7_284.0));
+        }
+
+        [Fact]
+        public void SeamTeleport_ThresholdScalesWithWarpExpectedMotion()
+        {
+            // The icon-jump lesson: at high warp the body's own world motion
+            // dominates. dt=2000 game-s, expected 21 km/s -> threshold
+            // 21e3*2000*4 = 168 Mm; a 100 Mm frame delta is legitimate coast.
+            Assert.False(SeamCall(100_000_000.0, expectedMps: 21_000.0,
+                dt: 2_000.0, clockDelta: 2_000.0));
+            // The same delta at 1x is a teleport.
+            Assert.True(SeamCall(100_000_000.0, expectedMps: 21_000.0));
+        }
+
+        [Fact]
+        public void SeamTeleport_SuppressesEpochShiftStalePrevAndFoShift()
+        {
+            // Loop wrap / seam TimeJump: playback clock moved backwards or by
+            // an epoch - the discontinuity is legitimate.
+            Assert.False(SeamCall(49_190_000.0, clockDelta: -4_500_000.0));
+            Assert.False(SeamCall(49_190_000.0, clockDelta: 15_000_000.0));
+            // Stale previous sample (hide/show gap).
+            Assert.False(SeamCall(49_190_000.0, frame: 100, lastFrame: 90));
+            // Floating-origin shift inside the suppression window.
+            Assert.False(SeamCall(49_190_000.0, foFrame: 100));
+            // Non-finite delta.
+            Assert.False(SeamCall(double.NaN));
+        }
+
+        [Fact]
+        public void EmitAnomaly_CarriesSweepContractAndRoutesToInfo()
+        {
+            GhostRenderTrace.ForceEnabledForTesting = true;
+            GhostRenderTrace.EmitAnomaly(
+                "rec-loop-seam-test", 3, 1000.5, 2000.5,
+                "loop-seam-teleport", "seg=4->5 body=Duna jump=49190000m");
+
+            var hits = FindLines("phase=Anomaly");
+            Assert.Single(hits);
+            // The harness sweep contract: phase marker + reason= first.
+            Assert.Contains("reason=loop-seam-teleport", hits[0]);
+            Assert.Contains("recId=rec-loop-seam-test", hits[0]);
+            Assert.Contains("jump=49190000m", hits[0]);
+            // Routes to Info (important), like MapRenderTrace.EmitAnomaly.
+            Assert.Contains("[INFO]", hits[0]);
+            // And it opened the detailed window.
+            Assert.True(GhostRenderTrace.IsDetailedWindowOpenForTesting(
+                "rec-loop-seam-test", 1002.0));
+        }
+
+        [Fact]
+        public void EmitAnomaly_SilentWhenTracingDisabled()
+        {
+            GhostRenderTrace.ForceEnabledForTesting = false;
+            GhostRenderTrace.EmitAnomaly(
+                "rec-loop-seam-test", 3, 1000.5, 2000.5,
+                "loop-seam-teleport", "seg=4->5");
+            Assert.Empty(FindLines("phase=Anomaly"));
+        }
+
         private List<string> FindLines(string token)
         {
             var hits = new List<string>();

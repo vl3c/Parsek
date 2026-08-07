@@ -15741,6 +15741,11 @@ class M3Params:
                                   # LEFT before each handoff; keep >= 2x
                                   # dwell_lead so the instant is inside)
     camera_focus_body: str = "Duna"
+    # False = the FLIGHT-SCENE dwell variant (the V3 flight-arrival lane):
+    # skip the CAMERA phase entirely and dwell in the flight scene - the
+    # ghost ENGINE path (PositionFromOrbit + the loop-seam instrument) runs
+    # regardless of camera, which is the surface that lane measures.
+    map_camera: bool = True
     camera_pitch_deg: float = -60.0
     camera_heading_deg: float = 0.0
     camera_distance_m: float = 2_000_000_000.0
@@ -15764,6 +15769,7 @@ def m3_params_from_dict(params: Dict) -> M3Params:
         dwell_lead=float(params.get("dwellLeadSeconds", 120.0)),
         dwell_hold=float(params.get("dwellHoldSeconds", 300.0)),
         camera_focus_body=str(params.get("cameraFocusBody", "Duna")),
+        map_camera=bool(params.get("mapCamera", True)),
         camera_pitch_deg=float(params.get("cameraPitchDeg", -60.0)),
         camera_heading_deg=float(params.get("cameraHeadingDeg", 0.0)),
         camera_distance_m=float(params.get("cameraDistanceMeters", 2_000_000_000.0)),
@@ -15935,6 +15941,10 @@ def m3_decide(state: M3State, snapshot: TelemetrySnapshot
                                         "phaseAnchorUt payload was unreadable: "
                                         "%r" % (anchor_raw,)), []
             armed = replace(state, anchor_ut=anchor)
+            if not state.params.map_camera:
+                # FLIGHT-scene variant: no camera work at all; straight to
+                # the first leg.
+                return _m3_enter(armed, M3_WARP_DEPART, snapshot.ut), []
             return (_m3_enter(armed, M3_CAMERA, snapshot.ut),
                     [Action(ACTION_CAMERA_SET_MAP),
                      Action(ACTION_CAMERA_FOCUS_BODY,
@@ -16020,10 +16030,12 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
         "loopArmed", anchor is not None, anchor,
         {"tree": params.tree_id, "required": M3_CAMERA})
     cam = AssertionOutcome(
-        "mapCameraObserved", M3_WARP_DEPART in phases,
+        "mapCameraObserved" if params.map_camera else "flightSceneDirect",
+        M3_WARP_DEPART in phases,
         (M3_WARP_DEPART if M3_WARP_DEPART in phases else
          (phases[-1] if phases else None)),
-        {"required": M3_WARP_DEPART, "channel": "observed"})
+        {"required": M3_WARP_DEPART,
+         "channel": "observed" if params.map_camera else "no-camera"})
     d = getattr(state, "depart_window_ut", None)
     a = getattr(state, "arrive_window_ut", None)
     pk = getattr(state, "park_window_ut", None)

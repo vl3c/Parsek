@@ -211,3 +211,48 @@ class M3DwellFlowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class M3FlightSceneVariantTests(unittest.TestCase):
+    """mapCamera=false (the V3 flight-arrival lane): ARM-LOOP hands straight
+    to the first TimeJump leg with ZERO camera actions, and the camera row
+    renames itself honestly."""
+
+    def _armed_ok(self, p):
+        st, _ = mlib.m3_decide(mlib.m3_initial_state(p), snap(ut=1.0))
+        return mlib.m3_decide(st, snap(
+            ut=2.0, seam_command_result="OK",
+            seam_command_tag=mlib.M3_TAG_ARM,
+            seam_command_payload=(("anchorUt", "9160500.25"),
+                                  ("unitBuilt", "true"),
+                                  ("phaseAnchorUt", "9160400.0"),)))
+
+    def test_no_camera_arm_ok_enters_warp_depart_with_no_actions(self):
+        st, acts = self._armed_ok(params(mapCamera=False))
+        self.assertEqual(mlib.M3_WARP_DEPART, st.phase)
+        self.assertEqual([], acts)
+        self.assertEqual(9160400.0, st.anchor_ut)
+
+    def test_map_camera_default_still_enters_camera_phase(self):
+        st, acts = self._armed_ok(params())
+        self.assertEqual(mlib.M3_CAMERA, st.phase)
+        self.assertTrue(acts)
+
+    def test_row_renames_to_flight_scene_direct(self):
+        p = params(mapCamera=False)
+        st = mlib.m3_initial_state(p)
+        rows = mlib.evaluate_m3_assertions(
+            (), p,
+            phases_reached=(mlib.M3_ARM_LOOP, mlib.M3_WARP_DEPART,
+                            mlib.M3_DONE),
+            state=st)
+        names = [r.name for r in rows]
+        self.assertIn("flightSceneDirect", names)
+        self.assertNotIn("mapCameraObserved", names)
+
+    def test_default_keeps_the_map_camera_row_name(self):
+        p = params()
+        rows = mlib.evaluate_m3_assertions(
+            (), p, phases_reached=(), state=mlib.m3_initial_state(p))
+        self.assertIn("mapCameraObserved", [r.name for r in rows])
+

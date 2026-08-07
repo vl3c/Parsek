@@ -1,0 +1,141 @@
+schema = 1
+id = "V3F-flight-arrival-faithful"
+# =====================================================================================
+# V3F: FLIGHT-SCENE loop-arrival dwell, FAITHFUL mode -- the baseline half of the
+# faithful-vs-re-aim A/B the loop-arrival lane brief wanted and V2 could not fly
+# (no product force-faithful switch existed; the flight-arrival lane added
+# forceFaithfulLoopPlayback). V2 bounded the defect's MAP surface (clean at planet
+# scale); the 2026-06-15 [ReaimSeam] 62-deg teleport lives on the FLIGHT-scene
+# ENGINE path (ParsekFlight.PositionFromOrbit) that a map/TS dwell never drives --
+# THIS pair drives it.
+#
+# WHAT THIS RUN DOES. Loads the committed duna-direct-recorded fixture INTO THE
+# FLIGHT SCENE (the fixture's parked Duna craft is the active vessel), forces
+# FAITHFUL loop playback (the new Settings knob, SetSetting-whitelisted), arms
+# mission-level loop via MissionConfig, and traverses the loop cycle with the
+# M3 machine's flight-scene variant (mapCamera=false: no camera work, TimeJump
+# epoch-shift legs, 300 s 1x holds SPANNING each recorded handoff instant).
+# ghostRenderTracing + verboseLogging armed: the engine path emits the
+# GhostRenderTrace surface and the NEW Tier-C loop-seam-teleport instrument
+# samples EVERY orbit-segment change (faithful members included -- the
+# mode-agnostic tracker this lane added).
+#
+# READING RUN (V1/V2 calibration discipline): measures (a) whether the flight
+# engine positions the loop ghost at all this far from the active vessel at the
+# depart handoff (~10 Gm away; the anti-vacuity liveness token gets pinned from
+# what this run actually emits), (b) the faithful mode's seam behavior at both
+# handoffs under the armed sweep. EXPECTED: faithful seams are the recorded
+# ones -- S1.8 measured 10,146.3 / 7,284.0 m continuity, THREE orders below the
+# 1,000 km anomaly floor -- so the sweep should stay CLEAN and this spec arms as
+# the A/B baseline. A loop-seam-teleport raise HERE means faithful playback
+# itself teleports, which would be a brand-new product finding, not the known
+# re-aim defect.
+#
+# SPAN-CLOCK OFFSETS: the recording's own flown segment table (start
+# 4653504.304) -- identical to V2's. Faithful anchors at
+# max(LoopAnchorUT, spanEndUT) ~ arm-time, so windows land ~9.25M / 13.64M /
+# 13.67M UT (one synodic EARLIER than the engaged mode's).
+# =====================================================================================
+tier = "operator"
+description = "FLIGHT-scene loop-arrival dwell over the committed duna-direct fixture in FORCED FAITHFUL mode (the new forceFaithfulLoopPlayback knob): TimeJump legs + 1x holds spanning both recorded SOI handoffs with ghostRenderTracing and the new loop-seam-teleport Tier-C instrument armed. The A/B baseline half; a clean sweep here is the armed floor the re-aim half is measured against."
+instanceProfile = "stock-minimal"
+tags = ["V3", "flight-arrival", "faithful", "interplanetary", "loop-dwell", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-direct-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "m3_loop_arrival_dwell"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Kill the scene-entry promotion stub first (the V2 lesson, flights 4-5).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # THE MODE UNDER TEST: force the supported member to faithful playback.
+  { cmd = "SetSetting", args = { name = "forceFaithfulLoopPlayback", value = "true" }, expect = "OK" },
+  # FLIGHT-scene tracer + the verbose floor its bulk surface needs.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1500 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+treeId               = "ccb5e4afd7974dbe9118090468ac00ae"
+departOffsetSeconds  = 89448.917
+arriveOffsetSeconds  = 4474604.451
+parkOffsetSeconds    = 4506361.140
+dwellLeadSeconds     = 120
+dwellHoldSeconds     = 300
+mapCamera            = false
+# Faithful mode without an explicit interval falls to the 10 s sentinel and
+# ComputeEffectiveLaunchCadence staggers ~20 concurrent instances (the recon's
+# measured delta vs the engaged mode's forced single instance). One clean
+# instance for the A/B: interval > span (4,506,890 s).
+loopIntervalSeconds  = 5000000
+armTimeoutSeconds    = 300
+holdTimeoutSeconds   = 600
+
+# CLAIM-IS-NOT-GATE, reading-run minimalism: scene-flight is gated by the
+# LoadGame-into-FLIGHT boot + the mission phase itself. Everything richer
+# (D6 loop-period-modes, D11 arrival) waits for the armed follow-up.
+[dimensionsCovered]
+D14 = ["scene-flight", "sandbox"]
+
+[expectations]
+# ARMED SWEEP on the reading run (V2 precedent): a loop-seam-teleport raise in
+# FAITHFUL mode is a product finding, and the red names it.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Fixture's two + the scene-entry promotion stub (V2's measured posture).
+count = { min = 2, max = 3 }
+
+[expectations.rewind]
+# REPORT-ONLY until the arming pass: the dwell must author nothing durable.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the arming pass; windows the arming run must satisfy.
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Reading-run pins, each sourced:
+#   "missionconfig applied:" -- the verb's Info line (arming evidence);
+#   "SetLoopEnabled: loop ON" -- the production MissionStore path fired;
+#   "\[ReaimDiag\] mission=" -- the per-member classifier verdict STILL runs
+#     under the knob (the gate is at plan consumption, so the log proves the
+#     member is supported even while faithful);
+#   "FORCED FAITHFUL" -- the knob actually engaged (the mode-discriminating
+#     pin: a knob regression that silently re-aims reds here).
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "\\[ReaimDiag\\] mission=",
+  "FORCED FAITHFUL",
+]
+# The engaged line must NOT appear in faithful mode.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "ENGAGED re-aim Kerbin->Duna via Sun",
+]
+
+[runtime]
+# 300 LoadGame + 1500 mission (arm + three instant TimeJump legs + three
+# 300 game-s 1x holds) + tail verbs + margin; V2's four green flights
+# measured 955 s wall with the same leg structure.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
