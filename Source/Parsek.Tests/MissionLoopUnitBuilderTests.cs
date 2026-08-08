@@ -1195,6 +1195,12 @@ namespace Parsek.Tests
             Assert.True(unit.ReaimPlan.Value.Supported);
             Assert.Equal("Kerbin", unit.ReaimPlan.Value.LaunchBody);
             Assert.Equal("Duna", unit.ReaimPlan.Value.TargetBody);
+            // The engaged path must PUBLISH the transfer-member identity (the
+            // single-member fixture's committed index): guards the hoist that
+            // moved this write out of the classify loop - dropping it would
+            // silently disable the loiter-gap clamp and descent handoff-hide
+            // while the whole headless suite stayed green.
+            Assert.Equal(0, unit.TransferMemberIndex);
         }
 
         [Fact]
