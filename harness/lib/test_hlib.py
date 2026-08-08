@@ -4585,7 +4585,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # measurements), arming is the post-reading call.
         "V3F-flight-arrival-faithful.toml": "operator by the calibration discipline; FLOWN 2026-08-07 PASS attempt 1 - the reading run measured the hidden-by-zone gate (vacuous for seams, decisive as a finding); keeps the knob mode-discrimination gate",
         "V3R-flight-arrival-reaim.toml":    "operator by the calibration discipline; FLOWN 2026-08-07 PASS attempt 1 - expected red did not occur for the measured structural reason (hidden-by-zone); the GS-3 flip moved to V3C; keeps the ENGAGED mode gate",
-        "V3C-flight-arrival-companion.toml": "reading-run instrument (calibration discipline); THREE reading attempts flown 2026-08-07 (run 1 green-but-vacuous: cycle misalignment; runs 2a/2b INVALID: trace REACHED (dist[] x48) but the cycle-2 encounter missed) - encounter tuning is the documented next step",
+        "V3C-flight-arrival-companion.toml": "reading-run instrument (calibration discipline); SIX runs flown 2026-08-07/08 (runs 1-2: cycle misalignment then trace reached; runs 3-5: the 800 cap closed the encounter, run 3 PASS) - the seam-instant observation needs the co-location design named in the spec header (120 km zone wall)",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
