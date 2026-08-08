@@ -1,0 +1,186 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 37.860000000000319
+	type = 4
+	actionId = act_76e9f51915cc440ea3306e09a49b9e85
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 39.860000000000632
+	type = 4
+	actionId = act_88b95d1d204e421e9f02b161bd2238bc
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 2
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 44.500000000001357
+	type = 4
+	actionId = act_c60124afa46d47fd888c7c999a81e999
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 3
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 56.460000000003227
+	type = 4
+	actionId = act_5828e09e84464ad3ae731e44ee86f091
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 4
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 76.880000000001843
+	type = 4
+	actionId = act_debeafa71a03442ab6c62d437746f936
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 5
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 176.93988998412334
+	type = 4
+	actionId = act_0d4149ae9a4f4d01a676dfea7f70343b
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 6
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 212.17988998411633
+	type = 4
+	actionId = act_331fd29cedcd4b778b2723ae41fea92a
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 7
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 212.21988998411632
+	type = 4
+	actionId = act_5c43e8dd347546cfa03991c95d79b8c5
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 8
+	milestoneId = ReachedSpace
+	milestoneFundsAwarded = 8000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 292.67367355343555
+	type = 4
+	actionId = act_dc95a477a6de4f41b960c122ed3ba19d
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 9
+	milestoneId = Orbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 449.21328536979911
+	type = 4
+	actionId = act_f745ffeb042d4edfbcf4bb361b722c4e
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 10
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 267741.32144211128
+	type = 4
+	actionId = act_20d2ea5ff31b4f30a2f9b5bfb35f9b94
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 11
+	milestoneId = Minmus/Flyby
+	milestoneFundsAwarded = 14500
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 267741.32144211128
+	type = 4
+	actionId = act_aece2b1e85934cbe87d8f4270c6fd77e
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 12
+	milestoneId = Kerbin/Escape
+	milestoneFundsAwarded = 13200
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 277012.85410143237
+	type = 4
+	actionId = act_90f984fc989c44efbed11ca6cfb13fce
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 13
+	milestoneId = Orbit
+	milestoneFundsAwarded = 13920
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 34.439999999999785
+	type = 11
+	actionId = act_4ff8c7da054b480890af1182f1b5f098
+	recordingId = 882cb2239abb49558599c3b1291f851d
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 34.44
+	endUT = 277204.375
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_c30ada18254f4100bc2f3485509a95aa
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_66df0450729d40c78fce4a304a33b174
+	initialReputation = 0
+}

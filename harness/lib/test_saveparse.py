@@ -686,6 +686,71 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             # one that loads zero recordings and tests nothing.
             "schemaGeneration": 4,
         },
+        # --- THE MOON LOOP-VALIDATION PAIR -------------------------------
+        # PROVENANCE: mun-orbit-recorded  <- B11-mun-orbit, run
+        # 2026-08-08_1458, PASS attempt 1, wall 1321 s (harvested
+        # --keep-parsek from the produced b2-lko-craft save).
+        # minmus-orbit-recorded <- B12-minmus-orbit, run 2026-08-08_1441,
+        # PASS attempt 1, wall 630 s. Both harvests passed the
+        # --expect-situation ORBITING gate on the parked craft.
+        #
+        # Both are the SAME shape and differ only on the target body: the
+        # stock Kerbal X flown by the capture-enabled b5 machine, committed
+        # MID-MISSION while parked in the target body's SOI. That is why the
+        # topology is 8 recordings rather than the duna lane's 2 - this
+        # launcher sheds six radial boosters plus one flameout-staged
+        # remnant, where the B17 DD1 probe sheds one booster.
+        #
+        # WHY THE TWO TERMINAL MAPS DIFFER, and why that is not a defect: the
+        # Minmus profile leaves its non-booster remnant in KERBIN ORBIT
+        # (Orbiting 2 = Minmus-parked craft + that core), while the Mun
+        # profile's flameout fires during CORRECTION-BURN and drops the
+        # remnant on a Kerbin-impacting trajectory (Destroyed 7). Root-caused
+        # 2026-08-08 - see the B11-TERMINAL-TOKEN-NEVER-TRUE entry in
+        # todo-and-known-bugs.md and the B11 spec header. Pin what each
+        # fixture MEASURED; do not harmonize them.
+        "mun-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            # Orbiting 1 = the Mun-parked committed craft (SMA 339,568.968 m,
+            # ecc 0.000126, ref Mun = ~139.6 km altitude). Landed 1 = the
+            # flameout-staged remnant this profile drops on a Kerbin-impacting
+            # trajectory. Destroyed 6 = the radial boosters.
+            "terminalStates": {"Orbiting": 1, "Landed": 1, "Destroyed": 6},
+            "branchPoints": {"JointBreak": 5},
+            "minSidecars": 56,
+            "recordingIds": ["0fd603e389b94d6488d92f4e3c6b7957",
+                             "10da441999fb4ff7a09bf6be0f068d48",
+                             "595e99bfbba74b9990daa5f16bf786c6",
+                             "5e44719ae936481489e22d72707d9225",
+                             "998cc41e5ce64a3681fff8df9efe802e",
+                             "a834e40aebfd4b8090b32bd8221e5e92",
+                             "c9e18b4c9be848698bcc5fe445b95574",
+                             "e8fc9f46072b42a2b8d3c39de23c64d2"],
+            "schemaGeneration": 4,
+        },
+        "minmus-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            # Orbiting 2 = the Minmus-parked committed craft (SMA 98,463.595 m,
+            # ecc 0.000292, ref Minmus = ~38.5 km altitude) PLUS the
+            # flameout-staged remnant this profile leaves in Kerbin orbit.
+            # Destroyed 6 = the radial boosters.
+            "terminalStates": {"Orbiting": 2, "Destroyed": 6},
+            "branchPoints": {"JointBreak": 5},
+            "minSidecars": 56,
+            "recordingIds": ["6daa39387478442dad20c1f7aeec3ec3",
+                             "7304b9a00fc245349640367b051fbeb7",
+                             "882cb2239abb49558599c3b1291f851d",
+                             "96ecd888bb2f43929b7647ca14e4697e",
+                             "9bb8ea185d804b0c81242c1a1a9930a0",
+                             "a46c58f4f3e84894ada41e84c8666f1e",
+                             "c3b7b530f58a4068b559e5367dcf16a2",
+                             "ce180cdd0d794a83ba2bc4430ca29056"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):
