@@ -701,11 +701,17 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # launcher sheds six radial boosters plus one flameout-staged
         # remnant, where the B17 DD1 probe sheds one booster.
         #
-        # WHY THE TWO TERMINAL MAPS DIFFER, and why that is not a defect: the
-        # Minmus profile leaves its non-booster remnant in KERBIN ORBIT
-        # (Orbiting 2 = Minmus-parked craft + that core), while the Mun
-        # profile's flameout fires during CORRECTION-BURN and drops the
-        # remnant on a Kerbin-impacting trajectory (Destroyed 7). Root-caused
+        # WHY THE TWO TERMINAL MAPS DIFFER, and why that is not a defect. The
+        # Minmus profile's flameout fires during ASCENT (gate
+        # `flameoutStages 0->1` at ut 468.173 on run _1441, matching recording
+        # c3b7b530's start 468.17328536978187) and leaves its remnant in
+        # KERBIN ORBIT, so Orbiting 2 = Minmus-parked craft + that core. The
+        # Mun profile's fires during CORRECTION-BURN (ut 4900.476 on run
+        # _1458, matching recording 10da4419's start 4900.475848693869) and
+        # drops its remnant on a Kerbin-impacting trajectory, where it reads
+        # Destroyed. THE MUN MAP IS THEREFORE {Orbiting 1, Landed 1,
+        # Destroyed 6}, NOT "Destroyed 7" - an earlier draft of this comment
+        # wrote 7 and contradicted the dict two lines below it. Root-caused
         # 2026-08-08 - see the B11-TERMINAL-TOKEN-NEVER-TRUE entry in
         # todo-and-known-bugs.md and the B11 spec header. Pin what each
         # fixture MEASURED; do not harmonize them.
@@ -714,9 +720,18 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,
             "rewind_retirements": 0,
             # Orbiting 1 = the Mun-parked committed craft (SMA 339,568.968 m,
-            # ecc 0.000126, ref Mun = ~139.6 km altitude). Landed 1 = the
-            # flameout-staged remnant this profile drops on a Kerbin-impacting
-            # trajectory. Destroyed 6 = the radial boosters.
+            # ecc 0.000126, ref Mun = ~139.6 km altitude).
+            # Landed 1 = ONE OF THE FIRST ASCENT-SHED RADIAL BOOSTERS
+            # (998cc41e, recording start 48.48, down beside the pad at
+            # lat -0.104 lon -74.545 alt 67.99) - NOT the flameout-staged
+            # remnant, which an earlier draft of this comment named here and
+            # which is the opposite of what the save says.
+            # Destroyed 6 = the other five radial boosters PLUS the
+            # flameout-staged remnant (10da4419, recording start
+            # 4900.475848693869 = the `flameoutStages 0->1` gate fire). That
+            # remnant is Destroyed on all three measured B11 flights; the row
+            # that actually flips class between flights is one of the first
+            # booster pair (998cc41e / a834e40a, same start UT 48.48).
             "terminalStates": {"Orbiting": 1, "Landed": 1, "Destroyed": 6},
             "branchPoints": {"JointBreak": 5},
             "minSidecars": 56,
@@ -736,8 +751,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "rewind_retirements": 0,
             # Orbiting 2 = the Minmus-parked committed craft (SMA 98,463.595 m,
             # ecc 0.000292, ref Minmus = ~38.5 km altitude) PLUS the
-            # flameout-staged remnant this profile leaves in Kerbin orbit.
-            # Destroyed 6 = the radial boosters.
+            # flameout-staged remnant this profile leaves in Kerbin orbit
+            # (c3b7b530, recording start 468.17328536978187 = run _1441's
+            # `flameoutStages 0->1` gate fire at ut 468.173).
+            # Destroyed 6 = the six radial boosters.
             "terminalStates": {"Orbiting": 2, "Destroyed": 6},
             "branchPoints": {"JointBreak": 5},
             "minSidecars": 56,

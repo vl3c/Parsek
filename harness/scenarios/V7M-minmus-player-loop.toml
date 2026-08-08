@@ -90,21 +90,28 @@ id = "V7M-minmus-player-loop"
 # the separations. ATTRIBUTION MATTERS HERE and an earlier draft got it wrong: the
 # 144,356 / 191,499 pair quoted below and elsewhere in this file is the V7Mc
 # CALIBRATION run `_1607` (archived: `logs/2026-08-08_1908_V7Mc-watch-calibration`,
-# attempt 1; its attempt 2 is at `_1909`). Run 1 `_1600` measured its own,
-# very slightly different pair (archived: `logs/2026-08-08_1901_V7M-minmus-player-loop`):
+# attempt 1; its attempt 2 is run `_1608`, archived at
+# `logs/2026-08-08_1909_V7Mc-watch-calibration` - the log-folder stamps run ~3h01
+# ahead of the run ids, so `_1909` is a FOLDER, never a run id). Run 1 `_1600`
+# measured its own, very slightly different pair (archived:
+# `logs/2026-08-08_1901_V7M-minmus-player-loop`):
 #     cycle 1 park:  `i=1 ... zone=Beyond rdist=144349m`  (_1600) / `144356m` (_1607)
-#     cycle 2 park:  `i=1 ... zone=Beyond rdist=191497m`  (_1600) / `191499m` (_1607)
+#     cycle 2 park:  `i=1 ... zone=Beyond rdist=191497m`  (_1600), and see the
+#                    ATTRIBUTION note in the reading ledger: `_1607`'s `191499m` was
+#                    NOT sampled at the cycle-2 park.
 # Both sit BETWEEN 120 km and 300 km. A 300 km entry cutoff predicts OK at both; a
 # 120 km zone gate predicts REJECTED at both. Measured: REJECTED at both. The 300 km
 # entry hypothesis is falsified by measurement, not merely by code reading. (V4 could
 # not have caught this: its parked-tail draw read 643,913 m, which fails BOTH
 # thresholds, so its REJECTED was consistent with either.)
-# The corrected per-draw entry probability, chord < 120 km on a shared circle of
-# radius a, is `theta < 2*asin(60/a)`:  Minmus 75.1 deg (~42%), Mun 20.3 deg (~11%),
-# V4's Duna park 6.6 deg (~3.7%). Not a guarantee anywhere - but note these draws are
-# NOT random per run: both craft advance at the same rate on the same orbit, so the
-# separation is CONSTANT within a cycle and reproducible run to run. It changes only
-# between cycles, because only the phase anchor moves.
+# The corrected entry CONDITION is a chord < 120 km on a shared circle of radius a,
+# i.e. `theta < 2*asin(60/a)`:  Minmus 75.1 deg, Mun 20.3 deg, V4's Duna park
+# 6.6 deg. Those are geometric ANGLES, and this file no longer converts them into
+# "~42% / ~11% / ~3.7% of a draw": these separations are not drawn per run at all -
+# both craft advance at the same rate on the same orbit, so the separation is a fixed
+# per-cycle geometric fact and changes only when the phase anchor moves. (What IS
+# per-run, and is a separate matter, is how faithfully the instrument REPORTS that
+# fact; see the `_1601` outlier in the reading ledger.)
 #
 # WHICH IS WHY THIS LANE STILL ENTERS WATCH MODE - AT CYCLE 3, MEASURED. A calibration
 # run (2026-08-08_1607) walked cycles 3, 4 and 5 and found the cycle-3 park INSIDE the
@@ -112,7 +119,12 @@ id = "V7M-minmus-player-loop"
 # park window (that line is rate-limited to ~1/s and the window is ~0.4 s wide); the
 # separation there is read off the Zone subsystem's line at the same instant,
 #     `FX suppressed: ghost #1 "Kerbal X" cycle=2 anchorDist=51503m renderDist=51503m`
-# i.e. 51.5 km - Visual, not Beyond - and the verb answered
+# i.e. 51.5 km - Visual, not Beyond. THE `cycle=2` IN THAT LINE IS THE CYCLE-3 PARK,
+# and the quote must not be "corrected" to match the prose: `state.loopCycleIndex`
+# (`GhostPlaybackEngine.cs:3649`) is the 0-BASED schedule index the span clock
+# resolved - `MissionPeriodicity.TryResolveActiveLaunch` returns the index of the
+# largest scheduled launch <= now - so the third launch prints `cycle=2`. Prose in
+# this file counts cycles from 1. The verb answered
 #     `enterwatchmode initiated: index=1 recId=775188aff66f4c06928e97f2b94e6f0b
 #      tree= auto=true`
 #     `enterwatchmode complete: index=1 recId=775188aff66f4c06928e97f2b94e6f0b`
@@ -185,30 +197,47 @@ id = "V7M-minmus-player-loop"
 #     mismatches=0, saveParse REPORT clean (supersedeRows 0, tombstones 0, rewindPoints
 #     0, committedTrees 1, trees 1, pointsTotal 846).
 #
-#   THE SCHEDULE PREDICTION LANDED EXACTLY. The product's own constraint list -
+#   THE SCHEDULE PREDICTION LANDED, to within the rounding this header carries (9 /
+#   18 / 27 ms at k=50 / 100 / 150 - see the note under the table). The product's own
+#   constraint list -
 #     `ExtractConstraints: ... launchBody=Kerbin ut0=34.439999999999785
 #      support=Supported constraints=2 [Rotation(Kerbin) P=21549.425183089825 off=0;
 #      Orbital(Minmus) same-parent P=1077310.5210188075 off=267706.881...]`
-#   - and the measured anchors:
+#   - and the measured anchors, each against the prediction this header's own recipe
+#   produces (`ut0 = 34.44 + k * 21,549.425`; the ~9 ms per 50 k of creep is the
+#   rounded period against the product's 21,549.425183089825):
 #     phaseAnchorUt = relaunchUt = 1,077,505.6991544911  (predicted ...505.690, k=50)
 #     cycle-2 relaunchUt         = 2,154,976.9583089822  (predicted ...976.940, k=100)
-#     cycle-3 relaunchUt         = 3,232,448.2174634738  (predicted ...448.217, k=150)
-#   Nothing needed re-pinning. Routing line, verbatim:
+#     cycle-3 relaunchUt         = 3,232,448.2174634738  (predicted ...448.190, k=150)
+#   THE k=150 PREDICTION IS 3,232,448.190, NOT ...448.217. An earlier draft wrote the
+#   measurement truncated to three decimals and called it the prediction, which made a
+#   27 ms miss read as an exact hit; the k=50 and k=100 predictions above are
+#   genuinely derived and stand. Nothing needed re-pinning either way.
+#
+#   A NOTE ON PROVENANCE FOR THE ROUTING LINE AND EVERYTHING BELOW IT. Run 2 is a
+#   PASS, and the harness does not collect logs on a PASS, so run 2's own KSP.log no
+#   longer exists: the routing quote that follows, and every digit in the paragraphs
+#   after it, are UN-ARCHIVED - quoted from the run's live output at the time it was
+#   read. Where a claim needs a durable artifact it is re-derived from the logs that
+#   DID survive (the INVALID run 1 attempts `_1600` / `_1601` and the two V7Mc
+#   calibration attempts `_1607` / `_1608`), and said so in place.
+#
+#   Routing line, verbatim, UN-ARCHIVED (run 2 `_1613`):
 #     `PhaseLock APPLIED: mission='Kerbal X' tree=aa435745... anchor
 #      277206.834101613->1077505.6991544911 P=1077310.5210188075
 #      method=dominant-intercept ... fixedCadenceResidual=160.73813568369224
 #      fixedCadenceWithinTol=no zeroDrift=yes firstLaunch=1077505.6991544911 ...
 #      scheduleWithinTol=yes`
+#   THE ANCHOR'S LEFT-HAND VALUE IS PER-RUN and `277206.834101613` appears in ZERO
+#   archived logs - it is run `_1613`'s. The archived flights read
+#   `277206.85410161305` (`_1600`), `277206.67410161288` (`_1601`),
+#   `277206.774101613` (`_1607`) and `277206.65410161286` (`_1608`); every one of them
+#   maps to the SAME `->1077505.6991544911` right-hand side, which is the load-bearing
+#   half. Do not treat the left-hand digits as a fixture constant.
 #   Note `method=dominant-intercept` where the Mun lane reads `joint-best-fit`: the
 #   near-commensurate 50:1 Minmus geometry solves by a different route, and the two
-#   lanes together show BOTH solver methods reaching a within-tolerance schedule.
-#
-#   A NOTE ON PROVENANCE FOR EVERYTHING BELOW. Run 2 is a PASS, and the harness does
-#   not collect logs on a PASS, so run 2's own KSP.log no longer exists: every digit in
-#   this paragraph and the next two is UN-ARCHIVED - quoted from the run's live output
-#   at the time it was read. Where a claim needs a durable artifact it is re-derived
-#   from the logs that DID survive (the INVALID run 1 `_1600` and the two V7Mc
-#   calibration attempts), and said so in place.
+#   lanes together show BOTH solver methods reaching a within-tolerance schedule
+#   (`method=dominant-intercept` IS archived - it appears on all four surviving logs).
 #
 #   THE WATCH ANSWER, and it is this lane's headline twice over. Run 2's readings
 #   (UN-ARCHIVED, log not collected on PASS):
@@ -226,11 +255,46 @@ id = "V7M-minmus-player-loop"
 #   it - the calibration's own entry names `775188af...` for the same member). auto=true,
 #   so this is the no-index auto-select a player gets from pressing Watch with nothing
 #   selected.
-#   REPRODUCIBILITY, RE-DERIVED FROM SURVIVING LOGS ONLY: the cycle-1 park reads
-#   144,349 m (`_1600`, logs/2026-08-08_1901), 144,356 m and 144,365 m (the two V7Mc
-#   attempts, logs/2026-08-08_1908 and _1909) - a 16 m spread across three archived
-#   flights, with cycle 2 tighter still at 191,497 / 191,499 / 191,493 m. That is the
-#   evidence for the claim in section 2 that these separations are not a per-run draw.
+#   REPRODUCIBILITY, RE-DERIVED FROM SURVIVING LOGS ONLY - AND THERE ARE FOUR OF THEM,
+#   not three. The fourth is run `_1601` (V7M run 1's attempt 2, archived at
+#   logs/2026-08-08_1902_V7M-minmus-player-loop): same spec shape, same
+#   `firstLaunch=1077505.6991544911`, same jump targets, and the same cycle-1 park
+#   epoch (`currentUT=1354406.000` against the others' `...406.020`). Cycle-1 park:
+#     `_1600` 144,349 m   (logs/2026-08-08_1901)
+#     `_1601` 198,711 m   (logs/2026-08-08_1902)   <- THE OUTLIER
+#     `_1607` 144,356 m   (logs/2026-08-08_1908)
+#     `_1608` 144,365 m   (logs/2026-08-08_1909)
+#   THREE agree to 16 m; the fourth is 54 km high and, worse, sits ABOVE the
+#   2a = 196.9 km maximum separation section 2 derives for this shared circle - so it
+#   cannot be a valid observer-to-ghost chord at all. IT IS STATED, NOT DISCARDED. A
+#   BENIGN MECHANISM IS AVAILABLE BUT NOT ESTABLISHED: in the three agreeing flights
+#   the `[FlightIntegrator]: Vessel Kerbal X has been unloaded 9050.7x` line (9050.76
+#   on `_1600`/`_1601`, 9050.78 on the two V7Mc attempts) PRECEDES
+#   the frame sample carrying the reading (log lines 11512/11520, 11521/11529,
+#   11526/11534) while in `_1601` it FOLLOWS it (11534 after the 11533 sample), i.e.
+#   `_1601` sampled one frame earlier in the post-jump settle; and `rdist` resolves
+#   through `ParsekFlight.ResolveCameraAnchorWorldPosition`, which returns null when
+#   no anchor resolves and lets the caller fall back to the scene CAMERA. A pre-settle
+#   frame reading the camera would produce exactly this. THAT IS A HYPOTHESIS; it has
+#   not been confirmed by instrumenting the frame.
+#   WHAT IT DOES AND DOES NOT TOUCH. The conclusion is UNTOUCHED: all four readings
+#   are between 120 km and 300 km and all four were REFUSED, so the 120 km entry gate
+#   is what every flight measured and the 300 km hypothesis is falsified four times
+#   over. What it DOES soften is section 2's determinism sentence - the geometric
+#   separation is still constant within a cycle and moves only with the phase anchor,
+#   but the REPORTED number is evidently not reproducible run to run to the metre,
+#   because one archived flight of the identical shape reported a number the geometry
+#   cannot produce.
+#   Cycle 2 reads 191,497 / 191,494 / 191,499 / 191,493 m in the same run order, and
+#   ATTRIBUTION MATTERS AGAIN: only `_1600` (`currentUT=2431877.520`) and `_1601`
+#   (`currentUT=2431877.500`) sampled at the CYCLE-2 PARK. `_1607`'s and `_1608`'s
+#   were both taken at `currentUT=3232433.217` - the CYCLE-3 JUMP LEAD, the k=150
+#   anchor minus the 15 s launch lead - where the ghost carries
+#   `GuardSkip ... reason=mission-loop-unit-inactive` and an icon `reason=past-window`.
+#   The near-equality is explicable (a past-window ghost clamped at the end of the
+#   cycle-2 replay, against an observer epoch-shifted with `dMeanAnomaly=0.000000`),
+#   but neither calibration attempt contributes a cycle-2-park frame sample, and
+#   quoting the trio as three cycle-2 measurements over-counts the evidence.
 #
 #   THE DESYNC ANSWER - NO DETECTABLE DESYNC ACROSS THREE CYCLES:
 #   (a) The Minmus-framed proto rebind (`phase=body-orbit surface=ProtoOrbitLine ...
@@ -240,20 +304,31 @@ id = "V7M-minmus-player-loop"
 #       All three agree to 1.3 s, which is exactly the spread of the rounded jump
 #       targets this spec pins - so the handoff repeated at the same replay offset to
 #       within the bracket's own resolution, three cycles running.
+#       (a) is UN-ARCHIVED - see the provenance note above.
 #   (b) Zero `loop-seam-teleport` raises and zero Tier-C anomalies of any reason across
 #       all three cycles, with `ghostRenderTracing` armed. READ THIS INSTRUMENT AT ITS
 #       OWN SENSITIVITY: `GhostRenderTrace.LoopSeamTeleportFloorMeters` is 1,000,000 m,
 #       and the raise threshold is `max(that floor, expected motion * dt * multiplier)`
 #       on a SINGLE-FRAME world delta. Silence therefore excludes ghost discontinuities
 #       larger than 1,000 km between consecutive frames and nothing finer - it is the
-#       COARSEST of the three instruments here, not the sharpest. (a) and (c) are what
-#       carry the sub-kilometre reading.
+#       COARSEST of the three instruments here, not the sharpest.
+#       AND IT IS BLIND AT THE SEAM ITSELF, which is exactly where this paragraph
+#       cites its silence. `GhostRenderTrace.IsLoopSeamTeleport`
+#       (`GhostRenderTrace.cs:936-940`) returns false when
+#       `playbackClockDeltaSeconds <= 0` or when it exceeds
+#       `max(LoopSeamMaxPlaybackClockStepSeconds = 60, dt * 4)` - so the REBIND FRAME,
+#       where the playback clock jumps a full loop period, is EXEMPT BY CONSTRUCTION.
+#       "Silent across the seam" therefore means "silent on the frames either side of
+#       it", never "the seam frame itself was measured and found clean".
+#       (a) and (c) are what carry the sub-kilometre reading.
 #   (c) The park separations (144,352 -> 191,498 -> 51,603 m, run 2's un-archived
 #       readings; 144,356 -> 191,499 -> 51,503 m on the archived calibration) DO move
 #       cycle to cycle, and that is not drift: it is where each phase anchor lands
 #       against the 4,620 s park period. See section 3.
 #
-#   ONE REPORT-ONLY PRODUCT FINDING, filed not fixed. Run 2 read
+#   ONE REPORT-ONLY PRODUCT FINDING, filed not fixed (and filed as finding (2) of
+#   `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md, which is where the
+#   quartet's two product observations live). Run 2 read
 #   `unityExceptions total=1 (NullReferenceException)`, and it is not noise - it is a
 #   deterministic teardown NRE this lane is the first to reach, because it is the first
 #   run that ENDS while watch mode is active:
@@ -345,7 +420,9 @@ steps = [
   # cycle. The calibration run 2026-08-08_1607 walked cycles 3/4/5 and measured the
   # cycle-3 park at 51,503 m (`FX suppressed: ... anchorDist=51503m`) - Visual, i.e.
   # inside the 120 km gate, which is all the auto-select needs. Predicted relaunch:
-  # k=150, 3,232,448.217.
+  # k=150, 3,232,448.190 (= 34.44 + 150*21,549.425; the MEASURED value is
+  # 3,232,448.2174634738, and an earlier draft quoted that truncated as the
+  # prediction). The bracket and park UTs below are built on the .190 prediction.
   { cmd = "StartLoopPlayback", args = { tree = "aa435745816e46b381cadb4fdcef7038" }, expect = "OK", budget = 300 },
   # CYCLE-3 ARRIVAL BRACKET about the predicted seam 3,500,155.1 - a THIRD arrival
   # sample for the desync hunt, which is what turns a two-point comparison into a
@@ -386,17 +463,21 @@ D14 = ["minmus", "scene-flight", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# NINE - a PREDICTION carried over from the Mun lane's measurement, stated as such.
-# V6M run 2026-08-08_1554 measured that `RecordingOptimizer` splits the Mun fixture's
-# main recording at LOAD, at the UT 212.2 atmospheric->exo boundary, into a chained
-# ascent + everything-after pair (`Split summary: ... exoCoastBodyChangeKept=1` - the
-# Kerbin->Mun body change is deliberately kept cohesive by the §3 rule-3 predicate).
-# This fixture is the SAME launcher on the same ascent profile (its first orbit segment
-# starts at 230.05 against Mun's 230.03), so the same single split is expected here.
-# PINNED EXACTLY, not widened: if the longer Minmus profile splits somewhere else too
-# the count reads 10 and this reading run reds ON THAT - a real finding about the
+# NINE, MEASURED ON THIS LANE. It began as a prediction carried over from the Mun
+# lane, and the prediction held: run `2026-08-08_1613` reported
+# `observed.recordings.count = 9` (as did the armed re-flight `_1642`), so this is a
+# measured pin now, not a borrowed one.
+# WHY 9 AND NOT 8: V6M run 2026-08-08_1554 measured that `RecordingOptimizer` splits
+# the Mun fixture's main recording at LOAD, at the UT 212.2 atmospheric->exo boundary,
+# into a chained ascent + everything-after pair (`Split summary: ...
+# exoCoastBodyChangeKept=1` - the Kerbin->Mun body change is deliberately kept cohesive
+# by the §3 rule-3 predicate). This fixture is the SAME launcher on the same ascent
+# profile (its first orbit segment starts at 230.05 against Mun's 230.03), and it
+# produced the same single split.
+# PINNED EXACTLY, not widened: if the longer Minmus profile ever splits somewhere else
+# too the count reads 10 and this lane reds ON THAT - a real finding about the
 # optimizer's predicate across two near-identical profiles, and cheap to re-pin. A
-# window wide enough to absorb it would have measured nothing.
+# window wide enough to absorb it would measure nothing.
 count = { min = 9, max = 9 }
 
 [expectations.rewind]
@@ -446,6 +527,16 @@ required  = [
   # ANTI-VACUITY / ARRIVAL: a map-render truth line showing a ghost proto surface framed
   # on MINMUS. A run that never gets the ghost to Minmus has measured nothing about a
   # Minmus arrival. A zero here is a FINDING, never a token to relax.
+  #
+  # KNOWN WEAKNESS, LEFT IN PLACE DELIBERATELY (2026-08-08 review). This pattern also
+  # matches a `surface=ProtoIcon` line, which is CREATION evidence, not arrival-rebind
+  # evidence; the line the reading ledger actually quotes for the arrival is the
+  # stronger `phase=body-orbit surface=ProtoOrbitLine ... body=Minmus`. That stronger
+  # form was VERIFIED present in every archived flight of this shape (2 matches in
+  # `_1600` and `_1601`, 5 in `_1607`), so hardening the pin to it would be safe - but
+  # changing a REQUIRED token obliges a re-flight, and the weaker pin has never
+  # green-lit a vacuous run. Harden it the next time this lane flies for another
+  # reason, not on its own.
   "surface=Proto(Icon|OrbitLine) .*body=Minmus",
   "enterwatchmode complete: index=",
 ]

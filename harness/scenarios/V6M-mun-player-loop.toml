@@ -201,10 +201,17 @@ id = "V6M-mun-player-loop"
 #       same replay offset to within the sampling granularity. It is worth being precise
 #       about what that does and does not prove: the bracket samples the handoff at a
 #       jump instant, so this bounds any desync at roughly the bracket's own resolution,
-#       not at millisecond scale. PROVENANCE: run `_1554` was a PASS and the harness
-#       does not collect logs on a PASS, so these digits are re-derived from the
-#       archived V6M re-flight at `logs/2026-08-08_1945_V6M-mun-player-loop`, which
-#       reproduced the same anchors and the same park separations exactly.
+#       not at millisecond scale. PROVENANCE, AND NAME THE RUN, NOT JUST THE FOLDER:
+#       run `_1554` was a PASS and the harness does not collect logs on a PASS, so
+#       these digits are re-derived from `logs/2026-08-08_1945_V6M-mun-player-loop`,
+#       which is run **`_1644`** - THE MOON QUARTET'S NEGATIVE CONTROL, not the armed
+#       re-flight `_1640` (that one PASSED and therefore collected nothing). `_1644`
+#       is a legitimate source for these digits precisely because its only injected
+#       difference is a temporary `supersedeRows = { min = 1 }` in the save-structure
+#       block - a reporting-layer window, which touches no frame, no clock and no
+#       ghost - and it reproduced the same anchors and the same park separations
+#       exactly. The log-folder stamps run ~3h01 ahead of the run ids on this
+#       machine, so `_1945` is a FOLDER name and never a run id.
 #   (b) ZERO `loop-seam-teleport` raises, and zero Tier-C anomalies of any reason
 #       (`anomalySweep hits=[]`) with `ghostRenderTracing` armed across both cycles.
 #       READ THIS INSTRUMENT AT ITS OWN SENSITIVITY: `GhostRenderTrace.
@@ -212,7 +219,15 @@ id = "V6M-mun-player-loop"
 #       `max(that floor, expected motion * dt * multiplier)` on a SINGLE-FRAME world
 #       delta. Silence therefore excludes ghost discontinuities larger than 1,000 km
 #       between consecutive frames and nothing finer - it is the COARSEST of these three
-#       instruments, not the sharpest. (a) and (c) carry the sub-kilometre reading.
+#       instruments, not the sharpest.
+#       AND IT IS BLIND AT THE SEAM ITSELF, which is where this paragraph cites its
+#       silence. `GhostRenderTrace.IsLoopSeamTeleport` (`GhostRenderTrace.cs:936-940`)
+#       returns false when `playbackClockDeltaSeconds <= 0` or when it exceeds
+#       `max(LoopSeamMaxPlaybackClockStepSeconds = 60, dt * 4)` - so the REBIND FRAME,
+#       where the playback clock jumps a whole loop period, is EXEMPT BY CONSTRUCTION.
+#       "Silent across the seam" means "silent on the frames either side of it", not
+#       "the seam frame was measured and found clean".
+#       (a) and (c) carry the sub-kilometre reading.
 #   (c) PROXIMITY REPRODUCED TO 0.15%. The engine's own per-member frame line
 #       (`engine-frame-iter ... [i=1 ... zone= rdist=]`) read the park-epoch separation
 #       as 560,404 m in cycle 1 and 561,219 m in cycle 2 - 815 m apart in 560 km. The
@@ -225,20 +240,28 @@ id = "V6M-mun-player-loop"
 #   `IsGhostWithinVisualRange` is `state.currentZone != RenderingZone.Beyond`, i.e. the
 #   **120 km** `GhostVisualRangeMeters` render-zone gate, NOT the 300 km figure this
 #   header's section 4 quotes from V4 (305 km is `WatchExitCutoffMeters`, the EXIT
-#   cutoff, and only that). Section 4's theta < 52.44 deg / 29% is therefore WRONG for
-#   entry; the correct condition is chord < 120 km, `theta < 2*asin(60/339.569)` =
-#   20.3 deg, ~11% of a uniform draw. Both measured separations (560.4 km, 561.2 km)
-#   fail BOTH thresholds, so this lane could not have discriminated them - Minmus
-#   could, and did (V7M's header carries the falsification). The pinned REJECTED stands
-#   on the corrected arithmetic with more margin than it had on the old one. NOTE the
-#   separations are also NOT a per-run draw: both craft advance at the same rate on the
-#   same orbit, so the separation is constant within a cycle and reproducible run to
-#   run - it moves only when the phase anchor does.
+#   cutoff, and only that). Section 4's theta < 52.44 deg is therefore WRONG for entry;
+#   the correct condition is chord < 120 km, `theta < 2*asin(60/339.569)` = 20.3 deg -
+#   AN ANGLE, deliberately NOT converted into "~11% of a uniform draw", because the
+#   banner at the top of section 4 kills exactly that framing: both craft advance at
+#   the same rate on the same orbit, so the separation is a fixed per-cycle geometric
+#   fact and moves only when the phase anchor does. Both measured separations
+#   (560.4 km, 561.2 km) fail BOTH thresholds, so this lane could not have
+#   discriminated them - Minmus could, and did (V7M's header carries the
+#   falsification). The pinned REJECTED stands on the corrected arithmetic with more
+#   margin than it had on the old one.
 #
 #   ONE STRUCTURAL SURPRISE, folded into the recordings window below rather than left
 #   as a footnote: the fixture loads as NINE recordings, not eight, because
 #   `RecordingOptimizer` splits the main recording at the UT 212.2 atmospheric->exo
 #   boundary at load time. See the [expectations.recordings] comment.
+#
+#   THE QUARTET'S PRODUCT FINDINGS LIVE ELSEWHERE. This lane produced none of its own,
+#   but the two the V6/V7 moon quartet did produce - the deterministic
+#   `icon-off-orbit` raise on V7T and the end-inside-watch teardown NRE on V7M - are
+#   written up together as `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md.
+#   Read that entry before concluding anything about the quartet's render behaviour
+#   from this file alone.
 # =====================================================================================
 tier = "operator"
 description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2."
@@ -425,6 +448,14 @@ trees          = { min = 1, max = 2 }
 #                                    about a Mun arrival, and reading that as a pass is
 #                                    the V1/V2 vacuity failure. A zero here is a FINDING
 #                                    to diagnose, never a token to relax.
+#     KNOWN WEAKNESS, LEFT IN PLACE DELIBERATELY (2026-08-08 review): this pattern also
+#     matches a `surface=ProtoIcon` line, which is CREATION evidence rather than the
+#     arrival REBIND the ledger above actually quotes
+#     (`phase=body-orbit surface=ProtoOrbitLine ... body=Mun`). The stronger form was
+#     VERIFIED present in the archived run (2 matches in
+#     `logs/2026-08-08_1945_V6M-mun-player-loop`), so hardening the pin to it would be
+#     safe - but changing a REQUIRED token obliges a re-flight, and the weaker pin has
+#     never green-lit a vacuous run. Harden it the next time this lane flies anyway.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",

@@ -468,7 +468,10 @@ count = { min = 8, max = 8 }
 #       that commit and 2026-08-08, so the token's FIRST live outing on B11 was
 #       2026-08-08 and it red on it.
 #     * MEASURED on ALL THREE 2026-08-08 flights, every one MISSION-OK with every
-#       other verifier green (capture ecc 0.000, ~136 km Mun park, count 8):
+#       other verifier green (capture ecc 0.000, count 8, and a 136-140 km Mun park:
+#       the measured `capturedInTargetOrbit` apoapsis/periapsis pairs are 136.3/136.2,
+#       138.4/138.4 and 139.6/139.5 km. Do NOT quote 135.1 km here - that is _1458's
+#       `flybyPeriapsisFloor` reading, an ARRIVAL periapsis, not the park):
 #         run 2026-08-08_1355 (wall 1320 s): 7x Destroyed (null) + 1x Orbiting Mun
 #         run 2026-08-08_1419 (wall 1318 s): 6x Destroyed (null)
 #                                            + 1x Landed Kerbin + 1x Orbiting Mun
@@ -480,18 +483,39 @@ count = { min = 8, max = 8 }
 #       Destroyed). LANDED IS THEREFORE THE MAJORITY SHAPE, 2 of 3 - the all-Destroyed
 #       flight is the outlier, which is the opposite of what a two-flight reading
 #       suggested.
+#     * WHICH RECORDING FLIPS, and it is NOT the one two drafts of this comment
+#       named. The row is identified by its recording START UT, matched against the
+#       mission log's own gate lines; do not identify it by terminal class, which is
+#       the thing under test.
+#         THE FLAMEOUT-STAGED REMNANT IS THE STABLE ROW. Its recording starts at the
+#         `gate flameoutStages 0->1` fire to the millisecond on every flight -
+#         4900.419 / 4900.4185835266071 (_1355), 4900.312 / 4900.3124958801336
+#         (_1419), 4900.476 / 4900.475848693869 (_1458, on disk as recording
+#         10da4419...) - and it is `Destroyed` ALL THREE TIMES. It never reaches
+#         Kerbin ORBIT and it never LANDS.
+#         THE ROW THAT FLIPS IS ONE OF THE FIRST ASCENT-SHED BOOSTER PAIR (recording
+#         start ~48.46/48.48, the first two radial boosters, falling back beside the
+#         pad). On _1419 and _1458 one of that pair reads `Landed Kerbin` and its
+#         same-UT twin reads `Destroyed`; on _1355 BOTH twins read `Destroyed`. In the
+#         committed fixture the pair is 998cc41e (terminalState=1 endpointPhase=1,
+#         TERMINAL_POSITION body=Kerbin lat=-0.104 lon=-74.545 alt=67.99
+#         terrainHeightAtEnd=0.215 - i.e. it survived to the ground a few hundred
+#         metres from the pad) and a834e40a (terminalState=4 endpointPhase=3).
+#         THIS MAKES THE RE-PIN BETTER SUPPORTED, not worse: the remnant the deleted
+#         `Orbiting Kerbin` row was reaching for is the one row that is STABLE across
+#         all three flights, and what it stably is, is Destroyed.
 #       On the Mun profile the flameout-staging watchdog does NOT leave a core in
 #       Kerbin orbit: it fires TWICE during CORRECTION-BURN, at alt ~3.60 Mm with
 #       thr=0.250 avThr=0.000 (a real dry transfer stage). NAME THE EVENT TYPE when
 #       quoting the UTs - they are ~0.5 s apart and an earlier draft quoted one of
-#       each: the DEBOUNCE ONSETS (`gate flameoutStreak 0->1`) are ut 4899.8 / 4901.4
-#       and the STAGE FIRES (`gate flameoutStages 0->1`, `1->2`) are ut 4900.3 /
-#       4901.9, quoting run _1419; all three flights agree on all four to within
-#       0.2 s. So the drop is deterministic, the non-booster remnant leaves on a
-#       Kerbin-IMPACTING trajectory, and only its terminal classification varies
-#       (Destroyed vs Landed Kerbin) - the one genuinely UNSTABLE facet. A
-#       presence-only token cannot pin an unstable class, so the detail is
-#       documented here instead of required.
+#       each: the DEBOUNCE ONSETS (`gate flameoutStreak 0->1`) are ut 4899.812 /
+#       4901.392 and the STAGE FIRES (`gate flameoutStages 0->1`, `1->2`) are ut
+#       4900.312 / 4901.912, quoting run _1419; all three flights agree on all four
+#       to within 0.2 s. So the drop is deterministic, the remnant leaves on a
+#       Kerbin-IMPACTING trajectory, and it is DETERMINISTICALLY Destroyed. The one
+#       genuinely UNSTABLE facet is a first-pair BOOSTER's terminal classification
+#       (Destroyed vs Landed Kerbin). A presence-only token cannot pin an unstable
+#       class, so the detail is documented here instead of required.
 #     * ROOT-CAUSED before the re-pin, NOT masked. `_b5_flameout_stage` is
 #       byte-identical to the last-green baseline (aedc47092), FLAMEOUT_DEBOUNCE_
 #       FRAMES / MAX_FLAMEOUT_STAGES / every CORR* and THROTTLE constant are
@@ -507,15 +531,16 @@ count = { min = 8, max = 8 }
 #   class, and - added 2026-08-08 in the same spirit - the removed row is now
 #   GUARDED IN THE NEGATIVE: `terminalState=Orbiting terminalOrbitBody=Kerbin` is
 #   FORBIDDEN below. That is the stable half of this finding. What is unstable is
-#   which of Destroyed/Landed the remnant ends as; what is STABLE, on all three
-#   measured flights, is that it never ends in Kerbin ORBIT (0 occurrences in each
-#   of the two archived KSP.logs and 0 in the third flight's committed save). So
-#   instead of leaving the facet unguarded, the lane now reds if the Kerbin-orbit
-#   remnant B12's profile produces ever starts appearing on the Mun profile - the
-#   exact regression the deleted required-row would have caught, without pinning a
-#   class this lane never produces. The remaining unguarded facet is exactly one:
-#   Destroyed vs Landed. Re-derive from a fresh measured run before ever re-adding
-#   the positive row.
+#   which of Destroyed/Landed ONE OF THE FIRST-SHED BOOSTERS ends as; what is STABLE,
+#   on all three measured flights, is that NOTHING ends in Kerbin ORBIT (0
+#   occurrences in each of the two archived KSP.logs and 0 in the third flight's
+#   committed save) and that the flameout-staged remnant specifically ends
+#   Destroyed, every time. So instead of leaving the facet unguarded, the lane now
+#   reds if the Kerbin-orbit remnant B12's profile produces ever starts appearing on
+#   the Mun profile - the exact regression the deleted required-row would have
+#   caught, without pinning a class this lane never produces. The remaining
+#   unguarded facet is exactly one: Destroyed vs Landed on a first-pair booster.
+#   Re-derive from a fresh measured run before ever re-adding the positive row.
 required = [
   "Recording started",
   "Recording stopped",
@@ -532,8 +557,15 @@ forbidden = [
   # three 2026-08-08 flights - while B12's Minmus profile does and REQUIRES the same
   # token. Deliberately written WITHOUT the `CommitTreeFlight terminal: rec=\w+`
   # prefix: any line carrying this state/body pair is the regression, whatever emits
-  # it. It cannot collide with the crew line (`CrewEndState: ... terminalState=Orbiting
-  # inSnapshot=...` has no terminalOrbitBody field).
+  # it. TWO NEAR-MISSES CHECKED, because a prefix-less token is only safe if the
+  # adjacent emitters are enumerated: (1) the crew line (`CrewEndState: ...
+  # terminalState=Orbiting inSnapshot=...`) has no `terminalOrbitBody` field at all;
+  # (2) `GhostMapPresence.Observability.cs:295` DOES emit ` terminalOrbitBody=` on its
+  # map/TS truth lines - but that formatter appends no `terminalState=` field
+  # anywhere in the line, so the two tokens can never appear adjacent there. Both
+  # exclusions are structural (a missing field, not a value), so they hold as long as
+  # neither formatter grows the other's field; if one ever does, restore the
+  # `CommitTreeFlight terminal: rec=\w+ ` prefix rather than widening this token.
   "terminalState=Orbiting terminalOrbitBody=Kerbin",
 ]
 

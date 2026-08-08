@@ -33,8 +33,12 @@ id = "V4-player-loop-workflow"
 #   *** land BETWEEN them and refused, which falsifies the 300 km entry hypothesis by
 #   *** measurement.
 #   *** The corrected condition for this fixture's ~1,038 km-radius park is
-#   *** theta < 2*asin(60/1038.2) = 6.6 deg (~3.7%), not the 16.6 deg / ~9% below - so
-#   *** the REJECTED prediction is if anything better supported than when written.
+#   *** theta < 2*asin(60/1038.2) = 6.6 deg, not the 16.6 deg below - so the REJECTED
+#   *** prediction is if anything better supported than when written. STATED AS AN
+#   *** ANGLE ONLY: the "% of a uniform draw" both figures used to carry is dropped
+#   *** throughout, because V7M's own measurements killed the draw model - both craft
+#   *** advance at the same rate on the same orbit, so a separation is a fixed
+#   *** per-cycle geometric fact, not something re-rolled per run.
 #   *** Full write-up: docs/dev/todo-and-known-bugs.md ->
 #   *** WATCH-ENTRY-GATE-IS-120KM-NOT-300KM. The paragraph is left as written because
 #   *** the correction is only legible against it.
@@ -125,10 +129,15 @@ id = "V4-player-loop-workflow"
 #   the resolver overrides exist only for InGameTests - and one
 #   `CachePlaybackDistances` call writes both fields immediately before the hide
 #   emit. So in production renderDistance == lastDistance, which does not weaken
-#   any reading here; it STRENGTHENS the 643.9 km one below, because it means
-#   `IsGhostWithinVisualRange` provably compared 643,913 against 300,000 rather
-#   than some other cached number. FILED, not softened: the surviving clamp
-#   candidate is a follow-up, and nothing in this spec depends on it.
+#   any reading here; it STRENGTHENS the 643.9 km one below, because it means the
+#   auto-select's range term provably saw 643,913 m rather than some other cached
+#   number. (WRITTEN LIVE-VOICE AS "provably compared 643,913 against 300,000"
+#   until 2026-08-08. At HEAD the entry comparison is the 120 km render-zone
+#   classification, not a 300 km compare - see the correction banner at the top of
+#   this file. The identity of the two cached distances is what the sentence is
+#   about, and it survives the correction unchanged; the threshold it named does
+#   not.) FILED, not softened: the surviving clamp candidate is a follow-up, and
+#   nothing in this spec depends on it.
 #
 # BACKWARD JUMPS ARE REFUSED, LOUDLY AND NON-GATINGLY (the V3C run-3 trap). The
 # seam answers a non-forward TimeJump `REJECTED reason=backward-jump`; every step
@@ -171,10 +180,10 @@ id = "V4-player-loop-workflow"
 #       is ~2,077 km.
 #       That is the phase arithmetic in the paragraph above coming back with a
 #       specific separation, not a refutation of it - though read the corrected
-#       figures from the banner (6.6 deg / ~3.7%), not the 16.6 deg / ~9% that
-#       paragraph derived from the wrong threshold. A co-phased observer (or any
-#       run whose accumulated on-rails offset lands inside ~6.6 deg) would get an
-#       OK here. DO NOT read this REJECTED as "the player cannot watch a looped
+#       figure from the banner (6.6 deg), not the 16.6 deg that paragraph derived
+#       from the wrong threshold, and read it as an ANGLE rather than as a
+#       probability. A co-phased observer (or any run whose accumulated on-rails
+#       offset lands inside ~6.6 deg) would get an OK here. DO NOT read this REJECTED as "the player cannot watch a looped
 #       interplanetary arrival"; read it as "this observer was 5.4x too far away,
 #       measured" (2.15x was the same measurement against the wrong gate).
 #
@@ -267,8 +276,12 @@ steps = [
   # body test can pass for a Duna-parked observer, so it is the only place the
   # 120 km chord question can actually be asked.
   { cmd = "TimeJump", args = { ut = "28812941" }, expect = "OK", budget = 300 },
-  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED at ~10:1 on the
-  # phase-chord arithmetic in the header; an OK here is the finding.
+  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED on the phase-chord
+  # arithmetic in the header - the corrected condition is a chord < 120 km on this
+  # fixture's ~1,038 km-radius park, i.e. theta < 6.6 deg. The "~10:1" odds this line
+  # used to quote are DROPPED with the rest of the uniform-draw framing (see the
+  # correction banner at the top of the file): the separation is a fixed per-cycle
+  # geometric fact, not a draw, and this one MEASURED 643,913 m. An OK is the finding.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]

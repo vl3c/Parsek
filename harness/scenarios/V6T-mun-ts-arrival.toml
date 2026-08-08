@@ -82,9 +82,31 @@ id = "V6T-mun-ts-arrival"
 #   (V6M measured phaseAnchorUt = relaunchUt = 280,176.94738016772 against the
 #   predicted 280,176.945, k=13), so the 296,690 park needed no re-pinning.
 #
+#   PROVENANCE FOR EVERY QUOTED LINE BELOW: UN-ARCHIVED. This lane has flown TWICE
+#   (`_1559` reading, `_1641` armed re-flight) and BOTH were PASSes, and the harness
+#   collects logs only on a non-PASS - so neither KSP.log exists and there is no
+#   `logs/2026-08-08_*_V6T-mun-ts-arrival` folder at all. The four product lines in the
+#   next paragraph are quoted from the runs' live output at the time they were read.
+#   TWO MITIGATIONS, both checkable without the logs, which is why this lane is not
+#   treated as unevidenced:
+#     (1) THE LOAD-BEARING TOKENS ARE MACHINE-CHECKED, not eyeballed. `created 1 ghost
+#         vessel(s)`, `body=Mun scene=TRACKSTATION` and `reaimed=False` are all in
+#         [expectations.logContracts].required below, and both flights reported
+#         `expectations PASS mismatches=[]`. A quote can drift; the gate cannot.
+#     (2) THE HYPERBOLA IS PINNED ON DISK. The `sma=-509907 ecc=1.665957` the TS host
+#         printed matches the committed fixture's own recorded Mun approach segment -
+#         `harness/fixtures/saves/mun-orbit-recorded/Parsek/Recordings/
+#         0fd603e389b94d6488d92f4e3c6b7957.prec.txt` carries
+#         `ecc = 1.6659569778416869` / `sma = -509906.89103689796` - so those two
+#         digits are re-derivable from a committed artifact for as long as the fixture
+#         lives, log rotation or not.
+#   What is NOT recoverable if the quote is ever doubted: the exact `pid=`, the split
+#   recording's `rec=8aea9c9b` id (per-run anyway, see the identity note below) and
+#   `phases=9`. Do not pin any of those.
+#
 #   THE ANSWER IS POSITIVE, AND IT IS THE MIRROR IMAGE OF V5's. A looped, FAITHFUL,
 #   same-parent moon member DOES materialize in the tracking station at its arrival
-#   epoch:
+#   epoch (all four lines UN-ARCHIVED - see the provenance note directly above):
 #     [TrackingStation] ParsekTrackingStation initialized: created 1 ghost vessel(s),
 #         fixed 0 orbit renderer(s), trackingStationSuppressed=0
 #     [MapRender] factory chain rec=8aea9c9b idx=1 inst=0 phases=9 reaimed=False
@@ -112,6 +134,13 @@ id = "V6T-mun-ts-arrival"
 #   ONE IDENTITY NOTE FOR ANYONE MATCHING LOGS ACROSS RUNS: the split recording's id is
 #   MINTED AT SPLIT TIME, so it differs per run (V6M's was 91e3bfce..., this run's is
 #   8aea9c9b...). Do not pin it, and do not read a mismatch as a different fixture.
+#
+#   THE QUARTET'S PRODUCT FINDINGS LIVE ELSEWHERE. This lane produced none of its own -
+#   it swept clean - but the two the V6/V7 moon quartet did produce (V7T's
+#   deterministic `icon-off-orbit` raise and V7M's end-inside-watch teardown NRE) are
+#   written up together as `MOON-LOOP-FINDINGS` in docs/dev/todo-and-known-bugs.md.
+#   This lane's clean sweep is one of the controls that entry rules the obvious
+#   explanations out with, so read the two together.
 # =====================================================================================
 tier = "operator"
 description = "The tracking-station half of the Mun player-loop pair, and the mode INVERSION of V5: arm the loop and jump the clock past the cycle-1 Kerbin->Mun SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. A same-parent moon mission is always phaseLocked, so re-aim is unreachable - the TS host must materialize the FAITHFUL chain (`factory chain ... reaimed=False`, the exact inverse of V5's pin) with a Mun-framed proto icon. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1: a zero there is the finding, never a token to relax."
