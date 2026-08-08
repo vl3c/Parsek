@@ -48,7 +48,9 @@ id = "V5-ts-loop-arrival"
 # THE DWELL IS SHORT, AND RUN 1 MEASURED HOW SHORT. No seam verb passes time in
 # TS (they are all RequiresFlight), so the TS dwell is the LoadGame settle plus
 # the harness poll interval across two cheap AnyScene reads - MEASURED at ~1 s of
-# 1x, the run quitting 2.2 s after the TS ghost appeared. That is enough for the
+# 1x: on run `2026-08-08_1144` the first TS ghost appeared at 14:44:43.060 and
+# Application.Quit ran at 14:44:44.140, so the whole TS dwell was 1.08 s. That is
+# enough for the
 # question this spec asks (does the TS host materialize the looped member at all,
 # and does the Director render it re-aimed) and NOT enough for any question that
 # needs a rate-limited instrument or a temporal window - see the logContracts
@@ -263,8 +265,11 @@ trees          = { min = 1, max = 2 }
 #     is a property of the SPEC SHAPE, not a soft gate). `probe frame summary`
 #     is VerboseRateLimited at 5.0 s on a shared key. No seam verb passes time in
 #     TRACKSTATION, and the harness drives ~0.25 s per step, so the entire TS
-#     dwell this shape can buy is ~1 s - the run quit 2.2 s after the TS ghost
-#     appeared, inside the rate-limiter's window, and the only probe line in the
+#     dwell this shape can buy is ~1 s - on run `2026-08-08_1144` the run quit
+#     1.08 s after the TS ghost appeared (first TS ghost 14:44:43.060 ->
+#     Application.Quit 14:44:44.140), a fifth of the limiter's 5.0 s window rather
+#     than the ~2.2 s an earlier draft of this note claimed, which only makes the
+#     point harder. Inside the rate-limiter's window, and the only probe line in the
 #     whole log was a FLIGHT-half `ghosts=0`. Pinning it would gate on a
 #     rate-limiter race. It is also the pin that could never have discriminated
 #     scene (the line carries no scene token and the probe runs in FLIGHT too),

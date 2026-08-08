@@ -395,7 +395,12 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > a false OK, and re-issuing it on the already-watched index would EXIT watch mode. That
 > brings the table to **24 implemented / 7 reserved**. `StopPlayback` deliberately stays
 > reserved: teardown is `FlushAndQuit`'s job, so a stop verb would be a second, weaker
-> owner of it.
+> owner of it. ONE VERDICT OUTLIER A SPEC MUST BE WRITTEN AGAINST: the shared
+> `unknown-tree` refusal carries `REJECTED` on `StartLoopPlayback` / `EnterWatchMode` (a
+> no-side-effect lookup miss) but `ERROR` on `MissionConfig` (pre-existing), so a spec
+> asserting a bad-tree refusal must match `expect` PER VERB - the harness subkind is
+> `driver-arg` either way, because `hlib._SEAM_REFUSAL_SUBKINDS` maps the msg token and
+> never reads the verdict.
 
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 

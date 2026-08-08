@@ -1112,6 +1112,47 @@ class SpecValidationRejectTests(unittest.TestCase):
             with self.subTest(msg=msg):
                 self.assertEqual("", hlib.classify_seam_refusal_subkind(msg))
 
+    def test_loop_lane_typed_refusals_map_to_finer_driver_subkinds(self):
+        # Same statement as the R12 cell, for the three loop-lane verbs. MissionConfig
+        # landed with NO rows at all (the pre-existing gap); StartLoopPlayback and
+        # EnterWatchMode are swept in with it. Every one of these is a REFUSAL, so a
+        # missing row costs the report the finer subkind and nothing else - which is
+        # exactly the silent decay this cell exists to catch.
+        for msg, expected in (
+                # StartLoopPlayback, arg half.
+                ("tree-arg-missing", "driver-arg"),
+                ("unknown-tree%20tree%3Ddeadbeef", "driver-arg"),
+                # StartLoopPlayback, gate half.
+                ("loop-not-armed", "driver-gate"),
+                ("unit-not-built%20tree%3Dccb5e4af", "driver-gate"),
+                ("no-next-window%20tree%3Dccb5e4af", "driver-gate"),
+                ("window-not-forward%20tree%3Dccb5e4af%20relaunchUt%3D1", "driver-gate"),
+                ("no-flight-instance", "driver-gate"),
+                # EnterWatchMode.
+                ("index-arg-invalid%20index%3Dxyz", "driver-arg"),
+                ("index-out-of-range%20index%3D9%20committed%3D3", "driver-arg"),
+                ("no-watchable-ghost%20committed%3D3%20tree%3D(any)", "driver-gate"),
+                ("watch-not-entered", "driver-gate"),
+                # MissionConfig.
+                ("loop-arg-invalid%20loop%3Dyes", "driver-arg"),
+                ("interval-arg-invalid%20intervalSeconds%3D-1", "driver-arg")):
+            with self.subTest(msg=msg):
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+        # THE SHARED KEYS. The table is keyed by msg token alone, so one row serves
+        # every verb that emits the token - including `unknown-tree`, which is
+        # REJECTED on StartLoopPlayback / EnterWatchMode but ERROR on MissionConfig.
+        # The subkind is verdict-independent by construction: classify reads the msg
+        # and never the verdict, so both spellings of the same lookup miss land on
+        # driver-arg and both retry once. (Spec authors still have to match `expect`
+        # per verb - that is the design doc's note, not this table's job.)
+        for shared in ("tree-arg-missing", "unknown-tree", "no-flight-instance"):
+            with self.subTest(shared=shared):
+                self.assertIn(shared, hlib._SEAM_REFUSAL_SUBKINDS)
+        # StartLoopPlayback's post-arm terminal is NOT a refusal, same rule as
+        # switch-threw above: the jump was initiated and the clock never landed.
+        self.assertEqual("", hlib.classify_seam_refusal_subkind("jump-timeout"))
+
     def test_r12_loadgame_scene_arg_is_validated_pre_launch(self):
         # The seam's scene= parse is fail-closed and case-sensitive, so a typo is a typed
         # REJECTED - but only after a whole KSP boot. Catch it in validate_spec instead,

@@ -29,13 +29,17 @@ id = "V4-player-loop-workflow"
 #   fixture's DD1, parked at Duna. At the epoch the warp lands on (the pad launch
 #   - see the arithmetic below) the ghost is at KERBIN, on another body entirely,
 #   so IsGhostOnSameBody alone refuses before range is consulted. At the
-#   PARKED-TAIL epoch the ghost IS at Duna, on the same ~603 km-radius orbit the
-#   live craft occupies - so the body test passes and only the 300 km chord
-#   decides: 2*603*sin(theta/2) < 300 km needs theta < ~28.8 deg of phase
-#   separation, i.e. ~16% of a uniformly-drawn phase, and ~19.65 Ms of live
-#   on-rails orbiting between the fixture epoch and the parked-tail epoch draws
-#   that phase effectively at random. So the parked-tail prediction is REJECTED
-#   at ~5:1, and an OK there is the more interesting measurement: it would mean a
+#   PARKED-TAIL epoch the ghost IS at Duna, on the same ~1,038 km-RADIUS orbit
+#   the live craft occupies - READ THE RADIUS OFF THIS FIXTURE, not off a sibling
+#   lane: the parked DD1 sits at alt 718,363 m over Duna's 320 km surface, i.e.
+#   SMA 1,038,214.95 / ecc 0.00127 straight out of persistent.sfs. (V3C's park is
+#   283 km; importing ITS radius here is the mistake the first draft of this
+#   header made.) So the body test passes and only the 300 km chord decides:
+#   2*1,038*sin(theta/2) < 300 km needs theta < ~16.6 deg of phase separation,
+#   i.e. ~9% of a uniformly-drawn phase, and ~19.65 Ms of live on-rails orbiting
+#   between the fixture epoch and the parked-tail epoch draws that phase
+#   effectively at random. So the parked-tail prediction is REJECTED at ~10:1,
+#   and an OK there is the more interesting measurement: it would mean a
 #   parked observer CAN watch a looped interplanetary ghost's arrival tail, which
 #   the co-location design question (V3C's header) currently assumes it cannot.
 #   Either verdict is this lane's deliverable. If the run reds because the
@@ -62,10 +66,19 @@ id = "V4-player-loop-workflow"
 #     depart  = relaunchUt +    89,448.917 = 24,396,028.99  (= D0, confirmed)
 #     ARRIVAL = relaunchUt + 4,474,604.451 = 28,781,184.52
 #     PARKED  = relaunchUt + 4,506,361.140 = 28,812,941.21
-#   V3C's -188.294 s correction is a MATCHED PAIR with ITS phase anchor
-#   (24,306,768.36, shifted +188.294 by that lane's PadAlignLaunch); applying
-#   that correction to THIS fixture's raw anchor would double-count it. Both
-#   routes land on the same 28,781,184.52, which is why the error was invisible.
+#   V3C's -188.294 s correction is a MATCHED PAIR with ITS anchor
+#   (24,306,768.36), and the 188.294 s is a SPAN-START-vs-RECORDING-START delta
+#   (span start 4,653,692.598 - recording start 4,653,504.304), NOT a pad-align
+#   shift: the PadAlignLaunch shift is +7,378.5 s in BOTH lanes, and V4's own log
+#   prints it - `launchShift=7378.5s phaseAnchor=24306580.07` off
+#   `anchor=24299201.55`. So V3C measures its offsets from the span start and
+#   subtracts the delta back out; this spec measures them from the recording
+#   start and does not, and applying V3C's correction to THIS anchor would
+#   double-count the same 188.294 s. (V3C's own header never writes the number -
+#   it is implicit in that lane's span-start convention, which is precisely why
+#   it got mis-attributed here.) Both routes land on the same 28,781,184.52 -
+#   phaseAnchor + raw offset = V3C's span-start-corrected identity - which is why
+#   the error was invisible.
 #   INDEPENDENTLY CONFIRMED by two product lines on run 1: the [ReaimSeam] synth
 #   geometry line (`arrivalUT=28781185 soiEntryUT=28781185`) and the icon
 #   driver's own replay window (`bounds=[28781184.5,28813228.5]`).
@@ -73,8 +86,9 @@ id = "V4-player-loop-workflow"
 # THE BRACKET IS AN EXPECTED-NULL, AND IS FLOWN ANYWAY. V3C measured the flight
 # engine's hide gate at DistanceThresholds.GhostVisualRangeMeters = 120,000 m,
 # and predicted the Sun->Duna seam sits at Duna's SOI radius (47,921,949 m)
-# against a ~603 km-radius park - ~400x over the gate, hence unobservable by
-# construction. The three bracket jumps are kept because the loop-seam-teleport
+# against this fixture's ~1,038 km-radius park - ~400x over the gate, hence
+# unobservable by construction. (The ~400x is 47.9 Mm / 120 km; the park radius
+# does not enter it.) The three bracket jumps are kept because the loop-seam-teleport
 # sweep is armed and the jumps are instantaneous - a free reading.
 #
 #   RUN 1 MEASURED THE NULL AND ALSO QUALIFIED V3C's ARITHMETIC. Zero
@@ -82,15 +96,22 @@ id = "V4-player-loop-workflow"
 #   dist[] sampling at the seam instants - the expected null. But the one
 #   `hidden-by-zone` sample the bracket produced read
 #   `distance=869479m` (869.5 km), not the ~47.9 Mm the SOI-radius argument
-#   predicts: 7.2x the 120 km gate, not 400x. Two things could produce that and
-#   this run does not separate them - the hide line prints `renderDistance`,
-#   which is cached separately from the `lastDistance` the watch conjunction
-#   consults, and the icon driver's replay window starts AT the seam
-#   (`bounds=[28781184.5,...]`), so a pre-bounds ghost may be resolving to a
-#   clamped in-bounds position near Duna rather than to the SOI edge. Either way
-#   V3C's "~400x over the gate" does not describe what the engine measured here.
-#   FILED, not softened: it is a follow-up, and nothing in this spec depends on
-#   which of the two it is.
+#   predicts: 7.2x the 120 km gate, not 400x. ONE candidate explains it: the icon
+#   driver's replay window starts AT the seam (`bounds=[28781184.5,28813228.5]`),
+#   so a pre-bounds ghost resolves to a clamped in-bounds position near Duna
+#   rather than to the SOI edge. A second candidate - "the hide line prints
+#   `renderDistance`, cached separately from the `lastDistance` the watch
+#   conjunction reads" - was RAISED here and is REFUTED: on the production path
+#   `ResolvePlaybackDistance` and `ResolvePlaybackActiveVesselDistance`
+#   (GhostPlaybackEngine.cs:5693-5727) are textually IDENTICAL - both fall
+#   through to `Vector3d.Distance(ghost.transform.position, activeVesselPos)`,
+#   the resolver overrides exist only for InGameTests - and one
+#   `CachePlaybackDistances` call writes both fields immediately before the hide
+#   emit. So in production renderDistance == lastDistance, which does not weaken
+#   any reading here; it STRENGTHENS the 643.9 km one below, because it means
+#   `IsGhostWithinVisualRange` provably compared 643,913 against 300,000 rather
+#   than some other cached number. FILED, not softened: the surviving clamp
+#   candidate is a follow-up, and nothing in this spec depends on it.
 #
 # BACKWARD JUMPS ARE REFUSED, LOUDLY AND NON-GATINGLY (the V3C run-3 trap). The
 # seam answers a non-forward TimeJump `REJECTED reason=backward-jump`; every step
@@ -116,16 +137,20 @@ id = "V4-player-loop-workflow"
 #       observer is at Duna. Categorical: the body test cannot pass.
 #     - AT THE PARKED TAIL (28,812,941): the ghost was ACTIVE, at DUNA, and
 #       playing its parked tail (`playbackUT=9159865.573`, inside the recorded
-#       `endUT=9160152.704`) - every precondition for watching it held EXCEPT
-#       range, and the engine printed the range:
+#       `endUT=9160152.704`) - TWO of the conjunction's three terms are provable
+#       from the log and the third is inferred: HasActiveGhost holds (the hide
+#       emit only runs on a positioned, active ghost), range fails with a printed
+#       number, and same-body is INFERRED from `seedBody=Duna` on the same-frame
+#       director line rather than read off a guard of its own. The engine printed
+#       the range:
 #         GuardSkip rec=4d43a0c9 reason=hidden-by-zone_distance=643913m
 #       643.9 km against a 300 km watch-entry cutoff and a 120 km zone gate.
 #       So watch mode is NOT categorically unreachable from a parked observer at
 #       the arrival tail - it missed by 2.15x on THIS phase draw, on a shared
-#       ~603 km-radius orbit whose maximum possible separation is ~1,206 km.
-#       That is the ~16%-of-phase arithmetic in the paragraph above coming back
+#       ~1,038 km-radius orbit whose maximum possible separation is ~2,077 km.
+#       That is the ~9%-of-phase arithmetic in the paragraph above coming back
 #       with a specific draw, not a refutation of it. A co-phased observer (or
-#       any run whose accumulated on-rails drift lands inside ~28.8 deg) would
+#       any run whose accumulated on-rails drift lands inside ~16.6 deg) would
 #       get an OK here. DO NOT read this REJECTED as "the player cannot watch a
 #       looped interplanetary arrival"; read it as "this observer was 2.15x too
 #       far away, measured".
@@ -219,7 +244,7 @@ steps = [
   # body test can pass for a Duna-parked observer, so it is the only place the
   # 300 km chord question can actually be asked.
   { cmd = "TimeJump", args = { ut = "28812941" }, expect = "OK", budget = 300 },
-  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED at ~5:1 on the
+  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED at ~10:1 on the
   # phase-chord arithmetic in the header; an OK here is the finding.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },

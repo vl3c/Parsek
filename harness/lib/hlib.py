@@ -5142,6 +5142,54 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "target-already-active": "driver-gate",
     "target-unloaded": "driver-gate",
     "dialog-pending": "driver-dialog",
+    # The loop lanes (design "> Update (the loop lanes)"): MissionConfig,
+    # StartLoopPlayback and EnterWatchMode. Same R12 reasoning - the three verbs ship
+    # typed refusals and without these rows every one of them collapses to the coarse
+    # driver-verdict-mismatch. MissionConfig's rows are the PRE-EXISTING gap (it landed
+    # 2026-08-06 with no table entries at all); the other two are swept in with it so
+    # the whole family maps in one pass.
+    #
+    # THE TABLE IS KEYED BY MSG TOKEN ALONE, not by (verb, msg): three tokens are
+    # SHARED across these verbs and map identically, so no per-verb key is needed.
+    #   tree-arg-missing   : StartLoopPlayback + MissionConfig
+    #   unknown-tree       : StartLoopPlayback + EnterWatchMode + MissionConfig
+    #   no-flight-instance : StartLoopPlayback + EnterWatchMode (and the older
+    #                        RequiresFlight verbs, which emit the same token)
+    # The VERDICT on a shared token is NOT uniform - `unknown-tree` is REJECTED on
+    # StartLoopPlayback / EnterWatchMode (a no-side-effect lookup miss) but ERROR on
+    # MissionConfig (a pre-existing outlier). That divergence does not reach here:
+    # this table maps the refusal MSG to a subkind and never reads the verdict, and
+    # both verdicts route through the same driver-* INVALID retry-once. Spec authors
+    # DO have to care - see the design doc's loop-lanes update note.
+    #
+    # Arg half: the SPEC named or spelled something wrong (the `unknown-target` call).
+    "tree-arg-missing": "driver-arg",
+    "unknown-tree": "driver-arg",
+    "index-arg-invalid": "driver-arg",
+    "index-out-of-range": "driver-arg",
+    "loop-arg-invalid": "driver-arg",
+    "interval-arg-invalid": "driver-arg",
+    # Gate half: the live state declined. Nothing is misspelled - the run reached a
+    # state these verbs do not drive. `loop-not-armed` wants a MissionConfig step
+    # first; `unit-not-built` / `no-next-window` mean the mission resolved no loop unit
+    # or no forward relaunch; `window-not-forward` is the backward-jump guard
+    # (FastForwardToEventUT silently no-ops backward); `no-watchable-ghost` is the
+    # auto-select conjunction refusing (active-ghost / body / range);
+    # `no-flight-instance` is a RequiresFlight verb reaching a scene with no
+    # ParsekFlight. `watch-not-entered` is the read-back give-up on a SILENT toggle
+    # refusal - the verb DID call EnterWatchMode and WatchModeController's own guards
+    # declined it, so it is a state gate wearing a timeout's clothes, not a bad arg.
+    "loop-not-armed": "driver-gate",
+    "unit-not-built": "driver-gate",
+    "no-next-window": "driver-gate",
+    "window-not-forward": "driver-gate",
+    "no-flight-instance": "driver-gate",
+    "no-watchable-ghost": "driver-gate",
+    "watch-not-entered": "driver-gate",
+    # NOT mapped, deliberately: StartLoopPlayback's `jump-timeout`. Like switch-threw /
+    # switch-refused-by-stock it is a POST-arm terminal - the clock jump was initiated
+    # and never landed - so it rides the coarse driver-verdict-mismatch rather than
+    # claiming a refusal that never happened.
 }
 
 
