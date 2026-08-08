@@ -45,6 +45,62 @@ id = "V3C-flight-arrival-companion"
 #   seams remain UNMEASURED. NEXT STEP (this spec stays reading-posture):
 #   encounter tuning for the ghost-cycle window - likely a wider correction
 #   budget or a planner-matched window solve - then the GS-3 pin.
+#   TUNING BRANCH, runs 3-5 (2026-08-08; attempts named per the run-3-to-5
+#   scheme: run 3 = _0747/_0802, run 4 = _0825/_0836, run 5 = _0852/_0903,
+#   preceded by _0746, an environment abort - Parsek.Tests was never built
+#   in the fresh worktree, so the injector no-op'd; the runs also placed
+#   this spec in flake quarantine, rate 0.67 over 7d):
+#   - THE 800 CAP CLOSED THE ENCOUNTER: run 2's miss traced to
+#     'course-correction dv 522.1 m/s exceeds cap 450.0; plan removed'
+#     (a second disqualification measured 529.9); with the cap at 800 every
+#     branch flight reached Duna. Run 3 attempt 2 (_0802) is the PASS:
+#     283 km park under the then-narrow windows, commit UT 29,216,350.
+#   - THE BACKWARD-JUMP LESSON, corrected after five-agent review: the
+#     seam REJECTS a backward TimeJump loudly ('timejump refused
+#     reason=backward-jump', WARN + verdict=REJECTED met=false on all three
+#     bracket steps of _0802). The run STILL classified PASS because
+#     post-mission seam steps in the recording role are non-gating on a
+#     MISSION-OK run (driverValidity PASS with allExpectedMet=false) - the
+#     REAL trap: a green V3C run can silently dwell nowhere. The forbidden
+#     token below makes that self-detecting.
+#   - THE SEAM ARITHMETIC, corrected the same way: the span clock rides
+#     phaseAnchor (24,306,768.36, AFTER the PadAlignLaunch shift of
+#     +7,378.5 s - not the schedule anchor 24,299,389.85 this header
+#     previously used) and the unit's span start 4,653,692.598 (not the
+#     recording's explicitStartUT). True cycle-0 arrival seam =
+#     D0 + tof = 28,781,184.52 (triple-confirmed against the synth-geometry
+#     line's soiEntryUT); cycle-1 = +cadence = 48,434,260.29. The commit
+#     lands 435 ks past cycle 0's seam (the live cycle-2 transfer runs
+#     ~353 ks longer than the recorded tof).
+#   - THE ZONE WALL (the decisive correction): the hide gate is
+#     DistanceThresholds.GhostVisualRangeMeters = 120,000 m (ParsekConfig),
+#     NOT the ~55.8 Mm this header previously inferred (that figure was
+#     merely the smallest HIDDEN sample of a monotonic series - an upper
+#     bound with no lower bound). The Sun->Duna seam sits AT Duna's SOI
+#     radius (47,921,949 m) while any park orbits ~5.65 Mm radius: the
+#     separation is ~400x the gate, so THE ARRIVAL SEAM IS UNOBSERVABLE
+#     FROM ANY DUNA PARK, at any bracket UT, by construction. The cycle-1
+#     bracket steps were therefore REMOVED (their targets were also
+#     7,190 s short per the arithmetic above). What the co-flight DID
+#     measure: [ReaimSeam] dist[] samples x56 during the early coast -
+#     the live craft genuinely rode inside the 120 km corridor of the
+#     engaged ghost for stretches - so the engine surface IS reachable by
+#     co-flight; observing a SEAM INSTANT needs the observer inside 120 km
+#     AT that instant (a to-the-second co-departure, or a temporary
+#     zone-relax debug aid in the MapRenderWarpControl mold - a DESIGN
+#     decision for the next session, not a spec parameter).
+#   - THE IKE MODE, causality corrected: the transit is ARRIVAL-GEOMETRY
+#     VARIANCE, not the park windows (run 4 attempt 1, _0825, hit Ike
+#     UNDER THE NARROW WINDOWS; the windows are post-capture acceptance
+#     predicates evaluated after the SOI guard and cannot steer the
+#     hyperbola). The correction rounds aim courseCorrectPeriapsisMeters =
+#     300 km altitude - dead centre of Ike's funnel (shell ~1,734-4,026 km
+#     ALTITUDE) - and achieved 5,330 km alt on run 4 (Ike-clear, the
+#     natural high-band capture) vs 2,081 km alt on run 5 (inside the
+#     shell; its capture node also planned 1,554 s AFTER Ike entry). The
+#     Ike-clear lever is the AIMED ARRIVAL PERIAPSIS: >= ~4,300 km alt
+#     (high band, what run 4 flew naturally) or <= ~1,600 km alt (low
+#     band, ~135 km inside the shell's inner edge) - a follow-up flight.
 # =====================================================================================
 tier = "operator"
 description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside - the only shape that reaches the flight-engine seam surface (a parked observer is hidden-by-zone before positioning). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; the known ~62-deg handoff teleport is the EXPECTED red on this reading run."
@@ -89,21 +145,17 @@ steps = [
   # (unit-span-clock-unresolved x694; zero [ReaimSeam] lines - vacuous for
   # the seam question). Jump the pad epoch to 23.0M so the pad-align machine
   # targets the SAME 24.3M-family window the ghost replays, and the live
-  # craft flies alongside the engaged replay.
+  # craft flies alongside the engaged replay - the co-flight corridor that
+  # produced this spec's dist[] sampling (x56 on run 3).
   { cmd = "TimeJump", args = { ut = "23000000" },  expect = "OK", budget = 300 },
   { phase = "mission",  expect = "MISSION-OK", budget = 4200 },
-  # THE ARRIVAL-SEAM DWELL: the ghost's Sun->Duna handoff replays at
-  # anchor + arriveOffset = 24,299,389.85 + 4,474,604.45 = 28,773,994.30,
-  # ~an hour after the live craft parks at Duna. Bracket the instant with
-  # epoch jumps; the 1x frames between the step round trips carry the
-  # crossing, and a mid-hop crossing is still measured (the 49 Mm defect
-  # discontinuity clears the predicate's dt-scaled threshold at these hop
-  # sizes). The depart seam (24,388,838.77, mid-coast) is measured by the
-  # un-predicated [ReaimSeam] SEAM jump line instead - the Tier-C raise is
-  # warp-suppressed by design at coast warp.
-  { cmd = "TimeJump", args = { ut = "28773800" },  expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28773930" },  expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28774150" },  expect = "OK", budget = 300 },
+  # NO post-mission seam bracket: the arrival seam is UNOBSERVABLE from any
+  # Duna park (the 120 km zone wall - see the header ledger), so bracket
+  # steps here would imply a measurement they cannot make. This spec's
+  # measured value is the CO-FLIGHT coast corridor (dist[] sampling while
+  # the live craft rides inside the ghost's 120 km zone) plus the
+  # encounter-closure evidence; the seam-instant observation needs the
+  # co-location redesign named in the header.
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -173,7 +225,15 @@ transferBurnTimeoutSeconds = 20000
 
 # --- Correction rounds (time-to-SOI mode; the B7 shape, B15-sized budget).
 courseCorrectPeriapsisMeters = 300000
-maxCorrectionDvMps         = 450
+# CYCLE-2 CAP (reading run 2, 2026-08-07_2324, measured): the ghost-cycle
+# window prices the mid-course correction at 522.1 m/s - 16% over B17's
+# cycle-1 cap of 450, so the machine disqualified the plan and the raw
+# intercept missed Duna (Duna e=0.051 makes window quality cycle-dependent;
+# ~522/67 = ~7.8 deg effective phase cost at this cycle). 800 admits the
+# measured correction with margin while staying far under the DD1's
+# ~1,700 m/s transfer-stage reserve (A6 arithmetic); B17's own 450 cap is
+# deliberately untouched - it is the cycle-1 cleanliness contract.
+maxCorrectionDvMps         = 800
 correctionTriggerAltsMeters       = []
 # Round 0 right after Sun-SOI entry: with an ASAP ejection the transfer reaches
 # Duna's ORBIT but not necessarily Duna (the pad jump owns the phase), so the
@@ -196,18 +256,31 @@ flipPhysicsWarpFactor      = 1
 # recording with an Atmospheric section).
 targetPeriapsisFloorMeters = 55000
 
-# --- Capture + Ike-clear park + commit (B11/B12 tail, B16-proven after a
+# --- Capture + observer-grade park + commit (B11/B12 tail; the Ike-clear
 # heliocentric traverse).
 captureEnabled             = true
 capturePlanTimeoutSeconds  = 300
 captureBurnTimeoutSeconds  = 400000
-# The park IS the cleanliness contract in numbers: periapsis above the
-# atmosphere with margin, apoapsis far inside Ike's inner shell edge
-# (~1,830 km altitude), eccentricity tight enough that the committed orbit is a
-# real 300 km-class park rather than a grazing ellipse.
-parkMinPeriapsisMeters     = 120000
-parkMaxApoapsisMeters      = 1500000
-parkMaxEccentricity        = 0.2
+# (The 300 km-class "park IS the cleanliness contract" text that stood here
+# is B17's contract, deliberately NOT this spec's - see the observer-grade
+# block below. Review note: no green capture has yet been produced UNDER
+# the widened windows - run 3's PASS parked at 283 km under the then-narrow
+# ones; the widening is justified by run 4's measured 5,330 km-altitude
+# Ike-clear capture that the narrow windows falsely rejected as under-burn,
+# but it is a posture awaiting its first green, not a proven one.)
+# OBSERVER-GRADE park (run 4 attempt 2, 2026-08-08_0836, measured): the
+# cycle-2 arrival geometry captured into a perfectly good 5,330 km-altitude
+# circular Duna orbit (Ike-CLEAR - the shell tops out ~4,026 km altitude)
+# that B17's 300 km-class park windows rejected as under-burn, discarding a
+# healthy flight. V3C's live craft is an OBSERVER - it only needs to
+# survive and stay bound inside the SOI - so the park windows accept any
+# safe bound orbit; the mlib left-the-target-SOI guard still reds an Ike
+# transit REGARDLESS of these windows (it runs before the acceptance
+# check), so the widening cannot mask a moon brush. The 300 km-class
+# cleanliness contract is B17's, deliberately not duplicated here.
+parkMinPeriapsisMeters     = 60000
+parkMaxApoapsisMeters      = 40000000
+parkMaxEccentricity        = 0.9
 parkMaxAngularVelocityRadPerSec = 0.05
 parkSituations             = ["ORBITING"]
 parkDwellSeconds           = 180
@@ -274,6 +347,10 @@ required  = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "FORCED FAITHFUL",
+  # Self-detecting guard for the run-3 trap: a refused backward jump is a
+  # WARN the driver-validity carve-out cannot red on a MISSION-OK run;
+  # this token makes it a gating expectations mismatch instead.
+  "timejump refused reason=backward-jump",
 ]
 
 [runtime]
