@@ -926,10 +926,12 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The remaining NINE names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
-        # WAS in this list and left it in R12; MissionConfig left it for the
-        # arrival-validation lane - see the promotion cells below.
-        for verb in ("StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot",
+        # The remaining SEVEN names stay RESERVED (not v1-drivable).
+        # SimulateStockSwitchClick WAS in this list and left it in R12; MissionConfig
+        # left it for the arrival-validation lane; StartLoopPlayback and EnterWatchMode
+        # left it for the player-workflow lane - see the promotion cells below.
+        # StopPlayback stays reserved on purpose: teardown is FlushAndQuit's job.
+        for verb in ("StopPlayback", "SealSlot",
                      "StashSlot", "FlySlot", "RouteCommand",
                      "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
@@ -968,15 +970,18 @@ class SpecValidationRejectTests(unittest.TestCase):
     def test_mc2_eva_verbs_implemented_not_reserved(self):
         # M-C2: EvaExit / EvaBoard / PlantFlag are NEW implemented verbs (never in the
         # RESERVED envelope), additive like SaveGame; EVA-4 added EvaChuteDeploy the same
-        # way. Verb table is 21 implemented / 10 reserved after R12 (mirrors the C#
-        # TestCommandVerbs counts: 19 + ExitToSpaceCenter additive + the
-        # SimulateStockSwitchClick promotion, which also takes reserved 11 -> 10).
+        # way. Verb table is 24 implemented / 7 reserved after the player-workflow
+        # lane (mirrors the C# TestCommandVerbs counts: 19 + ExitToSpaceCenter
+        # additive + THREE promotions out of the reserved list - R12's
+        # SimulateStockSwitchClick, the arrival-validation lane's MissionConfig, and
+        # the player-workflow lane's StartLoopPlayback + EnterWatchMode - which take
+        # reserved 11 -> 7).
         for verb in ("EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 22)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 9)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 24)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
@@ -1032,6 +1037,48 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
         self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
         self.assertEqual(hlib.required_dispatch_step_wait("ExitToSpaceCenter"), 180.0)
+
+    def test_player_workflow_verbs_implemented_not_reserved(self):
+        # The player-workflow lane's two promotions (the THIRD and FOURTH strict ones
+        # since M-C1): both must end up implemented and neither reserved. Fails the way
+        # a half-done promotion fails - a name in BOTH sets, or in neither.
+        for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        # StopPlayback is the deliberate hold-out beside them: teardown is
+        # FlushAndQuit's job, so a stop verb would be a second, weaker owner of it.
+        self.assertIn("StopPlayback", hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn("StopPlayback", hlib.IMPLEMENTED_SEAM_VERBS)
+
+    def test_player_workflow_steps_are_no_longer_rejected_as_reserved(self):
+        # The BEHAVIOURAL half of both promotions: before this lane a spec naming
+        # either verb failed validation with "is RESERVED, not v1-drivable", which is
+        # what made the warp-and-watch player loop unauthorable. Fails if either
+        # promotion is cosmetic.
+        for verb, args in (("StartLoopPlayback", {"tree": "tree-1"}),
+                           ("EnterWatchMode", {})):
+            with self.subTest(verb=verb):
+                def m(s):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(
+                        1, {"cmd": verb, "args": args, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(any(verb in e for e in v.errors),
+                                 "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_player_workflow_deferral_shape_mirrors_c_sharp(self):
+        # StartLoopPlayback is a forward CLOCK jump, so it joins DEFERRED_SEAM_VERBS
+        # (the 540 s cap must govern any spec-declared budget) and mirrors the C#
+        # StartLoopPlaybackSeconds = 120. EnterWatchMode is two-phase but its
+        # completion is a camera read-back, so it stays OUT and rides the 60 s default
+        # - the same call SimulateStockSwitchClick's absence records.
+        self.assertIn("StartLoopPlayback", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("EnterWatchMode", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(hlib.dispatch_deferral_budget("StartLoopPlayback"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("EnterWatchMode"), 60.0)
+        self.assertLess(hlib.dispatch_deferral_budget("StartLoopPlayback"),
+                        hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
 
     def test_r12_typed_refusals_map_to_finer_driver_subkinds(self):
         # Both verbs ship a typed refusal taxonomy; without these rows every one of them
@@ -6550,12 +6597,31 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
                 self.assertFalse(hlib.post_mission_step_gates(verb))
 
+    def test_player_workflow_verbs_are_recording_not_outcome(self):
+        # Both player-workflow verbs are `recording`. The `outcome` set is exactly the
+        # verbs whose verdict is a claim about a KERBAL's physical in-world state:
+        #   StartLoopPlayback's OK means "the clock reached the next departure window"
+        #     - a Parsek clock/playback claim; whether the loop then replayed is proven
+        #     by the tracers, the anomaly sweep and the spec's pinned log lines.
+        #   EnterWatchMode's OK means "the flight camera is watching recording #N", a
+        #     read-back of Parsek's own camera state.
+        # Note the two axes disagree on purpose: both are WORLD-MUTATING on the tail
+        # axis (asserted in SeamVerbTailRoleTests) and `recording` here.
+        for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
     def test_unknown_verb_does_not_gate(self):
         # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
         # unrecognised verb is a spec fault validate_spec already rejects, and
         # gating on a vocabulary miss would red runs for a typo rather than for an
         # outcome.
-        for unknown in ("StartLoopPlayback", "SomeFutureVerb", "", None):
+        # StopPlayback is the canonical still-RESERVED sample here (StartLoopPlayback
+        # held that spot until the player-workflow lane promoted it, at which point it
+        # stopped being an unknown verb at all).
+        for unknown in ("StopPlayback", "SomeFutureVerb", "", None):
             self.assertFalse(hlib.post_mission_step_gates(unknown), repr(unknown))
 
     def test_the_eva4_flight3_step_stream_names_the_chute_step(self):
@@ -6732,6 +6798,19 @@ class SeamVerbTailRoleTests(unittest.TestCase):
                 self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                                  hlib.seam_verb_tail_role(verb))
 
+    def test_player_workflow_verbs_are_world_mutating(self):
+        # StartLoopPlayback advances the game CLOCK to the mission's next departure
+        # window (tens of millions of seconds on an interplanetary loop) and drives the
+        # spawn queue + ledger recalc across everything crossed - the TimeJump class.
+        # EnterWatchMode is the weaker call and is labelled deliberately: it writes no
+        # save and no durable record, but it takes an InputLockManager control lock on
+        # the active vessel, so it is not the read-only `inert` class either, and this
+        # table's fail-safe direction is world-mutating.
+        for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                                 hlib.seam_verb_tail_role(verb))
+
     def test_read_only_verbs_are_inert_not_mislabelled_mutating(self):
         for verb in ("RecordingState", "MissionMark"):
             self.assertEqual(hlib.TAIL_ROLE_INERT, hlib.seam_verb_tail_role(verb), verb)
@@ -6742,7 +6821,10 @@ class SeamVerbTailRoleTests(unittest.TestCase):
         # added its row yet) must be presumed to DO something, so the unmet tail skips
         # it. EvaChuteDeploy WAS this case until PR #1348 merged it, which is exactly
         # what the totality cell above now keeps from recurring silently.
-        for unknown in ("StartLoopPlayback", "SomeFutureVerb", ""):
+        # StopPlayback is the canonical still-RESERVED sample here (StartLoopPlayback
+        # held that spot until the player-workflow lane promoted it - it now has a real
+        # row, which is what the totality cell above enforces).
+        for unknown in ("StopPlayback", "SomeFutureVerb", ""):
             self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                              hlib.seam_verb_tail_role(unknown), unknown)
 

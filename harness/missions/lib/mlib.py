@@ -2630,6 +2630,15 @@ SEAM_COMMAND_POLL_SECONDS_BY_VERB: Dict[str, float] = {
     # practice the jump defers ~1 frame; 240 s is the bound, not the
     # expectation.
     "TimeJump": 240.0,
+    # The player-workflow lane's warp-to-next-launch. Same arithmetic as TimeJump's
+    # row above, and for the same reason: its C# dispatch budget is 120 s (hlib's
+    # per-verb table), so polling for exactly the 120 s default would manufacture a
+    # TIMEOUT out of a healthy jump that used its whole budget. The jump itself is
+    # instantaneous; 240 s is the bound, not the expectation. Its sibling
+    # EnterWatchMode is deliberately ABSENT: its C# budget is the 60 s default, so the
+    # 120 s default here already polls with 2x margin (the same call
+    # SimulateStockSwitchClick's absence records).
+    "StartLoopPlayback": 240.0,
 }
 
 

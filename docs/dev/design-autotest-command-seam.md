@@ -380,6 +380,23 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > the reserved list above rather than an addition to it. The three together bring the
 > implemented table to 21 and the reserved list to 10.
 
+> Update (the loop lanes): three further PROMOTIONS out of the reserved list above, each
+> the same strict shape as R12/B (wire token byte-identical, only the response changes).
+> `MissionConfig` (arrival-validation lane, 2026-08-06) arms/disarms a committed mission's
+> loop playback through the production `MissionStore.SetLoopEnabled`, taking the table to
+> 22 implemented / 9 reserved. `StartLoopPlayback` and `EnterWatchMode` (player-workflow
+> lane, 2026-08-08) close the flight-scene half that arming only prepared: warp to the
+> looped mission's next faithful departure through the Missions window's own path
+> (`TryBuildLoopUnitForSelection` -> `ComputeNextRelaunchUT` ->
+> `ParsekFlight.FastForwardToEventUT`; DEFERRED, and completed on the LEAD-adjusted LANDED
+> UT, because that production call lands 15 s BEFORE lift-off), then enter ghost watch mode
+> with the entry VERIFIED by read-back (`IsWatchingGhost && WatchedRecordingIndex ==
+> target`) - `EnterWatchMode` is a silent-failing TOGGLE, so an unverified call would report
+> a false OK, and re-issuing it on the already-watched index would EXIT watch mode. That
+> brings the table to **24 implemented / 7 reserved**. `StopPlayback` deliberately stays
+> reserved: teardown is `FlushAndQuit`'s job, so a stop verb would be a second, weaker
+> owner of it.
+
 #### R12/A1 - `LoadGame scene=<spacecenter|trackstation>`
 
 **Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-R12 contract

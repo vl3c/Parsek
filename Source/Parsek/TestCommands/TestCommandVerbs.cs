@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane): 22 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane): 24 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -73,17 +73,30 @@ namespace Parsek.TestCommands
             "ExitToSpaceCenter",
             "SimulateStockSwitchClick",
             "MissionConfig",
+            // The player-workflow lane promoted the THIRD and FOURTH reserved names,
+            // same strict shape as the two before them (wire token byte-identical,
+            // only the response changes). Together they close the flight-scene half
+            // of the player loop that MissionConfig only armed: StartLoopPlayback is
+            // the Missions window's "Warp to..." button (fast-forward to the looped
+            // mission's next faithful departure through
+            // MissionLoopUnitBuilder -> ComputeNextRelaunchUT -> FastForwardToEventUT),
+            // and EnterWatchMode is the "Watch" button (point the flight camera at a
+            // replaying ghost, with the entry VERIFIED by read-back because the
+            // underlying call is a silent-failing toggle).
+            "StartLoopPlayback",
+            "EnterWatchMode",
         };
 
-        // Reserved (recognized, not implemented in v1): 9 verbs.
+        // Reserved (recognized, not implemented in v1): 7 verbs.
         // SimulateStockSwitchClick left this set in R12; MissionConfig left it for the
-        // arrival-validation lane (the second strict promotion: wire token byte-identical,
-        // only the response changes -- REJECTED not-implemented-v1 -> a real terminal).
+        // arrival-validation lane; StartLoopPlayback and EnterWatchMode left it for the
+        // player-workflow lane (every one of the four a strict promotion: wire token
+        // byte-identical, only the response changes -- REJECTED not-implemented-v1 -> a
+        // real terminal). StopPlayback deliberately STAYS reserved: teardown is
+        // FlushAndQuit's job, so a stop verb would be a second, weaker owner of it.
         private static readonly HashSet<string> ReservedVerbs = new HashSet<string>
         {
-            "StartLoopPlayback",
             "StopPlayback",
-            "EnterWatchMode",
             "SealSlot",
             "StashSlot",
             "FlySlot",
