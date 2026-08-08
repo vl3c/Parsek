@@ -21,6 +21,21 @@ id = "V4-player-loop-workflow"
 # prediction is REJECTED at BOTH epochs, for a reason recon measured rather than
 # guessed:
 #
+#   *** CORRECTION, 2026-08-08, measured by V7M-minmus-player-loop: THE "300 km
+#   *** ENTRY CUTOFF" BELOW IS WRONG. The conjunction is right and every verdict this
+#   *** lane recorded still stands, but `IsGhostWithinVisualRange` is
+#   *** `state.currentZone != RenderingZone.Beyond` (GhostPlaybackEngine.cs:6325), i.e.
+#   *** the 120,000 m `GhostVisualRangeMeters` render-zone gate; 305,000 m is
+#   *** `WatchModeController.WatchExitCutoffMeters`, the EXIT cutoff and only that. This
+#   *** lane could not have caught it: its 643,913 m parked-tail draw fails BOTH
+#   *** thresholds. V7M's Minmus separations (144,352 m and 191,498 m) land BETWEEN
+#   *** them and refused, which falsifies the 300 km entry hypothesis by measurement.
+#   *** The corrected condition for this fixture's ~1,038 km-radius park is
+#   *** theta < 2*asin(60/1038.2) = 6.6 deg (~3.7%), not the 16.6 deg / ~9% below - so
+#   *** the REJECTED prediction is if anything better supported than when written.
+#   *** Full write-up: docs/dev/todo-and-known-bugs.md ->
+#   *** WATCH-ENTRY-GATE-IS-120KM-NOT-300KM. The paragraph is left as written because
+#   *** the correction is only legible against it.
 #   WATCH MODE IS CAMERA-ONLY AND RANGE-GATED. WatchModeController's auto-select
 #   conjunction (TestCommandEnterWatchMode.ResolveAutoWatchIndex, verbatim from
 #   MissionsWindowUI.ResolveMissionWatchTarget) is

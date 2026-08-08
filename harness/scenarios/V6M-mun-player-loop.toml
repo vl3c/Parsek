@@ -1,0 +1,437 @@
+schema = 1
+id = "V6M-mun-player-loop"
+# =====================================================================================
+# V6M: THE PLAYER WORKFLOW ON A **SAME-PARENT MOON** MISSION - and the first lane that
+# flies the SAME loop TWICE to ask whether cycle N still arrives where cycle 1 did.
+#
+# V4 flew the player workflow (arm -> "Warp to..." -> "Watch") on the CROSS-PARENT
+# duna-direct fixture, where the loop rides the RE-AIM model. This lane flies the
+# identical workflow on a Kerbin->Mun mission, where the product takes a STRUCTURALLY
+# DIFFERENT road, and then flies a SECOND cycle to hunt a cumulative arrival desync.
+#
+# ---------------------------------------------------------------------------------
+# 1. THE MOON LANE NEVER REACHES RE-AIM. THIS IS THE ROUTING FACT THAT SHAPES THE PINS.
+# ---------------------------------------------------------------------------------
+# `ApplyReaim` is called from ONE site, `MissionLoopUnitBuilder.cs:453-466`, and it is
+# gated behind `if (!phaseLocked)`. A Kerbin->Mun mission is ALWAYS phaseLocked: the
+# extraction emits `Rotation(Kerbin)` + `Orbital(Mun) same-parent`, Support stays
+# `Supported` (cross-parent is the ONLY thing that demotes it), and the Tier-1 solve
+# phase-locks it. So on this lane:
+#   - there are NO `[ReaimDiag]` lines,          -> FORBIDDEN below
+#   - there is no `ENGAGED re-aim ...` line,     -> FORBIDDEN below
+#   - `FORCED FAITHFUL` never appears either     -> FORBIDDEN below (V4 forbids it too,
+#                                                   for the opposite reason: there it
+#                                                   would mean re-aim FELL BACK; here
+#                                                   it would mean a knob step exists
+#                                                   that this spec does not have).
+# Forbidding V4's own positive mode token is the whole point: it makes "this really is
+# the other road" falsifiable rather than assumed. The POSITIVE pins that replace it
+# are `Orbital(Mun) same-parent` + `support=Supported` (MissionPeriodicity's
+# `ExtractConstraints:` summary) and the Info-level `PhaseLock APPLIED:` line
+# (`MissionLoopUnitBuilder.cs:1337-1351`) with `zeroDrift=yes` + `scheduleWithinTol=yes`
+# - i.e. the ZERO-DRIFT SCHEDULE, not a fixed cadence and not re-aim, is what places
+# every launch. The render-side mode pin is the Director's `factory chain ...
+# reaimed=False`, the exact INVERSION of V5's `reaimed=True`.
+#
+# ---------------------------------------------------------------------------------
+# 2. THE SCHEDULE, DERIVED PRE-FLIGHT (the prediction this run measures)
+# ---------------------------------------------------------------------------------
+# `TryFindNextScheduleK`'s filter is PURELY periodic - `CircularPhaseError(k*T_anchor,
+# T_other) <= tol_other`, no phase offsets enter it - so the whole schedule is
+# computable from stock body data plus this fixture's own UTs:
+#   anchor  = Rotation(Kerbin), T = 21,549.425 s (the tightest duty cycle: 0.25 deg
+#             rotation tolerance / 360 = 6.94e-4, against Mun's 3.2e-2)
+#   other   = Orbital(Mun), T = 138,984.38 s, tol = SOI/orbitalVelocity
+#             = 2,429,559.1 / 542.49 = 4,478.5 s (~11.6 deg)
+#   ut0     = the trimmed span start = this fixture's main recording start, 34.42
+#   floorUT = max(LoopAnchorUT, spanEndUT) ~ 21,746 (the fixture's save UT), so
+#             kFloor = ceil((21,746 - 34.42)/21,549.425) = 2
+# First k >= 2 passing the Mun filter is **k = 13** (residual 2,173.8 s), which is the
+# "~13 pad rotations" recon quotes from history, reached here independently:
+#   PREDICTED phaseAnchorUt = relaunchUt = 34.42 + 13*21,549.425 = **280,176.945**
+# The cadence is NON-UNIFORM by construction. Cycle 2 is NOT anchor + P: the throttle
+# skips to `ceil((L0 + span - ut0)/T_anchor)` = k >= 15 and then takes the next k that
+# passes the SAME filter, which is **k = 26** (residual 4,347.5 s):
+#   PREDICTED cycle-2 relaunchUt = 34.42 + 26*21,549.425 = **560,319.470**
+# The faithful-k series from k=2 is 13, 26, 45, 58, 71, 84 - visibly not an arithmetic
+# progression, which is exactly what "zero-drift" buys.
+#
+# WINDOW ARITHMETIC (V2's recipe, V4's corrected anchor attribution):
+#     window = phaseAnchorUt + (recordedUT - recordingStartUT)
+# The offsets come from the MAIN recording's own ORBIT_SEGMENT chain
+# (`0fd603e389b94d6488d92f4e3c6b7957.prec.txt`), where the seam is the adjacent
+# `endUT == startUT` body-change pair:
+#     ... Kerbin  [16,374.99 , 16,404.98] ]
+#         Mun     [16,404.98 , 16,448.97]   <- Kerbin->Mun SOI entry at 16,404.98191
+#         Mun     [16,450.59 , 20,939.02]   <- the circular park (SMA 339,569, ecc 1.3e-4)
+#   recording: start 34.41999999999978, end 21,742.540307940431
+#   seam offset = 16,404.98191 - 34.42 = **16,370.562**
+#   park offset (deep, well inside the last Mun segment) = **20,800**
+# so, on the PREDICTED anchors:
+#   cycle-1 seam   = 280,176.945 + 16,370.562 =   296,547.5
+#   cycle-1 park   = 280,176.945 + 20,800     =   300,976.9
+#   cycle-2 seam   = 560,319.470 + 16,370.562 =   576,690.0
+#   cycle-2 park   = 560,319.470 + 20,800     =   581,119.5
+# THE JUMP UTs BELOW ARE THOSE PREDICTIONS. They must be pinned pre-flight while
+# phaseAnchorUt is only knowable at run time, so run 1 is a CALIBRATION run in the V2
+# sense: read `phaseAnchorUt=` off `missionconfig applied:` and each cycle's
+# `relaunchUt=` off `startloopplayback initiated:`, then re-pin. A jump that lands
+# BACKWARD of the live clock answers `REJECTED reason=backward-jump`, which is a
+# step-verdict mismatch (driver-INVALID) - the loud, self-detecting failure this
+# discipline wants, never a green run that dwelled nowhere.
+#
+# ---------------------------------------------------------------------------------
+# 3. THE DESYNC HUNT - what the second cycle is actually for
+# ---------------------------------------------------------------------------------
+# A cumulative arrival desync would not show up on cycle 1 by definition. So this lane
+# flies cycle 1, crosses its arrival, then presses "Warp to..." AGAIN - which is a real
+# player action and, mechanically, `StartLoopPlayback` rebuilds the unit and resolves
+# `NextLaunchAfter(now)`, so a second press after cycle 1's arrival lands on cycle 2 -
+# and crosses THAT arrival with the identical instrument set. The comparison is
+# three-way and every leg is a measurement, not a gate:
+#   (a) does the ghost's map surface still rebind to a **Mun-framed** orbit at the
+#       cycle-2 arrival, as it did at cycle 1's (`surface=Proto*` ... `body=Mun`)?
+#   (b) does the armed `loop-seam-teleport` Tier-C instrument raise on cycle 2 where it
+#       stayed silent on cycle 1?
+#   (c) how far is the ghost from the parked observer at each cycle's park epoch? The
+#       engine's own per-member `engine-frame-iter [... zone= rdist=]` line is the free
+#       proximity proxy (better than the `hidden-by-zone_distance=` GuardSkip this
+#       first draft named: the GuardSkip is rate-limited and only prints when the ghost
+#       IS hidden, while the frame line prints the zone and the distance every sample),
+#       and a DRIFTING arrival shows up as the cycle-2 distance being systematically
+#       unlike cycle-1's.
+# None of (a)-(c) is armed as a threshold. A desync large enough to break (a) reds on
+# the required `body=Mun` token; anything subtler is READ off the log and written back
+# into this header.
+#
+# ---------------------------------------------------------------------------------
+# 4. THE WATCH PREDICTION, AND WHY IT IS "REJECTED" DESPITE BEING A COIN TOSS
+# ---------------------------------------------------------------------------------
+# *** THE ARITHMETIC IN THIS SECTION IS SUPERSEDED - read the ledger's WATCH VERDICTS
+# *** paragraph first. The conjunction and the conclusion (REJECTED) both survive; the
+# *** THRESHOLD does not. Entry is gated at 120 km (the render zone), not 300 km, so
+# *** the real condition is theta < 20.3 deg (~11%), not 52.44 deg (~29%). The section
+# *** is kept as written because V7M's falsification is only legible against it.
+# Watch mode is CAMERA-ONLY and range-gated: the auto-select conjunction is
+# `HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange`, with a 300 km
+# entry cutoff. Unlike V4 (observer at Duna, ghost at Kerbin - categorical refusal at
+# the launch epoch), here the observer and the ghost are the SAME CRAFT ON THE SAME
+# RECORDED ORBIT: this fixture's live Kerbal X is parked at Mun, SMA **339,568.968 m**
+# (ecc 1.26e-4, ~139.6 km over Mun's 200 km surface), read off the fixture's own
+# `persistent.sfs`, and the ghost at its park epoch flies that same orbit. So the body
+# test PASSES and only the chord decides:
+#     2 * 339.569 km * sin(theta/2) < 300 km  =>  theta < 52.44 deg
+# i.e. ~29% of a uniformly drawn phase separation. The separation IS effectively a
+# uniform draw: the Mun park period is ~4,872 s and the ghost's epoch is offset from
+# the live craft's by ~258 ks (cycle 1) / ~538 ks (cycle 2) of accumulated on-rails
+# time, i.e. ~53 and ~110 park revolutions.
+# **PREDICTION: REJECTED, at 71:29.** The grammar has ONE `expect` per step, so the
+# likelier verdict is what is pinned. An `OK` here lands as driver-INVALID
+# (verdict-mismatch) and IS THE INTERESTING FINDING, not a spec bug: it would mean a
+# co-orbiting observer CAN watch a looped moon arrival's park tail. The `retry = once`
+# policy absorbs exactly one unlucky draw. If the same step ping-pongs INVALID twice,
+# the honest move is to re-shape the step per the findings (e.g. drop the watch attempt
+# to a single cycle, or move it), NEVER to keep re-rolling for the pinned verdict.
+# Its Minmus sibling V7M is the guaranteed-OK half of this pair: there the park SMA is
+# 98,463.595 m, so the MAXIMUM possible separation (2a = 196.9 km) is already inside
+# the 300 km cutoff and the geometry cannot refuse.
+#
+# ---------------------------------------------------------------------------------
+# 5. POSTURE
+# ---------------------------------------------------------------------------------
+# READING RUN, REPORT-ONLY. Both save-structure blocks are DECLARED and UNGATED: this
+# lane has never flown, and arming a window off zero observations is exactly what the
+# V2/B17 three-run discipline forbids. Arming is the next operator's call.
+# `allowedAnomalies = []` with `ghostRenderTracing` on, so the loop-seam-teleport sweep
+# is armed and free.
+#
+# READING LEDGER (2026-08-08, one run, no spec iteration needed for the flight itself):
+#   Run 1 `2026-08-08_1554`, PASS ATTEMPT 1, wall 54 s, fully unattended - all 20 steps
+#   met, driverValidity PASS, analyzer red=0, logValidate PASS, anomalySweep PASS
+#   `hits=[] counts={}`, unityExceptions total=0, expectations PASS mismatches=0,
+#   saveParse REPORT clean (supersedeRows 0, tombstones 0, rewindPoints 0,
+#   pointsTotal 1182, committedTrees 1, trees 1).
+#
+#   THE SCHEDULE PREDICTION LANDED EXACTLY, which is worth stating because the whole
+#   bracket depended on it. The product printed its own constraint list -
+#     `ExtractConstraints: ... launchBody=Kerbin ut0=34.419999999999781
+#      support=Supported constraints=2 [Rotation(Kerbin) P=21549.425183089825 off=0;
+#      Orbital(Mun) same-parent P=138984.37657447575 off=16370.56191070605]`
+#   - i.e. exactly the two-constraint model this header derives the schedule from, with
+#   the Mun constraint's `off=` equal to the 16,370.562 seam offset read independently
+#   off the ORBIT_SEGMENT chain. Measured anchors:
+#     phaseAnchorUt = relaunchUt = 280,176.94738016772   (predicted 280,176.945, k=13)
+#     cycle-2 relaunchUt         = 560,319.47476033552   (predicted 560,319.470, k=26)
+#   The 2 mm-scale differences are my rounded 21,549.425 against the product's
+#   21,549.425183089825. `scheduleWorstResidual=4347.54846243246` is the k=26 residual
+#   this header predicts to the decimal. NOTHING NEEDED RE-PINNING.
+#   The routing line, verbatim:
+#     `PhaseLock APPLIED: mission='Kerbal X' tree=d18969d6... anchor
+#      21747.660307940543->280176.94738016772 P=1250859.3891702818
+#      method=joint-best-fit cadence 21710.700307940489->280142.52738016751
+#      fixedCadenceResidual=992.72855107198848 fixedCadenceWithinTol=no zeroDrift=yes
+#      firstLaunch=280176.94738016772 minInterval=280142.52738016751
+#      scheduleWithinTol=yes scheduleWorstResidual=4347.54846243246`
+#   Note `fixedCadenceWithinTol=no` beside `scheduleWithinTol=yes`: the fixed-cadence
+#   fallback would have drifted 992.7 s out of tolerance and the zero-drift schedule is
+#   what actually places these launches. That contrast is the D11
+#   `zero-drift-schedule` cell earning its keep rather than being asserted.
+#
+#   THE DESYNC ANSWER - NO DETECTABLE DESYNC, on all three instruments:
+#   (a) SAME-BODY HANDOFF, SAME RELATIVE EPOCH. The proto rebind onto a Mun-framed
+#       orbit fired at `phase=body-orbit surface=ProtoOrbitLine ... body=Mun` at
+#       currentUT 296,690.040 (cycle 1) and 576,830.040 (cycle 2) - offsets of
+#       16,513.093 s and 16,510.565 s from their own anchors. The 2.528 s difference is
+#       EXACTLY the difference between the two rounded jump targets this spec pins, so
+#       the handoff repeated at the same replay offset to within the sampling
+#       granularity. It is worth being precise about what that does and does not prove:
+#       the bracket samples the handoff at a jump instant, so this bounds any desync at
+#       roughly the bracket's own resolution, not at millisecond scale.
+#   (b) ZERO `loop-seam-teleport` raises, and zero Tier-C anomalies of any reason
+#       (`anomalySweep hits=[]`) with `ghostRenderTracing` armed across both cycles.
+#   (c) PROXIMITY REPRODUCED TO 0.15%. The engine's own per-member frame line
+#       (`engine-frame-iter ... [i=1 ... zone= rdist=]`) read the park-epoch separation
+#       as 560,404 m in cycle 1 and 561,219 m in cycle 2 - 815 m apart in 560 km. The
+#       Mun park phase relationship is essentially preserved cycle to cycle.
+#
+#   THE WATCH VERDICTS: both `REJECTED reason=no-watchable-ghost committed=9
+#   tree=(any)`, matching the pin. The prediction was right but its ARITHMETIC WAS NOT,
+#   and the sibling lane V7M is what caught it: the auto-select's
+#   `IsGhostWithinVisualRange` is `state.currentZone != RenderingZone.Beyond`, i.e. the
+#   **120 km** `GhostVisualRangeMeters` render-zone gate, NOT the 300 km figure this
+#   header's section 4 quotes from V4 (305 km is `WatchExitCutoffMeters`, the EXIT
+#   cutoff, and only that). Section 4's theta < 52.44 deg / 29% is therefore WRONG for
+#   entry; the correct condition is chord < 120 km, `theta < 2*asin(60/339.569)` =
+#   20.3 deg, ~11% of a uniform draw. Both measured separations (560.4 km, 561.2 km)
+#   fail BOTH thresholds, so this lane could not have discriminated them - Minmus
+#   could, and did (V7M's header carries the falsification). The pinned REJECTED stands
+#   on the corrected arithmetic with more margin than it had on the old one. NOTE the
+#   separations are also NOT a per-run draw: both craft advance at the same rate on the
+#   same orbit, so the separation is constant within a cycle and reproducible run to
+#   run - it moves only when the phase anchor does.
+#
+#   ONE STRUCTURAL SURPRISE, folded into the recordings window below rather than left
+#   as a footnote: the fixture loads as NINE recordings, not eight, because
+#   `RecordingOptimizer` splits the main recording at the UT 212.2 atmospheric->exo
+#   boundary at load time. See the [expectations.recordings] comment.
+# =====================================================================================
+tier = "operator"
+description = "THE PLAYER WORKFLOW ON A SAME-PARENT MOON MISSION, twice over: load the committed mun-orbit-recorded save, arm the loop, press Warp-to, cross cycle 1's Kerbin->Mun SOI seam, press Watch at the ghost's Mun park, then press Warp-to AGAIN for cycle 2 and cross its arrival with the same instruments. A Kerbin->Mun mission is ALWAYS phaseLocked, so ApplyReaim is unreachable: this lane pins the OTHER road (Orbital(Mun) same-parent + support=Supported + PhaseLock APPLIED with zeroDrift=yes/scheduleWithinTol=yes + factory chain reaimed=False) and FORBIDS every re-aim token V4 requires. The two-cycle shape is the desync hunt: same-body handoff, seam-teleport silence and hidden-by-zone proximity are compared cycle 1 vs cycle 2."
+instanceProfile = "stock-minimal"
+tags = ["V6", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "mun", "moon", "flown"]
+
+[fixture]
+# The B11-mun-orbit harvest (run 2026-08-08_1458, PASS attempt 1, --keep-parsek): ONE
+# committed tree d18969d6..., EIGHT recordings (the Mun-parked Kerbal X + six radial
+# boosters + one flameout-staged remnant this profile drops on a Kerbin-impacting
+# trajectory), save UT ~21,746. Its PARKED KERBAL X is the OBSERVER for both watch
+# attempts - the player who watches a replay is standing where the flight ended.
+saveTemplate       = "fixtures/saves/mun-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (V2 flight 4 / V5 run 1, measured on the
+  # duna fixture and structural, not fixture-specific): loading a save whose own parked
+  # craft is active makes the committed-tree restore path resume a promotion-stub
+  # recording ~1 s into the scene, BEFORE any step can run. StopRecording is
+  # idempotent-OK and DiscardTree answers OK with nothing-discarded when no plain tree
+  # is live, so the pair is safe on any entry state; the SetSetting stops a later one.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Three tracer pins, same rationale as V4: ghostRenderTracing is the FLIGHT-scene
+  # raise gate for the loop-seam-teleport Tier-C instrument; mapRenderTracing arms the
+  # map/TS tracer + probe (the source of the `surface=Proto*` truth lines this lane's
+  # arrival evidence is read off); verboseLogging is LOAD-BEARING for both (the tracer
+  # emits Tier-B truth at Verbose - the V1 lesson).
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # STEP 1 OF THE WORKFLOW: the Missions window loop checkbox (production
+  # MissionStore.SetLoopEnabled). Its Info line echoes phaseAnchorUt - the number the
+  # whole bracket arithmetic above is anchored to. READ IT WHEN RE-PINNING.
+  { cmd = "MissionConfig", args = { tree = "d18969d6121444c1a30e4a55ae87a442", loop = "true" }, expect = "OK" },
+  # STEP 2: "Warp to..." -> ComputeNextRelaunchUT -> FastForwardToEventUT, an
+  # INSTANTANEOUS Planetarium clock set (no rails warp to budget). CYCLE 1.
+  { cmd = "StartLoopPlayback", args = { tree = "d18969d6121444c1a30e4a55ae87a442" }, expect = "OK", budget = 300 },
+  # CYCLE-1 ARRIVAL BRACKET, strictly forward, straddling the predicted Kerbin->Mun SOI
+  # seam 296,547.5 at -177.5 / -57.5 / +142.5 s. Instantaneous, so the seam is CROSSED
+  # by the third jump rather than dwelled through.
+  { cmd = "TimeJump", args = { ut = "296370" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "296490" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "296690" }, expect = "OK", budget = 300 },
+  # CYCLE-1 PARK EPOCH: phaseAnchor + 20,800, deep inside the recorded Mun park - the
+  # only epoch where the auto-select's body test can pass for a Mun-parked observer,
+  # so the only place the 300 km chord question can be asked at all.
+  { cmd = "TimeJump", args = { ut = "300977" }, expect = "OK", budget = 300 },
+  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED at
+  # 71:29 on the chord arithmetic in the header; an OK is the finding.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # STEP 4: "Warp to..." AGAIN. This is the desync hunt's second half: the verb
+  # rebuilds the unit and resolves NextLaunchAfter(now), so with `now` past cycle 1's
+  # arrival it lands on CYCLE 2 (predicted k=26, 560,319.470).
+  { cmd = "StartLoopPlayback", args = { tree = "d18969d6121444c1a30e4a55ae87a442" }, expect = "OK", budget = 300 },
+  # CYCLE-2 ARRIVAL BRACKET, same -177.5 / -57.5 / +142.5 offsets about the predicted
+  # cycle-2 seam 576,690.0. Identical instrument set: whatever differs from cycle 1 is
+  # the desync signal.
+  { cmd = "TimeJump", args = { ut = "576510" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "576630" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "576830" }, expect = "OK", budget = 300 },
+  # CYCLE-2 PARK EPOCH: the same +20,800 offset off the cycle-2 anchor.
+  { cmd = "TimeJump", args = { ut = "581119" }, expect = "OK", budget = 300 },
+  # STEP 5: "Watch" again, an INDEPENDENT phase draw from step 3's (~110 park revs of
+  # accumulated offset). Same 71:29 prediction, same reading if it comes back OK.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE.
+#   D11 `phase-lock` is gated by the required `PhaseLock APPLIED:` line TOGETHER with
+#     `Orbital(Mun) same-parent` + `support=Supported`: the first proves the lock was
+#     APPLIED, the pair proves it was applied to the same-parent moon config rather
+#     than to something else.
+#   D11 `zero-drift-schedule` is gated by `zeroDrift=yes` + `scheduleWithinTol=yes` on
+#     that same line - the schedule exists AND every launch it resolved was inside its
+#     constraint tolerance. A fixed-cadence fallback prints `zeroDrift=no` and reds.
+#   D9 `fast-forward` follows V4's precedent: gated by the PRODUCT's own
+#     `FastForwardToEventUT: jumping to UT=` line, not by the seam verb's OK.
+#   D14 `mun` / `scene-flight` / `sandbox` are the environment axes this lane runs on.
+# NOT claimed: any watch-mode cell (a measured REFUSAL to enter watch mode is not
+# evidence of watch behaviour - V4's rule), any D11 arrival cell (this observes an
+# arrival epoch, it asserts no arrival geometry), and D6 `time-jump`.
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D11 = ["phase-lock", "zero-drift-schedule"]
+D14 = ["mun", "scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every [expectations.<sub>]
+# header or TOML scopes it into the sub-table (hlib.validate_spec rejects that form).
+#
+# EMPTY, deliberately, on a reading run: the loop-seam-teleport instrument is armed
+# with no budget so a raise is REPORTED as the finding it would be rather than
+# pre-budgeted away. That instrument is half of the desync hunt.
+allowedAnomalies = []
+
+[expectations.recordings]
+# NINE, and the ninth is NOT a promotion stub - run 1 measured what it actually is and
+# the first draft of this comment guessed wrong. On LOAD (18:54:48.926, before any
+# step ran) `RecordingOptimizer` SPLITS the fixture's main 789-point recording in two
+# at UT 212.2 - the atmospheric->exo boundary - producing a chained pair
+#   0fd603e3 [34.42, 212.20] 187 pts, endBody=Kerbin   (the ascent)
+#   91e3bfce [212.20, 21,742.54] 603 pts, endBody=Mun  (everything after)
+# joined by chainId 22fa2b10. Its own summary line reads `Split summary:
+# rec=91e3bfce evaluated=1 ... exoCoastBodyChangeKept=1`, i.e. the optimizer's §3
+# rule-3 deliberately KEPT the Kerbin->Mun body change cohesive and split only the
+# environment boundary. That is why `ExtractConstraints` reports `members=2` and why
+# the looped ghost this lane watches is `ghostIndex=1` with `startUT=212.200`.
+# The split is deterministic (a pure function of the recording, applied at load), so
+# the window is PINNED AT EXACTLY 9: an 8 would mean the split stopped happening and a
+# 10 would mean a scene-entry promotion stub survived the StopRecording/DiscardTree
+# pair. Both are findings, which is what a tight window is for.
+count = { min = 9, max = 9 }
+
+[expectations.rewind]
+# ARMED 2026-08-08 (the V2/B17/V4 arming discipline) off the reading run
+# `2026-08-08_1554` (PASS attempt 1), whose saveParse REPORT measured rewindPoints=0,
+# supersedeRows=0, tombstones=0, rewindRetirements=0 - every declared window already
+# met, so the arming moved no verdict. The claim being armed is V4's on the moon axis:
+# a pure replay-observation workflow (arm -> warp -> watch -> two cycles of forward
+# jumps) must author NOTHING durable, and a future change that starts writing an RP /
+# supersede row / tombstone out of it reds here instead of passing as a REPORT
+# footnote. THE WINDOWS ARE UNTOUCHED by the arming commit - arming must not smuggle in
+# a re-pin (S4.1's rule).
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-08, same reading run (`2026-08-08_1554`), which measured
+# committedTrees=1 and trees=1: exactly one committed tree survives the workflow (the
+# scene-entry promotion stub never commits, and the StopRecording/DiscardTree pair
+# leaves nothing behind). `trees` keeps V2's max = 2 - the documented duplicate-writer
+# hazard - deliberately WIDER than the single measurement rather than re-pinned at
+# arming time. NOT armed here: `[expectations.recordings] count`, which is a separate
+# already-gating window, and the points facets, which this lane never declared.
+gating = true
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# THE WORKFLOW CHAIN (each the product's own line except the two seam-verb Info lines):
+#   "missionconfig applied:"       - the arm verb ran; also echoes phaseAnchorUt.
+#   "SetLoopEnabled: loop ON"      - the PRODUCTION MissionStore path fired.
+#   "startloopplayback initiated:" - the Warp-to verb entered the production door and
+#                                    echoed the resolved relaunchUt.
+#   "FastForwardToEventUT: jumping to UT=" - the PRODUCT's own jump line. This is what
+#                                    makes the D9 fast-forward claim GATED: a seam that
+#                                    reported OK without the product jumping fails it.
+# THE ROUTING PINS (the reason this lane exists as a separate spec from V4):
+#   "Orbital\(Mun\) same-parent"   - the extraction classified the destination as a
+#                                    direct child of the launch body, which is the
+#                                    condition that keeps Support=Supported and makes
+#                                    re-aim structurally unreachable.
+#   "support=Supported"            - and it was NOT demoted (cross-parent / rendezvous).
+#   "PhaseLock APPLIED: mission="  - Info, from the builder: the lock was applied.
+#   "zeroDrift=yes" / "scheduleWithinTol=yes" - the ZERO-DRIFT SCHEDULE placed the
+#                                    launches and every resolved launch was inside
+#                                    tolerance. These two are what gate D11's
+#                                    `zero-drift-schedule` cell.
+#   "factory chain ... reaimed=False" - the RENDER-side mode pin, the exact inversion of
+#                                    V5's `reaimed=True`: what the map pipeline
+#                                    assembled is the faithful chain, not a re-aimed one.
+# THE ANTI-VACUITY / ARRIVAL PIN:
+#   "surface=Proto(Icon|OrbitLine) ... body=Mun" - a map-render TRUTH line showing a
+#                                    ghost's proto surface framed on MUN. A run that
+#                                    never gets the ghost to Mun has measured nothing
+#                                    about a Mun arrival, and reading that as a pass is
+#                                    the V1/V2 vacuity failure. A zero here is a FINDING
+#                                    to diagnose, never a token to relax.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "Orbital\\(Mun\\) same-parent",
+  "support=Supported",
+  "PhaseLock APPLIED: mission=",
+  "zeroDrift=yes",
+  "scheduleWithinTol=yes",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "surface=Proto(Icon|OrbitLine) .*body=Mun",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE RE-AIM FORBID TRIO - the falsifiable half of the routing claim. Each is a token
+  # V4's re-aim lane either requires or guards; here every one of them appearing would
+  # mean the moon mission took the interplanetary road, which `!phaseLocked` says it
+  # cannot.
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  # The V3C run-3 self-detection guard: a refused backward jump is a WARN that a
+  # step-level miss can fail to red on some driver shapes. Forbidding the token makes a
+  # mis-ordered or mis-pinned bracket an expectations mismatch instead of a green run
+  # that dwelled nowhere. On a calibration lane whose jump UTs are PREDICTIONS this is
+  # the single most load-bearing forbid in the file.
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+# 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + the fast non-deferred verbs
+# (2 watch attempts at the 60 s default, 6 settings/recorder verbs) + KSP boot +
+# collect. Every jump is an instantaneous clock set, so the ~560 ks of game time costs
+# no wall clock; V4's comparable 16-step shape measured 79 s end to end.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

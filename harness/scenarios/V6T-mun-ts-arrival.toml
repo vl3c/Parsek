@@ -1,0 +1,279 @@
+schema = 1
+id = "V6T-mun-ts-arrival"
+# =====================================================================================
+# V6T: THE TRACKING-STATION OBSERVATION OF A LOOPED **SAME-PARENT MOON** ARRIVAL.
+#
+# V5 put a looped, RE-AIMED, INTERPLANETARY member in the tracking station and measured
+# `created 1 ghost vessel(s)` + `factory chain ... reaimed=True` + a Duna-framed
+# inbound hyperbola. This lane asks the same question of the OTHER road: a Kerbin->Mun
+# mission is same-parent, hence ALWAYS phaseLocked, hence `ApplyReaim`
+# (MissionLoopUnitBuilder.cs:453-466, gated on `!phaseLocked`) is structurally
+# unreachable - so what the TS host materializes here must be the FAITHFUL chain, and
+# the Director's mode token must read `reaimed=False`. That inversion is the point:
+# V5 and V6T pin the same line to opposite values off the same code path.
+#
+# WHY THE STEP CHAIN LOOKS LIKE THIS - V5's precondition, unchanged. MissionConfig,
+# StartLoopPlayback and TimeJump are ALL `RequiresFlight` in
+# `TestCommandDispatcher.Preconditions`: in TRACKSTATION each would DEFER
+# `not-in-flight` until its budget expired and the run would die on a timeout having
+# armed nothing. So arming and clock work happen in FLIGHT, are PERSISTED, and only
+# then re-entered in TS:
+#   FLIGHT: kill the entry stub -> arm tracers -> MissionConfig (loop ON)
+#           -> StartLoopPlayback (instant jump to cycle 1's launch) -> TimeJump past
+#              the cycle-1 Kerbin->Mun SOI seam
+#   SaveGame (persists the armed MissionStore state AND the jumped clock; ghost
+#             ProtoVessels are stripped by GhostMapPresence.StripFromSave)
+#   TRACKSTATION: LoadGame scene=trackstation, then two AnyScene dwell ticks.
+# There is no shorter honest chain: arming in the fixture would move the measurement
+# into the fixture, and a bare TS boot would observe an UNARMED tree.
+#
+# WHERE THE CLOCK IS PARKED. 296,690 is ~142 s PAST the predicted cycle-1 Kerbin->Mun
+# SOI entry, i.e. the ghost has just crossed into Mun's SOI - the first instant a TS
+# observer sees a looped MOON member inside the destination SOI. The arithmetic is
+# V6M's and is derived in full there; in brief:
+#   anchor = Rotation(Kerbin) T=21,549.425 s; other = Orbital(Mun) T=138,984.38 s,
+#   tol = SOI/v = 2,429,559.1/542.49 = 4,478.5 s; ut0 = 34.42; kFloor = 2;
+#   first passing k = **13** -> PREDICTED phaseAnchorUt = relaunchUt = **280,176.945**
+#   seam offset (the adjacent endUT==startUT body-change pair in the main recording's
+#   ORBIT_SEGMENT chain, 16,404.98191 - 34.42) = **16,370.562**
+#   => cycle-1 seam = 296,547.5, and this spec parks at 296,690.
+# Run 1 is a CALIBRATION run in the V2 sense: read `phaseAnchorUt=` off `missionconfig
+# applied:` and `relaunchUt=` off `startloopplayback initiated:`, then re-pin. A
+# non-forward jump answers `REJECTED reason=backward-jump`; the token is FORBIDDEN so a
+# mis-predicted anchor self-detects rather than dwelling nowhere under a green verdict.
+#
+# THE DWELL IS SHORT, AND V5 MEASURED HOW SHORT. No seam verb passes time in TS (all
+# RequiresFlight), so the TS dwell is the LoadGame settle plus the harness poll interval
+# across two cheap AnyScene reads - V5 measured 1.08 s of 1x on run 2026-08-08_1144.
+# That is enough for the question this spec asks (does the TS host materialize the
+# looped moon member at all, and does the Director render it FAITHFUL) and not enough
+# for anything needing a rate-limited instrument or a temporal window. Which is why the
+# `probe frame summary` line is NOT pinned here either: it is VerboseRateLimited at
+# 5.0 s on a shared key and carries no scene token, so pinning it would gate on a
+# rate-limiter race (V5 run 1 attempt 2 measured exactly that and replaced it). A real
+# TS dwell needs a TS-legal time-passing verb, which does not exist; do not fake one
+# with twenty no-op steps.
+#
+# THE RE-KILL PAIR BEFORE THE TS LOAD IS NOT BELT-AND-BRACES. V5 run 1 attempt 1 died
+# there: `reject cmd=LoadGame reason=recording-active`, because the scene-entry
+# promotion recorder RE-ARMS a second time on some entry orderings (measured on that
+# attempt: start 50.294 -> our StopRecording 50.599 -> a SECOND start 50.842) and not
+# on others - a genuine race. Running the pair immediately before the load the guard
+# rejects is the only placement that makes the outcome deterministic. Inherited here
+# verbatim; if it recurs on THIS fixture that is a corroboration of V5's finding, to be
+# recorded, not re-diagnosed.
+#
+# POSTURE: READING RUN, REPORT-ONLY. Both save-structure blocks are DECLARED and
+# UNGATED - this lane has never flown and arming off zero observations is what the
+# V2/B17 three-run discipline forbids. Arming is the next operator's call.
+#
+# READING LEDGER (2026-08-08, one run, no iteration):
+#   Run 1 `2026-08-08_1559`, PASS ATTEMPT 1, wall 50 s, fully unattended - all 16 steps
+#   met, driverValidity PASS, analyzer red=0, logValidate PASS, anomalySweep PASS
+#   `hits=[] counts={}`, unityExceptions total=0, expectations PASS mismatches=0,
+#   saveParse REPORT clean (supersedeRows 0, tombstones 0, rewindPoints 0,
+#   committedTrees 1, trees 1, pointsTotal 1182). The predicted anchor held exactly
+#   (V6M measured phaseAnchorUt = relaunchUt = 280,176.94738016772 against the
+#   predicted 280,176.945, k=13), so the 296,690 park needed no re-pinning.
+#
+#   THE ANSWER IS POSITIVE, AND IT IS THE MIRROR IMAGE OF V5's. A looped, FAITHFUL,
+#   same-parent moon member DOES materialize in the tracking station at its arrival
+#   epoch:
+#     [TrackingStation] ParsekTrackingStation initialized: created 1 ghost vessel(s),
+#         fixed 0 orbit renderer(s), trackingStationSuppressed=0
+#     [MapRender] factory chain rec=8aea9c9b idx=1 inst=0 phases=9 reaimed=False
+#         window=[212.2,21745.1] faithfulFallback=False
+#     [MapRenderTrace] phase=GhostCreated surface=ProtoIcon pid=2646095347
+#         vessel=Ghost:_Kerbal_X body=Mun scene=TRACKSTATION
+#     [GhostMap] Created ghost vessel ... body=Mun sma=-509907 ecc=1.665957
+#         inc=0.7643 (from visible-segment) segmentBody=Mun segmentUT=16450.6-20939.0
+#   A MUN-FRAMED INBOUND HYPERBOLA (sma -509,907 / ecc 1.665957) whose elements match
+#   the fixture's own recorded Mun approach segment (-509,906.89 / 1.6659569778) to
+#   six figures, drawn from the `visible-segment` source, with `reaimed=False`. V5's
+#   Duna run printed the same line shape with `reaimed=True` and a Duna hyperbola; the
+#   two lanes now pin the same Director token to opposite values off the same code
+#   path, which is what makes either of them mean anything.
+#   `faithfulFallback=False` is worth reading too: this is not re-aim FALLING BACK to
+#   faithful, it is a member that was never a re-aim candidate.
+#
+#   THE DOUBLE SCENE ENTRY AUTHORED NOTHING: recordings 9 (the deterministic load-time
+#   optimizer split, see [expectations.recordings] - no second stub survived), one
+#   committed tree, zero durable rows. The V5 promotion-recorder re-arm race did NOT
+#   recur on this fixture - the inherited re-kill pair ran and the TS LoadGame answered
+#   OK on the first attempt. That is a non-recurrence, not a refutation: V5 measured
+#   the race firing on one attempt and not on the next of an identical spec.
+#
+#   ONE IDENTITY NOTE FOR ANYONE MATCHING LOGS ACROSS RUNS: the split recording's id is
+#   MINTED AT SPLIT TIME, so it differs per run (V6M's was 91e3bfce..., this run's is
+#   8aea9c9b...). Do not pin it, and do not read a mismatch as a different fixture.
+# =====================================================================================
+tier = "operator"
+description = "The tracking-station half of the Mun player-loop pair, and the mode INVERSION of V5: arm the loop and jump the clock past the cycle-1 Kerbin->Mun SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. A same-parent moon mission is always phaseLocked, so re-aim is unreachable - the TS host must materialize the FAITHFUL chain (`factory chain ... reaimed=False`, the exact inverse of V5's pin) with a Mun-framed proto icon. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1: a zero there is the finding, never a token to relax."
+instanceProfile = "stock-minimal"
+tags = ["V6", "tracking-station", "loop-arrival", "phase-lock", "mun", "moon", "map-render", "flown"]
+
+[fixture]
+# The same B11-mun-orbit harvest V6M walks: ONE committed tree d18969d6..., EIGHT
+# recordings (Mun-parked Kerbal X + six radial boosters + one Kerbin-impacting
+# flameout-staged remnant), save UT ~21,746.
+saveTemplate       = "fixtures/saves/mun-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Kill the scene-entry auto-recorder. HARD precondition, not hygiene: the SECOND
+  # LoadGame below is REJECTED `recording-active` by the dispatch guard if a recorder is
+  # live, and SaveGame would persist a half-recorded stub into the save the TS half
+  # then reads.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # mapRenderTracing arms the map/TS tracer + probe; verboseLogging is LOAD-BEARING
+  # (the Tier-B truth lines are Verbose - the V1 lesson). Settings are process-global,
+  # so both survive the LoadGame into TS.
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path.
+  { cmd = "MissionConfig", args = { tree = "d18969d6121444c1a30e4a55ae87a442", loop = "true" }, expect = "OK" },
+  # WARP TO CYCLE 1's LAUNCH (FLIGHT-only): an instantaneous Planetarium clock set
+  # through the product's FastForwardToEventUT.
+  { cmd = "StartLoopPlayback", args = { tree = "d18969d6121444c1a30e4a55ae87a442" }, expect = "OK", budget = 300 },
+  # FORWARD TO ~142 s PAST THE PREDICTED CYCLE-1 SOI SEAM (FLIGHT-only): the ghost is
+  # now just inside Mun's SOI.
+  { cmd = "TimeJump", args = { ut = "296690" }, expect = "OK", budget = 300 },
+  # PERSIST the armed mission state + the jumped clock.
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's measured
+  # re-arm race - see the header).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # RE-ENTER IN THE TRACKING STATION (R12's additive `scene=` arg, the H23 route). This
+  # reads back the save written two steps above, so the TS host boots with the loop
+  # armed and the clock already at the arrival epoch.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # TWO DWELL TICKS. RecordingState is AnyScene and side-effect-free; each costs one
+  # harness poll round-trip of 1x TS time. They are the ONLY time-passing instrument
+  # available in this scene and are named as ticks, not as a dwell window.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE. `scene-ts` is gated by the two R12 route tokens plus the TS host's
+# own initialization line; `mun` by the Mun-framed TS proto token; `sandbox` by the
+# fixture. D11 `phase-lock` is claimed and GATED here (the `PhaseLock APPLIED:` line
+# plus `Orbital(Mun) same-parent` + `support=Supported`) because the FLIGHT half of
+# this spec really does drive the lock through the production builder - the TS half
+# then observes its result. Deliberately NOT claimed: D11 `zero-drift-schedule` (V6M
+# owns that claim, with the same two tokens; claiming it twice would double-count one
+# measurement), any D11 arrival cell (this OBSERVES an arrival epoch, it asserts no
+# arrival geometry), D6 `ghost-map-presence` (the TS ProtoVessel lifecycle is H23/H28's
+# contract), and D9 `fast-forward` (V4/V6M own it).
+[dimensionsCovered]
+D11 = ["phase-lock"]
+D14 = ["mun", "scene-ts", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies written
+# after any [expectations.<sub>] header).
+allowedAnomalies = []
+
+[expectations.recordings]
+# NINE, measured on the sibling lane V6M (run 2026-08-08_1554) and pinned exactly. The
+# ninth is NOT a promotion stub: on LOAD, before any step runs, `RecordingOptimizer`
+# splits this fixture's main 789-point recording at UT 212.2 (the atmospheric->exo
+# boundary) into the chained pair 0fd603e3 [34.42, 212.20] 187 pts endBody=Kerbin +
+# 91e3bfce [212.20, 21,742.54] 603 pts endBody=Mun, chainId 22fa2b10, with its own
+# `Split summary: ... exoCoastBodyChangeKept=1` recording that the Kerbin->Mun body
+# change was deliberately kept cohesive. The split is deterministic and idempotent, so
+# THIS spec's DOUBLE scene entry must still read 9: a 10 means the second entry left a
+# promotion stub behind, which is precisely the measurement a double-entry spec owes
+# (V5's rule) and must red rather than be absorbed by a loose window.
+count = { min = 9, max = 9 }
+
+[expectations.rewind]
+# ARMED 2026-08-08 (the V2/B17/V4 arming discipline) off the reading run
+# `2026-08-08_1559` (PASS attempt 1), whose saveParse REPORT measured rewindPoints=0,
+# supersedeRows=0, tombstones=0, rewindRetirements=0 - every declared window already
+# met, so the arming moved no verdict. The claim being armed - a FLIGHT-arm / SaveGame
+# / TS-re-entry observation authors NOTHING durable - is worth more on this shape than
+# on a single-scene dwell, for V5's reason: this spec writes a save mid-run and reads
+# it back through a SECOND scene load, the shape in which a stray durable write is
+# easiest to miss. WINDOWS UNTOUCHED by the arming commit (S4.1's rule).
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-08, same reading run (`2026-08-08_1559`), which measured
+# committedTrees=1 and trees=1 - i.e. the DOUBLE scene entry produced no second
+# committed tree and the mid-run SaveGame persisted no stub. `trees` keeps V2's max = 2
+# (the documented duplicate-writer hazard) rather than being re-pinned to the single
+# measurement at arming time.
+gating = true
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# The chain, in order:
+#   "missionconfig applied:" / "SetLoopEnabled: loop ON" - the loop is ARMED through the
+#     production path, in FLIGHT, before the save;
+#   "startloopplayback initiated:" - the clock work entered the production door;
+#   "Orbital\(Mun\) same-parent" + "support=Supported" + "PhaseLock APPLIED: mission=" -
+#     the ROUTING pins: same-parent, not demoted, and phase-LOCKED, which is what makes
+#     re-aim unreachable and the forbid trio below falsifiable;
+#   the two loadgame lines - the R12 trackstation BRANCH was taken and the load
+#     COMPLETED against the TrackingStation expected scene (H23's pins verbatim; this
+#     fixture has a focusable vessel and would otherwise route to FLIGHT, so a
+#     TRACKSTATION landing can only mean the requested scene overrode the save-derived
+#     route - the claim is falsifiable);
+#   THE ANTI-VACUITY GATE: `ParsekTrackingStation initialized: created N ghost
+#     vessel(s)` with N >= 1. The TS host's OWN line, emitted only in that scene. A TS
+#     boot that materializes ZERO ghosts is an empty tracking station, and reading that
+#     as a pass is exactly the V1/V2 vacuity failure. A zero here is a FINDING to
+#     diagnose, never a token to relax.
+#   THE TWO TS-STAMPED RENDER TOKENS: the tracer's `phase=GhostCreated ...
+#     scene=TRACKSTATION` line with `body=Mun` (which pins WHERE as well as WHETHER),
+#     and the Director's `factory chain ... reaimed=False`, which pins that what TS
+#     rendered is the FAITHFUL chain. The second is V5's token with the value inverted,
+#     and it is the sharpest single line in this file.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "Orbital\\(Mun\\) same-parent",
+  "support=Supported",
+  "PhaseLock APPLIED: mission=",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Mun scene=TRACKSTATION",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The re-aim forbid trio - the falsifiable half of the same-parent routing claim, and
+  # the reason this spec is not just "V5 with a different fixture".
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  # The V3C run-3 self-detection guard.
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+# 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + the fast
+# non-deferred verbs + KSP boot + collect. Every jump is instantaneous, so the ~275 ks
+# of game time costs no wall clock; V5's identical shape measured 50 s end to end.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

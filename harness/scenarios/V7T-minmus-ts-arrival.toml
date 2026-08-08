@@ -1,0 +1,286 @@
+schema = 1
+id = "V7T-minmus-ts-arrival"
+# =====================================================================================
+# V7T: THE TRACKING-STATION OBSERVATION OF A LOOPED **MINMUS** ARRIVAL - the fourth
+# corner of the moon matrix (Mun/Minmus x FLIGHT/TRACKSTATION).
+#
+# Structurally this is V6T with the target body swapped, and V6T's header carries the
+# full argument for the shape: MissionConfig / StartLoopPlayback / TimeJump are all
+# `RequiresFlight`, so the arming and the clock work MUST happen in FLIGHT, be
+# persisted by SaveGame, and only then be re-entered through `LoadGame
+# scene=trackstation`; the TS dwell is the load settle plus two AnyScene poll ticks
+# (V5 measured 1.08 s) and cannot host a rate-limited instrument, which is why the
+# `probe frame summary` line is not pinned; and the re-kill pair immediately before the
+# TS load is V5's measured fix for the promotion-recorder re-arm race, not hygiene.
+# None of that is repeated here. What IS worth the file is the epoch arithmetic and one
+# genuinely different geometric expectation.
+#
+# WHERE THE CLOCK IS PARKED, and the schedule behind it (derived in full in
+# V7M-minmus-player-loop.toml):
+#   anchor = Rotation(Kerbin) T = 21,549.425 s
+#   other  = Orbital(Minmus) T = 1,077,311 s, tol = SOI/v = 2,247,428.4/274.12
+#            = 8,198.8 s
+#   ut0 = 34.44 (the main recording's start); floorUT ~ 277,205 (the fixture's save UT)
+#         -> kFloor = 13; first passing k = **50** (residual 160.7 s - 50 pad rotations
+#         is 1,077,471.25 s against a 1,077,311 s Minmus year, i.e. nearly commensurate
+#         at 50:1, which is why the Minmus schedule is so sparse and its residual so
+#         small)
+#   -> PREDICTED phaseAnchorUt = relaunchUt = **1,077,505.690**
+#   seam offset (the adjacent endUT==startUT body-change pair in the main recording's
+#   ORBIT_SEGMENT chain, 267,741.32144 - 34.44) = **267,706.881**
+#   -> PREDICTED cycle-1 Kerbin->Minmus SOI entry = 1,345,212.6
+# This spec parks at **1,345,355**, ~142 s past that seam: the ghost has just crossed
+# into Minmus's SOI, which is the first instant a TS observer sees a looped Minmus
+# member inside the destination SOI. Run 1 is a CALIBRATION run (read `phaseAnchorUt=`
+# off `missionconfig applied:` and `relaunchUt=` off `startloopplayback initiated:`,
+# then re-pin); `timejump refused reason=backward-jump` is FORBIDDEN so a mis-predicted
+# anchor self-detects.
+#
+# THE ONE GEOMETRIC DIFFERENCE WORTH PREDICTING. Minmus's SOI radius is 2,247,428.4 m
+# against a 60 km body, so a capture hyperbola inside it is a much larger structure
+# relative to the body than Mun's - and the inbound leg is SLOW (Minmus orbital
+# velocity 274 m/s, and the recorded approach crosses 267,741 -> 273,833 UT, i.e. the
+# ghost spends ~6,092 s inside the SOI before its capture burn). At the parked epoch
+# the TS host should therefore materialize a MINMUS-FRAMED HYPERBOLA (negative sma,
+# ecc > 1), the same qualitative shape V5 measured at Duna (sma -137,764, ecc 8.54) but
+# on a same-parent, FAITHFUL chain rather than a re-aimed one. The mode token is the
+# discriminator: `factory chain ... reaimed=False`, V5's pin inverted.
+#
+# POSTURE (as flown, 2026-08-08): RED BY FINDING, REPORT-ONLY. Both save-structure
+# blocks stay DECLARED and UNGATED, and the arming sweep that armed V6M / V6T / V7M the
+# same day DELIBERATELY SKIPPED this lane. The reason is not that the facets are
+# unmeasured - both flights measured them clean (rewindPoints 0, supersedeRows 0,
+# tombstones 0, committedTrees 1, trees 1) - it is that this spec's verdict is already
+# carrying a finding. Arming a second gate on a lane that reds for another reason pins
+# windows no GREEN run ever confirmed, and would make any future diagnosis of the icon
+# finding read against a contract that moved underneath it. Arm this pair only once the
+# lane can go green on its own terms.
+#
+# =====================================================================================
+# READING LEDGER (2026-08-08, two flights): **FLOWN, RED BY FINDING.**
+#
+# THIS LANE IS RED ON PURPOSE AND MUST STAY RED UNTIL THE FINDING IS EXPLAINED. Both
+# runs terminate `PARSEK-FAIL(anomaly)` on a single unallowed Tier-C raise. Every other
+# verifier is green on both, and every step is met - the red is one instrument firing,
+# which is the outcome `allowedAnomalies = []` exists to produce. DO NOT add
+# `icon-off-orbit` to allowedAnomalies to make this green: that budgets away the only
+# thing this lane found. (Precedent: V1-map-dwell-mun-orbit has stood as "flown, RED BY
+# FINDING" since 2026-07-30.)
+#
+#   Run 1 `2026-08-08_1614`, PARSEK-FAIL(anomaly) attempt 1, wall 51 s - all 16 steps
+#     met, driverValidity PASS, analyzer red=0, logValidate PASS, expectations PASS
+#     mismatches=0, saveParse REPORT clean (supersedeRows 0, tombstones 0, rewindPoints
+#     0, committedTrees 1, trees 1, pointsTotal 846). anomalySweep FAIL
+#     `hits=['icon-off-orbit'] counts={'icon-off-orbit': 1}`.
+#   Run 2 `2026-08-08_1616`, IDENTICAL outcome, and identical to the decimal:
+#     `angleIconVsOrbitEff=131.22` both times. The finding is DETERMINISTIC, not a
+#     flake, which is why it is worth keeping red rather than quarantining.
+#
+# THE FINDING, in the tracer's own words (run 1):
+#   [MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1830757804 frame=6791
+#     currentUT=1345355.000 effUT=1345355.000 reason=icon-off-orbit
+#     angleIconVsOrbitEff=131.22 angleEffVsLive=0.00 loopShift=0.0 effUT=1345355.0
+#     | lonIcon=-57.59 lonOrbitEff=169.32 lonOrbitLive=169.32
+#     | iconR=2212724 orbitEffR=2212724
+#     | lineActive=True inc=7.304 LAN=79.908 argPe=351.933 sma=-32531 ecc=4.0269
+#       body=Minmus
+# Read it term by term, because the line is unusually self-diagnosing:
+#   - `angleEffVsLive=0.00` and `lonOrbitEff == lonOrbitLive`: the EFFECTIVE orbit and
+#     the LIVE orbit agree exactly. The orbit is not the thing that is wrong.
+#   - `iconR == orbitEffR` (2,212,724 m to the metre): the icon is at the right RADIUS.
+#   - `angleIconVsOrbitEff=131.22`: it is 131 degrees around the wrong way ALONG that
+#     orbit - a stale along-track position on a correct conic, not a random placement.
+#   - `loopShift=0.0`, `body=Minmus`, `ecc 4.0269 / sma -32,531`: this is the Minmus
+#     inbound hyperbola, at the SOI-entry instant this spec parks on.
+# WHEN it fires: frame 6791, in the FLIGHT half, on the single large TimeJump to
+# 1,345,355 - BEFORE the SaveGame and the TS load (the TS ghosts are created ~2 s
+# later, at 19:15:34). So this is not a tracking-station defect; it is the icon failing
+# to follow a body-frame rebind that a big forward jump performs in one step.
+#
+# WHY THE SIBLING LANES DO NOT SEE IT. All three of V6M, V6T and V7M sweep clean
+# (`anomalySweep hits=[] counts={}`), so the differences are worth laying out exactly -
+# and they RULE OUT the two obvious explanations rather than supporting one:
+#   - NOT "a large single jump". V7M's first bracket jump is the same ~268 ks move
+#     (1,077,490 -> 1,345,035) and stays clean.
+#   - NOT "a single jump that crosses the SOI seam". V6T does exactly that on the Mun
+#     axis (280,162 -> 296,690 across a seam at 296,547) and stays clean.
+#   - WHAT IS LEFT is the conjunction plus the destination geometry: this is the only
+#     run that lands, in ONE move, INSIDE a long, high-eccentricity capture leg. V7M
+#     jumps just as far but lands 320 s BEFORE the seam and then steps across it in two
+#     small increments; V6T crosses in one move but into Mun's ecc 1.67 hyperbola,
+#     which the ghost transits in 44 s, against Minmus's ecc 4.03 leg that it occupies
+#     for 6,092 s.
+# THOSE ARE CANDIDATES, NOT A CONCLUSION, and the discriminating experiment is cheap
+# and named: fly a V7T variant that brackets its way to 1,345,355 the way V7M does. A
+# clean sweep would isolate "arriving mid-leg in one move"; a raise would eliminate the
+# approach entirely and point at the Minmus geometry itself. It was NOT flown here
+# because it is a different question from the one this spec asks, and answering it
+# inside this lane would mean editing away the shape that produced the finding.
+# Deliberately not worked around either: this spec's job was to observe the TS arrival,
+# and it did that too (see below). The icon question belongs to whoever owns
+# `GhostOrbitIcon` / `MapRenderProbe`, with these two reproducible runs as the evidence.
+#
+# WHAT THE LANE ALSO MEASURED, all of it green, none of it invalidated by the red:
+#   [MapRender] factory chain rec=d1a91f6b idx=1 inst=0 phases=10 reaimed=False
+#       window=[212.2,277204.4] faithfulFallback=False
+#   [GhostMap] Created ghost vessel 'Ghost: Kerbal X' ghostPid=... body=Minmus
+#       sma=-32531 ecc=4.026861 (from visible-segment) segmentUT=267741.3-273833.0
+#   [MapRenderTrace] phase=GhostCreated surface=ProtoIcon ... body=Minmus
+#       scene=TRACKSTATION
+#   [TrackingStation] ParsekTrackingStation initialized: created 1 ghost vessel(s),
+#       fixed 0 orbit renderer(s), trackingStationSuppressed=0
+# i.e. the predicted MINMUS-FRAMED HYPERBOLA (sma -32,531 / ecc 4.0269, matching the
+# fixture's recorded approach segment) materialized in the tracking station on a
+# FAITHFUL chain, anti-vacuity count 1, exactly as section 2 predicted. The anchor
+# prediction also held exactly (V7M measured phaseAnchorUt = relaunchUt =
+# 1,077,505.6991544911 against the predicted 1,077,505.690, k=50), so 1,345,355 needed
+# no re-pinning.
+# ======================================================================================
+# =====================================================================================
+tier = "operator"
+description = "The tracking-station half of the Minmus player-loop pair: arm the loop and jump the clock past the cycle-1 Kerbin->Minmus SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. Same-parent routing makes re-aim structurally unreachable, so the TS host must materialize the FAITHFUL chain (`factory chain ... reaimed=False`) with a Minmus-framed proto icon; the re-aim tokens are FORBIDDEN. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1."
+instanceProfile = "stock-minimal"
+tags = ["V7", "tracking-station", "loop-arrival", "phase-lock", "minmus", "moon", "map-render", "flown", "red-by-finding"]
+
+[fixture]
+# The same B12-minmus-orbit harvest V7M walks: ONE committed tree aa435745..., EIGHT
+# recordings (Minmus-parked Kerbal X + six radial boosters + the flameout-staged
+# remnant this profile leaves in KERBIN ORBIT), save UT ~277,205.
+saveTemplate       = "fixtures/saves/minmus-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Kill the scene-entry auto-recorder. HARD precondition: the SECOND LoadGame below is
+  # REJECTED `recording-active` if a recorder is live, and SaveGame would persist a
+  # half-recorded stub into the save the TS half then reads.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # mapRenderTracing arms the map/TS tracer + probe; verboseLogging is LOAD-BEARING.
+  # Settings are process-global, so both survive the LoadGame into TS.
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",   value = "true" }, expect = "OK" },
+  # ARM (FLIGHT-only): the production MissionStore.SetLoopEnabled path.
+  { cmd = "MissionConfig", args = { tree = "aa435745816e46b381cadb4fdcef7038", loop = "true" }, expect = "OK" },
+  # WARP TO CYCLE 1's LAUNCH (FLIGHT-only): instantaneous, through the product's
+  # FastForwardToEventUT.
+  { cmd = "StartLoopPlayback", args = { tree = "aa435745816e46b381cadb4fdcef7038" }, expect = "OK", budget = 300 },
+  # FORWARD TO ~142 s PAST THE PREDICTED CYCLE-1 SOI SEAM (FLIGHT-only): the ghost is
+  # now just inside Minmus's SOI, on the slow inbound leg.
+  { cmd = "TimeJump", args = { ut = "1345355" }, expect = "OK", budget = 300 },
+  # PERSIST the armed mission state + the jumped clock.
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  # RE-KILL THE RECORDER immediately before the load the guard rejects (V5's measured
+  # re-arm race).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  # RE-ENTER IN THE TRACKING STATION (R12's additive `scene=` arg, the H23 route).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # TWO DWELL TICKS - AnyScene, side-effect-free, one harness poll round-trip of 1x TS
+  # time each. The only time-passing instrument this scene has.
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE. `scene-ts` is gated by the two R12 route tokens plus the TS host's
+# own initialization line; `minmus` by the Minmus-framed TS proto token; `sandbox` by
+# the fixture. Deliberately NOT claimed: D11 `phase-lock` (V6T already claims it off
+# the identical two-token gate on the identical code path - a second claim would
+# double-count one measurement rather than add one), D11 `zero-drift-schedule` (V7M
+# owns it), any D11 arrival cell (this observes an arrival epoch, it asserts no arrival
+# geometry), D6 `ghost-map-presence` (H23/H28's contract), and D9 `fast-forward`
+# (V4/V6M own it).
+[dimensionsCovered]
+D14 = ["minmus", "scene-ts", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies written
+# after any [expectations.<sub>] header).
+allowedAnomalies = []
+
+[expectations.recordings]
+# NINE - the same prediction V7M carries, on the same basis: V6M (2026-08-08_1554)
+# measured a single deterministic load-time `RecordingOptimizer` split of the main
+# recording at the UT ~212 atmospheric->exo boundary (the Kerbin->moon body change
+# itself is kept cohesive, `exoCoastBodyChangeKept=1`), and this fixture flies the same
+# launcher on the same ascent. PINNED EXACTLY: the split is idempotent, so this spec's
+# DOUBLE scene entry must still read 9 - a 10 means either a second split on the longer
+# Minmus profile or a surviving promotion stub, and either is a finding this lane owes
+# rather than something a loose window should absorb.
+count = { min = 9, max = 9 }
+
+[expectations.rewind]
+# DECLARED, REPORT-ONLY (no `gating`), and LEFT THAT WAY BY THE 2026-08-08 ARMING SWEEP
+# even though both flights measured every window met (rewindPoints 0, supersedeRows 0,
+# tombstones 0, rewindRetirements 0). See the POSTURE note in the header: the three
+# green moon lanes were armed off their own reading runs; this lane is red by finding,
+# and arming a second gate on a verdict that already carries one is not the discipline
+# these blocks exist to follow.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# DECLARED, REPORT-ONLY, same reason and the same measurement (committedTrees 1,
+# trees 1 on both flights); `trees` keeps the duplicate-writer hazard width.
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# V6T's chain on the Minmus axis:
+#   the two arm lines - the loop is ARMED through the production path, in FLIGHT,
+#     before the save;
+#   "startloopplayback initiated:" - the clock work entered the production door;
+#   "Orbital\(Minmus\) same-parent" + "support=Supported" - the ROUTING pins that make
+#     re-aim unreachable and the forbid trio below falsifiable;
+#   the two loadgame lines - the R12 trackstation branch was taken and the load
+#     completed against the TrackingStation expected scene (H23's pins verbatim);
+#   THE ANTI-VACUITY GATE: the TS host's own `created N ghost vessel(s)` with N >= 1 -
+#     a TS boot that materializes ZERO ghosts is an empty tracking station, and reading
+#     that as a pass is the V1/V2 vacuity failure. A zero is a FINDING to diagnose;
+#   THE TWO TS-STAMPED RENDER TOKENS: `phase=GhostCreated ... body=Minmus
+#     scene=TRACKSTATION` (pins WHERE as well as WHETHER) and the Director's
+#     `factory chain ... reaimed=False` (pins the FAITHFUL chain - V5's token inverted).
+# `PhaseLock APPLIED:` is deliberately NOT required here even though it will appear:
+# V6T pins it as the gate behind its D11 `phase-lock` claim, and this spec makes no
+# such claim, so requiring the token would be a pin with no claim behind it. The
+# same-parent + Supported pair is what this lane needs, and that is what it asks for.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "Orbital\\(Minmus\\) same-parent",
+  "support=Supported",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Minmus scene=TRACKSTATION",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The re-aim forbid trio - the falsifiable half of the same-parent routing claim.
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  # The V3C run-3 self-detection guard.
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+# 300 LoadGame + 300 StartLoopPlayback + 300 TimeJump + 300 LoadGame(TS) + the fast
+# non-deferred verbs + KSP boot + collect. Every jump is instantaneous, so the ~1.07 Ms
+# of game time costs no wall clock; V5's identical shape measured 50 s end to end.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

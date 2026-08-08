@@ -14,6 +14,104 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## WATCH-ENTRY-GATE-IS-120KM-NOT-300KM: every write-up of watch-mode auto-select quotes the wrong threshold [FOUND 2026-08-08 by V7M-minmus-player-loop, measured twice]
+
+**Doc/claim defect, not a code defect.** The V4-player-loop-workflow spec header
+(and its `docs/dev/autotest-status.md` row) state that watch-mode auto-select has
+"a 300 km watch ENTRY cutoff (305 km exit)". The entry half is wrong. The
+conjunction `HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange` is
+right, but
+
+    GhostPlaybackEngine.cs:6325
+    IsGhostWithinVisualRange(index) => state.currentZone != RenderingZone.Beyond
+
+and `RenderingZoneManager.ClassifyDistance` puts a ghost in `Beyond` at
+`DistanceThresholds.GhostVisualRangeMeters` = **120,000 m** (Physics < 5 km,
+Visual 5-120 km, Beyond 120 km+). The 305,000 m figure is
+`WatchModeController.WatchExitCutoffMeters` - the EXIT cutoff, and only that.
+Watch ENTRY is gated 2.5x tighter than the docs claim.
+
+**Why it survived until now, and what falsified it.** V4's parked-tail draw read
+`hidden-by-zone_distance=643913m`, which fails BOTH candidate thresholds, so its
+REJECTED was consistent with either and the wrong one got written down. V7M is
+the first lane whose separations land BETWEEN them: on the shared 98,463.595 m
+Minmus park the engine's own per-member frame line read `zone=Beyond
+rdist=144352m` (cycle 1) and `rdist=191498m` (cycle 2). A 300 km entry cutoff
+predicts OK at both; the 120 km zone gate predicts REJECTED at both. Measured:
+REJECTED at both, on three separate flights, reproducible to ~20 m
+(144,370 / 144,356 / 144,352 m for cycle 1 - these separations are NOT a per-run
+draw, because both craft advance at the same rate on the same orbit, so the
+separation is constant within a cycle and moves only when the phase anchor does).
+
+**Corrected arithmetic** for "can a co-orbiting observer watch its own replay",
+chord < 120 km on a shared circle of radius a, `theta < 2*asin(60/a)`:
+Minmus 75.1 deg (~42% of a uniform draw), Mun 20.3 deg (~11%), V4's Duna park
+6.6 deg (~3.7%). V7M's cycle-3 park measured `zone=Visual rdist=51603m` and the
+verb answered `enterwatchmode complete: index=1 recId=9fc8d536...` - the FIRST
+watch-mode entry in the suite.
+
+Fix: the V4 spec header and status row carry a correction banner pointing here;
+V6M's section 4 is marked superseded in place (the section is kept because the
+falsification is only legible against it). No product change - the product does
+what its code says, the docs did not.
+
+---
+
+## MOON-LOOP-FINDINGS: two product observations from the V6/V7 moon quartet [FOUND 2026-08-08, both report-only, neither fixed]
+
+**(1) `icon-off-orbit`, deterministic, 131.22 deg.** `V7T-minmus-ts-arrival` reds
+`PARSEK-FAIL(anomaly)` on both of its flights (`2026-08-08_1614`, `_1616`) with
+one Tier-C raise, identical to the decimal:
+
+    [MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1830757804 frame=6791
+      currentUT=1345355.000 reason=icon-off-orbit angleIconVsOrbitEff=131.22
+      angleEffVsLive=0.00 loopShift=0.0 | lonIcon=-57.59 lonOrbitEff=169.32
+      lonOrbitLive=169.32 | iconR=2212724 orbitEffR=2212724
+      | lineActive=True inc=7.304 sma=-32531 ecc=4.0269 body=Minmus
+
+The effective and live orbits agree exactly (`angleEffVsLive=0.00`) and the icon
+is at the correct RADIUS to the metre (`iconR == orbitEffR`), so this is a stale
+ALONG-TRACK position on a correct conic, not a misplaced icon. It fires in the
+FLIGHT half, ~2 s before any tracking-station ghost exists, on the single large
+TimeJump that lands inside the Minmus capture leg. RULED OUT by the sibling
+lanes: not "a large jump" (V7M's first bracket jump is the same ~268 ks move and
+sweeps clean) and not "a jump across the SOI seam" (V6T does exactly that on the
+Mun axis and sweeps clean). What is left is landing, in ONE move, INSIDE a long
+high-eccentricity capture leg (Minmus ecc 4.03, occupied 6,092 s) rather than
+before the seam or into Mun's ecc 1.67 leg transited in 44 s. Discriminating
+experiment, named but not flown: a V7T variant that brackets its way to the same
+UT. Owner: whoever owns `GhostOrbitIcon` / `MapRenderProbe`. The anomaly is
+deliberately NOT added to that spec's `allowedAnomalies` - the lane stands red by
+finding (V1-map-dwell-mun-orbit's precedent).
+
+**(2) Teardown NRE when a run ends inside watch mode.** `V7M-minmus-player-loop`
+is the first run in the suite that quits while watch mode is active. Its reading
+run (`2026-08-08_1613`) read `unityExceptions total=1` - the Parsek line below:
+
+    NullReferenceException: FlightGlobals.get_ActiveVessel ()
+      Parsek.WatchModeController.GetActiveVesselSafe ()
+      Parsek.WatchModeController.RestoreCameraAfterWatchExit (Boolean)
+      Parsek.WatchModeController.ExitWatchMode (Boolean, Boolean)
+      Parsek.ParsekFlight.OnDestroy ()
+
+i.e. `GetActiveVesselSafe` is not safe during scene teardown - `FlightGlobals` is
+already gone by the time `OnDestroy` runs the watch-exit camera restore. Harmless
+at shutdown (one line, after the last gameplay frame), report-only, not armed.
+NOT worked around in the spec by exiting watch before `FlushAndQuit`: that would
+hide the only run shape that reaches it.
+
+The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
+which is worth recording because it bounds what a ceiling here would mean: the
+same Parsek line plus FOUR stock/MechJeb teardown NREs in the same 40 ms window
+(`CrewHatchController.DespawnUIs`, two in `KnowledgeBase.OnMapFocusChange` fired
+off `PlanetariumCamera.OnVesselDestroy`, and `MechJebCore.OnDestroy`) - a
+knock-on cascade of the same end-inside-watch teardown, not four more Parsek
+defects. A 1-vs-5 spread across two green flights of one spec is exactly why no
+`[expectations.unityExceptions] maxTotal` is armed on this lane, and why arming
+one off either single observation would have been wrong in one direction.
+
+---
+
 ## ~~B11-TERMINAL-TOKEN-NEVER-TRUE: B11-mun-orbit required a topology token transplanted from a B7 log, and red on its first live outing~~ [FOUND 2026-08-08 while building the moon recorded-state fixtures. DONE 2026-08-08 - root-caused, then re-pinned to measured reality]
 
 `B11-mun-orbit` flew twice on 2026-08-08 (runs `2026-08-08_1355`, wall 1320 s,

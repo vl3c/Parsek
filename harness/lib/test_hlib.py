@@ -4691,8 +4691,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # has been TAKEN. What remains for each is the ordinary operator ->
         # nightly PROMOTION call, which is a cadence decision for a human and not
         # a review debt.
-        "V4-player-loop-workflow.toml":     "FLOWN GREEN 2026-08-08 (1135 reading, 1154 armed, 1156 min=1 negative control PARSEK-FAIL(save-structure)) and ARMED on both save-structure blocks; both EnterWatchMode verdicts came back REJECTED as predicted from the 300 km camera-only cutoff. Operator tier is now an open PROMOTION call, not debt",
+        "V4-player-loop-workflow.toml":     "FLOWN GREEN 2026-08-08 (1135 reading, 1154 armed, 1156 min=1 negative control PARSEK-FAIL(save-structure)) and ARMED on both save-structure blocks; both EnterWatchMode verdicts came back REJECTED as predicted from the camera-only range gate (the entry threshold behind that prediction was written as 300 km and CORRECTED to the 120 km render zone on 2026-08-08 by V7M - the verdicts are unaffected, this lane's 643,913 m draw fails either). Operator tier is now an open PROMOTION call, not debt",
         "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
+        # The V6/V7 MOON quartet (Mun/Minmus x FLIGHT/TRACKSTATION), operator by the
+        # SAME calibration discipline as V1/V2/V3/V4/V5 and for one extra structural
+        # reason worth recording: their TimeJump targets are PRE-FLIGHT PREDICTIONS of
+        # a phase-locked zero-drift schedule (Mun first window k=13 pad rotations,
+        # Minmus k=50), and the anchor they are computed from is only knowable at run
+        # time, so the first flight of each is a calibration run by construction.
+        # Posture as of 2026-08-08: the three GREEN lanes have taken the post-reading
+        # arming call (both save-structure blocks now `gating = true` on V6M, V6T and
+        # V7M, each off its own reading run, with one shared negative control on V6M),
+        # so what remains for them is the ordinary operator -> nightly PROMOTION call,
+        # which is a cadence decision for a human and not a review debt. V7T stays
+        # UNGATED: it is red by finding, and arming a second gate on a lane whose
+        # verdict already carries one would be arming off a red.
+        "V6M-mun-player-loop.toml":         "FLOWN GREEN 2026-08-08 (2026-08-08_1554 reading, PASS attempt 1, 54 s) - the pre-flight schedule prediction (k=13 pad rotations, phaseAnchorUt 280,176.945) matched the measured 280,176.94738016772, so no re-pin was needed. ARMED on both save-structure blocks (armed run 2026-08-08_1640 PASS attempt 1; negative control 2026-08-08_1644 PARSEK-FAIL(save-structure) on `rewind.supersedeRows 0 < min 1`, reverted). Operator tier is now an open PROMOTION call, not debt",
+        "V6T-mun-ts-arrival.toml":          "FLOWN GREEN 2026-08-08 (2026-08-08_1559 reading, PASS attempt 1, 50 s) - the TS host materialized the looped faithful moon member (`created 1 ghost vessel(s)`, Mun-framed hyperbola, `factory chain ... reaimed=False`, V5's token inverted). ARMED on both save-structure blocks (armed run 2026-08-08_1641 PASS attempt 1; negative control shared with V6M's 1644). Operator tier is now an open PROMOTION call, not debt",
+        "V7M-minmus-player-loop.toml":      "FLOWN GREEN 2026-08-08 after one falsification and one calibration (_1600 INVALID: the pinned watch OK was wrong because watch ENTRY is gated at the 120 km render zone, not the 300 km figure V4 quotes - 305 km is the EXIT cutoff; _1607 calibration located an in-gate epoch; _1613 PASS attempt 1, 53 s, with the suite's FIRST watch-mode entry). ARMED on both save-structure blocks (armed run 2026-08-08_1642 PASS attempt 1; negative control shared with V6M's 1644). Carries one report-only product finding (a teardown NRE in WatchModeController.RestoreCameraAfterWatchExit when a run ends inside watch mode) which is FILED, not owed by this spec - and deliberately NOT armed as a unityExceptions ceiling, since the two green flights of the identical shape counted 1 and 5 raw NREs. Operator tier is now an open PROMOTION call, not debt",
+        "V7T-minmus-ts-arrival.toml":       "FLOWN 2026-08-08, RED BY FINDING and deliberately kept red (2026-08-08_1614 and _1616, both PARSEK-FAIL(anomaly), both `icon-off-orbit angleIconVsOrbitEff=131.22` to the decimal - deterministic, not a flake). Every other verifier green, all 16 steps met. The V1-map-dwell-mun-orbit precedent applies: a red-by-finding lane is an outcome, not a debt this tag would name. What a human owns here is the icon question itself, and it is written up in the spec header with a named discriminating experiment; report-only, nothing armed",
     }
 
     def _specs(self):
@@ -4985,7 +5002,33 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Armed run cited in the status doc row; the min=1
                        # negative control was flown once, on V4, since both specs
                        # gate through the one shared saveParse path.
-                       "V5-ts-loop-arrival.toml"}
+                       "V5-ts-loop-arrival.toml",
+                       # The V6/V7 MOON lanes (three of the quartet), armed
+                       # 2026-08-08 on the same V2/B17/V4 discipline. Each was
+                       # armed off its OWN reading run, all three of which
+                       # measured every declared window already met (rewind
+                       # facets all 0, committedTrees 1, trees 1):
+                       #   V6M reading 2026-08-08_1554, armed 2026-08-08_1640
+                       #       PASS attempt 1;
+                       #   V6T reading 2026-08-08_1559, armed 2026-08-08_1641
+                       #       PASS attempt 1;
+                       #   V7M reading 2026-08-08_1613, armed 2026-08-08_1642
+                       #       PASS attempt 1.
+                       # NEGATIVE CONTROL flown once, on V6M
+                       # (2026-08-08_1644, PARSEK-FAIL(save-structure), single
+                       # mismatch `rewind.supersedeRows 0 < min 1`, reverted) -
+                       # the V4/V5 precedent: all three gate through the one
+                       # shared saveParse evaluator, so a second identical
+                       # inversion would re-prove the evaluator rather than
+                       # these windows, at the cost of a flight.
+                       # The FOURTH moon lane, V7T-minmus-ts-arrival, is
+                       # DELIBERATELY ABSENT: it flew RED BY FINDING (a
+                       # deterministic `icon-off-orbit` raise) and a lane whose
+                       # verdict is already carrying a finding must not have a
+                       # second gate armed on top of it.
+                       "V6M-mun-player-loop.toml",
+                       "V6T-mun-ts-arrival.toml",
+                       "V7M-minmus-player-loop.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
