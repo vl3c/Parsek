@@ -445,28 +445,57 @@ count = { min = 8, max = 8 }
 #       terminal: rec=\w+ terminalState=Orbiting terminalOrbitBody=Minmus", and
 #       the very next run (results/2026-07-25_0600_B12-minmus-orbit.json, mission
 #       wall 580.826 s) passed with it deployed.
-#   "CommitTreeFlight terminal: ... terminalState=Orbiting terminalOrbitBody=Kerbin"
-#   and "... terminalState=Destroyed terminalOrbitBody=(null)" - the OTHER TWO
-#       rows of the 8-recording topology, added 2026-07-26 because the count pin
-#       alone does NOT guard them. count={8,8} is a scalar: a regression that
-#       DROPS the flameout-staged ascent core and ADDS a spurious booster still
-#       reads 8 and still passes every other token here. These two make the
-#       topology claim ("1 in the target SOI + 6 destroyed boosters + 1 core left
-#       in Kerbin orbit") checked rather than merely narrated - presence-only, so
-#       they pin that each CLASS exists, while the count pins the total.
-#       MEASURED, not assumed: logs/2026-07-25_1216_B7-duna-flyby/KSP.log (same
-#       fixture save, same launcher, first archived flight after the terminal
-#       token deployed) emits exactly 8 terminal lines - 1 `SubOrbital Ike`
-#       (B7's own mission craft), 6 `Destroyed (null)`, 1 `Orbiting Kerbin`.
-#       The `(null)` body on a destroyed booster is structural, not incidental:
-#       BackgroundRecorder's v == null branch stamps TerminalState.Destroyed and
-#       never calls CaptureTerminalOrbit, and FormatCommitTerminalLine renders an
-#       empty body as "(null)".
-#       SAME RESIDUAL AS THE COUNT, stated honestly: the Kerbin row IS the
-#       flameout-staged core, so a change that removes that stage removes this
-#       token exactly as it moves the count off 8. It reds alongside the count
-#       window, which is the intended failure mode - re-derive both from a fresh
-#       measured run, never widen either blindly.
+#   "CommitTreeFlight terminal: ... terminalState=Destroyed terminalOrbitBody=(null)"
+#       - the SECOND row of the 8-recording topology, added 2026-07-26 because the
+#       count pin alone does NOT guard it. count={8,8} is a scalar: a regression
+#       that DROPS a recording and ADDS a spurious one still reads 8 and still
+#       passes every other token here. This row makes the destroyed-booster CLASS
+#       checked rather than merely narrated - presence-only, so it pins that the
+#       class exists while the count pins the total. The `(null)` body on a
+#       destroyed booster is structural, not incidental: BackgroundRecorder's
+#       v == null branch stamps TerminalState.Destroyed and never calls
+#       CaptureTerminalOrbit, and FormatCommitTerminalLine renders an empty body
+#       as "(null)". LIVE-MEASURED on THIS lane 2026-08-08: 7 such lines on run
+#       2026-08-08_1355 and 6 on run 2026-08-08_1419.
+#
+#   THE THIRD ROW ("... terminalState=Orbiting terminalOrbitBody=Kerbin") WAS
+#   REQUIRED FROM 2026-07-26 TO 2026-08-08 AND IS NOW REMOVED. It was never true
+#   of this lane. Read this before re-adding it:
+#     * It was added 2026-07-26 (c0b353ba5) citing
+#       logs/2026-07-25_1216_B7-duna-flyby/KSP.log - a B7 flight, a DIFFERENT
+#       mission profile (Duna flyby, no capture burn, no Mun correction pair) that
+#       merely shares this fixture and launcher. B11 did not fly again between
+#       that commit and 2026-08-08, so the token's FIRST live outing on B11 was
+#       2026-08-08 and it red on it.
+#     * MEASURED on the two 2026-08-08 flights, both MISSION-OK with every other
+#       verifier green (capture ecc 0.000, ~136 km Mun park, count 8):
+#         run 2026-08-08_1355 (wall 1320 s): 7x Destroyed (null) + 1x Orbiting Mun
+#         run 2026-08-08_1419 (wall 1318 s): 6x Destroyed (null)
+#                                            + 1x Landed Kerbin + 1x Orbiting Mun
+#       On the Mun profile the flameout-staging watchdog does NOT leave a core in
+#       Kerbin orbit: it fires TWICE during CORRECTION-BURN (ut 4899.8 / 4901.9,
+#       alt ~3.60 Mm, thr=0.250 avThr=0.000 - a real dry transfer stage), so the
+#       non-booster remnant is dropped on a Kerbin-IMPACTING trajectory. Its
+#       terminal classification is the one genuinely UNSTABLE facet across the two
+#       flights (Destroyed vs Landed Kerbin) while the flameout UTs are identical
+#       to 0.13 s, so the drop is deterministic and only the post-impact verdict
+#       varies. A presence-only token cannot pin an unstable class, so the detail
+#       is documented here instead of required.
+#     * ROOT-CAUSED before the re-pin, NOT masked. `_b5_flameout_stage` is
+#       byte-identical to the last-green baseline (aedc47092), FLAMEOUT_DEBOUNCE_
+#       FRAMES / MAX_FLAMEOUT_STAGES / every CORR* and THROTTLE constant are
+#       unchanged, harness/provision/pins.toml has not moved since before the last
+#       green, and harness/fixtures/saves/b2-lko-craft has never been touched. The
+#       decisive control is B12-minmus-orbit, which flies the SAME machine, craft
+#       and watchdog: it PASSED on 2026-08-08 (run _1441) with all three tokens
+#       including `Orbiting Kerbin`, so no shared decision path regressed - the
+#       Kerbin remnant is a property of the MINMUS correction profile, not of the
+#       b5 machine. B12 therefore keeps the token; B11 never earned it.
+#   WHAT THE LANE STILL GUARDS after the removal: the count owns the total (8),
+#   the Mun row owns the committed-craft class, the Destroyed row owns the debris
+#   class. The unguarded facet is exactly one - which of Destroyed/Landed the
+#   non-booster remnant ends as - and it is unguarded because it is not stable.
+#   Re-derive from a fresh measured run before ever re-adding it.
 required = [
   "Recording started",
   "Recording stopped",
@@ -474,7 +503,6 @@ required = [
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Mun",
-  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Destroyed terminalOrbitBody=\\(null\\)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

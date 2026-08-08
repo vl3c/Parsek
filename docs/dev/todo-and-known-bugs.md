@@ -14,6 +14,72 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~B11-TERMINAL-TOKEN-NEVER-TRUE: B11-mun-orbit required a topology token transplanted from a B7 log, and red on its first live outing~~ [FOUND 2026-08-08 while building the moon recorded-state fixtures. DONE 2026-08-08 - root-caused, then re-pinned to measured reality]
+
+`B11-mun-orbit` flew twice on 2026-08-08 (runs `2026-08-08_1355`, wall 1320 s,
+and `2026-08-08_1419`, wall 1318 s) and both red `PARSEK-FAIL(expectation)` on
+exactly ONE token with every other verifier green (mission MISSION-OK across the
+full 19-phase profile, capture eccentricity 0.000, ~136 km Mun park, analyzer
+RED=0, recordings count 8 = the pinned window):
+
+    logContracts.required not matched:
+    CommitTreeFlight terminal: rec=\w+ terminalState=Orbiting terminalOrbitBody=Kerbin
+
+**The token was never true of this lane.** It was added 2026-07-26 (`c0b353ba5`,
+"Review round 2") to BOTH B11 and B12, citing
+`logs/2026-07-25_1216_B7-duna-flyby/KSP.log` - a **B7** flight. B7 shares the
+`b2-lko-craft` fixture and the Kerbal X launcher but flies a different profile
+(Duna flyby: no capture burn, no Mun correction pair). B11 did not fly again
+between that commit and 2026-08-08, so 2026-08-08 was the token's FIRST live
+outing on B11 and it red on it. The spec's own comment had flagged the residual
+and prescribed the remedy ("re-derive both from a fresh measured run, never
+widen either blindly"); this is that re-derivation.
+
+**Measured B11 topology (both 2026-08-08 flights, 8 recordings each):**
+
+| run | terminals |
+|---|---|
+| `2026-08-08_1355` | 7x `Destroyed (null)` + 1x `Orbiting Mun` |
+| `2026-08-08_1419` | 6x `Destroyed (null)` + 1x `Landed Kerbin` + 1x `Orbiting Mun` |
+
+On the Mun profile the flameout-staging watchdog does not leave a core in Kerbin
+orbit: it fires TWICE during CORRECTION-BURN (ut 4899.812 / 4901.912 on one
+flight, 4899.939 / 4902.019 on the other - identical to 0.13 s, so the drop is
+deterministic), at alt ~3.60 Mm with `thr=0.250 avThr=0.000`, a real dry transfer
+stage. The non-booster remnant therefore leaves on a Kerbin-IMPACTING trajectory.
+Its terminal classification is the one genuinely unstable facet (`Destroyed` vs
+`Landed Kerbin`) across two otherwise byte-similar flights.
+
+**Root-caused before re-pinning, per the shared-machine rule** (a deterministic
+change in a mission every other B-lane shares must be explained, not masked).
+Classification: **no identifiable code or pins delta** -
+
+- `mlib._b5_flameout_stage` is BYTE-IDENTICAL to the last-green baseline
+  (`aedc47092`, 2026-07-25 10:35 +0300);
+- `FLAMEOUT_DEBOUNCE_FRAMES` (2), `MAX_FLAMEOUT_STAGES` (2) and every `CORR*` /
+  `*THROTTLE*` module constant are unchanged across that span;
+- `harness/provision/pins.toml` has not been touched since before the last green,
+  so the MechJeb / KSP / kRPC stack is the same one the July flights ran;
+- `harness/fixtures/saves/b2-lko-craft` has never been modified, so the craft and
+  its fuel budget are identical;
+- the decisive control: **B12-minmus-orbit PASSED on 2026-08-08** (run `_1441`,
+  attempt 1, wall 630 s) with all three tokens including `Orbiting Kerbin`, on the
+  SAME machine, craft and watchdog. A regression in a shared decision path would
+  have taken B12 down with B11. The Kerbin remnant is a property of the Minmus
+  correction profile, not of the b5 machine.
+
+**Fix (2026-08-08).** The `Orbiting Kerbin` row is removed from B11's
+`logContracts.required` and the variance documented in the spec header with both
+run ids. B12 keeps all three tokens - its row was inspected against its own
+flight rather than assumed to share the problem, and its flight measured
+6x `Destroyed (null)` + 1x `Orbiting Kerbin` + 1x `Orbiting Minmus`, so today is
+the first time B12's copy of the token is live-proven. Nothing was widened: after
+the removal the count still owns the total (8), the Mun row owns the
+committed-craft class and the Destroyed row owns the debris class; the single
+unguarded facet is which of `Destroyed`/`Landed` the remnant ends as, unguarded
+precisely because it is not stable. Re-derive from a fresh measured run before
+ever re-adding it.
+
 ## ~~DESIGN-DOC-13.1-STALE-TEST-NAMES: ten unit-test class names in the rewind design doc's §13.1 v0.9.1 list do not exist in Source~~ [FOUND 2026-08-05 during the gameplay-scenarios-wave-1 §13.2 doc-truth reconciliation. DONE 2026-08-05 - per-bullet verification against the real test bodies, no mass-rename]
 
 `docs/parsek-rewind-to-separation-design.md` §13.1's "The v0.9.1 stable-leaf
