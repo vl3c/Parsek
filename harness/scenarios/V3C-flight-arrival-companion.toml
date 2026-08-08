@@ -45,6 +45,21 @@ id = "V3C-flight-arrival-companion"
 #   seams remain UNMEASURED. NEXT STEP (this spec stays reading-posture):
 #   encounter tuning for the ghost-cycle window - likely a wider correction
 #   budget or a planner-matched window solve - then the GS-3 pin.
+#   Runs 4-5 (2026-08-08_0802 PASS / _0836+_0903 INVALID, this branch):
+#   the 800 cap CLOSED the encounter (runs 4-5 all reached Duna vs run 2's
+#   miss) and refined the numbers: live cycle-2 SOI entry 29,178,912 (the
+#   cycle-2 transfer flies ~405 ks longer than the recorded one), zone hide
+#   threshold ~55.8 Mm (measured off GuardSkip distances; the Duna park sits
+#   47.6 Mm from the seam point - inside reach), and a TRAP: a BACKWARD
+#   TimeJump answers OK as a no-op, so run 4 "passed" while never dwelling
+#   (the bracket now targets cycle 1's seam at 48,427,070.07, forward from
+#   the commit). REMAINING CLIFF, still reading-posture: the cycle-2
+#   CAPTURE corridor - run 4 captured into a legal 5,330 km circular orbit
+#   that B17-class park windows reject; run 5's widened acceptance let the
+#   burn transit IKE's SOI (MISSION-ASSERT-FAIL, the machine's own guard).
+#   The capture needs an Ike-aware corridor (accept only outside the Ike
+#   shell ~4.4 Mm+, or bring arrival pe under ~2.1 Mm) before the bracket
+#   is reachable green.
 # =====================================================================================
 tier = "operator"
 description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside - the only shape that reaches the flight-engine seam surface (a parked observer is hidden-by-zone before positioning). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; the known ~62-deg handoff teleport is the EXPECTED red on this reading run."
@@ -92,18 +107,23 @@ steps = [
   # craft flies alongside the engaged replay.
   { cmd = "TimeJump", args = { ut = "23000000" },  expect = "OK", budget = 300 },
   { phase = "mission",  expect = "MISSION-OK", budget = 4200 },
-  # THE ARRIVAL-SEAM DWELL: the ghost's Sun->Duna handoff replays at
-  # anchor + arriveOffset = 24,299,389.85 + 4,474,604.45 = 28,773,994.30,
-  # ~an hour after the live craft parks at Duna. Bracket the instant with
-  # epoch jumps; the 1x frames between the step round trips carry the
-  # crossing, and a mid-hop crossing is still measured (the 49 Mm defect
-  # discontinuity clears the predicate's dt-scaled threshold at these hop
-  # sizes). The depart seam (24,388,838.77, mid-coast) is measured by the
-  # un-predicated [ReaimSeam] SEAM jump line instead - the Tier-C raise is
-  # warp-suppressed by design at coast warp.
-  { cmd = "TimeJump", args = { ut = "28773800" },  expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28773930" },  expect = "OK", budget = 300 },
-  { cmd = "TimeJump", args = { ut = "28774150" },  expect = "OK", budget = 300 },
+  # THE ARRIVAL-SEAM DWELL, CYCLE 1 (reading run 3, 2026-08-08_0802,
+  # re-measured): the cycle-2 live transfer flies ~405 ks LONGER than the
+  # recorded one (SOI entry 29,178,912 vs the ghost's cycle-0 seam at
+  # 28,773,994; Duna e=0.051 again), so the mission ends PAST cycle 0's
+  # seam and the original bracket targets were silently behind the clock
+  # (a backward TimeJump answers OK as a no-op - the run passed while
+  # never dwelling). The loop REPEATS: cycle 1's arrival seam replays at
+  # anchor + cadence + arriveOffset = 24,299,389.85 + 19,653,075.77 +
+  # 4,474,604.45 = 48,427,070.07, comfortably after the commit
+  # (29,216,350) and forward-jumpable from the park. Zone reach measured
+  # the same run: ghosts hide at ~55.8 Mm separation, and the parked
+  # craft sits 47.6 Mm from the SOI-entry seam point - inside reach.
+  # A mid-hop crossing is still measured: the 180-230 s hops price the
+  # predicate threshold at ~15-20 Mm, far under the 49 Mm defect jump.
+  { cmd = "TimeJump", args = { ut = "48426800" },  expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "48427040" },  expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "48427220" },  expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -173,7 +193,15 @@ transferBurnTimeoutSeconds = 20000
 
 # --- Correction rounds (time-to-SOI mode; the B7 shape, B15-sized budget).
 courseCorrectPeriapsisMeters = 300000
-maxCorrectionDvMps         = 450
+# CYCLE-2 CAP (reading run 2, 2026-08-07_2324, measured): the ghost-cycle
+# window prices the mid-course correction at 522.1 m/s - 16% over B17's
+# cycle-1 cap of 450, so the machine disqualified the plan and the raw
+# intercept missed Duna (Duna e=0.051 makes window quality cycle-dependent;
+# ~522/67 = ~7.8 deg effective phase cost at this cycle). 800 admits the
+# measured correction with margin while staying far under the DD1's
+# ~1,700 m/s transfer-stage reserve (A6 arithmetic); B17's own 450 cap is
+# deliberately untouched - it is the cycle-1 cleanliness contract.
+maxCorrectionDvMps         = 800
 correctionTriggerAltsMeters       = []
 # Round 0 right after Sun-SOI entry: with an ASAP ejection the transfer reaches
 # Duna's ORBIT but not necessarily Duna (the pad jump owns the phase), so the
@@ -205,9 +233,16 @@ captureBurnTimeoutSeconds  = 400000
 # atmosphere with margin, apoapsis far inside Ike's inner shell edge
 # (~1,830 km altitude), eccentricity tight enough that the committed orbit is a
 # real 300 km-class park rather than a grazing ellipse.
-parkMinPeriapsisMeters     = 120000
-parkMaxApoapsisMeters      = 1500000
-parkMaxEccentricity        = 0.2
+# OBSERVER-GRADE park (reading run 4, 2026-08-08_0836, measured): the cycle-2
+# arrival geometry captured into a perfectly good 5,330 km circular Duna
+# orbit that B17's 300 km-class park windows rejected as under-burn. V3C's
+# live craft is an OBSERVER - it only needs to survive, stay bound inside
+# the SOI, and be near the seam point at the bracket - so the park windows
+# accept any safe bound orbit. The 300 km-class cleanliness contract is
+# B17's, deliberately not duplicated here.
+parkMinPeriapsisMeters     = 60000
+parkMaxApoapsisMeters      = 40000000
+parkMaxEccentricity        = 0.9
 parkMaxAngularVelocityRadPerSec = 0.05
 parkSituations             = ["ORBITING"]
 parkDwellSeconds           = 180
