@@ -21,27 +21,51 @@ id = "V4-player-loop-workflow"
 # prediction is REJECTED at BOTH epochs, for a reason recon measured rather than
 # guessed:
 #
-#   *** CORRECTION, 2026-08-08, measured by V7M-minmus-player-loop: THE "300 km
-#   *** ENTRY CUTOFF" BELOW IS WRONG. The conjunction is right and every verdict this
-#   *** lane recorded still stands, but `IsGhostWithinVisualRange` is
-#   *** `state.currentZone != RenderingZone.Beyond` (GhostPlaybackEngine.cs:6325), i.e.
-#   *** the 120,000 m `GhostVisualRangeMeters` render-zone gate; 305,000 m is
-#   *** `WatchModeController.WatchExitCutoffMeters`, the EXIT cutoff and only that. This
-#   *** lane could not have caught it: its 643,913 m parked-tail draw fails BOTH
-#   *** thresholds. V7M's Minmus separations (144,356 m and 191,499 m on its archived
-#   *** V7Mc calibration run; 144,349 m and 191,497 m on run `_1600`'s own archived log)
-#   *** land BETWEEN them and refused, which falsifies the 300 km entry hypothesis by
-#   *** measurement.
-#   *** The corrected condition for this fixture's ~1,038 km-radius park is
-#   *** theta < 2*asin(60/1038.2) = 6.6 deg, not the 16.6 deg below - so the REJECTED
-#   *** prediction is if anything better supported than when written. STATED AS AN
-#   *** ANGLE ONLY: the "% of a uniform draw" both figures used to carry is dropped
-#   *** throughout, because V7M's own measurements killed the draw model - both craft
-#   *** advance at the same rate on the same orbit, so a separation is a fixed
-#   *** per-cycle geometric fact, not something re-rolled per run.
-#   *** Full write-up: docs/dev/todo-and-known-bugs.md ->
-#   *** WATCH-ENTRY-GATE-IS-120KM-NOT-300KM. The paragraph is left as written because
-#   *** the correction is only legible against it.
+#   *** CORRECTION BANNER, TWO PASSES. READ BOTH BEFORE THE PARAGRAPH BELOW, which is
+#   *** left exactly as written because neither correction is legible without it.
+#   ***
+#   *** PASS 1, 2026-08-08 (V7M-minmus-player-loop): the "300 km ENTRY CUTOFF" below
+#   *** is not SUFFICIENT for entry. V7M's Minmus separations (144,356 m and 191,499 m
+#   *** on its archived V7Mc calibration run `_1607`; 144,349 m and 191,497 m on run
+#   *** `_1600`'s own archived log; 198,711 m on `_1601`) all sit INSIDE 300 km and all
+#   *** REFUSED, while its cycle-3 park at 51,503 m ENTERED. So the entry boundary this
+#   *** suite has measured lies in the open interval (51.5 km, 144.3 km), and "inside
+#   *** 300 km therefore watchable" - the reasoning this paragraph rests on - is
+#   *** falsified. Every verdict THIS lane recorded still stands.
+#   ***
+#   *** PASS 2, 2026-08-09: pass 1 then named a MECHANISM for that boundary - the
+#   *** 120,000 m `GhostVisualRangeMeters` render-zone test at
+#   *** GhostPlaybackEngine.cs:6325 - AND THAT MECHANISM IS WRONG. That method has NO
+#   *** production caller (only Parsek.Tests). The production route is
+#   *** ParsekFlight.cs:19580 -> WatchModeController.cs:698, which returns
+#   *** IsWithinWatchEntryRange(lastDistance) = `< WatchEnterCutoffMeters` (300_000f,
+#   *** WatchModeController.cs:71) for a non-watched index and IsWithinWatchExitRange
+#   *** (305_000f) for the watched one. THE PRODUCTION RANGE TERM IS 300 km / 305 km.
+#   *** It therefore cannot be what refused V7M at 144/191/198 km, and WHICH term of
+#   *** the conjunction did refuse is UNESTABLISHED - no log names a term. Leading
+#   *** hypothesis: HasActiveGhost (or the ghost state's absence / staleness) driven by
+#   *** the 120 km RENDER-ZONE hide, which early-returns before the ghost is
+#   *** positioned. Discriminating experiment, cheap and not yet flown: the auto-select
+#   *** already computes all three terms per candidate
+#   *** (ParsekTestCommandAddon.EnterWatchMode.cs:133-141) and logs none of them - emit
+#   *** them on the reject branch and re-fly a V7M park step.
+#   ***
+#   *** THIS LANE COULD NOT HAVE CAUGHT EITHER: its 643,913 m parked-tail draw is
+#   *** outside the 300 km range term AND outside the measured boundary, so its
+#   *** REJECTED is consistent with every hypothesis on offer. What that DOES buy is
+#   *** attribution for this lane specifically - see the parked-tail reading below.
+#   *** The chord condition for this fixture's ~1,038 km-radius park, taken against the
+#   *** MEASURED boundary (~120 km) rather than against any named constant, is
+#   *** theta < 2*asin(60/1038.2) = 6.6 deg, tighter than the 16.6 deg the 300 km range
+#   *** term alone would allow - so the REJECTED prediction is if anything better
+#   *** supported than when written. STATED AS AN ANGLE ONLY: the "% of a uniform draw"
+#   *** both figures used to carry is dropped throughout, because V7M's own
+#   *** measurements killed the draw model - both craft advance at the same rate on the
+#   *** same orbit, so a separation is a fixed per-cycle geometric fact, not something
+#   *** re-rolled per run.
+#   *** SINGLE AUTHORITY, do not restate it here: docs/dev/todo-and-known-bugs.md ->
+#   *** WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE (formerly titled
+#   *** WATCH-ENTRY-GATE-IS-120KM-NOT-300KM, retitled by pass 2).
 #   WATCH MODE IS CAMERA-ONLY AND RANGE-GATED. WatchModeController's auto-select
 #   conjunction (TestCommandEnterWatchMode.ResolveAutoWatchIndex, verbatim from
 #   MissionsWindowUI.ResolveMissionWatchTarget) is
@@ -131,13 +155,15 @@ id = "V4-player-loop-workflow"
 #   emit. So in production renderDistance == lastDistance, which does not weaken
 #   any reading here; it STRENGTHENS the 643.9 km one below, because it means the
 #   auto-select's range term provably saw 643,913 m rather than some other cached
-#   number. (WRITTEN LIVE-VOICE AS "provably compared 643,913 against 300,000"
-#   until 2026-08-08. At HEAD the entry comparison is the 120 km render-zone
-#   classification, not a 300 km compare - see the correction banner at the top of
-#   this file. The identity of the two cached distances is what the sentence is
-#   about, and it survives the correction unchanged; the threshold it named does
-#   not.) FILED, not softened: the surviving clamp candidate is a follow-up, and
-#   nothing in this spec depends on it.
+#   number. (WRITTEN LIVE-VOICE AS "provably compared 643,913 against 300,000".
+#   Pass 1 of the correction banner rewrote that to "the 120 km render-zone
+#   classification, not a 300 km compare"; PASS 2 RESTORED IT - the production
+#   range term IS `lastDistance < WatchEnterCutoffMeters` = 300,000, so the
+#   original live-voice sentence was right both about the cached-distance identity
+#   AND about the number. The pass-1 edit is recorded here rather than erased
+#   because it is the shape of the mistake the banner warns about.) FILED, not
+#   softened: the surviving clamp candidate is a follow-up, and nothing in this
+#   spec depends on it.
 #
 # BACKWARD JUMPS ARE REFUSED, LOUDLY AND NON-GATINGLY (the V3C run-3 trap). The
 # seam answers a non-forward TimeJump `REJECTED reason=backward-jump`; every step
@@ -170,22 +196,31 @@ id = "V4-player-loop-workflow"
 #       director line rather than read off a guard of its own. The engine printed
 #       the range:
 #         GuardSkip rec=4d43a0c9 reason=hidden-by-zone_distance=643913m
-#       643.9 km against the 120 km `GhostVisualRangeMeters` render-zone gate that
-#       actually decides ENTRY (the 305 km `WatchModeController.WatchExitCutoffMeters`
-#       is the EXIT family and gates nothing here; "300 km watch-entry cutoff" was
-#       the wrong name for it - see the correction banner at the top of this file).
+#       643.9 km against the 300,000 m `WatchModeController.WatchEnterCutoffMeters`
+#       the production range term really compares `lastDistance` to
+#       (ParsekFlight.cs:19580 -> WatchModeController.cs:698) - i.e. 2.15x over,
+#       so on THIS lane the range term is genuinely a refusing term, which is the
+#       one thing V4's big separation does buy. It is ALSO 5.4x outside the
+#       (51.5 km, 144.3 km) boundary V7M measured, so this reading cannot tell the
+#       range term apart from whatever refuses V7M far inside 300 km - read the
+#       two-pass correction banner at the top of this file, and treat "which term
+#       refuses inside 300 km" as UNESTABLISHED. (The 305 km
+#       `WatchExitCutoffMeters` is the EXIT half of the same pair and gates
+#       nothing here.)
 #       So watch mode is NOT categorically unreachable from a parked observer at
-#       the arrival tail - it missed by 5.4x against the real gate on THIS phase
+#       the arrival tail - it missed by 2.15x on the range term on THIS phase
 #       draw, on a shared ~1,038 km-radius orbit whose maximum possible separation
 #       is ~2,077 km.
 #       That is the phase arithmetic in the paragraph above coming back with a
 #       specific separation, not a refutation of it - though read the corrected
-#       figure from the banner (6.6 deg), not the 16.6 deg that paragraph derived
-#       from the wrong threshold, and read it as an ANGLE rather than as a
-#       probability. A co-phased observer (or any run whose accumulated on-rails
-#       offset lands inside ~6.6 deg) would get an OK here. DO NOT read this REJECTED as "the player cannot watch a looped
-#       interplanetary arrival"; read it as "this observer was 5.4x too far away,
-#       measured" (2.15x was the same measurement against the wrong gate).
+#       figure from the banner (6.6 deg, derived from V7M's MEASURED boundary),
+#       not the 16.6 deg that paragraph derived from treating the 300 km range
+#       term as sufficient, and read it as an ANGLE rather than as a probability.
+#       A co-phased observer (or any run whose accumulated on-rails offset lands
+#       inside ~6.6 deg) would be expected to get an OK here. DO NOT read this
+#       REJECTED as "the player cannot watch a looped interplanetary arrival";
+#       read it as "this observer was 2.15x outside the production range term and
+#       5.4x outside the measured entry boundary, measured".
 #
 # ARMING LEDGER (2026-08-08, the V2/B17 three-run discipline). Both save-structure
 # blocks below now carry `gating = true`:
@@ -210,7 +245,7 @@ id = "V4-player-loop-workflow"
 #   mistake it for a new invariant.
 # =====================================================================================
 tier = "operator"
-description = "THE PLAYER WORKFLOW, unattended and end to end: load the committed duna-direct save, arm mission loop (MissionConfig), press Warp-to (StartLoopPlayback -> the product's own FastForwardToEventUT jump), press Watch (EnterWatchMode) at the departure epoch, follow the engaged replay forward across the corrected cycle-0 arrival seam, and press Watch again at the ghost's parked Duna tail. Flown + armed 2026-08-08: both Watch verdicts came back REJECTED as predicted from the measured 300 km camera-only cutoff (the parked-tail refusal failed on RANGE alone, by 2.15x), and both save-structure blocks now gate - a durable write out of this pure replay-observation lane is a real red, not a REPORT footnote."
+description = "THE PLAYER WORKFLOW, unattended and end to end: load the committed duna-direct save, arm mission loop (MissionConfig), press Warp-to (StartLoopPlayback -> the product's own FastForwardToEventUT jump), press Watch (EnterWatchMode) at the departure epoch, follow the engaged replay forward across the corrected cycle-0 arrival seam, and press Watch again at the ghost's parked Duna tail. Flown + armed 2026-08-08: both Watch verdicts came back REJECTED as predicted, the parked-tail refusal at 643,913 m being 2.15x outside the production range term (WatchEnterCutoffMeters = 300,000 m, WatchModeController.cs:698) and 5.4x outside the entry boundary V7M later measured - see docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, which owns that finding. Both save-structure blocks now gate - a durable write out of this pure replay-observation lane is a real red, not a REPORT footnote."
 instanceProfile = "stock-minimal"
 tags = ["V4", "flown", "player-loop", "watch-mode", "loop-playback", "reaim", "interplanetary"]
 
@@ -274,14 +309,17 @@ steps = [
   # THE PARKED-TAIL EPOCH: D0 + 4,416,912.223. Here the ghost is flying the
   # recorded Duna park - the ONLY epoch in the whole cycle where the auto-select's
   # body test can pass for a Duna-parked observer, so it is the only place the
-  # 120 km chord question can actually be asked.
+  # watchable-chord question can actually be asked.
   { cmd = "TimeJump", args = { ut = "28812941" }, expect = "OK", budget = 300 },
   # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED on the phase-chord
-  # arithmetic in the header - the corrected condition is a chord < 120 km on this
-  # fixture's ~1,038 km-radius park, i.e. theta < 6.6 deg. The "~10:1" odds this line
-  # used to quote are DROPPED with the rest of the uniform-draw framing (see the
-  # correction banner at the top of the file): the separation is a fixed per-cycle
-  # geometric fact, not a draw, and this one MEASURED 643,913 m. An OK is the finding.
+  # arithmetic in the header - against V7M's MEASURED entry boundary (~120 km, and
+  # bracketed rather than read off a constant) that is a chord < ~120 km on this
+  # fixture's ~1,038 km-radius park, i.e. theta < 6.6 deg; against the production
+  # range term alone (WatchEnterCutoffMeters = 300 km) it would be 16.6 deg, and the
+  # measured 643,913 m is outside both. The "~10:1" odds this line used to quote are
+  # DROPPED with the rest of the uniform-draw framing (see the correction banner at
+  # the top of the file): the separation is a fixed per-cycle geometric fact, not a
+  # draw. An OK is the finding.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]

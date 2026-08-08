@@ -14,26 +14,117 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## WATCH-ENTRY-GATE-IS-120KM-NOT-300KM: every write-up of watch-mode auto-select quotes the wrong threshold [FOUND 2026-08-08 by V7M-minmus-player-loop, measured twice]
+## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, and WHICH conjunction term refuses is UNESTABLISHED [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09]
 
-**The docs were wrong AND the product tells the player the wrong number.** The
-V4-player-loop-workflow spec header (and its `docs/dev/autotest-status.md` row)
-state that watch-mode auto-select has "a 300 km watch ENTRY cutoff (305 km exit)".
-The entry half is wrong. The conjunction
-`HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange` is right, but
+**THIS ENTRY IS THE SINGLE AUTHORITY for the watch-entry finding.** Every other
+site - the V4 / V6M / V7M spec headers, the `docs/dev/autotest-status.md` rows,
+`CHANGELOG.md`, `harness/lib/test_hlib.py`'s review notes - points here instead
+of restating the mechanism.
+
+**FORMERLY TITLED `WATCH-ENTRY-GATE-IS-120KM-NOT-300KM`**, a string that may
+still appear in PR text, older logs and archived write-ups; it is repeated here
+so a grep for it lands. The retitle is not cosmetic. That title asserted a
+MECHANISM - "watch ENTRY is gated by the 120 km `GhostVisualRangeMeters`
+render-zone test" - that no measurement in this lane establishes, and that a
+reading of the production call graph contradicts (see THE MECHANISM CORRECTION).
+The BOUNDARY it was built on is untouched: every reading, every verdict and
+every conclusion drawn from them still stands. Only the attributed mechanism was
+wrong.
+
+**THE MEASURED BOUNDARY - the durable part of this entry.** Watch-mode
+auto-select is the conjunction
+`HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange`
+(`TestCommandEnterWatchMode.ResolveAutoWatchIndex`, verbatim from
+`MissionsWindowUI.ResolveMissionWatchTarget` - the Missions window's Watch
+button). It was exercised at four distinct observer-to-ghost separations on one
+fixture, V7M's shared 98,463.595 m Minmus park, and the verdict flips between
+the smallest reading and the next one up:
+
+| separation | run(s), and where the reading lives | verdict |
+|---|---|---|
+| **51,503 m** (cycle-3 park, `zone=Visual`) | `_1607` calibration, `logs/2026-08-08_1908_V7Mc-watch-calibration` - and un-archived `zone=Visual rdist=51603m` at the same epoch on the committed green run `_1613` | **ENTERED** (`enterwatchmode complete:`) |
+| **144,349 / 144,356 / 144,365 m** (cycle-1 park, `zone=Beyond`) | `_1600` (`logs/2026-08-08_1901_V7M-minmus-player-loop`), `_1607`, `_1608` (`logs/2026-08-08_1909_V7Mc-watch-calibration`) | REFUSED `no-watchable-ghost` |
+| **191,497 / 191,494 / 191,499 / 191,493 m** (`zone=Beyond`) | `_1600`, `_1601`, `_1607`, `_1608` - but only two are cycle-2-PARK samples; see the ATTRIBUTION paragraph | REFUSED `no-watchable-ghost` |
+| **198,711 m** (cycle-1 park, THE OUTLIER) | `_1601`, `logs/2026-08-08_1902_V7M-minmus-player-loop` | REFUSED `no-watchable-ghost` |
+
+The entry boundary this fixture measured therefore lies somewhere in the open
+interval **(51.5 km, 144.3 km)**. `DistanceThresholds.GhostVisualRangeMeters` =
+120,000 m is the only named distance constant inside that interval, which is
+suggestive and is why the first write-up reached for it - but a constant lying
+inside a measured bracket is not a demonstrated gate on the entry path. Read
+"~120 km" throughout the suite as a BRACKETED MEASUREMENT, never as a threshold
+the entry code compares against.
+
+**THE MECHANISM CORRECTION (2026-08-09).** The retired title cited
 
     GhostPlaybackEngine.cs:6325
     IsGhostWithinVisualRange(index) => state.currentZone != RenderingZone.Beyond
 
-and `RenderingZoneManager.ClassifyDistance` puts a ghost in `Beyond` at
-`DistanceThresholds.GhostVisualRangeMeters` = **120,000 m** (Physics < 5 km,
-Visual 5-120 km, Beyond 120 km+). The 305,000 m figure is
-`WatchModeController.WatchExitCutoffMeters` - the EXIT cutoff, and only that.
-Watch ENTRY is gated 2.5x tighter than the docs claim.
+as the entry test. **That method has no production caller** - grep resolves
+every reference outside `Parsek.dll` itself to `Source/Parsek.Tests/`
+(`GhostPlaybackEngineTests.cs`). The production route is a DIFFERENT method with
+the same name:
 
-**THIS IS NOT ONLY A DOC DEFECT - the product says 300 km to the player's face**,
-at two sites, both driven off `WatchModeController.WatchEnterCutoffMeters =
-300_000f` while the measured effective entry boundary is 120 km:
+    ParsekFlight.cs:19580   IsGhostWithinVisualRange(index) => watchMode.IsGhostWithinVisualRange(index)
+    WatchModeController.cs:698  -> IsWithinWatchEntryRange(s.lastDistance)   for a non-watched index
+                                -> IsWithinWatchExitRange(s.lastDistance)    for the currently-watched one
+
+with `WatchModeController.WatchEnterCutoffMeters = 300_000f` and
+`WatchExitCutoffMeters = 305_000f` (`WatchModeController.cs:71-72`, predicates at
+`WatchModeController.Diagnostics.cs:38-47`). Everything that consumes the
+forwarder consumes that predicate: `MissionsWindowUI.cs:2489`
+(`ResolveMissionWatchTarget`), `TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs:140`
+(the auto-select these lanes drive), `RecordingsTableUI.cs:1885` and `:2448`,
+`TimelineWindowUI.cs:1214`, `Patches/GhostVesselLoadPatch.cs:112` / `:273`.
+
+**So the range term cannot be what refused at 144 / 191 / 198 km.** All three
+are comfortably inside 300,000 m, and `lastDistance` is written by
+`CachePlaybackDistances` (`GhostPlaybackEngine.cs:5729`) BEFORE either
+hidden-by-zone early return (`:3236-3245` primary, `:3968-3980` loop), so the
+term provably evaluated a sub-300 km number and returned true.
+
+**WHICH TERM REFUSES IS UNESTABLISHED.** No measurement this lane took
+distinguishes the three terms: `no-watchable-ghost` is emitted for the failure
+of the CONJUNCTION and names no term. What IS measured on every refusing frame
+is the render-zone hide (`zone=Beyond` on the `engine-frame-iter` line, plus the
+`hidden-by-zone` GuardSkip), which early-returns before the ghost is positioned;
+that hide is the plausible shared DRIVER, and these are the terms it could
+starve:
+
+- **Leading hypothesis: `HasActiveGhost`,** i.e. the ghost state is absent or
+  stale at the moment the verb samples it, because the render-zone hide took the
+  early return. Caveat worth carrying, because it is a code reading rather than
+  a measurement and it cuts against the ranking: the production
+  `WatchModeController.HasActiveGhost` (`:669`) only requires a non-null
+  `ghostStates` entry ("hidden-tier ghosts may have unloaded visuals but are
+  still watchable"), and `HandleHiddenGhostVisualState` leaves the entry in
+  place - so a merely-hidden ghost should pass it.
+- **`IsGhostOnSameBody`** (`WatchModeController.cs:721` ->
+  `GhostPlaybackEngine.IsGhostOnBody`), which compares
+  `state.lastInterpolatedBodyName` against the active vessel's body. That field
+  is only written on the positioning path BELOW the hide early return
+  (`GhostPlaybackEngine.cs:4501` / `:4594`), so a ghost hidden every frame can
+  carry an unset or stale body name. The same code reading that weakens the
+  leading hypothesis strengthens this one.
+- The range term is EXCLUDED by the paragraph above, not merely unlikely.
+
+**THE DISCRIMINATING EXPERIMENT, and it is cheap: log the three terms.** The
+auto-select already computes all three per candidate and throws them away -
+`TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs:133-141` builds a
+`WatchCandidate { Index, InScope, HasActiveGhost, OnSameBody, WithinVisualRange }`
+for every committed recording and the rejection path logs only
+`reason=no-watchable-ghost committed=N`. Emit the per-candidate triple on the
+reject branch, re-fly V7M's cycle-1 or cycle-2 park step, and the refusing term
+is read straight off the log with no new instrumentation and no product-behaviour
+change. Until that is flown, do not attribute the refusal to any single term,
+and do not quote `GhostPlaybackEngine.cs:6325` as the production gate.
+
+**THE PLAYER-FACING FOLLOW-UP, reframed by the correction.** The product's
+on-screen strings quote 300 km, and on the range term they are CORRECT - they
+name `WatchEnterCutoffMeters`, which is the constant the production predicate
+actually uses. The defect is not a wrong number in the text; it is that the
+player is refused far INSIDE the range the text quotes, for a reason no message
+names:
 
 - `Source/Parsek/UI/RecordingsTableUI.cs:955` (`GetWatchButtonTooltip`) returns
   *"Ghost is beyond the fixed 300 km watch range"* for the disabled Watch button,
@@ -45,42 +136,32 @@ at two sites, both driven off `WatchModeController.WatchEnterCutoffMeters =
 - `Source/Parsek/WatchModeController.cs:1503` screen-messages
   *"Ghost too far to watch (Xkm, max 300km)"*, formatted from
   `WatchEnterCutoffMeters / 1000f`. That inner guard sits behind the same UI
-  routes, which already pre-filter, so a player who is refused at 144 km is
-  refused before this message can name a number at all - and if they ever do see
-  it, it quotes 300 km.
+  routes, which already pre-filter, so a player refused at 144 km is refused
+  before this message can name a number at all - and if they ever do see it, it
+  quotes the range term's real constant.
 
-So a player sitting 144 km from their own ghost is told the limit is 300 km and
-refused anyway. **Follow-up (NOT taken in this PR, which is documentation-only):**
-correct both player-facing strings to the effective entry boundary, and decide
-whether the fix is to re-word them or to make `WatchEnterCutoffMeters` and the
-render-zone gate agree. Owner: whoever owns `WatchModeController` /
-`RecordingsTableUI`.
+So a player sitting 144 km from their own ghost is told the limit is 300 km,
+which is a true statement about the range term, and is refused anyway by
+something else the UI never names. **Follow-up (NOT taken in this PR, which is
+documentation-only):** run the discriminating experiment above, then either make
+the refusing term's condition visible to the player (a distinct tooltip /
+message for "ghost not currently rendered / not resolvable on this body")
+or reconcile the offending condition with the quoted range. Do NOT "fix" this by
+editing 300 km down to 120 km in the strings: the strings match the constant the
+range predicate uses, and re-pointing them at a bracket nobody has attributed to
+a gate would replace a true statement with a guess. Owner: whoever owns
+`WatchModeController` / `RecordingsTableUI`.
 
-**ONE OPEN SUB-QUESTION, recorded because it was found while writing the follow-up
-above and is NOT resolved here.** The mechanism sentence quoted at the top of this
-entry cites `GhostPlaybackEngine.cs:6325`, but that method has **no production
-caller** - grep shows only `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`.
-Every production route (`ParsekFlight.cs:19580` ->
-`WatchModeController.cs:698`) resolves the same NAME to a different predicate:
-`lastDistance < WatchEnterCutoffMeters` (300 km), or `< WatchExitCutoffMeters`
-(305 km) for the already-watched index. There are two `IsGhostWithinVisualRange`
-methods and the auto-select calls the 300 km one. The 120 km BOUNDARY is not in
-doubt - it is measured (refused at 144 km and 191 km, entered at 51.5 km, and
-120 km is the only constant between 51.5 and 144) - but WHICH term of the
-conjunction actually refuses at 144 km is not established by this entry. The
-likeliest candidate, not verified: at `zone=Beyond` the ghost is not positioned,
-so `state.lastInterpolatedBodyName` goes stale and `IsGhostOnSameBody` fails.
-Fold this into the follow-up above; do not quote `GhostPlaybackEngine.cs:6325` as
-the production gate until it is settled.
-
-**Why it survived until now, and what falsified it.** V4's parked-tail draw read
-`hidden-by-zone_distance=643913m`, which fails BOTH candidate thresholds, so its
-REJECTED was consistent with either and the wrong one got written down. V7M is
-the first lane whose separations land BETWEEN them: on the shared 98,463.595 m
-Minmus park the engine's own per-member frame line read `zone=Beyond
-rdist=144356m` (cycle 1) and `rdist=191499m` (cycle 2). A 300 km entry cutoff
-predicts OK at both; the 120 km zone gate predicts REJECTED at both. Measured:
-REJECTED at both, on every flight of the shape.
+**Why the wrong mechanism survived, and what the four flights DO prove.** V4's
+parked-tail draw read `hidden-by-zone_distance=643913m`, outside both candidate
+thresholds, so its REJECTED was consistent with either and the wrong one got
+written down. V7M is the first lane whose separations land BETWEEN them: on the
+shared 98,463.595 m Minmus park the engine's own per-member frame line read
+`zone=Beyond rdist=144356m` (cycle 1) and `rdist=191499m` (cycle 2). What that
+falsifies is a SUFFICIENCY claim - "inside 300 km, therefore watchable" - which
+the whole V4/V6M/V7M family had been reasoning from. It does not identify the
+term that refused, and the production range term is still the 300 km / 305 km
+pair.
 
 RE-DERIVED FROM THE FLIGHTS WHOSE LOGS SURVIVE (a PASS run collects no logs, so
 the committed green run's own digits are un-archived - quoted from its live output
@@ -115,9 +196,12 @@ instead of the craft would produce exactly this shape. That is a HYPOTHESIS. It
 has not been confirmed by instrumenting the frame.
 
 WHAT THE OUTLIER DOES AND DOES NOT TOUCH. It does not touch the conclusion: all
-four readings are between 120 km and 300 km, and all four were REFUSED, so the
-120 km entry gate is what every flight measured and the 300 km hypothesis is
-falsified four times over. What it DOES soften is the determinism claim. These
+four readings are between the measured boundary bracket and 300 km, and all four
+were REFUSED, so "inside 300 km implies watchable" is falsified four times over.
+It equally does not identify the refusing term - see THE MECHANISM CORRECTION;
+four refusals at four distances are four data points about the BOUNDARY, and
+none of them about which conjunct produced it. What the outlier DOES soften is
+the determinism claim. These
 separations are still not a per-run *phase* draw - both craft advance at the same
 rate on the same orbit, so the geometric separation is constant within a cycle and
 moves only when the phase anchor does - but the REPORTED number is evidently not
@@ -165,11 +249,16 @@ the index of the largest scheduled launch <= now - so the third launch prints
 `cycle=2`. Everywhere in the V6/V7 write-ups "cycle N" is 1-based prose.
 
 **Corrected arithmetic** for "can a co-orbiting observer watch its own replay",
-chord < 120 km on a shared circle of radius a, `theta < 2*asin(60/a)`:
-Minmus 75.1 deg, Mun 20.3 deg, V4's Duna park 6.6 deg. (The "% of a uniform draw"
-the first write-up attached to each is dropped: the separation is constant within
-a cycle, so it is a per-cycle geometric fact, not a draw.) V7M's cycle-3 park is
-the one inside the gate - 51,503 m on the archived calibration above, un-archived
+stated against the MEASURED boundary rather than against any named constant:
+entry succeeded at a chord of 51.5 km and failed at 144.3 km, so taking ~120 km
+as the working figure for the bracket, `chord < 120 km` on a shared circle of
+radius a is `theta < 2*asin(60/a)`: Minmus 75.1 deg, Mun 20.3 deg, V4's Duna
+park 6.6 deg. These angles are a PREDICTION FROM A BRACKETED MEASUREMENT, not a
+threshold read out of code; anything that moves the bracket moves them. (The "%
+of a uniform draw" the first write-up attached to each is dropped: the
+separation is constant within a cycle, so it is a per-cycle geometric fact, not
+a draw.) V7M's cycle-3 park is the one inside the bracket - 51,503 m on the
+archived calibration above, un-archived
 `zone=Visual rdist=51603m` on the committed green run - and the verb answered
 `enterwatchmode complete: index=1 recId=...`, the FIRST watch-mode entry in the
 suite. Two reading notes: the recId differs per run (`775188af...` calibration,
@@ -178,10 +267,19 @@ split time; and do NOT read the calibration's later `zone=Physics rdist=7m` as a
 cycle-3 separation - that is the CYCLE-5 park, sampled while already watching,
 where `rdist` is the RENDER distance and the camera is anchored on the ghost.
 
-Fix: the V4 spec header and status row carry a correction banner pointing here;
-V6M's section 4 is marked superseded in place (the section is kept because the
-falsification is only legible against it). No product change - the product does
-what its code says, the docs did not.
+Fix: the V4 / V6M / V7M spec headers, the `docs/dev/autotest-status.md` rows,
+`CHANGELOG.md` and `harness/lib/test_hlib.py`'s review notes all carry correction
+banners pointing HERE rather than restating a mechanism; every superseded
+paragraph is marked in place and kept, because the corrections are only legible
+against what they replace. No product change - the product does what its code
+says. Two documentation passes were needed to get there: 2026-08-08 corrected
+the THRESHOLD the lanes were reasoning from, and 2026-08-09 corrected the
+MECHANISM that first pass invented to explain it.
+
+Open work, in order: (1) the discriminating experiment (log the three
+conjunction terms on the reject branch, re-fly a V7M park step); (2) the
+player-facing follow-up, which cannot be specified before (1) answers what to
+tell the player.
 
 ---
 

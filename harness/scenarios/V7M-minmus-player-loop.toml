@@ -1,14 +1,16 @@
 schema = 1
 id = "V7M-minmus-player-loop"
 # =====================================================================================
-# V7M: THE MINMUS HALF OF THE MOON PLAYER-LOOP PAIR - the lane that CORRECTED the
-# watch-entry threshold and then became THE FIRST WATCH-MODE ENTRY IN THE SUITE.
+# V7M: THE MINMUS HALF OF THE MOON PLAYER-LOOP PAIR - the lane that BRACKETED the
+# watch-entry boundary and then became THE FIRST WATCH-MODE ENTRY IN THE SUITE.
 #
 # It did not get there the way this file was first written. The spec was authored
 # predicting an OK from a 300 km cutoff, measured REJECTED twice, and the refusal
-# turned out to falsify the threshold rather than the geometry - section 2 keeps both
-# the prediction and the correction, because the correction is only legible against
-# what it replaced.
+# turned out to falsify the threshold's SUFFICIENCY rather than the geometry - section
+# 2 keeps the prediction, the 2026-08-08 correction and the 2026-08-09 correction OF
+# that correction, because each is only legible against what it replaced. Standing
+# caution before reading any of it: this lane measured a BOUNDARY, never a mechanism.
+# Which term of the auto-select conjunction refuses inside 300 km is UNESTABLISHED.
 #
 # Structurally this is V6M with the target body swapped. Everything in V6M's header
 # about the routing (a Kerbin->Minmus mission is same-parent, therefore ALWAYS
@@ -74,19 +76,75 @@ id = "V7M-minmus-player-loop"
 # apart, comfortably inside 300 km. Hence: OK, guaranteed by geometry, no phase draw
 # to lose.
 #
-# RUN 1 (2026-08-08_1600) MEASURED **REJECTED, TWICE**, AND THE REASON IS THAT THE
-# 300 KM NUMBER IS NOT THE ENTRY GATE. `IsGhostWithinVisualRange` does not compare a
-# distance to 300 km at all - it is
+# RUN 1 (2026-08-08_1600) MEASURED **REJECTED, TWICE**, AND THE 300 KM NUMBER IS
+# THEREFORE NOT SUFFICIENT FOR ENTRY. That is what this lane proved, and it is all it
+# proved; the boundary it brackets is in section 2's table below.
+#
+# *** MECHANISM CORRECTION, 2026-08-09. THE PARAGRAPH THIS REPLACES IS PRESERVED
+# *** IMMEDIATELY BELOW, because the correction is only legible against it. What it
+# *** got wrong: it named `GhostPlaybackEngine.cs:6325`
+# *** (`state.currentZone != RenderingZone.Beyond`, i.e. the 120,000 m
+# *** `GhostVisualRangeMeters` render zone) as the entry test. THAT METHOD HAS NO
+# *** PRODUCTION CALLER - grep resolves every non-test reference to
+# *** `Source/Parsek.Tests/GhostPlaybackEngineTests.cs`. Production resolves the same
+# *** NAME through `ParsekFlight.cs:19580` -> `WatchModeController.cs:698` to
+# *** `IsWithinWatchEntryRange(state.lastDistance)`, i.e.
+# *** `< WatchEnterCutoffMeters` = 300,000 m (`WatchModeController.cs:71`), with
+# *** `< WatchExitCutoffMeters` = 305,000 m for the already-watched index. So THE
+# *** PRODUCTION RANGE TERM IS 300 km / 305 km, and it cannot be what refused this
+# *** lane at 144 / 191 / 198 km - `lastDistance` is written by
+# *** `CachePlaybackDistances` BEFORE either hidden-by-zone early return
+# *** (`GhostPlaybackEngine.cs:3236-3245`, `:3968-3980`), so the term provably saw a
+# *** sub-300 km number and returned true. WHICH term of the conjunction refuses is
+# *** UNESTABLISHED: `no-watchable-ghost` is the CONJUNCTION's failure and names no
+# *** term. Leading hypothesis: `HasActiveGhost` (or the ghost state's absence /
+# *** staleness), driven by the 120 km RENDER-ZONE hide that early-returns before the
+# *** ghost is positioned - carried with the caveat that
+# *** `WatchModeController.HasActiveGhost` (`:669`) only needs a non-null `ghostStates`
+# *** entry, which a merely-hidden ghost keeps, while `IsGhostOnSameBody` reads
+# *** `lastInterpolatedBodyName`, written only BELOW that early return. DISCRIMINATING
+# *** EXPERIMENT, cheap and not yet flown: the auto-select already computes all three
+# *** terms per candidate at `ParsekTestCommandAddon.EnterWatchMode.cs:133-141` and
+# *** logs none of them - emit the triple on the reject branch and re-fly this lane's
+# *** cycle-1 or cycle-2 watch step. SINGLE AUTHORITY:
+# *** docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE.
+#
+# SUPERSEDED, KEPT VERBATIM (the 2026-08-08 mechanism claim): "`IsGhostWithinVisualRange`
+# does not compare a distance to 300 km at all - it is
 #     GhostPlaybackEngine.cs:6325  ->  state.currentZone != RenderingZone.Beyond
 # and `RenderingZoneManager.ClassifyDistance` puts a ghost in `Beyond` at
 # `DistanceThresholds.GhostVisualRangeMeters` = **120,000 m** (Physics < 5 km, Visual
 # 5-120 km, Beyond 120 km+). The 305,000 m constant is
 # `WatchModeController.WatchExitCutoffMeters` - the EXIT cutoff, and only that. So the
 # effective watch-ENTRY range is the 120 km render-zone gate, 2.5x tighter than the
-# number the V4 header quotes.
+# number the V4 header quotes."
 #
-# MINMUS IS THE CASE THAT COULD TELL THEM APART, which is exactly why this lane was
-# worth flying rather than inferring. The engine's own per-member frame line printed
+# MINMUS IS THE CASE THAT COULD BRACKET THE BOUNDARY, which is exactly why this lane
+# was worth flying rather than inferring. THE FOUR READINGS, and which run each came
+# from - this table is the lane's actual product, and it survives both corrections:
+#
+#   51,503 m   cycle-3 park, `zone=Visual`   `_1607` calibration
+#              (logs/2026-08-08_1908_V7Mc-watch-calibration; un-archived
+#              `zone=Visual rdist=51603m` at the same epoch on green run `_1613`)
+#                                            -> **ENTERED** (`enterwatchmode complete:`)
+#   144,349 / 144,356 / 144,365 m  cycle-1 park, `zone=Beyond`
+#              `_1600` (logs/2026-08-08_1901_V7M-minmus-player-loop), `_1607`,
+#              `_1608` (logs/2026-08-08_1909_V7Mc-watch-calibration)
+#                                            -> REFUSED `no-watchable-ghost`
+#   191,497 / 191,494 / 191,499 / 191,493 m  `zone=Beyond`, `_1600`/`_1601`/`_1607`/
+#              `_1608` - only the first two are cycle-2-PARK samples, see ATTRIBUTION
+#                                            -> REFUSED `no-watchable-ghost`
+#   198,711 m  cycle-1 park, THE OUTLIER, `_1601`
+#              (logs/2026-08-08_1902_V7M-minmus-player-loop)
+#                                            -> REFUSED `no-watchable-ghost`
+#
+# So the entry boundary is bracketed in the open interval (51.5 km, 144.3 km). The
+# 120,000 m `GhostVisualRangeMeters` is the only named distance constant inside that
+# bracket, which is why the first write-up reached for it - but a constant lying inside
+# a measured interval is not a demonstrated gate, and the mechanism banner above says
+# why it is not this one. Read "~120 km" as the bracket's working figure.
+#
+# The engine's own per-member frame line printed
 # the separations. ATTRIBUTION MATTERS HERE and an earlier draft got it wrong: the
 # 144,356 / 191,499 pair quoted below and elsewhere in this file is the V7Mc
 # CALIBRATION run `_1607` (archived: `logs/2026-08-08_1908_V7Mc-watch-calibration`,
@@ -99,14 +157,19 @@ id = "V7M-minmus-player-loop"
 #     cycle 2 park:  `i=1 ... zone=Beyond rdist=191497m`  (_1600), and see the
 #                    ATTRIBUTION note in the reading ledger: `_1607`'s `191499m` was
 #                    NOT sampled at the cycle-2 park.
-# Both sit BETWEEN 120 km and 300 km. A 300 km entry cutoff predicts OK at both; a
-# 120 km zone gate predicts REJECTED at both. Measured: REJECTED at both. The 300 km
-# entry hypothesis is falsified by measurement, not merely by code reading. (V4 could
-# not have caught this: its parked-tail draw read 643,913 m, which fails BOTH
-# thresholds, so its REJECTED was consistent with either.)
-# The corrected entry CONDITION is a chord < 120 km on a shared circle of radius a,
+# Both sit INSIDE the 300 km production range term and OUTSIDE the measured entry
+# boundary. "Inside 300 km therefore watchable" predicts OK at both; the bracketed
+# boundary predicts REFUSED at both. Measured: REFUSED at both. The sufficiency of the
+# 300 km figure is falsified by measurement, not merely by code reading - but note what
+# is NOT thereby measured: the term that refuses (see the mechanism banner). (V4 could
+# not have caught even the sufficiency point: its parked-tail draw read 643,913 m,
+# outside the 300 km range term AND outside the boundary, so its REJECTED was
+# consistent with everything.)
+# The working entry CONDITION, stated against the MEASURED boundary (~120 km) and not
+# against any named constant, is a chord < ~120 km on a shared circle of radius a,
 # i.e. `theta < 2*asin(60/a)`:  Minmus 75.1 deg, Mun 20.3 deg, V4's Duna park
-# 6.6 deg. Those are geometric ANGLES, and this file no longer converts them into
+# 6.6 deg. Those are geometric ANGLES derived from a bracket - anything that moves the
+# bracket moves them - and this file no longer converts them into
 # "~42% / ~11% / ~3.7% of a draw": these separations are not drawn per run at all -
 # both craft advance at the same rate on the same orbit, so the separation is a fixed
 # per-cycle geometric fact and changes only when the phase anchor moves. (What IS
@@ -114,8 +177,9 @@ id = "V7M-minmus-player-loop"
 # fact; see the `_1601` outlier in the reading ledger.)
 #
 # WHICH IS WHY THIS LANE STILL ENTERS WATCH MODE - AT CYCLE 3, MEASURED. A calibration
-# run (2026-08-08_1607) walked cycles 3, 4 and 5 and found the cycle-3 park INSIDE the
-# 120 km gate. Its own log carries no `engine-frame-iter` sample inside the cycle-3
+# run (2026-08-08_1607) walked cycles 3, 4 and 5 and found the cycle-3 park at 51.5 km,
+# which is what put the LOWER end on the boundary bracket: entry SUCCEEDED there. Its
+# own log carries no `engine-frame-iter` sample inside the cycle-3
 # park window (that line is rate-limited to ~1/s and the window is ~0.4 s wide); the
 # separation there is read off the Zone subsystem's line at the same instant,
 #     `FX suppressed: ghost #1 "Kerbal X" cycle=2 anchorDist=51503m renderDist=51503m`
@@ -278,9 +342,12 @@ id = "V7M-minmus-player-loop"
 #   frame reading the camera would produce exactly this. THAT IS A HYPOTHESIS; it has
 #   not been confirmed by instrumenting the frame.
 #   WHAT IT DOES AND DOES NOT TOUCH. The conclusion is UNTOUCHED: all four readings
-#   are between 120 km and 300 km and all four were REFUSED, so the 120 km entry gate
-#   is what every flight measured and the 300 km hypothesis is falsified four times
-#   over. What it DOES soften is section 2's determinism sentence - the geometric
+#   are above the boundary bracket's upper end and below 300 km, and all four were
+#   REFUSED, so the sufficiency of the 300 km figure is falsified four times over. It
+#   equally does not identify the refusing term - four refusals at four distances are
+#   four data points about the BOUNDARY and none about which conjunct produced it (see
+#   the mechanism banner in section 2).
+#   What it DOES soften is section 2's determinism sentence - the geometric
 #   separation is still constant within a cycle and moves only with the phase anchor,
 #   but the REPORTED number is evidently not reproducible run to run to the metre,
 #   because one archived flight of the identical shape reported a number the geometry
@@ -350,7 +417,7 @@ id = "V7M-minmus-player-loop"
 #   observation would have been wrong in one direction or the other.
 # =====================================================================================
 tier = "operator"
-description = "THE MINMUS PLAYER-LOOP LANE, and the spec that CORRECTED the watch-entry threshold and then became the suite's FIRST watch-mode entry. Observer and ghost share a 98,463.595 m Minmus park, so their separation is constant within a cycle and moves only when the phase anchor does; cycles 1 and 2 measured 144,356 m and 191,499 m on the archived V7Mc calibration run `_1607` (144,349 m / 191,497 m on run `_1600`'s own archived log) - both INSIDE the 300 km number V4's header calls the watch entry cutoff, both REFUSED, because `IsGhostWithinVisualRange` is really `currentZone != Beyond`, i.e. the 120 km render-zone gate (305 km is the EXIT cutoff and only that). Minmus is the one park whose separations land between the two thresholds, so it could falsify the wrong one by measurement. Cycle 3 then parks INSIDE the gate - 51,503 m on the archived calibration, `zone=Visual rdist=51603m` on the committed green run - and watch mode ENTERS, gated by the product's own `enterwatchmode complete:` line. Same-parent routing pinned positively (no re-aim, phase-lock + zero-drift, factory chain reaimed=False); three cycles feed the arrival-desync hunt."
+description = "THE MINMUS PLAYER-LOOP LANE, the spec that BRACKETED the watch-entry boundary and then became the suite's FIRST watch-mode entry. Observer and ghost share a 98,463.595 m Minmus park, so their separation is constant within a cycle and moves only when the phase anchor does; cycles 1 and 2 measured 144,356 m and 191,499 m on the archived V7Mc calibration run `_1607` (144,349 m / 191,497 m on run `_1600`'s own archived log, 198,711 m on `_1601`) - all INSIDE the 300 km cutoff the production range term really uses (`WatchEnterCutoffMeters`, ParsekFlight.cs:19580 -> WatchModeController.cs:698), all REFUSED - while cycle 3 at 51,503 m ENTERED, so the entry boundary is bracketed in (51.5 km, 144.3 km) and the range term is NOT what refuses. WHICH conjunction term refuses is UNESTABLISHED; see docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the single authority, for the leading hypothesis and the discriminating experiment. Minmus is the one park whose separations land inside the quoted range and outside the boundary, which is what makes the measurement possible at all. Cycle 3's entry is gated by the product's own `enterwatchmode complete:` line (`zone=Visual rdist=51603m` on the committed green run). Same-parent routing pinned positively (no re-aim, phase-lock + zero-drift, factory chain reaimed=False); three cycles feed the arrival-desync hunt."
 instanceProfile = "stock-minimal"
 tags = ["V7", "player-loop", "watch-mode", "loop-playback", "phase-lock", "zero-drift", "minmus", "moon", "flown"]
 
@@ -396,11 +463,12 @@ steps = [
   # CYCLE-1 PARK EPOCH: phaseAnchor + 276,900, deep inside the recorded Minmus park.
   { cmd = "TimeJump", args = { ut = "1354406" }, expect = "OK", budget = 300 },
   # "Watch". MEASURED REJECTED: the separation here is ~144.35 km - inside the 300 km
-  # number V4's header calls the entry cutoff, but OUTSIDE the 120 km render-zone gate
-  # that `IsGhostWithinVisualRange` actually tests. Archived readings, per flight:
-  # `rdist=144349m` (run `_1600`), `144356m` / `144365m` (the two V7Mc attempts). This
-  # step and its cycle-2 twin ARE the measurement that discriminates the two
-  # thresholds; see the header.
+  # cutoff the production range term compares `lastDistance` against
+  # (WatchModeController.cs:698), and above the upper end of the measured entry
+  # boundary. Archived readings, per flight: `rdist=144349m` (run `_1600`), `144356m` /
+  # `144365m` (the two V7Mc attempts), `198711m` (`_1601`, the outlier). This step and
+  # its cycle-2 twin are what put the UPPER end on the boundary bracket; they do NOT
+  # identify the refusing conjunction term. See the header's mechanism banner.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # "Warp to..." AGAIN -> CYCLE 2 (predicted k=100, 2,154,976.940). The desync hunt's
   # second half.
@@ -413,13 +481,16 @@ steps = [
   { cmd = "TimeJump", args = { ut = "2431877" }, expect = "OK", budget = 300 },
   # "Watch" again, an INDEPENDENT separation (the anchor moved, so the constant-within-
   # a-cycle phase difference changes). MEASURED REJECTED at ~191.5 km (`rdist=191497m`
-  # on run `_1600`, `191499m` / `191493m` on the two V7Mc attempts) - the second half of
-  # the threshold discrimination: also inside 300 km, also outside 120 km, also refused.
+  # on run `_1600`, `191499m` / `191493m` on the two V7Mc attempts - but see the reading
+  # ledger's ATTRIBUTION note: only `_1600`/`_1601` sampled at the cycle-2 park) - the
+  # second half of the boundary bracketing: also inside the 300 km range term, also
+  # above the boundary, also refused.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # CYCLE 3 - THE ONE THAT ENTERS WATCH MODE, and the reason this lane keeps a third
   # cycle. The calibration run 2026-08-08_1607 walked cycles 3/4/5 and measured the
-  # cycle-3 park at 51,503 m (`FX suppressed: ... anchorDist=51503m`) - Visual, i.e.
-  # inside the 120 km gate, which is all the auto-select needs. Predicted relaunch:
+  # cycle-3 park at 51,503 m (`FX suppressed: ... anchorDist=51503m`) - `zone=Visual`,
+  # and the one measured separation at which the auto-select ENTERED, which is what
+  # puts the LOWER end on the boundary bracket. Predicted relaunch:
   # k=150, 3,232,448.190 (= 34.44 + 150*21,549.425; the MEASURED value is
   # 3,232,448.2174634738, and an earlier draft quoted that truncated as the
   # prediction). The bracket and park UTs below are built on the .190 prediction.

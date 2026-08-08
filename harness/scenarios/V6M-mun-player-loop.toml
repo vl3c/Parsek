@@ -109,8 +109,18 @@ id = "V6M-mun-player-loop"
 # ---------------------------------------------------------------------------------
 # *** THE ARITHMETIC IN THIS SECTION IS SUPERSEDED - read the ledger's WATCH VERDICTS
 # *** paragraph first. The conjunction and the conclusion (REJECTED) both survive; TWO
-# *** things below do not. (1) THE THRESHOLD: entry is gated at 120 km (the render
-# *** zone), not 300 km, so the real chord condition is theta < 20.3 deg, not 52.44 deg.
+# *** things below do not. (1) THE THRESHOLD IS NOT SUFFICIENT: V7M measured entry
+# *** REFUSED at separations well inside 300 km and SUCCEEDING at 51.5 km, bracketing
+# *** the real entry boundary in (51.5 km, 144.3 km), so the working chord condition is
+# *** theta < 20.3 deg, not the 52.44 deg the 300 km figure alone allows. That ~120 km
+# *** working figure is a BRACKETED MEASUREMENT, not a constant any entry code compares
+# *** against: an earlier version of this banner said "entry is gated at 120 km (the
+# *** render zone)", and THAT MECHANISM CLAIM WAS WRONG - the production range term is
+# *** `lastDistance < WatchEnterCutoffMeters` = 300,000 m
+# *** (ParsekFlight.cs:19580 -> WatchModeController.cs:698), and WHICH conjunction term
+# *** actually refuses inside 300 km is UNESTABLISHED. Single authority, corrected
+# *** 2026-08-09: docs/dev/todo-and-known-bugs.md ->
+# *** WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE.
 # *** (2) THE UNIFORM-DRAW FRAMING, and this one the ledger below kills with its own
 # *** observation: the separation is NOT a per-run draw at all. Both craft advance at
 # *** the same rate on the same orbit, so it is CONSTANT within a cycle and moves only
@@ -236,20 +246,30 @@ id = "V6M-mun-player-loop"
 #
 #   THE WATCH VERDICTS: both `REJECTED reason=no-watchable-ghost committed=9
 #   tree=(any)`, matching the pin. The prediction was right but its ARITHMETIC WAS NOT,
-#   and the sibling lane V7M is what caught it: the auto-select's
-#   `IsGhostWithinVisualRange` is `state.currentZone != RenderingZone.Beyond`, i.e. the
-#   **120 km** `GhostVisualRangeMeters` render-zone gate, NOT the 300 km figure this
-#   header's section 4 quotes from V4 (305 km is `WatchExitCutoffMeters`, the EXIT
-#   cutoff, and only that). Section 4's theta < 52.44 deg is therefore WRONG for entry;
-#   the correct condition is chord < 120 km, `theta < 2*asin(60/339.569)` = 20.3 deg -
-#   AN ANGLE, deliberately NOT converted into "~11% of a uniform draw", because the
-#   banner at the top of section 4 kills exactly that framing: both craft advance at
-#   the same rate on the same orbit, so the separation is a fixed per-cycle geometric
-#   fact and moves only when the phase anchor does. Both measured separations
-#   (560.4 km, 561.2 km) fail BOTH thresholds, so this lane could not have
-#   discriminated them - Minmus could, and did (V7M's header carries the
-#   falsification). The pinned REJECTED stands on the corrected arithmetic with more
-#   margin than it had on the old one.
+#   and the sibling lane V7M is what caught it: entry is REFUSED at separations well
+#   inside the 300 km figure this header's section 4 quotes from V4 (144-199 km, four
+#   archived flights) and SUCCEEDS at 51.5 km, so the entry boundary is bracketed in
+#   (51.5 km, 144.3 km) and "inside 300 km therefore watchable" is falsified. Section
+#   4's theta < 52.44 deg is therefore not a sufficient condition; the working
+#   condition, taken against that MEASURED boundary (~120 km) rather than against any
+#   named constant, is `theta < 2*asin(60/339.569)` = 20.3 deg - AN ANGLE, deliberately
+#   NOT converted into "~11% of a uniform draw", because the banner at the top of
+#   section 4 kills exactly that framing: both craft advance at the same rate on the
+#   same orbit, so the separation is a fixed per-cycle geometric fact and moves only
+#   when the phase anchor does.
+#   WHAT THIS DOES *NOT* SAY, corrected 2026-08-09: it does not say the 120,000 m
+#   `GhostVisualRangeMeters` render zone is the entry gate. That method
+#   (`GhostPlaybackEngine.cs:6325`) has NO production caller; production resolves the
+#   same name through `ParsekFlight.cs:19580` -> `WatchModeController.cs:698` to
+#   `lastDistance < WatchEnterCutoffMeters` (300,000 m; 305,000 m exit), so the range
+#   term cannot be what refuses inside 300 km and WHICH term does is UNESTABLISHED.
+#   Leading hypothesis and the cheap discriminating experiment live in the single
+#   authority: docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE.
+#   Both measured separations here (560.4 km, 561.2 km) are outside the 300 km range
+#   term AND outside the measured boundary, so this lane could not have discriminated
+#   anything - Minmus could, and did (V7M's header carries the falsification). The
+#   pinned REJECTED stands on the corrected arithmetic with more margin than it had on
+#   the old one.
 #
 #   ONE STRUCTURAL SURPRISE, folded into the recordings window below rather than left
 #   as a footnote: the fixture loads as NINE recordings, not eight, because
@@ -315,11 +335,12 @@ steps = [
   { cmd = "TimeJump", args = { ut = "296690" }, expect = "OK", budget = 300 },
   # CYCLE-1 PARK EPOCH: phaseAnchor + 20,800, deep inside the recorded Mun park - the
   # only epoch where the auto-select's body test can pass for a Mun-parked observer,
-  # so the only place the 120 km chord question can be asked at all.
+  # so the only place the watchable-chord question can be asked at all.
   { cmd = "TimeJump", args = { ut = "300977" }, expect = "OK", budget = 300 },
   # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED (the
   # header's "71:29" odds framing is superseded - the separation is a fixed per-cycle
-  # geometric fact, not a draw; MEASURED 560,404 m against a 120 km gate); an OK is the
+  # geometric fact, not a draw; MEASURED 560,404 m, outside both the 300 km production
+  # range term and V7M's measured (51.5 km, 144.3 km) entry boundary); an OK is the
   # finding.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # STEP 4: "Warp to..." AGAIN. This is the desync hunt's second half: the verb
