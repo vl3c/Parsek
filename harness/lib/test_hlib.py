@@ -4642,6 +4642,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # difference measured against an unflown baseline is not a difference.
         "GS-2-orbital-probe-deploy.toml":   "FLOWN GREEN 2026-08-05 (0853 reading, 0856 armed); operator tier is now an open PROMOTION call, not debt",
         "GS-3-switch-nudge-deployed.toml":  "FLOWN 3x 2026-08-05 (0903 measured the bug, 1132 measured the fix) and ARMED; operator tier is now an open PROMOTION call, not debt",
+        # The V4/V5 player-workflow pair, operator by the SAME calibration
+        # discipline as V1/V2/V3: the first flight was a deliberately under-gated
+        # READING run whose red, if any, would have been evidence. Both READ
+        # GREEN on 2026-08-08 and both were then ARMED on the V2/B17 three-run
+        # discipline, so the post-reading arming call these entries pointed at
+        # has been TAKEN. What remains for each is the ordinary operator ->
+        # nightly PROMOTION call, which is a cadence decision for a human and not
+        # a review debt.
+        "V4-player-loop-workflow.toml":     "FLOWN GREEN 2026-08-08 (1135 reading, 1154 armed, 1156 min=1 negative control PARSEK-FAIL(save-structure)) and ARMED on both save-structure blocks; both EnterWatchMode verdicts came back REJECTED as predicted from the 300 km camera-only cutoff. Operator tier is now an open PROMOTION call, not debt",
+        "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
     }
 
     def _specs(self):
@@ -4914,7 +4924,27 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading runs =
                        # V2 flights 4-6 (all reads 0 / committedTrees 1), armed
                        # + negative-control runs cited in the status doc row.
-                       "V2-loop-arrival-dwell.toml"}
+                       "V2-loop-arrival-dwell.toml",
+                       # V4: rewind (all max 0 - the player workflow arms, warps,
+                       # watches and jumps but authors nothing durable) +
+                       # structure (exactly one committed tree; the scene-entry
+                       # promotion stub never commits) armed 2026-08-08 on the
+                       # V2/B17 discipline; reading run 2026-08-08_1135 (PASS
+                       # attempt 1, every declared window already met - rewind
+                       # facets all 0, committedTrees 1, trees 1), armed +
+                       # negative-control runs cited in the status doc row.
+                       "V4-player-loop-workflow.toml",
+                       # V5: the same two blocks, armed 2026-08-08 on the same
+                       # discipline; reading run 2026-08-08_1144 (PASS attempt 1,
+                       # rewind facets all 0, committedTrees 1, trees 1). The
+                       # arming is worth more here than on a single-scene dwell:
+                       # V5 is the one committed spec that writes a save mid-run
+                       # and reads it back through a SECOND scene load, so a
+                       # stray durable write is easiest to miss in this shape.
+                       # Armed run cited in the status doc row; the min=1
+                       # negative control was flown once, on V4, since both specs
+                       # gate through the one shared saveParse path.
+                       "V5-ts-loop-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
