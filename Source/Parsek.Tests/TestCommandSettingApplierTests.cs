@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// P5.1 route-dispatch coverage for <see cref="TestCommandSettingApplier.ApplySetting"/>.
     /// The security-critical property the SetSetting design column adds is that the 8
     /// sidecar-authoritative settings ALSO route through the matching
-    /// <c>ParsekSettingsPersistence.Record*</c> member, while the 8 GameParameters-only
+    /// <c>ParsekSettingsPersistence.Record*</c> member, while the 9 GameParameters-only
     /// settings do NOT. A tracked setting written only to the live field would be
     /// silently reverted by <c>ParsekScenario.OnLoad</c>'s <c>ApplyTo</c> at the next
     /// save load (the exact bug this column fixes). These tests drive the pure applier
@@ -17,9 +17,10 @@ namespace Parsek.Tests
     /// </summary>
     public class TestCommandSettingApplierTests
     {
-        // The 8 GameParameters-only names (Record* must NOT fire) and the 8 tracked names
+        // The 9 GameParameters-only names (Record* must NOT fire) and the 8 tracked names
         // (Record* MUST fire with the exact member name), verified against the design
-        // whitelist table.
+        // whitelist table. Kept exhaustive by Expected_CoversEveryWhitelistedName below, so a
+        // newly whitelisted setting reds here instead of silently skipping route coverage.
         private static readonly Dictionary<string, string> Expected = new Dictionary<string, string>
         {
             ["autoRecordOnLaunch"] = null,
@@ -30,6 +31,7 @@ namespace Parsek.Tests
             ["samplingDensity"] = null,
             ["ghostAudioVolume"] = null,
             ["transitedBodyRotationModeIndex"] = null,
+            ["forceFaithfulLoopPlayback"] = null,
 
             ["ghostRenderTracing"] = "RecordGhostRenderTracing",
             ["mapRenderTracing"] = "RecordMapRenderTracing",
@@ -50,6 +52,18 @@ namespace Parsek.Tests
                 case SettingValueType.Float: return "0.5";
                 default: return "true";
             }
+        }
+
+        [Fact]
+        public void Expected_CoversEveryWhitelistedName()
+        {
+            // The route-dispatch sweep below iterates Expected, not the production table, so a
+            // setting added to SettingWhitelist without a row here would quietly go uncovered.
+            var whitelisted = new List<string>(SettingWhitelist.WhitelistedNames);
+            whitelisted.Sort(System.StringComparer.Ordinal);
+            var expected = new List<string>(Expected.Keys);
+            expected.Sort(System.StringComparer.Ordinal);
+            Assert.Equal(whitelisted, expected);
         }
 
         [Fact]

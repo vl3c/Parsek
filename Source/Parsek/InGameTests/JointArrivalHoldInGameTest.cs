@@ -327,6 +327,10 @@ namespace Parsek.InGameTests
                 LoopTiming.DefaultLoopIntervalSeconds,
                 bodyInfo,
                 TransitedBodyRotationMode.Loose,
+                // forceFaithful: pinned false like the rotation mode above - this cell measures the
+                // RE-AIM arrival-hold path, so it must not inherit the player's force-faithful knob
+                // (which would legitimately produce a faithful unit and red an unrelated assertion).
+                false,
                 out GhostPlaybackLogic.LoopUnit unit);
             InGameAssert.IsTrue(built,
                 "the REAL builder must resolve a loop unit for the synthetic mission (no unit => the shape never reaches the arrival-hold path)");

@@ -795,6 +795,9 @@ namespace Parsek
                 // matches the engine's schedule (a flipped flag rebuilds via the signature).
                 TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
                                                     ?? TransitedBodyRotationMode.Loose;
+                // Same force-faithful product knob the scene drivers read, so the display mirror
+                // shows the faithful schedule whenever the player forces it.
+                bool forceFaithful = settings?.forceFaithfulLoopPlayback ?? false;
                 // MissionLoopUnitBuilder.Build internally rebuilds the mission structure, the
                 // composition (M-MIS-5), and runs the periodicity solver, so gate ALL FOUR
                 // pipeline diagnostic flags - not just the loop builder's own - or the inner
@@ -819,7 +822,7 @@ namespace Parsek
                     loopUnitSetCache = MissionLoopUnitBuilder.Build(
                         MissionStore.Missions, RecordingStore.CommittedTrees,
                         RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
-                        FlightGlobalsBodyInfo.Instance, tbrMode);
+                        FlightGlobalsBodyInfo.Instance, tbrMode, forceFaithful);
                 }
                 finally
                 {

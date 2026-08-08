@@ -1199,6 +1199,7 @@ namespace Parsek.TestCommands
                 case "samplingDensity": s.samplingDensity = r.IntValue; break;
                 case "ghostAudioVolume": s.ghostAudioVolume = r.FloatValue; break;
                 case "transitedBodyRotationModeIndex": s.transitedBodyRotationModeIndex = r.IntValue; break;
+                case "forceFaithfulLoopPlayback": s.forceFaithfulLoopPlayback = r.BoolValue; break;
                 case "ghostRenderTracing": s.ghostRenderTracing = r.BoolValue; break;
                 case "mapRenderTracing": s.mapRenderTracing = r.BoolValue; break;
                 case "ledgerTracing": s.ledgerTracing = r.BoolValue; break;
@@ -2286,6 +2287,7 @@ namespace Parsek.TestCommands
                 case "samplingDensity": return Int(s.samplingDensity);
                 case "ghostAudioVolume": return s.ghostAudioVolume.ToString("R", CultureInfo.InvariantCulture);
                 case "transitedBodyRotationModeIndex": return Int(s.transitedBodyRotationModeIndex);
+                case "forceFaithfulLoopPlayback": return Bool(s.forceFaithfulLoopPlayback);
                 case "ghostRenderTracing": return Bool(s.ghostRenderTracing);
                 case "mapRenderTracing": return Bool(s.mapRenderTracing);
                 case "ledgerTracing": return Bool(s.ledgerTracing);

@@ -214,6 +214,17 @@ namespace Parsek
         // Default Loose. See docs/dev/plans/zero-drift-reschedule.md.
         public int transitedBodyRotationModeIndex = (int)TransitedBodyRotationMode.Loose;
 
+        /// <summary>
+        /// Forces a re-aim-SUPPORTED looped mission to FAITHFUL playback (the verbatim recorded
+        /// trajectory replayed on the loop clock) instead of auto-engaging re-aim. Default OFF -
+        /// the auto-by-target behaviour is unchanged unless a player deliberately turns this on
+        /// (A/B comparison of re-aim against the recording, or a preference for the verbatim
+        /// trajectory). Persisted through GameParameters ONLY - deliberately NOT recorded in
+        /// ParsekSettingsPersistence, mirroring <see cref="transitedBodyRotationModeIndex"/>, so
+        /// the knob cannot leak instance-wide across harness runs.
+        /// </summary>
+        public bool forceFaithfulLoopPlayback = false;
+
         /// <summary>Typed accessor for <see cref="transitedBodyRotationModeIndex"/>, clamped to a
         /// valid mode (defaults to Loose on an out-of-range index).</summary>
         internal TransitedBodyRotationMode TransitedBodyRotationMode

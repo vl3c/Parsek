@@ -2254,6 +2254,10 @@ namespace Parsek.Logistics
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
+            // Force-faithful product knob: read (and folded into builderSignature below) exactly like
+            // tbrMode, so flipping it in Settings invalidates THIS route's cached loop unit too and
+            // the delivery clock keeps matching the render seams' schedule.
+            bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 
             // (M-MIS-11 item 1) Cache keys. The builder signature is the SAME
             // sanctioned change-detection fold the render drivers gate their
@@ -2265,7 +2269,7 @@ namespace Parsek.Logistics
             // a key change.
             var missionList = new List<Mission> { mission };
             string builderSignature = MissionLoopUnitBuilder.BuildSignature(
-                missionList, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                missionList, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode, forceFaithful);
             string topologySignature = RouteBackingMission.ComputeTopologySignature(
                 RouteTreeGuard.FindCommittedTree(route.BackingMissionTreeId));
 
@@ -2317,7 +2321,8 @@ namespace Parsek.Logistics
             try
             {
                 built = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
-                    mission, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode, out unit);
+                    mission, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode, forceFaithful,
+                    out unit);
             }
             finally
             {

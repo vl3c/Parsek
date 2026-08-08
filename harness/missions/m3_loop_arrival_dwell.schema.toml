@@ -43,6 +43,10 @@ required = false
 type = "number"
 min = 0.0
 
+[params.mapCamera]
+required = false
+type = "boolean"
+
 [params.cameraFocusBody]
 required = false
 type = "string"

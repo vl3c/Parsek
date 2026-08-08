@@ -112,6 +112,8 @@ namespace Parsek.TestCommands
                 TransitedBodyRotationMode tbrMode =
                     ParsekSettings.Current?.TransitedBodyRotationMode
                     ?? TransitedBodyRotationMode.Loose;
+                bool forceFaithful =
+                    ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
                 // [ERS-exempt] The raw CommittedRecordings read below (the
                 // audited pattern; the CommittedTrees reads here and at the
                 // SetLoopEnabled call are not audited) feeds the loop-unit
@@ -122,7 +124,7 @@ namespace Parsek.TestCommands
                 unitBuilt = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
                     mission, RecordingStore.CommittedTrees,
                     RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
-                    FlightGlobalsBodyInfo.Instance, tbrMode,
+                    FlightGlobalsBodyInfo.Instance, tbrMode, forceFaithful,
                     out GhostPlaybackLogic.LoopUnit unit);
                 if (unitBuilt)
                 {

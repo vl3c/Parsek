@@ -873,6 +873,8 @@ namespace Parsek
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
+            // Force-faithful product knob (mirrors ParsekFlight / ParsekTrackingStation).
+            bool forceFaithful = ParsekSettings.Current?.forceFaithfulLoopPlayback ?? false;
 
             // === Supply-route render union (Phase 3) ===
             // Same append shape as ParsekFlight: each ghost-driving route's route-owned backing
@@ -888,11 +890,13 @@ namespace Parsek
             unioned.AddRange(routeMissions);
 
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
+                forceFaithful);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                    unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
+                    forceFaithful);
                 lastLoopUnitSignature = signature;
                 // Drop cached per-window re-aim adapters (mirrors ParsekFlight / Tracking Station).
                 Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();

@@ -41,7 +41,8 @@ namespace Parsek
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo = null,
-            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight)
+            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight,
+            bool forceFaithful = false)
         {
             if (missions == null)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
@@ -60,7 +61,7 @@ namespace Parsek
 
                 if (!TryBuildMissionUnit(
                         mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
-                        transitedBodyRotationMode,
+                        transitedBodyRotationMode, forceFaithful,
                         out GhostPlaybackLogic.LoopUnit unit, out int[] memberArray))
                     continue;
 
@@ -130,6 +131,7 @@ namespace Parsek
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo,
             TransitedBodyRotationMode transitedBodyRotationMode,
+            bool forceFaithful,
             out GhostPlaybackLogic.LoopUnit unit)
         {
             unit = default;
@@ -138,7 +140,7 @@ namespace Parsek
             Dictionary<string, int> indexById = BuildIndexById(committed);
             return TryBuildMissionUnit(
                 mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
-                transitedBodyRotationMode, out unit, out int[] _);
+                transitedBodyRotationMode, forceFaithful, out unit, out int[] _);
         }
 
         /// <summary>
@@ -155,6 +157,7 @@ namespace Parsek
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo,
             TransitedBodyRotationMode transitedBodyRotationMode,
+            bool forceFaithful,
             out GhostPlaybackLogic.LoopUnit unit,
             out int[] memberArray)
         {
@@ -451,7 +454,8 @@ namespace Parsek
                 {
                     ApplyReaim(
                         mission, committed, bodyInfo, memberIndices, memberWindowByIndex,
-                        transitedBodyRotationMode, spanStartUT, spanEndUT, referenceUT, extraction, span,
+                        transitedBodyRotationMode, forceFaithful,
+                        spanStartUT, spanEndUT, referenceUT, extraction, span,
                         ref phaseAnchorUT, ref effectiveCadence, ref effectiveOverlapCadence,
                         ref relaunchSchedule, ref reaimPlan, ref reaimSchedule, ref loiterCuts,
                         ref arrivalHold, ref launchHoldEngaged, ref launchHoldRotationPeriod,
@@ -519,6 +523,7 @@ namespace Parsek
             List<int> memberIndices,
             Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindowByIndex,
             TransitedBodyRotationMode transitedBodyRotationMode,
+            bool forceFaithful,
             double spanStartUT,
             double spanEndUT,
             double referenceUT,
@@ -568,6 +573,7 @@ namespace Parsek
             // unsupported and loop faithfully alongside.
             ReaimMissionPlan plan = ReaimMissionPlan.Unsupported(null, "no member yields a re-aim transfer");
             List<OrbitSegment> transferSegments = null;
+            int supportedMemberIndex = -1;
             int gatheredCount = 0;
             for (int mi = 0; mi < memberIndices.Count; mi++)
             {
@@ -599,10 +605,11 @@ namespace Parsek
                     plan = mp;
                     transferSegments = msegs;
                     // The destination transfer member's committed index: the member whose OWN segments
-                    // classified Supported. This is the canonical transfer-member identity - the SAME
-                    // member that drives transferSegments / loiterRuns / descentRun / seamUT below - so
-                    // the loiter-gap clamp can gate on it exactly (excluding the ride-along probe).
-                    transferMemberIndex = midx;
+                    // classified Supported. Held LOCALLY here and published to the ref only in the
+                    // ENGAGED branch below - a forced-faithful unit must carry the classifier-decline
+                    // sentinel (-1) so nothing downstream can mistake it for a re-aim-shaped unit
+                    // (review finding, flight-arrival lane).
+                    supportedMemberIndex = midx;
                     // keep scanning only to finish the gatheredCount tally for the diagnostic
                 }
             }
@@ -613,8 +620,15 @@ namespace Parsek
             // one-shot per build.
             LogReaimDiagDump(mission, plan, transferSegments, gatheredCount, bodyInfo);
 
-            if (plan.Supported)
+            // The per-member classify loop above runs UNCONDITIONALLY (also when the player forces
+            // faithful playback), so the ReaimDiag verdicts still prove the member IS re-aim
+            // supported - the forced-faithful line below is then the only difference from an
+            // auto-engaged build.
+            if (plan.Supported && !forceFaithful)
             {
+                // Publish the transfer-member identity ONLY on the engaged path (see the
+                // classify-loop comment: forced-faithful keeps the decline sentinel).
+                transferMemberIndex = supportedMemberIndex;
                 // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
                 // (the bodies' relative configuration recurs every synodic period), and each
                 // window re-solves the transfer for the target's actual position using the
@@ -1183,6 +1197,21 @@ namespace Parsek
                         $"({sched.Reason}); staying faithful");
                 }
             }
+            else if (plan.Supported)
+            {
+                // forceFaithfulLoopPlayback (product knob): the mission IS re-aim eligible but the
+                // player asked for the verbatim recorded trajectory on the loop clock. Every ref
+                // sentinel stays untouched - INCLUDING transferMemberIndex, published only on the
+                // engaged path - so the resulting unit is byte-identical to a classifier decline
+                // (faithful anchor = Math.Max(mission.LoopAnchorUT, spanEndUT), raw cadence,
+                // no loiter cuts / launch hold / descent members). Info, not Verbose: this is a
+                // deliberate player choice that explains an otherwise surprising playback.
+                if (!SuppressLogging)
+                    ParsekLog.Info("Reaim", string.Format(CultureInfo.InvariantCulture,
+                        "MissionLoopUnit: mission='{0}' FORCED FAITHFUL (re-aim supported {1}->{2} "
+                        + "but forceFaithfulLoopPlayback is on)",
+                        mission.Name, plan.LaunchBody, plan.TargetBody));
+            }
             else if (!SuppressLogging)
             {
                 ParsekLog.Verbose("Reaim",
@@ -1476,7 +1505,8 @@ namespace Parsek
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo = null,
-            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight)
+            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight,
+            bool forceFaithful = false)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder(128);
@@ -1486,6 +1516,11 @@ namespace Parsek
             // wiring active; without it the schedule path is inert and the mode is irrelevant).
             if (bodyInfo != null)
                 sb.Append("TBR:").Append(transitedBodyRotationMode.ToString()).Append('|');
+            // The force-faithful knob (player A/B setting) decides whether a re-aim-SUPPORTED
+            // mission engages re-aim at all, so flipping it must rebuild the cached LoopUnitSet.
+            // Folded in unconditionally (unlike TBR): forcing faithful is meaningful even with a
+            // null bodyInfo-free build, and a constant extra token is harmless.
+            sb.Append("FF:").Append(forceFaithful).Append('|');
 
             int loopingCount = 0;
             if (missions != null)

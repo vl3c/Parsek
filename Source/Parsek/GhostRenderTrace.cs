@@ -20,6 +20,19 @@ namespace Parsek
         internal const double LargePoseDeltaMeters = 25.0;
         internal const double VelocityDeltaMultiplier = 4.0;
         internal const double VelocityDeltaSlackMeters = 25.0;
+        // Loop-seam teleport instrument (Tier-C, the FLIGHT-scene sibling of
+        // MapRenderTrace's icon-teleport). Floor calibrated against the two
+        // populations it separates: healthy recorded-segment seams measure
+        // ~7-10 km (S1.8's pinned 10,146.3 / 7,284.0 m continuity gaps) while
+        // the re-aim endpoint defect class measures ~one SOI radius
+        // (49-88 THOUSAND km, the 2026-06-15 forensics). 1,000 km sits three
+        // orders above healthy and well below the defect class.
+        internal const double LoopSeamTeleportFloorMeters = 1_000_000.0;
+        internal const double LoopSeamExpectedMotionMultiplier = 4.0;
+        // A playback-clock step larger than this (and larger than 4x the real
+        // game-dt) is an epoch shift (loop wrap / seam TimeJump), whose
+        // position discontinuity is legitimate - never a raise.
+        internal const double LoopSeamMaxPlaybackClockStepSeconds = 60.0;
 
         // The expected-delta-vs-actual-delta detector assumes the recording
         // carries a per-point velocity field that approximates the ghost's
@@ -886,6 +899,79 @@ namespace Parsek
                 LargePoseDeltaMeters,
                 expected * VelocityDeltaMultiplier + VelocityDeltaSlackMeters);
             return deltaMeters > threshold;
+        }
+
+        /// <summary>
+        /// Pure predicate for the loop-seam teleport anomaly: at an
+        /// orbit-segment change, is the ghost's world-position discontinuity a
+        /// defect-class teleport rather than legitimate motion? Suppressions,
+        /// in order: non-finite delta; a stale previous sample (the tracker
+        /// only samples orbit-positioned frames, so a hide/show gap makes the
+        /// prior point arbitrarily old); a floating-origin shift inside the
+        /// suppression window; a playback-clock epoch shift (loop wrap or
+        /// seam TimeJump - the clock moved backwards, or by more than the
+        /// real frame could cover); then the threshold is the calibrated
+        /// floor or 4x the expected motion over the real game-dt, whichever
+        /// is larger (the icon-jump lesson: at high warp the reference
+        /// body's own world motion dominates the frame delta).
+        /// </summary>
+        internal static bool IsLoopSeamTeleport(
+            double worldDeltaMeters,
+            double expectedMotionMetersPerSecond,
+            double gameDtSeconds,
+            int currentFrame,
+            int lastSampleFrame,
+            int floatingOriginShiftFrame,
+            double playbackClockDeltaSeconds)
+        {
+            if (double.IsNaN(worldDeltaMeters) || double.IsInfinity(worldDeltaMeters))
+                return false;
+            if (lastSampleFrame < 0 || currentFrame - lastSampleFrame > 1)
+                return false;
+            if (floatingOriginShiftFrame >= 0
+                && currentFrame - floatingOriginShiftFrame <= FloatingOriginSuppressionFrameWindow)
+                return false;
+            if (double.IsNaN(gameDtSeconds) || gameDtSeconds <= 0.0)
+                return false;
+            if (double.IsNaN(playbackClockDeltaSeconds) || playbackClockDeltaSeconds <= 0.0)
+                return false;
+            if (playbackClockDeltaSeconds > Math.Max(
+                    LoopSeamMaxPlaybackClockStepSeconds, gameDtSeconds * 4.0))
+                return false;
+            double expected =
+                double.IsNaN(expectedMotionMetersPerSecond)
+                || double.IsInfinity(expectedMotionMetersPerSecond)
+                    ? 0.0
+                    : Math.Max(0.0, expectedMotionMetersPerSecond);
+            double threshold = Math.Max(
+                LoopSeamTeleportFloorMeters,
+                expected * gameDtSeconds * LoopSeamExpectedMotionMultiplier);
+            return worldDeltaMeters > threshold;
+        }
+
+        /// <summary>
+        /// Tier-C anomaly raise (the harness-sweep contract: the line carries
+        /// the literal <c>phase=Anomaly</c> and <c>reason=&lt;token&gt;</c> as
+        /// its first reason field). Routes to Info like MapRenderTrace's
+        /// EmitAnomaly, and opens the detailed window so the surrounding
+        /// frames land in the log.
+        /// </summary>
+        internal static void EmitAnomaly(
+            string recordingId,
+            int ghostIndex,
+            double currentUT,
+            double playbackUT,
+            string reason,
+            string details)
+        {
+            if (!IsEnabled)
+                return;
+            if (string.IsNullOrEmpty(recordingId))
+                return;
+            OpenDetailedWindow(recordingId, currentUT, AnomalyWindowSeconds, reason);
+            EmitRaw(true, recordingId, ghostIndex, currentUT, playbackUT, "Anomaly",
+                "reason=" + Token(reason)
+                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details));
         }
 
         internal static string FormatTracePrefixForTesting(

@@ -75,13 +75,13 @@ namespace Parsek.TestCommands
             public string RecordMethod; // null for GameParameters-only
         }
 
-        // The 16 whitelisted settings. Fields and Record* method names verified
+        // The 17 whitelisted settings. Fields and Record* method names verified
         // against ParsekSettings.cs and ParsekSettingsPersistence.cs. Note the name
         // asymmetry: setting `writeReadableSidecarMirrors` -> method
         // `RecordReadableSidecarMirrors` (the method drops the "write" prefix).
         private static readonly Dictionary<string, Entry> Table = new Dictionary<string, Entry>
         {
-            // --- GameParameters-only (8) ---
+            // --- GameParameters-only (9) ---
             ["autoRecordOnLaunch"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoRecordOnEva"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoRecordOnFirstModificationAfterSwitch"] = Bool(PersistenceRoute.GameParameters, null),
@@ -90,6 +90,7 @@ namespace Parsek.TestCommands
             ["samplingDensity"] = Int(0, 2, PersistenceRoute.GameParameters, null),
             ["ghostAudioVolume"] = Float(0.0, 1.0, PersistenceRoute.GameParameters, null),
             ["transitedBodyRotationModeIndex"] = Int(0, 2, PersistenceRoute.GameParameters, null),
+            ["forceFaithfulLoopPlayback"] = Bool(PersistenceRoute.GameParameters, null),
 
             // --- GameParameters + ParsekSettingsPersistence sidecar (8 tracked) ---
             ["ghostRenderTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordGhostRenderTracing"),

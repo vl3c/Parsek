@@ -1,0 +1,113 @@
+schema = 1
+id = "V3R-flight-arrival-reaim"
+# =====================================================================================
+# V3R: FLIGHT-SCENE loop-arrival dwell, ENGAGED RE-AIM mode -- the reproduction
+# half of the faithful-vs-re-aim A/B. Identical to V3F minus the force-faithful
+# knob: the classifier auto-engages this supported member (V2 pinned the ENGAGED
+# line at map scale), and the dwell traverses both recorded SOI handoffs ON THE
+# FLIGHT-SCENE ENGINE PATH, where the 2026-06-15 defect lives.
+#
+# FLOWN 2026-08-07 (run 2026-08-07_2233, PASS attempt 1, 977 s) - and the
+# EXPECTED red did NOT occur, for a measured structural reason, not a fixed
+# defect: the reading run is VACUOUS for the seam question. The engine hides
+# a far loop ghost BEFORE positioning (GuardSkip hidden-by-zone x903; zero
+# [ReaimSeam] lines, zero dist[] samples - the trace that fired continuously
+# in the 2026-06-15 forensics never ran once), because the 2026-06-15
+# observer was FLYING ALONGSIDE the ghost while this dwell parks at Duna.
+# The defect is therefore NOT bounded by this run either way; its surface
+# needs the companion shape (V3C: a live craft inside the ghost's zone,
+# which run 2026-08-07_2324 PROVED reaches the trace - dist[] x48). What
+# this spec gates meanwhile: the classifier's ENGAGED verdict for this
+# member (required), FORCED FAITHFUL forbidden-absent, zero durable rows,
+# structure clean. The GS-3 pinned-reproduction flip described below MOVES
+# TO V3C; this spec stays the cheap engaged-mode discrimination gate.
+# Rewind/structure blocks stay REPORT-ONLY until the companion completes.
+# =====================================================================================
+tier = "operator"
+description = "FLIGHT-scene loop-arrival dwell over the committed duna-direct fixture in ENGAGED re-aim mode: TimeJump legs + 1x holds spanning both recorded SOI handoffs with ghostRenderTracing and the new loop-seam-teleport Tier-C instrument armed. The reproduction half of the A/B: the known re-aim seam teleport is EXPECTED to raise here, and the post-reading arming pins it as the regression target that flips when the option-3 fix lands."
+instanceProfile = "stock-minimal"
+tags = ["V3", "flight-arrival", "reaim", "interplanetary", "loop-dwell", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-direct-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "m3_loop_arrival_dwell"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # NO force-faithful step: the classifier's auto-engage IS the mode under test.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1500 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+treeId               = "ccb5e4afd7974dbe9118090468ac00ae"
+departOffsetSeconds  = 89448.917
+arriveOffsetSeconds  = 4474604.451
+parkOffsetSeconds    = 4506361.140
+dwellLeadSeconds     = 120
+dwellHoldSeconds     = 300
+mapCamera            = false
+# Same interval as V3F so the two specs differ in EXACTLY one step (the knob):
+# inert for the engaged mode (re-aim forces a single instance regardless).
+loopIntervalSeconds  = 5000000
+armTimeoutSeconds    = 300
+holdTimeoutSeconds   = 600
+
+[dimensionsCovered]
+D14 = ["scene-flight", "sandbox"]
+
+[expectations]
+# ARMED SWEEP on the reading run, deliberately: the expected loop-seam-teleport
+# raise reds PARSEK-FAIL(anomaly), and that red is the finding (the GS-3
+# inversion). The post-reading arming converts this to the explicit
+# tolerate-plus-require pinned-reproduction shape documented in the header.
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+[expectations.rewind]
+# REPORT-ONLY until the arming pass.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Reading-run pins:
+#   the ENGAGED line -- the mode-discriminating pin (V2 pinned the identical
+#     line; a classifier regression to faithful would make this whole spec
+#     measure the wrong mode);
+#   the rest as V3F.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "\\[ReaimDiag\\] mission=",
+  "MissionLoopUnit: mission='DD1 Duna Direct Probe' ENGAGED re-aim Kerbin->Duna via Sun",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FORCED FAITHFUL",
+]
+
+[runtime]
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
