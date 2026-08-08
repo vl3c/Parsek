@@ -14,6 +14,456 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE: watch-mode auto-select refuses far inside the 300 km range term it actually evaluates, and WHICH conjunction term refuses is UNESTABLISHED [BOUNDARY FOUND 2026-08-08 by V7M-minmus-player-loop, measured four times; MECHANISM CORRECTED 2026-08-09]
+
+**THIS ENTRY IS THE SINGLE AUTHORITY for the watch-entry finding.** Every other
+site - the V4 / V6M / V7M spec headers, the `docs/dev/autotest-status.md` rows,
+`CHANGELOG.md`, `harness/lib/test_hlib.py`'s review notes - points here instead
+of restating the mechanism.
+
+**FORMERLY TITLED `WATCH-ENTRY-GATE-IS-120KM-NOT-300KM`**, a string that may
+still appear in PR text, older logs and archived write-ups; it is repeated here
+so a grep for it lands. The retitle is not cosmetic. That title asserted a
+MECHANISM - "watch ENTRY is gated by the 120 km `GhostVisualRangeMeters`
+render-zone test" - that no measurement in this lane establishes, and that a
+reading of the production call graph contradicts (see THE MECHANISM CORRECTION).
+The BOUNDARY it was built on is untouched: every reading, every verdict and
+every conclusion drawn from them still stands. Only the attributed mechanism was
+wrong.
+
+**THE MEASURED BOUNDARY - the durable part of this entry.** Watch-mode
+auto-select is the conjunction
+`HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange`
+(`TestCommandEnterWatchMode.ResolveAutoWatchIndex`, verbatim from
+`MissionsWindowUI.ResolveMissionWatchTarget` - the Missions window's Watch
+button). It was exercised at four distinct observer-to-ghost separations on one
+fixture, V7M's shared 98,463.595 m Minmus park, and the verdict flips between
+the smallest reading and the next one up:
+
+| separation | run(s), and where the reading lives | verdict |
+|---|---|---|
+| **51,503 m** (cycle-3 park, `zone=Visual`) | `_1607` calibration, `logs/2026-08-08_1908_V7Mc-watch-calibration` - and un-archived `zone=Visual rdist=51603m` at the same epoch on the committed green run `_1613` | **ENTERED** (`enterwatchmode complete:`) |
+| **144,349 / 144,356 / 144,365 m** (cycle-1 park, `zone=Beyond`) | `_1600` (`logs/2026-08-08_1901_V7M-minmus-player-loop`), `_1607`, `_1608` (`logs/2026-08-08_1909_V7Mc-watch-calibration`) | REFUSED `no-watchable-ghost` |
+| **191,497 / 191,494 / 191,499 / 191,493 m** (`zone=Beyond`) | `_1600`, `_1601`, `_1607`, `_1608` - but only two are cycle-2-PARK samples; see the ATTRIBUTION paragraph | REFUSED `no-watchable-ghost` |
+| **198,711 m** (cycle-1 park, THE OUTLIER) | `_1601`, `logs/2026-08-08_1902_V7M-minmus-player-loop` | REFUSED `no-watchable-ghost` |
+
+The entry boundary this fixture measured therefore lies somewhere in the open
+interval **(51.5 km, 144.3 km)**. `DistanceThresholds.GhostVisualRangeMeters` =
+120,000 m is the only named distance constant inside that interval, which is
+suggestive and is why the first write-up reached for it - but a constant lying
+inside a measured bracket is not a demonstrated gate on the entry path. Read
+"~120 km" throughout the suite as a BRACKETED MEASUREMENT, never as a threshold
+the entry code compares against.
+
+**THE MECHANISM CORRECTION (2026-08-09).** The retired title cited
+
+    GhostPlaybackEngine.cs:6325
+    IsGhostWithinVisualRange(index) => state.currentZone != RenderingZone.Beyond
+
+as the entry test. **That method has no production caller** - grep resolves
+every reference outside `Parsek.dll` itself to `Source/Parsek.Tests/`
+(`GhostPlaybackEngineTests.cs`). The production route is a DIFFERENT method with
+the same name:
+
+    ParsekFlight.cs:19580   IsGhostWithinVisualRange(index) => watchMode.IsGhostWithinVisualRange(index)
+    WatchModeController.cs:698  -> IsWithinWatchEntryRange(s.lastDistance)   for a non-watched index
+                                -> IsWithinWatchExitRange(s.lastDistance)    for the currently-watched one
+
+with `WatchModeController.WatchEnterCutoffMeters = 300_000f` and
+`WatchExitCutoffMeters = 305_000f` (`WatchModeController.cs:71-72`, predicates at
+`WatchModeController.Diagnostics.cs:38-47`). Everything that consumes the
+forwarder consumes that predicate: `MissionsWindowUI.cs:2489`
+(`ResolveMissionWatchTarget`), `TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs:140`
+(the auto-select these lanes drive), `RecordingsTableUI.cs:1885` and `:2448`,
+`TimelineWindowUI.cs:1214`, `Patches/GhostVesselLoadPatch.cs:112` / `:273`.
+
+**So the range term cannot be what refused at 144 / 191 / 198 km.** All three
+are comfortably inside 300,000 m, and `lastDistance` is written by
+`CachePlaybackDistances` (`GhostPlaybackEngine.cs:5729`) BEFORE either
+hidden-by-zone early return (`:3236-3245` primary, `:3968-3980` loop), so the
+term provably evaluated a sub-300 km number and returned true.
+
+**WHICH TERM REFUSES IS UNESTABLISHED.** No measurement this lane took
+distinguishes the three terms: `no-watchable-ghost` is emitted for the failure
+of the CONJUNCTION and names no term. What IS measured on every refusing frame
+is the render-zone hide (`zone=Beyond` on the `engine-frame-iter` line, plus the
+`hidden-by-zone` GuardSkip), which early-returns before the ghost is positioned;
+that hide is the plausible shared DRIVER, and these are the terms it could
+starve:
+
+- **Leading hypothesis: `HasActiveGhost`,** i.e. the ghost state is absent or
+  stale at the moment the verb samples it, because the render-zone hide took the
+  early return. Caveat worth carrying, because it is a code reading rather than
+  a measurement and it cuts against the ranking: the production
+  `WatchModeController.HasActiveGhost` (`:669`) only requires a non-null
+  `ghostStates` entry ("hidden-tier ghosts may have unloaded visuals but are
+  still watchable"), and `HandleHiddenGhostVisualState` leaves the entry in
+  place - so a merely-hidden ghost should pass it.
+- **`IsGhostOnSameBody`** (`WatchModeController.cs:721` ->
+  `GhostPlaybackEngine.IsGhostOnBody`), which compares
+  `state.lastInterpolatedBodyName` against the active vessel's body. That field
+  is only written on the positioning path BELOW the hide early return
+  (`GhostPlaybackEngine.cs:4501` / `:4594`), so a ghost hidden every frame can
+  carry an unset or stale body name. The same code reading that weakens the
+  leading hypothesis strengthens this one.
+- The range term is EXCLUDED by the paragraph above, not merely unlikely.
+
+**THE DISCRIMINATING EXPERIMENT, and it is cheap: log the three terms.** The
+auto-select already computes all three per candidate and throws them away -
+`TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs:133-141` builds a
+`WatchCandidate { Index, InScope, HasActiveGhost, OnSameBody, WithinVisualRange }`
+for every committed recording and the rejection path logs only
+`reason=no-watchable-ghost committed=N`. Emit the per-candidate triple on the
+reject branch, re-fly V7M's cycle-1 or cycle-2 park step, and the refusing term
+is read straight off the log with no new instrumentation and no product-behaviour
+change. Until that is flown, do not attribute the refusal to any single term,
+and do not quote `GhostPlaybackEngine.cs:6325` as the production gate.
+
+**THE PLAYER-FACING FOLLOW-UP, reframed by the correction.** The product's
+on-screen strings quote 300 km, and on the range term they are CORRECT - they
+name `WatchEnterCutoffMeters`, which is the constant the production predicate
+actually uses. The defect is not a wrong number in the text; it is that the
+player is refused far INSIDE the range the text quotes, for a reason no message
+names:
+
+- `Source/Parsek/UI/RecordingsTableUI.cs:955` (`GetWatchButtonTooltip`) returns
+  *"Ghost is beyond the fixed 300 km watch range"* for the disabled Watch button,
+  and `Source/Parsek/UI/TimelineWindowUI.cs:1506`
+  (`BuildWatchButtonDescriptor`, tooltip reuse at `:1514`) shows that same string
+  on the Timeline's W button. Its `inRange` flag comes from
+  `flight.IsGhostWithinVisualRange` at `RecordingsTableUI.cs:1885` /
+  `TimelineWindowUI.cs:1214`.
+- `Source/Parsek/WatchModeController.cs:1503` screen-messages
+  *"Ghost too far to watch (Xkm, max 300km)"*, formatted from
+  `WatchEnterCutoffMeters / 1000f`. That inner guard sits behind the same UI
+  routes, which already pre-filter, so a player refused at 144 km is refused
+  before this message can name a number at all - and if they ever do see it, it
+  quotes the range term's real constant.
+
+So a player sitting 144 km from their own ghost is told the limit is 300 km,
+which is a true statement about the range term, and is refused anyway by
+something else the UI never names. **Follow-up (NOT taken in this PR, which is
+documentation-only):** run the discriminating experiment above, then either make
+the refusing term's condition visible to the player (a distinct tooltip /
+message for "ghost not currently rendered / not resolvable on this body")
+or reconcile the offending condition with the quoted range. Do NOT "fix" this by
+editing 300 km down to 120 km in the strings: the strings match the constant the
+range predicate uses, and re-pointing them at a bracket nobody has attributed to
+a gate would replace a true statement with a guess. Owner: whoever owns
+`WatchModeController` / `RecordingsTableUI`.
+
+**Why the wrong mechanism survived, and what the four flights DO prove.** V4's
+parked-tail draw read `hidden-by-zone_distance=643913m`, outside both candidate
+thresholds, so its REJECTED was consistent with either and the wrong one got
+written down. V7M is the first lane whose separations land BETWEEN them: on the
+shared 98,463.595 m Minmus park the engine's own per-member frame line read
+`zone=Beyond rdist=144356m` (cycle 1) and `rdist=191499m` (cycle 2). What that
+falsifies is a SUFFICIENCY claim - "inside 300 km, therefore watchable" - which
+the whole V4/V6M/V7M family had been reasoning from. It does not identify the
+term that refused, and the production range term is still the 300 km / 305 km
+pair.
+
+RE-DERIVED FROM THE FLIGHTS WHOSE LOGS SURVIVE (a PASS run collects no logs, so
+the committed green run's own digits are un-archived - quoted from its live output
+at the time). There are **FOUR** archived flights of this shape, not three; the
+fourth is run `_1601`, V7M run 1's attempt 2
+(`logs/2026-08-08_1902_V7M-minmus-player-loop`), and it must be quoted because it
+is the one that disagrees. All four share the same `firstLaunch=1077505.6991544911`
+and the same jump targets, and all four sample the cycle-1 park at the same jumped
+epoch (`currentUT=1354406.020`, or `1354406.000` on `_1601`):
+
+| run | log | cycle-1 park `rdist` |
+|---|---|---|
+| `_1600` | `logs/2026-08-08_1901_V7M-minmus-player-loop` | 144,349 m |
+| `_1601` | `logs/2026-08-08_1902_V7M-minmus-player-loop` | **198,711 m** |
+| `_1607` | `logs/2026-08-08_1908_V7Mc-watch-calibration` | 144,356 m |
+| `_1608` | `logs/2026-08-08_1909_V7Mc-watch-calibration` | 144,365 m |
+
+THREE of the four agree to **16 m**. The fourth, `_1601`, reads 54 km high - and
+above the 2a = 196.9 km maximum separation two points on this shared circle can
+have, which by itself says that reading is not a valid observer-to-ghost chord.
+STATED AS AN OUTLIER, not explained away. A BENIGN MECHANISM IS AVAILABLE BUT NOT
+ESTABLISHED: in the three agreeing flights the
+`[FlightIntegrator]: Vessel Kerbal X has been unloaded 9050.7x` line (9050.76 on
+`_1600`/`_1601`, 9050.78 on the two V7Mc attempts) PRECEDES the
+frame sample that carries the reading (log lines 11512/11520, 11521/11529,
+11526/11534), while in `_1601` it FOLLOWS it (11534 after the 11533 sample) - i.e.
+`_1601` sampled one frame earlier in the post-jump settle; and the distance
+resolves through `ParsekFlight.ResolveCameraAnchorWorldPosition`, which returns
+`null` when neither a watched-ghost anchor nor an active vessel resolves and lets
+the caller fall back to the scene CAMERA. A pre-settle frame reading the camera
+instead of the craft would produce exactly this shape. That is a HYPOTHESIS. It
+has not been confirmed by instrumenting the frame.
+
+WHAT THE OUTLIER DOES AND DOES NOT TOUCH. It does not touch the conclusion: all
+four readings are between the measured boundary bracket and 300 km, and all four
+were REFUSED, so "inside 300 km implies watchable" is falsified four times over.
+It equally does not identify the refusing term - see THE MECHANISM CORRECTION;
+four refusals at four distances are four data points about the BOUNDARY, and
+none of them about which conjunct produced it. What the outlier DOES soften is
+the determinism claim. These
+separations are still not a per-run *phase* draw - both craft advance at the same
+rate on the same orbit, so the geometric separation is constant within a cycle and
+moves only when the phase anchor does - but the REPORTED number is evidently not
+reproducible to the metre across runs, because one archived flight of the
+identical shape reported a number the geometry cannot produce.
+
+Cycle 2 reads 191,497 / 191,494 / 191,499 / 191,493 m in the same run order, and
+the same care is owed on ATTRIBUTION: only `_1600` (`currentUT=2431877.520`) and
+`_1601` (`currentUT=2431877.500`) sampled at the **cycle-2 park**. `_1607`'s and
+`_1608`'s 191,499 / 191,493 were both sampled at `currentUT=3232433.217`, the
+**cycle-3 jump lead** (the k=150 anchor 3,232,448.217 minus the 15 s launch lead),
+where the ghost carries `GuardSkip ... reason=mission-loop-unit-inactive` and an
+icon `reason=past-window`. The near-equality is explicable - a past-window ghost is
+clamped at the end of the cycle-2 replay while the observer is epoch-shifted with
+`dMeanAnomaly=0.000000` - but it is not a second and third cycle-2-park
+measurement, and quoting it as one over-counts the evidence.
+
+**The evidence, verbatim, so the lane's headline survives log rotation.** From
+`logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log`; the `engine-frame-iter`
+lines are elided to their `i=1` member, which is the looped ghost:
+
+    [LOG 19:08:31.152] [Parsek][VERBOSE][Engine] engine-frame-iter [i=0 ...],
+      [i=1 rec=775188af skip=None aru=F hd=T hs=T endUT=277204.4]
+      [out:vis=F retired=F zone=Beyond rdist=144356m], ... | suppressed=56
+    [LOG 19:08:31.389] [Parsek][WARN][TestCommands] enterwatchmode rejected
+      reason=no-watchable-ghost committed=9 tree=(any)
+
+    [LOG 19:08:33.158] [Parsek][VERBOSE][Engine] engine-frame-iter [i=0 ...],
+      [i=1 rec=775188af skip=None aru=F hd=T hs=T endUT=277204.4]
+      [out:vis=F retired=F zone=Beyond rdist=191499m], ... | suppressed=58
+
+    [LOG 19:08:33.508] [Parsek][VERBOSE][Zone] FX suppressed: ghost #1 "Kerbal X"
+      cycle=2 anchorDist=51503m renderDist=51503m
+      ghostPos=(-21281.9400,-6266.4390,46479.9000) anchorPos=(0.0000,0.0000,0.0000)
+    [LOG 19:08:33.656] [Parsek][INFO][TestCommands] enterwatchmode initiated:
+      index=1 recId=775188aff66f4c06928e97f2b94e6f0b tree= auto=true
+    [LOG 19:08:33.710] [Parsek][INFO][TestCommands] enterwatchmode complete:
+      index=1 recId=775188aff66f4c06928e97f2b94e6f0b
+
+`cycle=2` on that `[Zone]` line IS the cycle-3 park, and the two numberings must
+not be reconciled by editing the quote. `state.loopCycleIndex`
+(`GhostPlaybackEngine.cs:3649`) is the 0-based schedule index the span clock
+resolves - `MissionPeriodicity.TryResolveActiveLaunch` returns `cycleIndex = idx`,
+the index of the largest scheduled launch <= now - so the third launch prints
+`cycle=2`. Everywhere in the V6/V7 write-ups "cycle N" is 1-based prose.
+
+**Corrected arithmetic** for "can a co-orbiting observer watch its own replay",
+stated against the MEASURED boundary rather than against any named constant:
+entry succeeded at a chord of 51.5 km and failed at 144.3 km, so taking ~120 km
+as the working figure for the bracket, `chord < 120 km` on a shared circle of
+radius a is `theta < 2*asin(60/a)`: Minmus 75.1 deg, Mun 20.3 deg, V4's Duna
+park 6.6 deg. These angles are a PREDICTION FROM A BRACKETED MEASUREMENT, not a
+threshold read out of code; anything that moves the bracket moves them. (The "%
+of a uniform draw" the first write-up attached to each is dropped: the
+separation is constant within a cycle, so it is a per-cycle geometric fact, not
+a draw.) V7M's cycle-3 park is the one inside the bracket - 51,503 m on the
+archived calibration above, un-archived
+`zone=Visual rdist=51603m` on the committed green run - and the verb answered
+`enterwatchmode complete: index=1 recId=...`, the FIRST watch-mode entry in the
+suite. Two reading notes: the recId differs per run (`775188af...` calibration,
+`9fc8d536...` green run) because it is the optimizer's split child, minted at
+split time; and do NOT read the calibration's later `zone=Physics rdist=7m` as a
+cycle-3 separation - that is the CYCLE-5 park, sampled while already watching,
+where `rdist` is the RENDER distance and the camera is anchored on the ghost.
+
+Fix: the V4 / V6M / V7M spec headers, the `docs/dev/autotest-status.md` rows,
+`CHANGELOG.md` and `harness/lib/test_hlib.py`'s review notes all carry correction
+banners pointing HERE rather than restating a mechanism; every superseded
+paragraph is marked in place and kept, because the corrections are only legible
+against what they replace. No product change - the product does what its code
+says. Two documentation passes were needed to get there: 2026-08-08 corrected
+the THRESHOLD the lanes were reasoning from, and 2026-08-09 corrected the
+MECHANISM that first pass invented to explain it.
+
+Open work, in order: (1) the discriminating experiment (log the three
+conjunction terms on the reject branch, re-fly a V7M park step); (2) the
+player-facing follow-up, which cannot be specified before (1) answers what to
+tell the player.
+
+---
+
+## MOON-LOOP-FINDINGS: two product observations from the V6/V7 moon quartet [FOUND 2026-08-08, both report-only, neither fixed]
+
+**(1) `icon-off-orbit`, deterministic, 131.22 deg.** `V7T-minmus-ts-arrival` reds
+`PARSEK-FAIL(anomaly)` on both of its flights (`2026-08-08_1614`, `_1616`) with
+one Tier-C raise, identical to the decimal:
+
+    [MapRenderTrace] phase=Anomaly surface=ProtoIcon pid=1830757804 frame=6791
+      currentUT=1345355.000 reason=icon-off-orbit angleIconVsOrbitEff=131.22
+      angleEffVsLive=0.00 loopShift=0.0 | lonIcon=-57.59 lonOrbitEff=169.32
+      lonOrbitLive=169.32 | iconR=2212724 orbitEffR=2212724
+      | lineActive=True inc=7.304 sma=-32531 ecc=4.0269 body=Minmus
+
+READ THAT AS AN EXCERPT, NOT A TRANSCRIPT. It is run `_1614`'s line with four
+fields ELIDED for width - `recId=d1a91f6b6ea34deea44f64e08167c7c1`, the second
+`effUT=1345355.000` that follows `currentUT=`, and `LAN=79.908 argPe=351.933`
+between `inc=` and `sma=`. Two of the fields that ARE shown are PER-RUN and must
+not be pinned: `pid=1830757804 frame=6791` here against `pid=2354385572
+frame=6778` on run `_1616` (and `recId=` is the optimizer's split child, minted at
+split time). Everything the finding rests on - `angleIconVsOrbitEff=131.22`,
+`angleEffVsLive=0.00`, `iconR == orbitEffR`, `currentUT`, and the orbital elements
+- is byte-identical across the two flights.
+
+The effective and live orbits agree exactly (`angleEffVsLive=0.00`) and the icon
+is at the correct RADIUS to the metre (`iconR == orbitEffR`), so this is a stale
+ALONG-TRACK position on a correct conic, not a misplaced icon. It fires in the
+FLIGHT half, ~2 s before any tracking-station ghost exists, on the single large
+TimeJump that lands inside the Minmus capture leg. RULED OUT by the sibling
+lanes: not "a large jump" (V7M's first bracket jump is the same ~268 ks move and
+sweeps clean) and not "a jump across the SOI seam" (V6T does exactly that on the
+Mun axis and sweeps clean). What is left is landing, in ONE move, INSIDE a long
+high-eccentricity capture leg (Minmus ecc 4.03, occupied 6,092 s) rather than
+before the seam or into Mun's ecc 1.67 leg transited in 44 s. Discriminating
+experiment, named but not flown: a V7T variant that brackets its way to the same
+UT. Owner: whoever owns `GhostOrbitIcon` / `MapRenderProbe`. The anomaly is
+deliberately NOT added to that spec's `allowedAnomalies` - the lane stands red by
+finding (V1-map-dwell-mun-orbit's precedent).
+
+**(2) Teardown NRE when a run ends inside watch mode.** `V7M-minmus-player-loop`
+is the first run in the suite that quits while watch mode is active. Its reading
+run (`2026-08-08_1613`) read `unityExceptions total=1` - the Parsek line below:
+
+    NullReferenceException: FlightGlobals.get_ActiveVessel ()
+      Parsek.WatchModeController.GetActiveVesselSafe ()
+      Parsek.WatchModeController.RestoreCameraAfterWatchExit (Boolean)
+      Parsek.WatchModeController.ExitWatchMode (Boolean, Boolean)
+      Parsek.ParsekFlight.OnDestroy ()
+
+i.e. `GetActiveVesselSafe` is not safe during scene teardown - `FlightGlobals` is
+already gone by the time `OnDestroy` runs the watch-exit camera restore. Harmless
+at shutdown (one line, after the last gameplay frame), report-only, not armed.
+NOT worked around in the spec by exiting watch before `FlushAndQuit`: that would
+hide the only run shape that reaches it.
+
+The ARMED re-flight of the identical shape (`2026-08-08_1642`) read `total=5`,
+which is worth recording because it bounds what a ceiling here would mean: the
+same Parsek line plus FOUR stock/MechJeb teardown NREs in the same 40 ms window
+(`CrewHatchController.DespawnUIs`, two in `KnowledgeBase.OnMapFocusChange` fired
+off `PlanetariumCamera.OnVesselDestroy`, and `MechJebCore.OnDestroy`) - a
+knock-on cascade of the same end-inside-watch teardown, not four more Parsek
+defects. A 1-vs-5 spread across two green flights of one spec is exactly why no
+`[expectations.unityExceptions] maxTotal` is armed on this lane, and why arming
+one off either single observation would have been wrong in one direction.
+
+---
+
+## ~~B11-TERMINAL-TOKEN-NEVER-TRUE: B11-mun-orbit required a topology token transplanted from a B7 log, and red on its first live outing~~ [FOUND 2026-08-08 while building the moon recorded-state fixtures. DONE 2026-08-08 - root-caused, then re-pinned to measured reality]
+
+`B11-mun-orbit` flew twice on 2026-08-08 (runs `2026-08-08_1355`, wall 1320 s,
+and `2026-08-08_1419`, wall 1318 s) and both red `PARSEK-FAIL(expectation)` on
+exactly ONE token with every other verifier green (mission MISSION-OK across the
+full 19-phase profile, capture eccentricity 0.000, a 136-140 km Mun park -
+`capturedInTargetOrbit` measured 136.2 / 138.4 / 139.6 km across the three
+flights, and 135.1 km is _1458's `flybyPeriapsisFloor`, an ARRIVAL periapsis, not
+a park - analyzer RED=0, recordings count 8 = the pinned window):
+
+    logContracts.required not matched:
+    CommitTreeFlight terminal: rec=\w+ terminalState=Orbiting terminalOrbitBody=Kerbin
+
+**The token was never true of this lane.** It was added 2026-07-26 (`c0b353ba5`,
+"Review round 2") to BOTH B11 and B12, citing
+`logs/2026-07-25_1216_B7-duna-flyby/KSP.log` - a **B7** flight. B7 shares the
+`b2-lko-craft` fixture and the Kerbal X launcher but flies a different profile
+(Duna flyby: no capture burn, no Mun correction pair). B11 did not fly again
+between that commit and 2026-08-08, so 2026-08-08 was the token's FIRST live
+outing on B11 and it red on it. The spec's own comment had flagged the residual
+and prescribed the remedy ("re-derive both from a fresh measured run, never
+widen either blindly"); this is that re-derivation.
+
+**Measured B11 topology (both 2026-08-08 flights, 8 recordings each):**
+
+| run | terminals |
+|---|---|
+| `2026-08-08_1355` | 7x `Destroyed (null)` + 1x `Orbiting Mun` |
+| `2026-08-08_1419` | 6x `Destroyed (null)` + 1x `Landed Kerbin` + 1x `Orbiting Mun` |
+| `2026-08-08_1458` | 6x `Destroyed (null)` + 1x `Landed Kerbin` + 1x `Orbiting Mun` (the post-re-pin re-fly, and the `mun-orbit-recorded` fixture's source - pinned on disk in its committed `persistent.sfs`) |
+
+So `Landed Kerbin` is the MAJORITY shape, 2 of 3; the all-`Destroyed` flight is
+the outlier. What every flight agrees on is the absence: `Orbiting Kerbin` never
+occurs (0 in both archived KSP.logs, 0 in the third flight's committed save),
+which is why the removed required-row is now carried as a FORBIDDEN token
+instead - the facet is guarded in the negative.
+
+On the Mun profile the flameout-staging watchdog does not leave a core in Kerbin
+orbit: it fires TWICE during CORRECTION-BURN, at alt ~3.60 Mm with `thr=0.250
+avThr=0.000`, a real dry transfer stage. Name the event type when quoting the
+UTs - the two are ~0.5 s apart and an earlier draft of this entry quoted one of
+each. Per run, `gate flameoutStreak 0->1` (debounce onset) then
+`gate flameoutStages 0->1` / `1->2` (the stage fires):
+
+| run | onsets | fires |
+|---|---|---|
+| `2026-08-08_1355` | 4899.939 / 4901.499 | 4900.419 / 4902.019 |
+| `2026-08-08_1419` | 4899.812 / 4901.392 | 4900.312 / 4901.912 |
+| `2026-08-08_1458` | 4899.956 / 4901.576 | 4900.476 / 4902.096 |
+
+All four events agree across the three flights to within 0.2 s, so the drop is
+deterministic. The non-booster remnant therefore leaves on a Kerbin-IMPACTING
+trajectory.
+
+**WHICH ROW FLIPS - and it is NOT the flameout remnant.** Two earlier drafts of
+this entry (and of the B11 spec header, the status row and the
+`test_saveparse.py` pin comment) attributed the `Destroyed` vs `Landed Kerbin`
+variance to the flameout-staged remnant. That is backwards. Identify the row by
+its recording START UT against the gate table above, never by its terminal class:
+
+- **The flameout-staged remnant is the STABLE row.** Its recording starts at the
+  `gate flameoutStages 0->1` fire to the millisecond on all three flights -
+  4900.419 / 4900.4185835266071 (`_1355`), 4900.312 / 4900.3124958801336
+  (`_1419`), 4900.476 / 4900.475848693869 (`_1458`, on disk as recording
+  `10da441999fb4ff7a09bf6be0f068d48`) - and it reads `Destroyed`
+  (`terminalState=4`) every single time.
+- **The row that flips is one of the FIRST ascent-shed booster pair**, recording
+  start ~48.46 / 48.48, i.e. the first two radial boosters falling back beside the
+  pad. On `_1419` and `_1458` one of that pair reads `Landed Kerbin` and its
+  same-UT twin reads `Destroyed`; on `_1355` both twins read `Destroyed`. In the
+  committed fixture the pair is `998cc41e5ce64a3681fff8df9efe802e`
+  (`terminalState=1 endpointPhase=1`, `TERMINAL_POSITION body=Kerbin lat=-0.104
+  lon=-74.545 alt=67.99 terrainHeightAtEnd=0.215`) and
+  `a834e40aebfd4b8090b32bd8221e5e92` (`terminalState=4 endpointPhase=3`).
+
+**This makes the re-pin BETTER supported, not worse.** The remnant the deleted
+`Orbiting Kerbin` row was reaching for turns out to be the one row that is stable
+across all three flights - and what it stably is, is `Destroyed`. It never reaches
+Kerbin orbit on any flight. The genuinely unstable facet is narrower than it
+looked: a first-pair BOOSTER's terminal classification, `Destroyed` vs
+`Landed Kerbin`.
+
+**Root-caused before re-pinning, per the shared-machine rule** (a deterministic
+change in a mission every other B-lane shares must be explained, not masked).
+Classification: **no identifiable code or pins delta** -
+
+- `mlib._b5_flameout_stage` is BYTE-IDENTICAL to the last-green baseline
+  (`aedc47092`, 2026-07-25 10:35 +0300);
+- `FLAMEOUT_DEBOUNCE_FRAMES` (2), `MAX_FLAMEOUT_STAGES` (2) and every `CORR*` /
+  `*THROTTLE*` module constant are unchanged across that span;
+- `harness/provision/pins.toml` has not been touched since before the last green,
+  so the MechJeb / KSP / kRPC stack is the same one the July flights ran;
+- `harness/fixtures/saves/b2-lko-craft` has never been modified, so the craft and
+  its fuel budget are identical;
+- the decisive control: **B12-minmus-orbit PASSED on 2026-08-08** (run `_1441`,
+  attempt 1, wall 630 s) with all three tokens including `Orbiting Kerbin`, on the
+  SAME machine, craft and watchdog. A regression in a shared decision path would
+  have taken B12 down with B11. The Kerbin remnant is a property of the Minmus
+  correction profile, not of the b5 machine.
+
+**Fix (2026-08-08).** The `Orbiting Kerbin` row is removed from B11's
+`logContracts.required` and the variance documented in the spec header with both
+run ids. B12 keeps all three tokens - its row was inspected against its own
+flight rather than assumed to share the problem, and its flight measured
+6x `Destroyed (null)` + 1x `Orbiting Kerbin` + 1x `Orbiting Minmus`, so today is
+the first time B12's copy of the token is live-proven. Nothing was widened: after
+the removal the count still owns the total (8), the Mun row owns the
+committed-craft class and the Destroyed row owns the debris class, and the
+removed row is CONVERTED INTO A NEGATIVE GUARD - `terminalState=Orbiting
+terminalOrbitBody=Kerbin` is now in B11's `logContracts.forbidden`, which is the
+stable half of the finding (never observed on any of the three flights) and reds
+if B12's Kerbin-orbit remnant ever starts appearing on the Mun profile. The single
+unguarded facet is which of `Destroyed`/`Landed` the remnant ends as, unguarded
+precisely because it is not stable. Re-derive from a fresh measured run before
+ever re-adding the positive row.
+
 ## ~~DESIGN-DOC-13.1-STALE-TEST-NAMES: ten unit-test class names in the rewind design doc's §13.1 v0.9.1 list do not exist in Source~~ [FOUND 2026-08-05 during the gameplay-scenarios-wave-1 §13.2 doc-truth reconciliation. DONE 2026-08-05 - per-bullet verification against the real test bodies, no mass-rename]
 
 `docs/parsek-rewind-to-separation-design.md` §13.1's "The v0.9.1 stable-leaf
@@ -5208,7 +5658,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1430`) |
 | `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1455`) |
 | `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1485`) |
-| `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change) |
+| `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change). SENSITIVITY, because silence gets cited as evidence: it raises on a SINGLE-FRAME world delta above `max(GhostRenderTrace.LoopSeamTeleportFloorMeters = 1,000,000 m, expected motion * dt * multiplier)`, so a clean sweep excludes discontinuities over 1,000 km between consecutive frames and nothing finer |
 
 That WAS nine ungated reasons, not five (seven now gated per the RESOLUTION below; the table's per-row flags carry the current truth). **The first version of this table listed five**, and the four it missed are the wrapper-routed rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace.cs:1371` `EmitRaw(true, "Anomaly", ...)`), so all four were genuinely ungated then (three are promoted now; `factory-parity` stays the declared instrument). Understating the ungated count understates the size of the fail-open, which is the one thing this entry existed to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
 
