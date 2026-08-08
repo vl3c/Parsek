@@ -92,6 +92,14 @@ id = "V7T-minmus-ts-arrival"
 #     orbit - a stale along-track position on a correct conic, not a random placement.
 #   - `loopShift=0.0`, `body=Minmus`, `ecc 4.0269 / sma -32,531`: this is the Minmus
 #     inbound hyperbola, at the SOI-entry instant this spec parks on.
+# THIS IS NOT THE DESYNC QUESTION V6M/V7M ASK, and the two must not be conflated: this
+# raise is a disagreement between two render surfaces of ONE ghost WITHIN A SINGLE
+# FRAME (the icon against the orbit line it is supposed to sit on, at one currentUT),
+# whereas the desync hunt compares the REPLAY CLOCK across cycles (does arrival N land
+# at the same offset from its own anchor as arrival 1 did). A perfectly synchronised
+# replay can still draw its icon 131 degrees stale for a frame, and a drifting replay
+# would draw both surfaces in agreement at the wrong time. Different instruments,
+# different failure, no shared verdict.
 # WHEN it fires: frame 6791, in the FLIGHT half, on the single large TimeJump to
 # 1,345,355 - BEFORE the SaveGame and the TS load (the TS ghosts are created ~2 s
 # later, at 19:15:34). So this is not a tracking-station defect; it is the icon failing

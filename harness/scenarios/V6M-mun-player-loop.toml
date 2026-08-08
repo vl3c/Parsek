@@ -108,10 +108,17 @@ id = "V6M-mun-player-loop"
 # 4. THE WATCH PREDICTION, AND WHY IT IS "REJECTED" DESPITE BEING A COIN TOSS
 # ---------------------------------------------------------------------------------
 # *** THE ARITHMETIC IN THIS SECTION IS SUPERSEDED - read the ledger's WATCH VERDICTS
-# *** paragraph first. The conjunction and the conclusion (REJECTED) both survive; the
-# *** THRESHOLD does not. Entry is gated at 120 km (the render zone), not 300 km, so
-# *** the real condition is theta < 20.3 deg (~11%), not 52.44 deg (~29%). The section
-# *** is kept as written because V7M's falsification is only legible against it.
+# *** paragraph first. The conjunction and the conclusion (REJECTED) both survive; TWO
+# *** things below do not. (1) THE THRESHOLD: entry is gated at 120 km (the render
+# *** zone), not 300 km, so the real chord condition is theta < 20.3 deg, not 52.44 deg.
+# *** (2) THE UNIFORM-DRAW FRAMING, and this one the ledger below kills with its own
+# *** observation: the separation is NOT a per-run draw at all. Both craft advance at
+# *** the same rate on the same orbit, so it is CONSTANT within a cycle and moves only
+# *** when the phase anchor does - which makes every "~29% / ~11% of a uniform draw"
+# *** and every "71:29" odds statement in this file DEAD as a description of what this
+# *** step measures. What survives is a per-cycle geometric fact with a definite value,
+# *** not a coin toss. The section is kept as written because V7M's falsification is
+# *** only legible against it.
 # Watch mode is CAMERA-ONLY and range-gated: the auto-select conjunction is
 # `HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange`, with a 300 km
 # entry cutoff. Unlike V4 (observer at Duna, ghost at Kerbin - categorical refusal at
@@ -139,14 +146,21 @@ id = "V6M-mun-player-loop"
 # ---------------------------------------------------------------------------------
 # 5. POSTURE
 # ---------------------------------------------------------------------------------
-# READING RUN, REPORT-ONLY. Both save-structure blocks are DECLARED and UNGATED: this
-# lane has never flown, and arming a window off zero observations is exactly what the
-# V2/B17 three-run discipline forbids. Arming is the next operator's call.
-# `allowedAnomalies = []` with `ghostRenderTracing` on, so the loop-seam-teleport sweep
-# is armed and free.
+# POSTURE (as flown and armed, 2026-08-08): FLOWN GREEN, ARMED. Both save-structure
+# blocks now carry `gating = true`, taken off this lane's OWN reading run
+# `2026-08-08_1554` under the V2/B17/V4 three-run discipline, which measured every
+# declared window already met - so the arming re-pinned no window and moved no verdict.
+# Armed re-flight `2026-08-08_1640` PASS attempt 1 with saveParse `status=PASS
+# gating=True armed=['rewind','recordings.structure'] mismatches=0`. THIS LANE ALSO
+# CARRIES THE MOON QUARTET'S SINGLE NEGATIVE CONTROL: `2026-08-08_1644`
+# PARSEK-FAIL(save-structure) on one mismatch (`rewind.supersedeRows 0 < min 1` under a
+# temporary `min = 1`), reverted and re-verified on disk. V6T and V7M gate through the
+# one shared saveParse evaluator, so a second inversion would re-prove the evaluator
+# rather than their windows (the V4/V5 precedent). `allowedAnomalies = []` with
+# `ghostRenderTracing` on, so the loop-seam-teleport sweep is armed and free.
 #
 # READING LEDGER (2026-08-08, one run, no spec iteration needed for the flight itself):
-#   Run 1 `2026-08-08_1554`, PASS ATTEMPT 1, wall 54 s, fully unattended - all 20 steps
+#   Run 1 `2026-08-08_1554`, PASS ATTEMPT 1, wall 54 s, fully unattended - all 21 steps
 #   met, driverValidity PASS, analyzer red=0, logValidate PASS, anomalySweep PASS
 #   `hits=[] counts={}`, unityExceptions total=0, expectations PASS mismatches=0,
 #   saveParse REPORT clean (supersedeRows 0, tombstones 0, rewindPoints 0,
@@ -180,19 +194,30 @@ id = "V6M-mun-player-loop"
 #   THE DESYNC ANSWER - NO DETECTABLE DESYNC, on all three instruments:
 #   (a) SAME-BODY HANDOFF, SAME RELATIVE EPOCH. The proto rebind onto a Mun-framed
 #       orbit fired at `phase=body-orbit surface=ProtoOrbitLine ... body=Mun` at
-#       currentUT 296,690.040 (cycle 1) and 576,830.040 (cycle 2) - offsets of
-#       16,513.093 s and 16,510.565 s from their own anchors. The 2.528 s difference is
-#       EXACTLY the difference between the two rounded jump targets this spec pins, so
-#       the handoff repeated at the same replay offset to within the sampling
-#       granularity. It is worth being precise about what that does and does not prove:
-#       the bracket samples the handoff at a jump instant, so this bounds any desync at
-#       roughly the bracket's own resolution, not at millisecond scale.
+#       currentUT 296,690.040 (cycle 1) and 576,830.020 (cycle 2) - offsets of
+#       16,513.093 s and 16,510.545 s from their own anchors. The 2.548 s difference is
+#       the 2.527 s difference between the two rounded jump targets this spec pins plus
+#       the 20 ms by which the two frame samples differ, so the handoff repeated at the
+#       same replay offset to within the sampling granularity. It is worth being precise
+#       about what that does and does not prove: the bracket samples the handoff at a
+#       jump instant, so this bounds any desync at roughly the bracket's own resolution,
+#       not at millisecond scale. PROVENANCE: run `_1554` was a PASS and the harness
+#       does not collect logs on a PASS, so these digits are re-derived from the
+#       archived V6M re-flight at `logs/2026-08-08_1945_V6M-mun-player-loop`, which
+#       reproduced the same anchors and the same park separations exactly.
 #   (b) ZERO `loop-seam-teleport` raises, and zero Tier-C anomalies of any reason
 #       (`anomalySweep hits=[]`) with `ghostRenderTracing` armed across both cycles.
+#       READ THIS INSTRUMENT AT ITS OWN SENSITIVITY: `GhostRenderTrace.
+#       LoopSeamTeleportFloorMeters` is 1,000,000 m, and the raise threshold is
+#       `max(that floor, expected motion * dt * multiplier)` on a SINGLE-FRAME world
+#       delta. Silence therefore excludes ghost discontinuities larger than 1,000 km
+#       between consecutive frames and nothing finer - it is the COARSEST of these three
+#       instruments, not the sharpest. (a) and (c) carry the sub-kilometre reading.
 #   (c) PROXIMITY REPRODUCED TO 0.15%. The engine's own per-member frame line
 #       (`engine-frame-iter ... [i=1 ... zone= rdist=]`) read the park-epoch separation
 #       as 560,404 m in cycle 1 and 561,219 m in cycle 2 - 815 m apart in 560 km. The
-#       Mun park phase relationship is essentially preserved cycle to cycle.
+#       Mun park phase relationship is essentially preserved cycle to cycle. (Same
+#       provenance as (a); the archived re-flight reads the identical two numbers.)
 #
 #   THE WATCH VERDICTS: both `REJECTED reason=no-watchable-ghost committed=9
 #   tree=(any)`, matching the pin. The prediction was right but its ARITHMETIC WAS NOT,
@@ -267,10 +292,12 @@ steps = [
   { cmd = "TimeJump", args = { ut = "296690" }, expect = "OK", budget = 300 },
   # CYCLE-1 PARK EPOCH: phaseAnchor + 20,800, deep inside the recorded Mun park - the
   # only epoch where the auto-select's body test can pass for a Mun-parked observer,
-  # so the only place the 300 km chord question can be asked at all.
+  # so the only place the 120 km chord question can be asked at all.
   { cmd = "TimeJump", args = { ut = "300977" }, expect = "OK", budget = 300 },
-  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED at
-  # 71:29 on the chord arithmetic in the header; an OK is the finding.
+  # STEP 3: "Watch", auto-select over all committed recordings. PREDICTED REJECTED (the
+  # header's "71:29" odds framing is superseded - the separation is a fixed per-cycle
+  # geometric fact, not a draw; MEASURED 560,404 m against a 120 km gate); an OK is the
+  # finding.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   # STEP 4: "Warp to..." AGAIN. This is the desync hunt's second half: the verb
   # rebuilds the unit and resolves NextLaunchAfter(now), so with `now` past cycle 1's
@@ -284,8 +311,9 @@ steps = [
   { cmd = "TimeJump", args = { ut = "576830" }, expect = "OK", budget = 300 },
   # CYCLE-2 PARK EPOCH: the same +20,800 offset off the cycle-2 anchor.
   { cmd = "TimeJump", args = { ut = "581119" }, expect = "OK", budget = 300 },
-  # STEP 5: "Watch" again, an INDEPENDENT phase draw from step 3's (~110 park revs of
-  # accumulated offset). Same 71:29 prediction, same reading if it comes back OK.
+  # STEP 5: "Watch" again, an INDEPENDENT separation from step 3's (the anchor moved;
+  # ~110 park revs of accumulated offset). Not a second draw of the same coin - see the
+  # superseded-arithmetic banner. MEASURED 561,219 m, again REJECTED.
   { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
@@ -325,7 +353,11 @@ allowedAnomalies = []
 # at UT 212.2 - the atmospheric->exo boundary - producing a chained pair
 #   0fd603e3 [34.42, 212.20] 187 pts, endBody=Kerbin   (the ascent)
 #   91e3bfce [212.20, 21,742.54] 603 pts, endBody=Mun  (everything after)
-# joined by chainId 22fa2b10. Its own summary line reads `Split summary:
+# joined by chainId 22fa2b10. THE CHILD'S ID IS PER-RUN: `91e3bfce` (and the chainId
+# with it) is minted at split time and differs on every flight of this fixture - V6T's
+# run of the same save reads `8aea9c9b` for the same member. Quote it for cross-run log
+# matching, never pin it. Only the PARENT id `0fd603e3` is the fixture's own.
+# The optimizer's own summary line reads `Split summary:
 # rec=91e3bfce evaluated=1 ... exoCoastBodyChangeKept=1`, i.e. the optimizer's §3
 # rule-3 deliberately KEPT the Kerbin->Mun body change cohesive and split only the
 # environment boundary. That is why `ExtractConstraints` reports `members=2` and why

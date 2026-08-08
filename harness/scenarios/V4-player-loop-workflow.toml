@@ -28,8 +28,10 @@ id = "V4-player-loop-workflow"
 #   *** the 120,000 m `GhostVisualRangeMeters` render-zone gate; 305,000 m is
 #   *** `WatchModeController.WatchExitCutoffMeters`, the EXIT cutoff and only that. This
 #   *** lane could not have caught it: its 643,913 m parked-tail draw fails BOTH
-#   *** thresholds. V7M's Minmus separations (144,352 m and 191,498 m) land BETWEEN
-#   *** them and refused, which falsifies the 300 km entry hypothesis by measurement.
+#   *** thresholds. V7M's Minmus separations (144,356 m and 191,499 m on its archived
+#   *** V7Mc calibration run; 144,349 m and 191,497 m on run `_1600`'s own archived log)
+#   *** land BETWEEN them and refused, which falsifies the 300 km entry hypothesis by
+#   *** measurement.
 #   *** The corrected condition for this fixture's ~1,038 km-radius park is
 #   *** theta < 2*asin(60/1038.2) = 6.6 deg (~3.7%), not the 16.6 deg / ~9% below - so
 #   *** the REJECTED prediction is if anything better supported than when written.
@@ -159,16 +161,22 @@ id = "V4-player-loop-workflow"
 #       director line rather than read off a guard of its own. The engine printed
 #       the range:
 #         GuardSkip rec=4d43a0c9 reason=hidden-by-zone_distance=643913m
-#       643.9 km against a 300 km watch-entry cutoff and a 120 km zone gate.
+#       643.9 km against the 120 km `GhostVisualRangeMeters` render-zone gate that
+#       actually decides ENTRY (the 305 km `WatchModeController.WatchExitCutoffMeters`
+#       is the EXIT family and gates nothing here; "300 km watch-entry cutoff" was
+#       the wrong name for it - see the correction banner at the top of this file).
 #       So watch mode is NOT categorically unreachable from a parked observer at
-#       the arrival tail - it missed by 2.15x on THIS phase draw, on a shared
-#       ~1,038 km-radius orbit whose maximum possible separation is ~2,077 km.
-#       That is the ~9%-of-phase arithmetic in the paragraph above coming back
-#       with a specific draw, not a refutation of it. A co-phased observer (or
-#       any run whose accumulated on-rails drift lands inside ~16.6 deg) would
-#       get an OK here. DO NOT read this REJECTED as "the player cannot watch a
-#       looped interplanetary arrival"; read it as "this observer was 2.15x too
-#       far away, measured".
+#       the arrival tail - it missed by 5.4x against the real gate on THIS phase
+#       draw, on a shared ~1,038 km-radius orbit whose maximum possible separation
+#       is ~2,077 km.
+#       That is the phase arithmetic in the paragraph above coming back with a
+#       specific separation, not a refutation of it - though read the corrected
+#       figures from the banner (6.6 deg / ~3.7%), not the 16.6 deg / ~9% that
+#       paragraph derived from the wrong threshold. A co-phased observer (or any
+#       run whose accumulated on-rails offset lands inside ~6.6 deg) would get an
+#       OK here. DO NOT read this REJECTED as "the player cannot watch a looped
+#       interplanetary arrival"; read it as "this observer was 5.4x too far away,
+#       measured" (2.15x was the same measurement against the wrong gate).
 #
 # ARMING LEDGER (2026-08-08, the V2/B17 three-run discipline). Both save-structure
 # blocks below now carry `gating = true`:
@@ -257,7 +265,7 @@ steps = [
   # THE PARKED-TAIL EPOCH: D0 + 4,416,912.223. Here the ghost is flying the
   # recorded Duna park - the ONLY epoch in the whole cycle where the auto-select's
   # body test can pass for a Duna-parked observer, so it is the only place the
-  # 300 km chord question can actually be asked.
+  # 120 km chord question can actually be asked.
   { cmd = "TimeJump", args = { ut = "28812941" }, expect = "OK", budget = 300 },
   # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED at ~10:1 on the
   # phase-chord arithmetic in the header; an OK here is the finding.

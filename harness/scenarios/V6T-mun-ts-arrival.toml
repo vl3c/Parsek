@@ -63,9 +63,15 @@ id = "V6T-mun-ts-arrival"
 # verbatim; if it recurs on THIS fixture that is a corroboration of V5's finding, to be
 # recorded, not re-diagnosed.
 #
-# POSTURE: READING RUN, REPORT-ONLY. Both save-structure blocks are DECLARED and
-# UNGATED - this lane has never flown and arming off zero observations is what the
-# V2/B17 three-run discipline forbids. Arming is the next operator's call.
+# POSTURE (as flown and armed, 2026-08-08): FLOWN GREEN, ARMED. Both save-structure
+# blocks now carry `gating = true`, taken off this lane's OWN reading run
+# `2026-08-08_1559` under the V2/B17/V4 three-run discipline, which measured every
+# declared window already met - so the arming re-pinned no window and moved no verdict.
+# Armed re-flight `2026-08-08_1641` PASS attempt 1 with saveParse `status=PASS
+# gating=True armed=['rewind','recordings.structure'] mismatches=0`. The moon quartet's
+# single NEGATIVE CONTROL was flown on V6M (`2026-08-08_1644`): V6M / V6T / V7M all
+# gate through the one shared saveParse evaluator, so a second inversion would re-prove
+# the evaluator rather than these windows (the V4/V5 precedent).
 #
 # READING LEDGER (2026-08-08, one run, no iteration):
 #   Run 1 `2026-08-08_1559`, PASS ATTEMPT 1, wall 50 s, fully unattended - all 16 steps

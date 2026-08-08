@@ -36,19 +36,54 @@ Watch ENTRY is gated 2.5x tighter than the docs claim.
 REJECTED was consistent with either and the wrong one got written down. V7M is
 the first lane whose separations land BETWEEN them: on the shared 98,463.595 m
 Minmus park the engine's own per-member frame line read `zone=Beyond
-rdist=144352m` (cycle 1) and `rdist=191498m` (cycle 2). A 300 km entry cutoff
+rdist=144356m` (cycle 1) and `rdist=191499m` (cycle 2). A 300 km entry cutoff
 predicts OK at both; the 120 km zone gate predicts REJECTED at both. Measured:
-REJECTED at both, on three separate flights, reproducible to ~20 m
-(144,370 / 144,356 / 144,352 m for cycle 1 - these separations are NOT a per-run
-draw, because both craft advance at the same rate on the same orbit, so the
-separation is constant within a cycle and moves only when the phase anchor does).
+REJECTED at both, on every flight of the shape. RE-DERIVED FROM THE FLIGHTS WHOSE
+LOGS SURVIVE (a PASS run collects no logs, so the committed green run's own digits
+are un-archived - quoted from its live output at the time): cycle 1 reads
+144,349 m on run `_1600` (`logs/2026-08-08_1901_V7M-minmus-player-loop`) and
+144,356 / 144,365 m on the two V7Mc calibration attempts (`logs/2026-08-08_1908`
+and `_1909`) - a **16 m spread** across three archived flights, with cycle 2
+tighter still at 191,497 / 191,499 / 191,493 m. These separations are NOT a
+per-run draw, because both craft advance at the same rate on the same orbit, so
+the separation is constant within a cycle and moves only when the phase anchor
+does.
+
+**The evidence, verbatim, so the lane's headline survives log rotation.** From
+`logs/2026-08-08_1908_V7Mc-watch-calibration/KSP.log`; the `engine-frame-iter`
+lines are elided to their `i=1` member, which is the looped ghost:
+
+    [LOG 19:08:31.152] [Parsek][VERBOSE][Engine] engine-frame-iter [i=0 ...],
+      [i=1 rec=775188af skip=None aru=F hd=T hs=T endUT=277204.4]
+      [out:vis=F retired=F zone=Beyond rdist=144356m], ... | suppressed=56
+    [LOG 19:08:31.389] [Parsek][WARN][TestCommands] enterwatchmode rejected
+      reason=no-watchable-ghost committed=9 tree=(any)
+
+    [LOG 19:08:33.158] [Parsek][VERBOSE][Engine] engine-frame-iter [i=0 ...],
+      [i=1 rec=775188af skip=None aru=F hd=T hs=T endUT=277204.4]
+      [out:vis=F retired=F zone=Beyond rdist=191499m], ... | suppressed=58
+
+    [LOG 19:08:33.508] [Parsek][VERBOSE][Zone] FX suppressed: ghost #1 "Kerbal X"
+      cycle=2 anchorDist=51503m renderDist=51503m
+      ghostPos=(-21281.9400,-6266.4390,46479.9000) anchorPos=(0.0000,0.0000,0.0000)
+    [LOG 19:08:33.656] [Parsek][INFO][TestCommands] enterwatchmode initiated:
+      index=1 recId=775188aff66f4c06928e97f2b94e6f0b tree= auto=true
+    [LOG 19:08:33.710] [Parsek][INFO][TestCommands] enterwatchmode complete:
+      index=1 recId=775188aff66f4c06928e97f2b94e6f0b
 
 **Corrected arithmetic** for "can a co-orbiting observer watch its own replay",
 chord < 120 km on a shared circle of radius a, `theta < 2*asin(60/a)`:
-Minmus 75.1 deg (~42% of a uniform draw), Mun 20.3 deg (~11%), V4's Duna park
-6.6 deg (~3.7%). V7M's cycle-3 park measured `zone=Visual rdist=51603m` and the
-verb answered `enterwatchmode complete: index=1 recId=9fc8d536...` - the FIRST
-watch-mode entry in the suite.
+Minmus 75.1 deg, Mun 20.3 deg, V4's Duna park 6.6 deg. (The "% of a uniform draw"
+the first write-up attached to each is dropped: the separation is constant within
+a cycle, so it is a per-cycle geometric fact, not a draw.) V7M's cycle-3 park is
+the one inside the gate - 51,503 m on the archived calibration above, un-archived
+`zone=Visual rdist=51603m` on the committed green run - and the verb answered
+`enterwatchmode complete: index=1 recId=...`, the FIRST watch-mode entry in the
+suite. Two reading notes: the recId differs per run (`775188af...` calibration,
+`9fc8d536...` green run) because it is the optimizer's split child, minted at
+split time; and do NOT read the calibration's later `zone=Physics rdist=7m` as a
+cycle-3 separation - that is the CYCLE-5 park, sampled while already watching,
+where `rdist` is the RENDER distance and the camera is anchored on the ghost.
 
 Fix: the V4 spec header and status row carry a correction banner pointing here;
 V6M's section 4 is marked superseded in place (the section is kept because the
@@ -139,14 +174,31 @@ widen either blindly"); this is that re-derivation.
 |---|---|
 | `2026-08-08_1355` | 7x `Destroyed (null)` + 1x `Orbiting Mun` |
 | `2026-08-08_1419` | 6x `Destroyed (null)` + 1x `Landed Kerbin` + 1x `Orbiting Mun` |
+| `2026-08-08_1458` | 6x `Destroyed (null)` + 1x `Landed Kerbin` + 1x `Orbiting Mun` (the post-re-pin re-fly, and the `mun-orbit-recorded` fixture's source - pinned on disk in its committed `persistent.sfs`) |
+
+So `Landed Kerbin` is the MAJORITY shape, 2 of 3; the all-`Destroyed` flight is
+the outlier. What every flight agrees on is the absence: `Orbiting Kerbin` never
+occurs (0 in both archived KSP.logs, 0 in the third flight's committed save),
+which is why the removed required-row is now carried as a FORBIDDEN token
+instead - the facet is guarded in the negative.
 
 On the Mun profile the flameout-staging watchdog does not leave a core in Kerbin
-orbit: it fires TWICE during CORRECTION-BURN (ut 4899.812 / 4901.912 on one
-flight, 4899.939 / 4902.019 on the other - identical to 0.13 s, so the drop is
-deterministic), at alt ~3.60 Mm with `thr=0.250 avThr=0.000`, a real dry transfer
-stage. The non-booster remnant therefore leaves on a Kerbin-IMPACTING trajectory.
-Its terminal classification is the one genuinely unstable facet (`Destroyed` vs
-`Landed Kerbin`) across two otherwise byte-similar flights.
+orbit: it fires TWICE during CORRECTION-BURN, at alt ~3.60 Mm with `thr=0.250
+avThr=0.000`, a real dry transfer stage. Name the event type when quoting the
+UTs - the two are ~0.5 s apart and an earlier draft of this entry quoted one of
+each. Per run, `gate flameoutStreak 0->1` (debounce onset) then
+`gate flameoutStages 0->1` / `1->2` (the stage fires):
+
+| run | onsets | fires |
+|---|---|---|
+| `2026-08-08_1355` | 4899.939 / 4901.499 | 4900.419 / 4902.019 |
+| `2026-08-08_1419` | 4899.812 / 4901.392 | 4900.312 / 4901.912 |
+| `2026-08-08_1458` | 4899.956 / 4901.576 | 4900.476 / 4902.096 |
+
+All four events agree across the three flights to within 0.2 s, so the drop is
+deterministic. The non-booster remnant therefore leaves on a Kerbin-IMPACTING
+trajectory. Its terminal classification is the one genuinely unstable facet
+(`Destroyed` vs `Landed Kerbin`) across otherwise byte-similar flights.
 
 **Root-caused before re-pinning, per the shared-machine rule** (a deterministic
 change in a mission every other B-lane shares must be explained, not masked).
@@ -173,10 +225,14 @@ flight rather than assumed to share the problem, and its flight measured
 6x `Destroyed (null)` + 1x `Orbiting Kerbin` + 1x `Orbiting Minmus`, so today is
 the first time B12's copy of the token is live-proven. Nothing was widened: after
 the removal the count still owns the total (8), the Mun row owns the
-committed-craft class and the Destroyed row owns the debris class; the single
+committed-craft class and the Destroyed row owns the debris class, and the
+removed row is CONVERTED INTO A NEGATIVE GUARD - `terminalState=Orbiting
+terminalOrbitBody=Kerbin` is now in B11's `logContracts.forbidden`, which is the
+stable half of the finding (never observed on any of the three flights) and reds
+if B12's Kerbin-orbit remnant ever starts appearing on the Mun profile. The single
 unguarded facet is which of `Destroyed`/`Landed` the remnant ends as, unguarded
 precisely because it is not stable. Re-derive from a fresh measured run before
-ever re-adding it.
+ever re-adding the positive row.
 
 ## ~~DESIGN-DOC-13.1-STALE-TEST-NAMES: ten unit-test class names in the rewind design doc's §13.1 v0.9.1 list do not exist in Source~~ [FOUND 2026-08-05 during the gameplay-scenarios-wave-1 §13.2 doc-truth reconciliation. DONE 2026-08-05 - per-bullet verification against the real test bodies, no mass-rename]
 
@@ -5372,7 +5428,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `retire-not-held` | yes (promoted 2026-08-04) | `MapRender/ShadowRenderDriver.cs:394` -> `MapRenderTrace.EmitRetireNotHeld` (`:1430`) |
 | `anchor-resolve-fail` | yes (promoted 2026-08-04) | `MapRender/AnchorFrameResolver.cs:87` -> `MapRenderTrace.EmitAnchorResolveFail` (`:1455`) |
 | `factory-parity` | **NO** (report-only instrument) | `MapRender/ShadowRenderDriver.cs:709` -> `MapRenderTrace.EmitFactoryParity` (`:1485`) |
-| `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change) |
+| `loop-seam-teleport` | yes (gated at birth 2026-08-07, flight-arrival lane) | `ParsekFlight.cs` `TrackLoopSeamTeleport` -> `GhostRenderTrace.EmitAnomaly` (the third tracer signature; walker taught in the same change). SENSITIVITY, because silence gets cited as evidence: it raises on a SINGLE-FRAME world delta above `max(GhostRenderTrace.LoopSeamTeleportFloorMeters = 1,000,000 m, expected motion * dt * multiplier)`, so a clean sweep excludes discontinuities over 1,000 km between consecutive frames and nothing finer |
 
 That WAS nine ungated reasons, not five (seven now gated per the RESOLUTION below; the table's per-row flags carry the current truth). **The first version of this table listed five**, and the four it missed are the wrapper-routed rows: the cutover-hardening raises, which reach `EmitAnomaly` through thin once-per-event `MapRenderTrace` wrappers instead of calling it at the guard site, so a grep for `EmitAnomaly` call sites does not land on them. They emit the same `phase=Anomaly ... reason=<token>` line as any direct raise (all four route through `MapRenderTrace.cs:1371` `EmitRaw(true, "Anomaly", ...)`), so all four were genuinely ungated then (three are promoted now; `factory-parity` stays the declared instrument). Understating the ungated count understates the size of the fail-open, which is the one thing this entry existed to size, hence the source-derived gate above. `clock-not-ready` in particular is the cold-load UT<=0 defer - a defect class this project already tracks separately.
 
