@@ -760,6 +760,21 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // Player-workflow lane, same bounded-completion contract. StartLoopPlayback
+            // REUSES TestCommandTimeJump.DecideJumpCompletion (its forward jump is the
+            // same instantaneous clock set, watched at the LEAD-adjusted landed target);
+            // EnterWatchMode waits on the watch read-back instead of the clock.
+            if (completionVerb == "StartLoopPlayback")
+            {
+                TryCompleteStartLoopPlayback(now);
+                return;
+            }
+            if (completionVerb == "EnterWatchMode")
+            {
+                TryCompleteEnterWatchMode(now);
+                return;
+            }
+
             // M-C2 EVA verbs: each owns a bounded, observable completion in the sibling
             // ParsekTestCommandAddon.Eva.cs partial and never falls through to the generic
             // awaiting-completion TIMEOUT below.
@@ -898,7 +913,9 @@ namespace Parsek.TestCommands
             // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
             // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
             // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
-            // never be read across commands.
+            // never be read across commands. The player-workflow lane's fields
+            // (loopPlayback* / watch*) follow the same contract, re-armed wholesale in
+            // StartLoopPlaybackImpl / EnterWatchModeImpl.
         }
 
         // Deferred one-frame quit for FlushAndQuit: scheduled only after the response +
@@ -1106,6 +1123,12 @@ namespace Parsek.TestCommands
         // is synchronous state mutation, so there is no TryComplete* counterpart.
         void ITestCommandExecutor.MissionConfig(ParsedCommand cmd) => MissionConfigImpl(cmd);
 
+        // Player-workflow lane. Both bodies + their two-phase completions live in the
+        // sibling ParsekTestCommandAddon.StartLoopPlayback.cs /
+        // ParsekTestCommandAddon.EnterWatchMode.cs partials.
+        void ITestCommandExecutor.StartLoopPlayback(ParsedCommand cmd) => StartLoopPlaybackImpl(cmd);
+        void ITestCommandExecutor.EnterWatchMode(ParsedCommand cmd) => EnterWatchModeImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1133,6 +1156,8 @@ namespace Parsek.TestCommands
                 case "ExitToSpaceCenter": exec.ExitToSpaceCenter(cmd); break;
                 case "SimulateStockSwitchClick": exec.SimulateStockSwitchClick(cmd); break;
                 case "MissionConfig": exec.MissionConfig(cmd); break;
+                case "StartLoopPlayback": exec.StartLoopPlayback(cmd); break;
+                case "EnterWatchMode": exec.EnterWatchMode(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

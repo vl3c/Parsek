@@ -926,10 +926,12 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The remaining NINE names stay RESERVED (not v1-drivable). SimulateStockSwitchClick
-        # WAS in this list and left it in R12; MissionConfig left it for the
-        # arrival-validation lane - see the promotion cells below.
-        for verb in ("StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot",
+        # The remaining SEVEN names stay RESERVED (not v1-drivable).
+        # SimulateStockSwitchClick WAS in this list and left it in R12; MissionConfig
+        # left it for the arrival-validation lane; StartLoopPlayback and EnterWatchMode
+        # left it for the player-workflow lane - see the promotion cells below.
+        # StopPlayback stays reserved on purpose: teardown is FlushAndQuit's job.
+        for verb in ("StopPlayback", "SealSlot",
                      "StashSlot", "FlySlot", "RouteCommand",
                      "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
@@ -968,15 +970,18 @@ class SpecValidationRejectTests(unittest.TestCase):
     def test_mc2_eva_verbs_implemented_not_reserved(self):
         # M-C2: EvaExit / EvaBoard / PlantFlag are NEW implemented verbs (never in the
         # RESERVED envelope), additive like SaveGame; EVA-4 added EvaChuteDeploy the same
-        # way. Verb table is 21 implemented / 10 reserved after R12 (mirrors the C#
-        # TestCommandVerbs counts: 19 + ExitToSpaceCenter additive + the
-        # SimulateStockSwitchClick promotion, which also takes reserved 11 -> 10).
+        # way. Verb table is 24 implemented / 7 reserved after the player-workflow
+        # lane (mirrors the C# TestCommandVerbs counts: 19 + ExitToSpaceCenter
+        # additive + THREE promotions out of the reserved list - R12's
+        # SimulateStockSwitchClick, the arrival-validation lane's MissionConfig, and
+        # the player-workflow lane's StartLoopPlayback + EnterWatchMode - which take
+        # reserved 11 -> 7).
         for verb in ("EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 22)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 9)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 24)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 7)
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
@@ -1033,6 +1038,48 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
         self.assertEqual(hlib.required_dispatch_step_wait("ExitToSpaceCenter"), 180.0)
 
+    def test_player_workflow_verbs_implemented_not_reserved(self):
+        # The player-workflow lane's two promotions (the THIRD and FOURTH strict ones
+        # since M-C1): both must end up implemented and neither reserved. Fails the way
+        # a half-done promotion fails - a name in BOTH sets, or in neither.
+        for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        # StopPlayback is the deliberate hold-out beside them: teardown is
+        # FlushAndQuit's job, so a stop verb would be a second, weaker owner of it.
+        self.assertIn("StopPlayback", hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn("StopPlayback", hlib.IMPLEMENTED_SEAM_VERBS)
+
+    def test_player_workflow_steps_are_no_longer_rejected_as_reserved(self):
+        # The BEHAVIOURAL half of both promotions: before this lane a spec naming
+        # either verb failed validation with "is RESERVED, not v1-drivable", which is
+        # what made the warp-and-watch player loop unauthorable. Fails if either
+        # promotion is cosmetic.
+        for verb, args in (("StartLoopPlayback", {"tree": "tree-1"}),
+                           ("EnterWatchMode", {})):
+            with self.subTest(verb=verb):
+                def m(s):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(
+                        1, {"cmd": verb, "args": args, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(any(verb in e for e in v.errors),
+                                 "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_player_workflow_deferral_shape_mirrors_c_sharp(self):
+        # StartLoopPlayback is a forward CLOCK jump, so it joins DEFERRED_SEAM_VERBS
+        # (the 540 s cap must govern any spec-declared budget) and mirrors the C#
+        # StartLoopPlaybackSeconds = 120. EnterWatchMode is two-phase but its
+        # completion is a camera read-back, so it stays OUT and rides the 60 s default
+        # - the same call SimulateStockSwitchClick's absence records.
+        self.assertIn("StartLoopPlayback", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("EnterWatchMode", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(hlib.dispatch_deferral_budget("StartLoopPlayback"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("EnterWatchMode"), 60.0)
+        self.assertLess(hlib.dispatch_deferral_budget("StartLoopPlayback"),
+                        hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+
     def test_r12_typed_refusals_map_to_finer_driver_subkinds(self):
         # Both verbs ship a typed refusal taxonomy; without these rows every one of them
         # collapses to the coarse driver-verdict-mismatch and the taxonomy is decorative
@@ -1064,6 +1111,47 @@ class SpecValidationRejectTests(unittest.TestCase):
         for msg in ("switch-threw", "switch-refused-by-stock"):
             with self.subTest(msg=msg):
                 self.assertEqual("", hlib.classify_seam_refusal_subkind(msg))
+
+    def test_loop_lane_typed_refusals_map_to_finer_driver_subkinds(self):
+        # Same statement as the R12 cell, for the three loop-lane verbs. MissionConfig
+        # landed with NO rows at all (the pre-existing gap); StartLoopPlayback and
+        # EnterWatchMode are swept in with it. Every one of these is a REFUSAL, so a
+        # missing row costs the report the finer subkind and nothing else - which is
+        # exactly the silent decay this cell exists to catch.
+        for msg, expected in (
+                # StartLoopPlayback, arg half.
+                ("tree-arg-missing", "driver-arg"),
+                ("unknown-tree%20tree%3Ddeadbeef", "driver-arg"),
+                # StartLoopPlayback, gate half.
+                ("loop-not-armed", "driver-gate"),
+                ("unit-not-built%20tree%3Dccb5e4af", "driver-gate"),
+                ("no-next-window%20tree%3Dccb5e4af", "driver-gate"),
+                ("window-not-forward%20tree%3Dccb5e4af%20relaunchUt%3D1", "driver-gate"),
+                ("no-flight-instance", "driver-gate"),
+                # EnterWatchMode.
+                ("index-arg-invalid%20index%3Dxyz", "driver-arg"),
+                ("index-out-of-range%20index%3D9%20committed%3D3", "driver-arg"),
+                ("no-watchable-ghost%20committed%3D3%20tree%3D(any)", "driver-gate"),
+                ("watch-not-entered", "driver-gate"),
+                # MissionConfig.
+                ("loop-arg-invalid%20loop%3Dyes", "driver-arg"),
+                ("interval-arg-invalid%20intervalSeconds%3D-1", "driver-arg")):
+            with self.subTest(msg=msg):
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+        # THE SHARED KEYS. The table is keyed by msg token alone, so one row serves
+        # every verb that emits the token - including `unknown-tree`, which is
+        # REJECTED on StartLoopPlayback / EnterWatchMode but ERROR on MissionConfig.
+        # The subkind is verdict-independent by construction: classify reads the msg
+        # and never the verdict, so both spellings of the same lookup miss land on
+        # driver-arg and both retry once. (Spec authors still have to match `expect`
+        # per verb - that is the design doc's note, not this table's job.)
+        for shared in ("tree-arg-missing", "unknown-tree", "no-flight-instance"):
+            with self.subTest(shared=shared):
+                self.assertIn(shared, hlib._SEAM_REFUSAL_SUBKINDS)
+        # StartLoopPlayback's post-arm terminal is NOT a refusal, same rule as
+        # switch-threw above: the jump was initiated and the clock never landed.
+        self.assertEqual("", hlib.classify_seam_refusal_subkind("jump-timeout"))
 
     def test_r12_loadgame_scene_arg_is_validated_pre_launch(self):
         # The seam's scene= parse is fail-closed and case-sensitive, so a typo is a typed
@@ -4595,6 +4683,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # difference measured against an unflown baseline is not a difference.
         "GS-2-orbital-probe-deploy.toml":   "FLOWN GREEN 2026-08-05 (0853 reading, 0856 armed); operator tier is now an open PROMOTION call, not debt",
         "GS-3-switch-nudge-deployed.toml":  "FLOWN 3x 2026-08-05 (0903 measured the bug, 1132 measured the fix) and ARMED; operator tier is now an open PROMOTION call, not debt",
+        # The V4/V5 player-workflow pair, operator by the SAME calibration
+        # discipline as V1/V2/V3: the first flight was a deliberately under-gated
+        # READING run whose red, if any, would have been evidence. Both READ
+        # GREEN on 2026-08-08 and both were then ARMED on the V2/B17 three-run
+        # discipline, so the post-reading arming call these entries pointed at
+        # has been TAKEN. What remains for each is the ordinary operator ->
+        # nightly PROMOTION call, which is a cadence decision for a human and not
+        # a review debt.
+        "V4-player-loop-workflow.toml":     "FLOWN GREEN 2026-08-08 (1135 reading, 1154 armed, 1156 min=1 negative control PARSEK-FAIL(save-structure)) and ARMED on both save-structure blocks; both EnterWatchMode verdicts came back REJECTED as predicted from the 300 km camera-only cutoff. Operator tier is now an open PROMOTION call, not debt",
+        "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
     }
 
     def _specs(self):
@@ -4867,7 +4965,27 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading runs =
                        # V2 flights 4-6 (all reads 0 / committedTrees 1), armed
                        # + negative-control runs cited in the status doc row.
-                       "V2-loop-arrival-dwell.toml"}
+                       "V2-loop-arrival-dwell.toml",
+                       # V4: rewind (all max 0 - the player workflow arms, warps,
+                       # watches and jumps but authors nothing durable) +
+                       # structure (exactly one committed tree; the scene-entry
+                       # promotion stub never commits) armed 2026-08-08 on the
+                       # V2/B17 discipline; reading run 2026-08-08_1135 (PASS
+                       # attempt 1, every declared window already met - rewind
+                       # facets all 0, committedTrees 1, trees 1), armed +
+                       # negative-control runs cited in the status doc row.
+                       "V4-player-loop-workflow.toml",
+                       # V5: the same two blocks, armed 2026-08-08 on the same
+                       # discipline; reading run 2026-08-08_1144 (PASS attempt 1,
+                       # rewind facets all 0, committedTrees 1, trees 1). The
+                       # arming is worth more here than on a single-scene dwell:
+                       # V5 is the one committed spec that writes a save mid-run
+                       # and reads it back through a SECOND scene load, so a
+                       # stray durable write is easiest to miss in this shape.
+                       # Armed run cited in the status doc row; the min=1
+                       # negative control was flown once, on V4, since both specs
+                       # gate through the one shared saveParse path.
+                       "V5-ts-loop-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -6550,12 +6668,31 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
                 self.assertFalse(hlib.post_mission_step_gates(verb))
 
+    def test_player_workflow_verbs_are_recording_not_outcome(self):
+        # Both player-workflow verbs are `recording`. The `outcome` set is exactly the
+        # verbs whose verdict is a claim about a KERBAL's physical in-world state:
+        #   StartLoopPlayback's OK means "the clock reached the next departure window"
+        #     - a Parsek clock/playback claim; whether the loop then replayed is proven
+        #     by the tracers, the anomaly sweep and the spec's pinned log lines.
+        #   EnterWatchMode's OK means "the flight camera is watching recording #N", a
+        #     read-back of Parsek's own camera state.
+        # Note the two axes disagree on purpose: both are WORLD-MUTATING on the tail
+        # axis (asserted in SeamVerbTailRoleTests) and `recording` here.
+        for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
     def test_unknown_verb_does_not_gate(self):
         # Opposite fail-safe direction from SEAM_VERB_TAIL_ROLE, deliberately: an
         # unrecognised verb is a spec fault validate_spec already rejects, and
         # gating on a vocabulary miss would red runs for a typo rather than for an
         # outcome.
-        for unknown in ("StartLoopPlayback", "SomeFutureVerb", "", None):
+        # StopPlayback is the canonical still-RESERVED sample here (StartLoopPlayback
+        # held that spot until the player-workflow lane promoted it, at which point it
+        # stopped being an unknown verb at all).
+        for unknown in ("StopPlayback", "SomeFutureVerb", "", None):
             self.assertFalse(hlib.post_mission_step_gates(unknown), repr(unknown))
 
     def test_the_eva4_flight3_step_stream_names_the_chute_step(self):
@@ -6732,6 +6869,19 @@ class SeamVerbTailRoleTests(unittest.TestCase):
                 self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                                  hlib.seam_verb_tail_role(verb))
 
+    def test_player_workflow_verbs_are_world_mutating(self):
+        # StartLoopPlayback advances the game CLOCK to the mission's next departure
+        # window (tens of millions of seconds on an interplanetary loop) and drives the
+        # spawn queue + ledger recalc across everything crossed - the TimeJump class.
+        # EnterWatchMode is the weaker call and is labelled deliberately: it writes no
+        # save and no durable record, but it takes an InputLockManager control lock on
+        # the active vessel, so it is not the read-only `inert` class either, and this
+        # table's fail-safe direction is world-mutating.
+        for verb in ("StartLoopPlayback", "EnterWatchMode"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                                 hlib.seam_verb_tail_role(verb))
+
     def test_read_only_verbs_are_inert_not_mislabelled_mutating(self):
         for verb in ("RecordingState", "MissionMark"):
             self.assertEqual(hlib.TAIL_ROLE_INERT, hlib.seam_verb_tail_role(verb), verb)
@@ -6742,7 +6892,10 @@ class SeamVerbTailRoleTests(unittest.TestCase):
         # added its row yet) must be presumed to DO something, so the unmet tail skips
         # it. EvaChuteDeploy WAS this case until PR #1348 merged it, which is exactly
         # what the totality cell above now keeps from recurring silently.
-        for unknown in ("StartLoopPlayback", "SomeFutureVerb", ""):
+        # StopPlayback is the canonical still-RESERVED sample here (StartLoopPlayback
+        # held that spot until the player-workflow lane promoted it - it now has a real
+        # row, which is what the totality cell above enforces).
+        for unknown in ("StopPlayback", "SomeFutureVerb", ""):
             self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                              hlib.seam_verb_tail_role(unknown), unknown)
 

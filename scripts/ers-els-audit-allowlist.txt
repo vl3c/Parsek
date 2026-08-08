@@ -340,3 +340,23 @@ Source/Parsek/Logistics/RouteOrchestrator.cs
 # members under the builder. Documented at the call site with an inline
 # [ERS-exempt] comment.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.MissionConfig.cs
+
+# [ERS-exempt] StartLoopPlayback seam verb (test-command surface, unreachable
+# without PARSEK_TEST_COMMANDS=1): identical read to MissionConfig's above -
+# RecordingStore.CommittedTrees / CommittedRecordings raw into
+# MissionLoopUnitBuilder.TryBuildLoopUnitForSelection, whose member indices are
+# committed-LIST indices, so an ERS-filtered list would re-index members under
+# the builder. Documented at the call site with an inline [ERS-exempt] comment.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs
+
+# [ERS-exempt] EnterWatchMode seam verb (test-command surface, unreachable
+# without PARSEK_TEST_COMMANDS=1): reads RecordingStore.CommittedRecordings raw
+# because every ghost-engine API it drives (HasActiveGhost / IsGhostOnSameBody /
+# IsGhostWithinVisualRange / WatchedRecordingIndex / EnterWatchMode) is keyed on
+# the RAW committed index, not the ERS index (which shifts after a Re-Fly
+# supersede) - the SAME rationale the production caller it reproduces carries
+# (UI/MissionsWindowUI.DrawMissionWatchButton's [ERS-exempt] note), and the same
+# list-alignment class as RouteOrchestrator's exemption. Physical-identity
+# correlation, not a recording-id walk. Documented with a file-level
+# [ERS-exempt] header comment plus an inline note at the read.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs

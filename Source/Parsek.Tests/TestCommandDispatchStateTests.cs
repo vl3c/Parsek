@@ -40,6 +40,8 @@ namespace Parsek.Tests
             public void ExitToSpaceCenter(ParsedCommand cmd) => Calls.Add("ExitToSpaceCenter");
             public void SimulateStockSwitchClick(ParsedCommand cmd) => Calls.Add("SimulateStockSwitchClick");
             public void MissionConfig(ParsedCommand cmd) => Calls.Add("MissionConfig");
+            public void StartLoopPlayback(ParsedCommand cmd) => Calls.Add("StartLoopPlayback");
+            public void EnterWatchMode(ParsedCommand cmd) => Calls.Add("EnterWatchMode");
         }
 
         [Fact]
@@ -78,6 +80,13 @@ namespace Parsek.Tests
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
         [InlineData("SimulateStockSwitchClick", "RequiresFlight")]
+        // The arrival-validation lane's promotion arms mission loop state on a
+        // committed tree from FLIGHT (this row was missing when MissionConfig landed).
+        [InlineData("MissionConfig", "RequiresFlight")]
+        // Player-workflow lane: both reproduce a FLIGHT-scene player action (the
+        // in-flight "Warp to..." fast-forward and the flight camera's watch entry).
+        [InlineData("StartLoopPlayback", "RequiresFlight")]
+        [InlineData("EnterWatchMode", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -110,6 +119,8 @@ namespace Parsek.Tests
             fake.ExitToSpaceCenter(cmd);
             fake.SimulateStockSwitchClick(cmd);
             fake.MissionConfig(cmd);
+            fake.StartLoopPlayback(cmd);
+            fake.EnterWatchMode(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

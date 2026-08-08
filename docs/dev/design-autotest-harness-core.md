@@ -1978,8 +1978,10 @@ Recorded so they are not lost; none blocks the v1 seam-driven daily loop.
   verbs and M-C2 adds the verifiers. UPDATE 2026-07-31: `InvokeRewind` / `TimeJump`
   implemented with M-C1, and the `rewind` half ACTIVATED with the M-C2 save-parse
   verifier (chain row 7b, report-only until a block arms `gating = true`). `loop`
-  stays reserved - `StartLoopPlayback` is still a reserved verb and no committed
-  spec declares the block.
+  stays reserved. UPDATE 2026-08-08: the LAST of the three verbs,
+  `StartLoopPlayback`, is now implemented too (the player-workflow lane's promotion,
+  alongside `EnterWatchMode`), so the `loop` block's blocker is no longer the verb -
+  it is that no `loop` VERIFIER exists and no committed spec declares the block.
 - **Multi-session orchestration (M-C1).** v1 runs one KSP process per scenario
   attempt. Fly-commit-restart-observe cycles (re-fly merges, routes, synodic
   cadence, loop self-overlap) need the multi-session primitive; the result record

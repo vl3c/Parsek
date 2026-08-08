@@ -1,0 +1,359 @@
+schema = 1
+id = "V4-player-loop-workflow"
+# =====================================================================================
+# V4: THE PLAYER WORKFLOW, END TO END, UNATTENDED -- the first run that drives the
+# actual sequence a human performs after a mission is in the can:
+#
+#     load the save -> arm the mission's loop (Missions window checkbox)
+#     -> "Warp to..." the next departure -> "Watch" the replay
+#     -> follow it forward to the arrival.
+#
+# MissionConfig (the arrival-validation lane) armed the loop and stopped there;
+# V2 then dwelled the MAP camera through the recorded handoffs. Neither drove the
+# two FLIGHT-scene buttons that follow the checkbox, because nothing unattended
+# could reach them. The player-workflow lane promoted them (StartLoopPlayback =
+# "Warp to...", EnterWatchMode = "Watch"), and this spec is their first flight.
+#
+# READING RUN, deliberately under-gated in ONE place and hard-pinned everywhere
+# else. The hard pins are the workflow's own product evidence (arm -> engage ->
+# warp -> the product's own FastForwardToEventUT jump line). The one deliberately
+# PREDICTED-not-known value is each EnterWatchMode step's verdict, and the
+# prediction is REJECTED at BOTH epochs, for a reason recon measured rather than
+# guessed:
+#
+#   WATCH MODE IS CAMERA-ONLY AND RANGE-GATED. WatchModeController's auto-select
+#   conjunction (TestCommandEnterWatchMode.ResolveAutoWatchIndex, verbatim from
+#   MissionsWindowUI.ResolveMissionWatchTarget) is
+#       HasActiveGhost && IsGhostOnSameBody && IsGhostWithinVisualRange
+#   with a 300 km watch ENTRY cutoff (305 km exit). The observer here is the
+#   fixture's DD1, parked at Duna. At the epoch the warp lands on (the pad launch
+#   - see the arithmetic below) the ghost is at KERBIN, on another body entirely,
+#   so IsGhostOnSameBody alone refuses before range is consulted. At the
+#   PARKED-TAIL epoch the ghost IS at Duna, on the same ~1,038 km-RADIUS orbit
+#   the live craft occupies - READ THE RADIUS OFF THIS FIXTURE, not off a sibling
+#   lane: the parked DD1 sits at alt 718,363 m over Duna's 320 km surface, i.e.
+#   SMA 1,038,214.95 / ecc 0.00127 straight out of persistent.sfs. (V3C's park is
+#   283 km; importing ITS radius here is the mistake the first draft of this
+#   header made.) So the body test passes and only the 300 km chord decides:
+#   2*1,038*sin(theta/2) < 300 km needs theta < ~16.6 deg of phase separation,
+#   i.e. ~9% of a uniformly-drawn phase, and ~19.65 Ms of live on-rails orbiting
+#   between the fixture epoch and the parked-tail epoch draws that phase
+#   effectively at random. So the parked-tail prediction is REJECTED at ~10:1,
+#   and an OK there is the more interesting measurement: it would mean a
+#   parked observer CAN watch a looped interplanetary ghost's arrival tail, which
+#   the co-location design question (V3C's header) currently assumes it cannot.
+#   Either verdict is this lane's deliverable. If the run reds because the
+#   parked-tail step answered OK, the fix is to re-pin THIS step, never to soften
+#   the measurement.
+#
+# THE SEAM ARITHMETIC, as MEASURED by run 1 (the pre-flight derivation reached
+# the same three UTs by a route that mis-attributed one of its anchors; both the
+# numbers and the corrected route are recorded here so the next author does not
+# re-derive the wrong one):
+#
+#   WHAT "WARP TO..." ACTUALLY RESOLVES. `ComputeNextRelaunchUT` returns the
+#   mission's next RELAUNCH - the phase anchor, i.e. the pad launch that starts
+#   the replay span - NOT the interplanetary departure. Run 1 measured
+#   `relaunchUt=24306580.0709779`, and the product jumped to 24,306,565.13 (the
+#   15 s launch lead), a single instantaneous 15,146,166.4 s clock set. D0, the
+#   ENGAGED unit's Kerbin->Sun departure, is a DIFFERENT and later UT
+#   (24,396,028.988 on the same run's [Reaim] line). Anchor bracket UTs to the
+#   RELAUNCH UT the verb echoes, never to D0.
+#
+#   THE OFFSETS ARE V2's RAW ONES ON THIS FIXTURE. V2's offsets were measured
+#   against recording start 4,653,504.304 and apply DIRECTLY to this fixture's
+#   phase anchor:
+#     depart  = relaunchUt +    89,448.917 = 24,396,028.99  (= D0, confirmed)
+#     ARRIVAL = relaunchUt + 4,474,604.451 = 28,781,184.52
+#     PARKED  = relaunchUt + 4,506,361.140 = 28,812,941.21
+#   V3C's -188.294 s correction is a MATCHED PAIR with ITS anchor
+#   (24,306,768.36), and the 188.294 s is a SPAN-START-vs-RECORDING-START delta
+#   (span start 4,653,692.598 - recording start 4,653,504.304), NOT a pad-align
+#   shift: the PadAlignLaunch shift is +7,378.5 s in BOTH lanes, and V4's own log
+#   prints it - `launchShift=7378.5s phaseAnchor=24306580.07` off
+#   `anchor=24299201.55`. So V3C measures its offsets from the span start and
+#   subtracts the delta back out; this spec measures them from the recording
+#   start and does not, and applying V3C's correction to THIS anchor would
+#   double-count the same 188.294 s. (V3C's own header never writes the number -
+#   it is implicit in that lane's span-start convention, which is precisely why
+#   it got mis-attributed here.) Both routes land on the same 28,781,184.52 -
+#   phaseAnchor + raw offset = V3C's span-start-corrected identity - which is why
+#   the error was invisible.
+#   INDEPENDENTLY CONFIRMED by two product lines on run 1: the [ReaimSeam] synth
+#   geometry line (`arrivalUT=28781185 soiEntryUT=28781185`) and the icon
+#   driver's own replay window (`bounds=[28781184.5,28813228.5]`).
+#
+# THE BRACKET IS AN EXPECTED-NULL, AND IS FLOWN ANYWAY. V3C measured the flight
+# engine's hide gate at DistanceThresholds.GhostVisualRangeMeters = 120,000 m,
+# and predicted the Sun->Duna seam sits at Duna's SOI radius (47,921,949 m)
+# against this fixture's ~1,038 km-radius park - ~400x over the gate, hence
+# unobservable by construction. (The ~400x is 47.9 Mm / 120 km; the park radius
+# does not enter it.) The three bracket jumps are kept because the loop-seam-teleport
+# sweep is armed and the jumps are instantaneous - a free reading.
+#
+#   RUN 1 MEASURED THE NULL AND ALSO QUALIFIED V3C's ARITHMETIC. Zero
+#   loop-seam-teleport raises, zero anomalies of any reason, and no [ReaimSeam]
+#   dist[] sampling at the seam instants - the expected null. But the one
+#   `hidden-by-zone` sample the bracket produced read
+#   `distance=869479m` (869.5 km), not the ~47.9 Mm the SOI-radius argument
+#   predicts: 7.2x the 120 km gate, not 400x. ONE candidate explains it: the icon
+#   driver's replay window starts AT the seam (`bounds=[28781184.5,28813228.5]`),
+#   so a pre-bounds ghost resolves to a clamped in-bounds position near Duna
+#   rather than to the SOI edge. A second candidate - "the hide line prints
+#   `renderDistance`, cached separately from the `lastDistance` the watch
+#   conjunction reads" - was RAISED here and is REFUTED: on the production path
+#   `ResolvePlaybackDistance` and `ResolvePlaybackActiveVesselDistance`
+#   (GhostPlaybackEngine.cs:5693-5727) are textually IDENTICAL - both fall
+#   through to `Vector3d.Distance(ghost.transform.position, activeVesselPos)`,
+#   the resolver overrides exist only for InGameTests - and one
+#   `CachePlaybackDistances` call writes both fields immediately before the hide
+#   emit. So in production renderDistance == lastDistance, which does not weaken
+#   any reading here; it STRENGTHENS the 643.9 km one below, because it means
+#   `IsGhostWithinVisualRange` provably compared 643,913 against 300,000 rather
+#   than some other cached number. FILED, not softened: the surviving clamp
+#   candidate is a follow-up, and nothing in this spec depends on it.
+#
+# BACKWARD JUMPS ARE REFUSED, LOUDLY AND NON-GATINGLY (the V3C run-3 trap). The
+# seam answers a non-forward TimeJump `REJECTED reason=backward-jump`; every step
+# below is strictly forward (24.40M -> 28.781M -> 28.813M), and the refusal token
+# is FORBIDDEN so a future edit that reorders them self-detects instead of
+# dwelling nowhere under a green verdict.
+#
+# READING LEDGER (one run, 2026-08-08, no spec iteration needed):
+#   Run 1 (`2026-08-08_1135`, PASS attempt 1, wall 79 s, fully unattended): all
+#   16 steps met, driverValidity PASS, analyzer red=0, logValidate PASS,
+#   anomalySweep PASS `hits=[] counts={}`, unityExceptions total=0, expectations
+#   PASS mismatches=0, saveParse REPORT (supersedeRows=0 tombstones=0
+#   rewindPoints=0, pointsTotal=572, mismatches=0). The whole player workflow -
+#   arm, warp, watch, cross the arrival, watch again - costs 79 s of wall clock
+#   because every clock move is an instantaneous set: 15,146,166 s in the warp
+#   and 4,474,434 s in the first bracket jump, at 1x cost.
+#
+#   THE WATCHABILITY ANSWER, which is what this lane was flown for. BOTH
+#   EnterWatchMode attempts came back `REJECTED reason=no-watchable-ghost
+#   committed=3 tree=(any)`, matching the prediction - but the two refusals are
+#   NOT the same refusal, and the second one is the finding:
+#     - AT THE LAUNCH EPOCH (24,306,565): the ghost is on the Kerbin pad, the
+#       observer is at Duna. Categorical: the body test cannot pass.
+#     - AT THE PARKED TAIL (28,812,941): the ghost was ACTIVE, at DUNA, and
+#       playing its parked tail (`playbackUT=9159865.573`, inside the recorded
+#       `endUT=9160152.704`) - TWO of the conjunction's three terms are provable
+#       from the log and the third is inferred: HasActiveGhost holds (the hide
+#       emit only runs on a positioned, active ghost), range fails with a printed
+#       number, and same-body is INFERRED from `seedBody=Duna` on the same-frame
+#       director line rather than read off a guard of its own. The engine printed
+#       the range:
+#         GuardSkip rec=4d43a0c9 reason=hidden-by-zone_distance=643913m
+#       643.9 km against a 300 km watch-entry cutoff and a 120 km zone gate.
+#       So watch mode is NOT categorically unreachable from a parked observer at
+#       the arrival tail - it missed by 2.15x on THIS phase draw, on a shared
+#       ~1,038 km-radius orbit whose maximum possible separation is ~2,077 km.
+#       That is the ~9%-of-phase arithmetic in the paragraph above coming back
+#       with a specific draw, not a refutation of it. A co-phased observer (or
+#       any run whose accumulated on-rails drift lands inside ~16.6 deg) would
+#       get an OK here. DO NOT read this REJECTED as "the player cannot watch a
+#       looped interplanetary arrival"; read it as "this observer was 2.15x too
+#       far away, measured".
+#
+# ARMING LEDGER (2026-08-08, the V2/B17 three-run discipline). Both save-structure
+# blocks below now carry `gating = true`:
+#   READING  `2026-08-08_1135` PASS attempt 1, saveParse REPORT - rewindPoints 0,
+#            supersedeRows 0, tombstones 0, rewindRetirements 0, committedTrees 1,
+#            trees 1. Every declared window already met, so arming re-pinned
+#            NOTHING (S4.1's rule: an arming commit must not smuggle in a window).
+#   ARMED    `2026-08-08_1154` PASS attempt 1, wall 50 s - saveParse now
+#            `status=PASS gating=True armed=['rewind','recordings.structure']
+#            mismatches=0`. Green in the armed direction.
+#   CONTROL  `2026-08-08_1156` PARSEK-FAIL(save-structure) attempt 1, wall 50 s -
+#            the block temporarily re-declared `supersedeRows = { min = 1 }`,
+#            producing the single mismatch `rewind.supersedeRows 0 < min 1` and
+#            the classifier line `verdict=PARSEK-FAIL reason=gating save-structure
+#            expectations mismatch`. Reverted immediately. Red in the red
+#            direction, i.e. the gate is load-bearing rather than decorative.
+#   The armed run also read `unityExceptions total=2 (NullReferenceException)`
+#   where the reading run read 0. REPORT-ONLY and NOT armed here - two NREs that
+#   appear on one of three otherwise-identical flights of the same fixture is a
+#   flake signature, and arming a count off a single observation is exactly the
+#   move this discipline exists to prevent. Noted so a future reader does not
+#   mistake it for a new invariant.
+# =====================================================================================
+tier = "operator"
+description = "THE PLAYER WORKFLOW, unattended and end to end: load the committed duna-direct save, arm mission loop (MissionConfig), press Warp-to (StartLoopPlayback -> the product's own FastForwardToEventUT jump), press Watch (EnterWatchMode) at the departure epoch, follow the engaged replay forward across the corrected cycle-0 arrival seam, and press Watch again at the ghost's parked Duna tail. Flown + armed 2026-08-08: both Watch verdicts came back REJECTED as predicted from the measured 300 km camera-only cutoff (the parked-tail refusal failed on RANGE alone, by 2.15x), and both save-structure blocks now gate - a durable write out of this pure replay-observation lane is a real red, not a REPORT footnote."
+instanceProfile = "stock-minimal"
+tags = ["V4", "flown", "player-loop", "watch-mode", "loop-playback", "reaim", "interplanetary"]
+
+[fixture]
+# The SAME recorded-state fixture V2 dwelled (the --keep-parsek harvest of the
+# B17 2026-08-06_1527 PASS): 1 committed tree ccb5e4af..., 2 recordings (main DD1
+# Orbiting Duna + booster debris Destroyed), save UT ~9,160,397. Its parked DD1 is
+# the OBSERVER for both watch attempts - that is the whole point of reusing it:
+# the player who watches a replay is standing where the flight ended.
+saveTemplate       = "fixtures/saves/duna-direct-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # KILL THE SCENE-ENTRY AUTO-RECORDER FIRST (V2 flight 4, 2026-08-06_2219,
+  # measured): loading this fixture with its own parked craft active makes the
+  # committed-tree restore path resume a promotion-stub recording ~1 s into the
+  # scene, BEFORE any step can run. StopRecording is idempotent-OK and DiscardTree
+  # answers OK with nothing-discarded when no plain tree is live, so the pair is
+  # safe on any entry state; the SetSetting stops anything later starting one.
+  # It is also a HARD precondition here, not hygiene: the LoadGame dispatch guard
+  # REJECTS `recording-active`, and V5 reloads this same save mid-run.
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Three tracer pins. ghostRenderTracing is the FLIGHT-scene raise gate for the
+  # loop-seam-teleport Tier-C instrument and the [ReaimSeam] dist[] trace;
+  # mapRenderTracing arms the map/TS probe; verboseLogging is LOAD-BEARING for
+  # both (the probe/trace summaries are VerboseRateLimited, so verbose=false
+  # silences the exact tokens a reading run exists to collect - the V1 lesson).
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # STEP 1 OF THE WORKFLOW: the Missions window loop checkbox (production
+  # MissionStore.SetLoopEnabled).
+  { cmd = "MissionConfig", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae", loop = "true" }, expect = "OK" },
+  # STEP 2: the "Warp to..." button. MissionLoopUnitBuilder -> ComputeNextRelaunchUT
+  # -> ParsekFlight.FastForwardToEventUT, an INSTANTANEOUS Planetarium clock set,
+  # so one call covers the whole ~15.24 Ms from the save epoch to D0 - there is no
+  # rails warp to budget. 300 s bounds the 120 s C# deferral + the spawn-queue
+  # settle with margin (the deferred-verb cap is 540).
+  { cmd = "StartLoopPlayback", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae" }, expect = "OK", budget = 300 },
+  # STEP 3: the "Watch" button, auto-select over ALL committed recordings (no
+  # index, no tree scope - exactly what a player pressing Watch with nothing
+  # selected gets). PREDICTED REJECTED: the ghost is at Kerbin, the observer at
+  # Duna, so IsGhostOnSameBody refuses before distance is even consulted.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # THE ARRIVAL-SEAM BRACKET, strictly forward, instantaneous, expected-null (see
+  # the header's zone-wall paragraph). 28,781,184.52 is the corrected cycle-0
+  # Sun->Duna seam; these three straddle it at -184.5 / -64.5 / +135.5 s. The
+  # inter-step dwell is whatever 1x the harness poll takes, so the seam is CROSSED
+  # by the third jump rather than dwelled through - which is all a 400x-out-of-zone
+  # observer could ever do with it.
+  { cmd = "TimeJump", args = { ut = "28781000" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28781120" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "28781320" }, expect = "OK", budget = 300 },
+  # THE PARKED-TAIL EPOCH: D0 + 4,416,912.223. Here the ghost is flying the
+  # recorded Duna park - the ONLY epoch in the whole cycle where the auto-select's
+  # body test can pass for a Duna-parked observer, so it is the only place the
+  # 300 km chord question can actually be asked.
+  { cmd = "TimeJump", args = { ut = "28812941" }, expect = "OK", budget = 300 },
+  # STEP 4: "Watch" again, same auto-select. PREDICTED REJECTED at ~10:1 on the
+  # phase-chord arithmetic in the header; an OK here is the finding.
+  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# CLAIM-IS-NOT-GATE. D9 `fast-forward` is claimed because THIS spec's required
+# tokens gate it end to end: `startloopplayback initiated:` proves the production
+# door was entered and `FastForwardToEventUT: jumping to UT=` is the product's OWN
+# jump line, emitted by ParsekFlight, not by the seam. NOTHING watch-related is
+# claimed - the D6 `watch-mode-retarget-explosion-hold` cell describes watch
+# BEHAVIOUR, and a measured REFUSAL to enter watch mode is not evidence of it.
+# D6 `time-jump` is likewise not claimed: the bracket jumps are expected-null for
+# the ghost engine, so claiming a playback cell off them would be a claim with no
+# gate behind it.
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D14 = ["scene-flight", "sandbox"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
+# [expectations.<sub>] header or TOML scopes it into the sub-table
+# (hlib.validate_spec rejects the misplaced form).
+#
+# EMPTY, on a reading run, deliberately. V2 swept clean at map scale over the
+# same fixture and V3F/V3R swept clean in flight; the loop-seam-teleport
+# instrument is armed here with no budget so a raise is REPORTED as the finding
+# it would be, not pre-budgeted away.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's two committed recordings PLUS the scene-entry promotion stub the
+# steps above stop within a frame (V2's measured {2,3} window, same fixture, same
+# entry path). Nothing in this spec records.
+count = { min = 2, max = 3 }
+
+[expectations.rewind]
+# ARMED 2026-08-08 (the V2/B17 arming discipline) off the reading run
+# `2026-08-08_1135` (PASS attempt 1), whose saveParse REPORT measured
+# rewindPoints=0, supersedeRows=0, tombstones=0, rewindRetirements=0 - every
+# declared window already met. The claim being armed: the player workflow (arm,
+# warp, watch, cross the arrival, watch again) must author NOTHING durable, and
+# a future change that starts writing an RP / supersede row / tombstone out of a
+# pure replay-observation lane reds here instead of passing as a REPORT footnote.
+# The WINDOWS ARE UNTOUCHED by this commit - arming must not smuggle in a re-pin
+# (S4.1's rule).
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# ARMED 2026-08-08, same reading run (`2026-08-08_1135`), which measured
+# committedTrees=1 and trees=1: exactly one committed tree survives the workflow
+# (the scene-entry promotion stub never commits). `trees` keeps V2's max = 2 -
+# the documented duplicate-writer hazard - deliberately WIDER than the single
+# measurement rather than re-pinned at arming time.
+gating = true
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.logContracts]
+# Each pin is one link in the workflow chain, and each is the PRODUCT's own line
+# except where noted:
+#   "missionconfig applied:"      - the arm verb's Info line (seam-side evidence
+#                                   that step 1 ran);
+#   "SetLoopEnabled: loop ON"     - the PRODUCTION MissionStore path actually fired;
+#   the ENGAGED substring         - MissionLoopUnitBuilder classified this member
+#                                   re-aim-SUPPORTED and engaged it. Without this
+#                                   the warp could be to a faithful-mode window and
+#                                   the whole lane would be measuring a different
+#                                   product path (the V2/V3R mode-evidence pin);
+#   "startloopplayback initiated:" - the Warp-to verb entered the production door
+#                                   (it logs the resolved relaunchUt, which is the
+#                                   D0 every bracket UT above is anchored to - read
+#                                   it off the log when re-pinning);
+#   "FastForwardToEventUT: jumping to UT=" - the PRODUCT's own jump line from
+#                                   ParsekFlight. This is the one that makes the D9
+#                                   fast-forward claim gated rather than asserted:
+#                                   a seam that reported OK without the product
+#                                   jumping cannot satisfy it.
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "ENGAGED re-aim Kerbin->Duna via Sun",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # No knob step in this spec, so a faithful-mode fallback would be a silent
+  # change of subject.
+  "FORCED FAITHFUL",
+  # The V3C run-3 self-detection guard: a refused backward jump is a WARN that a
+  # step-level miss can fail to red on some driver shapes. Forbidding the token
+  # makes a mis-ordered bracket an expectations mismatch instead of a green run
+  # that dwelled nowhere.
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+# 300 LoadGame + 300 StartLoopPlayback + 4x300 TimeJump + the fast non-deferred
+# verbs (2 watch attempts at the 60 s default + margin, 6 settings/recorder verbs)
+# + KSP boot + collect. Every jump is an instantaneous clock set, so the game-time
+# span (~19.65 Ms) costs no wall clock; V2's comparable shape measured 955 s end
+# to end on the same fixture.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

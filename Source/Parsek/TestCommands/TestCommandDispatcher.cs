@@ -173,6 +173,10 @@ namespace Parsek.TestCommands
         // ----- R12 (stock switch click; the promoted reserved verb) -----
         void SimulateStockSwitchClick(ParsedCommand cmd);
         void MissionConfig(ParsedCommand cmd);
+
+        // ----- Player-workflow lane (the third + fourth promoted reserved verbs) -----
+        void StartLoopPlayback(ParsedCommand cmd);
+        void EnterWatchMode(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -256,6 +260,17 @@ namespace Parsek.TestCommands
                 // MissionConfig mutates a committed tree's mission loop state; the
                 // dwell lane arms it in FLIGHT before entering map view.
                 ["MissionConfig"] = VerbSceneRequirement.RequiresFlight,
+                // Player-workflow lane. Both reproduce a FLIGHT-scene player action:
+                // StartLoopPlayback drives ParsekFlight.FastForwardToEventUT (the
+                // in-flight branch of the Missions window's "Warp to..."; the Space
+                // Center branch is a DIFFERENT call and is not what this verb wraps),
+                // and EnterWatchMode drives the flight camera. RequiresFlight for the
+                // same reason as every other FLIGHT-only verb: the wrong-scene case is
+                // overwhelmingly a scene still settling in from the previous step,
+                // which is what a defer is for, and the budget still bounds a spec
+                // that never gets there.
+                ["StartLoopPlayback"] = VerbSceneRequirement.RequiresFlight,
+                ["EnterWatchMode"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -497,6 +512,14 @@ namespace Parsek.TestCommands
         /// off disk.</summary>
         internal const double ExitToSpaceCenterSeconds = 120.0;
 
+        /// <summary>StartLoopPlayback (player-workflow lane): the forward jump itself
+        /// is an instantaneous <c>Planetarium.SetUniversalTime</c> set, exactly like
+        /// TimeJump's, so it is sized identically (120 s) and for the same reason -
+        /// the bound covers the spawn-queue settle + ledger recalc after the clock
+        /// moves, well under an infinite hang. It is NOT sized like LoadGame: no save
+        /// is parsed and no scene reloads.</summary>
+        internal const double StartLoopPlaybackSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -528,11 +551,18 @@ namespace Parsek.TestCommands
                     return EvaChuteDeploySeconds;
                 case "ExitToSpaceCenter":
                     return ExitToSpaceCenterSeconds;
+                case "StartLoopPlayback":
+                    return StartLoopPlaybackSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside
                 // SetActiveVessel), so the budget only bounds the not-in-flight DEFER - a
-                // scene settle, exactly what the default is sized for.
+                // scene settle, exactly what the default is sized for. EnterWatchMode rides
+                // it as well, deliberately: it IS two-phase, but its completion is a
+                // camera-session read-back that lands within a frame or two of the call, so
+                // the 60 s default bounds the not-in-flight defer AND a silently-refused
+                // entry with room to spare. A verb only needs a row here when its own wait
+                // can legitimately exceed the default.
                 default:
                     return DefaultSeconds;
             }

@@ -170,11 +170,24 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # engagement gates on, which nothing driveable previously reached. 22 total,
     # mirroring the C# TestCommandVerbs.ImplementedVerbs set exactly.
     "MissionConfig",
+    # The player-workflow lane promoted the THIRD and FOURTH reserved names, same
+    # strict shape as the two before them. They close the flight-scene half of the
+    # player loop MissionConfig only ARMED -- warp to the looped mission's next
+    # faithful departure (StartLoopPlayback = the Missions window's "Warp to..."
+    # button, driven through MissionLoopUnitBuilder -> ComputeNextRelaunchUT ->
+    # ParsekFlight.FastForwardToEventUT) and then WATCH the replay (EnterWatchMode =
+    # the "Watch" button, entry verified by read-back because the underlying call is
+    # a silent-failing toggle). 24 total, mirroring the C#
+    # TestCommandVerbs.ImplementedVerbs set exactly.
+    "StartLoopPlayback", "EnterWatchMode",
 )
-# The remaining NINE stay RESERVED (SimulateStockSwitchClick left this set in R12;
-# MissionConfig left it for the arrival-validation lane).
+# The remaining SEVEN stay RESERVED (SimulateStockSwitchClick left this set in R12;
+# MissionConfig left it for the arrival-validation lane; StartLoopPlayback and
+# EnterWatchMode left it for the player-workflow lane). StopPlayback deliberately
+# STAYS reserved: teardown is FlushAndQuit's job, so a stop verb would be a second,
+# weaker owner of it.
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
-    "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",
+    "StopPlayback", "SealSlot", "StashSlot",
     "FlySlot", "RouteCommand",
     "CrashAfterJournalPhase", "RunInvariantReport",
 )
@@ -316,8 +329,15 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # Membership here is about the 540 s CAP governing a spec-declared budget, not about being
 # two-phase. SimulateStockSwitchClick is SINGLE-phase (the switch and Parsek's consume both
 # run synchronously inside SetActiveVessel), so it rides the plain 60 s default.
+# The player-workflow lane added StartLoopPlayback for the same reason M-C1 added
+# TimeJump: it is a two-phase forward CLOCK jump (to the looped mission's next
+# faithful departure, which can be tens of millions of seconds ahead), so the 540 s
+# cap + step-wait margin must govern any budget a spec declares for it. Its sibling
+# EnterWatchMode is deliberately ABSENT: it IS two-phase, but its completion is a
+# camera read-back that lands within a frame or two, so it rides the plain 60 s
+# default like KscAction.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
-                                        "EvaChuteDeploy")
+                                        "EvaChuteDeploy", "StartLoopPlayback")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -364,6 +384,14 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # the C# switch rides DefaultSeconds (60 s) because it is single-phase, and its budget
     # only ever bounds the not-in-flight DEFER.
     "ExitToSpaceCenter": 120.0,
+    # Player-workflow lane. StartLoopPlayback mirrors the C#
+    # StartLoopPlaybackSeconds = 120.0, sized like TimeJump because it IS the same
+    # instantaneous clock set (Planetarium.SetUniversalTime via
+    # TimeJumpManager.ExecuteForwardJump) plus the spawn-queue settle. Its sibling
+    # EnterWatchMode is deliberately ABSENT: the C# verb rides DefaultSeconds (60 s)
+    # because its completion is a camera read-back, so the default row here is
+    # already correct.
+    "StartLoopPlayback": 120.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -460,6 +488,22 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # SetLoopEnabled: anchor stamp + one-loop-per-tree clearing) -- persisted
     # mission state, so an unmet-mission tail must not drive it.
     "MissionConfig": TAIL_ROLE_WORLD_MUTATING,
+    # Player-workflow lane. Both world-mutating, for DIFFERENT strengths of reason:
+    #   StartLoopPlayback advances the game CLOCK (an in-place forward jump to the
+    #     mission's next departure window, tens of millions of seconds on an
+    #     interplanetary loop) and drives the engine's spawn queue and ledger recalc
+    #     across everything it crossed. Irreversible in-session, in the same class as
+    #     TimeJump above.
+    #   EnterWatchMode is the weaker call and is written down as such: it writes no
+    #     save and no durable Parsek record - it points the flight camera and takes an
+    #     InputLockManager control lock on the active vessel for the watch session.
+    #     It is NOT `inert` all the same, because that role means "reads state or
+    #     stamps the log, never changes the game" (RecordingState / MissionMark), and
+    #     locking the player's controls on an unattended vessel is a change to the
+    #     live game. This table's fail-safe direction is world-mutating, and the
+    #     UNMET tail skips both roles anyway, so the honest label costs nothing.
+    "StartLoopPlayback": TAIL_ROLE_WORLD_MUTATING,
+    "EnterWatchMode": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -538,6 +582,19 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # MissionConfig's OK means "the mission's loop state is as commanded" -- a
     # Parsek playback claim, not a kerbal's physical outcome.
     "MissionConfig": POST_MISSION_ROLE_RECORDING,
+    # Player-workflow lane. Both `recording`, and neither is close to the line: the
+    # `outcome` set is exactly the verbs whose verdict is a claim about a KERBAL's
+    # physical in-world state that no other verifier re-derives.
+    #   StartLoopPlayback's OK means "the clock reached the mission's next departure
+    #     window" - a Parsek playback / clock claim. Whether the loop then REPLAYED is
+    #     proven by the render tracers, the anomaly sweep, and the spec's pinned log
+    #     lines, which is the original carve-out exactly.
+    #   EnterWatchMode's OK means "the flight camera is watching recording #N", a
+    #     read-back of Parsek's own camera state. Gating on it would route a Parsek
+    #     watch-entry defect through the mission-outcome subkind, which is for a
+    #     flight that failed after the handoff.
+    "StartLoopPlayback": POST_MISSION_ROLE_RECORDING,
+    "EnterWatchMode": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -5085,6 +5142,54 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "target-already-active": "driver-gate",
     "target-unloaded": "driver-gate",
     "dialog-pending": "driver-dialog",
+    # The loop lanes (design "> Update (the loop lanes)"): MissionConfig,
+    # StartLoopPlayback and EnterWatchMode. Same R12 reasoning - the three verbs ship
+    # typed refusals and without these rows every one of them collapses to the coarse
+    # driver-verdict-mismatch. MissionConfig's rows are the PRE-EXISTING gap (it landed
+    # 2026-08-06 with no table entries at all); the other two are swept in with it so
+    # the whole family maps in one pass.
+    #
+    # THE TABLE IS KEYED BY MSG TOKEN ALONE, not by (verb, msg): three tokens are
+    # SHARED across these verbs and map identically, so no per-verb key is needed.
+    #   tree-arg-missing   : StartLoopPlayback + MissionConfig
+    #   unknown-tree       : StartLoopPlayback + EnterWatchMode + MissionConfig
+    #   no-flight-instance : StartLoopPlayback + EnterWatchMode (and the older
+    #                        RequiresFlight verbs, which emit the same token)
+    # The VERDICT on a shared token is NOT uniform - `unknown-tree` is REJECTED on
+    # StartLoopPlayback / EnterWatchMode (a no-side-effect lookup miss) but ERROR on
+    # MissionConfig (a pre-existing outlier). That divergence does not reach here:
+    # this table maps the refusal MSG to a subkind and never reads the verdict, and
+    # both verdicts route through the same driver-* INVALID retry-once. Spec authors
+    # DO have to care - see the design doc's loop-lanes update note.
+    #
+    # Arg half: the SPEC named or spelled something wrong (the `unknown-target` call).
+    "tree-arg-missing": "driver-arg",
+    "unknown-tree": "driver-arg",
+    "index-arg-invalid": "driver-arg",
+    "index-out-of-range": "driver-arg",
+    "loop-arg-invalid": "driver-arg",
+    "interval-arg-invalid": "driver-arg",
+    # Gate half: the live state declined. Nothing is misspelled - the run reached a
+    # state these verbs do not drive. `loop-not-armed` wants a MissionConfig step
+    # first; `unit-not-built` / `no-next-window` mean the mission resolved no loop unit
+    # or no forward relaunch; `window-not-forward` is the backward-jump guard
+    # (FastForwardToEventUT silently no-ops backward); `no-watchable-ghost` is the
+    # auto-select conjunction refusing (active-ghost / body / range);
+    # `no-flight-instance` is a RequiresFlight verb reaching a scene with no
+    # ParsekFlight. `watch-not-entered` is the read-back give-up on a SILENT toggle
+    # refusal - the verb DID call EnterWatchMode and WatchModeController's own guards
+    # declined it, so it is a state gate wearing a timeout's clothes, not a bad arg.
+    "loop-not-armed": "driver-gate",
+    "unit-not-built": "driver-gate",
+    "no-next-window": "driver-gate",
+    "window-not-forward": "driver-gate",
+    "no-flight-instance": "driver-gate",
+    "no-watchable-ghost": "driver-gate",
+    "watch-not-entered": "driver-gate",
+    # NOT mapped, deliberately: StartLoopPlayback's `jump-timeout`. Like switch-threw /
+    # switch-refused-by-stock it is a POST-arm terminal - the clock jump was initiated
+    # and never landed - so it rides the coarse driver-verdict-mismatch rather than
+    # claiming a refusal that never happened.
 }
 
 
