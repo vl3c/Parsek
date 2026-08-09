@@ -399,12 +399,73 @@ trees          = { min = 1, max = 2 }
 #                                   fast-forward claim gated rather than asserted:
 #                                   a seam that reported OK without the product
 #                                   jumping cannot satisfy it.
+#
+# THE MAP-PROBE ANTI-VACUITY PIN (added 2026-08-09), and WHY IT IS NOT THE PROBE LINE.
+# This lane has been arming `mapRenderTracing` with `allowedAnomalies = []` since it
+# first flew, i.e. running an armed Tier-C sweep, while pinning NOTHING that proves the
+# map/TS probe lens ever reached a resolved ghost. The obvious pin -
+# `probe frame summary frame=\d+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]*`, the token V1
+# and V2 carry - is UNBUYABLE AT THIS SPEC SHAPE, and the arithmetic is the reason, not
+# a preference:
+#   `ParsekLog.VerboseRateLimited` holds the probe summary on a 5.0 s WALL-CLOCK,
+#   process-global shared key ("MapRenderTrace|probe-frame-summary"). The FIRST call
+#   after the tracer flips wins the window, and it lands before any ghost is resolved.
+#   MEASURED on run `2026-08-08_1457`: `setting name=mapRenderTracing ... new=true` at
+#   14:57:30.878 -> `probe frame summary frame=7491 ghosts=0 sampled=0 resolveMisses=0`
+#   at 14:57:30.879 (+1 ms) -> `FlushAndQuit` at 14:57:33.378, i.e. the whole tracer-on
+#   dwell is 2.500 s, HALF the limiter's window. No second probe line can exist. All
+#   SEVEN archived tracer-on runs of this family (V4 `_1457`, V5 `_1440`, V6M `_1945`,
+#   V7M `_1901`/`_1902`, V7T `_1915`/`_1917`) read `ghosts=0 sampled=0`; their tracer-on
+#   dwells span 2.246-3.772 s, every one inside the window. V1 buys the token honestly
+#   ONLY through its 33-minute dwell (399 probe lines, 131 with ghosts>=1). This is a
+#   SPEC-SHAPE fact; pinning the token here would gate on a rate-limiter race (V5 run 1
+#   attempt 2 measured exactly that and replaced it).
+#   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
+#   parity pass actually touched the lens - `MapRenderProbe.cs:346` gates the emit on
+#   `sampled > 0 || skipCounts.Count > 0`, and both counters are per-frame (reset at
+#   `MapRenderProbe.cs:291-293`). So its PRESENCE is a strictly better anti-vacuity pin
+#   than the probe line at this shape: it cannot be produced by a frame with no resolved
+#   ghost. Measured present in all seven archived runs.
+#   NOT PINNED: `sampled=[1-9]`. This lane measured `sampled=0 overTolerance=0
+#   skip.reaimed-or-foreign-seed=1` on `_1457` AND on the 2026-08-09 re-flight.
+#   THE OBVIOUS READING OF THAT IS WRONG, and the re-flight is what falsified it: it is
+#   NOT "the designed skip for a re-aimed member". The epoch this lane samples at is the
+#   PARKED DUNA TAIL, which is a FAITHFUL leg of an otherwise re-aimed member (the
+#   producer re-aims per SEGMENT - the heliocentric leg - not per member), and the seed
+#   the Director publishes there is a RECORDED conic fed verbatim: the re-flight's drive
+#   line reads `epoch+shift=28781184.5` against `shift=19653075.8`, i.e. seed epoch
+#   9,128,108.7 = raw ORBIT_SEGMENT 12's epoch (9128108.7070987541) to the digit. The
+#   faithful lens meanwhile resolves the covering segment on the RAW list at lookupUT
+#   9,159,865.5 and lands on segment 15 (epoch 9159565.4416853823). Segments 12-15 are
+#   ONE conic (sma -137763.921, ecc 8.53620347, to ~1e-8) fragmented into four, so five
+#   of `AreSameConicElements`' seven terms match and the two PHASE-REFERENCE terms -
+#   epoch (delta 31,456.7 s) and mna - fail by orders of magnitude. Identical mechanism
+#   to V6M's, which is where it is written up in full; filed as
+#   docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a
+#   nonzero sample count would gate on that unresolved behaviour.
+#
+# RE-FLIGHT `2026-08-09_0927` (PASS attempt 1, wall 64 s), the run that armed this pin:
+# probe `frame=6016 ghosts=0 sampled=0 resolveMisses=0` at +3 ms on a 2.513 s tracer-on
+# dwell (the archived shape, reproduced); parity `sampled=0 overTolerance=0
+# skip.reaimed-or-foreign-seed=1`; expectations PASS mismatches=0 with the new token
+# met; anomalySweep PASS `hits=[] counts={}`; saveParse PASS armed, mismatches=0.
+# THE NEW `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, and the reason is
+# structural rather than reassuring: every frame on which the probe's per-pid loop
+# reached a resolved ghost had its drive clock inside the recording's LAST segment
+# (raw 15, [9159565.4, 9160152.7]), so `ComputeSeamEndpointGeometry`'s forward scan finds
+# no different-body successor and returns `Skip("no-cross-body-successor")`. The bracket
+# epochs that DO sit before a cross-body seam never produced a resolved rendered orbit
+# for the lens (`8a director-drive ... fresh=False ... epoch+shift=NaN` there). Skips are
+# counted nowhere, so that attribution is derived from the covering-segment lines plus
+# the fixture's own ORBIT_SEGMENT chain, not read off a skip tally. This lane therefore
+# does NOT yet exercise the instrument; a lane that dwells on a PRE-SEAM leg would.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "ENGAGED re-aim Kerbin->Duna via Sun",
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -416,6 +477,10 @@ forbidden = [
   # makes a mis-ordered bracket an expectations mismatch instead of a green run
   # that dwelled nowhere.
   "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim (added 2026-08-09 alongside the presence pin
+  # above): any faithful-parity sample OVER tolerance is a rendered-vs-recorded drift.
+  # Measured 0 on all seven archived tracer-on runs of this family.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
 [runtime]

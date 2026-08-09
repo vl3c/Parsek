@@ -277,6 +277,52 @@ trees          = { min = 1, max = 2 }
 #     and the Director's `factory chain ... reaimed=False`, which pins that what TS
 #     rendered is the FAITHFUL chain. The second is V5's token with the value inverted,
 #     and it is the sharpest single line in this file.
+#
+# THE MAP-PROBE ANTI-VACUITY PIN (added 2026-08-09). The header above already says why
+# `probe frame summary` is not pinned; what it did NOT say is that nothing else pinned
+# the PROBE lens either, so this lane has been running an armed Tier-C sweep
+# (`allowedAnomalies = []` with `mapRenderTracing` on) with no evidence the probe's
+# per-pid loop ever reached a resolved ghost. The rate-limiter arithmetic, with numbers:
+# `ParsekLog.VerboseRateLimited` holds the probe summary on a 5.0 s WALL-CLOCK,
+# process-global shared key ("MapRenderTrace|probe-frame-summary"), and the first call
+# after the tracer flips lands 1-3 ms later, before any ghost resolves, so it emits
+# `ghosts=0 sampled=0` and OWNS the window. Across all SEVEN archived tracer-on runs of
+# this family (V4 `_1457`, V5 `_1440`, V6M `_1945`, V7M `_1901`/`_1902`,
+# V7T `_1915`/`_1917`) the tracer-on dwell is 2.246-3.772 s - every one inside the
+# window - and every one of the seven reads `ghosts=0 sampled=0`. V1 buys the token
+# honestly only through a 33-minute dwell (399 probe lines, 131 with ghosts>=1).
+#   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
+#   parity pass touched the lens - `MapRenderProbe.cs:346` gates the emit on
+#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at
+#   `MapRenderProbe.cs:291-293`) - so its PRESENCE cannot be produced by a frame with no
+#   resolved ghost. Present in all seven archived runs; the `overTolerance>=1` form is
+#   FORBIDDEN below (the S1.6/S1.7 pin verbatim, measured 0 on all seven).
+#   THIS LANE HAD NO ARCHIVED LOG when the pin was written - its committed flights
+#   (`2026-08-08_1559` reading, `_1641` armed) both PASSED and the harness does not
+#   collect on a PASS, and `_1644` is V6M's negative control, not this lane's. So V6T is
+#   the one member of the family whose BEFORE reading comes from its own re-flight
+#   rather than from an archive; recorded in the status-doc row.
+#   NOT PINNED: `sampled=[1-9]`. V6M measured `sampled=0 skip.reaimed-or-foreign-seed=1`
+#   on a strictly faithful member and the cause is a real blind spot, not a transient -
+#   docs/dev/todo-and-known-bugs.md -> FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a
+#   nonzero sample count would gate on that unresolved behaviour. THIS LANE READS THE
+#   SAME SKIP: it shares V6M's fixture, and its own re-flight below lands on the same raw
+#   covering segment 10 that the seed (raw segment 8's epoch) fails to match.
+#
+# RE-FLIGHT `2026-08-09_0929` (PASS attempt 1, wall 52 s), the run that armed this pin
+# AND this lane's FIRST archived reading of either summary line: probe
+# `frame=7774 ghosts=0 sampled=0 resolveMisses=0` at +2 ms on a 3.992 s tracer-on dwell;
+# parity `sampled=0 overTolerance=0 skip.reaimed-or-foreign-seed=1`, with the covering
+# line reading `covering-segment CHANGED: member=1 effUT=16547.7 body=Mun ...
+# seg=[16450.6,20939.0] sma=-509907 ecc=1.666` - raw segment 10, exactly as on V6M.
+# expectations PASS mismatches=0 with the new token met; anomalySweep PASS
+# `hits=[] counts={}`; saveParse PASS armed, mismatches=0; unityExceptions REPORT
+# total=4 (NRE), unarmed - noted, not armed off one observation.
+# THE NEW `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, structurally: the
+# TS dwell parks the drive clock inside the recording's LAST segment, so the instrument's
+# forward scan finds no different-body successor and returns
+# `Skip("no-cross-body-successor")`. Skips are counted nowhere, so that attribution comes
+# from the covering-segment line plus the fixture's ORBIT_SEGMENT chain, not a skip tally.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -289,6 +335,7 @@ required  = [
   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Mun scene=TRACKSTATION",
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -299,6 +346,10 @@ forbidden = [
   "FORCED FAITHFUL",
   # The V3C run-3 self-detection guard.
   "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim (added 2026-08-09 alongside the presence pin
+  # above): any faithful-parity sample OVER tolerance is a rendered-vs-recorded drift.
+  # Measured 0 on all seven archived tracer-on runs of this family.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
 [runtime]

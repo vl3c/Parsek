@@ -217,10 +217,16 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 #   * 155 tracer-on historical runs with ZERO raises of any of the seven.
 #   * Every raise site is probe- or shadow-spine-gated (verified in the C# source),
 #     so a raise needs the tracer armed AND the probe actually sampling.
-# BLAST RADIUS is bounded and named: only S1.4 / S1.6 / S1.7 / V1 arm
-# `mapRenderTracing`, and all four declare `allowedAnomalies = []`. The RED DIRECTION
-# of this gate is already live-proven - `line-blink` red'd V1 `PARSEK-FAIL(anomaly)`
-# on 2026-07-30 - so promotion buys real coverage, not a decorative widening.
+# BLAST RADIUS is bounded and named. AS OF THE 2026-08-04 PROMOTION that was
+# S1.4 / S1.6 / S1.7 / V1; the V-lane program has since widened it to ELEVEN specs,
+# and the count is the thing that goes stale, so re-derive it rather than trusting
+# this list: `grep -l mapRenderTracing harness/scenarios/*.toml`. At 2026-08-09 that
+# is S1.4, S1.6, S1.7, V1, V2, V4, V5, V6M, V6T, V7M, V7T - and every one of them
+# declares `allowedAnomalies = []`, which is the property this paragraph actually
+# depends on (a widened gate can only red a spec that budgets nothing). The RED
+# DIRECTION of this gate is already live-proven - `line-blink` red'd V1
+# `PARSEK-FAIL(anomaly)` on 2026-07-30, and `icon-off-orbit` reds V7T on every
+# flight - so promotion buys real coverage, not a decorative widening.
 #
 # ORDERING IS A CONTRACT: hits come back in THIS tuple's order (grep_anomaly_tokens),
 # so the original six stay first and the seven promoted follow. Do not re-sort.
@@ -3700,9 +3706,12 @@ def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
     (post-2026-08-04: the two report-only instruments in
     ANOMALY_REASONS_RAISED_UNGATED), so a run can contain a real Tier-C raise
     that the sweep is structurally blind to. Widening the gating set is a
-    decision with verdict consequences for the tracer-armed specs (S1.4, S1.6,
-    S1.7, V1 - the only specs that pin ``mapRenderTracing``); surfacing the
-    drift is not. Sorted for a stable log line.
+    decision with verdict consequences for every spec that pins
+    ``mapRenderTracing`` - eleven of them at 2026-08-09 (S1.4, S1.6, S1.7, V1,
+    V2, V4, V5, V6M, V6T, V7M, V7T), not the four this docstring used to name;
+    re-derive with ``grep -l mapRenderTracing harness/scenarios/*.toml`` rather
+    than trusting the list. Surfacing the drift is not such a decision. Sorted
+    for a stable log line.
     """
     return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 
