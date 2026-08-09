@@ -280,19 +280,30 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 #     inform the cutover rather than fail the flight that observed it.
 #   * `seam-endpoint-outside-soi` is the ENCOUNTER-GEOMETRY instrument, and it is
 #     here for the OPPOSITE reason to the two above: not because a raise would be
-#     uninteresting, but because it has NEVER FLOWN. It measures the RENDERED conic
-#     at a recorded cross-body SOI handoff against the destination body's sphere
-#     (pure core `Parsek.MapRender.SeamEndpointOracle`; raises on ratio > 1.005,
-#     calibrated between two MEASURED populations - the S1.8 healthy seam
-#     continuity at 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin, and
-#     the 2026-06-15 looped-re-aim defect at 1.027 / 1.043). Every token promoted
-#     on 2026-08-04 earned its gate from a measurement that it stays SILENT on real
-#     geometry; this one has no such reading yet, and there is one population it
-#     can legitimately light up on - a FAITHFUL loop replay of an interplanetary
-#     transfer, whose destination has moved on in inertial space by the loop shift -
-#     which is a known design limitation rather than a render defect. So it flies
-#     report-only first, exactly as the seven did. mapRenderTracing-gated, so only
-#     specs that arm that tracer can raise it at all.
+#     uninteresting, but because its evidence is not yet complete. It measures the
+#     RENDERED conic at a recorded cross-body SOI handoff against the destination
+#     body's sphere (pure core `Parsek.MapRender.SeamEndpointOracle`; raises on
+#     ratio > 1.005, calibrated between two MEASURED populations - the S1.8 healthy
+#     seam continuity at 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin,
+#     and the 2026-06-15 looped-re-aim defect at 1.027 / 1.043).
+#     UPDATED 2026-08-09 - IT HAS NOW FLOWN. The line above used to read "it has
+#     NEVER FLOWN"; the seam-endpoint census re-flew the five V-lanes and TWO of
+#     them exercised the lens on real geometry - V4 on the Sun->Duna arrival seam
+#     and V7M on Kerbin->Minmus, both `evaluated=1 outsideSoi=0` (inside the
+#     sphere), each reproduced bit-identically on three consecutive flights, with
+#     ZERO raises across all five. So the "stays SILENT on real geometry" reading
+#     that every token promoted on 2026-08-04 earned its gate from now EXISTS here
+#     too, and this entry is no longer blocked on the lens being unflown.
+#     WHAT STILL BLOCKS PROMOTION, and it is two things, not none. (1) The RAISE
+#     itself has never fired, so nothing has yet demonstrated the token behaves
+#     when the geometry is actually bad - a gate whose failing side is untested is
+#     a gate on trust. (2) The known benign population is STILL unmeasured: a
+#     FAITHFUL loop replay of an INTERPLANETARY transfer, whose destination has
+#     moved on in inertial space by the loop shift, should light this up by design
+#     rather than by defect, and V7M's healthy same-parent reading does not speak
+#     to it (a phase-locked moon replay has no such drift). Gating before that
+#     population is characterised would red honest runs. mapRenderTracing-gated, so
+#     only specs that arm that tracer can raise it at all.
 #
 # Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.

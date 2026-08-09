@@ -545,17 +545,32 @@ trees          = { min = 1, max = 2 }
 # measurement rather than a one-run curiosity. expectations PASS mismatches=0 with the
 # new token met; anomalySweep PASS `hits=[] counts={}`; saveParse PASS armed,
 # mismatches=0; unityExceptions REPORT total=1 (NRE), unarmed as before.
-# THE NEW `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES. Structural, not
-# reassuring: every frame where the probe's per-pid loop reached a resolved ghost had its
-# drive clock inside the recording's LAST segment (raw 10, [16450.59, 20939.02]), so the
-# instrument's forward scan finds no different-body successor and returns
-# `Skip("no-cross-body-successor")`. The pre-seam bracket epochs never produced a
-# resolved rendered orbit for the lens (`8a director-drive ... fresh=False
-# ... epoch+shift=NaN` at effDriveUT 16,225.0). Skips are counted nowhere, so that
-# attribution is derived from the covering-segment lines plus the fixture's own
-# ORBIT_SEGMENT chain, not read off a skip tally. The "faithful moon lanes will raise it
-# by design" expectation is therefore NOT what this reading run measured - it never got a
-# frame in which the instrument could measure anything.
+# THE `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, and on THIS lane the
+# offline derivation below is now CONFIRMED BY MEASUREMENT rather than merely argued.
+# Census run `2026-08-09_1016` (PASS attempt 1, wall 53 s) measured, verbatim:
+#     seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1
+# One ghost-frame offered, zero evaluations, and the single skip bucket is exactly the
+# reason derived offline: every frame where the probe's per-pid loop reached a resolved
+# ghost had its drive clock inside the recording's LAST segment (raw 10,
+# [16450.59, 20939.02]), so the instrument's forward scan finds no different-body
+# successor and returns `Skip("no-cross-body-successor")`. The pre-seam bracket epochs
+# never produced a resolved rendered orbit for the lens (`8a director-drive ...
+# fresh=False ... epoch+shift=NaN` at effDriveUT 16,225.0). What used to be a derivation
+# from covering-segment lines plus the fixture's ORBIT_SEGMENT chain is now a tally the
+# lens prints about itself - which is the difference between an instrument you can argue
+# with and one you can read.
+# SO THIS LANE STILL DOES NOT EXERCISE THE LENS, and the "faithful moon lanes will raise
+# it by design" expectation remains UNTESTED here - not refuted, never reached. The two
+# lanes of the five that DO reach it are V4 (Sun->Duna arrival seam) and V7M
+# (Kerbin->Minmus arrival seam), both `evaluated=1 outsideSoi=0`; read either header for
+# what a real reading looks like. The park-dwell shape is what costs this lane the
+# measurement, and the arithmetic for a pre-seam dwell that would buy it is filed in
+# docs/dev/todo-and-known-bugs.md rather than bolted onto this spec's brackets.
+#
+# PINNED FROM THE CENSUS (2026-08-09): `seam-endpoint summary evaluated=\d+ outsideSoi=\d+`
+# as PRESENCE - the lens ran and reported. Deliberately `\d+` on BOTH counters, not
+# `evaluated=0`: the pin's job is to catch the lens going silent, and freezing this lane's
+# CURRENT structural zero would turn the day it finally reaches a seam into a red.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -569,6 +584,7 @@ required  = [
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
   "surface=Proto(Icon|OrbitLine) .*body=Mun",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

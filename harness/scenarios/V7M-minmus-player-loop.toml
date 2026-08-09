@@ -638,11 +638,55 @@ trees          = { min = 1, max = 2 }
 # parity `sampled=1 overTolerance=0`; expectations PASS mismatches=0 with the new token
 # met; anomalySweep PASS `hits=[] counts={}`; saveParse PASS armed, mismatches=0;
 # unityExceptions REPORT total=0 (the end-inside-watch teardown NRE did not recur).
-# THE NEW `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, structurally: the
-# sampled frames park the drive clock inside the recording's LAST segment (raw 9,
-# [276411.27, 277001.13]), so the forward scan finds no different-body successor and
-# returns `Skip("no-cross-body-successor")`. Skips are counted nowhere; that attribution
-# comes from the covering-segment lines plus the fixture's ORBIT_SEGMENT chain.
+# THE `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, and the paragraph that
+# stood here explained that away as structural - the sampled frames park the drive clock
+# inside the recording's LAST segment (raw 9, [276411.27, 277001.13]), so the forward scan
+# returns `Skip("no-cross-body-successor")`.
+# ==> THE CENSUS FLIGHT FALSIFIED THAT ON THIS LANE. The derivation was assembled offline
+# from covering-segment lines and the fixture's ORBIT_SEGMENT chain, because the lens could
+# not report on itself, and it named the wrong frame. Census run `2026-08-09_1018` (PASS
+# attempt 1, wall 54 s) measured, verbatim:
+#     seam-endpoint summary evaluated=1 outsideSoi=0
+# NO skip bucket. One ghost-frame offered, one EVALUATION - a real destination-approach
+# ratio, INSIDE the destination sphere.
+# WHICH SEAM, off that same frame's own lines (frame 7777, currentUT 1,345,035,
+# driveUT 267,563.741): `shadow pid=3464317505 coverage=InSegment segIdx=7
+# treatment=StockConic visible=True driveUT=267563.741 body=Kerbin` on a 10-phase
+# `reaimed=False` chain, with `Cached body-frame bounds ... rawBodyFrameUT=230.05-267741.32
+# segIndices=0-5` - so the covering leg is a KERBIN leg ending 267,741.32 and the successor
+# is the Minmus approach: THE KERBIN->MINMUS ARRIVAL SEAM, measured on the faithful,
+# phase-locked, same-parent road. Note what this ALSO settles: the instrument's documented
+# benign population ("a FAITHFUL loop replay raises by design") is about an INTERPLANETARY
+# transfer whose destination moves on in inertial space by the loop shift; a same-parent
+# moon replay is phase-locked, and this reading is the first evidence that such a lane
+# reads healthy rather than raising. One lane, one frame - not yet a general result.
+# THIS LANE AND V4 ARE THE TWO OF THE FIVE THAT BUY THE INSTRUMENT. V6M / V6T / V7T all
+# read `evaluated=0 skip.no-cross-body-successor=1` and confirm the old derivation for
+# themselves - the difference is the dwell epoch, not the fixture family.
+# WHAT THE CENSUS STILL CANNOT TELL YOU: `outsideSoi=0` says the evaluation came in at or
+# under the 1.005 tolerance, but the RATIO is printed only on a raise, so the MARGIN is
+# unmeasured - this lane proves the arc reaches the sphere, not by how much. Named as the
+# next step in docs/dev/todo-and-known-bugs.md; it is a census-format change (carry the
+# pass max ratio), not a spec change, so it is not fixable from here.
+#
+# PINNED FROM THE CENSUS (2026-08-09), TWO TOKENS, and the second is the stronger claim:
+#   (1) `seam-endpoint summary evaluated=\d+ outsideSoi=\d+` - PRESENCE. The lens ran and
+#       reported. The emit guard (`SeamEndpointOracle.ShouldEmitPassSummary`) is reachable
+#       only from inside the per-ghost capture, so presence cannot be faked by a ghostless
+#       frame - the trap that makes `probe frame summary` unpinnable at this dwell length.
+#   (2) `seam-endpoint summary evaluated=[1-9]` - the lens actually PERFORMED a
+#       destination-approach check. Presence alone is also satisfied by a pass that skipped
+#       everything, which is exactly what V6M / V6T / V7T emit; this token is what
+#       separates the two populations. Pinned under the two-consecutive-flights rule -
+#       `_1018` and `_1031` both read `evaluated=1 outsideSoi=0`, bit-identical, no skip
+#       bucket - and not before it.
+#       WHY IT IS DETERMINISTIC HERE: the summary rides a shared 5 s rate-limited key, so
+#       the first pass to clear the guard owns the window, and here that is the ghost's
+#       creation frame at a FIXED jump epoch (currentUT 1,345,035 -> driveUT 267,563.741,
+#       inside the Kerbin leg that ends 267,741.32). If this reds, ask first whether a
+#       different frame won the limiter, not whether the geometry moved.
+# NOT pinned: `outsideSoi=0`, per the instrument's own documented benign population; the
+# RAISE stays report-only by design and must not gate here.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -670,6 +714,8 @@ required  = [
   "surface=Proto(Icon|OrbitLine) .*body=Minmus",
   "enterwatchmode complete: index=",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "seam-endpoint summary evaluated=[1-9]",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

@@ -318,11 +318,24 @@ trees          = { min = 1, max = 2 }
 # expectations PASS mismatches=0 with the new token met; anomalySweep PASS
 # `hits=[] counts={}`; saveParse PASS armed, mismatches=0; unityExceptions REPORT
 # total=4 (NRE), unarmed - noted, not armed off one observation.
-# THE NEW `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, structurally: the
-# TS dwell parks the drive clock inside the recording's LAST segment, so the instrument's
-# forward scan finds no different-body successor and returns
-# `Skip("no-cross-body-successor")`. Skips are counted nowhere, so that attribution comes
-# from the covering-segment line plus the fixture's ORBIT_SEGMENT chain, not a skip tally.
+# THE `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, and the derivation
+# below is now CONFIRMED BY MEASUREMENT rather than argued from adjacent lines. Census run
+# `2026-08-09_1017` (PASS attempt 1, wall 53 s) measured, verbatim:
+#     seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1
+# One ghost-frame offered, zero evaluations, one skip - exactly the reason derived
+# offline: the TS dwell parks the drive clock inside the recording's LAST segment, so the
+# instrument's forward scan finds no different-body successor. "Skips are counted nowhere"
+# was true when this paragraph was first written and is no longer; the lens now prints its
+# own tally, which is why this reading is evidence instead of inference.
+# THIS LANE THEREFORE STILL DOES NOT EXERCISE THE LENS. Of the five lanes flown for the
+# census, V4 (Sun->Duna arrival seam) and V7M (Kerbin->Minmus arrival seam) are the two
+# that DO, both `evaluated=1 outsideSoi=0`; V6M / V6T / V7T all read the structural zero,
+# which is a property of the destination-park dwell these three share and not of the
+# instrument.
+#
+# PINNED FROM THE CENSUS (2026-08-09): `seam-endpoint summary evaluated=\d+ outsideSoi=\d+`
+# as PRESENCE - the lens ran and reported. `\d+` on BOTH counters deliberately: freezing
+# this lane's current structural zero would make the day it finally reaches a seam a red.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -336,6 +349,7 @@ required  = [
   "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Mun scene=TRACKSTATION",
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
