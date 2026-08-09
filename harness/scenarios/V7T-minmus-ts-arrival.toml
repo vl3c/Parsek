@@ -294,10 +294,12 @@ trees          = { min = 1, max = 2 }
 # `_1915`/`_1917`) read `ghosts=0 sampled=0`. V1 buys the token honestly only through a
 # 33-minute dwell (399 probe lines, 131 with ghosts>=1).
 #   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
-#   parity pass touched the lens - `MapRenderProbe.cs:346` gates the emit on
-#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at
-#   `MapRenderProbe.cs:291-293`) - so its PRESENCE cannot be produced by a frame with no
-#   resolved ghost. Both archived runs read `faithful-parity summary sampled=1
+#   parity pass touched the lens - the `faithful-parity summary` emit in
+#   `MapRenderProbe.LateUpdate` is gated on
+#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at the top of
+#   the same pass, just before the per-ghost loop) - so its PRESENCE cannot be produced
+#   by a frame with no resolved ghost. Both archived runs read
+#   `faithful-parity summary sampled=1
 #   overTolerance=0`; the `overTolerance>=1` form is FORBIDDEN below (the S1.6/S1.7 pin
 #   verbatim, measured 0 on all seven).
 #   NOT PINNED: `sampled=[1-9]`, even though this lane measured 1 twice - see V7M's
@@ -320,13 +322,23 @@ trees          = { min = 1, max = 2 }
 # requires) mismatches=0.
 # THE `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, and the derivation
 # below is now CONFIRMED BY MEASUREMENT rather than argued from adjacent lines. Census run
-# `2026-08-09_1020` measured the SAME line on BOTH attempts of a red-by-finding flight -
-# attempt 1 and attempt 2, verbatim and identical:
+# `2026-08-09_1020` measured the SAME line in BOTH of its attempts' collected logs, and the
+# `_1032` re-flight a third time, verbatim and identical:
 #     seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-cross-body-successor=1
-# One ghost-frame offered, zero evaluations, one skip, twice - exactly the reason derived
-# offline: the TS dwell's covering segment is a Minmus leg with no different-body successor
-# ahead of it. "Skips are counted nowhere" was true when this paragraph was written and is
-# no longer.
+# One ghost-frame offered, zero evaluations, one skip - exactly the reason derived offline:
+# the covering segment is a Minmus leg with no different-body successor ahead of it.
+# "Skips are counted nowhere" was true when this paragraph was written and is no longer.
+#   READ "BOTH ATTEMPTS" NARROWLY, and NOT as two observations of the same subject
+#   (corrected 2026-08-09). `_1020` attempt 1 is INVALID(driver-verdict-mismatch): its step
+#   `0013 LoadGame` returned REJECTED (`reason=recording-active`, V5's re-arm race, second
+#   sighting - filed as TS-LOADGAME-RECORDING-ACTIVE-RACE in the todo doc), so that attempt
+#   never reached TRACKSTATION at all and ran only the FLIGHT half. Its seam-endpoint line
+#   is nonetheless present and byte-identical, which is what the reading rests on. Note too
+#   that on every one of the three logs the summary is emitted in scene=FLIGHT BEFORE the TS
+#   boot and the TS section emits none (5 s rate limit), so this line is a FLIGHT-scene
+#   measurement at the same post-timejump epoch, not a TS-scene one - the epoch is what
+#   makes it speak to the TS dwell (UT 1345355, shadow segIdx=8 body=Minmus), not the scene.
+#   The genuine corroboration base is `_1020_a2` + `_1032`, both driverValidity PASS.
 # THIS LANE THEREFORE STILL DOES NOT EXERCISE THE LENS. Of the five census lanes, V4
 # (Sun->Duna) and V7M (Kerbin->Minmus) are the two that DO, both `evaluated=1
 # outsideSoi=0`; V6M / V6T / V7T share the destination-park dwell that costs the
@@ -339,11 +351,15 @@ trees          = { min = 1, max = 2 }
 # as PRESENCE. `\d+` on both counters deliberately - freezing the current structural zero
 # would make the day this lane reaches a seam a red.
 #   THE PIN IS INERT ON THIS LANE UNTIL THE FINDING CLOSES, and that is stated rather than
-#   glossed: the verifier chain SHORT-CIRCUITS at the `icon-off-orbit` anomalySweep FAIL,
-#   so `expectations` never runs here (`status=SKIPPED reason=short-circuit` on both census
-#   attempts) and the token is never machine-evaluated. It was confirmed the only way
-#   available - direct grep of BOTH collected KSP.logs, one match each for the required
-#   form. This is the same handling the `faithful-parity summary` presence pin got on
+#   glossed: on the two driver-valid attempts the verifier chain SHORT-CIRCUITS at the
+#   `icon-off-orbit` anomalySweep FAIL, so `expectations` never runs (`status=SKIPPED
+#   reason=short-circuit`) and the token is never machine-evaluated. (On the INVALID attempt
+#   the expectations SKIP came from the `driver_valid` guard instead, with anomalySweep
+#   itself SKIPPED - `reason=short-circuit` is a shared literal and does not discriminate
+#   the two causes; an earlier draft here attributed both to the anomaly FAIL.) The token
+#   was confirmed the only way available - direct grep of all three collected KSP.logs, one
+#   match each for the required form. This is the same handling the
+#   `faithful-parity summary` presence pin got on
 #   2026-08-09 for the same reason; both arm themselves the moment the lane can go green.
 required  = [
   "missionconfig applied:",

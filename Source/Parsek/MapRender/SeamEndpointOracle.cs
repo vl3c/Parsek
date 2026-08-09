@@ -79,6 +79,19 @@ namespace Parsek.MapRender
         /// enough to hide a one-SOI-radius dead-end, which is the defect this instrument exists to
         /// notice. <see cref="Evaluate"/> takes the tolerance as a parameter so a caller or a test can
         /// pin the ideal 1.0 boundary directly.</para>
+        ///
+        /// <para><b>The 1.043 half is a CALIBRATION reference, not a coverage claim.</b> The binding
+        /// term above is the SMALLEST measured defect, 1.027, which the field capture DOES reach (V4's
+        /// 2026-08-09 census measured exactly that Sun-&gt;Duna arrival class), so the value 1.005
+        /// depends on the Kerbin figure not at all. But 1.043 is a quantity this capture can never
+        /// produce, in BOTH of its terms: it is <c>|escape-end - transfer-start|</c> - an INTER-SEGMENT
+        /// jump - over the ORIGIN body's sphere, where the lens measures the current leg's OWN endpoint
+        /// over the DESTINATION body's sphere. And on that departure seam the destination is the Sun,
+        /// whose sphere is not a finite encounter target, so the sample returns no measurement and is
+        /// bucketed <c>skip.no-usable-ratio</c> - it reports nothing at all rather than reading healthy.
+        /// The departure half of the 2026-06-15 defect is therefore NOT covered by this lens, and it is
+        /// not a raise class awaiting demonstration; it is one the lens cannot construct. Full
+        /// statement: the M-06 entry in todo-and-known-bugs.md.</para>
         /// </summary>
         internal const double DefaultRatioTolerance = 1.005;
 

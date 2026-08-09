@@ -292,10 +292,12 @@ trees          = { min = 1, max = 2 }
 # window - and every one of the seven reads `ghosts=0 sampled=0`. V1 buys the token
 # honestly only through a 33-minute dwell (399 probe lines, 131 with ghosts>=1).
 #   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
-#   parity pass touched the lens - `MapRenderProbe.cs:346` gates the emit on
-#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at
-#   `MapRenderProbe.cs:291-293`) - so its PRESENCE cannot be produced by a frame with no
-#   resolved ghost. Present in all seven archived runs; the `overTolerance>=1` form is
+#   parity pass touched the lens - the `faithful-parity summary` emit in
+#   `MapRenderProbe.LateUpdate` is gated on
+#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at the top of
+#   the same pass, just before the per-ghost loop) - so its PRESENCE cannot be produced
+#   by a frame with no resolved ghost. Present in all seven archived runs; the
+#   `overTolerance>=1` form is
 #   FORBIDDEN below (the S1.6/S1.7 pin verbatim, measured 0 on all seven).
 #   THIS LANE HAD NO ARCHIVED LOG when the pin was written - its committed flights
 #   (`2026-08-08_1559` reading, `_1641` armed) both PASSED and the harness does not

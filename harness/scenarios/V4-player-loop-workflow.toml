@@ -421,9 +421,11 @@ trees          = { min = 1, max = 2 }
 #   SPEC-SHAPE fact; pinning the token here would gate on a rate-limiter race (V5 run 1
 #   attempt 2 measured exactly that and replaced it).
 #   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
-#   parity pass actually touched the lens - `MapRenderProbe.cs:346` gates the emit on
+#   parity pass actually touched the lens - the `faithful-parity summary` emit in
+#   `MapRenderProbe.LateUpdate` is gated on
 #   `sampled > 0 || skipCounts.Count > 0`, and both counters are per-frame (reset at
-#   `MapRenderProbe.cs:291-293`). So its PRESENCE is a strictly better anti-vacuity pin
+#   the top of the same pass, just before the per-ghost loop). So its PRESENCE is a
+#   strictly better anti-vacuity pin
 #   than the probe line at this shape: it cannot be produced by a frame with no resolved
 #   ghost. Measured present in all seven archived runs.
 #   NOT PINNED: `sampled=[1-9]`. This lane measured `sampled=0 overTolerance=0

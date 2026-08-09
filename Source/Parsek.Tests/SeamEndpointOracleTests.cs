@@ -14,7 +14,13 @@ namespace Parsek.Tests
     /// <list type="bullet">
     ///   <item><b>DEFECT (2026-06-15 looped re-aim forensics):</b> Sun-&gt;Duna 49.19 Mm against a
     ///     47,921,949 m sphere (ratio 1.027) and Kerbin-&gt;Sun 87.76 Mm against an 84,159,286 m
-    ///     sphere (ratio 1.043). Both must raise.</item>
+    ///     sphere (ratio 1.043). Both must raise <em>through <c>Evaluate</c></em> - which is an
+    ///     arithmetic claim, NOT a coverage claim. The Kerbin figure is a quantity the field capture
+    ///     can never construct (it is an inter-segment jump over the ORIGIN sphere, and its departure
+    ///     seam's destination is the Sun, so a live sample there returns no measurement at all), so
+    ///     the departure half of that defect is uncovered by the lens by construction. Only the Duna
+    ///     figure is a reachable field population, and it is the one the 1.005 sizing binds on. See
+    ///     the M-06 entry in todo-and-known-bugs.md.</item>
     ///   <item><b>HEALTHY (S1.8 <c>S1.8-soi-crossing-playback</c>, live-proven on the committed
     ///     duna-direct fixture):</b> the two flown seams resolve continuous to 10,146.3 m and
     ///     7,284.0 m, against a 25 km pin. None of those may raise - that is the whole justification
@@ -292,8 +298,9 @@ namespace Parsek.Tests
         [Fact]
         public void EveryCaptureSkipReasonRendersAsItsOwnBucket()
         {
-            // The eleven reasons ComputeSeamEndpointGeometry can produce plus the one the ORACLE owns
-            // (`no-soi-measurement`, a sample with no usable ratio - the Sun as a destination). Pinned
+            // The twelve reasons ComputeSeamEndpointGeometry can produce plus the one the ORACLE owns
+            // (`no-usable-ratio` - a non-finite endpoint distance OR a non-finite / non-positive SOI
+            // radius; see the bucket's comment at the TrySampleAndEmitSeamEndpoint call site). Pinned
             // as a set so a reason added to the capture without a bucket is visible here; the counting
             // itself lives in the Unity sampler and is not reachable headlessly.
             var tally = new System.Collections.Generic.List<
@@ -302,7 +309,8 @@ namespace Parsek.Tests
             {
                 "no-rendered-orbit", "no-recId", "no-recording-or-segments", "no-covering-segment",
                 "no-covering-body", "body-mismatch", "no-cross-body-successor", "seam-ut-not-finite",
-                "seam-behind-clock", "to-body-unresolved", "propagation-threw", "no-soi-measurement",
+                "seam-behind-clock", "to-body-unresolved", "reaimed-seam-instant-unknown",
+                "propagation-threw", "no-usable-ratio",
             };
             foreach (string r in reasons)
                 tally.Add(new System.Collections.Generic.KeyValuePair<string, int>(r, 1));
@@ -312,6 +320,189 @@ namespace Parsek.Tests
             Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(0, tally.Count));
             foreach (string r in reasons)
                 Assert.Contains(" skip." + r + "=1", line);
+        }
+
+        // --- THE CAPTURE'S OWN DECISIONS (extracted pure helpers on MapRenderProbe) ---
+        //
+        // The Unity capture used to keep all four of its decisions inline, so the only thing any test
+        // could reach was the oracle's arithmetic - "green but blind" in the sense the codebase names
+        // at MapRenderProbe.OrbitRelativePositionYup. Three of the four are list/clock logic with no
+        // Unity in them and are now factored out and driven here; the fourth (the getTruePositionAtUT
+        // pair) still needs a live Orbit / CelestialBody and remains uncovered, stated as such in
+        // ComputeSeamEndpointGeometry's doc and filed in the M-06 entry.
+
+        private static OrbitSegment Seg(string body, double startUT, double endUT, double epoch = 0.0)
+        {
+            return new OrbitSegment
+            {
+                bodyName = body,
+                startUT = startUT,
+                endUT = endUT,
+                epoch = epoch,
+            };
+        }
+
+        [Theory]
+        // Inside the first segment.
+        [InlineData(5.0, 0)]
+        // Exactly ON an interior boundary: half-open [start, end), so it belongs to the LATER segment.
+        [InlineData(10.0, 1)]
+        [InlineData(20.0, 2)]
+        // The LAST segment is closed, so its endUT resolves rather than falling off the end. This is
+        // the half of the rule that differs from a naive scan, and losing it would make every parked
+        // end-of-recording drive clock read `no-covering-segment`.
+        [InlineData(30.0, 2)]
+        // Outside the chain in both directions.
+        [InlineData(-1.0, -1)]
+        [InlineData(30.001, -1)]
+        public void TheCoveringScanUsesTheHalfOpenRuleWithAClosedLastSegment(double lookupUT, int expected)
+        {
+            var segs = new System.Collections.Generic.List<OrbitSegment>
+            {
+                Seg("Kerbin", 0.0, 10.0), Seg("Sun", 10.0, 20.0), Seg("Duna", 20.0, 30.0),
+            };
+
+            Assert.Equal(expected, Parsek.MapRenderProbe.FindCoveringOrbitSegmentIndex(segs, lookupUT));
+        }
+
+        [Fact]
+        public void TheCoveringScanHandlesAnEmptyOrNullChain()
+        {
+            Assert.Equal(-1, Parsek.MapRenderProbe.FindCoveringOrbitSegmentIndex(null, 5.0));
+            Assert.Equal(-1, Parsek.MapRenderProbe.FindCoveringOrbitSegmentIndex(
+                new System.Collections.Generic.List<OrbitSegment>(), 5.0));
+        }
+
+        [Fact]
+        public void TheSuccessorWalkSkipsSameBodyCutsAndStopsAtTheBodyChange()
+        {
+            // An in-SOI segment cut (index 1) is NOT a seam; the seam is the BODY change at index 2.
+            var segs = new System.Collections.Generic.List<OrbitSegment>
+            {
+                Seg("Sun", 0.0, 10.0), Seg("Sun", 10.0, 20.0), Seg("Duna", 20.0, 30.0),
+            };
+
+            Assert.Equal(2, Parsek.MapRenderProbe.FindCrossBodySuccessorIndex(segs, 0, "Sun"));
+            Assert.Equal(2, Parsek.MapRenderProbe.FindCrossBodySuccessorIndex(segs, 1, "Sun"));
+        }
+
+        [Fact]
+        public void TheSuccessorWalkReportsNoneOnASameBodyRemainder()
+        {
+            // The ordinary in-SOI case, and the one the whole 2026-08-09 census turned out to be:
+            // a drive clock parked in the chain's last leg has no cross-body successor at all.
+            var segs = new System.Collections.Generic.List<OrbitSegment>
+            {
+                Seg("Kerbin", 0.0, 10.0), Seg("Kerbin", 10.0, 20.0),
+            };
+
+            Assert.Equal(-1, Parsek.MapRenderProbe.FindCrossBodySuccessorIndex(segs, 0, "Kerbin"));
+            Assert.Equal(-1, Parsek.MapRenderProbe.FindCrossBodySuccessorIndex(segs, 1, "Kerbin"));
+        }
+
+        [Fact]
+        public void TheSuccessorWalkIgnoresUnnamedSegmentsRatherThanCallingThemAChange()
+        {
+            var segs = new System.Collections.Generic.List<OrbitSegment>
+            {
+                Seg("Sun", 0.0, 10.0), Seg(null, 10.0, 20.0), Seg("", 20.0, 30.0),
+                Seg("Duna", 30.0, 40.0),
+            };
+
+            Assert.Equal(3, Parsek.MapRenderProbe.FindCrossBodySuccessorIndex(segs, 0, "Sun"));
+            Assert.Equal(-1, Parsek.MapRenderProbe.FindCrossBodySuccessorIndex(segs, 0, null));
+        }
+
+        [Fact]
+        public void TheSeamClockMapsBakedAndRawToDifferentInstants()
+        {
+            const double coveringEpoch = 1000.0;
+            const double shift = 500.0;
+            const double recordedSeamUT = 2000.0;
+
+            // BAKED (production): the rendered epoch carries seg.epoch + loopShift, so the recorded
+            // seam instant maps forward onto the live clock.
+            double baked = Parsek.MapRenderProbe.ResolveSeamUTOnRenderedClock(
+                coveringEpoch + shift, coveringEpoch, shift, recordedSeamUT, out string bakedName);
+            Assert.Equal("baked", bakedName);
+            Assert.Equal(recordedSeamUT + shift, baked);
+
+            // RAW (legacy): the rendered epoch IS the recorded epoch, so the recorded clock is read
+            // directly. Flipping these two arms is the regression this cell exists to catch - it moves
+            // the sample by the whole loop shift and nothing else would notice.
+            double raw = Parsek.MapRenderProbe.ResolveSeamUTOnRenderedClock(
+                coveringEpoch, coveringEpoch, shift, recordedSeamUT, out string rawName);
+            Assert.Equal("raw", rawName);
+            Assert.Equal(recordedSeamUT, raw);
+        }
+
+        [Fact]
+        public void ANeitherConventionConicIsLabelledAssumedLiveAndStillMapped()
+        {
+            // The load-bearing fallback: a re-aimed conic matches NEITHER convention, and the director
+            // still drives it at the live clock. It must take the baked mapping under an honest label,
+            // never be skipped here - gating on the epoch convention would blind the instrument to the
+            // exact population the defect lives in.
+            double seamUT = Parsek.MapRenderProbe.ResolveSeamUTOnRenderedClock(
+                987654.0, 1000.0, 500.0, 2000.0, out string name);
+
+            Assert.Equal("assumed-live", name);
+            Assert.Equal(2500.0, seamUT);
+        }
+
+        [Fact]
+        public void AFaithfulOrUnknownSeedKeepsTheRecordedSeamInstant()
+        {
+            // Nothing about a faithful (or absent) seed says the recorded chain is not what is being
+            // drawn, so the recorded seam stands even when the numbers happen to differ.
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindFaithful, 1000.0, 9.0e6));
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindNone, 1000.0, 9.0e6));
+        }
+
+        [Fact]
+        public void ANonRetimedReaimedSeedStillMeasures()
+        {
+            // The DIRECT re-aim path: candidate step 0 is the recorded tof and the render span falls
+            // back to the recorded arrival, so the seed's own end IS the recorded seam. This is the
+            // population V4's census reading sits in, and the guard must not take it away.
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed, 9.0e6, 9.0e6));
+            // Sub-second bookkeeping noise is not a re-timing.
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed,
+                9.0e6 + Parsek.MapRenderProbe.SeamRetimeToleranceSeconds, 9.0e6));
+        }
+
+        [Fact]
+        public void ARetimedReaimedSeedRefusesTheRecordedSeamInstant()
+        {
+            // The F2 parking-departure path: the tof search is centred on the geometric Hohmann time,
+            // so the arc arrives DAYS before the recorded arrival. Measuring it at the recorded seam is
+            // wrong, not merely uncalibrated - the destination has moved on by orders of magnitude more
+            // than the 1.005 tolerance, so the sample must be refused rather than reported.
+            const double recordedSeam = 9.0e6;
+            Assert.False(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed, recordedSeam - 2.9e6, recordedSeam));
+            // Direction-agnostic: the clamp makes a forward re-time degrade to full-span, but the
+            // predicate should not depend on that holding.
+            Assert.False(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed, recordedSeam + 2.9e6, recordedSeam));
+        }
+
+        [Fact]
+        public void ANonFiniteSeedEndKeepsTheSampleRatherThanInventingASkip()
+        {
+            // Fail-open on the comparison itself: with nothing to disagree with, the guard can only
+            // ever narrow the measured set on a finite, materially different seed end.
+            const double recordedSeam = 9.0e6;
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed, double.NaN, recordedSeam));
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed, double.PositiveInfinity, recordedSeam));
+            Assert.True(Parsek.MapRenderProbe.IsRecordedSeamInstantUsable(
+                Parsek.MapRenderProbe.SeamSeedKindReaimed, 1000.0, double.NaN));
         }
     }
 }

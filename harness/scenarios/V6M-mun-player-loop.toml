@@ -496,10 +496,12 @@ trees          = { min = 1, max = 2 }
 #   the token honestly only through a 33-minute dwell (399 probe lines, 131 with
 #   ghosts>=1). SPEC-SHAPE fact, not a product defect.
 #   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
-#   parity pass touched the lens - `MapRenderProbe.cs:346` gates the emit on
-#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at
-#   `MapRenderProbe.cs:291-293`) - so its PRESENCE cannot be produced by a frame with no
-#   resolved ghost. Present in all seven archived runs. Its `overTolerance>=1` form is
+#   parity pass touched the lens - the `faithful-parity summary` emit in
+#   `MapRenderProbe.LateUpdate` is gated on
+#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at the top of
+#   the same pass, just before the per-ghost loop) - so its PRESENCE cannot be produced
+#   by a frame with no resolved ghost. Present in all seven archived runs. Its
+#   `overTolerance>=1` form is
 #   FORBIDDEN below (the S1.6/S1.7 pin verbatim; measured 0 on all seven).
 #
 # NOT PINNED, AND THE REASON IS THIS LANE'S OWN FINDING: `sampled=[1-9]`. Run `_1945`
@@ -529,10 +531,18 @@ trees          = { min = 1, max = 2 }
 # So the skip is DETERMINISTIC for every frame the drive clock spends past fragment 8
 # inside that window - 4,488 s of recorded time, i.e. the whole Mun arrival plus park
 # tail, exactly the phase this lane exists to measure. Same signature on V4 (seed =
-# fragment 12 of a coalesced 12-15 window). V7M/V7T read `sampled=1` only because their
-# one emitted summary happened to land on a frame where the seed was NOT fresh
-# (`8a director-drive ... fresh=False` 20 ms earlier), which nulls `intendedSeed` and
-# bypasses the gate entirely - a lucky ungated frame, not the gate passing.
+# fragment 12 of a coalesced 12-15 window). V7M/V7T read `sampled=1` because their one
+# emitted summary lands on a frame whose drive clock is still inside the SEED fragment
+# (V7T frame 7706, driveUT 267,883.7, against fragment-6 epoch 267,736.7), so seed ==
+# covering THERE and the gate passes; later frames in the same coalesced window skip.
+# (CORRECTED 2026-08-09: this used to say the summary lands on a not-fresh-seed frame,
+# nulling `intendedSeed` and bypassing the gate - "a lucky ungated frame". That is
+# FALSE. The `fresh=False` on the drive line is stamped at execution order 0, before the
+# shadow stamps the seed mid-frame; the probe fetches the seed itself at order 10000.
+# V4's own frame 6464 pairs `fresh=False` with `skip.reaimed-or-foreign-seed=1`, a skip
+# reachable ONLY with a non-null seed, so that indicator cannot carry the claim.) The
+# conclusion is unchanged - do not pin `sampled=[1-9]` there - but for the fragment
+# geometry, not for a bypassed guard.
 # FILED, NOT SOFTENED: docs/dev/todo-and-known-bugs.md ->
 # FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning `sampled=[1-9]` here would gate on that
 # unresolved behaviour; pinning PRESENCE does not.
@@ -559,8 +569,15 @@ trees          = { min = 1, max = 2 }
 # from covering-segment lines plus the fixture's ORBIT_SEGMENT chain is now a tally the
 # lens prints about itself - which is the difference between an instrument you can argue
 # with and one you can read.
-# SO THIS LANE STILL DOES NOT EXERCISE THE LENS, and the "faithful moon lanes will raise
-# it by design" expectation remains UNTESTED here - not refuted, never reached. The two
+# SO THIS LANE STILL DOES NOT EXERCISE THE LENS. (CORRECTED 2026-08-09: this used to add
+# that the "faithful moon lanes will raise it by design" expectation "remains UNTESTED
+# here - not refuted, never reached". That expectation is MIS-SCOPED rather than
+# untested, and every other place the branch defines the population says so: the benign
+# raiser is a FAITHFUL loop replay of an INTERPLANETARY transfer, whose destination has
+# drifted in inertial space by the loop shift. A same-parent moon replay is phase-locked
+# and has no such drift. V7M - faithful, phase-locked, same-parent - read `evaluated=1
+# outsideSoi=0` in this same census, and the seam THIS lane would reach with the filed
+# pre-seam dwell is Kerbin->Mun, that identical class. Expect healthy there.) The two
 # lanes of the five that DO reach it are V4 (Sun->Duna arrival seam) and V7M
 # (Kerbin->Minmus arrival seam), both `evaluated=1 outsideSoi=0`; read either header for
 # what a real reading looks like. The park-dwell shape is what costs this lane the

@@ -1772,7 +1772,11 @@ namespace Parsek
         /// Outcome of one seam-endpoint sample: the pure oracle's result plus the context the emit line
         /// carries. <see cref="Sampled"/> is false (and <see cref="SkipReason"/> set) when the capture
         /// cleanly bailed before a measurement; the caller MUST treat a non-sampled outcome as "no
-        /// anomaly", never as a pass. internal so an in-game cell can drive the REAL capture path.
+        /// anomaly", never as a pass. internal so an in-game cell CAN drive the REAL capture path -
+        /// stated as an affordance, not as a fact: no such cell exists yet, unlike the eight that drive
+        /// the sibling parity captures. The gap is filed in the M-06 entry of todo-and-known-bugs.md;
+        /// the three pure DECISIONS the capture makes are covered headlessly in the meantime
+        /// (SeamEndpointOracleTests), which leaves only the propagation pair unverified.
         /// </summary>
         internal readonly struct SeamEndpointSample
         {
@@ -1845,16 +1849,43 @@ namespace Parsek
         /// to precisely the members the defect lives in. The resolved convention is reported on the
         /// line so a reader never has to guess which mapping was used.</para>
         ///
+        /// <para><b>RE-TIMED ARRIVALS ARE NOT MEASURABLE HERE.</b> The clock mapping above moves the
+        /// RECORDED seam instant onto the rendered clock; it does not move the seam INSTANT itself. A
+        /// re-aimed member whose producer re-timed its arrival (the F2 parking-departure path searches
+        /// tofs around the geometric Hohmann time and trims the render span to
+        /// <c>[RecordedDepartureUT, RecordedDepartureUT + usedTof]</c>, so the arc reaches the
+        /// destination EARLIER than the recorded arrival) is therefore sampled at an instant its arc
+        /// never claimed to be at the destination, and the oracle's premise - "a faithful arc sits ON
+        /// the sphere at the seam instant" - is simply false for it. That is a guaranteed WRONG
+        /// measurement, not an uncalibrated one, so it is refused rather than reported:
+        /// <see cref="IsRecordedSeamInstantUsable"/> compares the driven seed's OWN end against the
+        /// recorded seam and skips <c>reaimed-seam-instant-unknown</c> when they disagree. The skip is
+        /// deliberately NARROW - it needs a re-aimed seed AND a materially different seed end, so a
+        /// re-aimed member the producer did NOT re-time (the direct path, where candidate step 0 is the
+        /// recorded tof) still measures. "Unknown" rather than "re-timed" because the seed's end is not
+        /// itself a usable substitute: the seed is whichever arc the Director drives THIS frame, and on
+        /// a two-burn departure that can be the re-phased heliocentric PARK, whose end is the departure
+        /// burn rather than the arrival.</para>
+        ///
         /// <para>Skips cleanly (no anomaly) on: no rendered orbit / recId, no recording or segments, no
         /// covering segment, a covering segment on a different body than the rendered conic, a
         /// same-body-only remainder (no cross-body successor - the ordinary in-SOI case), a non-finite
-        /// or backwards seam UT, an unresolvable destination body, and any propagation throw. A missing
-        /// / non-positive / non-finite SOI radius reaches the oracle and returns
-        /// <c>HasMeasurement = false</c> there (this is how the Sun as a destination - whose sphere is
-        /// not a finite encounter target - reports nothing rather than a bogus ratio).</para>
+        /// or backwards seam UT, an unresolvable destination body, a re-timed re-aimed arrival (above),
+        /// and any propagation throw. A sample that reaches the oracle with no usable ratio - a
+        /// non-finite endpoint DISTANCE (degenerate rendered elements can make
+        /// <c>getTruePositionAtUT</c> return NaN without throwing, the same hazard
+        /// <see cref="TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT"/> guards) or a missing /
+        /// non-positive / non-finite SOI RADIUS (the Sun as a destination, whose sphere is not a finite
+        /// encounter target) - returns <c>HasMeasurement = false</c> there and is bucketed
+        /// <c>no-usable-ratio</c> by the caller rather than counted as evaluated.</para>
         ///
         /// <para>internal + no emit / no rate-limit / no per-pid state so the geometry path is directly
-        /// drivable by a test.</para>
+        /// drivable by a test. The three list/clock DECISIONS it makes are additionally factored into
+        /// pure helpers (<see cref="FindCoveringOrbitSegmentIndex"/>,
+        /// <see cref="FindCrossBodySuccessorIndex"/>, <see cref="ResolveSeamUTOnRenderedClock"/>,
+        /// <see cref="IsRecordedSeamInstantUsable"/>) so they are covered headlessly by xUnit; what
+        /// remains Unity-only here is the pair of <c>getTruePositionAtUT</c> propagations and the body
+        /// lookup, which need a live <c>Orbit</c> / <c>CelestialBody</c>.</para>
         /// </summary>
         internal static SeamEndpointSample ComputeSeamEndpointGeometry(
             Orbit renderedOrbit, CelestialBody renderedBody,
@@ -1876,24 +1907,7 @@ namespace Parsek
             double shift = (double.IsNaN(loopShift) || double.IsInfinity(loopShift)) ? 0.0 : loopShift;
             double lookupUT = ResolveFaithfulLookupUT(currentUT, loopShift);
 
-            // Covering-segment scan, byte-for-byte the predicate TrajectoryMath.FindOrbitSegment uses
-            // (half-open [startUT, endUT) except for the last segment, which is closed) - the index is
-            // what differs, not the rule. Diverging here would put the two conventions in one file and
-            // resolve the SEAM INSTANT ITSELF to the segment BEFORE the handoff while every other
-            // lookup in the codebase resolves it to the one after.
-            int coveringIndex = -1;
-            for (int i = 0; i < rec.OrbitSegments.Count; i++)
-            {
-                OrbitSegment s = rec.OrbitSegments[i];
-                bool inRange = (i == rec.OrbitSegments.Count - 1)
-                    ? (lookupUT >= s.startUT && lookupUT <= s.endUT)
-                    : (lookupUT >= s.startUT && lookupUT < s.endUT);
-                if (inRange)
-                {
-                    coveringIndex = i;
-                    break;
-                }
-            }
+            int coveringIndex = FindCoveringOrbitSegmentIndex(rec.OrbitSegments, lookupUT);
             if (coveringIndex < 0)
                 return SeamEndpointSample.Skip("no-covering-segment");
             OrbitSegment covering = rec.OrbitSegments[coveringIndex];
@@ -1904,20 +1918,8 @@ namespace Parsek
             if (!string.Equals(covering.bodyName, renderedBody.bodyName, System.StringComparison.Ordinal))
                 return SeamEndpointSample.Skip("body-mismatch");
 
-            // The SOI handoff: the next recorded segment on a DIFFERENT body. Same-body splits in
-            // between (an in-SOI segment cut) are walked through - the seam is the BODY change.
-            int nextIndex = -1;
-            for (int i = coveringIndex + 1; i < rec.OrbitSegments.Count; i++)
-            {
-                string b = rec.OrbitSegments[i].bodyName;
-                if (string.IsNullOrEmpty(b))
-                    continue;
-                if (!string.Equals(b, covering.bodyName, System.StringComparison.Ordinal))
-                {
-                    nextIndex = i;
-                    break;
-                }
-            }
+            int nextIndex = FindCrossBodySuccessorIndex(
+                rec.OrbitSegments, coveringIndex, covering.bodyName);
             if (nextIndex < 0)
                 return SeamEndpointSample.Skip("no-cross-body-successor");
             OrbitSegment next = rec.OrbitSegments[nextIndex];
@@ -1935,28 +1937,22 @@ namespace Parsek
             // Map the recorded seam instant onto the clock the RENDERED conic is read on. See the
             // CLOCK paragraph above: the re-aimed (neither-convention) case deliberately falls through
             // to the live mapping instead of skipping.
-            string clockConvention;
-            double seamUT;
-            if (IsSynthEpochConventionBaked(
-                    renderedOrbit.epoch, covering.epoch, shift, out bool isRawConvention))
-            {
-                clockConvention = "baked";
-                seamUT = recordedSeamUT + shift;
-            }
-            else if (isRawConvention)
-            {
-                clockConvention = "raw";
-                seamUT = recordedSeamUT;
-            }
-            else
-            {
-                clockConvention = "assumed-live";
-                seamUT = recordedSeamUT + shift;
-            }
+            double seamUT = ResolveSeamUTOnRenderedClock(
+                renderedOrbit.epoch, covering.epoch, shift, recordedSeamUT, out string clockConvention);
 
             string seedKind = !intendedSeed.HasValue
-                ? "no-seed"
-                : (AreSameConicElements(intendedSeed.Value, covering) ? "faithful-seed" : "reaimed-seed");
+                ? SeamSeedKindNone
+                : (AreSameConicElements(intendedSeed.Value, covering)
+                    ? SeamSeedKindFaithful
+                    : SeamSeedKindReaimed);
+
+            // RE-TIMED ARRIVAL GUARD (see the doc's RE-TIMED ARRIVALS paragraph). The clock mapping
+            // above relocates the recorded seam instant; it cannot discover that the producer moved
+            // the arrival. Refuse the sample instead of reporting a measurement taken at an instant
+            // the rendered arc never claimed the destination at.
+            if (intendedSeed.HasValue
+                && !IsRecordedSeamInstantUsable(seedKind, intendedSeed.Value.endUT, recordedSeamUT))
+                return SeamEndpointSample.Skip("reaimed-seam-instant-unknown");
 
             double endpointDist;
             try
@@ -1977,6 +1973,132 @@ namespace Parsek
             return new SeamEndpointSample(
                 true, null, result, covering.bodyName, next.bodyName,
                 recordedSeamUT, seamUT, clockConvention, seedKind);
+        }
+
+        /// <summary>No Director seed was fresh at this probe frame, so the arc's provenance is unknown.</summary>
+        internal const string SeamSeedKindNone = "no-seed";
+        /// <summary>The Director's fresh seed IS the covering recorded segment (fed through verbatim).</summary>
+        internal const string SeamSeedKindFaithful = "faithful-seed";
+        /// <summary>The Director's fresh seed differs from the covering recorded segment - a re-aimed arc.</summary>
+        internal const string SeamSeedKindReaimed = "reaimed-seed";
+
+        /// <summary>
+        /// How far the driven seed's own end may sit from the recorded seam and still be the SAME
+        /// handoff. On the DIRECT re-aim path the two are the same double by construction (the render
+        /// span falls back to the recorded arrival, which is the arrival segment's own startUT), so
+        /// this only has to absorb bookkeeping noise; a real re-timing is the difference between the
+        /// recorded tof and a Hohmann-centred one - days, not seconds.
+        /// </summary>
+        internal const double SeamRetimeToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// Pure: index of the recorded segment covering <paramref name="lookupUT"/>, or -1.
+        /// Byte-for-byte the predicate <see cref="TrajectoryMath.FindOrbitSegment"/> uses (half-open
+        /// <c>[startUT, endUT)</c> except for the last segment, which is closed) - the INDEX is what
+        /// differs, not the rule, and the index is what the cross-body successor walk needs. Diverging
+        /// here would put two conventions in one file and resolve the SEAM INSTANT ITSELF to the
+        /// segment BEFORE the handoff while every other lookup in the codebase resolves it to the one
+        /// after. internal + pure for xUnit.
+        /// </summary>
+        internal static int FindCoveringOrbitSegmentIndex(
+            IReadOnlyList<OrbitSegment> segments, double lookupUT)
+        {
+            if (segments == null || segments.Count == 0)
+                return -1;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment s = segments[i];
+                bool inRange = (i == segments.Count - 1)
+                    ? (lookupUT >= s.startUT && lookupUT <= s.endUT)
+                    : (lookupUT >= s.startUT && lookupUT < s.endUT);
+                if (inRange)
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Pure: index of the first segment after <paramref name="fromIndex"/> framed about a body
+        /// OTHER than <paramref name="fromBody"/> - the SOI handoff - or -1 when the remainder is
+        /// same-body only (the ordinary in-SOI case). Same-body splits in between (an in-SOI segment
+        /// cut) are walked through: the seam is the BODY change, not any segment boundary. Segments
+        /// with no body name are skipped rather than treated as a change. internal + pure for xUnit.
+        /// </summary>
+        internal static int FindCrossBodySuccessorIndex(
+            IReadOnlyList<OrbitSegment> segments, int fromIndex, string fromBody)
+        {
+            if (segments == null || string.IsNullOrEmpty(fromBody))
+                return -1;
+            for (int i = fromIndex + 1; i < segments.Count; i++)
+            {
+                string b = segments[i].bodyName;
+                if (string.IsNullOrEmpty(b))
+                    continue;
+                if (!string.Equals(b, fromBody, System.StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Pure: map the RECORDED seam instant onto the clock the rendered conic is read on, and report
+        /// WHICH of the three conventions was resolved. Production is unconditionally on the director
+        /// epoch-bake path (<c>baked</c>: epoch = seg.epoch + loopShift, propagated at the live clock),
+        /// the legacy path reads the recorded clock directly (<c>raw</c>), and a conic matching NEITHER
+        /// is the re-aimed case, which the director still drives at the live clock and so takes the
+        /// baked mapping under the honest label <c>assumed-live</c> rather than being skipped - gating
+        /// on the epoch convention here would blind the instrument to precisely the members the defect
+        /// lives in. internal + pure for xUnit.
+        /// </summary>
+        internal static double ResolveSeamUTOnRenderedClock(
+            double renderedEpoch, double coveringEpoch, double shift, double recordedSeamUT,
+            out string clockConvention)
+        {
+            if (IsSynthEpochConventionBaked(
+                    renderedEpoch, coveringEpoch, shift, out bool isRawConvention))
+            {
+                clockConvention = "baked";
+                return recordedSeamUT + shift;
+            }
+            if (isRawConvention)
+            {
+                clockConvention = "raw";
+                return recordedSeamUT;
+            }
+            clockConvention = "assumed-live";
+            return recordedSeamUT + shift;
+        }
+
+        /// <summary>
+        /// Pure: may the RECORDED seam instant stand in for the instant the RENDERED arc reaches the
+        /// handoff? True for a faithful or unknown-provenance seed (the recorded chain IS what is being
+        /// drawn there). False - and the sample must be refused, not reported - when the seed is
+        /// RE-AIMED and its own arc ends somewhere other than the recorded seam, which is exactly the
+        /// producer's re-timed-arrival signature: the F2 parking-departure path searches tofs around
+        /// the geometric Hohmann time and trims the render span to the new, EARLIER arrival, so the
+        /// recorded seam instant is days away from anything the drawn arc asserts.
+        ///
+        /// <para>Non-finite inputs keep the sample (there is nothing to disagree with), so this can
+        /// only ever narrow the measured set on a re-aimed member with a finite, materially different
+        /// seed end. A re-aimed member the producer did NOT re-time - the direct path, where candidate
+        /// step 0 is the recorded tof and the render span falls back to the recorded arrival - compares
+        /// equal and still measures.</para>
+        ///
+        /// <para>The seed's end is NOT used as a substitute instant, deliberately: the seed is whichever
+        /// arc the Director drives THIS frame, and on a two-burn departure that can be the re-phased
+        /// heliocentric PARK, whose end is the departure burn rather than the arrival. Knowing the
+        /// recorded instant is wrong is not the same as knowing the right one. internal + pure for
+        /// xUnit.</para>
+        /// </summary>
+        internal static bool IsRecordedSeamInstantUsable(
+            string seedKind, double seedEndUT, double recordedSeamUT)
+        {
+            if (!string.Equals(seedKind, SeamSeedKindReaimed, System.StringComparison.Ordinal))
+                return true;
+            if (double.IsNaN(seedEndUT) || double.IsInfinity(seedEndUT)
+                || double.IsNaN(recordedSeamUT) || double.IsInfinity(recordedSeamUT))
+                return true;
+            return System.Math.Abs(seedEndUT - recordedSeamUT) <= SeamRetimeToleranceSeconds;
         }
 
         /// <summary>
@@ -2023,15 +2145,25 @@ namespace Parsek
             }
 
             Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result = sample.Result;
-            // A sample that reached the oracle but got NO usable ratio back (a non-finite / non-positive
-            // SOI radius - the Sun as a destination is the real case) did not perform a
+            // A sample that reached the oracle but got NO usable ratio back did not perform a
             // destination-approach check, so it is a SKIP, not an `evaluated`. Counting it as evaluated
             // would re-open a smaller copy of the exact hole this accounting closes: `evaluated=3` while
             // nothing was actually measured. The one bucket the CAPTURE cannot name (the oracle owns the
             // decision), hence its own reason rather than one of ComputeSeamEndpointGeometry's.
+            //
+            // THE BUCKET COVERS BOTH REACHABLE CAUSES, and the name says ratio rather than SOI for that
+            // reason. (1) A non-finite / non-positive SOI RADIUS - the Sun as a destination, the case
+            // this instrument meets in the field. (2) A non-finite endpoint DISTANCE: the capture
+            // catches a THROW from getTruePositionAtUT but the call can also return NaN components on
+            // degenerate elements without throwing (the hazard TrajectoryMath's own post-catch NaN check
+            // documents), and Vector3d.magnitude of those is NaN. An earlier name and comment here said
+            // SOI only, which would have read a broken rendered conic as "the destination had no finite
+            // sphere" in a census whose whole job is attributing WHY the lens did not measure. (A third,
+            // defensive arm - a non-finite ratio from a finite distance over a finite-positive radius -
+            // needs overflow and is not reachable in practice.)
             if (!result.HasMeasurement)
             {
-                CountSeamEndpointSkip("no-soi-measurement");
+                CountSeamEndpointSkip("no-usable-ratio");
                 return;
             }
             seamEndpointEvaluatedCount++;

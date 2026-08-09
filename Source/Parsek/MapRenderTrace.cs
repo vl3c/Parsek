@@ -89,7 +89,11 @@ namespace Parsek
         //    skips re-aimed members, loop-seam-teleport measures the ghost TRANSFORM rather than the
         //    line, and the re-aim solver's own probes measure the SOLVE. Decision core is the pure
         //    Parsek.MapRender.SeamEndpointOracle; raised once-per-onset from MapRenderProbe. REPORT-ONLY
-        //    (hlib.ANOMALY_REASONS_RAISED_UNGATED) until it has flown.
+        //    (hlib.ANOMALY_REASONS_RAISED_UNGATED). This line used to end "until it has flown"; the
+        //    2026-08-09 seam-endpoint census retired that criterion - it HAS flown, healthy, on two
+        //    lanes. Flight is no longer the blocker; hlib's entry names the two that are (the raise
+        //    itself has never fired, and the benign faithful-interplanetary population is unmeasured).
+        //    Read that entry, not this line, before any promotion decision.
         internal const string AnomalySeamEndpointOutsideSoi = "seam-endpoint-outside-soi";
 
         // ---- Phase 7 Tier-A structural EVENT: fail-closed-to-faithful (design §14 / migration plan §9) ----

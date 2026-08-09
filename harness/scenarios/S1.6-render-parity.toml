@@ -33,9 +33,11 @@ tier = "daily"
 #      icon-off-orbit, gap-vs-retire, decision-vs-old-truth, clock-not-ready,
 #      retire-not-held, anchor-resolve-fail). `icon-jump` is DEAD and retired to
 #      ANOMALY_TOKENS_DEAD - no producer anywhere passes it as a reason (the
-#      probe raises `reason=icon-teleport`, MapRenderProbe.cs:871). Two raised
-#      reasons stay ungated as REPORT-ONLY instruments
-#      (unaccounted-drawn-recording, factory-parity) via
+#      probe raises `reason=icon-teleport`, from the icon-drift block in
+#      MapRenderProbe.Sample). The reasons that stay ungated as REPORT-ONLY
+#      instruments - THREE at 2026-08-09 (unaccounted-drawn-recording,
+#      factory-parity, seam-endpoint-outside-soi), and read
+#      hlib.ANOMALY_REASONS_RAISED_UNGATED rather than this list - surface via
 #      anomalySweep.unlistedReasons; see the drift entry in
 #      docs/dev/todo-and-known-bugs.md;
 #   3. the oracle ACTUALLY MEASURED (the anti-vacuity conjunct below).

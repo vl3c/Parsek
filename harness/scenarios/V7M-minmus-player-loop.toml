@@ -603,17 +603,27 @@ trees          = { min = 1, max = 2 }
 #   `ghosts=0 sampled=0` on dwells of 2.246-3.772 s. V1 buys the token honestly only
 #   through a 33-minute dwell (399 probe lines, 131 with ghosts>=1). SPEC-SHAPE fact.
 #   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
-#   parity pass touched the lens - `MapRenderProbe.cs:346` gates the emit on
-#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at
-#   `MapRenderProbe.cs:291-293`) - so its PRESENCE cannot be produced by a frame with no
-#   resolved ghost. Both archived runs read `faithful-parity summary sampled=1
+#   parity pass touched the lens - the `faithful-parity summary` emit in
+#   `MapRenderProbe.LateUpdate` is gated on
+#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at the top of
+#   the same pass, just before the per-ghost loop) - so its PRESENCE cannot be produced
+#   by a frame with no resolved ghost. Both archived runs read
+#   `faithful-parity summary sampled=1
 #   overTolerance=0`; the `overTolerance>=1` form is FORBIDDEN below (the S1.6/S1.7 pin
 #   verbatim, measured 0 on all seven).
-#   NOT PINNED: `sampled=[1-9]`, EVEN THOUGH THIS LANE MEASURED 1 TWICE. That 1 is not
-#   the gate passing - it is a frame where the Director's seed was NOT fresh
-#   (`8a director-drive ... fresh=False` 20 ms before the summary), which nulls
-#   `intendedSeed` and bypasses the re-aim gate entirely. On a fresh-seed frame this
-#   lane would skip exactly as V6M does: this fixture's Minmus segments 6-9 are ONE conic
+#   NOT PINNED: `sampled=[1-9]`, EVEN THOUGH THIS LANE MEASURED 1 TWICE. That 1 is the
+#   gate passing on a frame whose drive clock is still inside the SEED fragment, so seed
+#   == covering there; frames later in the same coalesced window skip. (CORRECTED
+#   2026-08-09: this used to say the seed was NOT fresh on that frame, nulling
+#   `intendedSeed` and bypassing the gate. FALSE - the drive line's `fresh=` is stamped
+#   at execution order 0, before the shadow stamps the seed mid-frame, while the probe
+#   fetches the seed itself at order 10000; V4's frame 6464 pairs `fresh=False` with a
+#   `skip.reaimed-or-foreign-seed=1` that is only reachable with a non-null seed, so the
+#   indicator does not support the claim. On this lane's own summary frames the
+#   post-shadow `director-stockconic-visible` line is present, i.e. the seed WAS fresh at
+#   probe time.) The conclusion is unchanged and now rests on the fragment geometry:
+#   frames past the seed fragment skip exactly as V6M's do, because this fixture's
+#   Minmus segments 6-9 are ONE conic
 #   (sma -32530.7485, ecc 4.02686086) fragmented into four, the seed carries fragment 6's
 #   epoch (267736.679, confirmed by `epoch+shift=1345207.9` against `shift=1077471.3`)
 #   and the raw covering at effUT 276,934.7 is fragment 9 (epoch 276411.273) - written up
