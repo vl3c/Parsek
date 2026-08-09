@@ -5413,7 +5413,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:871",
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:911",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -5450,9 +5450,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # claim; it is renamed rather than re-numbered because the COUNT was never
         # the contract - the membership is.
         self.assertEqual(
-            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:517"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:1977")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2055")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

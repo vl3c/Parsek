@@ -297,9 +297,9 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 # Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
-    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:517"),
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:1977"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2055"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS

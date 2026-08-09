@@ -188,5 +188,130 @@ namespace Parsek.Tests
             Assert.True(SeamEndpointOracle.DefaultRatioTolerance - 1.0 > (worstHealthy - 1.0) * 5.0);
             Assert.True(smallestDefect - 1.0 > (SeamEndpointOracle.DefaultRatioTolerance - 1.0) * 4.0);
         }
+
+        // --- PASS ACCOUNTING: the anti-vacuity half ---
+        //
+        // The instrument shipped with the raise above and no accounting, and five re-flights then
+        // produced zero raises that nobody could interpret: sound geometry, or a lens that never
+        // evaluated a seam? (It was the second - the drive clock sat in each recording's LAST
+        // OrbitSegment, so every frame bailed on `no-cross-body-successor`.) These cells pin the two
+        // pure pieces of the fix: the emit GUARD, whose whole job is to keep the first emit off a
+        // ghostless frame, and the summary GRAMMAR, which has to read like the faithful-parity sibling.
+
+        [Fact]
+        public void AGhostlessPassEmitsNoSummary()
+        {
+            // THE load-bearing case. A pass where the lens was handed nothing has zero evaluated and
+            // zero skip reasons, and MUST NOT emit: the summary rides a shared 5 s rate-limit key whose
+            // window opens on the first CALL, so a ghostless emit at scene entry would swallow every
+            // real reading for the following five seconds - the measured probe-frame-summary failure
+            // mode on the V4 / V6M / V6T / V7M / V7T lanes, which quit 2.2-3.8 s after entry.
+            Assert.False(SeamEndpointOracle.ShouldEmitPassSummary(0, 0));
+        }
+
+        [Theory]
+        // Measured clean: ghosts reached the lens and every one produced a check.
+        [InlineData(3, 0)]
+        // The five-re-flight shape: nothing evaluated, but the lens WAS offered ghosts and skipped
+        // them. This is the reading that was missing, so it must emit.
+        [InlineData(0, 1)]
+        [InlineData(2, 4)]
+        public void APassThatTouchedTheLensEmits(int evaluated, int distinctSkipReasons)
+        {
+            Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(evaluated, distinctSkipReasons));
+        }
+
+        [Fact]
+        public void TheSummaryMirrorsTheFaithfulParityFieldGrammar()
+        {
+            string line = SeamEndpointOracle.FormatPassSummary(
+                4, 1,
+                new[]
+                {
+                    new System.Collections.Generic.KeyValuePair<string, int>(
+                        "no-cross-body-successor", 7),
+                    new System.Collections.Generic.KeyValuePair<string, int>("body-mismatch", 2),
+                });
+
+            // `<lens> summary <counter>=<n> ...` then zero-or-more ` skip.<reason>=<n>`, exactly the
+            // shape of `faithful-parity summary sampled=.. overTolerance=.. skip.<reason>=<n>`.
+            Assert.Equal(
+                "seam-endpoint summary evaluated=4 outsideSoi=1 "
+                + "skip.no-cross-body-successor=7 skip.body-mismatch=2",
+                line);
+        }
+
+        [Fact]
+        public void TheAllSkippedPassRendersItsReasonsAndAZeroEvaluated()
+        {
+            // The measured five-re-flight reading, rendered: this exact line is what would have made
+            // the offline .prec reconstruction unnecessary.
+            string line = SeamEndpointOracle.FormatPassSummary(
+                0, 0,
+                new[]
+                {
+                    new System.Collections.Generic.KeyValuePair<string, int>(
+                        "no-cross-body-successor", 2),
+                });
+
+            Assert.Equal(
+                "seam-endpoint summary evaluated=0 outsideSoi=0 skip.no-cross-body-successor=2",
+                line);
+        }
+
+        [Fact]
+        public void APassWithNoSkipsRendersJustTheTwoCounters()
+        {
+            Assert.Equal(
+                "seam-endpoint summary evaluated=2 outsideSoi=0",
+                SeamEndpointOracle.FormatPassSummary(
+                    2, 0, new System.Collections.Generic.KeyValuePair<string, int>[0]));
+            // A null tally is the same line, not a throw: the emitter must never be the thing that
+            // takes the probe down.
+            Assert.Equal(
+                "seam-endpoint summary evaluated=2 outsideSoi=0",
+                SeamEndpointOracle.FormatPassSummary(2, 0, null));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void AnUnnamedSkipReasonIsBucketedNotDropped(string reason)
+        {
+            // Counts must add up to the ghost-frames offered, so an unnamed bucket is still rendered.
+            string line = SeamEndpointOracle.FormatPassSummary(
+                0, 0,
+                new[] { new System.Collections.Generic.KeyValuePair<string, int>(reason, 3) });
+
+            Assert.Equal(
+                "seam-endpoint summary evaluated=0 outsideSoi=0 skip."
+                + SeamEndpointOracle.PassSummaryUnknownSkipReason + "=3",
+                line);
+        }
+
+        [Fact]
+        public void EveryCaptureSkipReasonRendersAsItsOwnBucket()
+        {
+            // The eleven reasons ComputeSeamEndpointGeometry can produce plus the one the ORACLE owns
+            // (`no-soi-measurement`, a sample with no usable ratio - the Sun as a destination). Pinned
+            // as a set so a reason added to the capture without a bucket is visible here; the counting
+            // itself lives in the Unity sampler and is not reachable headlessly.
+            var tally = new System.Collections.Generic.List<
+                System.Collections.Generic.KeyValuePair<string, int>>();
+            string[] reasons =
+            {
+                "no-rendered-orbit", "no-recId", "no-recording-or-segments", "no-covering-segment",
+                "no-covering-body", "body-mismatch", "no-cross-body-successor", "seam-ut-not-finite",
+                "seam-behind-clock", "to-body-unresolved", "propagation-threw", "no-soi-measurement",
+            };
+            foreach (string r in reasons)
+                tally.Add(new System.Collections.Generic.KeyValuePair<string, int>(r, 1));
+
+            string line = SeamEndpointOracle.FormatPassSummary(0, 0, tally);
+
+            Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(0, tally.Count));
+            foreach (string r in reasons)
+                Assert.Contains(" skip." + r + "=1", line);
+        }
     }
 }

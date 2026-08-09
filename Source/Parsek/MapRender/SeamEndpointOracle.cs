@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 namespace Parsek.MapRender
 {
@@ -177,6 +180,79 @@ namespace Parsek.MapRender
                 soiRadiusMeters: soiRadiusMeters,
                 ratioTolerance: tol,
                 outsideSoi: ratio > tol);
+        }
+
+        // --- PER-PASS ACCOUNTING: the anti-vacuity half of the instrument ---
+        //
+        // MEASURED GAP (five re-flights, 2026-08-09): the raise above fired zero times and NOTHING in
+        // the log could say whether that was sound geometry or a lens that never evaluated a seam. The
+        // true cause had to be DERIVED offline from covering-segment lines plus the fixtures' .prec
+        // chains - at every frame where the lens resolved a ghost, the drive clock sat in the
+        // recording's LAST OrbitSegment, so the capture bailed on `no-cross-body-successor` before any
+        // geometry was measured. An instrument that cannot prove it LOOKED has exactly the defect this
+        // lane exists to close, so the pass accounting below is part of the instrument, not decoration.
+        //
+        // These two helpers are the headlessly-testable half of that accounting (the counting itself
+        // lives in the Unity sampler, which needs a live Orbit / CelestialBody). They mirror the
+        // faithful-parity summary emitted a few lines above the seam one in MapRenderProbe.LateUpdate:
+        // same field grammar, same guard, same 5.0 s rate-limit interval.
+
+        /// <summary>The skip bucket a null / empty reason string is folded into.</summary>
+        internal const string PassSummaryUnknownSkipReason = "unknown";
+
+        /// <summary>
+        /// Should this pass emit a summary at all?
+        ///
+        /// <para><b>This guard is load-bearing, not a micro-optimisation.</b> The summary rides
+        /// <c>ParsekLog.VerboseRateLimited</c> on a SHARED 5.0 s key, and that limiter starts its window
+        /// on the FIRST call for the key - so an emit on a ghostless frame would prime the key at scene
+        /// entry (the probe's first pass lands ~2 ms after the tracer flips, before any ghost exists) and
+        /// swallow every real reading for the next five seconds. That is exactly what made
+        /// <c>probe frame summary</c> unpinnable on the V4 / V6M / V6T / V7M / V7T lanes, which quit
+        /// 2.2-3.8 s after entry and therefore never got a second emit. Requiring
+        /// <paramref name="evaluated"/> &gt; 0 OR at least one skip reason makes the FIRST emit
+        /// necessarily a frame on which at least one ghost reached the lens, because both counters are
+        /// only ever incremented from inside the per-ghost capture.</para>
+        /// </summary>
+        internal static bool ShouldEmitPassSummary(int evaluated, int distinctSkipReasons)
+        {
+            return evaluated > 0 || distinctSkipReasons > 0;
+        }
+
+        /// <summary>
+        /// Render one pass summary. Field grammar mirrors the faithful-parity line exactly
+        /// (<c>&lt;lens&gt; summary &lt;counter&gt;=&lt;n&gt; ... skip.&lt;reason&gt;=&lt;n&gt;</c>) so a
+        /// reader and an hlib regex parse both the same way.
+        ///
+        /// <para><paramref name="evaluated"/> counts destination-approach checks the lens ACTUALLY
+        /// PERFORMED - a sample that reached the oracle and got a usable ratio back. Every other outcome
+        /// lands in exactly one <c>skip.</c> bucket, so <c>evaluated + sum(skips)</c> is the number of
+        /// ghost-frames offered to the lens this pass. <paramref name="outsideSoi"/> is a strict subset
+        /// of <paramref name="evaluated"/>: the checks that read over tolerance.</para>
+        ///
+        /// <para>Enumeration ORDER is the caller's (the parity sibling iterates its dictionary the same
+        /// way); nothing downstream depends on the reasons being sorted.</para>
+        /// </summary>
+        internal static string FormatPassSummary(
+            int evaluated, int outsideSoi, IEnumerable<KeyValuePair<string, int>> skipCounts)
+        {
+            var sb = new StringBuilder();
+            sb.Append("seam-endpoint summary evaluated=")
+              .Append(evaluated.ToString(CultureInfo.InvariantCulture))
+              .Append(" outsideSoi=")
+              .Append(outsideSoi.ToString(CultureInfo.InvariantCulture));
+            if (skipCounts != null)
+            {
+                foreach (KeyValuePair<string, int> kv in skipCounts)
+                {
+                    string reason = string.IsNullOrEmpty(kv.Key)
+                        ? PassSummaryUnknownSkipReason
+                        : kv.Key;
+                    sb.Append(" skip.").Append(reason).Append('=')
+                      .Append(kv.Value.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+            return sb.ToString();
         }
 
         private static bool IsFinite(double v)

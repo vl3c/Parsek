@@ -158,6 +158,20 @@ namespace Parsek
             new Dictionary<string, int>(System.StringComparer.Ordinal);
         private int faithfulParitySampledCount;
         private int faithfulParityOverCount;
+
+        // Per-PASS seam-endpoint (ENCOUNTER-GEOMETRY) accounting - the SAME shape as the faithful-parity
+        // counters directly above, reset in the same place, emitted as a sibling summary right after
+        // theirs. Added because the instrument shipped without it and immediately demonstrated why it
+        // was needed: across five re-flights the seam raise fired zero times and no log surface could
+        // distinguish "the geometry is sound" from "the lens never evaluated a seam". The answer had to
+        // be derived offline from covering-segment lines plus the fixtures' .prec chains, and it was the
+        // second one - the clock sat in each recording's LAST OrbitSegment every frame, so the capture
+        // bailed on no-cross-body-successor before measuring anything. See the accounting block in
+        // Parsek.MapRender.SeamEndpointOracle, which owns the pure guard + formatter.
+        private readonly Dictionary<string, int> seamEndpointSkipCounts =
+            new Dictionary<string, int>(System.StringComparer.Ordinal);
+        private int seamEndpointEvaluatedCount;
+        private int seamEndpointOutsideSoiCount;
         // A1 cutover-instrument: soft rate-limit timestamps for the per-pid SYNTHESIZED-mode (rendered conic
         // vs the Director's intended re-aimed seed) parity-drift anomaly. SEPARATE from the faithful dict so
         // a faithful drift and a synthesized drift on the same pid do not suppress each other. PERSISTENT
@@ -291,6 +305,11 @@ namespace Parsek
             faithfulParitySampledCount = 0;
             faithfulParityOverCount = 0;
             faithfulParitySkipCounts.Clear();
+            // Seam-endpoint pass accounting resets in lockstep with the parity one (same pass, same
+            // per-ghost loop below feeds both), so each summary describes exactly this LateUpdate.
+            seamEndpointEvaluatedCount = 0;
+            seamEndpointOutsideSoiCount = 0;
+            seamEndpointSkipCounts.Clear();
             if (pids != null)
             {
                 foreach (uint pid in pids)
@@ -352,6 +371,27 @@ namespace Parsek
                     sb.Append(" skip.").Append(kv.Key).Append('=').Append(kv.Value);
                 ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "faithful-parity-summary",
                     sb.ToString(), 5.0);
+            }
+
+            // Seam-endpoint (ENCOUNTER-GEOMETRY) pass accounting: the sibling of the parity summary
+            // above, and for the same reason one step further along. The parity summary exists so a
+            // silent oracle is distinguishable from a clean one; the seam lens shipped WITHOUT one and
+            // promptly proved the point - five re-flights, zero raises, and the only way to learn that
+            // every frame had bailed on `no-cross-body-successor` (drive clock parked in the recording's
+            // last OrbitSegment) was to reconstruct it offline from the .prec chains. With this line a
+            // reader sees, per pass, how many destination-approach checks actually ran and why the rest
+            // did not. The guard is NOT optional - see SeamEndpointOracle.ShouldEmitPassSummary: an emit
+            // on a ghostless frame would prime the shared 5 s rate-limit key at scene entry and swallow
+            // every real reading on a lane that quits a few seconds later (the probe-frame-summary
+            // failure mode). Both counters are only ever touched from inside the per-ghost capture, so
+            // passing the guard means at least one ghost genuinely reached the lens on this frame.
+            if (Parsek.MapRender.SeamEndpointOracle.ShouldEmitPassSummary(
+                    seamEndpointEvaluatedCount, seamEndpointSkipCounts.Count))
+            {
+                ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "seam-endpoint-summary",
+                    Parsek.MapRender.SeamEndpointOracle.FormatPassSummary(
+                        seamEndpointEvaluatedCount, seamEndpointOutsideSoiCount, seamEndpointSkipCounts),
+                    5.0);
             }
 
             // --- Phase 8e S0 Instrument 1: accounted-vs-drawn coverage assertion ---
@@ -1940,6 +1980,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Fold one non-measuring seam-endpoint outcome into this pass's skip tally. A null / empty
+        /// reason is bucketed as <c>unknown</c> rather than dropped, so the counts always add up to the
+        /// number of ghost-frames the lens was offered.
+        /// </summary>
+        private void CountSeamEndpointSkip(string reason)
+        {
+            string key = string.IsNullOrEmpty(reason)
+                ? Parsek.MapRender.SeamEndpointOracle.PassSummaryUnknownSkipReason
+                : reason;
+            seamEndpointSkipCounts.TryGetValue(key, out int c);
+            seamEndpointSkipCounts[key] = c + 1;
+        }
+
+        /// <summary>
         /// Gather the encounter-geometry inputs and raise the Tier-C <c>seam-endpoint-outside-soi</c>
         /// anomaly ONCE PER ONSET (per pid + seam signature, via
         /// <see cref="MapRenderTrace.ShouldEmitCutoverAnomalyOnChange"/>) when the rendered arc fails to
@@ -1957,12 +2011,36 @@ namespace Parsek
 
             SeamEndpointSample sample = ComputeSeamEndpointGeometry(
                 renderedOrbit, renderedBody, loopShift, currentUT, recId, intendedSeed);
+
+            // Pass accounting (house batch-counting convention: count in the loop, one summary after
+            // it - see the LateUpdate emit). EXACTLY ONE bucket is incremented per ghost-frame offered
+            // to the lens: either a skip reason or `evaluated`, never both and never neither, so
+            // evaluated + sum(skips) is the number of ghost-frames the lens was handed this pass.
             if (!sample.Sampled)
+            {
+                CountSeamEndpointSkip(sample.SkipReason);
                 return;
+            }
 
             Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result = sample.Result;
-            if (!result.HasMeasurement || !result.OutsideSoi)
+            // A sample that reached the oracle but got NO usable ratio back (a non-finite / non-positive
+            // SOI radius - the Sun as a destination is the real case) did not perform a
+            // destination-approach check, so it is a SKIP, not an `evaluated`. Counting it as evaluated
+            // would re-open a smaller copy of the exact hole this accounting closes: `evaluated=3` while
+            // nothing was actually measured. The one bucket the CAPTURE cannot name (the oracle owns the
+            // decision), hence its own reason rather than one of ComputeSeamEndpointGeometry's.
+            if (!result.HasMeasurement)
+            {
+                CountSeamEndpointSkip("no-soi-measurement");
                 return;
+            }
+            seamEndpointEvaluatedCount++;
+            if (!result.OutsideSoi)
+                return;
+            // Counted BEFORE the once-per-onset emit filter (mirrors the parity lens counting
+            // overTolerance before its rate limit), so the summary reports what was MEASURED this pass
+            // rather than what happened to be logged.
+            seamEndpointOutsideSoiCount++;
 
             // Once-per-onset: key on the member, signature on the seam being measured (bodies + the
             // recorded seam instant), so re-measuring the same seam every frame emits one line and a
