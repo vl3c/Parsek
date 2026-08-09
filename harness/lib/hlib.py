@@ -272,12 +272,28 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 #     the compared factory NEVER drives a draw. A disagreement is diagnostic
 #     evidence for the render cutover, not a user-visible defect, so a raise should
 #     inform the cutover rather than fail the flight that observed it.
+#   * `seam-endpoint-outside-soi` is the ENCOUNTER-GEOMETRY instrument, and it is
+#     here for the OPPOSITE reason to the two above: not because a raise would be
+#     uninteresting, but because it has NEVER FLOWN. It measures the RENDERED conic
+#     at a recorded cross-body SOI handoff against the destination body's sphere
+#     (pure core `Parsek.MapRender.SeamEndpointOracle`; raises on ratio > 1.005,
+#     calibrated between two MEASURED populations - the S1.8 healthy seam
+#     continuity at 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin, and
+#     the 2026-06-15 looped-re-aim defect at 1.027 / 1.043). Every token promoted
+#     on 2026-08-04 earned its gate from a measurement that it stays SILENT on real
+#     geometry; this one has no such reading yet, and there is one population it
+#     can legitimately light up on - a FAITHFUL loop replay of an interplanetary
+#     transfer, whose destination has moved on in inertial space by the loop shift -
+#     which is a known design limitation rather than a render defect. So it flies
+#     report-only first, exactly as the seven did. mapRenderTracing-gated, so only
+#     specs that arm that tracer can raise it at all.
 #
-# Promoting either one later needs the same thing the seven needed: a measurement
+# Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:1977"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS

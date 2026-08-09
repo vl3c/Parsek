@@ -81,6 +81,16 @@ namespace Parsek
         internal const string AnomalyAnchorResolveFail = "anchor-resolve-fail";
         internal const string AnomalyClockNotReady = "clock-not-ready";
         internal const string AnomalyFactoryParity = "factory-parity";
+        //  - seam-endpoint-outside-soi: the ENCOUNTER-GEOMETRY instrument. At a recorded cross-body SOI
+        //    handoff, the arc the pipeline is ACTUALLY rendering sits OUTSIDE the destination body's
+        //    sphere of influence at the handoff instant - i.e. the drawn transfer dead-ends in open
+        //    space instead of arriving. Every other lens is blind to it: RenderParityOracle measures
+        //    each segment against its OWN reference (blind to the gap BETWEEN segments) and explicitly
+        //    skips re-aimed members, loop-seam-teleport measures the ghost TRANSFORM rather than the
+        //    line, and the re-aim solver's own probes measure the SOLVE. Decision core is the pure
+        //    Parsek.MapRender.SeamEndpointOracle; raised once-per-onset from MapRenderProbe. REPORT-ONLY
+        //    (hlib.ANOMALY_REASONS_RAISED_UNGATED) until it has flown.
+        internal const string AnomalySeamEndpointOutsideSoi = "seam-endpoint-outside-soi";
 
         // ---- Phase 7 Tier-A structural EVENT: fail-closed-to-faithful (design §14 / migration plan §9) ----
         //

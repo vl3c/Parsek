@@ -178,7 +178,11 @@ S1.4/S1.6/S1.7, 155 tracer-on historical runs, zero raises anywhere; S1.4's
 `2026-08-04_1228` reading was the deciding measurement the deferral named).
 `unaccounted-drawn-recording` and `factory-parity` stay report-only as
 INSTRUMENTS (coverage probe / shadow comparator), with rationales in the code
-and known-gate 0's resolution paragraph. No maxCount budget exists anywhere -
+and known-gate 0's resolution paragraph; `seam-endpoint-outside-soi` (the
+encounter-geometry lens, added later) joins them report-only for a DIFFERENT
+reason - not that a raise would be uninteresting, but that the lens has never
+flown, so it takes the same report-only first lap the seven above took. No
+maxCount budget exists anywhere -
 line-blink's sharpen-the-predicate precedent held. (3) NOTHING NEW ARMED on the
 ledger side, by design: CL-2's `captureCrossCheck = "gate"` re-verified at HEAD
 (`2026-08-04_1324`, ninth consecutive bit-stable three-award capture), CL-3's

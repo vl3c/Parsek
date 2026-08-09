@@ -5432,21 +5432,32 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
             "listed in ANOMALY_REASONS_RAISED_UNGATED (or a listed one no longer "
             "exists) - re-derive the todo-doc table in the same change")
 
-    def test_the_ungated_count_is_two_instruments(self):
+    def test_the_ungated_list_is_the_settled_instrument_set(self):
         # After the 2026-08-04 calibration promotion the ungated list is no longer a
         # backlog to be worked down - it is the SETTLED instrument list, and its
-        # membership is the claim worth pinning. Exactly two survive, and each
-        # survives for a written reason (see the tuple's comment block): a raise from
-        # either reports an instrumentation/diagnostic condition, not a rendered
-        # defect, so gating it would red a flight for the probe's own gap.
+        # membership is the claim worth pinning. Each entry survives for a written
+        # reason (see the tuple's comment block), and the reasons are NOT all the
+        # same shape, which is why the cell pins membership rather than a count:
+        #   - `unaccounted-drawn-recording` / `factory-parity`: a raise reports an
+        #     instrumentation/diagnostic condition, not a rendered defect, so gating
+        #     it would red a flight for the probe's own gap.
+        #   - `seam-endpoint-outside-soi` (added with the encounter-geometry
+        #     instrument): a raise WOULD be a real finding, but the instrument has
+        #     never flown. It gets the same report-only first lap the seven promoted
+        #     tokens each got, and it has a known benign population (a faithful loop
+        #     replay of an interplanetary transfer) still to be measured.
+        # The cell was named `..._count_is_two_instruments` while two was the whole
+        # claim; it is renamed rather than re-numbered because the COUNT was never
+        # the contract - the membership is.
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
-             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709")],
+             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:1977")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")
-        # ...and both are still genuinely RAISED. An instrument nobody raises is a
-        # dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
+        # ...and every one is still genuinely RAISED. An instrument nobody raises is
+        # a dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
         for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
             self.assertIn(reason, self.raised)
 
