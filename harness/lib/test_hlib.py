@@ -5110,7 +5110,8 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
         # not-a-hit example when icon-teleport was PROMOTED into the gate 2026-08-04.
         #
         # PHASE anchor. `line-blink-suppressed` is the Tier-B line the dark-window
-        # guard emits when it eats a would-be raise (MapRenderProbe.cs:762 ->
+        # guard emits when it eats a would-be raise (the `line-blink-suppressed`
+        # EmitOnChange in MapRenderProbe's proto-orbit-line block ->
         # MapRenderTrace.EmitOnChange -> `phase=line-blink-suppressed`, NOT
         # phase=Anomaly), and its phase token CONTAINS the gated `line-blink`. A
         # substring sweep would red a green V1 dwell on the very line that proves
@@ -5136,11 +5137,14 @@ class AnomalyGrepAnchoringTests(unittest.TestCase):
                          hlib.grep_anomaly_tokens(log))
 
     def test_unlisted_reasons_are_reported_not_gated(self):
-        # The report-not-gate channel, exercised on the TWO reasons that are still
-        # deliberately ungated after the 2026-08-04 promotion (both INSTRUMENTS:
-        # `factory-parity` is a shadow comparator that never drives a draw,
-        # `unaccounted-drawn-recording` is the S0 polyline-coverage probe). They must
-        # surface without changing the verdict; the gated token alongside them must.
+        # The report-not-gate channel, exercised on two of the reasons that are
+        # deliberately ungated (both INSTRUMENTS: `factory-parity` is a shadow
+        # comparator that never drives a draw, `unaccounted-drawn-recording` is the
+        # S0 polyline-coverage probe). Two of them, not "the two" - the ungated set
+        # is three since the encounter-geometry lens joined it on 2026-08-09, and
+        # `test_the_ungated_list_is_the_settled_instrument_set` owns the membership
+        # claim. They must surface without changing the verdict; the gated token
+        # alongside them must.
         log = "\n".join(
             "[Parsek][INFO][MapRenderTrace] phase=Anomaly pid=1 reason=" + t
             for t in ("factory-parity", "unaccounted-drawn-recording", "parity-drift"))
@@ -5398,10 +5402,12 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
     exists to size, so it is derived from the C# source here.
 
     The 2026-08-04 calibration sweep PROMOTED seven of the nine into
-    ANOMALY_TOKENS, leaving two declared instruments. That changes what these cells
-    guard but not why they exist: the partition still has to hold, and now a raise
-    site added without a decision lands as an un-gated, un-declared reason and
-    reds here."""
+    ANOMALY_TOKENS, leaving two declared instruments; the encounter-geometry lens
+    made it three on 2026-08-09. That changes what these cells guard but not why
+    they exist: the partition still has to hold, and now a raise site added without
+    a decision lands as an un-gated, un-declared reason and reds here. Membership,
+    never a count, is the contract - a count written in prose is the thing that
+    goes stale, and understating it understates the fail-open."""
 
     def setUp(self):
         self.assertTrue(os.path.isdir(PARSEK_SRC_DIR),
@@ -5413,7 +5419,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # Anti-vacuity for the scanner itself: an empty / near-empty walk would make
         # every set assertion below trivially true.
         self.assertGreaterEqual(len(self.raised), 15)
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:871",
+        self.assertIn("Source/Parsek/MapRenderProbe.cs:911",
                       self.raised.get("icon-teleport", []))
         self.assertIn("Source/Parsek/GameActions/FacilityStatePatcher.cs:158",
                       self.raised.get("ledger-vs-truth", []))
@@ -5432,23 +5438,55 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
             "listed in ANOMALY_REASONS_RAISED_UNGATED (or a listed one no longer "
             "exists) - re-derive the todo-doc table in the same change")
 
-    def test_the_ungated_count_is_two_instruments(self):
+    def test_the_ungated_list_is_the_settled_instrument_set(self):
         # After the 2026-08-04 calibration promotion the ungated list is no longer a
         # backlog to be worked down - it is the SETTLED instrument list, and its
-        # membership is the claim worth pinning. Exactly two survive, and each
-        # survives for a written reason (see the tuple's comment block): a raise from
-        # either reports an instrumentation/diagnostic condition, not a rendered
-        # defect, so gating it would red a flight for the probe's own gap.
+        # membership is the claim worth pinning. Each entry survives for a written
+        # reason (see the tuple's comment block), and the reasons are NOT all the
+        # same shape, which is why the cell pins membership rather than a count:
+        #   - `unaccounted-drawn-recording` / `factory-parity`: a raise reports an
+        #     instrumentation/diagnostic condition, not a rendered defect, so gating
+        #     it would red a flight for the probe's own gap.
+        #   - `seam-endpoint-outside-soi` (added with the encounter-geometry
+        #     instrument): a raise WOULD be a real finding. This comment used to say
+        #     the instrument had never flown; the 2026-08-09 seam-endpoint census
+        #     retired that - it flew, healthy, on V4 and V7M. The blockers hlib's
+        #     tuple comment names are now the RAISE never having fired, plus TWO
+        #     unmeasured benign populations (a faithful loop replay of an
+        #     interplanetary transfer, and a re-aimed member whose arrival the
+        #     producer re-timed). Read that comment, not this list, for the current
+        #     promotion decision.
+        # The cell was named `..._count_is_two_instruments` while two was the whole
+        # claim; it is renamed rather than re-numbered because the COUNT was never
+        # the contract - the membership is.
         self.assertEqual(
-            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
-             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709")],
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:517"),
+             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2187")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")
-        # ...and both are still genuinely RAISED. An instrument nobody raises is a
-        # dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
+        # ...and every one is still genuinely RAISED. An instrument nobody raises is
+        # a dead token and belongs in ANOMALY_TOKENS_DEAD, not here.
         for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:
             self.assertIn(reason, self.raised)
+        # ...and the pinned file:line POINTER still resolves, which nothing checked
+        # until 2026-08-09 - the seam entry's line had already gone stale twice inside
+        # one branch by then, once while the author was fixing stale line citations.
+        # The tuple's own comment block declares the convention: the pointer is the
+        # DECISION site, which for a wrapper-routed raise (of the live entries, only
+        # `factory-parity`) is the guard rather than the EmitAnomaly call the scanner
+        # sees. Those are exempted by name; everything else must match a site the C#
+        # scan actually found, so a pointer cannot rot silently.
+        wrapper_routed_pointer = {"factory-parity"}
+        for reason, pointer in hlib.ANOMALY_REASONS_RAISED_UNGATED:
+            if reason in wrapper_routed_pointer:
+                continue
+            self.assertIn(
+                pointer, self.raised[reason],
+                "ANOMALY_REASONS_RAISED_UNGATED pins %s at %s, but the C# scan finds "
+                "its EmitAnomaly at %s - re-derive the pointer here, in the literal "
+                "above, and in the todo-doc table" % (reason, pointer, self.raised[reason]))
 
     def test_the_four_wrapper_routed_raises_are_accounted_for(self):
         # The 2026-07-26 first pass listed 5 of 9 ungated reasons because these four
@@ -5511,8 +5549,11 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
     def test_status_doc_names_every_report_only_instrument(self):
         # autotest-status.md is declared the single status authority for this
         # system, and its gate-0 list is what a reader acts on. It said FIVE for
-        # one commit; keep it tied to the source-derived tuple - which after the
-        # 2026-08-04 promotion is the two-instrument list, not nine.
+        # one commit; keep it tied to the tuple rather than to any number spelled
+        # out here. The cell asserts NAME PRESENCE per entry and deliberately counts
+        # nothing, so it stays correct as the set grows (it went two -> three on
+        # 2026-08-09) - which is also why it never caught the count prose that did
+        # drift.
         with open(AUTOTEST_STATUS_DOC, encoding="utf-8") as fh:
             body = fh.read()
         for reason, _ in hlib.ANOMALY_REASONS_RAISED_UNGATED:

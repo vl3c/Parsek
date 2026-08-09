@@ -584,6 +584,119 @@ trees          = { min = 1, max = 2 }
 #     spec requires that at least one real entry completed. If this token is the only
 #     mismatch on an otherwise-green run, READ IT - it means both calls took the
 #     already-watching path, which is itself a finding about watch persistence.
+#
+# THE MAP-PROBE ANTI-VACUITY PIN (added 2026-08-09), and WHY IT IS NOT THE PROBE LINE.
+# The `surface=Proto*` pin below proves the TRACER saw a Minmus-framed ghost surface; it
+# does NOT prove the PROBE's per-pid lens - the thing `allowedAnomalies = []` arms a
+# Tier-C sweep over - ever reached a resolved ghost. The obvious pin for that,
+# `probe frame summary frame=\d+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]*` (V1's and V2's
+# token), is UNBUYABLE AT THIS SPEC SHAPE:
+#   `ParsekLog.VerboseRateLimited` holds the probe summary on a 5.0 s WALL-CLOCK,
+#   process-global shared key ("MapRenderTrace|probe-frame-summary"), so the FIRST call
+#   after the tracer flips owns the window - and it lands before any ghost is resolved.
+#   MEASURED on `2026-08-08_1901`: `setting name=mapRenderTracing ... new=true` at
+#   19:01:09.262 -> `probe frame summary frame=7363 ghosts=0 sampled=0 resolveMisses=0`
+#   at 19:01:09.263 (+1 ms) -> `FlushAndQuit` at 19:01:13.034, a 3.772 s tracer-on dwell
+#   inside a 5.0 s window (`_1902` reads the same shape: +6 ms, 3.769 s). No second
+#   probe line can exist. All SEVEN archived tracer-on runs of this family (V4 `_1457`,
+#   V5 `_1440`, V6M `_1945`, V7M `_1901`/`_1902`, V7T `_1915`/`_1917`) read
+#   `ghosts=0 sampled=0` on dwells of 2.246-3.772 s. V1 buys the token honestly only
+#   through a 33-minute dwell (399 probe lines, 131 with ghosts>=1). SPEC-SHAPE fact.
+#   THE HONEST SUBSTITUTE: `faithful-parity summary` is emitted ONLY when the per-pid
+#   parity pass touched the lens - the `faithful-parity summary` emit in
+#   `MapRenderProbe.LateUpdate` is gated on
+#   `sampled > 0 || skipCounts.Count > 0`, both counters per-frame (reset at the top of
+#   the same pass, just before the per-ghost loop) - so its PRESENCE cannot be produced
+#   by a frame with no resolved ghost. Both archived runs read
+#   `faithful-parity summary sampled=1
+#   overTolerance=0`; the `overTolerance>=1` form is FORBIDDEN below (the S1.6/S1.7 pin
+#   verbatim, measured 0 on all seven).
+#   NOT PINNED: `sampled=[1-9]`, EVEN THOUGH THIS LANE MEASURED 1 TWICE. That 1 is the
+#   gate passing on a frame whose drive clock is still inside the SEED fragment, so seed
+#   == covering there; frames later in the same coalesced window skip. (CORRECTED
+#   2026-08-09: this used to say the seed was NOT fresh on that frame, nulling
+#   `intendedSeed` and bypassing the gate. FALSE - the drive line's `fresh=` is stamped
+#   at execution order 0, before the shadow stamps the seed mid-frame, while the probe
+#   fetches the seed itself at order 10000; V4's frame 6464 pairs `fresh=False` with a
+#   `skip.reaimed-or-foreign-seed=1` that is only reachable with a non-null seed, so the
+#   indicator does not support the claim. On this lane's own summary frames the
+#   post-shadow `director-stockconic-visible` line is present, i.e. the seed WAS fresh at
+#   probe time.) The conclusion is unchanged and now rests on the fragment geometry:
+#   frames past the seed fragment skip exactly as V6M's do, because this fixture's
+#   Minmus segments 6-9 are ONE conic
+#   (sma -32530.7485, ecc 4.02686086) fragmented into four, the seed carries fragment 6's
+#   epoch (267736.679, confirmed by `epoch+shift=1345207.9` against `shift=1077471.3`)
+#   and the raw covering at effUT 276,934.7 is fragment 9 (epoch 276411.273) - written up
+#   in V6M's header and filed as docs/dev/todo-and-known-bugs.md ->
+#   FAITHFUL-PARITY-SEED-FRAGMENT-REBASE. Pinning a nonzero sample count would therefore
+#   gate on a frame-timing coincidence.
+#
+# RE-FLIGHT `2026-08-09_0930` (PASS attempt 1, wall 54 s), the run that armed this pin -
+# AND IT PARTLY FALSIFIED THE "UNBUYABLE" CLAIM ABOVE, so read this before quoting it.
+# This lane's tracer-on dwell is the LONGEST in the family and it STRADDLES the 5.0 s
+# limiter window: 12:31:22.259 flip -> 12:31:27.516 quit = 5.257 s. So the run bought a
+# SECOND probe line, 14 ms past the window:
+#   probe frame summary frame=7000 ghosts=0 sampled=0 resolveMisses=0        (+2 ms)
+#   probe frame summary frame=7289 ghosts=1 sampled=1 resolveMisses=0 | suppressed=288
+# The honest statement is therefore NOT "the probe token is unbuyable here" but "it is a
+# RATE-LIMITER RACE this lane's dwell sits on the boundary of" - its two archived runs
+# (3.772 s / 3.769 s) lost it, this one won it by 14 ms, and `suppressed=288` is the
+# limiter's own count of the frames it swallowed in between. That is precisely why the
+# token is not pinned: a required token whose presence turns on a 14 ms margin is a
+# flake generator, while `faithful-parity summary` PRESENCE is emitted the moment the
+# lens resolves a ghost and does not depend on the limiter at all. The rest of the run:
+# parity `sampled=1 overTolerance=0`; expectations PASS mismatches=0 with the new token
+# met; anomalySweep PASS `hits=[] counts={}`; saveParse PASS armed, mismatches=0;
+# unityExceptions REPORT total=0 (the end-inside-watch teardown NRE did not recur).
+# THE `seam-endpoint-outside-soi` ENCOUNTER LENS READ ZERO RAISES, and the paragraph that
+# stood here explained that away as structural - the sampled frames park the drive clock
+# inside the recording's LAST segment (raw 9, [276411.27, 277001.13]), so the forward scan
+# returns `Skip("no-cross-body-successor")`.
+# ==> THE CENSUS FLIGHT FALSIFIED THAT ON THIS LANE. The derivation was assembled offline
+# from covering-segment lines and the fixture's ORBIT_SEGMENT chain, because the lens could
+# not report on itself, and it named the wrong frame. Census run `2026-08-09_1018` (PASS
+# attempt 1, wall 54 s) measured, verbatim:
+#     seam-endpoint summary evaluated=1 outsideSoi=0
+# NO skip bucket. One ghost-frame offered, one EVALUATION - a real destination-approach
+# ratio, INSIDE the destination sphere.
+# WHICH SEAM, off that same frame's own lines (frame 7777, currentUT 1,345,035,
+# driveUT 267,563.741): `shadow pid=3464317505 coverage=InSegment segIdx=7
+# treatment=StockConic visible=True driveUT=267563.741 body=Kerbin` on a 10-phase
+# `reaimed=False` chain, with `Cached body-frame bounds ... rawBodyFrameUT=230.05-267741.32
+# segIndices=0-5` - so the covering leg is a KERBIN leg ending 267,741.32 and the successor
+# is the Minmus approach: THE KERBIN->MINMUS ARRIVAL SEAM, measured on the faithful,
+# phase-locked, same-parent road. Note what this ALSO settles: the instrument's documented
+# benign population ("a FAITHFUL loop replay raises by design") is about an INTERPLANETARY
+# transfer whose destination moves on in inertial space by the loop shift; a same-parent
+# moon replay is phase-locked, and this reading is the first evidence that such a lane
+# reads healthy rather than raising. One lane, one frame - not yet a general result.
+# THIS LANE AND V4 ARE THE TWO OF THE FIVE THAT BUY THE INSTRUMENT. V6M / V6T / V7T all
+# read `evaluated=0 skip.no-cross-body-successor=1` and confirm the old derivation for
+# themselves - the difference is the dwell epoch, not the fixture family.
+# WHAT THE CENSUS STILL CANNOT TELL YOU: `outsideSoi=0` says the evaluation came in at or
+# under the 1.005 tolerance, but the RATIO is printed only on a raise, so the MARGIN is
+# unmeasured - this lane proves the arc reaches the sphere, not by how much. Named as the
+# next step in docs/dev/todo-and-known-bugs.md; it is a census-format change (carry the
+# pass max ratio), not a spec change, so it is not fixable from here.
+#
+# PINNED FROM THE CENSUS (2026-08-09), TWO TOKENS, and the second is the stronger claim:
+#   (1) `seam-endpoint summary evaluated=\d+ outsideSoi=\d+` - PRESENCE. The lens ran and
+#       reported. The emit guard (`SeamEndpointOracle.ShouldEmitPassSummary`) is reachable
+#       only from inside the per-ghost capture, so presence cannot be faked by a ghostless
+#       frame - the trap that makes `probe frame summary` unpinnable at this dwell length.
+#   (2) `seam-endpoint summary evaluated=[1-9]` - the lens actually PERFORMED a
+#       destination-approach check. Presence alone is also satisfied by a pass that skipped
+#       everything, which is exactly what V6M / V6T / V7T emit; this token is what
+#       separates the two populations. Pinned under the two-consecutive-flights rule -
+#       `_1018` and `_1031` both read `evaluated=1 outsideSoi=0`, bit-identical, no skip
+#       bucket - and not before it.
+#       WHY IT IS DETERMINISTIC HERE: the summary rides a shared 5 s rate-limited key, so
+#       the first pass to clear the guard owns the window, and here that is the ghost's
+#       creation frame at a FIXED jump epoch (currentUT 1,345,035 -> driveUT 267,563.741,
+#       inside the Kerbin leg that ends 267,741.32). If this reds, ask first whether a
+#       different frame won the limiter, not whether the geometry moved.
+# NOT pinned: `outsideSoi=0`, per the instrument's own documented benign population; the
+# RAISE stays report-only by design and must not gate here.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
@@ -610,6 +723,9 @@ required  = [
   # reason, not on its own.
   "surface=Proto(Icon|OrbitLine) .*body=Minmus",
   "enterwatchmode complete: index=",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "seam-endpoint summary evaluated=[1-9]",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -620,6 +736,10 @@ forbidden = [
   # The V3C run-3 self-detection guard - most load-bearing forbid in a calibration lane
   # whose jump UTs are predictions.
   "timejump refused reason=backward-jump",
+  # The S1.6/S1.7 parity pin verbatim (added 2026-08-09 alongside the presence pin
+  # above): any faithful-parity sample OVER tolerance is a rendered-vs-recorded drift.
+  # Measured 0 on all seven archived tracer-on runs of this family.
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
 
 [runtime]

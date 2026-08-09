@@ -217,10 +217,16 @@ RESERVED_SEAM_VERBS: Tuple[str, ...] = (
 #   * 155 tracer-on historical runs with ZERO raises of any of the seven.
 #   * Every raise site is probe- or shadow-spine-gated (verified in the C# source),
 #     so a raise needs the tracer armed AND the probe actually sampling.
-# BLAST RADIUS is bounded and named: only S1.4 / S1.6 / S1.7 / V1 arm
-# `mapRenderTracing`, and all four declare `allowedAnomalies = []`. The RED DIRECTION
-# of this gate is already live-proven - `line-blink` red'd V1 `PARSEK-FAIL(anomaly)`
-# on 2026-07-30 - so promotion buys real coverage, not a decorative widening.
+# BLAST RADIUS is bounded and named. AS OF THE 2026-08-04 PROMOTION that was
+# S1.4 / S1.6 / S1.7 / V1; the V-lane program has since widened it to ELEVEN specs,
+# and the count is the thing that goes stale, so re-derive it rather than trusting
+# this list: `grep -l mapRenderTracing harness/scenarios/*.toml`. At 2026-08-09 that
+# is S1.4, S1.6, S1.7, V1, V2, V4, V5, V6M, V6T, V7M, V7T - and every one of them
+# declares `allowedAnomalies = []`, which is the property this paragraph actually
+# depends on (a widened gate can only red a spec that budgets nothing). The RED
+# DIRECTION of this gate is already live-proven - `line-blink` red'd V1
+# `PARSEK-FAIL(anomaly)` on 2026-07-30, and `icon-off-orbit` reds V7T on every
+# flight - so promotion buys real coverage, not a decorative widening.
 #
 # ORDERING IS A CONTRACT: hits come back in THIS tuple's order (grep_anomaly_tokens),
 # so the original six stay first and the seven promoted follow. Do not re-sort.
@@ -272,12 +278,52 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 #     the compared factory NEVER drives a draw. A disagreement is diagnostic
 #     evidence for the render cutover, not a user-visible defect, so a raise should
 #     inform the cutover rather than fail the flight that observed it.
+#   * `seam-endpoint-outside-soi` is the ENCOUNTER-GEOMETRY instrument, and it is
+#     here for the OPPOSITE reason to the two above: not because a raise would be
+#     uninteresting, but because its evidence is not yet complete. It measures the
+#     RENDERED conic at a recorded cross-body SOI handoff against the destination
+#     body's sphere (pure core `Parsek.MapRender.SeamEndpointOracle`; raises on
+#     ratio > 1.005, calibrated between two MEASURED populations - the S1.8 healthy
+#     seam continuity at 1.2e-4 / 1.5e-4 of the crossed sphere against a 25 km pin,
+#     and the 2026-06-15 looped-re-aim defect at 1.027 / 1.043).
+#     UPDATED 2026-08-09 - IT HAS NOW FLOWN. The line above used to read "it has
+#     NEVER FLOWN"; the seam-endpoint census re-flew the five V-lanes and TWO of
+#     them exercised the lens on real geometry - V4 on the Sun->Duna arrival seam
+#     and V7M on Kerbin->Minmus, both `evaluated=1 outsideSoi=0` (inside the
+#     sphere), each reproduced bit-identically on three consecutive flights, with
+#     ZERO raises across all five. So the "stays SILENT on real geometry" reading
+#     that every token promoted on 2026-08-04 earned its gate from now EXISTS here
+#     too, and this entry is no longer blocked on the lens being unflown.
+#     WHAT STILL BLOCKS PROMOTION, and it is three things, not none. (1) The RAISE
+#     itself has never fired, so nothing has yet demonstrated the token behaves
+#     when the geometry is actually bad - a gate whose failing side is untested is
+#     a gate on trust. (2) The first known benign population is STILL unmeasured: a
+#     FAITHFUL loop replay of an INTERPLANETARY transfer, whose destination has
+#     moved on in inertial space by the loop shift, should light this up by design
+#     rather than by defect, and V7M's healthy same-parent reading does not speak
+#     to it (a phase-locked moon replay has no such drift). (3) A SECOND benign
+#     population exists and was missed when this entry was first written: a RE-AIMED
+#     member whose producer RE-TIMED its arrival. The F2 parking-departure path
+#     searches transfer times around the geometric Hohmann time (deliberately NOT
+#     seeded from the recorded tof - the s15 fixture's recorded tof is ~1.44x
+#     Hohmann) and trims the render span to the new, EARLIER arrival, so the arc
+#     reaches the destination days before the RECORDED seam the lens samples at.
+#     Measuring there is WRONG, not merely uncalibrated, and the miss is orders of
+#     magnitude past the 1.005 tolerance. The C# capture now REFUSES that sample
+#     rather than reporting it (`skip.reaimed-seam-instant-unknown`, keyed on the
+#     driven seed's own end disagreeing with the recorded seam), so the population
+#     currently produces no raise - but the refusal is a decision taken on the
+#     seed's provenance, and it must be re-examined, not assumed, before the token
+#     is gated. NOTE the asymmetry with (2): the parking path is exercised by NO
+#     committed lane, so nothing has flown it either way. mapRenderTracing-gated, so
+#     only specs that arm that tracer can raise it at all.
 #
-# Promoting either one later needs the same thing the seven needed: a measurement
+# Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
-    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:477"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:517"),
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:709"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2187"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
@@ -3681,12 +3727,18 @@ def unlisted_anomaly_reasons(log_text: Optional[str]) -> List[str]:
     """Anomaly reasons RAISED but absent from ``ANOMALY_TOKENS`` (REPORT-ONLY).
 
     Non-gating by design. The mod raises reasons the harness set does not carry
-    (post-2026-08-04: the two report-only instruments in
-    ANOMALY_REASONS_RAISED_UNGATED), so a run can contain a real Tier-C raise
+    (the report-only instruments in ANOMALY_REASONS_RAISED_UNGATED - THREE at
+    2026-08-09, since the encounter-geometry lens joined the two the 2026-08-04
+    promotion left behind; read the tuple rather than any count written in
+    prose, because understating it understates the size of this exact
+    fail-open), so a run can contain a real Tier-C raise
     that the sweep is structurally blind to. Widening the gating set is a
-    decision with verdict consequences for the tracer-armed specs (S1.4, S1.6,
-    S1.7, V1 - the only specs that pin ``mapRenderTracing``); surfacing the
-    drift is not. Sorted for a stable log line.
+    decision with verdict consequences for every spec that pins
+    ``mapRenderTracing`` - eleven of them at 2026-08-09 (S1.4, S1.6, S1.7, V1,
+    V2, V4, V5, V6M, V6T, V7M, V7T), not the four this docstring used to name;
+    re-derive with ``grep -l mapRenderTracing harness/scenarios/*.toml`` rather
+    than trusting the list. Surfacing the drift is not such a decision. Sorted
+    for a stable log line.
     """
     return sorted(r for r in _anomaly_reasons(log_text) if r not in ANOMALY_TOKENS)
 

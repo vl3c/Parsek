@@ -158,6 +158,20 @@ namespace Parsek
             new Dictionary<string, int>(System.StringComparer.Ordinal);
         private int faithfulParitySampledCount;
         private int faithfulParityOverCount;
+
+        // Per-PASS seam-endpoint (ENCOUNTER-GEOMETRY) accounting - the SAME shape as the faithful-parity
+        // counters directly above, reset in the same place, emitted as a sibling summary right after
+        // theirs. Added because the instrument shipped without it and immediately demonstrated why it
+        // was needed: across five re-flights the seam raise fired zero times and no log surface could
+        // distinguish "the geometry is sound" from "the lens never evaluated a seam". The answer had to
+        // be derived offline from covering-segment lines plus the fixtures' .prec chains, and it was the
+        // second one - the clock sat in each recording's LAST OrbitSegment every frame, so the capture
+        // bailed on no-cross-body-successor before measuring anything. See the accounting block in
+        // Parsek.MapRender.SeamEndpointOracle, which owns the pure guard + formatter.
+        private readonly Dictionary<string, int> seamEndpointSkipCounts =
+            new Dictionary<string, int>(System.StringComparer.Ordinal);
+        private int seamEndpointEvaluatedCount;
+        private int seamEndpointOutsideSoiCount;
         // A1 cutover-instrument: soft rate-limit timestamps for the per-pid SYNTHESIZED-mode (rendered conic
         // vs the Director's intended re-aimed seed) parity-drift anomaly. SEPARATE from the faithful dict so
         // a faithful drift and a synthesized drift on the same pid do not suppress each other. PERSISTENT
@@ -291,6 +305,11 @@ namespace Parsek
             faithfulParitySampledCount = 0;
             faithfulParityOverCount = 0;
             faithfulParitySkipCounts.Clear();
+            // Seam-endpoint pass accounting resets in lockstep with the parity one (same pass, same
+            // per-ghost loop below feeds both), so each summary describes exactly this LateUpdate.
+            seamEndpointEvaluatedCount = 0;
+            seamEndpointOutsideSoiCount = 0;
+            seamEndpointSkipCounts.Clear();
             if (pids != null)
             {
                 foreach (uint pid in pids)
@@ -352,6 +371,27 @@ namespace Parsek
                     sb.Append(" skip.").Append(kv.Key).Append('=').Append(kv.Value);
                 ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "faithful-parity-summary",
                     sb.ToString(), 5.0);
+            }
+
+            // Seam-endpoint (ENCOUNTER-GEOMETRY) pass accounting: the sibling of the parity summary
+            // above, and for the same reason one step further along. The parity summary exists so a
+            // silent oracle is distinguishable from a clean one; the seam lens shipped WITHOUT one and
+            // promptly proved the point - five re-flights, zero raises, and the only way to learn that
+            // every frame had bailed on `no-cross-body-successor` (drive clock parked in the recording's
+            // last OrbitSegment) was to reconstruct it offline from the .prec chains. With this line a
+            // reader sees, per pass, how many destination-approach checks actually ran and why the rest
+            // did not. The guard is NOT optional - see SeamEndpointOracle.ShouldEmitPassSummary: an emit
+            // on a ghostless frame would prime the shared 5 s rate-limit key at scene entry and swallow
+            // every real reading on a lane that quits a few seconds later (the probe-frame-summary
+            // failure mode). Both counters are only ever touched from inside the per-ghost capture, so
+            // passing the guard means at least one ghost genuinely reached the lens on this frame.
+            if (Parsek.MapRender.SeamEndpointOracle.ShouldEmitPassSummary(
+                    seamEndpointEvaluatedCount, seamEndpointSkipCounts.Count))
+            {
+                ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "seam-endpoint-summary",
+                    Parsek.MapRender.SeamEndpointOracle.FormatPassSummary(
+                        seamEndpointEvaluatedCount, seamEndpointOutsideSoiCount, seamEndpointSkipCounts),
+                    5.0);
             }
 
             // --- Phase 8e S0 Instrument 1: accounted-vs-drawn coverage assertion ---
@@ -1032,6 +1072,18 @@ namespace Parsek
                     TrySampleAndEmitSynthesizedConicParity(
                         offOrbit, body, bodyRelPos, currentUT, currentUT, parityLoopShift, pid, pidKey, recId,
                         lineActive, bodyName, realtime);
+
+                    // --- ENCOUNTER GEOMETRY: does the rendered arc actually REACH the next SOI? ---
+                    // The two parity lenses above each measure ONE segment against its OWN reference, so
+                    // neither can see the gap BETWEEN segments - and the faithful one deliberately stands
+                    // down on re-aimed members (reaimed-or-foreign-seed), which is the population the
+                    // 2026-06-15 looped-re-aim defect lives in. This third lens asks the question none of
+                    // them ask: at the member's next RECORDED cross-body seam, is the conic the pipeline
+                    // is rendering RIGHT NOW inside the destination body's sphere of influence when it
+                    // gets there, or does it dead-end outside it? Deliberately NOT re-aim-gated - a
+                    // re-aimed arc that misses the encounter is exactly the finding. Read-only.
+                    TrySampleAndEmitSeamEndpoint(
+                        offOrbit, body, parityLoopShift, currentUT, pid, pidKey, recId, lineActive);
                 }
 
                 // Record this frame's body-relative position + body so the next
@@ -1702,6 +1754,457 @@ namespace Parsek
                     referenceFlat, renderedFlat, tol);
 
             return new SynthesizedConicParitySample(true, null, result, scale);
+        }
+
+        // --- ENCOUNTER-GEOMETRY instrument: the seam-endpoint sample (Unity capture) ---
+        //
+        // The 2026-06-15 looped-re-aim defect (todo-and-known-bugs.md) is that the rendered TRANSFER ARC
+        // dead-ends ~1 SOI radius short of the destination while the ICON reaches the SOI, and every
+        // existing surface is blind to it: RenderParityOracle measures each segment against its OWN
+        // reference (so it cannot see the gap BETWEEN two segments) and explicitly skips re-aimed
+        // members; loop-seam-teleport measures the ghost TRANSFORM rather than the drawn line; the
+        // re-aim probes measure the SOLVE. This lens measures the RENDERED CONIC at the recorded
+        // handoff instant against the destination body's SOI sphere at that same instant.
+        //
+        // Read-only observability. No draw change, no state mutation, no gameplay effect.
+
+        /// <summary>
+        /// Outcome of one seam-endpoint sample: the pure oracle's result plus the context the emit line
+        /// carries. <see cref="Sampled"/> is false (and <see cref="SkipReason"/> set) when the capture
+        /// cleanly bailed before a measurement; the caller MUST treat a non-sampled outcome as "no
+        /// anomaly", never as a pass. internal so an in-game cell CAN drive the REAL capture path -
+        /// stated as an affordance, not as a fact: no such cell exists yet, unlike the eight that drive
+        /// the sibling parity captures. The gap is filed in the M-06 entry of todo-and-known-bugs.md;
+        /// the three pure DECISIONS the capture makes are covered headlessly in the meantime
+        /// (SeamEndpointOracleTests), which leaves only the propagation pair unverified.
+        /// </summary>
+        internal readonly struct SeamEndpointSample
+        {
+            internal bool Sampled { get; }
+            internal string SkipReason { get; }
+            internal Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult Result { get; }
+            /// <summary>Body the rendered conic (and the covering recorded segment) is framed about.</summary>
+            internal string FromBody { get; }
+            /// <summary>Body of the next recorded segment - the destination whose SOI is measured.</summary>
+            internal string ToBody { get; }
+            /// <summary>The seam UT on the RECORDED timeline (the next segment's startUT).</summary>
+            internal double RecordedSeamUT { get; }
+            /// <summary>The same instant on the RENDERED conic's own clock (see <see cref="ClockConvention"/>).</summary>
+            internal double SeamUT { get; }
+            /// <summary>Which clock convention the rendered conic was read on: baked / raw / assumed-live.</summary>
+            internal string ClockConvention { get; }
+            /// <summary>Whether the Director's fresh seed matched the covering recorded segment.</summary>
+            internal string SeedKind { get; }
+
+            internal SeamEndpointSample(
+                bool sampled, string skipReason,
+                Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result,
+                string fromBody, string toBody, double recordedSeamUT, double seamUT,
+                string clockConvention, string seedKind)
+            {
+                Sampled = sampled;
+                SkipReason = skipReason;
+                Result = result;
+                FromBody = fromBody;
+                ToBody = toBody;
+                RecordedSeamUT = recordedSeamUT;
+                SeamUT = seamUT;
+                ClockConvention = clockConvention;
+                SeedKind = seedKind;
+            }
+
+            internal static SeamEndpointSample Skip(string reason)
+            {
+                return new SeamEndpointSample(
+                    false, reason,
+                    default(Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult),
+                    null, null, double.NaN, double.NaN, null, null);
+            }
+        }
+
+        /// <summary>
+        /// The Unity capture behind the encounter-geometry lens: resolve the recorded segment covering
+        /// the ghost's RECORDED clock, walk forward to the next segment on a DIFFERENT body (the SOI
+        /// handoff), propagate BOTH the rendered conic and that destination body to the seam instant,
+        /// and hand the distance + the body's SOI radius to the pure
+        /// <see cref="Parsek.MapRender.SeamEndpointOracle"/>.
+        ///
+        /// <para><b>FRAME CORRECTNESS.</b> Both positions come from <c>getTruePositionAtUT</c>, which
+        /// recursively propagates the REFERENCE BODY to the queried UT
+        /// (<c>getRelativePositionAtUT(UT).xzy + referenceBody.getTruePositionAtUT(UT)</c>) - the same
+        /// contract <see cref="TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT"/> documents and the
+        /// S1.8 seam cells rely on. The stock <c>getPositionAtUT</c> shortcut anchors at each body's
+        /// CURRENT position, so mixing it in would disagree by the body's own displacement since the
+        /// seam instant - millions of km, drowning the signal entirely. There is exactly ONE frame
+        /// convention here; do not hand-roll a second.</para>
+        ///
+        /// <para><b>CLOCK.</b> The recorded seam UT lives on the recorded timeline; the rendered conic
+        /// lives on whichever clock its epoch convention implies. Production is unconditionally on the
+        /// director epoch-bake path (epoch = seg.epoch + loopShift, propagated at the LIVE clock), so
+        /// the seam instant maps to <c>recordedSeamUT + loopShift</c>. The legacy raw-epoch path reads
+        /// the recorded clock directly. A conic matching NEITHER convention is the RE-AIMED case - the
+        /// producer's own synthesized arc - and the director still drives it at the live clock, so it
+        /// falls back to the baked mapping rather than skipping. That fallback is load-bearing: gating
+        /// on the epoch convention here (as the faithful parity lens does) would blind this instrument
+        /// to precisely the members the defect lives in. The resolved convention is reported on the
+        /// line so a reader never has to guess which mapping was used.</para>
+        ///
+        /// <para><b>RE-TIMED ARRIVALS ARE NOT MEASURABLE HERE.</b> The clock mapping above moves the
+        /// RECORDED seam instant onto the rendered clock; it does not move the seam INSTANT itself. A
+        /// re-aimed member whose producer re-timed its arrival (the F2 parking-departure path searches
+        /// tofs around the geometric Hohmann time and trims the render span to
+        /// <c>[RecordedDepartureUT, RecordedDepartureUT + usedTof]</c>, so the arc reaches the
+        /// destination EARLIER than the recorded arrival) is therefore sampled at an instant its arc
+        /// never claimed to be at the destination, and the oracle's premise - "a faithful arc sits ON
+        /// the sphere at the seam instant" - is simply false for it. That is a guaranteed WRONG
+        /// measurement, not an uncalibrated one, so it is refused rather than reported:
+        /// <see cref="IsRecordedSeamInstantUsable"/> compares the driven seed's OWN end against the
+        /// recorded seam and skips <c>reaimed-seam-instant-unknown</c> when they disagree. The skip is
+        /// deliberately NARROW - it needs a re-aimed seed AND a materially different seed end, so a
+        /// re-aimed member the producer did NOT re-time (the direct path, where candidate step 0 is the
+        /// recorded tof) still measures. "Unknown" rather than "re-timed" because the seed's end is not
+        /// itself a usable substitute: the seed is whichever arc the Director drives THIS frame, and on
+        /// a two-burn departure that can be the re-phased heliocentric PARK, whose end is the departure
+        /// burn rather than the arrival.</para>
+        ///
+        /// <para>Skips cleanly (no anomaly) on: no rendered orbit / recId, no recording or segments, no
+        /// covering segment, a covering segment on a different body than the rendered conic, a
+        /// same-body-only remainder (no cross-body successor - the ordinary in-SOI case), a non-finite
+        /// or backwards seam UT, an unresolvable destination body, a re-timed re-aimed arrival (above),
+        /// and any propagation throw. A sample that reaches the oracle with no usable ratio - a
+        /// non-finite endpoint DISTANCE (degenerate rendered elements can make
+        /// <c>getTruePositionAtUT</c> return NaN without throwing, the same hazard
+        /// <see cref="TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT"/> guards) or a missing /
+        /// non-positive / non-finite SOI RADIUS (the Sun as a destination, whose sphere is not a finite
+        /// encounter target) - returns <c>HasMeasurement = false</c> there and is bucketed
+        /// <c>no-usable-ratio</c> by the caller rather than counted as evaluated.</para>
+        ///
+        /// <para>internal + no emit / no rate-limit / no per-pid state so the geometry path is directly
+        /// drivable by a test. The three list/clock DECISIONS it makes are additionally factored into
+        /// pure helpers (<see cref="FindCoveringOrbitSegmentIndex"/>,
+        /// <see cref="FindCrossBodySuccessorIndex"/>, <see cref="ResolveSeamUTOnRenderedClock"/>,
+        /// <see cref="IsRecordedSeamInstantUsable"/>) so they are covered headlessly by xUnit; what
+        /// remains Unity-only here is the pair of <c>getTruePositionAtUT</c> propagations and the body
+        /// lookup, which need a live <c>Orbit</c> / <c>CelestialBody</c>.</para>
+        /// </summary>
+        internal static SeamEndpointSample ComputeSeamEndpointGeometry(
+            Orbit renderedOrbit, CelestialBody renderedBody,
+            double loopShift, double currentUT, string recId,
+            OrbitSegment? intendedSeed = null)
+        {
+            if (renderedOrbit == null || renderedBody == null)
+                return SeamEndpointSample.Skip("no-rendered-orbit");
+            if (string.IsNullOrEmpty(recId))
+                return SeamEndpointSample.Skip("no-recId");
+
+            if (!Parsek.GhostMapPresence.TryGetCommittedRecordingById(
+                    recId, out int _, out Recording rec)
+                || rec == null || rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                return SeamEndpointSample.Skip("no-recording-or-segments");
+
+            // Recorded-timeline lookup clock, the same one the faithful lens resolves (rec.OrbitSegments
+            // live on the recorded clock; a loop ghost's live clock lies loopShift beyond that span).
+            double shift = (double.IsNaN(loopShift) || double.IsInfinity(loopShift)) ? 0.0 : loopShift;
+            double lookupUT = ResolveFaithfulLookupUT(currentUT, loopShift);
+
+            int coveringIndex = FindCoveringOrbitSegmentIndex(rec.OrbitSegments, lookupUT);
+            if (coveringIndex < 0)
+                return SeamEndpointSample.Skip("no-covering-segment");
+            OrbitSegment covering = rec.OrbitSegments[coveringIndex];
+            if (string.IsNullOrEmpty(covering.bodyName))
+                return SeamEndpointSample.Skip("no-covering-body");
+            // Frame guard: the rendered conic must be framed about the same body as the recorded leg,
+            // otherwise "the leg leading into the next seam" is not the thing being rendered.
+            if (!string.Equals(covering.bodyName, renderedBody.bodyName, System.StringComparison.Ordinal))
+                return SeamEndpointSample.Skip("body-mismatch");
+
+            int nextIndex = FindCrossBodySuccessorIndex(
+                rec.OrbitSegments, coveringIndex, covering.bodyName);
+            if (nextIndex < 0)
+                return SeamEndpointSample.Skip("no-cross-body-successor");
+            OrbitSegment next = rec.OrbitSegments[nextIndex];
+
+            double recordedSeamUT = next.startUT;
+            if (double.IsNaN(recordedSeamUT) || double.IsInfinity(recordedSeamUT))
+                return SeamEndpointSample.Skip("seam-ut-not-finite");
+            if (recordedSeamUT < lookupUT)
+                return SeamEndpointSample.Skip("seam-behind-clock");
+
+            CelestialBody toBody = ResolveBodyByName(next.bodyName);
+            if (toBody == null)
+                return SeamEndpointSample.Skip("to-body-unresolved");
+
+            // Map the recorded seam instant onto the clock the RENDERED conic is read on. See the
+            // CLOCK paragraph above: the re-aimed (neither-convention) case deliberately falls through
+            // to the live mapping instead of skipping.
+            double seamUT = ResolveSeamUTOnRenderedClock(
+                renderedOrbit.epoch, covering.epoch, shift, recordedSeamUT, out string clockConvention);
+
+            string seedKind = !intendedSeed.HasValue
+                ? SeamSeedKindNone
+                : (AreSameConicElements(intendedSeed.Value, covering)
+                    ? SeamSeedKindFaithful
+                    : SeamSeedKindReaimed);
+
+            // RE-TIMED ARRIVAL GUARD (see the doc's RE-TIMED ARRIVALS paragraph). The clock mapping
+            // above relocates the recorded seam instant; it cannot discover that the producer moved
+            // the arrival. Refuse the sample instead of reporting a measurement taken at an instant
+            // the rendered arc never claimed the destination at.
+            if (intendedSeed.HasValue
+                && !IsRecordedSeamInstantUsable(seedKind, intendedSeed.Value.endUT, recordedSeamUT))
+                return SeamEndpointSample.Skip("reaimed-seam-instant-unknown");
+
+            double endpointDist;
+            try
+            {
+                Vector3d renderedAtSeam = renderedOrbit.getTruePositionAtUT(seamUT);
+                Vector3d bodyAtSeam = toBody.getTruePositionAtUT(seamUT);
+                endpointDist = (renderedAtSeam - bodyAtSeam).magnitude;
+            }
+            catch (System.Exception)
+            {
+                return SeamEndpointSample.Skip("propagation-threw");
+            }
+
+            Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result =
+                Parsek.MapRender.SeamEndpointOracle.Evaluate(
+                    endpointDist, toBody.sphereOfInfluence);
+
+            return new SeamEndpointSample(
+                true, null, result, covering.bodyName, next.bodyName,
+                recordedSeamUT, seamUT, clockConvention, seedKind);
+        }
+
+        /// <summary>No Director seed was fresh at this probe frame, so the arc's provenance is unknown.</summary>
+        internal const string SeamSeedKindNone = "no-seed";
+        /// <summary>The Director's fresh seed IS the covering recorded segment (fed through verbatim).</summary>
+        internal const string SeamSeedKindFaithful = "faithful-seed";
+        /// <summary>The Director's fresh seed differs from the covering recorded segment - a re-aimed arc.</summary>
+        internal const string SeamSeedKindReaimed = "reaimed-seed";
+
+        /// <summary>
+        /// How far the driven seed's own end may sit from the recorded seam and still be the SAME
+        /// handoff. On the DIRECT re-aim path the two are the same double by construction (the render
+        /// span falls back to the recorded arrival, which is the arrival segment's own startUT), so
+        /// this only has to absorb bookkeeping noise; a real re-timing is the difference between the
+        /// recorded tof and a Hohmann-centred one - days, not seconds.
+        /// </summary>
+        internal const double SeamRetimeToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// Pure: index of the recorded segment covering <paramref name="lookupUT"/>, or -1.
+        /// Byte-for-byte the predicate <see cref="TrajectoryMath.FindOrbitSegment"/> uses (half-open
+        /// <c>[startUT, endUT)</c> except for the last segment, which is closed) - the INDEX is what
+        /// differs, not the rule, and the index is what the cross-body successor walk needs. Diverging
+        /// here would put two conventions in one file and resolve the SEAM INSTANT ITSELF to the
+        /// segment BEFORE the handoff while every other lookup in the codebase resolves it to the one
+        /// after. internal + pure for xUnit.
+        /// </summary>
+        internal static int FindCoveringOrbitSegmentIndex(
+            IReadOnlyList<OrbitSegment> segments, double lookupUT)
+        {
+            if (segments == null || segments.Count == 0)
+                return -1;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment s = segments[i];
+                bool inRange = (i == segments.Count - 1)
+                    ? (lookupUT >= s.startUT && lookupUT <= s.endUT)
+                    : (lookupUT >= s.startUT && lookupUT < s.endUT);
+                if (inRange)
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Pure: index of the first segment after <paramref name="fromIndex"/> framed about a body
+        /// OTHER than <paramref name="fromBody"/> - the SOI handoff - or -1 when the remainder is
+        /// same-body only (the ordinary in-SOI case). Same-body splits in between (an in-SOI segment
+        /// cut) are walked through: the seam is the BODY change, not any segment boundary. Segments
+        /// with no body name are skipped rather than treated as a change. internal + pure for xUnit.
+        /// </summary>
+        internal static int FindCrossBodySuccessorIndex(
+            IReadOnlyList<OrbitSegment> segments, int fromIndex, string fromBody)
+        {
+            if (segments == null || string.IsNullOrEmpty(fromBody))
+                return -1;
+            for (int i = fromIndex + 1; i < segments.Count; i++)
+            {
+                string b = segments[i].bodyName;
+                if (string.IsNullOrEmpty(b))
+                    continue;
+                if (!string.Equals(b, fromBody, System.StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Pure: map the RECORDED seam instant onto the clock the rendered conic is read on, and report
+        /// WHICH of the three conventions was resolved. Production is unconditionally on the director
+        /// epoch-bake path (<c>baked</c>: epoch = seg.epoch + loopShift, propagated at the live clock),
+        /// the legacy path reads the recorded clock directly (<c>raw</c>), and a conic matching NEITHER
+        /// is the re-aimed case, which the director still drives at the live clock and so takes the
+        /// baked mapping under the honest label <c>assumed-live</c> rather than being skipped - gating
+        /// on the epoch convention here would blind the instrument to precisely the members the defect
+        /// lives in. internal + pure for xUnit.
+        /// </summary>
+        internal static double ResolveSeamUTOnRenderedClock(
+            double renderedEpoch, double coveringEpoch, double shift, double recordedSeamUT,
+            out string clockConvention)
+        {
+            if (IsSynthEpochConventionBaked(
+                    renderedEpoch, coveringEpoch, shift, out bool isRawConvention))
+            {
+                clockConvention = "baked";
+                return recordedSeamUT + shift;
+            }
+            if (isRawConvention)
+            {
+                clockConvention = "raw";
+                return recordedSeamUT;
+            }
+            clockConvention = "assumed-live";
+            return recordedSeamUT + shift;
+        }
+
+        /// <summary>
+        /// Pure: may the RECORDED seam instant stand in for the instant the RENDERED arc reaches the
+        /// handoff? True for a faithful or unknown-provenance seed (the recorded chain IS what is being
+        /// drawn there). False - and the sample must be refused, not reported - when the seed is
+        /// RE-AIMED and its own arc ends somewhere other than the recorded seam, which is exactly the
+        /// producer's re-timed-arrival signature: the F2 parking-departure path searches tofs around
+        /// the geometric Hohmann time and trims the render span to the new, EARLIER arrival, so the
+        /// recorded seam instant is days away from anything the drawn arc asserts.
+        ///
+        /// <para>Non-finite inputs keep the sample (there is nothing to disagree with), so this can
+        /// only ever narrow the measured set on a re-aimed member with a finite, materially different
+        /// seed end. A re-aimed member the producer did NOT re-time - the direct path, where candidate
+        /// step 0 is the recorded tof and the render span falls back to the recorded arrival - compares
+        /// equal and still measures.</para>
+        ///
+        /// <para>The seed's end is NOT used as a substitute instant, deliberately: the seed is whichever
+        /// arc the Director drives THIS frame, and on a two-burn departure that can be the re-phased
+        /// heliocentric PARK, whose end is the departure burn rather than the arrival. Knowing the
+        /// recorded instant is wrong is not the same as knowing the right one. internal + pure for
+        /// xUnit.</para>
+        /// </summary>
+        internal static bool IsRecordedSeamInstantUsable(
+            string seedKind, double seedEndUT, double recordedSeamUT)
+        {
+            if (!string.Equals(seedKind, SeamSeedKindReaimed, System.StringComparison.Ordinal))
+                return true;
+            if (double.IsNaN(seedEndUT) || double.IsInfinity(seedEndUT)
+                || double.IsNaN(recordedSeamUT) || double.IsInfinity(recordedSeamUT))
+                return true;
+            return System.Math.Abs(seedEndUT - recordedSeamUT) <= SeamRetimeToleranceSeconds;
+        }
+
+        /// <summary>
+        /// Fold one non-measuring seam-endpoint outcome into this pass's skip tally. A null / empty
+        /// reason is bucketed as <c>unknown</c> rather than dropped, so the counts always add up to the
+        /// number of ghost-frames the lens was offered.
+        /// </summary>
+        private void CountSeamEndpointSkip(string reason)
+        {
+            string key = string.IsNullOrEmpty(reason)
+                ? Parsek.MapRender.SeamEndpointOracle.PassSummaryUnknownSkipReason
+                : reason;
+            seamEndpointSkipCounts.TryGetValue(key, out int c);
+            seamEndpointSkipCounts[key] = c + 1;
+        }
+
+        /// <summary>
+        /// Gather the encounter-geometry inputs and raise the Tier-C <c>seam-endpoint-outside-soi</c>
+        /// anomaly ONCE PER ONSET (per pid + seam signature, via
+        /// <see cref="MapRenderTrace.ShouldEmitCutoverAnomalyOnChange"/>) when the rendered arc fails to
+        /// reach the destination's SOI. A steadily-true condition therefore emits ONE line per member
+        /// per seam per scene session, not one per frame; a changed seam re-emits. Read-only.
+        /// </summary>
+        private void TrySampleAndEmitSeamEndpoint(
+            Orbit renderedOrbit, CelestialBody renderedBody, double loopShift,
+            double currentUT, uint pid, string pidKey, string recId, string lineActive)
+        {
+            OrbitSegment? intendedSeed = null;
+            if (Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, Time.frameCount, out OrbitSegment freshSeed, out string _))
+                intendedSeed = freshSeed;
+
+            SeamEndpointSample sample = ComputeSeamEndpointGeometry(
+                renderedOrbit, renderedBody, loopShift, currentUT, recId, intendedSeed);
+
+            // Pass accounting (house batch-counting convention: count in the loop, one summary after
+            // it - see the LateUpdate emit). EXACTLY ONE bucket is incremented per ghost-frame offered
+            // to the lens: either a skip reason or `evaluated`, never both and never neither, so
+            // evaluated + sum(skips) is the number of ghost-frames the lens was handed this pass.
+            if (!sample.Sampled)
+            {
+                CountSeamEndpointSkip(sample.SkipReason);
+                return;
+            }
+
+            Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result = sample.Result;
+            // A sample that reached the oracle but got NO usable ratio back did not perform a
+            // destination-approach check, so it is a SKIP, not an `evaluated`. Counting it as evaluated
+            // would re-open a smaller copy of the exact hole this accounting closes: `evaluated=3` while
+            // nothing was actually measured. The one bucket the CAPTURE cannot name (the oracle owns the
+            // decision), hence its own reason rather than one of ComputeSeamEndpointGeometry's.
+            //
+            // THE BUCKET COVERS BOTH REACHABLE CAUSES, and the name says ratio rather than SOI for that
+            // reason. (1) A non-finite / non-positive SOI RADIUS - the Sun as a destination, the case
+            // this instrument meets in the field. (2) A non-finite endpoint DISTANCE: the capture
+            // catches a THROW from getTruePositionAtUT but the call can also return NaN components on
+            // degenerate elements without throwing (the hazard TrajectoryMath's own post-catch NaN check
+            // documents), and Vector3d.magnitude of those is NaN. An earlier name and comment here said
+            // SOI only, which would have read a broken rendered conic as "the destination had no finite
+            // sphere" in a census whose whole job is attributing WHY the lens did not measure. (A third,
+            // defensive arm - a non-finite ratio from a finite distance over a finite-positive radius -
+            // needs overflow and is not reachable in practice.)
+            if (!result.HasMeasurement)
+            {
+                CountSeamEndpointSkip("no-usable-ratio");
+                return;
+            }
+            seamEndpointEvaluatedCount++;
+            if (!result.OutsideSoi)
+                return;
+            // Counted BEFORE the once-per-onset emit filter (mirrors the parity lens counting
+            // overTolerance before its rate limit), so the summary reports what was MEASURED this pass
+            // rather than what happened to be logged.
+            seamEndpointOutsideSoiCount++;
+
+            // Once-per-onset: key on the member, signature on the seam being measured (bodies + the
+            // recorded seam instant), so re-measuring the same seam every frame emits one line and a
+            // NEW seam (or a rebound recording) emits its own.
+            string eventKey = pidKey + ":" + MapRenderTrace.AnomalySeamEndpointOutsideSoi;
+            string signature = string.Format(ic, "{0}>{1}@{2}",
+                sample.FromBody ?? "?", sample.ToBody ?? "?",
+                MapRenderTrace.FormatDouble(sample.RecordedSeamUT, "F0"));
+            if (!MapRenderTrace.ShouldEmitCutoverAnomalyOnChange(eventKey, signature))
+                return;
+
+            MapRenderTrace.EmitAnomaly(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, sample.SeamUT,
+                MapRenderTrace.AnomalySeamEndpointOutsideSoi,
+                string.Format(ic,
+                    "fromBody={0} toBody={1} seamUT={2} endpointDist={3}m soi={4}m ratio={5} "
+                    + "tol={6} recordedSeamUT={7} clock={8} seed={9} loopShift={10} "
+                    + "rendOrbit=[sma={11} ecc={12} body={13}] lineActive={14}",
+                    sample.FromBody ?? "(null)", sample.ToBody ?? "(null)",
+                    MapRenderTrace.FormatDouble(sample.SeamUT, "F1"),
+                    MapRenderTrace.FormatDouble(result.EndpointDistanceMeters, "F0"),
+                    MapRenderTrace.FormatDouble(result.SoiRadiusMeters, "F0"),
+                    MapRenderTrace.FormatDouble(result.Ratio, "F4"),
+                    MapRenderTrace.FormatDouble(result.RatioTolerance, "F4"),
+                    MapRenderTrace.FormatDouble(sample.RecordedSeamUT, "F1"),
+                    sample.ClockConvention ?? "(null)", sample.SeedKind ?? "(null)",
+                    MapRenderTrace.FormatDouble(loopShift, "F1"),
+                    MapRenderTrace.FormatDouble(renderedOrbit.semiMajorAxis, "F0"),
+                    MapRenderTrace.FormatDouble(renderedOrbit.eccentricity, "F4"),
+                    renderedBody != null ? renderedBody.bodyName : "(null)",
+                    lineActive),
+                recId);
         }
 
         // --- A1 cutover-instrument / design §14: SYNTHESIZED-mode POLYLINE leg parity (Unity capture) ---
