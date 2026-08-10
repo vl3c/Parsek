@@ -144,7 +144,7 @@ stations, `IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected 
 is present, and a partially-populated RP now leaving the sibling stage in scene as
 a real vessel AND a ghost. See the P1-FOLLOWUP task entries.
 
-Guarded by `ReFlySaveScrubTests` (14 cells), plus
+Guarded by `ReFlySaveScrubTests` (11 cells), plus
 `Bug587StripPreExistingDebrisTests.BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled`
 (a Probe/Station/SpaceObject fleet all name-colliding with kill-eligible
 recordings, none killed, while genuine same-named Debris still is) and three new
