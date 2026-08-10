@@ -1935,14 +1935,6 @@ namespace Parsek
             /// </summary>
             public int VesselsPreserved;
 
-            /// <summary>
-            /// Serialized Parsek ghost-map <c>VESSEL</c> nodes removed - a SUBSET
-            /// of <see cref="VesselsRemoved"/>, not an additional bucket. These are
-            /// captured into a quicksave when ghosts are on the map and must never
-            /// reach the preserve path (bug #587 third facet).
-            /// </summary>
-            public int GhostNodesRemoved;
-
             public int VesselsRemoved;
             public int SelectedActiveIndex;
             public int ThrottleResets;
@@ -2020,20 +2012,15 @@ namespace Parsek
                     && ((vesselPid != 0u && otherSlotVesselPids.Contains(vesselPid))
                         || (rootPartPid != 0u && otherSlotRootPartPids.Contains(rootPartPid)));
 
-                // A quicksave taken while ghosts were on the map serialized them
-                // as ordinary VESSEL nodes. They are in no slot map, so the
-                // preserve path would resurrect them as real clickable
-                // "Ghost: X" vessels colocated with the player - the bug #587
-                // third-facet symptom. Name-keyed because the canonical
-                // IsGhostMapVessel check reads a runtime pid set that does not
-                // survive into a .sfs.
-                if (GhostMapPresence.IsSerializedGhostVesselNode(vessel))
-                {
-                    result.GhostNodesRemoved++;
-                    remove.Add(vessel);
-                    continue;
-                }
-
+                // No ghost-node carve-out is needed here, and adding one is a
+                // trap: ParsekScenario.OnSave strips ghost map ProtoVessels out
+                // of HighLogic.CurrentGame.flightState (ParsekScenario.cs:1091-1097
+                // -> GhostMapPresence.StripFromSave) on EVERY save, and KSP writes
+                // the SCENARIO nodes before FLIGHTSTATE, so ghosts never reach a
+                // quicksave in the first place. A name-prefix guard here would
+                // only delete a player craft actually named "Ghost: ..." - and
+                // because it would run before the selected-slot test, if that
+                // craft WERE the re-fly target the whole Re-Fly would refuse.
                 if (isOtherSlot)
                 {
                     remove.Add(vessel);
@@ -2098,7 +2085,7 @@ namespace Parsek
             ParsekLog.Info(InvokeTag,
                 $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
                 $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
-                $"preserved={result.VesselsPreserved} ghostNodesRemoved={result.GhostNodesRemoved} " +
+                $"preserved={result.VesselsPreserved} " +
                 $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
                 $"throttleResets={result.ThrottleResets} " +
                 $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +

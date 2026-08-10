@@ -59,21 +59,22 @@ surviving, a non-zero kept count no longer implies the re-fly target was found,
 and repointing `activeVessel` at an unrelated survivor would be worse than not
 scrubbing.
 
-**The wide deletion was masking a second hazard, which the fix had to handle
-explicitly.** `CaptureRewindSave` (`FlightRecorder.cs:4472`) is a plain
-`GamePersistence.SaveGame` with NO ghost teardown first, so ghost map
-ProtoVessels present at capture are serialized into the RP quicksave as ordinary
-`VESSEL` nodes. They are in no slot map, so a naive "preserve everything
-unmatched" would resurrect them as real clickable `Ghost: X` vessels colocated
-with the player - the `#587` THIRD FACET symptom, re-introduced. The canonical
-`GhostMapPresence.IsGhostMapVessel` cannot help: it reads a runtime pid set that
-does not survive into a `.sfs`. New ConfigNode-level companion
-`GhostMapPresence.IsSerializedGhostVesselNode` matches on the
-`GhostVesselNamePrefix` constant (extracted so `GhostMapPresence.cs:10876` and the
-scrub cannot drift), and such nodes are removed with a `GhostNodesRemoved` count
-(a SUBSET of `VesselsRemoved`) in the summary line. Name-keyed by necessity; a
-player craft literally named `Ghost: ...` is a false positive whose cost is the
-old behaviour for that one craft, which is strictly better than the phantom.
+**A ghost-node carve-out here is a TRAP - do not re-add it.** The first cut of
+this fix assumed a quicksave taken with ghosts on the map carries them as
+ordinary `VESSEL` nodes, and added a `"Ghost: "` name-prefix removal so the
+preserve path could not resurrect them (the `#587` third-facet symptom). That
+premise is FALSE and review caught it: `ParsekScenario.OnSave` calls
+`GhostMapPresence.StripFromSave` unconditionally
+(`ParsekScenario.cs:1091-1097`), and KSP writes the `SCENARIO` nodes before
+`FLIGHTSTATE` (`Game.Updated` captures `flightState` first, then runs
+`ScenarioRunner.GetUpdatedProtoModules()`, then `Game.Save()` writes SCENARIO
+then FLIGHTSTATE), so the strip lands before the file is written and ghosts never
+reach a save. The guard was reverted because it could only ever match a player
+craft genuinely named `Ghost: ...`, and - running before the selected-slot test -
+would have made the whole Re-Fly refuse if that craft were the target.
+`GhostVesselNamePrefix` was kept as a named constant with the reasoning attached;
+`ScrubQuicksaveToSelectedSlot_PreservesAGhostNamedPlayerCraft` is the regression
+guard.
 
 **Side effect worth knowing:** `WarnOnLeftAloneNameCollisions`
 (`RewindInvoker.cs:1009`, wired and unit-tested) becomes reachable for the first

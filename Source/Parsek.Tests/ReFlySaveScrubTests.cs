@@ -84,20 +84,57 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Rewind]") && l.Contains("preserved=1"));
         }
 
-        [Theory]
-        [InlineData("SpaceObject", "Ast. QRV-142")]
-        [InlineData("Flag", "Flag")]
-        [InlineData("Station", "Mun Station")]
-        [InlineData("Probe", "Comms Relay 3")]
-        public void ScrubQuicksaveToSelectedSlot_PreservesWorldObjectsOutsideTheSlotSet(
-            string vesselType, string vesselName)
+        [Fact]
+        public void ScrubQuicksaveToSelectedSlot_PreservesWorldObjectsOutsideTheSlotSet()
         {
+            // The scrub is pid-keyed and reads no `type` at all, so one cell
+            // covers every vessel type. Asserting per-type here would only prove
+            // that ConfigNode round-trips the fixture's own value, and would
+            // imply a type-awareness the scrub does not have. NOTE the scrub
+            // therefore has NO Flag carve-out of its own: a flag whose pid landed
+            // in another slot's map is still removed before
+            // PostLoadStripper.ShouldPreserveVesselType is ever consulted.
             SaveTestGame(
                 MakeVessel(5000u, "Selected", 444u),
-                MakeVessel(7777u, vesselName, 888u, type: vesselType));
+                MakeVessel(7777u, "Ast. QRV-142", 888u, type: "SpaceObject"),
+                MakeVessel(7778u, "Mun Station", 889u, type: "Station"),
+                MakeVessel(7779u, "Flag", 890u, type: "Flag"));
             var rp = new RewindPoint
             {
                 RewindPointId = "rp_preserve_world",
+                PidSlotMap = new Dictionary<uint, int> { { 5000u, 0 } },
+                RootPartPidMap = new Dictionary<uint, int> { { 444u, 0 } },
+            };
+
+            var result = RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly(
+                tempPath, rp, selectedSlotIndex: 0);
+
+            Assert.True(result.Applied);
+            Assert.Equal(3, result.VesselsPreserved);
+            Assert.Equal(0, result.VesselsRemoved);
+            Assert.Equal(0, result.SelectedActiveIndex);
+
+            ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
+            Assert.Equal(4, vessels.Length);
+            Assert.Contains(vessels, v => v.GetValue("persistentId") == "7777");
+            Assert.Contains(vessels, v => v.GetValue("persistentId") == "7778");
+            Assert.Contains(vessels, v => v.GetValue("persistentId") == "7779");
+        }
+
+        [Fact]
+        public void ScrubQuicksaveToSelectedSlot_PreservesAGhostNamedPlayerCraft()
+        {
+            // Regression guard against re-adding a name-prefix ghost carve-out
+            // here. Ghosts never reach a quicksave (ParsekScenario.OnSave strips
+            // them via GhostMapPresence.StripFromSave, and KSP writes SCENARIO
+            // before FLIGHTSTATE), so such a guard could only ever delete a
+            // player craft genuinely named "Ghost: ...".
+            SaveTestGame(
+                MakeVessel(5000u, "Selected", 444u),
+                MakeVessel(8001u, GhostMapPresence.GhostVesselNamePrefix + "Kerbal X", 901u));
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_ghost_named_craft",
                 PidSlotMap = new Dictionary<uint, int> { { 5000u, 0 } },
                 RootPartPidMap = new Dictionary<uint, int> { { 444u, 0 } },
             };
@@ -111,57 +148,8 @@ namespace Parsek.Tests
 
             ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
             Assert.Equal(2, vessels.Length);
-            Assert.Equal("7777", vessels[1].GetValue("persistentId"));
-            Assert.Equal(vesselType, vessels[1].GetValue("type"));
-        }
-
-        [Fact]
-        public void ScrubQuicksaveToSelectedSlot_RemovesSerializedGhostNodesRatherThanPreservingThem()
-        {
-            // A quicksave taken while ghosts were on the map carries them as
-            // ordinary VESSEL nodes. They are in no slot map, so the preserve
-            // path would resurrect them as real clickable vessels colocated with
-            // the player - the bug #587 third-facet symptom.
-            SaveTestGame(
-                MakeVessel(5000u, "Selected", 444u),
-                MakeVessel(8001u, "Ghost: Kerbal X", 901u),
-                MakeVessel(8002u, "Mun Station", 902u));
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_ghost_nodes",
-                PidSlotMap = new Dictionary<uint, int> { { 5000u, 0 } },
-                RootPartPidMap = new Dictionary<uint, int> { { 444u, 0 } },
-            };
-
-            var result = RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly(
-                tempPath, rp, selectedSlotIndex: 0);
-
-            Assert.True(result.Applied);
-            Assert.Equal(1, result.GhostNodesRemoved);
-            Assert.Equal(1, result.VesselsRemoved);
-            // The real station is preserved; only the ghost node went.
-            Assert.Equal(1, result.VesselsPreserved);
-            Assert.Equal(2, result.VesselsKept);
-
-            ConfigNode[] vessels = LoadFlightState().GetNodes("VESSEL");
-            Assert.Equal(2, vessels.Length);
-            Assert.DoesNotContain(vessels, v => v.GetValue("name") == "Ghost: Kerbal X");
-            Assert.Contains(vessels, v => v.GetValue("name") == "Mun Station");
-            Assert.Contains(logLines, l => l.Contains("[Rewind]") && l.Contains("ghostNodesRemoved=1"));
-        }
-
-        [Fact]
-        public void IsSerializedGhostVesselNode_MatchesOnlyTheGhostNamePrefix()
-        {
-            Assert.True(GhostMapPresence.IsSerializedGhostVesselNode(
-                MakeVessel(1u, GhostMapPresence.GhostVesselNamePrefix + "Kerbal X", 2u)));
-            Assert.False(GhostMapPresence.IsSerializedGhostVesselNode(
-                MakeVessel(1u, "Kerbal X", 2u)));
-            // Not a prefix match: the marker has to lead.
-            Assert.False(GhostMapPresence.IsSerializedGhostVesselNode(
-                MakeVessel(1u, "Probe Ghost: Two", 2u)));
-            Assert.False(GhostMapPresence.IsSerializedGhostVesselNode(new ConfigNode("VESSEL")));
-            Assert.False(GhostMapPresence.IsSerializedGhostVesselNode(null));
+            Assert.Contains(vessels,
+                v => v.GetValue("name") == GhostMapPresence.GhostVesselNamePrefix + "Kerbal X");
         }
 
         [Fact]

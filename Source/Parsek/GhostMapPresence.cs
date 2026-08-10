@@ -992,31 +992,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Name prefix stamped onto every Parsek-authored ghost map ProtoVessel.
+        /// Display-name prefix stamped onto every Parsek-authored ghost map
+        /// ProtoVessel. Presentation only - <see cref="IsGhostMapVessel"/> is the
+        /// canonical identity check.
         /// <para>
-        /// <see cref="IsGhostMapVessel"/> is the canonical check, but it is
-        /// runtime-only: it reads a live pid set that does not survive into a
-        /// <c>.sfs</c>. A quicksave taken while ghosts are on the map serializes
-        /// them as ordinary <c>VESSEL</c> nodes, so a ConfigNode-level consumer
-        /// (the Re-Fly temp-save scrub) has nothing but this name to go on.
-        /// Resurrecting such a node as a real vessel is the bug #587 third-facet
-        /// symptom - a clickable "Ghost: X" colocated with the player's craft.
+        /// Do NOT build a ConfigNode-level "is this a serialized ghost" guard on
+        /// this prefix. Ghosts never reach a save: <c>ParsekScenario.OnSave</c>
+        /// calls <see cref="StripFromSave"/> on every save and KSP writes the
+        /// SCENARIO nodes before FLIGHTSTATE, so a name-keyed guard could only
+        /// ever match a player craft genuinely named "Ghost: ...".
         /// </para>
         /// </summary>
         internal const string GhostVesselNamePrefix = "Ghost: ";
-
-        /// <summary>
-        /// ConfigNode-level companion to <see cref="IsGhostMapVessel"/>: does this
-        /// serialized <c>VESSEL</c> node look like a Parsek-authored ghost map
-        /// presence that was captured into a save? Name-keyed by necessity (see
-        /// <see cref="GhostVesselNamePrefix"/>).
-        /// </summary>
-        internal static bool IsSerializedGhostVesselNode(ConfigNode vesselNode)
-        {
-            string name = vesselNode?.GetValue("name");
-            return !string.IsNullOrEmpty(name)
-                && name.StartsWith(GhostVesselNamePrefix, StringComparison.Ordinal);
-        }
 
         /// <summary>
         /// O(1) check: is this ghost's native icon currently suppressed (below atmosphere)?
