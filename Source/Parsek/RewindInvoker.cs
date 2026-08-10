@@ -799,10 +799,19 @@ namespace Parsek
                 PostLoadStripResult stripResult;
                 try
                 {
+                    // stripUnmatchedVessels stays FALSE so the LeftAlone branch
+                    // is live: a vessel matching no slot in this RP is unrelated
+                    // to the re-fly and design doc §6.4 step 4 says leave it
+                    // alone. Strict mode here (plus the pre-load scrub) used to
+                    // delete the player's whole fleet - stations, satellites,
+                    // rovers, discovered asteroids/comets and planted flags -
+                    // and made the Flag carve-out below unreachable. Prior-career
+                    // debris that trips stock patched conics is removed by the
+                    // narrow #587 name-matched pass, not by this flag.
                     stripResult = PostLoadStripper.Strip(
                         rp,
                         slotIdx,
-                        stripUnmatchedVessels: true);
+                        stripUnmatchedVessels: false);
                 }
                 catch (Exception ex)
                 {
@@ -1917,6 +1926,23 @@ namespace Parsek
             public bool Applied;
             public int VesselCountBefore;
             public int VesselsKept;
+
+            /// <summary>
+            /// Subset of <see cref="VesselsKept"/> that is not part of this RP's
+            /// slot set at all: pre-existing stations, satellites, rovers,
+            /// <c>SpaceObject</c> asteroids/comets and planted flags. Preserved
+            /// per design doc §6.4 step 4 ("Else: leave alone").
+            /// </summary>
+            public int VesselsPreserved;
+
+            /// <summary>
+            /// Serialized Parsek ghost-map <c>VESSEL</c> nodes removed - a SUBSET
+            /// of <see cref="VesselsRemoved"/>, not an additional bucket. These are
+            /// captured into a quicksave when ghosts are on the map and must never
+            /// reach the preserve path (bug #587 third facet).
+            /// </summary>
+            public int GhostNodesRemoved;
+
             public int VesselsRemoved;
             public int SelectedActiveIndex;
             public int ThrottleResets;
@@ -1963,33 +1989,92 @@ namespace Parsek
                 return result;
             }
 
+            // Removal is scoped to this RP's OTHER slots. A vessel that is in no
+            // slot map at all is unrelated to the re-fly (pre-existing station,
+            // satellite, rover, SpaceObject asteroid/comet, planted flag) and is
+            // left alone, per design doc §6.4 step 4. PostLoadStripper.Strip is
+            // the authoritative matcher after load and reports these as
+            // LeftAlone; the narrow #587 debris kill
+            // (StripPreExistingDebrisForInPlaceContinuation) still runs and is
+            // the mechanism that removes prior-career debris which would trip
+            // stock patched conics. Widening this predicate must NOT be
+            // "re-narrowed" here to fix a phantom-encounter regression - that
+            // belongs in the #587 name-matched pass.
+            var otherSlotVesselPids = BuildNonSelectedSlotPidSet(rp.PidSlotMap, selectedSlotIndex);
+            var otherSlotRootPartPids = BuildNonSelectedSlotPidSet(rp.RootPartPidMap, selectedSlotIndex);
+
             ConfigNode[] vesselNodes = flightState.GetNodes("VESSEL");
             result.VesselCountBefore = vesselNodes.Length;
             var remove = new List<ConfigNode>();
+            var preservedNames = new List<string>();
             int keptIndex = 0;
             for (int i = 0; i < vesselNodes.Length; i++)
             {
                 ConfigNode vessel = vesselNodes[i];
                 uint vesselPid = ParseUInt(vessel.GetValue("persistentId"));
                 uint rootPartPid = GetRootPartPersistentId(vessel);
-                bool keep = (vesselPid != 0u && selectedVesselPids.Contains(vesselPid))
-                    || (rootPartPid != 0u && selectedRootPartPids.Contains(rootPartPid));
 
-                if (keep)
+                bool isSelectedSlot = (vesselPid != 0u && selectedVesselPids.Contains(vesselPid))
+                    || (rootPartPid != 0u && selectedRootPartPids.Contains(rootPartPid));
+                bool isOtherSlot = !isSelectedSlot
+                    && ((vesselPid != 0u && otherSlotVesselPids.Contains(vesselPid))
+                        || (rootPartPid != 0u && otherSlotRootPartPids.Contains(rootPartPid)));
+
+                // A quicksave taken while ghosts were on the map serialized them
+                // as ordinary VESSEL nodes. They are in no slot map, so the
+                // preserve path would resurrect them as real clickable
+                // "Ghost: X" vessels colocated with the player - the bug #587
+                // third-facet symptom. Name-keyed because the canonical
+                // IsGhostMapVessel check reads a runtime pid set that does not
+                // survive into a .sfs.
+                if (GhostMapPresence.IsSerializedGhostVesselNode(vessel))
                 {
+                    result.GhostNodesRemoved++;
+                    remove.Add(vessel);
+                    continue;
+                }
+
+                if (isOtherSlot)
+                {
+                    remove.Add(vessel);
+                    continue;
+                }
+
+                if (isSelectedSlot)
+                {
+                    // Throttle-zeroing is scoped to the re-flown slot only: an
+                    // unrelated vessel's control state is its own business and
+                    // must survive the scrub untouched.
                     result.ThrottleResets += ForceReFlyVesselThrottleClosed(vessel);
                     if (result.SelectedActiveIndex < 0)
                         result.SelectedActiveIndex = keptIndex;
-                    keptIndex++;
-                    result.VesselsKept++;
                 }
                 else
                 {
-                    remove.Add(vessel);
+                    result.VesselsPreserved++;
+                    if (preservedNames.Count < MaxPreservedNamesLogged)
+                        preservedNames.Add(vessel.GetValue("name") ?? $"pid={vesselPid}");
                 }
+
+                keptIndex++;
+                result.VesselsKept++;
             }
 
-            if (result.VesselsKept == 0)
+            if (result.VesselsPreserved > 0)
+            {
+                string overflow = result.VesselsPreserved > preservedNames.Count
+                    ? $" (+{result.VesselsPreserved - preservedNames.Count} more)"
+                    : "";
+                ParsekLog.Verbose(InvokeTag,
+                    $"Re-Fly save scrub preserved {result.VesselsPreserved} unrelated vessel(s) " +
+                    $"[{string.Join(", ", preservedNames.ToArray())}]{overflow}");
+            }
+
+            // Guard on the SELECTED slot specifically, not on "anything kept":
+            // now that unrelated vessels survive, VesselsKept > 0 no longer
+            // implies the re-fly target was found, and repointing activeVessel
+            // at an unrelated survivor would be worse than not scrubbing.
+            if (result.SelectedActiveIndex < 0)
             {
                 ParsekLog.Warn(InvokeTag,
                     $"Re-Fly save scrub skipped: selected slot vessel not found " +
@@ -2013,6 +2098,7 @@ namespace Parsek
             ParsekLog.Info(InvokeTag,
                 $"Re-Fly save scrub applied: rp={rp.RewindPointId} slot={selectedSlotIndex} " +
                 $"vesselsBefore={result.VesselCountBefore} kept={result.VesselsKept} " +
+                $"preserved={result.VesselsPreserved} ghostNodesRemoved={result.GhostNodesRemoved} " +
                 $"removed={result.VesselsRemoved} activeVessel={result.SelectedActiveIndex} " +
                 $"throttleResets={result.ThrottleResets} " +
                 $"sidecarEpochsRefreshed={result.SidecarEpochsRefreshed} " +
@@ -2116,6 +2202,32 @@ namespace Parsek
             foreach (var kv in map)
             {
                 if (kv.Key != 0u && kv.Value == selectedSlotIndex)
+                    result.Add(kv.Key);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Cap on how many preserved vessel names the scrub summary names, per the
+        /// batch-counting logging convention (one summary line, not one line per
+        /// item - a large career can preserve dozens of vessels).
+        /// </summary>
+        private const int MaxPreservedNamesLogged = 8;
+
+        /// <summary>
+        /// Pids this RP maps to a slot OTHER than the selected one. Together with
+        /// serialized ghost nodes these are the only vessels the temp-save scrub
+        /// removes; anything absent from the slot maps entirely is unrelated to
+        /// the re-fly and is preserved.
+        /// </summary>
+        private static HashSet<uint> BuildNonSelectedSlotPidSet(
+            Dictionary<uint, int> map, int selectedSlotIndex)
+        {
+            var result = new HashSet<uint>();
+            if (map == null) return result;
+            foreach (var kv in map)
+            {
+                if (kv.Key != 0u && kv.Value != selectedSlotIndex)
                     result.Add(kv.Key);
             }
             return result;
