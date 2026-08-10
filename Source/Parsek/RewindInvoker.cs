@@ -860,12 +860,12 @@ namespace Parsek
                 // list is the save-shape mirror and does not auto-sync with
                 // Vessel.Die(). So a survivor set built from protoVessels alone
                 // still contains every stripped capsule's PID, which masks the
-                // bug ShouldResetSpawnState is supposed to detect. The fix is
-                // to subtract stripResult.StrippedPids explicitly here before
-                // calling the reconcile helper. Keeping the helper itself
-                // unchanged — its other callers (revert path at
-                // ParsekScenario.cs:1701, defense-in-depth at :2405) may have
-                // different invariants and are out of scope for this PR.
+                // bug ShouldResetSpawnState is supposed to detect. So
+                // ReconcilePostStripSpawnState subtracts stripResult.StrippedPids
+                // explicitly, and routes (pid, launch-guid) identities to the
+                // GUID-AWARE reconcile overload — the bare-pid one cannot tell a
+                // relaunch of the same craft from the recorded launch, which the
+                // preserved-fleet world makes a common case.
                 try
                 {
                     var fsReconcile = HighLogic.CurrentGame?.flightState;
@@ -874,20 +874,20 @@ namespace Parsek
                         var committed = RecordingStore.CommittedRecordings;
                         if (committed != null && committed.Count > 0)
                         {
-                            var protoVesselPids = new List<uint>();
-                            if (fsReconcile.protoVessels != null)
-                            {
-                                for (int i = 0; i < fsReconcile.protoVessels.Count; i++)
-                                    protoVesselPids.Add(fsReconcile.protoVessels[i].persistentId);
-                            }
+                            // (pid, launch-guid) identities, NOT bare pids: see
+                            // ReconcilePostStripSpawnState. Same collector the
+                            // revert path uses (ParsekScenario.cs:3376).
+                            var protoVesselIdentities =
+                                ParsekScenario.CollectSurvivingVesselIdentities(
+                                    fsReconcile.protoVessels);
 
                             // The survivor-set + log + reconcile glue is extracted
                             // into ReconcilePostStripSpawnState so it is directly
-                            // xUnit-testable. The Unity-only protoVessel-PID collection
-                            // above stays here because ProtoVessel cannot be built in
+                            // xUnit-testable. The Unity-only ProtoVessel walk above
+                            // stays here because ProtoVessel cannot be built in
                             // xUnit.
                             ReconcilePostStripSpawnState(
-                                protoVesselPids, stripResult.StrippedPids, committed);
+                                protoVesselIdentities, stripResult.StrippedPids, committed);
                         }
                     }
                 }
@@ -1029,23 +1029,68 @@ namespace Parsek
         /// block exactly; the returned count is additive for test assertions.
         /// </summary>
         /// <returns>The number of committed recordings whose spawn state was reset.</returns>
+        /// <summary>
+        /// Post-strip spawn-state reconcile for the Re-Fly load path.
+        /// <para>
+        /// Takes (pid, launch-guid) IDENTITIES rather than bare pids and routes to
+        /// the guid-aware <c>ReconcileSpawnStateAfterStrip</c> overload. The bare-pid
+        /// overload is wrong here for the reason CLAUDE.md pins: <c>persistentId</c>
+        /// is craft-baked, not launch-unique, so a survivor that merely shares a
+        /// recording's <c>SpawnedVesselPersistentId</c> may be a DIFFERENT launch of
+        /// the same craft. Under a pid-only decision such a survivor keeps the
+        /// recording at <c>VesselSpawned=true</c> pointing at a stranger, and
+        /// <c>ShouldSpawnAtRecordingEnd</c>'s dedup gate then blocks the terminal
+        /// ghost spawn permanently - nothing recovers it, because the liveness
+        /// re-check is itself pid-only. That was masked while the Re-Fly load left
+        /// exactly one vessel in scene; preserving unrelated vessels makes the
+        /// collision reachable, and a relaunch of the same craft is the common case.
+        /// </para>
+        /// </summary>
         internal static int ReconcilePostStripSpawnState(
-            IReadOnlyList<uint> protoVesselPids,
+            IReadOnlyList<(uint pid, string guid)> protoVesselIdentities,
             IReadOnlyList<uint> strippedPids,
             IReadOnlyList<Recording> committed)
         {
             if (committed == null || committed.Count == 0)
                 return 0;
 
-            int protoCount = protoVesselPids != null ? protoVesselPids.Count : 0;
+            int protoCount = protoVesselIdentities != null ? protoVesselIdentities.Count : 0;
             int strippedCount = strippedPids != null ? strippedPids.Count : 0;
 
-            var survivors = ParsekScenario.ComputeSurvivorsFromProtoVesselPids(
-                protoVesselPids, strippedPids);
+            // PostLoadStripper.Strip removes vessels via Vessel.Die() but does NOT
+            // remove the matching ProtoVessel from flightState.protoVessels, so the
+            // stripped pids must be subtracted explicitly or they read as survivors
+            // and mask the very bug ShouldResetSpawnState detects.
+            var strippedSet = new HashSet<uint>();
+            if (strippedPids != null)
+            {
+                for (int i = 0; i < strippedPids.Count; i++)
+                    strippedSet.Add(strippedPids[i]);
+            }
+
+            var survivors = new List<(uint pid, string guid)>();
+            if (protoVesselIdentities != null)
+            {
+                for (int i = 0; i < protoVesselIdentities.Count; i++)
+                {
+                    var identity = protoVesselIdentities[i];
+                    if (identity.pid == 0u) continue;
+                    if (strippedSet.Contains(identity.pid)) continue;
+                    survivors.Add(identity);
+                }
+            }
+
+            int withGuid = 0;
+            for (int i = 0; i < survivors.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(survivors[i].guid))
+                    withGuid++;
+            }
 
             ParsekLog.Info(InvokeTag,
                 $"Post-strip reconcile: strippedPids={strippedCount} " +
-                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count}");
+                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count} " +
+                $"survivorsWithLaunchGuid={withGuid}");
 
             return ParsekScenario.ReconcileSpawnStateAfterStrip(survivors, committed);
         }
@@ -3002,18 +3047,46 @@ namespace Parsek
         /// bookkeeping and live vessel state. Pure / static so unit tests can
         /// pin it against the <see cref="IStrippableVessel"/> contract.
         /// </summary>
-        internal static bool ShouldSkipFromLeftAloneSurvey(IStrippableVessel v)
+        /// <summary>
+        /// Bug #587 kill-survey eligibility: ONLY <see cref="VesselType.Debris"/>
+        /// may become a candidate for the name-matched pre-existing-debris kill.
+        /// <para>
+        /// This predicate used to be the inverse - "skip <see cref="VesselType.Flag"/>,
+        /// survey everything else" - which was harmless only because the survey
+        /// set was empty in practice: the Re-Fly temp-save scrub deleted every
+        /// vessel but the selected slot, and the selected pid is excluded upstream,
+        /// so <see cref="ResolveInPlaceContinuationDebrisToKill"/> never had a
+        /// candidate in production. Once the scrub was narrowed to preserve
+        /// unrelated vessels, "survey everything else" meant the player's whole
+        /// fleet, and the kill matches on EXACT vessel name against a set that
+        /// includes the active recording's parent chain - so a prior-career craft
+        /// sharing the re-flown craft's name (KSP's default naming makes that the
+        /// common case) would be silently <c>Die()</c>d inside a crew-suppression
+        /// guard, with no ledger row.
+        /// </para>
+        /// <para>
+        /// Debris-only matches the mechanism's own documented intent (`#587` was
+        /// filed and changelogged as removing "pre-existing DEBRIS vessels ...
+        /// whose name matches a Destroyed-terminal recording"), so a real craft is
+        /// now ineligible regardless of name collision. Fails CLOSED: an
+        /// unreadable <see cref="IStrippableVessel.VesselType"/> yields "not a
+        /// candidate", because including a vessel of unknown type risks killing a
+        /// real one. That is the opposite of the old predicate's fail direction,
+        /// and deliberately so - the old one failed toward "protect", this one
+        /// fails toward "protect" as well, but the branch that means protection
+        /// has moved.
+        /// </para>
+        /// </summary>
+        internal static bool IsDebrisKillSurveyCandidate(IStrippableVessel v)
         {
             if (v == null) return false;
             VesselType type;
             // Mirror LiveVesselAdapter.VesselType's defensive try/catch: KSP's
             // Vessel getter walks managed Unity state and can throw on a
-            // half-destroyed GameObject mid-strip. On throw we fall through to
-            // the conservative "don't skip" branch so a defective vessel still
-            // gets the kill-set protection layer.
+            // half-destroyed GameObject mid-strip.
             try { type = v.VesselType; }
             catch { return false; }
-            return type == VesselType.Flag;
+            return type == VesselType.Debris;
         }
 
         /// <summary>
@@ -3053,16 +3126,16 @@ namespace Parsek
             if (liveVessels == null || liveVessels.Count == 0) return result;
             Func<uint, bool> ghostCheck = isGhostMapVessel ?? (_ => false);
 
-            int skippedFlags = 0;
+            int skippedNonDebris = 0;
             int skippedGhostMap = 0;
             int skippedStripped = 0;
             int skippedSelected = 0;
             int includedCount = 0;
-            // First flag's identifiers captured for the one-shot Verbose log,
-            // so playtest log readers can confirm the skip ran without spamming
-            // a line per vessel.
-            uint firstFlagPid = 0u;
-            string firstFlagName = null;
+            // First skipped vessel's identifiers captured for the one-shot
+            // Verbose log, so playtest log readers can confirm the skip ran
+            // without spamming a line per vessel.
+            uint firstSkippedPid = 0u;
+            string firstSkippedName = null;
 
             for (int i = 0; i < liveVessels.Count; i++)
             {
@@ -3084,18 +3157,21 @@ namespace Parsek
                     skippedSelected++;
                     continue;
                 }
-                // Survey-level flag skip -- the user-requested upstream defense
-                // alongside BuildProtectedPidsForInPlaceContinuation's
-                // PreservedFlagPids branch.
-                if (ShouldSkipFromLeftAloneSurvey(v))
+                // Survey-level eligibility: DEBRIS ONLY. See
+                // IsDebrisKillSurveyCandidate -- this subsumes the old
+                // VesselType.Flag skip (a flag is not debris) and is what keeps
+                // the preserved fleet out of a name-matched kill.
+                // BuildProtectedPidsForInPlaceContinuation's PreservedFlagPids
+                // branch is retained as the downstream safety net.
+                if (!IsDebrisKillSurveyCandidate(v))
                 {
-                    if (skippedFlags == 0)
+                    if (skippedNonDebris == 0)
                     {
-                        firstFlagPid = pid;
-                        try { firstFlagName = v.VesselName; }
-                        catch { firstFlagName = null; }
+                        firstSkippedPid = pid;
+                        try { firstSkippedName = v.VesselName; }
+                        catch { firstSkippedName = null; }
                     }
-                    skippedFlags++;
+                    skippedNonDebris++;
                     continue;
                 }
                 string name;
@@ -3106,13 +3182,13 @@ namespace Parsek
                 includedCount++;
             }
 
-            if (skippedFlags > 0 && !ParsekLog.SuppressLogging)
+            if (skippedNonDebris > 0 && !ParsekLog.SuppressLogging)
             {
-                string safeName = string.IsNullOrEmpty(firstFlagName) ? "<unnamed>" : firstFlagName;
+                string safeName = string.IsNullOrEmpty(firstSkippedName) ? "<unnamed>" : firstSkippedName;
                 ParsekLog.Verbose(InvokeTag,
-                    $"Strip post-supplement: skipping flag v={firstFlagPid} name='{safeName}' " +
-                    $"from leftAlone survey -- preserved by PostLoadStripper " +
-                    $"(totalFlagsSkipped={skippedFlags} included={includedCount} " +
+                    $"Strip post-supplement: skipping non-debris v={firstSkippedPid} name='{safeName}' " +
+                    $"from leftAlone survey -- only VesselType.Debris is kill-eligible " +
+                    $"(totalNonDebrisSkipped={skippedNonDebris} included={includedCount} " +
                     $"skippedGhostMap={skippedGhostMap} skippedStripped={skippedStripped} " +
                     $"skippedSelected={skippedSelected})");
             }

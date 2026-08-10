@@ -76,11 +76,82 @@ would have made the whole Re-Fly refuse if that craft were the target.
 `ScrubQuicksaveToSelectedSlot_PreservesAGhostNamedPlayerCraft` is the regression
 guard.
 
+**TWO BLOCKERS the wide deletion was masking. Both had to land with the
+narrowing; either alone would have been worse than the original bug.**
+
+**B1 - the `#587` name-kill had never fired in production, and the narrowing
+pointed it at the preserved fleet.**
+`StripPreExistingDebrisForInPlaceContinuation` builds its candidates by
+re-surveying LIVE `FlightGlobals.Vessels` through
+`BuildLeftAlonePidNamesForInPlaceContinuation`, excluding ghost pids,
+`StrippedPids`, `SelectedPid` and (formerly) `VesselType.Flag`. With the old wide
+scrub the loaded save held exactly one vessel and that vessel IS `SelectedPid`, so
+the survey was always empty and `ResolveInPlaceContinuationDebrisToKill` returned
+at its `leftAlonePids.Count == 0` guard on every production Re-Fly. Post-narrowing
+it operates on the whole preserved fleet, matching on EXACT `vesselName` against a
+kill-eligible set that includes the active recording's PARENT CHAIN - so with
+KSP's default naming a prior-career craft sharing the re-flown craft's name gets
+`Vessel.Die()`d inside `SuppressionGuard.Crew()`, i.e. with no ledger row and one
+`Warn` as the only trace. Fixed by replacing the inverted predicate
+`ShouldSkipFromLeftAloneSurvey` (skip Flag, survey everything else) with
+`IsDebrisKillSurveyCandidate` (ONLY `VesselType.Debris` is eligible), which
+matches the mechanism's own documented intent - `CHANGELOG.md:1209` filed `#587`
+as removing "pre-existing DEBRIS vessels ... whose name matches a
+Destroyed-terminal recording". Fails CLOSED: an unreadable `VesselType` is not a
+candidate. Note the pass remains a no-op on placeholder (non-in-place) Re-Fly by
+its own design, and it has still never been exercised in the field, so the
+patched-conics claim behind it is unproven either way.
+
+**B2 - the Re-Fly spawn-state reconcile was the pid-only, guid-blind overload.**
+`RewindInvoker.cs:877` collected bare `protoVessels[i].persistentId`, so
+`ReconcilePostStripSpawnState` bound `ParsekScenario.ReconcileSpawnStateAfterStrip(HashSet<uint>, ...)`
+whose decision is a bare `survivingPids.Contains(spawnedPid)`. The guid-aware
+overload sits directly below it with a comment naming this exact hazard, and the
+revert path already used it via `CollectSurvivingVesselIdentities`. Because
+`persistentId` is craft-baked, a relaunch of the recorded craft reuses the pid;
+once that relaunch is PRESERVED instead of deleted it reads as "the recording's
+spawned vessel is still alive", leaving `VesselSpawned=true` against a stranger so
+`ShouldSpawnAtRecordingEnd`'s dedup gate blocks the terminal ghost spawn forever -
+and nothing recovers it, because the liveness re-check
+(`ParsekPlaybackPolicy.RunSpawnDeathChecks` -> `FlightRecorder.FindVesselByPid`)
+is itself pid-only. `ReconcilePostStripSpawnState` now takes `(pid, launch-guid)`
+identities from `CollectSurvivingVesselIdentities`, subtracts `StrippedPids` via a
+`HashSet` before comparing, and routes to the guid-aware overload;
+`survivorsWithLaunchGuid=N` is in the summary line. **Fixture note:** the guid gate
+applies ONLY to an adoption stamp (`SpawnedVesselPersistentId == VesselPersistentId`) -
+a genuine Parsek spawn has a KSP-unique pid and stays pid-only by contract
+(`VesselLaunchIdentity.LiveVesselIsRecordedSpawn:99-104`). A test that omits
+`VesselPersistentId` therefore proves nothing about the gate; the first cut of
+`ReconcilePostStrip_SurvivorSharingCraftBakedPidFromADifferentLaunch_StillResets`
+did exactly that and read as a product failure.
+
 **Side effect worth knowing:** `WarnOnLeftAloneNameCollisions`
 (`RewindInvoker.cs:1009`, wired and unit-tested) becomes reachable for the first
 time. It was built for exactly this mode.
 
-Guarded by `ReFlySaveScrubTests` (15 cells): other-slot removed while unrelated
+**STILL OPEN, filed rather than fixed** (both newly REACHABLE because the fleet now
+survives, neither introduced by the narrowing itself): post-RP recoveries can
+double-pay, because the world reverts to `rp.UT` while the ledger is deliberately
+kept and re-applied (`RecalculateAndPatch(double.MaxValue)`, "career state
+sticks") - a vessel recovered after the RP is resurrected with its payout still
+banked. And a family of pid-only live-vessel resolutions that were safe when only
+one vessel existed: `FlightRecorder.TryResolveLivePeerRecordingId` (a preserved
+stranger can become a RELATIVE anchor at a bogus position - silent trajectory
+corruption), `GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (latches the
+`#573` rewind suppression), plus `VesselSpawner.RemoveDuplicateCrewFromSnapshot`
+emptying seats, `SpawnCollisionDetector` blocking spawns against preserved
+stations, `IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
+is present, and a partially-populated RP now leaving the sibling stage in scene as
+a real vessel AND a ghost. See the P1-FOLLOWUP task entries.
+
+Guarded by `ReFlySaveScrubTests` (14 cells), plus
+`Bug587StripPreExistingDebrisTests.BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled`
+(a Probe/Station/SpaceObject fleet all name-colliding with kill-eligible
+recordings, none killed, while genuine same-named Debris still is) and three new
+`SpawnStateReconciliationTests` cells for the guid gate in both directions plus the
+stripped-pid subtraction. Superseded cells:
+`ShouldSkipFromLeftAloneSurvey_*` -> `IsDebrisKillSurveyCandidate_*` (the
+`EveryNonDebrisType_ReturnsFalse` cell is the load-bearing one): other-slot removed while unrelated
 preserved, `activeVessel` indexing the selected slot past a preserved
 predecessor, a `[Theory]` over SpaceObject / Flag / Station / Probe, preserved
 throttle untouched, and the selected-absent refusal.
