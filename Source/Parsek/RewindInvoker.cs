@@ -2295,9 +2295,11 @@ namespace Parsek
                 return result;
             }
 
-            var selectedVesselPids = BuildSelectedSlotPidSet(rp.PidSlotMap, selectedSlotIndex);
-            var selectedRootPartPids = BuildSelectedSlotPidSet(rp.RootPartPidMap, selectedSlotIndex);
-            if (selectedVesselPids.Count == 0 && selectedRootPartPids.Count == 0)
+            // ONE classification source, shared with the in-game world-preservation
+            // guard (see BuildSlotPidSets): the sets are built once here and the
+            // per-vessel test below is ClassifySlotAffinity.
+            ReFlySlotPidSets slotPids = BuildSlotPidSets(rp, selectedSlotIndex);
+            if (slotPids.SelectedSlotIsUnmapped)
             {
                 ParsekLog.Warn(InvokeTag,
                     $"Re-Fly save scrub skipped: selected slot has no pid mapping " +
@@ -2316,8 +2318,6 @@ namespace Parsek
             // stock patched conics. Widening this predicate must NOT be
             // "re-narrowed" here to fix a phantom-encounter regression - that
             // belongs in the #587 name-matched pass.
-            var otherSlotVesselPids = BuildNonSelectedSlotPidSet(rp.PidSlotMap, selectedSlotIndex);
-            var otherSlotRootPartPids = BuildNonSelectedSlotPidSet(rp.RootPartPidMap, selectedSlotIndex);
 
             ConfigNode[] vesselNodes = flightState.GetNodes("VESSEL");
             result.VesselCountBefore = vesselNodes.Length;
@@ -2327,14 +2327,7 @@ namespace Parsek
             for (int i = 0; i < vesselNodes.Length; i++)
             {
                 ConfigNode vessel = vesselNodes[i];
-                uint vesselPid = ParseUInt(vessel.GetValue("persistentId"));
-                uint rootPartPid = GetRootPartPersistentId(vessel);
-
-                bool isSelectedSlot = (vesselPid != 0u && selectedVesselPids.Contains(vesselPid))
-                    || (rootPartPid != 0u && selectedRootPartPids.Contains(rootPartPid));
-                bool isOtherSlot = !isSelectedSlot
-                    && ((vesselPid != 0u && otherSlotVesselPids.Contains(vesselPid))
-                        || (rootPartPid != 0u && otherSlotRootPartPids.Contains(rootPartPid)));
+                ReFlySlotAffinity affinity = ClassifySlotAffinity(vessel, slotPids);
 
                 // No ghost-node carve-out is needed here, and adding one is a
                 // trap: ParsekScenario.OnSave strips ghost map ProtoVessels out
@@ -2345,13 +2338,13 @@ namespace Parsek
                 // only delete a player craft actually named "Ghost: ..." - and
                 // because it would run before the selected-slot test, if that
                 // craft WERE the re-fly target the whole Re-Fly would refuse.
-                if (isOtherSlot)
+                if (affinity == ReFlySlotAffinity.OtherSlot)
                 {
                     remove.Add(vessel);
                     continue;
                 }
 
-                if (isSelectedSlot)
+                if (affinity == ReFlySlotAffinity.SelectedSlot)
                 {
                     // Throttle-zeroing is scoped to the re-flown slot only: an
                     // unrelated vessel's control state is its own business and
@@ -2364,7 +2357,10 @@ namespace Parsek
                 {
                     result.VesselsPreserved++;
                     if (preservedNames.Count < MaxPreservedNamesLogged)
-                        preservedNames.Add(vessel.GetValue("name") ?? $"pid={vesselPid}");
+                    {
+                        preservedNames.Add(vessel.GetValue("name")
+                            ?? $"pid={ParseUInt(vessel.GetValue("persistentId"))}");
+                    }
                 }
 
                 keptIndex++;
@@ -2503,6 +2499,91 @@ namespace Parsek
                     $"Re-Fly sidecar epoch refreshed: rec={recordingId} old={oldValue ?? "<missing>"} " +
                     $"new={newValue} path='{precPath}'");
             }
+        }
+
+        /// <summary>
+        /// Which of a rewind point's slots a save <c>VESSEL</c> node belongs to.
+        /// <see cref="Unrelated"/> is the preserved population (design §6.4 step 4:
+        /// pre-existing station / satellite / rover / <c>SpaceObject</c> / flag).
+        /// </summary>
+        internal enum ReFlySlotAffinity
+        {
+            Unrelated = 0,
+            SelectedSlot = 1,
+            OtherSlot = 2,
+        }
+
+        /// <summary>
+        /// The four pid sets the selected-slot classification needs, built ONCE per
+        /// scrub pass so the per-vessel test stays O(1).
+        /// </summary>
+        internal struct ReFlySlotPidSets
+        {
+            public HashSet<uint> SelectedVesselPids;
+            public HashSet<uint> SelectedRootPartPids;
+            public HashSet<uint> OtherSlotVesselPids;
+            public HashSet<uint> OtherSlotRootPartPids;
+
+            /// <summary>
+            /// True when this RP maps NO pid to the selected slot on either key, i.e.
+            /// nothing can be matched and the scrub must decline rather than guess.
+            /// </summary>
+            public bool SelectedSlotIsUnmapped =>
+                (SelectedVesselPids == null || SelectedVesselPids.Count == 0)
+                && (SelectedRootPartPids == null || SelectedRootPartPids.Count == 0);
+        }
+
+        /// <summary>
+        /// Builds the <see cref="ReFlySlotPidSets"/> for one selected slot of
+        /// <paramref name="rp"/>.
+        /// <para>
+        /// SINGLE SOURCE for "which slot does this vessel belong to". The pre-load
+        /// scrub (<see cref="ScrubQuicksaveToSelectedSlotForReFly"/>) and the in-game
+        /// <c>ReFlyWorldPreservation</c> guard both classify through this pair, so a
+        /// guard asserting the preserved world cannot drift from the predicate that
+        /// produced it.
+        /// </para>
+        /// </summary>
+        internal static ReFlySlotPidSets BuildSlotPidSets(RewindPoint rp, int selectedSlotIndex)
+        {
+            return new ReFlySlotPidSets
+            {
+                SelectedVesselPids = BuildSelectedSlotPidSet(rp?.PidSlotMap, selectedSlotIndex),
+                SelectedRootPartPids = BuildSelectedSlotPidSet(rp?.RootPartPidMap, selectedSlotIndex),
+                OtherSlotVesselPids = BuildNonSelectedSlotPidSet(rp?.PidSlotMap, selectedSlotIndex),
+                OtherSlotRootPartPids = BuildNonSelectedSlotPidSet(rp?.RootPartPidMap, selectedSlotIndex),
+            };
+        }
+
+        /// <summary>
+        /// Classifies one save <c>VESSEL</c> node against <paramref name="sets"/>.
+        /// Selected wins over other-slot (a pid in both maps is the re-fly target,
+        /// never a sibling to remove), and a vessel matching neither map is
+        /// <see cref="ReFlySlotAffinity.Unrelated"/> - the preserved population.
+        /// Pure: reads only <c>persistentId</c> and the root <c>PART</c>'s
+        /// <c>persistentId</c>, never <c>type</c> or <c>name</c>.
+        /// </summary>
+        internal static ReFlySlotAffinity ClassifySlotAffinity(
+            ConfigNode vessel, ReFlySlotPidSets sets)
+        {
+            if (vessel == null) return ReFlySlotAffinity.Unrelated;
+
+            uint vesselPid = ParseUInt(vessel.GetValue("persistentId"));
+            uint rootPartPid = GetRootPartPersistentId(vessel);
+
+            bool isSelectedSlot =
+                (vesselPid != 0u && sets.SelectedVesselPids != null
+                    && sets.SelectedVesselPids.Contains(vesselPid))
+                || (rootPartPid != 0u && sets.SelectedRootPartPids != null
+                    && sets.SelectedRootPartPids.Contains(rootPartPid));
+            if (isSelectedSlot) return ReFlySlotAffinity.SelectedSlot;
+
+            bool isOtherSlot =
+                (vesselPid != 0u && sets.OtherSlotVesselPids != null
+                    && sets.OtherSlotVesselPids.Contains(vesselPid))
+                || (rootPartPid != 0u && sets.OtherSlotRootPartPids != null
+                    && sets.OtherSlotRootPartPids.Contains(rootPartPid));
+            return isOtherSlot ? ReFlySlotAffinity.OtherSlot : ReFlySlotAffinity.Unrelated;
         }
 
         private static HashSet<uint> BuildSelectedSlotPidSet(

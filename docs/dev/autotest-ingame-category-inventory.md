@@ -1,4 +1,4 @@
-# In-game test category inventory (all 99 categories)
+# In-game test category inventory (all 100 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -141,6 +141,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
+| `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
@@ -189,12 +190,22 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **99 categories / 549 declarations**. Buckets **A 27 categories
-(192 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **35 of 99 categories**, up from 34
-(the S1.8 SoiCrossingPlayback wave; before that 28, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 317 of 549 inside a
-driven category (was 314; 263 the wave before).
+Totals, re-derived: **100 categories / 555 declarations**. Buckets **A 28 categories
+(198 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **36 of 100 categories**, up from 35
+(the S4.2 world-preservation wave; before that 34 with the S1.8 SoiCrossingPlayback
+wave, 28 the wave before, and 8 two waves earlier).
+Measured against declarations rather than categories, that is 323 of 555 inside a
+driven category (was 317; 314 and 263 the two waves before).
+
+`ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) is the
+newest row and arrived with its driver rather than as an undriven category: it was
+authored for the REFLY-DELETES-NON-SLOT-WORLD fix, whose xUnit coverage is
+ConfigNode-level and pure-predicate and therefore cannot observe the live
+post-load scene where the bug's second deleting layer lived. All six members are
+Scene = FLIGHT and batch-allowed, and all six self-skip with a named requirement
+when no Re-Fly session is live, so the category is safe in any batch and vacuous in
+none.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that

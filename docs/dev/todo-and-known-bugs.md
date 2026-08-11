@@ -206,6 +206,37 @@ leaves would be a false statement). Note the audit ranks this **C2**, second in
 its MUST table behind C1 (the vessel preservation this entry closed); it is not
 ranked #3 anywhere in the doc.
 
+**LIVE COVERAGE ADDED 2026-08-11, and the gap it closes is a property of the
+headless surface rather than of any missing cell.** Everything below this paragraph
+is ConfigNode-level (what the scrub WRITES into the temp save) or pure-predicate
+(what the #587 survey ADMITS). This bug had TWO deleting layers, the second of them
+POST-load, so a green pre-load assertion is exactly what the defect looked like -
+and no headless cell can read `FlightGlobals` after a real `GamePersistence.LoadGame`.
+New in-game category `ReFlyWorldPreservation` (6 cells,
+`Source/Parsek/InGameTests/ReFlyWorldPreservationTests.cs`) closes that: it resolves the
+session's RP quicksave ON DISK as the pre-rewind ground truth, classifies every
+`VESSEL` node in it with the production scrub's own predicate, and asserts against
+the live scene - preserved non-Debris unrelated vessels present, sibling slots gone
+and the selected slot present, the #587 discrimination in BOTH directions (a
+name-colliding non-Debris craft survives, name-colliding Debris is still removed on
+an in-place continuation), Flag / `SpaceObject` specifically, and the pre-invoke
+advisory composing over the LIVE RewindPoint + store. The classifier is now ONE
+source for both consumers (`RewindInvoker.BuildSlotPidSets` /
+`ClassifySlotAffinity`, extracted from the scrub's inline loop) so the guard cannot
+drift from the code that produced the world it checks; every cell self-skips with a
+named requirement when no session is live. Driven unattended by
+`harness/scenarios/S4.2-refly-world-preservation.toml` over a new fixture
+(`ReFlyWorldPreservationFixture`, injection preset `refly-world-preservation`, RP
+`rp_wp_root`) whose quicksave is the FIRST to carry an unrelated fleet - the
+gloops-airshow donor's own `SpaceObject` asteroid re-admitted verbatim, a Station, a
+Flag, and a Probe + Debris pair both named `WP Booster A` after the crashed booster
+recording. **That fixture shape is the whole reason S4.1 never caught this:** every
+other rewind fixture's RP sidecar holds one vessel per slot and nothing else, so
+"the fleet survived" was vacuously true and S4.1 flew green through every day the
+bug was live. The scenario is AUTHORED, NOT YET FLOWN (its batch tally is derived
+per cell, not measured - see the spec's own banner and the `pending-operator`
+carrier entry in `harness/lib/test_hlib.py`).
+
 Guarded by `ReFlySaveScrubTests` (11 cells), plus
 `Bug587StripPreExistingDebrisTests.BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled`
 (a Probe/Station/SpaceObject fleet all name-colliding with kill-eligible

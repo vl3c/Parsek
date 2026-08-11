@@ -4605,6 +4605,22 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
+        # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
+        # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
+        # pending-operator TAG stays until that first green run; the tag alone is
+        # non-gating." Two things a human must do, neither of which an unattended run
+        # discharges: READ the first run's BATCH_COMPLETE line and either confirm or
+        # correct the DERIVED-not-measured passed=/skipped= pin (the spec names the one
+        # derivation that can legitimately move - a placeholder marker skips the #587
+        # positive control), and take the later arming decision on the save-structure
+        # blocks it deliberately leaves report-only. DROP THIS ENTRY when the tally is
+        # re-pinned from a measured line, exactly as S4.1's was.
+        "S4.2-refly-world-preservation.toml":
+                                       "unflown: the batch tally is DERIVED, not measured, and a "
+                                       "human must read the first run's line and confirm or "
+                                       "correct the pin (S4.1's own rule - the tag stays until "
+                                       "that first green run). NOT tier=operator: a nightly spec "
+                                       "can owe operator work, exactly as S1.5 and EVA-1 do.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -5274,7 +5290,11 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
+        # The category COUNT is hardcoded here on purpose: it is the one token the
+        # table cannot self-check (a row added AND the totals line updated by hand
+        # would agree with each other while both drifted from the source). 99 -> 100
+        # with the `ReFlyWorldPreservation` category (S4.2).
+        self.assertIn("**100 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
