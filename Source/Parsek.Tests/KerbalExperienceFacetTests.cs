@@ -422,6 +422,152 @@ namespace Parsek.Tests
             Assert.Equal("Flyby", missing[0].Type);
         }
 
+        [Fact]
+        public void Reassert_NeverAppendsIntoAFlightGroupTheRosterEndedWithADeath()
+        {
+            // Decompile-verified hazard: KerbalRoster.ExperienceAddFlight RESETS the whole XP
+            // accumulator when a flight group's LAST entry is Die, and FlightLog.GetFlights
+            // groups by contiguous runs of the same flight number. A rewind rolls the flight
+            // counter back, so a post-rewind death can archive a Die-terminated group carrying
+            // the same number an erased flight used. Appending there would land AFTER the Die
+            // entry, un-terminate the group, and cancel the death reset - scoring the dead
+            // flight's deeds all over again. Fails if the death-flight guard is dropped.
+            var ledger = Ledger(
+                new KerbalCareerLogEntry(4, "Orbit", "Mun"),
+                new KerbalCareerLogEntry(4, "Land", "Mun"),
+                new KerbalCareerLogEntry(5, "Orbit", "Kerbin"));
+            var roster = new List<KerbalCareerLogEntry>
+            {
+                new KerbalCareerLogEntry(4, "Launch", "Kerbin"),
+                new KerbalCareerLogEntry(4, "Die", ""),
+            };
+
+            var missing = KerbalsModule.ResolveMissingCareerEntries(ledger, roster);
+
+            Assert.Single(missing);
+            Assert.Equal(5, missing[0].Flight);
+            Assert.DoesNotContain(missing, e => e.Flight == 4);
+        }
+
+        [Fact]
+        public void Reassert_DeathInOneFlightDoesNotBlockAnother()
+        {
+            var ledger = Ledger(
+                new KerbalCareerLogEntry(1, "Orbit", "Kerbin"),
+                new KerbalCareerLogEntry(2, "Orbit", "Mun"));
+            var roster = new List<KerbalCareerLogEntry>
+            {
+                new KerbalCareerLogEntry(2, "Die", ""),
+            };
+
+            var missing = KerbalsModule.ResolveMissingCareerEntries(ledger, roster);
+
+            Assert.Single(missing);
+            Assert.Equal(1, missing[0].Flight);
+        }
+
+        // ================================================================
+        // The Re-Fly deferral gate (the irreversible-write safety argument)
+        // ================================================================
+
+        [Fact]
+        public void Reassert_IsDeferredWhileAReFlySessionIsActive()
+        {
+            // THE correctness argument for an irreversible write. Every other roster mutation
+            // in KerbalsModule is re-derived idempotently from the current ELS; appending a
+            // career-log entry cannot be walked back. During a Re-Fly session the rewound
+            // origin branch's KerbalExperience rows are STILL ELS-effective (ELS is
+            // ledger-minus-tombstones, and the session-suppressed subtree is a playback
+            // concept the recalc does not consult), so the post-load recalc would put the
+            // just-erased XP straight back and the merge that tombstones those rows minutes
+            // later could not undo it. Fails if the gate is removed.
+            var module = new KerbalsModule();
+            module.ProcessAction(XpAction("Jeb", new KerbalCareerLogEntry(0, "Orbit", "Kerbin")));
+
+            var roster = new RecordingRosterFacade();
+            try
+            {
+                KerbalsModule.ReFlySessionActiveOverrideForTesting = true;
+                module.ApplyToRoster(roster);
+                Assert.Empty(roster.Appended);
+
+                KerbalsModule.ReFlySessionActiveOverrideForTesting = false;
+                module.ApplyToRoster(roster);
+                Assert.Single(roster.Appended);
+                Assert.Equal(new KerbalCareerLogEntry(0, "Orbit", "Kerbin"), roster.Appended[0]);
+            }
+            finally
+            {
+                KerbalsModule.ReFlySessionActiveOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void Reassert_SkipsAKerbalTheRosterDoesNotHaveInsteadOfCreatingOne()
+        {
+            // This facet re-asserts experience; manufacturing a roster member from an XP row
+            // would be a much larger claim. Fails if the absent-kerbal skip becomes a create.
+            var module = new KerbalsModule();
+            module.ProcessAction(XpAction("Ghost Kerman", new KerbalCareerLogEntry(0, "Orbit", "Kerbin")));
+
+            var roster = new RecordingRosterFacade { KnownKerbals = { } };
+            try
+            {
+                KerbalsModule.ReFlySessionActiveOverrideForTesting = false;
+                module.ApplyToRoster(roster);
+            }
+            finally
+            {
+                KerbalsModule.ReFlySessionActiveOverrideForTesting = null;
+            }
+
+            Assert.Empty(roster.Appended);
+        }
+
+        /// <summary>
+        /// Minimal roster facade that records what the re-assert appended. Everything outside
+        /// the career-log surface is inert, so the cell isolates the append decision.
+        /// </summary>
+        private sealed class RecordingRosterFacade : KerbalsModule.IKerbalRosterFacade
+        {
+            public readonly HashSet<string> KnownKerbals =
+                new HashSet<string>(StringComparer.Ordinal) { "Jeb" };
+            public readonly List<KerbalCareerLogEntry> Appended = new List<KerbalCareerLogEntry>();
+
+            public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
+            {
+                status = default(ProtoCrewMember.RosterStatus);
+                return false;
+            }
+
+            public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
+            {
+                generatedName = null;
+                return false;
+            }
+
+            public bool TryRecreateStandIn(string desiredName, string trait) { return false; }
+            public bool TryRemove(string name) { return false; }
+            public bool IsKerbalOnLiveVessel(string kerbalName) { return false; }
+            public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId) { return false; }
+
+            public List<KerbalCareerLogEntry> GetCareerLogEntries(string kerbalName)
+            {
+                return KnownKerbals.Contains(kerbalName)
+                    ? new List<KerbalCareerLogEntry>()
+                    : null;
+            }
+
+            public int AppendCareerLogEntries(
+                string kerbalName, IReadOnlyList<KerbalCareerLogEntry> entries)
+            {
+                if (!KnownKerbals.Contains(kerbalName)) return -1;
+                if (entries == null) return 0;
+                Appended.AddRange(entries);
+                return entries.Count;
+            }
+        }
+
         // ================================================================
         // Layer A: CAREER_LOG parse from synthetic .sfs content
         // ================================================================

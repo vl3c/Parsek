@@ -1484,6 +1484,20 @@ namespace Parsek
             if (pv == null)
                 return;
 
+            // The SAME guard set ParsekScenario.OnVesselRecoveryProcessing carries on this
+            // event, plus the crew-suppression flag. Without them this fires on Parsek's OWN
+            // programmatic recoveries: ShipConstruction.RecoverVesselFromFlight (used by the
+            // #112 duplicate-blocker cleanup, CleanupOrphanedSpawnedVessels and
+            // RecoverTimelineSpawnedVessel) runs stock VesselRecovery, which archives every
+            // crew member's flight log and fires this event UNCONDITIONALLY - so a Parsek
+            // spawn-cleanup would credit career XP for a recovery the player never performed.
+            if (SuppressCrewEvents)
+                return;
+            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId))
+                return;
+            if (RewindContext.IsRewinding)
+                return;
+
             List<ProtoCrewMember> crew;
             try
             {
@@ -1502,6 +1516,7 @@ namespace Parsek
             double ut = Planetarium.GetUniversalTime();
             int emitted = 0;
             int skippedNoEntries = 0;
+            int untaggedNoLedgerRow = 0;
             for (int i = 0; i < crew.Count; i++)
             {
                 var member = crew[i];
@@ -1540,18 +1555,26 @@ namespace Parsek
                 Emit(ref evt, "ExperienceGained");
                 emitted++;
 
-                // A recovery at KSC has no live recorder to carry the event through a commit,
-                // so forward straight to the ledger - the same shape the Bail-Out Grant
-                // carve-out uses. With a live recorder the event flows through the commit-time
-                // ConvertEvents path instead.
-                if (ShouldForwardDirectLedgerEvent(evt.recordingId, HasLiveRecorder()))
-                    LedgerOrchestrator.OnKscSpending(evt);
+                // DELIBERATELY NO direct-ledger forward. The Bail-Out Grant carve-out can
+                // forward an untagged event because a null-scoped FUNDS row is still correct
+                // in the pools. An XP row is not: tombstones are scoped by RecordingId, so a
+                // null-scoped KerbalExperience row could never be retired by any merge, and
+                // the monotone re-assert would then put that recovery's XP back forever -
+                // exactly the failure the tombstone eligibility exists to prevent. A recovery
+                // with no live recorder (tracking station / KSC) therefore records the EVENT
+                // only. The missing ledger row is a documented v1 gap tracked in
+                // todo-and-known-bugs.md; closing it means correlating the committed
+                // recording the way the recovery-FUNDS path does through
+                // LedgerRecoveryFundsPairing, which is a larger change than this facet.
+                if (string.IsNullOrEmpty(evt.recordingId))
+                    untaggedNoLedgerRow++;
             }
 
             ParsekLog.Info("GameStateRecorder",
                 $"Game state: ExperienceGained crew={crew.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"emitted={emitted.ToString(CultureInfo.InvariantCulture)} " +
-                $"noEntries={skippedNoEntries.ToString(CultureInfo.InvariantCulture)}");
+                $"noEntries={skippedNoEntries.ToString(CultureInfo.InvariantCulture)} " +
+                $"untaggedNoLedgerRow={untaggedNoLedgerRow.ToString(CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -37,13 +37,25 @@ namespace Parsek
         ///
         /// <para>
         /// KSP's recovery dialog awards funds and science from one callback path, so the real
-        /// delta is at or near zero; the window is a tolerance for sampling jitter and for a
-        /// recovery whose science rows land a frame or two later, not a semantic span. It is
-        /// deliberately far tighter than a mission: science TRANSMITTED during the flight is
-        /// not recovery science and must not be retired with it.
+        /// delta is at or near zero; the window is a tolerance for sampling jitter, not a
+        /// semantic span. Science TRANSMITTED during the flight is not recovery science and
+        /// must not be retired with it.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why a UT window and not <see cref="GameAction.Method"/>.</b> The obvious
+        /// discriminator would be <c>Method == ScienceMethod.Recovered</c>, and it does not
+        /// exist in the data: <b>no production path assigns <c>GameAction.Method</c> at
+        /// all</b> — measured 2026-08-11, the only writer in the whole repo is one in-game
+        /// test fixture, so the field defaults to <c>Transmitted = 0</c> on every real row and
+        /// keying on it would silently bundle nothing. The UT window is the only signal
+        /// available, so it is kept TIGHT rather than generous: at 5 s a mid-flight transmit
+        /// can only collide if the player transmits within five seconds of the recovery
+        /// completing, by which point the craft is already home. Widening this without first
+        /// making the recorder stamp Method would start retiring science the player owns.
         /// </para>
         /// </summary>
-        internal const double RecoveryBundleUtWindow = 60.0;
+        internal const double RecoveryBundleUtWindow = 5.0;
 
         /// <summary>
         /// One resurrected recording and the actions its resurrection retires.
@@ -102,8 +114,11 @@ namespace Parsek
         /// <see cref="RecoveryBundleUtWindow"/> of an anchor, plus same-recording
         /// <see cref="GameActionType.KerbalAssignment"/> rows whose end state is
         /// <see cref="KerbalEndState.Recovered"/> (matched by end state rather than UT — the
-        /// crew's disposition IS the recovery, whenever it was stamped). Stock awards no
-        /// reputation for a plain vessel recovery, so no reputation row is bundled.
+        /// crew's disposition IS the recovery, whenever it was stamped), plus every
+        /// same-recording <see cref="GameActionType.KerbalExperience"/> row (such a row exists
+        /// only because a recovery archived the crew's flight log, so recording membership
+        /// alone is the right match). Stock awards no reputation for a plain vessel recovery,
+        /// so no reputation row is bundled.
         /// </para>
         ///
         /// <para>
@@ -207,6 +222,25 @@ namespace Parsek
                         continue;
                     if (action.Type != GameActionType.KerbalAssignment) continue;
                     if (action.KerbalEndStateField != KerbalEndState.Recovered) continue;
+
+                    if (!retired.Contains(action.ActionId))
+                        retired.Add(action.ActionId);
+                }
+
+                // Bundled experience: same recording, every KerbalExperience row. Such a row
+                // EXISTS only because a recovery archived the crew's flight log, and a
+                // recording has at most one recovery — so recording membership alone is the
+                // right match and no UT window is needed. Retiring it is load-bearing: the
+                // crew are back in flight in a world where that recovery has not happened, and
+                // leaving the row would let the monotone roster re-assert put the recovery
+                // flight's experience back onto their careers anyway.
+                for (int a = 0; a < ledgerActions.Count; a++)
+                {
+                    var action = ledgerActions[a];
+                    if (action == null || string.IsNullOrEmpty(action.ActionId)) continue;
+                    if (!string.Equals(action.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (action.Type != GameActionType.KerbalExperience) continue;
 
                     if (!retired.Contains(action.ActionId))
                         retired.Add(action.ActionId);

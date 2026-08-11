@@ -69,6 +69,52 @@ from `IsAlwaysHard`, matching the SubjectScience posture, because a real career'
 legitimately carries entries the ledger never saw. The diff is one-directional for the
 same reason the patcher is, so the facet measures exactly what the patcher would act on.
 
+**Review-driven hardening (same branch, before the PR).**
+- **The re-assert is DEFERRED while a Re-Fly session marker is live.** This is the whole
+  correctness argument for an irreversible write. `ComputeELS` is ledger-minus-tombstones
+  only; the session-suppressed subtree is a playback concept the recalc never consults. So
+  during the provisional window the rewound origin branch's `KerbalExperience` rows are
+  STILL effective, and the Step-5 post-load recalc would append the just-erased entries
+  straight back - which the merge-time tombstone written minutes later could not undo,
+  because the facade has no remove. Gated on `KerbalsModule.IsReFlySessionActive()`; both
+  merge and discard bump the tombstone state version and recalc, so the re-assert then runs
+  against a settled ELS. Pinned by `Reassert_IsDeferredWhileAReFlySessionIsActive`.
+- **The recorder handler now carries the same guards its sibling on the same event does**
+  (`SuppressCrewEvents`, `GhostMapPresence.IsGhostMapVessel`, `RewindContext.IsRewinding`).
+  Without them it fires on Parsek's OWN programmatic recoveries:
+  `ShipConstruction.RecoverVesselFromFlight` (the #112 duplicate-blocker cleanup,
+  `CleanupOrphanedSpawnedVessels`, `RecoverTimelineSpawnedVessel`) runs stock
+  `VesselRecovery`, which archives every crew member's flight log and fires
+  `onVesselRecoveryProcessing` UNCONDITIONALLY - so a spawn cleanup would have credited
+  career XP for a recovery the player never performed.
+- **No death-group appends.** Decompile-verified: `KerbalRoster.ExperienceAddFlight` RESETS
+  the XP accumulator when a flight group's LAST entry is `Die`, and `FlightLog.GetFlights`
+  groups by contiguous runs of the same flight number. A rewind rolls the flight counter
+  back, so a post-rewind death can archive a Die-terminated group reusing an erased
+  flight's number; appending there would land after the `Die`, un-terminate the group and
+  cancel the death reset. `ResolveMissingCareerEntries` now skips any flight the roster
+  already terminated with a death.
+- **#15 now bundles the recovery's `KerbalExperience` row too** - the crew are back in
+  flight in a world where that recovery has not happened.
+
+## KERBAL-XP-UNTAGGED-RECOVERY-HAS-NO-LEDGER-ROW: a tracking-station or KSC recovery records the XP event but no ledger action [OPEN, filed 2026-08-11 with the P9a facet]
+
+`GameStateRecorder.OnVesselRecoveryProcessingForExperience` deliberately does NOT forward
+an untagged `ExperienceGained` event to the ledger. The Bail-Out Grant carve-out can
+forward an untagged event because a null-scoped FUNDS row is still correct in the pools;
+an XP row is not. Tombstones are scoped by `RecordingId`, so a null-scoped
+`KerbalExperience` row could never be retired by any merge, and the monotone re-assert
+would put that recovery's XP back forever - exactly the failure the tombstone eligibility
+exists to prevent. Recording the EVENT and skipping the ACTION is the fail-safe choice.
+
+**Cost:** a recovery performed from the tracking station or KSC (rather than with a live
+recorder in FLIGHT) contributes no XP row, so a later rewind across it does not re-assert
+that crew's experience. That is the pre-P9a behavior for those recoveries, not a
+regression. **Fix:** correlate the committed recording the way the recovery-FUNDS path
+does, through `LedgerRecoveryFundsPairing` / `RecoveryPayoutContextStore`, and tag the
+event before forwarding. Counted per recovery as `untaggedNoLedgerRow=` in the handler's
+summary line, so the frequency is measurable before anyone builds the correlation.
+
 **Three deviations from the plan.**
 (1) NOT added to `IsRecoverableEventType`. The plan said yes, but that predicate is the
 BROKEN-SAVE migration list, scoped by its own comment to a specific historical repair
@@ -119,12 +165,25 @@ account and `persistentId` is craft-baked and reused on every launch.
 strictly after the Rec-1 retire cutoff (hoisted out of `ConsumePostLoad` and threaded in,
 so both consumers use the identical value rather than recomputing it after the
 `onFlightReady` deferral). Bundled = same-recording `ScienceEarning` within
-`RecoveryBundleUtWindow` (60 s) of an anchor - deliberately tight, because science
-TRANSMITTED mid-mission is not recovery science - plus same-recording `KerbalAssignment`
-rows with `KerbalEndState.Recovered`, matched by END STATE rather than UT because the
-crew's disposition IS the recovery. Stock awards no reputation for a plain vessel
-recovery, so nothing reputation-shaped is bundled. A zero-value recovery (a pod recovered
-at the pad) has no funds anchor and falls back to `Recording.EndUT`.
+`RecoveryBundleUtWindow` of an anchor, plus same-recording `KerbalAssignment` rows with
+`KerbalEndState.Recovered` (matched by END STATE rather than UT, because the crew's
+disposition IS the recovery), plus every same-recording `KerbalExperience` row (such a row
+exists only because a recovery archived the crew's flight log, so recording membership
+alone is the right match). Stock awards no reputation for a plain vessel recovery, so
+nothing reputation-shaped is bundled. A zero-value recovery (a pod recovered at the pad)
+has no funds anchor and falls back to `Recording.EndUT`.
+
+**The window is 5 s, not the planned 60 s, and the reason is measured.** The obvious
+discriminator for "is this recovery science?" would be
+`GameAction.Method == ScienceMethod.Recovered`. It does not exist in the data: **no
+production path assigns `GameAction.Method` at all** (measured 2026-08-11 - the only
+writer in the whole repo is one in-game test fixture), so the field defaults to
+`Transmitted = 0` on every real row and keying on it would silently bundle nothing. The UT
+window is the only signal available, so it is kept tight: stock awards recovery funds and
+science from one callback, and at 5 s a mid-flight transmit can only collide if the player
+transmits within five seconds of the recovery completing. Pinned, with this reasoning, by
+`ScienceWindowIsTightBecauseScienceMethodIsUnusable`. Widening it means teaching the
+recorder to stamp `Method` first.
 
 **Two deviations from the plan, both forced.**
 (1) `RetiringRecordingId` is the REWOUND ORIGIN child recording, not the session's

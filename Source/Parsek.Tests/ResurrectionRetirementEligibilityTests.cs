@@ -218,7 +218,7 @@ namespace Parsek.Tests
             {
                 RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
                 Science("act-sci-at-recovery", "rec-1", 500.0),
-                Science("act-sci-just-after", "rec-1", 530.0),
+                Science("act-sci-just-after", "rec-1", 503.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(
@@ -324,6 +324,88 @@ namespace Parsek.Tests
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
 
             Assert.Equal(new List<string> { "act-funds" }, result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void RecoveryExperienceRows_AreBundledByRecordingMembership()
+        {
+            // A KerbalExperience row exists ONLY because a recovery archived the crew's flight
+            // log, and a recording has at most one recovery — so recording membership alone is
+            // the right match, no UT window. Leaving it behind would let the monotone roster
+            // re-assert put the recovery flight's XP back onto crews who are flying again in a
+            // world where that recovery never happened. Fails if the XP bundle is dropped.
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            var xp = new GameAction
+            {
+                ActionId = "act-xp",
+                RecordingId = "rec-1",
+                UT = 500.0,
+                Type = GameActionType.KerbalExperience,
+                KerbalName = "Jeb",
+                KerbalCareerEntries = "0,Orbit,Kerbin",
+            };
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
+                xp,
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Contains("act-xp", result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void ExperienceRowsFromOtherRecordings_AreNotBundled()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            var other = new GameAction
+            {
+                ActionId = "act-xp-other",
+                RecordingId = "rec-OTHER",
+                UT = 500.0,
+                Type = GameActionType.KerbalExperience,
+                KerbalName = "Bill",
+                KerbalCareerEntries = "0,Orbit,Kerbin",
+            };
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
+                other,
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Equal(new List<string> { "act-funds" }, result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void ScienceWindowIsTightBecauseScienceMethodIsUnusable()
+        {
+            // Pins the window value AND the measured reason it has to carry the whole
+            // decision: GameAction.Method would be the obvious discriminator, but NO
+            // production path assigns it (measured 2026-08-11 — the only writer in the repo is
+            // an in-game test fixture), so every real ScienceEarning row reads Transmitted and
+            // keying on it would bundle nothing. A tight window is what keeps a mid-flight
+            // transmit out. Fails if someone widens it back toward a mission-length span
+            // without first making the recorder stamp Method.
+            Assert.Equal(5.0, ResurrectionRetirementEligibility.RecoveryBundleUtWindow);
+
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
+                Science("act-sci-transmit-30s-before", "rec-1", 470.0),
+                Science("act-sci-at-recovery", "rec-1", 500.0),
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Contains("act-sci-at-recovery", result[0].RetiredActionIds);
+            Assert.DoesNotContain("act-sci-transmit-30s-before", result[0].RetiredActionIds);
         }
 
         // ================================================================
@@ -467,7 +549,7 @@ namespace Parsek.Tests
             {
                 RecoveryFunds("act-funds-1", "rec-1", 500.0, 8000f),
                 RecoveryFunds("act-funds-2", "rec-1", 900.0, 200f),
-                Science("act-sci-near-second", "rec-1", 890.0),
+                Science("act-sci-near-second", "rec-1", 898.0),
             };
 
             var result = ResurrectionRetirementEligibility.Classify(

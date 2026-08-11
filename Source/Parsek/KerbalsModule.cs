@@ -1862,19 +1862,46 @@ namespace Parsek
                 return missing;
 
             var present = new HashSet<KerbalCareerLogEntry>();
+            var deathFlights = new HashSet<int>();
             if (rosterEntries != null)
             {
                 for (int i = 0; i < rosterEntries.Count; i++)
+                {
                     present.Add(rosterEntries[i]);
+                    if (IsDeathEntryType(rosterEntries[i].Type))
+                        deathFlights.Add(rosterEntries[i].Flight);
+                }
             }
 
             var ordered = ledgerEntries.ToOrderedList();
             for (int i = 0; i < ordered.Count; i++)
             {
-                if (!present.Contains(ordered[i]))
-                    missing.Add(ordered[i]);
+                if (present.Contains(ordered[i]))
+                    continue;
+
+                // Never append into a flight group the roster already ended with a Die
+                // entry. Decompile-verified: KerbalRoster.ExperienceAddFlight RESETS the
+                // whole XP accumulator when a group's LAST entry is Die, and
+                // FlightLog.GetFlights groups by contiguous runs of the same flight number.
+                // A rewind rolls the flight counter back, so a post-rewind death can archive
+                // a Die-terminated group carrying the same number an erased flight used;
+                // appending there would land AFTER the Die entry, un-terminate the group and
+                // cancel the death reset, scoring the dead flight's deeds again.
+                if (deathFlights.Contains(ordered[i].Flight))
+                    continue;
+
+                missing.Add(ordered[i]);
             }
             return missing;
+        }
+
+        /// <summary>
+        /// Stock's <c>FlightLog.EntryType.Die</c>, matched by NAME because the ledger stores
+        /// the entry type as the string stock serializes.
+        /// </summary>
+        private static bool IsDeathEntryType(string type)
+        {
+            return string.Equals(type, "Die", StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -1891,6 +1918,28 @@ namespace Parsek
         {
             if (roster == null || careerEntriesByKerbal.Count == 0)
                 return;
+
+            // THE deferral gate, and it is the whole correctness argument for an
+            // IRREVERSIBLE write. Every other roster/pool mutation in this class is
+            // re-derived idempotently from the current ELS on each recalc; appending a
+            // career-log entry is the one thing that cannot be walked back (the facade has
+            // no remove, deliberately). So the append is only safe when a row can never
+            // leave the effective set AFTER being applied - and merge-time tombstoning is
+            // exactly that. During a Re-Fly session the rewound origin branch's
+            // KerbalExperience rows are STILL ELS-effective (ELS is ledger-minus-tombstones;
+            // the session-suppressed subtree is a playback concept the recalc does not
+            // consult), so the Step-5 post-load recalc would put the just-erased XP straight
+            // back, and the merge that tombstones those rows minutes later could not undo it.
+            // Deferring costs nothing: the merge and the discard both bump the tombstone
+            // state version and recalc, and the re-assert then runs against a settled ELS.
+            if (IsReFlySessionActive())
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Career-log re-assert: deferred - a Re-Fly session is active, so the " +
+                    $"superseded branch's rows are still effective " +
+                    $"(kerbals={careerEntriesByKerbal.Count})");
+                return;
+            }
 
             int kerbalsPatched = 0;
             int entriesAppended = 0;
@@ -1936,6 +1985,25 @@ namespace Parsek
                     $"all already complete");
             }
         }
+
+        /// <summary>
+        /// True while a Re-Fly session marker is live, i.e. while the fate of the rewound
+        /// branch is undecided. Read through <see cref="ReFlySessionActiveOverrideForTesting"/>
+        /// so the gate is drivable headlessly.
+        /// </summary>
+        internal static bool IsReFlySessionActive()
+        {
+            if (ReFlySessionActiveOverrideForTesting.HasValue)
+                return ReFlySessionActiveOverrideForTesting.Value;
+
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+                return false;
+            return scenario.ActiveReFlySessionMarker != null;
+        }
+
+        /// <summary>Test seam for <see cref="IsReFlySessionActive"/>; null = read the scenario.</summary>
+        internal static bool? ReFlySessionActiveOverrideForTesting;
 
         internal void QueueTombstonedRosterKerbal(string kerbalName)
         {
@@ -2309,6 +2377,7 @@ namespace Parsek
             recordingMeta.Clear();
             loopingChainIds.Clear();
             careerEntriesByKerbal.Clear();
+            ReFlySessionActiveOverrideForTesting = null;
         }
     }
 }
