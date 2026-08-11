@@ -899,6 +899,88 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.IsSupportedMagnitudeVectorFieldType(typeof(Vector2)));
         }
 
+        // ------------------------------------------ S3: the sun-tracking pivot frame (H36 red)
+
+        [Fact]
+        public void SunTrackingReference_IsAlwaysPerpendicularToTheAxis()
+        {
+            // THE H36 SUN-TRACKING DEFECT, as a property. The old code took the pivot's neutral
+            // FORWARD as the zero-angle reference and measured about the PARENT's up; on a pivot
+            // authored with a quarter-turn those two are parallel, the reference has no component
+            // in the aim plane, and the panel never resolves an angle at all — which is exactly
+            // what solarPanelOX10C did. Resolving the reference against the axis makes that
+            // degeneracy unreachable by construction.
+            var axes = new[]
+            {
+                Vector3.up, Vector3.forward, Vector3.right,
+                new Vector3(1f, 1f, 0f), new Vector3(0.3f, -0.7f, 0.2f), Vector3.zero
+            };
+
+            foreach (Vector3 axisLocal in axes)
+            {
+                Vector3 axis = GhostPlaybackLogic.ResolveSunTrackingAxisLocal(axisLocal);
+                Vector3 reference = GhostPlaybackLogic.ResolveSunTrackingReferenceLocal(axisLocal);
+
+                AssertClose(1.0, axis.magnitude, 4);
+                AssertClose(1.0, reference.magnitude, 4);
+                Assert.True(Math.Abs(Vector3.Dot(axis, reference)) < 1e-4f,
+                    $"axis {axis} and reference {reference} are not perpendicular for input " +
+                    $"{axisLocal} — the aim plane would collapse and the panel would never track");
+            }
+        }
+
+        [Fact]
+        public void SunTrackingReference_KeepsTheStockZeroAngleDirectionWhereItCan()
+        {
+            // Stock measures from the pivot's own local +Z (Atan2(sunLocal.x, sunLocal.z)) about
+            // its own local +Y. For the stock axis the resolver must answer exactly that, or every
+            // ghost panel would sit at a constant offset from where the real one points.
+            Assert.Equal(Vector3.forward,
+                GhostPlaybackLogic.ResolveSunTrackingReferenceLocal(Vector3.up));
+            Assert.Equal(Vector3.up, GhostPlaybackLogic.ResolveSunTrackingAxisLocal(Vector3.up));
+
+            // Only a +Z axis forces the swap, and then it must be a different, still-valid axis.
+            Assert.Equal(Vector3.right,
+                GhostPlaybackLogic.ResolveSunTrackingReferenceLocal(Vector3.forward));
+        }
+
+        [Fact]
+        public void SunTrackingAim_ResolvesWithTheResolvedReferenceWhereTheOldOneDegenerated()
+        {
+            // The exact pre-fix geometry: the reference direction handed in lay ALONG the axis.
+            // Left arm — what the old code did on such a pivot: declined, every frame, forever.
+            Assert.False(GhostPlaybackLogic.TryComputeAimAngleDegrees(
+                new Vector3(1f, 0f, 1f), Vector3.up, Vector3.up,
+                out _, out float degenerateTargetPerp, out float degenerateReferencePerp));
+            Assert.True(degenerateTargetPerp > 0.5f,
+                "the TARGET was never the degenerate one — a diagnosis that blamed the Sun's " +
+                "geometry would have been chasing the wrong half");
+            Assert.True(degenerateReferencePerp < 1e-4f,
+                "the REFERENCE is the degenerate projection, and the discriminating log line " +
+                "exists to say so");
+
+            // Right arm — the same axis through the resolver: a real angle, every time.
+            Assert.True(GhostPlaybackLogic.TryComputeAimAngleDegrees(
+                new Vector3(1f, 0f, 1f), Vector3.up,
+                GhostPlaybackLogic.ResolveSunTrackingReferenceLocal(Vector3.up),
+                out float aim, out _, out float referencePerp));
+            AssertClose(45.0, aim, 3);
+            AssertClose(1.0, referencePerp, 4);
+        }
+
+        [Fact]
+        public void SunTrackingAim_StillDeclinesWhenTheSunGenuinelyLiesAlongTheAxis()
+        {
+            // The one legitimate hold must survive the fix, and must be distinguishable from the
+            // frame bug by its projections alone.
+            Assert.False(GhostPlaybackLogic.TryComputeAimAngleDegrees(
+                Vector3.up * 1000f, Vector3.up,
+                GhostPlaybackLogic.ResolveSunTrackingReferenceLocal(Vector3.up),
+                out _, out float targetPerp, out float referencePerp));
+            Assert.True(targetPerp < 1e-3f, $"target projection should collapse, got {targetPerp}");
+            AssertClose(1.0, referencePerp, 4);
+        }
+
         // ---------------------------------------------------------------------- regression
 
         [Fact]

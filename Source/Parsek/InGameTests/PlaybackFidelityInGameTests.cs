@@ -801,10 +801,21 @@ namespace Parsek.InGameTests
                 for (int i = 11; i <= 60; i++)
                     GhostPlaybackLogic.UpdateSynthesizedMotion(state, t0 + i * 0.2);
 
+                // The state is captured BEFORE the assertion so the message names its own cause:
+                // `gate=closed` is a product bug in the deployable path, `aimResolved=False` with a
+                // near-zero targetPerp is the legitimate Sun-along-the-axis hold, and the same with
+                // a near-zero referencePerp is a pivot-frame bug. The H36 red of 2026-08-11 could
+                // only list all three, and cost a diagnosis pass.
+                string aimState = GhostPlaybackLogic.DescribeSunTrackingState(state, tracker);
                 InGameAssert.IsTrue(tracker.hasAimed,
                     "S3: a fully deployed tracking panel must resolve an aim angle. '" + usedPart +
-                    "' never did — either the Sun projects onto the pivot axis (hold, not a bug) " +
-                    "or the deployed gate is closed.");
+                    "' never did. " + aimState + " — `gate=closed` means the deployed gate never " +
+                    "opened (product bug in ApplyDeployableState / IsDeployablePoseFullyDeployed" +
+                    "ForPart); `aimResolved=False` with targetPerp~0 is the Sun projecting onto the " +
+                    "pivot axis (a legitimate hold, so the fixture needs a different geometry); " +
+                    "`aimResolved=False` with referencePerp~0 means the zero-angle reference " +
+                    "degenerated against the axis, which ResolveSunTrackingReferenceLocal exists to " +
+                    "make impossible.");
 
                 float aimed = Quaternion.Angle(neutral, tracker.pivotTransform.localRotation);
                 Quaternion settledRotation = tracker.pivotTransform.localRotation;
@@ -821,7 +832,7 @@ namespace Parsek.InGameTests
                 ParsekLog.Info("TestRunner",
                     "PlaybackFidelity sun tracking: part='" + usedPart + "' stowedDrift=" +
                     stowedDrift.ToString("R") + " aimed=" + aimed.ToString("R") + " holdDelta=" +
-                    holdDelta.ToString("R"));
+                    holdDelta.ToString("R") + " " + aimState);
             }
             finally
             {

@@ -1173,7 +1173,33 @@ Open items, highest leverage first:
   mid-turn; the same re-seed hold is left in place for gimbals and control surfaces on purpose
   (bounded by the clamp, invisible at warp's visual scale, self-correcting on the first
   sub-second frame). Live coverage: the `PlaybackFidelity` in-game category (7 cells) driven by
-  `harness/scenarios/H36-playback-fidelity.toml` (AUTHORED, NOT YET FLOWN; interim tally pin).
+  `harness/scenarios/H36-playback-fidelity.toml` (FLOWN 2026-08-11, PARSEK-FAIL 5/7; both
+  defects fixed 2026-08-12, re-fly pending; interim tally pin unchanged).
+  **FLIGHT FOLLOW-UP 2026-08-12, the sun-tracking red.** `SunTrackingPivotAimsOnlyWhenFully-
+  Deployed` red with `solarPanelOX10C` never resolving an aim angle. It was NOT the deployed
+  gate — the same run's `Spawn baseline: stowed 1/1 deployable(s)` line proves the part's
+  `DeployableGhostInfo` exists and that `ApplyDeployableFraction` applies, so the cell's
+  ARM-2 immediate deploy necessarily set `deployFraction = 1`. It was the AIM FRAME.
+  `DriveSunTracking` measured the angle about the PARENT's up and from the pivot's neutral
+  world FORWARD, while `ApplySunTrackingAngle` post-multiplies `neutralRotation *
+  AngleAxis(angle, axisLocal)` — i.e. applies it about the PIVOT'S OWN local axis. Two
+  consequences: the measured axis and the applied axis disagreed whenever the pivot's neutral
+  rotation was not identity, and on a pivot authored with a quarter-turn (OX-10C) the reference
+  landed PARALLEL to the parent's up, its projection into the aim plane vanished, and
+  `TryComputeAimAngleDegrees` declined every frame forever. **Fix:** both the axis and the
+  reference are now read in the pivot's own neutral frame
+  (`parentRotation * neutralRotation * axisLocal`), and the reference is ORTHOGONALISED against
+  the axis by construction (`ResolveSunTrackingReferenceLocal`), so the only surviving decline
+  is the legitimate one — the Sun lying along the rotation axis. This also matches stock, which
+  tracks with `Atan2(pivot.InverseTransformPoint(sun).x, ....z)` applied as
+  `pivot.rotation * Euler(0, y, 0)`: the pivot's own local +Y as axis, its own local +Z as the
+  zero-angle reference. **Diagnosis cost, now paid down:** the cell could only list the two
+  candidate causes. `DriveSunTracking` now emits two discriminating rate-limited lines
+  (`Sun tracking held (gate closed) ...` with the full deployable gate state, and
+  `Sun tracking held (aim unresolved) ...` with both aim-plane projection magnitudes), and the
+  cell pastes `GhostPlaybackLogic.DescribeSunTrackingState` into its own failure message — a
+  near-zero `targetPerp` is the legitimate hold, a near-zero `referencePerp` is a frame bug,
+  and `gate=closed` is a deployable-path bug.
   The gimbal cell additionally carries the SIGN/HANDEDNESS pin for the hand-rolled quaternion
   product — the headless cells build their inputs in the convention the product assumes, which
   is circular, so the only non-circular authority is Unity's own

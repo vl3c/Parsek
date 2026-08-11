@@ -5311,8 +5311,23 @@ namespace Parsek
         /// </summary>
         internal static bool TryComputeAimAngleDegrees(
             Vector3 towardTarget, Vector3 axis, Vector3 referenceForward, out float angleDegrees)
+            => TryComputeAimAngleDegrees(
+                towardTarget, axis, referenceForward, out angleDegrees, out _, out _);
+
+        /// <summary>
+        /// The diagnosing overload. <paramref name="targetPerpendicular"/> and
+        /// <paramref name="referencePerpendicular"/> are the two projections into the aim plane, and
+        /// they are what tells a "the Sun is along the axis" hold (target ~ 0, legitimate) apart
+        /// from a frame bug (reference ~ 0). The H36 flight had no way to distinguish them and the
+        /// cell's failure message could only list both possibilities.
+        /// </summary>
+        internal static bool TryComputeAimAngleDegrees(
+            Vector3 towardTarget, Vector3 axis, Vector3 referenceForward,
+            out float angleDegrees, out float targetPerpendicular, out float referencePerpendicular)
         {
             angleDegrees = 0f;
+            targetPerpendicular = 0f;
+            referencePerpendicular = 0f;
             if (towardTarget.sqrMagnitude <= 1e-8f || axis.sqrMagnitude <= 1e-8f
                 || referenceForward.sqrMagnitude <= 1e-8f)
             {
@@ -5322,6 +5337,8 @@ namespace Parsek
             Vector3 n = axis.normalized;
             Vector3 target = towardTarget - n * Vector3.Dot(towardTarget, n);
             Vector3 reference = referenceForward - n * Vector3.Dot(referenceForward, n);
+            targetPerpendicular = target.magnitude;
+            referencePerpendicular = reference.magnitude;
             if (target.sqrMagnitude <= 1e-8f || reference.sqrMagnitude <= 1e-8f)
                 return false;
 
@@ -5554,6 +5571,20 @@ namespace Parsek
                 // deployed and nothing is animating it.
                 if (!IsDeployablePoseFullyDeployedForPart(state, s.partPersistentId))
                 {
+                    // DISCRIMINATOR 1 of 2. A tracking panel that never aims has exactly two
+                    // possible reasons and they need opposite fixes; this line says which, so the
+                    // next red is one read rather than a re-flight. (The other is at the aim site.)
+                    // IsVerboseEnabled-guarded because the rate limiter cannot stop the CALLER from
+                    // building the string: this runs every frame for every stowed panel on every
+                    // ghost, and a stowed panel is the common case.
+                    if (ParsekLog.IsVerboseEnabled)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual",
+                            $"sun-track-gate-{s.partPersistentId}",
+                            $"Sun tracking held (gate closed) pid={s.partPersistentId}: " +
+                            DescribeDeployableGateForPart(state, s.partPersistentId), 30.0);
+                    }
+
                     // TRANSITION > TRACKING, in its strong form: while a clip is actually RUNNING
                     // we must not write the pivot AT ALL. On many tracking panels the pivot is one
                     // of the transforms the deploy animation itself moves, so easing it toward
@@ -5578,16 +5609,56 @@ namespace Parsek
                 }
 
                 Transform pivot = s.pivotTransform;
-                Vector3 axisWorld = pivot.parent != null
-                    ? pivot.parent.TransformDirection(s.axisLocal)
-                    : pivot.TransformDirection(s.axisLocal);
-                Vector3 referenceForward = pivot.parent != null
-                    ? pivot.parent.rotation * (s.neutralRotation * Vector3.forward)
-                    : pivot.forward;
+
+                // BOTH the axis and the reference are read in the PIVOT'S OWN NEUTRAL FRAME, and
+                // that is the whole of the 2026-08-11 H36 fix. ApplySunTrackingAngle POST-multiplies
+                // (neutralRotation * AngleAxis(angle, axisLocal)), so the world axis the applied
+                // angle actually turns about is parentRotation * neutralRotation * axisLocal — not
+                // the parent's own up, which is what this used to measure against. Two consequences,
+                // both real:
+                //   * the measured angle was expressed about a different axis than the one it was
+                //     applied about whenever the pivot's neutral rotation was not identity, and
+                //   * the reference direction (the pivot's neutral forward) could land PARALLEL to
+                //     the parent's up, at which point its projection into the aim plane vanished,
+                //     TryComputeAimAngleDegrees answered false every frame, and the panel never
+                //     tracked at all. That is exactly what solarPanelOX10C did in the H36 flight.
+                // In the pivot's own frame the reference is perpendicular to the axis BY
+                // CONSTRUCTION (see ResolveSunTrackingReferenceLocal), so the only remaining "hold"
+                // is the legitimate one: the Sun lying along the rotation axis.
+                //
+                // This is also what stock does. ModuleDeployablePart tracks with
+                // `Atan2(pivot.InverseTransformPoint(sun).x, ....z)` applied as
+                // `pivot.rotation * Euler(0, y, 0)` — the pivot's own local +Y as the axis and its
+                // own local +Z as the zero-angle reference.
+                Quaternion parentRotation =
+                    pivot.parent != null ? pivot.parent.rotation : Quaternion.identity;
+                Quaternion neutralWorld = parentRotation * s.neutralRotation;
+                Vector3 axisWorld = neutralWorld * ResolveSunTrackingAxisLocal(s.axisLocal);
+                Vector3 referenceForward = neutralWorld * ResolveSunTrackingReferenceLocal(s.axisLocal);
                 Vector3 toSun = (Vector3)(sunPosition - (Vector3d)pivot.position);
 
-                if (!TryComputeAimAngleDegrees(toSun, axisWorld, referenceForward, out float aim))
-                    continue;   // sun along the pivot axis: hold, do not snap
+                if (!TryComputeAimAngleDegrees(
+                        toSun, axisWorld, referenceForward,
+                        out float aim, out float targetPerp, out float referencePerp))
+                {
+                    // DISCRIMINATOR 2 of 2. The gate is OPEN here, so this is the geometric hold —
+                    // and the two projection magnitudes say which of the three degeneracies it is.
+                    // Same per-frame string-building guard as the gate line above: a hold persists
+                    // for as long as the geometry does, so this would run every frame.
+                    if (ParsekLog.IsVerboseEnabled)
+                    {
+                        ParsekLog.VerboseRateLimited("GhostVisual",
+                            $"sun-track-aim-{s.partPersistentId}",
+                            $"Sun tracking held (aim unresolved) pid={s.partPersistentId}: " +
+                            $"targetPerp={targetPerp.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"referencePerp={referencePerp.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"toSun={toSun.magnitude.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"axisWorld={axisWorld} — a near-zero targetPerp is the Sun lying along " +
+                            "the pivot axis (a legitimate hold); a near-zero referencePerp is a " +
+                            "frame bug", 30.0);
+                    }
+                    continue;
+                }
 
                 s.currentAngleDegrees = SlewTowardDegrees(
                     s.currentAngleDegrees, aim, SunTrackingSlewDegPerSec, deltaSeconds);
@@ -5599,9 +5670,97 @@ namespace Parsek
         private static void ApplySunTrackingAngle(SunTrackingGhostInfo s)
         {
             if (s?.pivotTransform == null) return;
-            Vector3 axis = s.axisLocal.sqrMagnitude > 0.0001f ? s.axisLocal.normalized : Vector3.up;
-            s.pivotTransform.localRotation =
-                s.neutralRotation * Quaternion.AngleAxis(s.currentAngleDegrees, axis);
+            // Same resolver the aim used, so the angle is applied about the axis it was measured
+            // about. These two used to drift apart and that was half the H36 sun-tracking defect.
+            s.pivotTransform.localRotation = s.neutralRotation
+                * Quaternion.AngleAxis(s.currentAngleDegrees, ResolveSunTrackingAxisLocal(s.axisLocal));
+        }
+
+        /// <summary>
+        /// The pivot's rotation axis IN ITS OWN LOCAL FRAME, normalised, with the stock default
+        /// (local up / +Y, what <c>ModuleDeployablePart</c> rotates about) as the fallback for an
+        /// unusable stored axis. Pure Vector3 math — no native call — so it is headless-testable.
+        /// </summary>
+        internal static Vector3 ResolveSunTrackingAxisLocal(Vector3 axisLocal)
+            => axisLocal.sqrMagnitude > 0.0001f ? axisLocal.normalized : Vector3.up;
+
+        /// <summary>
+        /// The ZERO-ANGLE REFERENCE direction in the pivot's own local frame: the direction that
+        /// ends up pointing at the Sun when the tracking angle is applied.
+        ///
+        /// Local +Z, matching stock (<c>Atan2(sunLocal.x, sunLocal.z)</c> is measured from the
+        /// pivot's own +Z), except that it is explicitly ORTHOGONALISED against the axis and
+        /// swapped for +X if the axis happens to be +Z. That guarantee is the point: a reference
+        /// with no component in the aim plane makes the aim unresolvable, and a panel whose
+        /// reference silently degenerated is a panel that never tracks — the H36 red.
+        /// </summary>
+        internal static Vector3 ResolveSunTrackingReferenceLocal(Vector3 axisLocal)
+        {
+            Vector3 axis = ResolveSunTrackingAxisLocal(axisLocal);
+            Vector3 candidate = Vector3.forward;
+            if (Math.Abs(Vector3.Dot(candidate, axis)) > 0.9f) candidate = Vector3.right;
+
+            Vector3 perpendicular = candidate - axis * Vector3.Dot(candidate, axis);
+            return perpendicular.sqrMagnitude > 1e-6f ? perpendicular.normalized : Vector3.forward;
+        }
+
+        /// <summary>The deployable gate's own state for one part, as a grep-stable one-liner. Shared
+        /// by the runtime hold log and the in-game cell's failure message so both read alike.</summary>
+        internal static string DescribeDeployableGateForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.deployableInfos == null)
+                return "deployable=no-dictionary (treated as deployed)";
+            if (!state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d)
+                || d == null)
+            {
+                return "deployable=absent (treated as deployed)";
+            }
+            return "deployable=present"
+                + $" currentDeployed={d.currentDeployed}"
+                + $" transitionActive={d.transitionActive}"
+                + $" deployFraction={d.deployFraction.ToString("R", CultureInfo.InvariantCulture)}"
+                + $" transforms={d.transforms?.Count ?? 0}";
+        }
+
+        /// <summary>
+        /// The FULL sun-tracking decision for one tracker: the deployed gate AND the two aim-plane
+        /// projections, in one string. The in-game cell pastes this straight into its failure
+        /// message so a red names its own cause instead of listing candidates. Reads Transforms, so
+        /// this is scene-side, not headless.
+        /// </summary>
+        internal static string DescribeSunTrackingState(
+            GhostPlaybackState state, SunTrackingGhostInfo s)
+        {
+            if (s == null) return "tracker=null";
+            string gate = "gate="
+                + (IsDeployablePoseFullyDeployedForPart(state, s.partPersistentId) ? "open" : "closed")
+                + " " + DescribeDeployableGateForPart(state, s.partPersistentId);
+
+            Transform pivot = s.pivotTransform;
+            if (pivot == null) return gate + " pivot=null";
+
+            CelestialBody sun = Planetarium.fetch?.Sun;
+            if (sun == null) return gate + " sun=absent";
+
+            Quaternion parentRotation =
+                pivot.parent != null ? pivot.parent.rotation : Quaternion.identity;
+            Quaternion neutralWorld = parentRotation * s.neutralRotation;
+            Vector3 axisWorld = neutralWorld * ResolveSunTrackingAxisLocal(s.axisLocal);
+            Vector3 referenceForward = neutralWorld * ResolveSunTrackingReferenceLocal(s.axisLocal);
+            Vector3 toSun = (Vector3)(sun.position - (Vector3d)pivot.position);
+
+            bool resolved = TryComputeAimAngleDegrees(
+                toSun, axisWorld, referenceForward,
+                out float aim, out float targetPerp, out float referencePerp);
+
+            return gate
+                + $" aimResolved={resolved}"
+                + $" aim={aim.ToString("R", CultureInfo.InvariantCulture)}"
+                + $" targetPerp={targetPerp.ToString("R", CultureInfo.InvariantCulture)}"
+                + $" referencePerp={referencePerp.ToString("R", CultureInfo.InvariantCulture)}"
+                + $" currentAngle={s.currentAngleDegrees.ToString("R", CultureInfo.InvariantCulture)}"
+                + $" hasAimed={s.hasAimed}";
         }
 
         /// <summary>True when any engine module on the part is currently commanded above zero.</summary>
