@@ -162,7 +162,7 @@ mission = "b19_dres_orbit"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5400 },
   { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
@@ -369,12 +369,30 @@ required = [
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-# 240 LoadGame + 3600 mission + SaveGame / FlushAndQuit + margin. B16 MEASURED
-# 1,825-1,843 s wall for the same machine and warp policy; this lane adds the
-# jettison (seconds), a longer heliocentric coast (warped, so tens of wall
-# seconds) and a ~7 minute ejection burn that the executor autowarps only partly
-# -- so ~2,400-2,800 s expected, and the mission budget is ~1.3x that.
-budgetSeconds = 4000
+# 240 LoadGame + 5400 mission + SaveGame / FlushAndQuit + margin.
+#
+# RE-SIZED FROM FLIGHT 1's MEASURED PHASE COSTS, because the first sizing copied
+# B16's measured 1,825-1,843 s total and that number does not contain what this
+# profile actually does. Flight 1 measured, on this craft and this park:
+#   MJ-ASCENT + coast-to-apoapsis   ~400 wall  (the 700 km park's coast is long
+#                                   and runs at 1x)
+#   CIRCULARIZE incl. PARK TRIM     ~600 wall  -- THE ONE THE FIRST SIZING
+#                                   MISSED. MechJeb left the 700 km park at
+#                                   ecc 0.083, so the round-out really fires,
+#                                   and its node sat ~484 GAME seconds ahead
+#                                   with the executor holding at 1x. B16 arms
+#                                   the same trim but its measured wall does not
+#                                   show this cost.
+# Still to come, each priced off B16's own measured behaviour: MechJeb's ~600
+# game-second pre-ignition WARPALIGN hold before the ejection AND again before
+# the capture (body-independent, 1x, so ~600 wall each), the ~440 s LV-N
+# ejection burn (0.34 g -- longer than any burn in the suite), the warped
+# heliocentric coast (~100-200 wall), the capture burn, and the 180 s park dwell
+# held at 1x. That totals ~3,500-4,000 wall EXPECTED, so the original 3,600
+# mission budget had ~2% margin against its own point estimate -- a budget flake
+# waiting to happen rather than a bound on BROKEN. 5,400 is ~1.4x the expected
+# worst case, the same ratio B12/B16 carry and defend.
+budgetSeconds = 5800
 
 [retry]
 # A first flight of a new profile: one retry absorbs a transient (a node-executor
