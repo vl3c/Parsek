@@ -1041,6 +1041,58 @@ class EnsureGitSourceShellTests(unittest.TestCase):
         self.assertEqual(n_after_first, 1)
         self.assertEqual(n_after_second, 1)
 
+    def test_live_warm_cache_reuses_without_network(self):
+        # Live path, warm cache (pinned commit present, origin matches):
+        # _ensure_git_source must return the cache clone WITHOUT invoking the
+        # clone/fetch primitives -- the offline guarantee decision.fetch=False
+        # promises. Regression: reuse-cache used to fall into the refetch else
+        # and hit the network on every live provision.
+        import provision, tempfile, subprocess, shutil
+        if shutil.which("git") is None:
+            self.skipTest("git not on PATH")
+        # ignore_cleanup_errors: git object files are read-only on Windows.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            saved_cache = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")
+            cache_dir = os.path.join(provision.CACHE_DIR, "krpc-src")
+            os.makedirs(cache_dir)
+
+            def git(*args):
+                res = subprocess.run(["git", "-C", cache_dir] + list(args),
+                                     capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                return (res.stdout or "").strip()
+
+            git("init", "-q")
+            git("-c", "user.name=t", "-c", "user.email=t@t",
+                "commit", "--allow-empty", "-q", "-m", "pin")
+            commit = git("rev-parse", "HEAD")
+            git("remote", "add", "origin", "https://example/krpc")
+
+            def _no_network(*a, **k):
+                raise AssertionError("network primitive invoked on warm-cache reuse")
+
+            saved_clone = provision._shallow_clone_source
+            saved_fetch = provision._fetch_source_commit
+            provision._shallow_clone_source = _no_network
+            provision._fetch_source_commit = _no_network
+            try:
+                ctx = provision.ProvisionContext(
+                    profile_name="t",
+                    pins={"krpc": {"commit": commit,
+                                   "sourceRepo": "https://example/krpc"}},
+                    profile={}, umbrella_root="/um", dry_run=False, repair=False,
+                    parsek_dll_override=None, krpc_src_override=None)
+                src = provision._ensure_git_source(ctx, "krpc")
+            finally:
+                provision.CACHE_DIR = saved_cache
+                provision._shallow_clone_source = saved_clone
+                provision._fetch_source_commit = saved_fetch
+        self.assertEqual(src, cache_dir)
+        self.assertFalse(ctx.aborted)
+        self.assertTrue(any("action=reuse-cache reason=cached-and-has-commit" in l
+                            for l in ctx.log_lines))
+
     def test_override_not_a_clone_aborts(self):
         import provision, tempfile
         with tempfile.TemporaryDirectory() as tmp:

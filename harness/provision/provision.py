@@ -274,7 +274,9 @@ def _fetch_source_commit(ctx: ProvisionContext, comp: str, cache_dir: str,
                   "git remote set-url in %s failed: %s"
                   % (cache_dir, (res.stderr or "").strip()[:200]))
             return False
-    log(ctx, "Info", "Source", "%s fetch in %s (pinned commit missing)" % (comp, cache_dir))
+    # Not always "commit missing": cached-wrong-origin refetches even with the
+    # commit present, because only the pinned remote carries the PIN tag.
+    log(ctx, "Info", "Source", "%s fetch in %s (pin not satisfied by cache)" % (comp, cache_dir))
     # --force on tags: after a fork re-pin a SAME-NAMED tag can exist on both
     # remotes and a non-forced fetch refuses to clobber the cached one,
     # aborting a repair that should converge (Fable review NIT-8). Forcing is
@@ -348,6 +350,11 @@ def _ensure_git_source(ctx: ProvisionContext, comp: str,
         abort(ctx, "Source", "EC-4", "%s has no sourceRepo pin to clone" % comp)
         memo[comp] = None
         return None
+    if decision.action == "reuse-cache":
+        # fetch=False: the cache clone already carries the pinned commit, so a
+        # warm-cache live run stays fully offline (no clone, no refetch).
+        memo[comp] = decision.source_dir
+        return decision.source_dir
     if decision.action == "clone":
         ok = _shallow_clone_source(ctx, comp, repo_url, cache_dir, commit)
     else:  # refetch-cache (incl. cached-wrong-origin: fetch re-points origin first)
