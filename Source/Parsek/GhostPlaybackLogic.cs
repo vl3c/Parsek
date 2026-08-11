@@ -465,8 +465,14 @@ namespace Parsek
         ///
         /// Every family no-ops when the snapshot said nothing about it, so a recording
         /// whose snapshot carries none of these keys behaves exactly as before M1.
+        ///
+        /// <paramref name="rateLimitLog"/> must be true on the loop-cycle path: this is a
+        /// one-shot operation per ghost at spawn (plain Verbose), but per-ghost-per-cycle
+        /// on a loop boundary, where hundreds of looping ghosts would multiply one line
+        /// each into a flood.
         /// </summary>
-        internal static void ApplySnapshotBaselines(GhostPlaybackState state)
+        internal static void ApplySnapshotBaselines(
+            GhostPlaybackState state, bool rateLimitLog = false)
         {
             if (state == null) return;
             Dictionary<uint, SnapshotPartBaseline> baselines = state.snapshotBaselines;
@@ -523,11 +529,15 @@ namespace Parsek
                     state, pid, baseline, ref servoApplied, ref servoSkipped);
             }
 
-            ParsekLog.Verbose("GhostVisual",
+            string summary =
                 $"Snapshot baseline applied: parts={baselines.Count} " +
                 $"deployables={deployableApplied} parachutes={parachuteApplied} " +
                 $"lights={lightApplied} servos={servoApplied} servosSkipped={servoSkipped} " +
-                $"(vessel='{state.vesselName ?? "unknown"}')");
+                $"(vessel='{state.vesselName ?? "unknown"}')";
+            if (rateLimitLog)
+                ParsekLog.VerboseRateLimited("GhostVisual", "snapshot-baseline-loop", summary, 1.0);
+            else
+                ParsekLog.Verbose("GhostVisual", summary);
         }
 
         /// <summary>
@@ -1336,7 +1346,8 @@ namespace Parsek
             //     (PopulateGhostInfoDictionaries applies the stow baselines, then this).
             //     The prefix replay in the following PrimeLoadedGhostForPlaybackUT then
             //     layers the cycle's own events on top, exactly as at spawn.
-            ApplySnapshotBaselines(state);
+            //     rateLimitLog: this fires per ghost per cycle here, not once per spawn.
+            ApplySnapshotBaselines(state, rateLimitLog: true);
 
             if (roboticsRestored > 0)
                 ParsekLog.VerboseRateLimited("GhostVisual", "loop-robotic-restore",

@@ -118,7 +118,7 @@ inventory CANNOT be fixed by seed forwarding at all: a stale tip snapshot has no
 PART node for a part placed during the head span, so there is no ghost visual to
 reveal - that needs a snapshot refresh at split, a different mechanism.
 
-### Tests (84 new xUnit cells, no in-game test - see below)
+### Tests (84 new xUnit cells + a new in-game category, H32)
 
 - `SnapshotBaselineParserTests` (42) - every family key -> parsed field, the
   robotic ordinal walk including wheel modules advancing the ordinal without
@@ -137,21 +137,48 @@ reveal - that needs a snapshot refresh at split, a different mechanism.
   zeroes the scalars to 0f (not to the spawn pose, which is why the restore is a
   separate step), and the restore returns each servo to its own spawn pose.
 
-**No `[InGameTest]` was added on purpose.** The harness pins an exact
-`BATCH_COMPLETE v1 total=N` tally per category (`GhostPlayback`, `GhostVisuals`,
-`RecordingInvariants` and five others), and adding a cell to any of them reds
-`CommittedBatchTallySourceSyncTests` rather than proving anything. An in-game
-visual proof, if wanted later, must go in a NEW category referenced by no
-scenario TOML.
+**The in-game half is a NEW category, `SnapshotBaseline` (7 FLIGHT cells,
+`Source/Parsek/InGameTests/SnapshotBaselineInGameTests.cs`), driven by the new
+`harness/scenarios/H32-snapshot-baseline.toml`.** It is a new category rather than
+cells added to `GhostVisuals` / `GhostPlayback` because the harness pins an exact
+`BATCH_COMPLETE v1 total=N` tally per category and adding a cell to a pinned one reds
+`CommittedBatchTallySourceSyncTests` instead of proving anything.
+
+It exists for the one thing no xUnit cell can reach: the appliers that actually MOVE
+something are Unity-coupled, and `SetLightState` or a canopy applier throws
+`SecurityException` ("ECall methods must be packaged into a system module") the moment
+a headless test touches them - which is also why the light/parachute decisions were
+split into the pure `ResolveSnapshotBaselineActions` (see Known limits). The cells
+author their own one-part snapshot ConfigNode over a stock part discovered through
+`PartLoader`, so they depend on no fixture corpus: EXTENDED and gear Deployed must land
+the built ghost on its DEPLOYED transform poses, a mid-travel EXTENDING must produce no
+baseline and leave the stow pose, a servo pose read through the recorder's own field
+plan must move the servo transform off stowed (Breaking Ground only - skips naming that
+otherwise), the loop restore must return a displaced servo, and a MODULE-less PART must
+produce no baseline at all. A candidate part qualifies only when its stowed and deployed
+poses are measurably separated, so a cell cannot pass over an animation that moves
+nothing. NOT YET LIVE-RUN: H32's tally pin is deliberately INTERIM (`total=7` exact,
+`passed=[1-9][0-9]*`), and it is the single declared member of
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` until a flight measures the split.
 
 ### Known limits of the fix
 
 - A recording whose builder falls back to `VesselSnapshot` (no
   `GhostVisualSnapshot`) reads END-of-recording state as its baseline. That is the
-  same end-state snapshot those ghosts already use for geometry and variants, and
-  seeds still override it on replay.
+  same end-state snapshot those ghosts already use for geometry and variants, and any
+  seed or event overrides it on replay - but only where the recording HAS one for that
+  family, so a family the recording never touched shows its end state for the whole
+  playback instead of the prefab pose. Accepted: end state is a better guess than the
+  parts catalogue, and this population is the pre-`GhostVisualSnapshot` tail.
 - On a split tip, the families left uncovered are exactly the out-of-scope list
   above. This is not "tips fully fixed".
+- The robotic seeds have one effect beyond visuals: `GhostingTriggerClassifier`
+  already counts robotic events as ghosting triggers, so a split TIP that used to carry
+  no events now carries one and becomes trigger-positive, which blocks
+  `RecordingOptimizer.CanAutoMerge` from re-merging that split. Deliberate and
+  consistent with the pre-existing engine-shutdown sentinel, which has exactly the same
+  effect; noted because it is a merge-eligibility change, not a rendering one.
+
 - Robotic ordinals can drift if the mod set changes between record and replay. The
   application site name-checks the module at each ordinal and degrades to
   no-baseline with a `servo ordinal ... mod-set drift` log line rather than posing
