@@ -91,7 +91,15 @@ id = "BDOCK-1-station-interceptor"
 tier = "nightly"
 description = "First two-vessel Parsek autotest: pre-placed Station flies B2 ascent to a ~110 km park and commits its tree mid-mission, then the same Kerbal X launches as an Interceptor, rendezvous + docks, transfers LF/MP both ways, and undocks -- exercising the dock/transfer/undock recording pipeline (cross-tree Dock branch, onVesselsUndocking split, RouteConnectionWindow deltas)."
 instanceProfile = "stock-minimal"
-tags = ["BDOCK", "bdock", "mechjeb", "dock", "rendezvous", "route", "pending-flight"]
+# `flown` replaced `pending-flight` on 2026-08-11 (the CL-3 precedent): the spec has
+# been LIVE-PROVEN since 2026-07-24 and re-confirmed 2026-07-25, so `pending-flight`
+# had stopped describing the record two and a half weeks ago while `--tag flown` - a
+# REAL selector - was excluding the harness's most expensive green lane from the
+# "these work" sweep. RE-CONFIRMED AGAIN 2026-08-11: run `2026-08-11_1606`, PASS
+# attempt 1, wall 2,146 s / mission 2,093 s (the same session's `2026-08-11_1605` was
+# an INVALID(tooling-venv) that never reached the game). That run's produced save is
+# the `bdock-recorded` fixture H33-logistics-route-proof now flies against.
+tags = ["BDOCK", "bdock", "mechjeb", "dock", "rendezvous", "route", "flown"]
 
 [fixture]
 # The pre-placed Station pad fixture the FORGE run produces (bdock-station-craft's

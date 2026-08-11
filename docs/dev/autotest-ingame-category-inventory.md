@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H32 (SPACECENTER slice) | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H32 (SPACECENTER slice), H33 (FLIGHT slice) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -195,17 +195,26 @@ declarations)**. Driven by a committed spec: **36 of 99 categories**, up from 35
 (`H32-logistics-inter-body`, 2026-08-11; before that the S1.8 SoiCrossingPlayback
 wave took it to 35 from 34, and 28 and 8 the waves before). Measured against
 declarations rather than categories, that is 365 of 550 inside a driven category
-(was 318; 317, 314 and 263 the waves before).
+(was 318; 317, 314 and 263 the waves before). `H33-logistics-route-proof`
+(2026-08-11) moves NEITHER number - it is the second spec on a category the first
+already counted - which is exactly the distortion the next paragraph is about.
 
 READ THAT 365 CAREFULLY - it is the largest single-spec jump in this row's history
 and the least representative. `Logistics` contributes all 47 of its declarations to
-"inside a driven category" while H32 EXECUTES 2 of them; the other 45 scene-skip at
-its SPACECENTER boot. The declaration measure has always counted category
-membership rather than execution, so this is not a new distortion, but at 47
-declarations it is the first time the gap is big enough to mislead on its own. The
-bucket letters are unchanged: `Logistics` stays **B**, on the same footing as
-`GhostMap` (S1.6), `GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially,
-without meeting bucket A1's whole-category admission shape.
+"inside a driven category" while its two specs between them EXECUTE **6 distinct
+declarations**: H32 runs 2 at SPACECENTER (the inter-body builder-shape gate and the
+AnyScene tooltip cell) and H33 runs 5 at FLIGHT (the probe-admission cell, the
+prelaunch origin-proof cell, the active-as-initiator route-proof cell, the mid-tree
+shuttle cell, and the same AnyScene tooltip cell, which is why the union is 6 and
+not 7). The other 41 never execute anywhere: 38 carry
+`AllowBatchExecution = false`, and 3 self-skip on fixture shape. The declaration
+measure has always counted category membership rather than execution, so this is not
+a new distortion, but at 47 declarations it is the first time the gap is big enough
+to mislead on its own - and adding a SECOND spec to the category moved the honest
+number from 2 to 6 while moving the headline number by zero. The bucket letters are
+unchanged: `Logistics` stays **B**, on the same footing as `GhostMap` (S1.6),
+`GhostPlayback` (S1.4) and `Missions` (M1) - driven, partially, without meeting
+bucket A1's whole-category admission shape.
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
@@ -466,6 +475,27 @@ unwired and still needs the per-guard fixture read above. What the slice settles
 that the guards this paragraph warns about are readable and satisfiable one spec at
 a time, and that a partial category can be wired honestly as long as the pin carries
 the skip floor rather than hiding it.
+
+`H33-logistics-route-proof` (2026-08-11) then wired the OTHER slice - the 8
+FLIGHT-eligible declarations - and it is the sharper worked example, because it is
+the case where the fixture, not the guard, was the whole problem. Its five
+route-proof cells are pure READ-SIDE walkers: they inspect state a PRIOR recording
+session wrote and Skip when the loaded save has nothing to walk, which is precisely
+the "specs that all Skip" hazard in its purest form. The answer was not a guard read
+but a RECORDED fixture - `bdock-recorded`, harvested `--keep-parsek` from a green
+BDOCK-1 flight, carrying two committed trees and a real dock/undock
+`ROUTE_CONNECTION_WINDOWS` node. Measured tally
+`total=47 passed=5 failed=0 skipped=42`, i.e. the 39-declaration attribute floor
+plus THREE run-time self-skips, and the three are the useful reading: two of the
+five proof cells still cannot fire on this fixture (one because the single window's
+target pid equals the recording's own, putting it on the initiator branch and out of
+reach of both the target and the cross-tree predicates; one because no committed
+mission profile STARTS docked to a non-PRELAUNCH partner, so the save carries zero
+`ROUTE_ORIGIN_PROOF` nodes). Two lessons for the remaining B4 work. First, a
+recorded fixture can un-skip read-side cells that no guard read would have fixed.
+Second, "wired" is not "covered": going from a recording-free fixture to a recorded
+one took this category's executed count from 2 to 6 of 47, and the residue is
+FIXTURE SHAPE, which is a harvest problem rather than a spec problem.
 
 An earlier revision of this paragraph opened the list with `Rewind` (37) and closed
 "the payoff is high for `Rewind` and `GhostLifecycle` in particular". Half of that
