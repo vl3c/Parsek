@@ -966,6 +966,16 @@
         "2026-08-04T16:19:07Z": 57.0
       }
     },
+    "S4.2-refly-world-preservation": {
+      "last": 62.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 62.0,
+      "p95": 62.0,
+      "samples": {
+        "2026-08-11T21:12:38Z": 62.0
+      }
+    },
     "V1-map-dwell-mun-orbit": {
       "last": 2045.0,
       "lastVsP50": 0.999,

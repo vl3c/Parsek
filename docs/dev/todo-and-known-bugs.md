@@ -942,7 +942,138 @@ preserved, `activeVessel` indexing the selected slot past a preserved
 predecessor, a `[Theory]` over SpaceObject / Flag / Station / Probe, preserved
 throttle untouched, and the selected-absent refusal.
 
-## REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: a rewind-then-conclude-without-flying retires through the zombie-provisional sweep, never through the `refused-unflown-provisional` refusal [FOUND 2026-08-11 by `S4.2-refly-world-preservation`'s FIRST flight, run `2026-08-11_1057`. REPORT-ONLY: the end state is benign and convergent. NOT FIXED - the call is which of the two routes is the intended one]
+## ~~REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: a rewind-then-conclude-without-flying retires through the zombie-provisional sweep, never through the `refused-unflown-provisional` refusal~~ [FOUND 2026-08-11 by `S4.2-refly-world-preservation`'s FIRST flight, run `2026-08-11_1057`. ~~FIXED 2026-08-11~~ on branch `refly-conclusion-route`. ~~CONFIRMED LIVE 2026-08-12~~ by the S4.2 re-fly, run `2026-08-11_2111`, attempt 2, PASS: all three post-fix conclusion tokens fired verbatim, both pre-fix cascade lines absent (0 occurrences each), expectations mismatches=0, zero `[Parsek][ERROR]` lines. CLOSED - nothing owed]
+
+### FIXED 2026-08-11 - the route map, the cause, and what changed
+
+**The question this entry left open ("which of the two routes is intended")
+turned out to be the wrong question.** Both routes exist on the SAME shape and
+are separated by load history, not by policy - so there was nothing to choose
+between, only a two-surface miss to close.
+
+**Route map, from the two collected flights.** The session's provisional is put
+into the flat `CommittedRecordings` list exactly once, by
+`RewindInvoker.AddProvisional` at invoke time. Nothing puts it back:
+
+- **S4.1 (`2026-07-31_1938`, green).** `PruneZeroPointLeaves: removed 1
+  zero-point leaf recording(s)` fires on the provisional here TOO - the prune is
+  not the discriminator. But no load intervened, so the recording is still in the
+  flat committed list from invoke, `FindCommittedRecording` hits it, and the
+  merge reaches `AppendRelations outcome=refused-unflown-provisional
+  ... reason=empty Points`.
+- **S4.2 (`2026-08-11_1057`, red).** A quicksave/quickload landed between the
+  rewind and the conclusion (here the in-game batch's isolation revert; for a
+  player, any F5/F9). Hydration restores a NotCommitted provisional into
+  `tree.Recordings` ONLY - the run says so itself:
+  `ReconcileInPlaceForkIntoTreeIfNeeded: fork rec=... absent from committed list
+  but present in tree.Recordings (normal F5/F9 mid-Re-Fly hydration)`. The prune
+  then removed it from the tree too, so `CommitPendingTree` never re-added it and
+  BOTH surfaces were empty at merge time.
+
+So **question 1 is answered: not fixture-specific.** A plain player Re-Fly that
+quickloads once and then ends the session without flying reaches it. What bounds
+the severity is that `PruneZeroPointLeaves` only removes recordings the merge's
+own `ValidateSupersedeTarget` would have refused anyway - so no route to this
+bail could ever have dropped a supersede that was owed. The defect was the ROUTE
+(a WARN cascade plus a cross-load zombie sweep standing in for a designed
+decision), not the outcome.
+
+**Question 2 (should the lookup resolve through the committed tree?): no - the
+provisional was not committed under another identity and the suppressed-subtree
+exclusion did not skip it.** It was deleted. `CommitPendingTree` walks
+`tree.Recordings` into the committed list, so a provisional that is in the tree
+is always found; a second lookup surface would have been dead code. The gap was
+that a blind hygiene pass deletes the object the live session's durable marker
+names.
+
+**Question 4 (the predicate): it must stay PAYLOAD-based, and the caveat this
+entry raised is resolved.** `ValidateSupersedeTarget` measures "has playable
+payload + a terminal state", which is the invariant that protects ERS from the
+2026-04 placeholder-redirect class. "Unflown" is lossy shorthand: S4.2's
+provisional WAS flown for ~0.4 s of game time and carried GameState events
+(a crew status change, an `Orbit` milestone) and still had `points=0`. And the
+`PRE_REFLY_ANCHOR written: points=4` line is a COPY of the origin's pre-rewind
+tail held in `PreReFlyAnchorPoints`, not the attempt's own flight, so the answer
+to "would the refusal still have fired?" is **yes, with `reason=empty Points`**.
+The refusal line now prints `points= orbitSegments= trackSections=
+playableSections= preReFlyAnchorPoints= terminal=` so nobody has to reconstruct
+that again.
+
+**The fix, in two halves** (branch `refly-conclusion-route`):
+
+1. `ParsekFlight.PruneLeafRecordings` classifies each id against the live marker
+   through the pure `ReFlyConclusionRoute.ClassifyProvisionalPrune`. A provisional
+   that WOULD validate as a supersede target is **kept**
+   (`outcome=refly-provisional-prune-kept`) - `IsZeroPointLeaf` (Points +
+   OrbitSegments + SurfacePos) and `ValidateSupersedeTarget` (Points +
+   OrbitSegments + playable TrackSections) disagree in both directions, and the
+   merge's test wins. One that would not is pruned exactly as before but handed to
+   `ReFlyProvisionalRetirement` (`outcome=retired-empty-provisional`).
+2. `MergeDialog.TryCommitReFlySupersede`'s not-found branch classifies the
+   absence (`ReFlyConclusionRoute.Classify`) instead of bailing blind. A retired
+   empty provisional routes to `SupersedeCommit.ConcludeRetiredProvisional`,
+   which runs `AppendRelations` on the handed-over recording - so the SAME
+   `outcome=refused-unflown-provisional` token fires, from the same code, for the
+   same reason - then `CommitTombstones` over the empty subtree, then clears the
+   marker (`outcome=concluded-no-supersede`, `End reason=concluded-no-supersede`).
+   An unexplained absence keeps the old conservative bail, now stamped with
+   `route=<reason>`.
+
+**What the fix deliberately does NOT do.** No merge journal on this route: the
+journal makes a multi-step DURABLE mutation atomic, and this route writes zero
+rows, zero tombstones and flips no MergeState - its only mutation is the marker
+clear, whose crash fallback is the pre-fix behaviour `LoadTimeSweep` already
+handles. Opening one would add five synchronous saves and would run
+`SplitOriginAtRewindUT`, carving HEAD/TIP out of a recording nothing is going to
+supersede. RewindPoints are untouched: nothing was flown, so the separation stays
+exactly as re-flyable as it was, and this route must not delete a quicksave the
+player never spent. `ReFlySessionMarker`'s tree-id gate is untouched, and the
+hand-over is transient in-memory state rather than a seventh durable marker field.
+
+**Coverage:** `Source/Parsek.Tests/ReFlyConclusionRouteTests.cs`, 20 cells - the
+two pure classifiers (including the 4-case prune theory), the hand-over slot's
+session-scoping and single-shot take, three prune-integration cells (retire /
+keep-because-it-validates / ordinary leaf untouched), the named conclusion and
+its refuse-when-it-would-validate guard, both end-to-end commit-branch routes,
+the payload-evidence cell that pins anchor points apart from trajectory points,
+and the stale-hand-over cell from the review pass. Full suite 20193 passed /
+1 skipped; `harness/lib` 1284 OK.
+
+**Still owed:** the confirming re-fly of S4.2. Its spec is re-pinned to the
+post-fix contract (`outcome=retired-empty-provisional` +
+`AppendRelations outcome=refused-unflown-provisional` +
+`outcome=concluded-no-supersede` required; the two pre-fix cascade lines moved to
+`forbidden`), marked DERIVED-PENDING-REFLY, and the honesty-ledger entry in
+`harness/lib/test_hlib.py` is narrowed to that re-fly rather than dropped.
+
+**Review follow-ups applied in the same branch:** the `KeepOwesSupersede` branch
+and both remaining session-ending marker clears (`FlipMergeStateAndClearTransient`,
+`LoadTimeSweep`'s invalid-marker clear) now drop the hand-over note, because
+`TryTake`'s session gate cannot see an F9 that re-arms a marker with the SAME
+SessionId; the prune evaluates identity before payload; and the unreachable
+"refusal did not hold" guard rolls its rows back rather than bailing on top of
+them.
+
+**Spotted in passing, NOT fixed (two items):**
+
+1. `ParsekFlight.IsZeroPointLeaf` ignores `TrackSections` entirely, so a
+   section-authoritative recording with zero flat Points reads as a "zero-point
+   leaf" and is pruned even though it carries playable data. The Re-Fly case is
+   covered by the guard above; the general case is a separate call about the
+   prune's payload test.
+2. A pruned recording leaves BOTH its `GameStateStore` events (tagged with its
+   id) and its sidecar files (`<id>.prec`, `<id>_vessel.craft`) behind - the
+   prune never purged either, and neither does the new conclusion. On the
+   retired-empty route those events become phantoms attributed to a recording
+   that exists nowhere, and `EffectiveState.ComputeELS` filters only TOMBSTONED
+   ActionIds, so they stay effective. This is behaviour-equal to pre-fix (the
+   sweep could not purge them either - the recording was already gone), and it
+   is NOT fixed here on purpose: the discard path pairs its purge with
+   `LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard` because KSP
+   applied some of those effects irreversibly, and adding a bare purge would
+   diverge the ledger the OTHER way, which is worse than a phantom. Whoever
+   takes it must settle the irreversible-live-gameplay question first. Expect
+   these to surface as report-only phantoms in the ledger ground-truth harness.
 
 ### What was expected
 
@@ -978,7 +1109,7 @@ from the collected `KSP.log` of run `2026-08-11_1057`:
    was not found in RecordingStore.CommittedRecordings`, then `LoadTimeSweep`.
 5. Final state `marker=False ... supersedes=0 tombstones=0`.
 
-### Why it is report-only, and what the actual question is
+### Why it was report-only, and what the actual question was [ANSWERED - see the FIXED section above]
 
 The END STATE IS THE SAME as the refusal branch's: zero supersede rows, the
 origin stays effective, no non-convergent reload loop, nothing corrupted. So this
@@ -1026,6 +1157,70 @@ and "trajectory-less" are NOT the same predicate on this timeline, and
 `ValidateSupersedeTarget` might not have refused even if it had been reached.
 Do not assume the refusal branch was merely bypassed - check whether it would
 still have fired.
+
+**CHECKED 2026-08-11, and it WOULD have fired.** Those 4 points live in
+`PreReFlyAnchorPoints` - a copy of the ORIGIN's pre-rewind tail, captured by
+`CapturePreReFlyAnchorTrajectoryFrom` for rendering - not in `Recording.Points`.
+The run says so itself: `FinalizeTreeRecordings: rec='rec_cf0ed...' points=0
+orbitSegs=0` and `WriteBinaryTrajectoryFile: ... points=0 trackSections=0`. So
+`ValidateSupersedeTarget` refuses with `reason=empty Points`, which is exactly
+what the fixed route now emits on this fixture. The caveat was right that
+"unflown" and "trajectory-less" are different predicates - this provisional WAS
+flown, for ~0.4 s, and carried GameState events - so the fix keeps the PAYLOAD
+predicate (the invariant that actually protects ERS) and prints both counts on
+the refusal line so the distinction is legible instead of reconstructed.
+
+## REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: an in-game batch's baseline restore ends a live Re-Fly session, and the merge dialog never appears [OBSERVED 2026-08-12 by `S4.2-refly-world-preservation` attempt 1 of run `2026-08-11_2111`. REPORT-ONLY - not diagnosed, not fixed. Attempt 2 of the same spec ran clean, so it is INTERMITTENT]
+
+S4.2's driver note called this out in advance as "the one step of this sequence
+with no committed precedent" - a quicksave taken WHILE a Re-Fly session is live,
+which is what `InGameTestRunner.CaptureBatchBaseline` does when it classifies a
+FLIGHT scene with a live active vessel as `InMemoryAndDisk`. The note asked for
+any resulting finding to land here rather than in a relaxed contract. This is it.
+
+**What was measured**, from the collected `KSP.log` of attempt 1:
+
+```
+00:09:17.280 [ReFlySession] Started sess=sess_acab275b... rp=rp_wp_root slot=1 ... inPlaceContinuation=True
+00:09:17.837 [TestCommands] runtests start category=ReFlyWorldPreservation isolated=false
+00:09:17.931 [TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'parsek-test-batch-baseline-...' scene=FLIGHT
+00:09:17.971 [Scenario] Preparing save-scoped state for isolated FLIGHT batch baseline restore
+00:09:18.439 [ReFlySession] End reason=treeDiscarded sess=sess_acab275b... tree=tree-wp-stack-root
+...
+00:09:20.819 [TestCommands] dispatch id=0005 -> DEFER reason=no-refly-dialog   (x24, then)
+00:11:20.826 [TestCommands] timeout id=0005 cmd=AnswerMergeDialog deferred=120.0s reason=no-refly-dialog
+```
+
+The session ended `reason=treeDiscarded` ~1.2 s after it started, inside the
+batch's baseline handling, so by the time the driver reached `AnswerMergeDialog`
+there was no dialog to answer and the step timed out. The run classified
+`INVALID(driver) subkind=seam-timeout`, which is the correct classification - a
+driver-INVALID, never a PARSEK-FAIL.
+
+**Why it is filed as an observation and not a defect.** Three things are true and
+none of them has been separated yet:
+- the batch is green either way (`BATCH_COMPLETE v1 total=6 passed=6 failed=0
+  skipped=0`), and all six preservation cells passed on the discarded-session
+  attempt too, so nothing about the world-preservation claim depends on this;
+- none of the three conclusion tokens fired on that attempt, which is consistent
+  with "the session was already gone", not with a conclusion-route regression;
+- attempt 2 flew the identical spec clean, all three tokens present. `flake.json`
+  quarantines the scenario at `rate=0.50 over 7d`.
+
+**The open question** is whether this is harness-only or reaches a player. The
+batch path is test-runner-specific, but the underlying act - a quicksave during a
+live Re-Fly session - is what any F5 does, and `R7-SESSION-BATCH-ISOLATION` above
+already records that running a category beside a live session breaks tests. If a
+player F5/F9 can drive `End reason=treeDiscarded` the same way, that is a product
+bug and this entry is its head; if only the batch's save-scoped-state preparation
+does it, this is harness isolation and belongs with R7. Deciding needs one
+deliberate experiment (quicksave mid-Re-Fly outside a batch), which was NOT run
+here.
+
+**Discriminator for the next occurrence**, so nobody re-derives it: on a repeat
+`AnswerMergeDialog` timeout, check whether `[ReFlySession] End
+reason=treeDiscarded` precedes the first `DEFER reason=no-refly-dialog`. If it
+does, this entry; if it does not, the conclusion route.
 
 ## PART-ACTION-RECORDING-COVERAGE: audit backlog for what Parsek records vs the stock part-action surface [OPEN 2026-08-09]
 
