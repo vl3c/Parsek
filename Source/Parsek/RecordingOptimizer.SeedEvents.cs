@@ -89,6 +89,7 @@ namespace Parsek
             var lightBlinkStates = new Dictionary<ulong, TransientPartState>();
             var heatStates = new Dictionary<ulong, TransientPartState>();
             var parachuteStates = new Dictionary<ulong, TransientPartState>();
+            var roboticStates = new Dictionary<ulong, TransientPartState>();
 
             for (int i = 0; i < indexedEvents.Count; i++)
             {
@@ -182,6 +183,19 @@ namespace Parsek
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
+                    case PartEventType.RoboticMotionStarted:
+                    case PartEventType.RoboticPositionSample:
+                    case PartEventType.RoboticMotionStopped:
+                        // Robotic state is "last sampled value", not on/off: the pose at the
+                        // cut is whatever the newest event carried. `active` records whether
+                        // the servo was still travelling, kept for the log only — the seed is
+                        // emitted unconditionally (see AppendRoboticStateSeeds).
+                        roboticStates[key] = BuildTransientState(
+                            evt,
+                            active: evt.eventType != PartEventType.RoboticMotionStopped,
+                            value: evt.value,
+                            seedEventType: PartEventType.RoboticMotionStopped);
+                        break;
                 }
             }
 
@@ -263,12 +277,14 @@ namespace Parsek
             visualStateSeeds += AppendActiveStateSeeds(parachuteStates, seeds, splitUT);
             visualStateSeeds += AppendActiveStateSeeds(heatStates, seeds, splitUT);
 
+            int roboticSeeds = AppendRoboticStateSeeds(roboticStates, seeds, splitUT);
+
             if (seeds.Count > 0)
                 ParsekLog.Info("Optimizer",
                     $"Built {seeds.Count} transient state seed event(s) at UT={splitUT:F1} " +
                     $"(enginesOn={engineIgnitedSeeds} engineIdle={engineIdleSeeds} " +
                     $"engineSentinels={engineShutdownSeeds} rcsOn={rcsSeeds} " +
-                    $"visualStates={visualStateSeeds})");
+                    $"visualStates={visualStateSeeds} robotics={roboticSeeds})");
 
             return seeds;
         }
@@ -343,6 +359,12 @@ namespace Parsek
                         || (boundaryEvent.eventType == PartEventType.RCSThrottle && boundaryEvent.value <= 0f);
                 case PartEventType.LightBlinkEnabled:
                     return boundaryEvent.eventType == PartEventType.LightBlinkEnabled;
+                case PartEventType.RoboticMotionStopped:
+                    // Any robotic event at the same key on the boundary already carries a
+                    // pose for this servo, so the seed would only re-apply the same value
+                    // (RoboticMotionStarted / PositionSample also re-arm the motion the
+                    // seed deliberately parks). All three cover the seed.
+                    return IsRoboticVisualStateEvent(boundaryEvent.eventType);
                 default:
                     return boundaryEvent.eventType == seed.eventType;
             }
@@ -391,10 +413,24 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                // Robotic servo poses are many-valued AND reversible, so they belong to the
+                // latest-state-wins reducer, never to ForwardPermanentStateEvents (which
+                // copies every matching event verbatim and would dump every position sample
+                // of the head span at the cut).
+                case PartEventType.RoboticMotionStarted:
+                case PartEventType.RoboticPositionSample:
+                case PartEventType.RoboticMotionStopped:
                     return true;
                 default:
                     return false;
             }
+        }
+
+        internal static bool IsRoboticVisualStateEvent(PartEventType type)
+        {
+            return type == PartEventType.RoboticMotionStarted
+                || type == PartEventType.RoboticPositionSample
+                || type == PartEventType.RoboticMotionStopped;
         }
 
         private static bool IsSameTransientVisualStateFamily(PartEventType a, PartEventType b)
@@ -434,6 +470,10 @@ namespace Parsek
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
                     return 9;
+                case PartEventType.RoboticMotionStarted:
+                case PartEventType.RoboticPositionSample:
+                case PartEventType.RoboticMotionStopped:
+                    return 10;
                 default:
                     return 0;
             }
@@ -441,7 +481,12 @@ namespace Parsek
 
         private static ulong TransientVisualStateKey(PartEvent evt)
         {
-            if (IsEngineVisualStateEvent(evt.eventType) || IsRcsVisualStateEvent(evt.eventType))
+            // Robotics are module-scoped like engines/RCS (one part can carry several
+            // servos, each with its own robotic ordinal), not pid-collapsed like the
+            // deployable / light / parachute families.
+            if (IsEngineVisualStateEvent(evt.eventType)
+                || IsRcsVisualStateEvent(evt.eventType)
+                || IsRoboticVisualStateEvent(evt.eventType))
                 return FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
 
             return evt.partPersistentId;
@@ -511,6 +556,44 @@ namespace Parsek
                     ut = splitUT,
                     partPersistentId = state.PartPersistentId,
                     eventType = state.SeedEventType,
+                    partName = state.PartName,
+                    value = state.Value,
+                    moduleIndex = state.ModuleIndex
+                });
+                added++;
+            }
+
+            return added;
+        }
+
+        /// <summary>
+        /// Emits one <c>RoboticMotionStopped</c> seed per servo key, UNCONDITIONALLY —
+        /// unlike <see cref="AppendActiveStateSeeds"/>, which only emits for `Active`
+        /// states. A servo parked mid-stroke is not the default pose: without a seed the
+        /// tail's ghost would render it at the prefab pose (gear up / arm folded) until the
+        /// tail's own first robotic event fires, which on a rewind fork may be never.
+        /// <c>RoboticMotionStopped</c> is the right carrier because
+        /// <c>GhostPlaybackLogic.ApplyRoboticEvent</c> applies the pose and parks the
+        /// motion; a still-travelling servo is re-armed by the tail's own next sample.
+        /// </summary>
+        private static int AppendRoboticStateSeeds(
+            Dictionary<ulong, TransientPartState> states,
+            List<PartEvent> seeds,
+            double splitUT)
+        {
+            if (states == null || states.Count == 0) return 0;
+
+            int added = 0;
+            var keys = new List<ulong>(states.Keys);
+            keys.Sort();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                var state = states[keys[i]];
+                seeds.Add(new PartEvent
+                {
+                    ut = splitUT,
+                    partPersistentId = state.PartPersistentId,
+                    eventType = PartEventType.RoboticMotionStopped,
                     partName = state.PartName,
                     value = state.Value,
                     moduleIndex = state.ModuleIndex
