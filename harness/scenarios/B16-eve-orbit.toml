@@ -282,7 +282,9 @@ mission = "b16_eve_orbit"
 #     not worth the one surface B16 actually buys (the capture tail after a
 #     heliocentric traverse - see WHY THIS MISSION EXISTS), the honest move is to
 #     ship B15 alone and drop B16, NOT to shrink its budgets.
-#   PROVISIONAL: both wall numbers, pending the first green flight.
+#   MEASURED: 1,825 s wall / 1,766 s mission (first green flight,
+#   2026-07-29_1718) and 1,843 s wall / 1,769 s mission (re-fly,
+#   2026-08-11_0718). The 4,700 / 4,200 budgets stand as headroom.
 # Phase budgets in missionParams are GAME time.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
@@ -531,11 +533,14 @@ allowedAnomalies = []
 # `.prec`. This window guards recording TOPOLOGY only; the COMMIT is guarded by
 # the logContract tokens below and by nothing else.
 #
-# PIN IT FROM THE FIRST GREEN FLIGHT: read
-# `verifiers.expectations.observed.recordings.count` out of that run's
-# results/*.json and narrow to {n, n}, carrying B11/B12's explicit
-# "min = n is not a floor" reasoning. Do not widen it blindly.
-count = { min = 7, max = 9 }
+# PINNED FROM MEASURED FLIGHTS, carrying B11/B12's explicit "min = 8 is NOT
+# a floor" reasoning: the first green flight (2026-07-29_1718, per the
+# status row) measured exactly 8, and the 2026-08-11_0718 re-fly (PASS
+# attempt 1; its produced save became the eve-orbit-recorded fixture)
+# measured exactly 8 again via
+# `verifiers.expectations.observed.recordings.count`. Two flights, one
+# value. Do not widen it blindly.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 # Every token is sourced from its ACTUAL emitting ParsekLog call site.

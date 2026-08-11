@@ -6442,6 +6442,111 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Injects the WORLD-PRESERVATION rewindable-tree fixture into the target
+        /// save: the same rewindable shape as <see cref="InjectRewindB9"/> PLUS an
+        /// unrelated fleet inside the RP quicksave (a Station, the host save's own
+        /// asteroids/comets re-admitted verbatim, a Flag, and a Probe + Debris pair
+        /// both name-colliding with the re-flown craft). Harness-callable via
+        /// <c>dotnet test --filter InjectReFlyWorldPreservation</c> (the
+        /// <c>refly-world-preservation</c> injection preset consumed by
+        /// <c>S4.2-refly-world-preservation</c>).
+        ///
+        /// <para>
+        /// Sibling of the two injectors above and deliberately identical to them
+        /// except for the fixture populated; the slot-name prefix and the
+        /// unrelated-world author are both set by
+        /// <see cref="ReFlyWorldPreservationFixture.PopulateWriter"/> rather than
+        /// here, because the fleet and the prefix belong to the fixture's contract.
+        /// Same env contract (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START).
+        /// </para>
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectReFlyWorldPreservation()
+        {
+            // Distinct default save name so a bare `dotnet test` full-suite run
+            // no-ops here rather than purging another fixture's corpus.
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "refly-world-preservation-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            // Same guarded purge as the sibling injectors: refuse when KSP.log is
+            // locked by a live session so the inject never races the game.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double baseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            ReFlyWorldPreservationFixture.PopulateWriter(writer, baseUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = WP Stack", content);
+                    Assert.Contains("vesselName = WP Upper B", content);
+                    Assert.Contains(
+                        "vesselName = " + ReFlyWorldPreservationFixture.BoosterVesselName,
+                        content);
+                    Assert.Contains("REWIND_POINTS", content);
+                    Assert.Contains(
+                        "rewindPointId = " + ReFlyWorldPreservationFixture.RewindPointId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+
+            // The RP quicksave sidecar must exist on disk or CanInvoke declines, and
+            // it is ALSO the ground truth the in-game ReFlyWorldPreservation cells
+            // read back, so its absence would turn that whole category into skips.
+            string rpSidecar = Path.Combine(
+                saveDir, "Parsek", "RewindPoints",
+                ReFlyWorldPreservationFixture.RewindPointId + ".sfs");
+            Assert.True(File.Exists(rpSidecar),
+                $"World-preservation RP quicksave sidecar missing: {rpSidecar}");
+        }
+
+        /// <summary>
         /// Injects the LOOPED-INTERPLANETARY corpus into the target save: ONE
         /// looped recording whose OrbitSegment chain is the REAL flown
         /// duna-direct Kerbin -> Sun -> Duna geometry, byte-pinned (see

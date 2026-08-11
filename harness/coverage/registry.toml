@@ -90,11 +90,22 @@ values = ["science", "funds", "reputation", "milestones", "kerbals", "facilities
           "action-blocking", "epoch-isolation", "recalc-from-ut0"]
 
 [D9]  # rewind / re-fly
+# "world-preservation" (added with S4.2-refly-world-preservation, per the growth
+# rule the D12 `crew-death-in-flight` entry set): the re-fly load leaves the
+# NON-SLOT world standing - unrelated vessels, stations, SpaceObject
+# asteroids/comets and planted flags survive, while this rewind point's OTHER slots
+# are removed, and the #587 name-matched kill stays debris-only. D9 had no value
+# for it and none of the existing ones can be stretched to mean it: every cell here
+# names a re-fly MECHANISM (invoke, gate, bundle, strip, split, supersede,
+# tombstone, journal, reap, read-back) and the surviving world is a
+# CONSEQUENCE none of them asserts. `rewind-to-separation` is the closest and is
+# already claimed by three scenarios that were all green while the fleet was being
+# deleted, which is the case for a separate value rather than a re-labelled one.
 values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gate",
           "unfinished-flights-stash", "seal-stash-fly", "supersede-relation", "tombstones",
           "merge-journal", "head-tip-split", "terminal-kind-classify", "load-time-sweep",
           "rp-disk-reaper", "revert-during-refly-dialog", "read-back-guard",
-          "reconciliation-bundle"]
+          "reconciliation-bundle", "world-preservation"]
 
 [D10]  # logistics / routes
 values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-producer",
