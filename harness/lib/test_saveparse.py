@@ -813,6 +813,87 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "fbc705e91fcd4b5a8176cf5493807a0b"],
             "schemaGeneration": 4,
         },
+        # --- THE ROUTE-PROOF (DOCKING) FIXTURE ---------------------------
+        # PROVENANCE: bdock-recorded <- BDOCK-1-station-interceptor, run
+        # 2026-08-11_1606, PASS attempt 1, wall 2146 s / mission 2093 s
+        # (result JSON in harness/results/). Harvested with
+        # `harvest_bdock_station.py --keep-parsek --expect-situation
+        # ORBITING` from the produced bdock-station-pad save. Every number
+        # below was re-measured off THESE COMMITTED BYTES with
+        # saveparse.parse_parsek_scenario + observed_structure_facets, and
+        # is identical to that run's own saveParse verifier facets.
+        #
+        # THE REGISTRY'S FIRST TWO-TREE FIXTURE, and its first with any
+        # REWIND_POINTS rows. Read the pin accordingly: the consumer cell
+        # parses the WHOLE scenario, so `terminalStates` / `branchPoints`
+        # are ONE MERGED histogram across both trees, not per-tree maps.
+        # The per-tree attribution, for anyone reading a mismatch:
+        #   788554a9... (root a32f62f5 "Kerbal X") - 8 recordings: root
+        #     Orbiting + 6 debris Destroyed + "Kerbal X Probe" b07cfd6c
+        #     Orbiting/CommittedProvisional. 5 JointBreak branch points,
+        #     one carrying rp_72ebafb5.
+        #   8c677bba... (root 5157d655 "Kerbal X") - 11 recordings: root
+        #     DOCKED + 6 debris Destroyed + "Kerbal X Probe" 500c0ba9
+        #     Orbiting/CommittedProvisional + the docked-state recording
+        #     f049901e + its two post-undock children 37d0dc07 (Orbiting,
+        #     Immutable) and 4af6cfd7 (Orbiting, CommittedProvisional).
+        #     5 JointBreak + 1 Dock (type 2, child f049901e) + 1 Undock
+        #     (type 0, children 37d0dc07 / 4af6cfd7, carrying rp_1df613c7).
+        # 19 recordings but terminalStates sums to 18: f049901e, the
+        # docked-state recording, writes NO terminalState key at all, and
+        # observed_structure_facets counts only resolvable ones. That is
+        # measured, not a miscount - do not "fix" it to 19.
+        #
+        # THE PAYLOAD IS THE PROOF SURFACE, NOT CANDIDACY. f049901e owns
+        # the save's single ROUTE_CONNECTION_WINDOWS node (one WINDOW:
+        # dockUT 8949.268 -> undockUT 8950.588, transferKind=DockingPort,
+        # transferTargetPid 3620499050, 28 transport + endpoint part pid
+        # rows), and four recordings carry ROUTE_RUN_MANIFEST nodes
+        # (a32f62f5, 5157d655, f049901e, 37d0dc07). What this fixture
+        # deliberately is NOT is a route CANDIDATE: three of its 19
+        # recordings are MergeState.CommittedProvisional (b07cfd6c,
+        # 500c0ba9, 4af6cfd7 - TWO of them in the route-owning tree), and
+        # RouteCandidateFinder.IsTreeFullySealed requires EVERY recording
+        # Immutable, so neither tree can be picked up as a candidate
+        # without the player's Seal action. See the
+        # ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH entry in
+        # todo-and-known-bugs.md. A future harvest that arrived with three
+        # Immutables here would be a DIFFERENT fixture and must re-pin the
+        # finding too, not just these numbers.
+        #
+        # minSidecars 131 is the MEASURED file count, not a family
+        # multiple: 19 .prec + 19 .pann + 19 _vessel.craft + 18
+        # _ghost.craft + 56 .txt mirrors. f049901e is the one recording
+        # with no _ghost.craft (a 2-point docked-state row). All 19 ids
+        # resolve to a non-empty .prec - checked, no orphans either way.
+        "bdock-recorded": {
+            "trees": 2, "committedTrees": 2, "recordings": 19,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 3,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 5, "Destroyed": 12, "Docked": 1},
+            "branchPoints": {"JointBreak": 10, "Dock": 1, "Undock": 1},
+            "minSidecars": 131,
+            "recordingIds": ["0821dac8ecae4eac8522d7e88cd76705",
+                             "08d3217670d341de8c94cc0d9defea69",
+                             "1cfb0ec7f90e4bdda580b348f142232c",
+                             "30e3d912eb3b406ab5f745b267634064",
+                             "37d0dc074351408ba0374230793abb1c",
+                             "4af6cfd725d646ccbac9ef2f7749667e",
+                             "4f7042d450ca44e9936a355864dee3d6",
+                             "500c0ba9c18b4e2f96d64dd4d3b40b63",
+                             "5157d6555bd3499592c46d8508dbedf4",
+                             "8bec4c80a8854508b2f1a406a4ab4669",
+                             "9bd1a291bdd64ecab0c207190c8b0a27",
+                             "a32f62f52dc84d6a94daf93460ec6548",
+                             "ab5fbd335b22413c8b792a3cd394904d",
+                             "ae60f691c24a49658391c95d7d46ce9a",
+                             "b07cfd6cc27d47e7a6fb497d9836e665",
+                             "e48bd55861804c55aa2748d931a43d78",
+                             "f049901e1f4641ffae490b2f52b1d55e",
+                             "f17e1186e9ed449b93650eb5f011a932",
+                             "fd29c89536564f31bccec5c8e3f0fbc9"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):

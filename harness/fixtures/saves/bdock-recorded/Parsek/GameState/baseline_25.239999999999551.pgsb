@@ -1,0 +1,43 @@
+ut = 25.239999999999551
+funds = 0
+science = 0
+reputation = 0
+TECH_IDS
+{
+}
+FACILITY_LEVELS
+{
+}
+BUILDING_INTACT
+{
+}
+ACTIVE_CONTRACTS
+{
+}
+CREW_ROSTER
+{
+	CREW
+	{
+		name = Jebediah Kerman
+		status = Missing
+		trait = Pilot
+	}
+	CREW
+	{
+		name = Bill Kerman
+		status = Assigned
+		trait = Engineer
+	}
+	CREW
+	{
+		name = Bob Kerman
+		status = Assigned
+		trait = Scientist
+	}
+	CREW
+	{
+		name = Valentina Kerman
+		status = Assigned
+		trait = Pilot
+	}
+}

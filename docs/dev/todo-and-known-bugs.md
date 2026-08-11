@@ -14,6 +14,85 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H33-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
+
+**What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
+GREEN `BDOCK-1-station-interceptor` flight (run `2026-08-11_1606`, PASS attempt 1,
+wall 2,146 s) - the harness's most complete two-vessel mission: ascent, mid-mission
+commit, second launch, rendezvous, hard dock, LF/MP transfers both ways, undock,
+terminal. Parsed over the committed bytes with `saveparse`, it carries 2 committed
+trees / 19 recordings, and THREE of those recordings are
+`MergeState.CommittedProvisional` - `b07cfd6c` (tree `788554a9`), and `500c0ba9` +
+`4af6cfd7` in tree `8c677bba`, which is the tree that owns the save's single
+`ROUTE_CONNECTION_WINDOWS` node (on the docked-state recording `f049901e`). So the
+ROUTE-OWNING tree has two open provisionals.
+
+**Why that blocks candidacy.** `RouteCandidateFinder.IsTreeFullySealed`
+(`Source/Parsek/Logistics/RouteCandidateFinder.cs:83-96`) returns false unless EVERY
+non-null recording in the tree is `MergeState.Immutable`:
+
+```
+88:            foreach (Recording rec in tree.Recordings.Values)
+92:                if (rec.MergeState != MergeState.Immutable)
+93:                    return false;
+```
+
+and `DeriveCandidates` (`:157-196`) gates on it SECOND, before eligibility analysis
+and before the already-promoted check. The policy is right and should not be
+loosened: an open `CommittedProvisional` is a re-flyable Unfinished Flight, and a
+route built from one would flip to `RouteStatus.SourceChanged` the moment it was
+re-flown (the doc comment at `:65-71` says exactly this). The problem is not the
+gate; it is that a flight-class terminal - which is what an interceptor profile ends
+on - leaves provisionals behind BY DESIGN, so **no automated mission produces a
+sealed tree**. Sealing is a player action.
+
+**And the seam cannot perform it.** `SealSlot` is a RESERVED verb:
+`Source/Parsek/TestCommands/TestCommandVerbs.cs:100` lists it in `ReservedVerbs`,
+and `TestCommandDispatcher.cs:298-299` answers `Reject("not-implemented-v1")` for
+the whole reserved class. It is pinned reserved by
+`Source/Parsek.Tests/TestCommandDispatchTests.cs:65-66` and
+`TestCommandVerbTableTests.cs:47`. The only other "Seal" on the seam surface is
+`MergeAnswerChoice.Seal`, which ANSWERS an already-open merge dialog
+(`ParsekTestCommandAddon.cs:2187`) - it cannot seal a tree on demand.
+
+**Scope, stated honestly.** What is blocked is end-to-end route CREATION under
+automation: candidate detection -> promotion -> a live route driven by a REAL
+recorded tree. What is NOT blocked, and is now wired, is the PROOF surface those
+routes are built from - `H33-logistics-route-proof` walks the recorded
+`ROUTE_CONNECTION_WINDOWS` window and the `ROUTE_ORIGIN_PROOF` field with the
+in-game route-proof cells and pins two of them passing. The existing route-behavior
+coverage (H6's route-rewind timeline, H32's inter-body firing gate, the M3-M5 xUnit
+stack) all drives SYNTHETIC routes built in memory, which is what this gap keeps it
+doing.
+
+**Fix (either road, both real work, neither taken here):** (1) promote `SealSlot` out of
+`ReservedVerbs` and implement it against the same code path the UI's Seal action
+uses, which makes the whole candidate -> route pipeline drivable; or (2) add an
+in-game seal API a `[InGameTest]` can call, and wire a Logistics cell that seals a
+committed tree, derives candidates and asserts the promotion - cheaper, but it
+proves the pipeline rather than the player workflow. Until one lands, do NOT read
+"BDOCK-1 is green" as "routes are automated end to end".
+
+**D10 coverage, and why H33 claims NONE of it.** The obvious temptation on a spec
+whose subject is route proofs is to claim a D10 row. H33 claims none, deliberately.
+Its two passing cells are READ-SIDE walkers over surfaces `BDOCK-1`'s own flight
+produces and already claims (`dock-producer`, `ksc-origin`), and nothing in an H33
+run drives a production route emitter at all - `Route proof dock window captured:`
+(`ParsekFlight.cs:6246`) and `Route window delta:` (`RouteProofCapture.cs:728`) fire
+during RECORDING, and the reading run's log contains ZERO occurrences of either.
+Claiming a row off a token that is not in the log is the exact CLAIM-IS-NOT-GATE
+failure the registry discipline exists to prevent. None of the ten still
+zero-declarer D10 rows is evidenced either: `docked-depot-origin`, `claw-producer`,
+`inventory-cargo`, `harvest-provenance`, `multi-stop`, `multi-origin-escrow`,
+`round-trip-pair`, `hold-reasons`, `destination-full-gate`, `route-map-lines`
+(`harness/coverage/registry.toml:99-104`). Several of them - `multi-stop`,
+`multi-origin-escrow`, `round-trip-pair`, `hold-reasons`, `destination-full-gate` -
+have in-game cells that exist but carry `AllowBatchExecution = false`, so they are
+blocked by the B4 batch-wiring bucket rather than by this seal gap; the two
+route-CREATION-shaped ones are what the fix above would unblock.
+
+---
+
 ## D10-INTERBODY-CELLS-NOW-DECLARED: the two inter-body coverage cells stop being zero-declarer, and what their gate does and does not prove [RECORDED 2026-08-11 by `H32-logistics-inter-body`. NOT A DEFECT - a coverage record, filed so the claim's exact scope survives the PR body]
 
 `D10 inter-body-nth-window` and `D10 dispatch-cadence` have been in
