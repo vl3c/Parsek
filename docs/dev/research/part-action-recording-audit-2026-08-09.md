@@ -300,6 +300,46 @@ Stated as an untested interaction, not a finding — `PatchScience` was not trac
 between a restored `GAME`-node scenario and a patched ledger facet that reads from it is where the
 remaining rewind bugs will be.
 
+### TRACED 2026-08-11 — the feared mechanism is VERIFIED-SAFE; one bounded secondary defect found
+
+**The mechanism above cannot mis-total, for three independent reasons.**
+
+1. `ScienceChanged` never reaches the ledger at all: `GameStateEventConverter` DROPS it. Ledger
+   `ScienceEarning` rows come from `OnScienceRecieved` captures that record `subjectId`, the award
+   and `subjectMaxValue` **at earn time** (`GameStateRecorder.cs`), so the earn value was fixed
+   before any rewind and is never re-derived.
+2. The walk is a fresh delta replay against ledger fields only. `ScienceModule.Reset()` clears all
+   subject state on every recalc, and `ProcessEarning` computes
+   `effective = min(recordedAward, cap − creditedTotal)` from the action's own fields. No KSP
+   singleton is read anywhere in the walk, so a rolled-back subject-value table cannot influence a
+   payout.
+3. The live subject table is OVERWRITTEN, not consulted. `PatchPerSubjectScience` writes
+   `kspSubject.science = CreditedTotal` verbatim and recomputes `scientificValue` from the target
+   and the cap; live subjects absent from the surviving ledger are zeroed. The pool patch is a
+   separate guarded delta, and both run in the same `PatchAll` at the rewind apply boundary with
+   `authoritativeReduction = true`. `LedgerGroundTruth` already pins the pool scalars hard.
+
+**The secondary defect (real, reachable, bounded).** `PatchPerSubjectScience` could not CREATE a
+missing live subject: `GetSubjectByID == null` counted `notFound` and skipped. A subject first
+earned AFTER the rewind point by a branch that SURVIVES the merge is absent from the
+quicksave-restored R&D table while the surviving ledger still credits it, so the re-assert skipped
+it. The Science Archive then under-reported that subject permanently, and a re-run of the
+experiment paid FULL value from a fresh zero-science subject while the ledger clamped the new row
+to the remaining headroom — leaving running < live, which the next non-authoritative recalc's
+`ApplyDrawdownGuard` resolves by clamping the pool UP to live. The over-award was permanent, bounded
+per subject by `scienceCap`.
+
+Fixed 2026-08-11: `ResolveMissingSubjectCreation` (pure) plus a reflection insert into
+`ResearchAndDevelopment.scienceSubjects`, gated on a POSITIVE ledger target so a legitimately
+un-earned subject still stays out of the Archive. Decompile-verified against KSP 1.12.5
+`Assembly-CSharp`: the field is `private Dictionary<string, ScienceSubject> scienceSubjects`; the
+public ctor `ScienceSubject(id, title, dataScale, subjectValue, scienceCap)` starts at
+`science = 0` / `scientificValue = 1`; and the placeholder's cosmetic fields self-heal, because
+`GetExperimentSubject` routes through the private `getScienceSubject`, which refreshes
+`title`/`scienceCap`/`subjectValue`/`dataScale` from a freshly built subject while PRESERVING the
+`science` value we re-asserted. A broken reflection handle degrades to exactly the pre-fix skip,
+with a one-shot WARN.
+
 ---
 
 ## 7. Documentation defects found in passing

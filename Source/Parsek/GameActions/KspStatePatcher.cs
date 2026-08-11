@@ -1200,9 +1200,185 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Outcome of the "the ledger knows this subject but R&amp;D does not" branch of
+        /// <see cref="PatchPerSubjectScience"/>. Pure: no singletons, no reflection.
+        /// </summary>
+        internal readonly struct MissingSubjectCreationDecision
+        {
+            /// <summary>True when a placeholder <c>ScienceSubject</c> should be created and registered.</summary>
+            internal readonly bool ShouldCreate;
+            /// <summary>The credited-science target the created subject is patched to.</summary>
+            internal readonly float TargetScience;
+            /// <summary>
+            /// The cap the created subject is constructed with. Never below
+            /// <see cref="TargetScience"/>, so stock's diminishing-returns math stays sane
+            /// even when the recorded <c>subjectMaxValue</c> is missing or nonsensical.
+            /// </summary>
+            internal readonly float ScienceCap;
+            /// <summary>Grep-stable reason token; "create" when <see cref="ShouldCreate"/> is true.</summary>
+            internal readonly string Reason;
+
+            internal MissingSubjectCreationDecision(
+                bool shouldCreate, float targetScience, float scienceCap, string reason)
+            {
+                ShouldCreate = shouldCreate;
+                TargetScience = targetScience;
+                ScienceCap = scienceCap;
+                Reason = reason;
+            }
+        }
+
+        /// <summary>
+        /// Decides whether a ledger-known subject that R&amp;D has no row for should be
+        /// CREATED rather than silently skipped.
+        ///
+        /// <para>
+        /// Why this exists: a Re-Fly restores R&amp;D from the rewind-point quicksave, so a
+        /// subject first earned AFTER the rewind point by a branch that SURVIVES the merge is
+        /// absent from the live subject table while the surviving ledger still credits it.
+        /// The old code counted that as <c>notFound</c> and skipped, leaving the Science
+        /// Archive under-reporting the subject. The player then re-runs the experiment, stock
+        /// awards from a fresh zero-science subject, the ledger clamps the new row to the
+        /// remaining headroom, and the next non-authoritative recalc's drawdown guard clamps
+        /// the pool UP to the live value — the over-award becomes permanent.
+        /// </para>
+        ///
+        /// <para>
+        /// Only a POSITIVE ledger target is created. A zero/absent target means "this subject
+        /// should read as un-earned", and an absent live row already reads that way — creating
+        /// an empty placeholder would add a Science Archive entry the player never earned.
+        /// </para>
+        ///
+        /// Pure: no singletons, no reflection, no Unity.
+        /// </summary>
+        internal static MissingSubjectCreationDecision ResolveMissingSubjectCreation(
+            string subjectId, bool hasLedgerState, double creditedTotal, double maxValue)
+        {
+            if (string.IsNullOrEmpty(subjectId))
+                return new MissingSubjectCreationDecision(false, 0f, 0f, "no-subject-id");
+            if (!hasLedgerState)
+                return new MissingSubjectCreationDecision(false, 0f, 0f, "no-ledger-state");
+            if (double.IsNaN(creditedTotal) || double.IsInfinity(creditedTotal))
+                return new MissingSubjectCreationDecision(false, 0f, 0f, "non-finite-target");
+            if (creditedTotal <= 0.0)
+                return new MissingSubjectCreationDecision(false, 0f, 0f, "zero-target");
+
+            float target = (float)creditedTotal;
+            float cap = (double.IsNaN(maxValue) || double.IsInfinity(maxValue))
+                ? target
+                : (float)maxValue;
+            if (cap < target)
+                cap = target;
+            return new MissingSubjectCreationDecision(true, target, cap, "create");
+        }
+
+        // Mirrors protoTechNodesReflectionWarnEmitted: one-shot per session, reset in
+        // ResetForTesting. When the reflection handle breaks, the create path degrades to
+        // exactly the pre-fix behavior (count as notFound and skip), never to a crash.
+        private static bool scienceSubjectsReflectionWarnEmitted;
+
+        /// <summary>
+        /// Reflection handle on <c>ResearchAndDevelopment.scienceSubjects</c>, the private
+        /// <c>Dictionary&lt;string, ScienceSubject&gt;</c> backing <c>GetSubjectByID</c>.
+        /// Verified against the decompiled KSP 1.12.5 <c>Assembly-CSharp</c>: the field is
+        /// <c>private Dictionary&lt;string, ScienceSubject&gt; scienceSubjects</c>, and the only
+        /// insert seam (<c>getScienceSubject</c>) is private and MUTATES an existing row's
+        /// title/cap/dataScale, which is not what a re-assert wants.
+        /// </summary>
+        private static Dictionary<string, ScienceSubject> GetScienceSubjectsDictionary()
+        {
+            if (ResearchAndDevelopment.Instance == null)
+                return null;
+
+            var field = typeof(ResearchAndDevelopment).GetField(
+                "scienceSubjects",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (field == null)
+            {
+                EmitScienceSubjectsReflectionWarnOnce(
+                    "field typeof(ResearchAndDevelopment).GetField(\"scienceSubjects\") returned null");
+                return null;
+            }
+
+            var value = field.GetValue(ResearchAndDevelopment.Instance)
+                as Dictionary<string, ScienceSubject>;
+            if (value == null)
+            {
+                EmitScienceSubjectsReflectionWarnOnce(
+                    "field.GetValue returned null or wrong type for \"scienceSubjects\"");
+            }
+            return value;
+        }
+
+        // Internal so xUnit can drive the one-shot warn path without booting R&D singletons.
+        internal static void EmitScienceSubjectsReflectionWarnOnce(string detail)
+        {
+            if (scienceSubjectsReflectionWarnEmitted)
+                return;
+            scienceSubjectsReflectionWarnEmitted = true;
+            ParsekLog.Warn(Tag,
+                "PatchPerSubjectScience: reflection lookup for ResearchAndDevelopment.scienceSubjects " +
+                $"failed (one-shot per session) — {detail}. Ledger-known subjects that R&D has no row " +
+                "for cannot be created; they fall back to being counted as notFound and skipped.");
+        }
+
+        /// <summary>
+        /// Builds a placeholder <c>ScienceSubject</c> for <paramref name="subjectId"/> and inserts
+        /// it into R&amp;D's private subject dictionary. Returns null when the reflection handle is
+        /// unavailable or the insert throws.
+        ///
+        /// <para>
+        /// The placeholder carries <c>dataScale</c>/<c>subjectValue</c> of 1 because the ledger
+        /// does not record them. That is safe: the first real re-run of the experiment routes
+        /// through <c>ResearchAndDevelopment.GetExperimentSubject</c> -&gt;
+        /// <c>getScienceSubject</c>, which — verified in the decompiled 1.12.5 source — refreshes
+        /// <c>title</c>/<c>scienceCap</c>/<c>subjectValue</c>/<c>dataScale</c> from the freshly
+        /// built subject while PRESERVING the <c>science</c> we re-asserted. Stock self-heals the
+        /// placeholder's cosmetic fields; the credited total is what we own.
+        /// </para>
+        /// </summary>
+        private static ScienceSubject TryCreateAndRegisterSubject(
+            string subjectId, MissingSubjectCreationDecision decision)
+        {
+            var dictionary = GetScienceSubjectsDictionary();
+            if (dictionary == null)
+                return null;
+
+            try
+            {
+                string title = null;
+                try
+                {
+                    title = ScienceUtil.GenerateLocalizedTitle(subjectId);
+                }
+                catch (Exception titleEx)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"PatchPerSubjectScience: GenerateLocalizedTitle threw for subjectId='{subjectId}': " +
+                        $"{titleEx.Message} — falling back to the raw id");
+                }
+                if (string.IsNullOrEmpty(title))
+                    title = subjectId;
+
+                var created = new ScienceSubject(subjectId, title, 1f, 1f, decision.ScienceCap);
+                dictionary[subjectId] = created;
+                return created;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchPerSubjectScience: creating a placeholder subject for subjectId='{subjectId}' " +
+                    $"threw: {ex.Message} — skipping (subject stays absent from the Science Archive)");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Patches per-subject credited totals in KSP's R&amp;D system to match the module's
         /// derived state. After rewind, the Science Archive must show correct per-subject progress.
         /// Updates both the credited science and the scientific value (diminishing returns factor).
+        /// A ledger-known subject with a positive credited total that R&amp;D has no row for is
+        /// CREATED (see <see cref="ResolveMissingSubjectCreation"/>) rather than skipped.
         /// No-op if ResearchAndDevelopment.Instance is null (sandbox mode).
         /// </summary>
         internal static void PatchPerSubjectScience(ScienceModule science)
@@ -1228,19 +1404,37 @@ namespace Parsek
             int skippedSubjects = 0;
             int notFoundSubjects = 0;
             int clearedSubjects = 0;
+            int createdSubjects = 0;
             var changedSubjects = new List<string>();
 
             foreach (var subjectId in subjectIds)
             {
+                ScienceModule.SubjectState state;
+                bool hasCurrentState = subjects.TryGetValue(subjectId, out state);
+
                 var kspSubject = ResearchAndDevelopment.GetSubjectByID(subjectId);
                 if (kspSubject == null)
                 {
-                    notFoundSubjects++;
-                    continue;
+                    // The ledger credits this subject but R&D has no row for it — the
+                    // post-rewind "surviving branch earned it after the RP" case. Create the
+                    // row so the re-assert below lands; a non-creatable case degrades to the
+                    // historical notFound skip.
+                    var creation = ResolveMissingSubjectCreation(
+                        subjectId,
+                        hasCurrentState,
+                        hasCurrentState ? state.CreditedTotal : 0.0,
+                        hasCurrentState ? state.MaxValue : 0.0);
+                    if (creation.ShouldCreate)
+                        kspSubject = TryCreateAndRegisterSubject(subjectId, creation);
+
+                    if (kspSubject == null)
+                    {
+                        notFoundSubjects++;
+                        continue;
+                    }
+                    createdSubjects++;
                 }
 
-                ScienceModule.SubjectState state;
-                bool hasCurrentState = subjects.TryGetValue(subjectId, out state);
                 float targetScience = hasCurrentState ? (float)state.CreditedTotal : 0f;
                 SubjectSciencePatchDecision decision = ResolveSubjectSciencePatch(
                     kspSubject.science, targetScience, kspSubject.scienceCap);
@@ -1283,6 +1477,7 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"PatchPerSubjectScience: patched={patchedSubjects.ToString(IC)}, " +
                 $"cleared={clearedSubjects.ToString(IC)}, " +
+                $"created={createdSubjects.ToString(IC)}, " +
                 $"skipped={skippedSubjects.ToString(IC)}, " +
                 $"notFound={notFoundSubjects.ToString(IC)}, " +
                 $"totalSubjects={subjectIds.Count}" +
@@ -3150,6 +3345,7 @@ namespace Parsek
         {
             SuppressUnityCallsForTesting = false;
             protoTechNodesReflectionWarnEmitted = false;
+            scienceSubjectsReflectionWarnEmitted = false;
             ResetDrawdownGuardSessionLatches();
             FacilityStatePatcher.ResetForTesting();
         }
