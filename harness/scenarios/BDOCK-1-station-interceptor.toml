@@ -98,7 +98,7 @@ instanceProfile = "stock-minimal"
 # "these work" sweep. RE-CONFIRMED AGAIN 2026-08-11: run `2026-08-11_1606`, PASS
 # attempt 1, wall 2,146 s / mission 2,093 s (the same session's `2026-08-11_1605` was
 # an INVALID(tooling-venv) that never reached the game). That run's produced save is
-# the `bdock-recorded` fixture H33-logistics-route-proof now flies against.
+# the `bdock-recorded` fixture H35-logistics-route-proof now flies against.
 tags = ["BDOCK", "bdock", "mechjeb", "dock", "rendezvous", "route", "flown"]
 
 [fixture]

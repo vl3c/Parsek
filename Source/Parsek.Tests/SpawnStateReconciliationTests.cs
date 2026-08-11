@@ -355,8 +355,24 @@ namespace Parsek.Tests
         {
             // PRODUCTION INPUT SHAPE: the post-strip survivor set is computed
             // by subtracting PostLoadStripResult.StrippedPids from the raw
-            // flightState.protoVessels PID enumeration. This is the shape the
-            // Re-Fly load path constructs at RewindInvoker.cs:~822.
+            // flightState.protoVessels PID enumeration, then handed to the
+            // pid-only ReconcileSpawnStateAfterStrip(HashSet<uint>, ...) overload.
+            //
+            // WHICH path this pins: the go-back / Rewind-to-Launch OnLoad path,
+            // whose production call site is ParsekScenario.cs:4152
+            // (ReconcileSpawnStateAfterStrip(fsReconcile.protoVessels, recordings)
+            // -> CollectSurvivingPids -> the pid-only overload). It is NOT the
+            // Re-Fly load path any more: since 98eace618 that path collects
+            // (pid, launch-guid) identities and routes through
+            // RewindInvoker.ReconcilePostStripSpawnState to the guid-aware
+            // overload, because a craft-baked persistentId shared with a
+            // PRESERVED relaunch is not proof of same-launch identity. The
+            // guid-aware Re-Fly shape is pinned by the
+            // ReconcilePostStrip_* cells below.
+            //
+            // ComputeSurvivorsFromProtoVesselPids itself now has no production
+            // caller (only these tests); it is retained as the pure statement of
+            // the stripped-pid subtraction that both paths must perform.
             const uint activeProbePid = 3215646968u;
             const uint capsulePid = 2708531065u;
             const uint otherSiblingPid = 1234567890u;
@@ -472,7 +488,113 @@ namespace Parsek.Tests
         // [Rewind] subsystem, and resets spawn state on any committed recording whose
         // spawned vessel is no longer present. The Unity-only protoVessel-PID collection
         // stays at the call site; this method takes the pre-collected lists, so the glue
-        // is testable without a live KSP flightState.
+        // is testable without a live KSP flightState. It takes (pid, launch-guid)
+        // IDENTITIES, not bare pids, and routes to the guid-aware reconcile overload.
+
+        [Fact]
+        public void ReconcilePostStrip_SurvivorSharingCraftBakedPidFromADifferentLaunch_StillResets()
+        {
+            // The defect the guid-aware routing exists to close. persistentId is
+            // craft-baked, so a relaunch of the recorded craft reuses the pid. Once
+            // the Re-Fly scrub preserves unrelated vessels, that relaunch survives
+            // into the loaded save and a pid-only decision reads it as "the
+            // recording's spawned vessel is still alive" - leaving VesselSpawned
+            // true against a stranger, which permanently blocks the terminal ghost
+            // spawn. The launch guids conclusively differ, so the reset must fire.
+            const uint craftBakedPid = 2708531065u;
+
+            var rec = new Recording
+            {
+                VesselName = "Kerbal X",
+                RecordedVesselGuid = "11111111-1111-1111-1111-111111111111",
+                // Adoption stamp (SpawnedVesselPersistentId == VesselPersistentId)
+                // is the ONLY shape the guid gate applies to: a genuine Parsek
+                // spawn gets a KSP-unique pid and stays pid-only by contract
+                // (VesselLaunchIdentity.LiveVesselIsRecordedSpawn:99-104). The
+                // craft-baked collision hazard lives entirely in this shape.
+                VesselPersistentId = craftBakedPid,
+                SpawnedVesselPersistentId = craftBakedPid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var committed = new List<Recording> { rec };
+
+            // Survivor carries the same baked pid but a DIFFERENT launch guid, and
+            // was not stripped.
+            var protoVesselIdentities = new List<(uint pid, string guid)>
+            {
+                (craftBakedPid, "22222222-2222-2222-2222-222222222222")
+            };
+
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                protoVesselIdentities, new List<uint>(), committed);
+
+            Assert.Equal(1, reconciled);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.False(rec.VesselSpawned);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("survivorsWithLaunchGuid=1"));
+        }
+
+        [Fact]
+        public void ReconcilePostStrip_SurvivorOfTheSameLaunch_DoesNotReset()
+        {
+            // The other side of the guid gate: a survivor whose launch guid MATCHES
+            // is genuinely the recording's spawned vessel, so spawn state must be
+            // left alone (otherwise the ghost double-spawns beside the real craft).
+            const uint craftBakedPid = 2708531065u;
+            const string launchGuid = "11111111-1111-1111-1111-111111111111";
+
+            var rec = new Recording
+            {
+                VesselName = "Kerbal X",
+                RecordedVesselGuid = launchGuid,
+                VesselPersistentId = craftBakedPid,
+                SpawnedVesselPersistentId = craftBakedPid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var committed = new List<Recording> { rec };
+
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                new List<(uint pid, string guid)> { (craftBakedPid, launchGuid) },
+                new List<uint>(),
+                committed);
+
+            Assert.Equal(0, reconciled);
+            Assert.Equal(craftBakedPid, rec.SpawnedVesselPersistentId);
+            Assert.True(rec.VesselSpawned);
+        }
+
+        [Fact]
+        public void ReconcilePostStrip_StrippedPidIsSubtractedEvenWhenItsIdentityCarriesAGuid()
+        {
+            // Guard the subtraction: PostLoadStripper.Strip Die()s the vessel but
+            // leaves its ProtoVessel in the flightState mirror, so without the
+            // explicit strippedPids subtraction the identity reads as a survivor
+            // and the reset is masked - guid agreement makes that MORE likely, not
+            // less, so the subtraction has to happen before the guid comparison.
+            const uint pid = 2708531065u;
+            const string launchGuid = "11111111-1111-1111-1111-111111111111";
+
+            var rec = new Recording
+            {
+                VesselName = "Kerbal X",
+                RecordedVesselGuid = launchGuid,
+                SpawnedVesselPersistentId = pid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var committed = new List<Recording> { rec };
+
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                new List<(uint pid, string guid)> { (pid, launchGuid) },
+                new List<uint> { pid },
+                committed);
+
+            Assert.Equal(1, reconciled);
+            Assert.False(rec.VesselSpawned);
+        }
 
         [Fact]
         public void ReconcilePostStrip_ProductionShape_ResetsStrippedSiblings_AndLogsCounts()
@@ -506,11 +628,14 @@ namespace Parsek.Tests
 
             // protoVessels still carries all three PIDs (Vessel.Die() does not sync the
             // flightState mirror); the strip removed the capsule + booster.
-            var protoVesselPids = new List<uint> { activeProbePid, capsulePid, boosterPid };
+            var protoVesselIdentities = new List<(uint pid, string guid)>
+            {
+                (activeProbePid, null), (capsulePid, null), (boosterPid, null)
+            };
             var strippedPids = new List<uint> { capsulePid, boosterPid };
 
             int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
-                protoVesselPids, strippedPids, committed);
+                protoVesselIdentities, strippedPids, committed);
 
             Assert.Equal(2, reconciled);
             Assert.Equal(0u, capsule.SpawnedVesselPersistentId);
@@ -536,7 +661,7 @@ namespace Parsek.Tests
         public void ReconcilePostStrip_NullCommitted_ReturnsZero_NoSummaryLog()
         {
             int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
-                new List<uint> { 100 }, new List<uint> { 100 }, null);
+                new List<(uint pid, string guid)> { (100u, null) }, new List<uint> { 100 }, null);
 
             Assert.Equal(0, reconciled);
             Assert.DoesNotContain(logLines, l => l.Contains("Post-strip reconcile:"));
@@ -546,7 +671,7 @@ namespace Parsek.Tests
         public void ReconcilePostStrip_EmptyCommitted_ReturnsZero_NoSummaryLog()
         {
             int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
-                new List<uint> { 100 }, new List<uint>(), new List<Recording>());
+                new List<(uint pid, string guid)> { (100u, null) }, new List<uint>(), new List<Recording>());
 
             Assert.Equal(0, reconciled);
             Assert.DoesNotContain(logLines, l => l.Contains("Post-strip reconcile:"));
@@ -590,7 +715,7 @@ namespace Parsek.Tests
 
             // strippedPids null -> survivors = all proto PIDs -> spawn state preserved.
             int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
-                new List<uint> { 100 }, null, committed);
+                new List<(uint pid, string guid)> { (100u, null) }, null, committed);
 
             Assert.Equal(0, reconciled);
             Assert.Equal(100u, rec.SpawnedVesselPersistentId);

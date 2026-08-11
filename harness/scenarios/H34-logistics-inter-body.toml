@@ -1,6 +1,14 @@
 schema = 1
-id = "H32-logistics-inter-body"
+id = "H34-logistics-inter-body"
 tier = "operator"
+# ID PROVENANCE: this spec was authored and FLOWN as `H32-logistics-inter-body`
+# and was renamed to H34 post-merge, when a sibling lane landed a DIFFERENT
+# `H32-snapshot-baseline` on main first. Every run id cited below embeds the OLD
+# name (`2026-08-11_1549_H32-logistics-inter-body` and its two confirms); those
+# citations remain TRUE history - nothing was re-flown or re-measured by the
+# rename. Every pin here is id-INDEPENDENT: BATCH_COMPLETE carries no spec id,
+# and the two route tokens are production emissions.
+#
 # The `Logistics` category's SPACECENTER-eligible SLICE - 2 of its 47 declarations
 # - run unattended. This is the first spec to own any part of the largest in-game
 # category, and the only automated driver of
@@ -44,7 +52,7 @@ tier = "operator"
 # off n=29 readings plus its own mechanism bound - that is the bar for arming).
 description = "Boot straight to the Space Center through LoadGame scene=spacecenter and run the in-game Logistics category unattended: the M5 inter-body builder-shape gate drives a REAL committed Kerbin->Duna transfer tree through the REAL RouteOrchestrator.ResolveLoopUnit + MissionLoopUnitBuilder against live stock ephemerides, asserts the unit classifies ReaimWindows (not the silent FlatInterval), and drives the live firing gate through a window-0 fire / window-1 modulo skip / window-2 fire alternation at N=2."
 instanceProfile = "stock-minimal"
-tags = ["logistics", "route", "inter-body", "reaim", "scene-routing", "H32", "R12"]
+tags = ["logistics", "route", "inter-body", "reaim", "scene-routing", "H34", "R12"]
 
 [fixture]
 # gloops-airshow SANDBOX pod host (see S0.5 / H5 / H6 / H23). Its focusable

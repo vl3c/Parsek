@@ -14,7 +14,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H33-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
+## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY
 GREEN `BDOCK-1-station-interceptor` flight (run `2026-08-11_1606`, PASS attempt 1,
@@ -58,10 +58,10 @@ the whole reserved class. It is pinned reserved by
 **Scope, stated honestly.** What is blocked is end-to-end route CREATION under
 automation: candidate detection -> promotion -> a live route driven by a REAL
 recorded tree. What is NOT blocked, and is now wired, is the PROOF surface those
-routes are built from - `H33-logistics-route-proof` walks the recorded
+routes are built from - `H35-logistics-route-proof` walks the recorded
 `ROUTE_CONNECTION_WINDOWS` window and the `ROUTE_ORIGIN_PROOF` field with the
 in-game route-proof cells and pins two of them passing. The existing route-behavior
-coverage (H6's route-rewind timeline, H32's inter-body firing gate, the M3-M5 xUnit
+coverage (H6's route-rewind timeline, H34's inter-body firing gate, the M3-M5 xUnit
 stack) all drives SYNTHETIC routes built in memory, which is what this gap keeps it
 doing.
 
@@ -73,10 +73,10 @@ committed tree, derives candidates and asserts the promotion - cheaper, but it
 proves the pipeline rather than the player workflow. Until one lands, do NOT read
 "BDOCK-1 is green" as "routes are automated end to end".
 
-**D10 coverage, and why H33 claims NONE of it.** The obvious temptation on a spec
-whose subject is route proofs is to claim a D10 row. H33 claims none, deliberately.
+**D10 coverage, and why H35 claims NONE of it.** The obvious temptation on a spec
+whose subject is route proofs is to claim a D10 row. H35 claims none, deliberately.
 Its two passing cells are READ-SIDE walkers over surfaces `BDOCK-1`'s own flight
-produces and already claims (`dock-producer`, `ksc-origin`), and nothing in an H33
+produces and already claims (`dock-producer`, `ksc-origin`), and nothing in an H35
 run drives a production route emitter at all - `Route proof dock window captured:`
 (`ParsekFlight.cs:6246`) and `Route window delta:` (`RouteProofCapture.cs:728`) fire
 during RECORDING, and the reading run's log contains ZERO occurrences of either.
@@ -93,10 +93,10 @@ route-CREATION-shaped ones are what the fix above would unblock.
 
 ---
 
-## D10-INTERBODY-CELLS-NOW-DECLARED: the two inter-body coverage cells stop being zero-declarer, and what their gate does and does not prove [RECORDED 2026-08-11 by `H32-logistics-inter-body`. NOT A DEFECT - a coverage record, filed so the claim's exact scope survives the PR body]
+## D10-INTERBODY-CELLS-NOW-DECLARED: the two inter-body coverage cells stop being zero-declarer, and what their gate does and does not prove [RECORDED 2026-08-11 by `H34-logistics-inter-body`. NOT A DEFECT - a coverage record, filed so the claim's exact scope survives the PR body]
 
 `D10 inter-body-nth-window` and `D10 dispatch-cadence` have been in
-`harness/coverage/registry.toml` with ZERO declarers. `H32-logistics-inter-body`
+`harness/coverage/registry.toml` with ZERO declarers. `H34-logistics-inter-body`
 claims both, and the claim rests on two REQUIRED tokens rather than on the spec's
 subject matter (CLAIM-IS-NOT-GATE). Both are production emissions from
 `RouteOrchestrator.ProcessLoopRoute`, measured identically on all three flights
@@ -136,6 +136,1003 @@ evidenced by these tokens (no render surface is exercised here); it is a design
 property of the dock-phase trigger, and the lane that could evidence it would have
 to observe a render arrival and a delivery in the same run.
 
+## ~~GHOST-INITIAL-STATE-FROM-PREFAB: ghosts spawned at the prefab pose because the recorded snapshot's module state was never read, and robotic poses were lost at every split and every loop cycle~~ [FOUND 2026-08-11 by a per-family read of the ghost build and playback paths. FIXED 2026-08-11, branch `ghost-snapshot-baseline`]
+
+Two defects, one branch, because the fix for the first is only safe once the
+second exists (see "Why they land together").
+
+### Defect 1 - the ghost's initial look came from the parts catalogue, not from the recording
+
+`GhostVisualBuilder` builds a ghost by instantiating each snapshot PART node's
+prefab meshes. It read exactly three things out of the persisted MODULE nodes -
+`ModuleJettison.isJettisoned` (`GhostVisualBuilder.IsJettisonedInSnapshot`), the
+fairing `fsm`/`XSECTION` pair, and the part variant name
+(`ResolveVariantNameFromSnapshot` in `GhostVisualBuilder.Variants.cs`).
+Everything else the snapshot records about how the craft LOOKED - `deployState`,
+gear `stateString`, cargo-bay `animTime`, `ModuleAnimationGroup.isDeployed`,
+`ModuleParachute.persistentState`, `ModuleLight.isOn`/`isBlinking`/`blinkRate`,
+`ModuleColorChanger.animState`, and every robotic servo's pose - was ignored.
+
+The ghost's starting look was therefore the prefab pose, corrected only by the
+recording's own `PartEvent` prefix replay (`GhostPlaybackLogic.ApplyPartEvents`,
+the `evt.ut <= currentUT` loop). Where the recording had a seed or a transition
+event, that correction happened; where it had none, the prefab pose stood for the
+whole playback.
+
+**The promotion-gate hole is the part that has no event-side remedy.** Root
+recordings do get initial-state seeds (`PartStateSeeder.SeedPartStates` ->
+`EmitSeedEvents` at `StartRecording`), but a segment that BEGINS mid-mission -
+switching to a craft left in orbit, a chain continuation after a dock, a promoted
+background vessel - is its own `Recording` with its own snapshot
+(`FlightRecorder.initialGhostVisualSnapshot`, copied onto the capture in
+`BuildCaptureRecording`; `GhostVisualBuilder.GetGhostSnapshot` resolves per
+recording) and no seed pass covering the state it inherited. Nothing downstream
+could have fixed those ghosts, because there was nothing to fix them WITH except
+the snapshot nobody read.
+
+### Defect 2 - robotic poses were lost at splits and inherited backwards across loop cycles
+
+Two independent losses of the same state:
+
+- **At a split.** `RecordingOptimizer.BuildTransientStateSeeds` forwards a
+  latest-state-wins seed per key for 18 reversible visual states (deployables,
+  gear, cargo, lights, blink, thermal, parachutes). Robotic events were in neither
+  the reversible family nor the permanent one, so a HEAD/TIP cut
+  (`RecordingTreeSplitter` -> `RecordingOptimizer.SplitAtUT`, or an optimizer
+  auto-split) handed the tail no pose at all. A tail whose own span contains no
+  further servo event - the normal case for an arm that finished moving before the
+  cut - replayed at the prefab pose forever.
+- **Across a loop cycle.** `GhostPlaybackLogic.ResetForLoopCycle` zeroes
+  `RoboticGhostInfo.currentValue` / `active` / `lastUpdateUT` but is deliberately
+  Unity-free, so it cannot touch `servoTransform`; and
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` (which exists precisely to do the
+  Unity-touching half: heat cold, deployables stowed, panels re-attached, canopies
+  re-stowed, lamps off) had no robotic step. So cycle N+1 began with the numbers
+  saying "at rest" and the mesh standing wherever cycle N left it.
+
+### Why they land together
+
+The snapshot on a split TIP is a COPY of the parent's launch-time snapshot
+(`RecordingOptimizer.SplitAtSection` step 8), so it is stale by construction for
+every rewind fork. The forwarded seeds sit at `ut = splitUT` = the tail's start, so
+where a seed EXISTS it wins the prefix replay. Defect 2 is what puts robotics into
+that winning set; without it, defect 1's fix would have made a stale servo pose
+confidently wrong on exactly the tips a rewind produces.
+
+**The seeds do not cover everything, and the honest statement matters.** A seed
+exists only for a family the HEAD SPAN emitted at least one event for. That set is
+now closed under BOTH directions of the reversible families - `AppendReversibleStateSeeds`
+emits the inactive direction (`GearRetracted` / `DeployableRetracted` /
+`CargoBayClosed` / `LightOff` / `LightBlinkDisabled` / `ParachuteCut` /
+`ParachuteRepacked`) as well as the active one, because post-M1 "inactive" is no
+longer the pose the tail's ghost already spawns at. A family the head span emitted NOTHING for still gets no seed and
+keeps the stale baseline - which is normally correct, since no event means the state
+did not change during the head span, so the launch-time value is still the value at
+the cut. It is wrong only where the recorder cannot observe the change at all (the
+dead-probe families: ladders, aero / control surfaces, robot-arm scanners), which is
+the same blind spot pre-M1 had.
+
+Two families are deliberately outside the inactive set: thermal (its inactive
+direction is `ThermalAnimationCold`, which the spawn pass lays down unconditionally
+and which no snapshot key can contradict - the parser reads no heat state) and
+`ParachuteDestroyed` (already copied verbatim by `ForwardPermanentStateEvents`,
+which runs after the transient insertion, so seeding it too would duplicate it).
+
+**Composition with the four-state parachute machine (merged from
+`recorded-signal-fixes`, PR #1445).** That branch split the old three-state chute
+signal into Deployed / Semi / Cut / Repacked and gave `ParachuteRepacked` its own
+cap-restoring playback handler. The two changes are load-bearing for each other and
+neither is sufficient alone. Bidirectional emission is what carries an INACTIVE
+terminal state across a cut at all; the four-state machine is what makes the carried
+state's IDENTITY matter, because Cut and Repacked are both "canopy not flying" but
+render differently (cut = cap hidden, repacked = cap back on). So the seed carries
+`evt.eventType` verbatim rather than one shared inactive type, and family 9
+(parachutes) stays distinct from family 10 (robotics) so the boundary dedupe cannot
+let one suppress the other on the same part. Pre-merge, `recorded-signal-fixes`
+correctly asserted that a cut+repack head span seeded NOTHING and the tail rendered
+the repacked pose from the ghost's build-time pose; that inference dies with M1,
+because a TIP now spawns from a snapshot baseline (a COPY of the parent's
+LAUNCH-time snapshot) rather than the prefab. The cell that asserted it is now
+`BuildTransientStateSeeds_TailAfterCutThenRepack_SeedsTheRepackedPose`, asserting
+the same rendered outcome via an explicit seed. Guarded end-to-end by
+`RecordingOptimizerSplitAtUTTests.SplitAtUT_HeadEndsRepacked_*` /
+`_HeadEndsCut_*` (terminal state -> seed type -> cap pose) and
+`SplitAtUT_ParachuteAndRoboticSeeds_BothSurviveOnTheSamePart` (family 9 vs 10).
+
+The SNAPSHOT side needed no new state, which is worth stating because it looks like
+an omission: stock `ModuleParachute.Repack()` writes STOWED back to
+`persistentState`, so a repacked chute persists as STOWED,
+`ClassifySnapshotParachuteAction` returns `None`, and the build-time
+stowed-with-cap pose is already the repacked look. The event side needs its own
+type only because it must UNDO a cut on a ghost already posed cut - a situation the
+snapshot side, running at build time, never faces.
+
+### Fix
+
+Precedence, unchanged in shape and now three-layered: **prefab pose -> snapshot
+baseline -> recorded events.**
+
+- New pure parser `GhostVisualBuilder.TryParseSnapshotPartBaseline`
+  (`GhostVisualBuilder.SnapshotBaseline.cs`): ConfigNode in,
+  `SnapshotPartBaseline` out. Cargo-bay `animTime` is resolved against the prefab's
+  `ModuleCargoBay.closedPosition`, supplied by the caller because that mapping is
+  per-part config rather than snapshot data.
+- Robotic poses read a SNAPSHOT-side per-family key
+  (`TryResolveSnapshotRoboticPoseKey`), NOT `FlightRecorder.ResolveRoboticFieldPlan`.
+  The live plan reads a running `PartModule` through `module.Fields` and sees every
+  `[KSPField]`; a snapshot MODULE node carries only the `isPersistant = true` subset,
+  and for all three posed families the live plan's primary key is outside it - so
+  reusing the live plan fell through to a persisted SETTING. Decompiled from
+  `Expansions.Serenity.*` (KSP 1.12.5) and cross-checked against the stock Breaking
+  Ground craft files: hinge / rotation servo -> `targetAngle` (`currentAngle` is a
+  plain `[KSPField]`; Val-Thopter.craft's hinge node carries `targetAngle = -45` and
+  no `currentAngle`); piston -> `targetExtension` (the live plan's
+  `currentPosition` / `position` / `targetPosition` are not public persisted fields on
+  `ModuleRoboticServoPiston` at all, leaving `traverseVelocity` - a SPEED, default 1 -
+  as the only match, so every piston posed to ~1 m); rotor -> NO KEY, because
+  `currentRPM` is not persisted and the persisted `rpmLimit` is a limit setting that
+  ships at 460 on every stock helicopter, which made rotor ghosts spin at their limit
+  from spawn and re-arm on every loop cycle. `ApplyRoboticSpawnBaseline` now parks
+  every rotor unconditionally. `targetAngle` / `targetExtension` are COMMANDED targets
+  and so wrong for a servo captured mid-travel or stopped short; that is accepted
+  deliberately, because the alternative is 0 (the prefab pose), which is the guess M1
+  exists to stop making, and any recorded robotic event overrides it.
+  **Separate, still open:** the LIVE piston probe lands on `traverseVelocity` for the
+  same name-mismatch reason, so recorded piston event values are a speed rather than
+  an extension. Out of scope for the ghost spawn look; needs a recorder-side plan fix.
+- Applied by `GhostPlaybackLogic.ApplySnapshotBaselines` at the TAIL of
+  `PopulateGhostInfoDictionaries` - after the existing stow/cold baselines, before
+  the prefix replay. **Zero new appliers**: it reuses `ApplyDeployableState`, the
+  cargo cascade, the canopy appliers, the light appliers and `ApplyRoboticPose`,
+  driven by synthetic pid-only `PartEvent`s (the same trick
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` already used).
+- Robotics join `RecordingOptimizer.IsReversibleVisualStateEvent` with family id
+  10 and `EncodeEngineKey` keying (module-scoped like engines/RCS, not
+  pid-collapsed), and `AppendRoboticStateSeeds` emits one
+  `RoboticMotionStopped{value = last pose}` per key UNCONDITIONALLY - unlike
+  `AppendActiveStateSeeds`, because value 0 is a real pose.
+- `ReapplySpawnTimeModuleBaselinesForLoopCycle` gains step 3e
+  (`RestoreRoboticSpawnBaselines`) and step 3f (`ApplySnapshotBaselines`), so a
+  loop cycle restarts from the same look the first cycle spawned with.
+
+### Deliberately out of scope
+
+Sun-tracking `currentRotation` (freezing a launch-time sun-relative quaternion is
+worse than the prefab pose - the real fix synthesizes it), deployable `BROKEN`,
+wheel-robotic suspension/steering/motor (continuous-motion, no meaningful
+persisted pose), ladders / aero / control surfaces / robot-arm scanners (their
+live probes are the dead-probe family, so no event stream could toggle a baseline
+afterwards), parachute repack, and `InventoryPartPlaced`. The placed half of
+inventory CANNOT be fixed by seed forwarding at all: a stale tip snapshot has no
+PART node for a part placed during the head span, so there is no ghost visual to
+reveal - that needs a snapshot refresh at split, a different mechanism.
+
+### Tests (126 new xUnit cells + a new in-game category, H32)
+
+- `SnapshotBaselineParserTests` (57) - every family key -> parsed field, the
+  robotic ordinal walk including wheel modules advancing the ordinal without
+  taking a pose, mid-travel / BROKEN / malformed values producing no opinion, and
+  the two mirrored suppressions (standalone AnimateGeneric behind a dedicated
+  handler; ColorChanger behind a ModuleLight). The robotic cells author the REAL
+  persisted key sets, lifted verbatim from the stock Breaking Ground craft files,
+  plus the negative statements: live-only keys (`currentAngle` / `currentExtension`
+  / `currentRPM`) parse to NO baseline, `traverseVelocity` alone is not a pose, and
+  a rotor node carrying `rpmLimit = 460` yields no pose while keeping its ordinal.
+- `SnapshotBaselineApplicationTests` (40) - the spawn pass's ordering against the
+  stow baseline, the pure `ResolveSnapshotBaselineActions` precedence (deployState
+  > gear > cargo > animation group > standalone animation), servo pose
+  application, ordinal-drift degradation, the unconditional rotor park at both
+  spawn and loop-cycle restore, the all-false light-baseline skip, and the
+  build-type provenance gate.
+- `RecordingOptimizerSplitAtUTTests` (+27) - the split-tip payload end to end:
+  latest pose wins, mid-stroke poses, two servos on one part keeping separate
+  seeds, boundary dedupe, permanent-before-transient ordering, and the
+  inactive-direction seed per reversible family (including the ParachuteDestroyed
+  non-duplication, the blink-rate exclusion, and thermal staying unseeded).
+- `RecordingOptimizerTests` (3 rewritten) - the three cells that pinned the
+  pre-M1 premise that an inactive state needs no seed because the tail spawns
+  all-stowed anyway.
+- `Bug406GhostReuseLoopCycleTests` (+2) - both sides of the loop contract: reset
+  zeroes the scalars to 0f (not to the spawn pose, which is why the restore is a
+  separate step), and the restore returns each servo to its own spawn pose.
+
+**The in-game half is a NEW category, `SnapshotBaseline` (7 FLIGHT cells,
+`Source/Parsek/InGameTests/SnapshotBaselineInGameTests.cs`), driven by the new
+`harness/scenarios/H32-snapshot-baseline.toml`.** It is a new category rather than
+cells added to `GhostVisuals` / `GhostPlayback` because the harness pins an exact
+`BATCH_COMPLETE v1 total=N` tally per category and adding a cell to a pinned one reds
+`CommittedBatchTallySourceSyncTests` instead of proving anything.
+
+It exists for the one thing no xUnit cell can reach: the appliers that actually MOVE
+something are Unity-coupled, and `SetLightState` or a canopy applier throws
+`SecurityException` ("ECall methods must be packaged into a system module") the moment
+a headless test touches them - which is also why the light/parachute decisions were
+split into the pure `ResolveSnapshotBaselineActions` (see Known limits). The cells
+author their own one-part snapshot ConfigNode over a stock part discovered through
+`PartLoader`, so they depend on no fixture corpus: EXTENDED and gear Deployed must land
+the built ghost on its DEPLOYED transform poses, a mid-travel EXTENDING must produce no
+baseline and leave the stow pose, a servo pose authored under the key a real snapshot
+persists must move the servo transform off stowed (Breaking Ground only - skips naming
+that otherwise), the loop restore must return a displaced servo, and a MODULE-less PART
+must produce no baseline at all. A candidate part qualifies only when its stowed and
+deployed poses are measurably separated, so a cell cannot pass over an animation that
+moves nothing. The servo cell asks
+`GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey` which key to author rather than
+deriving one: it used to author the LIVE probe plan's primary key, which production
+snapshots never contain, so it proved the pose path over a key shape that does not
+exist. Cell count is unchanged at 7, so H32's measured tally pin still holds - MEASURED,
+not predicted: the re-fly against the corrected code (run `2026-08-11_1643`, PASS attempt
+1, 53 s) printed the pin token for token and the servo cell passed over `hinge.01` /
+`targetAngle`.
+
+### Known limits of the fix
+
+- A recording whose builder falls back to `VesselSnapshot` (no `GhostVisualSnapshot`)
+  no longer reads module state at all. END-of-recording state is not a better guess
+  than the parts catalogue - it is a NEW way to be wrong, and a directional one: a
+  chute whose end state is CUT would hide its canopy through the entire descent, gear
+  that came down on final approach would be down from the pad. Geometry and part
+  variants still come from that node, exactly as pre-M1, so the fallback population is
+  byte-for-byte unchanged from before M1. The gate is the pure
+  `GhostVisualBuilder.SnapshotBaselineTrustedForBuildType(HeaviestSpawnBuildType)`,
+  read once per build in `AdvanceTimelineGhostBuild`, with one Verbose line naming
+  the suppression at `TryBeginTimelineGhostBuild`.
+- **The suppression is PARTIAL and the residual is not hypothetical.** It catches only
+  the node-level fallback in `GetGhostSnapshot`. SEVEN sites STAMP
+  `GhostVisualSnapshot = VesselSnapshot.CreateCopy()`, and at build time that copy is
+  indistinguishable from a genuine start snapshot: `FlightRecorder.BuildCaptureRecording`
+  when the start capture was null, `RecordingOptimizer.SplitAtSection` step 8's #271
+  safety net, `MergeDialog.Commit`, `BackgroundRecorder`'s child promotion,
+  `ParsekFlight.Finalization`, and - found by the fix batch's re-review, which showed
+  the original five-site list short - `ParsekFlight.StashActiveTreeAsPendingLimbo`
+  (~:14264, stamps a fresh late-flight snapshot into a null `GhostVisualSnapshot`) and
+  `CommitTreeSceneExit`'s ghost-only parity branch (~:14995, the same copy
+  `MergeDialog.Commit` makes, different file). Anyone closing this residual must work
+  from THIS seven-site list, not the fix commit's five. Those recordings still read
+  module state out of an end-state node. Closing it needs provenance carried on the
+  recording (a schema field, hence a generation bump) or stamped into the node at copy
+  time, decided per site - the copies are not all the same kind of stale, and a
+  build-time inference cannot recover the distinction because by then the information
+  is gone.
+- On a split tip, the families left uncovered are exactly the out-of-scope list
+  above. This is not "tips fully fixed".
+- The robotic seeds have one effect beyond visuals: `GhostingTriggerClassifier`
+  already counts robotic events as ghosting triggers, so a split TIP that used to carry
+  no events now carries one and becomes trigger-positive, which blocks
+  `RecordingOptimizer.CanAutoMerge` from re-merging that split. Deliberate and
+  consistent with the pre-existing engine-shutdown sentinel, which has exactly the same
+  effect; noted because it is a merge-eligibility change, not a rendering one.
+  The inactive-direction reversible seeds widen that by exactly one case, in the same
+  shape: `GearRetracted` / `DeployableRetracted` / `CargoBayClosed` / `ParachuteCut`
+  are trigger-positive (their ACTIVE counterparts already were and were already
+  seeded), so a TIP whose head span carried ONLY closing transitions now becomes
+  trigger-positive where it previously carried no events at all. `LightOff` /
+  `LightBlinkDisabled` are trigger-NEGATIVE and change nothing here.
+
+- Robotic ordinals can drift if the mod set changes between record and replay. The
+  application site name-checks the module at each ordinal and degrades to
+  no-baseline with a `servo ordinal ... mod-set drift` log line rather than posing
+  the wrong servo. The same exposure already existed for every recorded robotic
+  event's `moduleIndex`.
+
+- The deployable-family precedence in `ResolveSnapshotBaselineActions` is that
+  resolver's OWN order, not one derived from the recorder - the recorder has no
+  precedence to mirror (its per-family pollers run independently and each emits its
+  own event type; `HasDedicatedAnimateHandler` is an OR that only suppresses the
+  standalone `ModuleAnimateGeneric` read). Visible consequence: a part carrying BOTH a
+  `ModuleDeployablePart` and a `ModuleCargoBay` takes the deployState branch and so
+  `ApplyDeployableState`, skipping the cargo cascade its live cargo events would route
+  through. Rare enough to leave alone; documented at the site so nobody "fixes" the
+  order by consulting the recorder.
+
+- The light and parachute appliers cannot be called from xUnit at all
+  (`SecurityException: ECall methods must be packaged into a system module` the
+  moment the runtime touches `SetLightState` or a canopy applier), so the
+  decisions in front of them were split into the pure
+  `ResolveSnapshotBaselineActions` / `ClassifySnapshotParachuteAction` and pinned
+  there. What no headless test can prove is the Unity-side effect itself.
+## ~~RECORDED-SIGNAL-CONFIDENTLY-WRONG: two recorded part signals were wrong at the source and playback rendered them faithfully~~ [FOUND 2026-08-09 by the part-action recording audit (§3, "A confidently wrong signal that playback faithfully renders"). FIXED 2026-08-11, branch `recorded-signal-fixes`]
+
+Both were **correctness** bugs rather than fidelity gaps: the recorder wrote a
+wrong value and the playback path reproduced it exactly, every replay, with no
+self-correction. Both claims in the audit were re-verified against decompiled
+KSP 1.12.5 (`ilspycmd`, `Assembly-CSharp.dll`) before any code moved, and both
+held.
+
+### 1. Parachute repack replayed as a cut
+
+`FlightRecorder.CheckParachuteState` collapsed KSP's five
+`ModuleParachute.deploymentStates` into three, folding STOWED, ACTIVE **and
+CUT** into state `0`. `CheckParachuteTransition` emitted `ParachuteCut` on any
+`1->0` or `2->0`. A stock EVA `Repack()` is precisely `CUT -> STOWED`, so it
+recorded as a cut - and `ApplyParachuteCutEvent` zeroes the canopy *and hides
+the cap*, with nothing that ever restores it. A repacked chute rendered as an
+empty can for the remainder of the recording.
+
+Decompiled confirmation of what the correct visual is: stock `Repack()` requires
+`deploymentState == CUT`, then does `cap.gameObject.SetActive(true)` +
+`canopy.gameObject.SetActive(false)` + `deploymentState = STOWED`. The cap goes
+back on; that is the half playback was missing.
+
+**Fix.** A four-state classifier (`FlightRecorder.ClassifyParachuteState`:
+Stowed=0 / SemiDeployed=1 / Deployed=2 / Cut=3, ACTIVE still folded into Stowed
+because it has no distinct visual) as the single source of the encoding, a full
+transition table (`ClassifyParachuteTransitionEvent`), a new
+`PartEventType.ParachuteRepacked = 35`, and a playback handler that restores the
+captured stowed canopy pose **and re-activates the cap**.
+
+Points worth keeping:
+
+- **`STOWED -> CUT` deliberately emits nothing.** It is not a physical
+  transition; it is what the *first* observation of an already-cut chute looks
+  like, because an unseen pid defaults to Stowed. Emitting a cut there would put
+  a phantom event at segment start. `PartStateSeeder.SeedParachutes` also primes
+  the map with Cut now, which is what makes a later repack observable at all.
+- **`ClassifyPartDeath` had to change with it.** It tested `state > 0` to mean "a
+  canopy was out, so this is `ParachuteDestroyed`". Cut is now 3, so that test
+  would have misclassified a part dying with an already-cut chute. It routes
+  through `IsDeployedParachuteState` (semi or full only).
+- **Split-seed placement: reversible, NOT permanent.** A cut was never in the
+  permanent family and a repack undoes a cut, so there is no permanence to
+  revoke. Both mark the parachute state inactive, no seed is emitted, and the
+  tail renders the ghost's build-time pose - canopy hidden, cap on - which *is*
+  the repacked pose. Forwarding a permanent seed would hide the cap again.
+- **The loop-cycle restore needed no change.**
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` already reset to stowed + cap-on,
+  which is exactly the repacked pose; it now reads the stored stowed pose instead
+  of hardcoding `Vector3.zero` so the builder is the one source of it. (Its
+  comment also carried a stale `GhostVisualBuilder.cs line ~4539` reference,
+  corrected.)
+- **The background recorder is the LIKELIER observer, not a duplicate.** Stock
+  `Repack` is `[KSPEvent(externalToEVAOnly = true, unfocusedRange = 4f)]`, so the
+  kerbal doing the repacking is the active vessel and the craft being repacked is
+  a *loaded background* vessel. Both recorders now share the classifier.
+
+#### Why adding member 35 needed no schema-generation bump - MECHANISM CORRECTED 2026-08-11
+
+**This subsection is the correction of record.** The commit message for
+`f5cf6fba0` (and the first version of this entry) said an older build "skips the
+unknown event". That is true only of the **legacy TEXT reader**:
+`TrajectoryTextSidecarCodec.DeserializePartEvents` gates on
+`Enum.IsDefined(typeof(PartEventType), typeInt)` and `continue`s past a value it
+does not know. The **shipping BINARY reader does not gate at all** -
+`TrajectorySidecarBinary.ReadPartEventList` does a bare
+`eventType = (PartEventType)reader.ReadInt32()` - so an older build reading a
+newer `.prec` **materialises an undefined `(PartEventType)35`** into its
+`PartEvents` list and carries it around. The commit message is immutable and
+overstates this; this entry is the correction.
+
+**The outcome is unchanged: avoiding the bump remains correct.** The real reason
+is *undefined-enum tolerance across every consumer*, audited one by one:
+
+| consumer | behaviour on an unrecognised member |
+| --- | --- |
+| `GhostPlaybackLogic.ApplyPartEvents` | `switch` with no matching case and no `default` - silently unhandled, no visual change |
+| `RecordingOptimizer.IsPermanentVisualStateEvent` | `false` (no seed forwarded) |
+| `RecordingOptimizer.IsInertPartEventForTailTrim` | `false` (not trimmed away) |
+| `SwitchSegmentNoOpClassifier.IsMeaningfulPartEvent` | `true` (the segment is kept, never auto-discarded) |
+| `GhostingTriggerClassifier.IsGhostingTrigger` | `true`, plus a Verbose `unknown PartEventType` line |
+| re-serialisation (both codecs' writers) | preserves the raw int, so a round trip through an older build does not erase the newer signal |
+| `Parsek.Analyzer` rules | only stringify the type; no rule branches on the member set |
+
+Every branch is the safe one, so a mixed-version read degrades gracefully rather
+than corrupting or dropping data. Pinned by
+`RecordedSignalFixTests.BinarySidecar_RawCastsAnUndefinedPartEventType_AndEveryConsumerDegradesGracefully`,
+which round-trips a deliberately-undefined int through
+`TrajectorySidecarBinary` and asserts it survives verbatim *and* that each
+headless-reachable consumer above takes the branch listed. If a future consumer
+grows a `default:` that throws or mutates state, that cell is where it reds.
+
+### 2. Wheel spin recorded percent-of-torque, replayed as RPM
+
+`ModuleWheelMotor` carries no RPM `[KSPField]` at all, so every RPM-shaped
+candidate in the probe list (`currentRPM`, `rpm`, `wheelRPM`, `motorRPM`,
+`targetRPM`) resolved to nothing and `driveOutput` won. Decompiled, that is
+`Mathf.Abs(driveInput * wheel.maxDriveTorque / maxTorque) * 100f * resourceFraction`,
+declared `[UI_ProgressBar(minValue = 0, maxValue = 100)]` - an **unsigned percent
+of max torque**. Playback spun it at `value * 6` deg/s as RPM. All three audit
+consequences are real: a coasting rover recorded 0 and showed **stationary
+wheels**; reverse was byte-identical to forward (`Mathf.Abs`); the magnitude was
+a torque fraction, not a rate.
+
+**Fix.** Stop recording it (storage-negative) and derive the spin at playback
+from the ghost's own horizontal ground speed over the wheel radius.
+
+- Emission is gated by `FlightRecorder.IsWheelMotorSpinModuleName`, which must
+  **not** be folded into `IsRoboticModuleName`: that predicate assigns the
+  sequential `roboticModuleIndex` in *both* `CacheRoboticModules` and the ghost
+  builder's `TryBuildRoboticInfos`, and the playback key is
+  `EncodeEngineKey(pid, moduleIndex)`. Skipping wheel motors there would renumber
+  every later robotic module on the same part. Guarded by a test.
+- New `RoboticVisualMode.WheelGroundSpeed`; radius from
+  `ModuleWheelBase.radius * part.rescaleFactor` (the product stock uses for the
+  collider), falling back to `DefaultWheelRadiusMeters = 0.35f`.
+- The recorded world velocity is `rb_velocityD + Krakensbane.GetFrameVelocity()`,
+  i.e. **orbital**, so the derivation subtracts `body.getRFrmVel` and the radial
+  component. Without that a rover parked on Kerbin's equator would spin its
+  wheels at the planet's ~175 m/s rotation.
+- Direction comes from the wheel's own spin axis (`Cross(axis, up)`), not a
+  guessed vessel forward, so mirrored wheels counter-rotate correctly.
+- **Old recordings: ignored, not used as fallback.** They still carry
+  `RoboticMotion*` events on wheel-motor module indices; consuming the stale
+  value would resurrect the bug. The derivation reads the trajectory, which every
+  recording has, so it fixes old flights too.
+- **The event family is NOT retired.** `RoboticMotionStarted` /
+  `RoboticPositionSample` / `RoboticMotionStopped` remain the live signal for
+  hinges, pistons, rotation servos, rotors, wheel suspension and wheel steering.
+  Only the wheel-motor producer is gone, so no enum member became dead and none
+  was marked retired.
+- `UpdateActiveRobotics` is now also driven from `ApplyFrameVisuals`, because
+  `ApplyPartEvents` early-returns when a recording has no part events and wheel
+  spin no longer depends on any event. It is retained inside `ApplyPartEvents`
+  too so the KSC-scene and flight-preview callers keep their behaviour; calling it
+  twice in a frame is a no-op (the second pass sees `deltaSeconds == 0`).
+- **The KSC / preview no-spin asymmetry is deliberate and documented in place.**
+  Only the flight engine drives wheel spin unconditionally. A KSC-scene ghost
+  never spins at all (`ParsekKSC` never calls `SetInterpolated`, so
+  `lastInterpolatedVelocity` stays zero and `TryResolveWheelGroundSpeedInputs`
+  declines); a flight-PREVIEW ghost spins only for a recording carrying at least
+  one part event, because a zero-event recording early-returns before the retained
+  call. KSC is a static parked-craft display and preview is a scrubbing aid, so
+  neither warrants a second unconditional per-frame call site.
+
+#### The ground-contact gate (review finding D1, fixed 2026-08-11)
+
+The first version of the derivation gated only on
+`WheelStationarySpeedMetersPerSecond` (0.05 m/s) - **never on ground contact**. So
+a rover riding a launch vehicle to orbit kept the recording's orbital velocity
+(~2100 m/s on a Kerbin parking orbit), and `speed / radius` turned that into
+thousands of degrees per frame: visible strobing for the whole ascent and coast.
+The OLD recorded signal was accidentally right about this exact case
+(`driveOutput` is 0 with no motor input), which makes an ungated derivation a
+**NEW** artifact - and one that appears on already-recorded flights too, since the
+derivation applies to them.
+
+**Gate: the recorded `TrackSection` environment covering the playback UT must be a
+SURFACE class** (`SurfaceMobile` / `SurfaceStationary`), resolved by
+`GhostPlaybackLogic.ResolveWheelGroundContact` /
+`IsWheelSpinGroundContactEnvironment`.
+
+Why the section environment rather than an altitude test:
+`EnvironmentDetector.Classify` resolves LANDED / SPLASHED / PRELAUNCH straight to
+a Surface class **before** it ever looks at altitude, and debounces the jitter
+(#246). So a rover driving, a plane on its takeoff roll and a plane that has just
+touched down are all Surface, and the instant the wheels leave the ground KSP
+reports FLYING and the section becomes `Atmospheric`. **That boundary already IS
+the wheels-on-ground boundary**, measured by the recorder, at no per-frame cost at
+the playback site. An altitude test would have needed a threshold: raw
+`lastInterpolatedAltitude` is ASL, not AGL, so any fixed number is wrong in the
+mountains, and `TrajectoryPoint.recordedGroundClearance` is populated only for
+surface-section samples - i.e. it presupposes the answer the gate is asking for.
+
+- `Atmospheric` and `Approach` are deliberately NOT contact. A real wheel keeps
+  freewheeling for a second after liftoff; holding still is the honest answer when
+  nothing recorded says the wheel is loaded, and on an airless body the classifier
+  already promotes anything under 100 m AGL to Surface, so `Approach` means "not
+  near the ground yet".
+- **Fails closed.** No section covering the UT means no spin. That covers a BG
+  on-rails recording (emits no env-classified per-frame sections - it is in orbit),
+  a re-aimed trajectory (`ReaimedTrajectory.TrackSections` is empty by contract -
+  it is on a heliocentric transfer), and an endpoint / loop-pause hold outside the
+  recorded span (which zeroes the interpolated velocity anyway).
+- **Per-frame budget.** Resolved once per ghost per frame, not once per wheel, and
+  memoised in `GhostPlaybackState.wheelGroundContact` over the resolved section's
+  own `[startUT, endUT)`, so a steady-state frame is two `double` compares instead
+  of an O(sections) scan. The window invalidates itself at every section change and
+  at a loop restart (the UT jumps backwards out of it). The gate runs BEFORE the
+  body lookup / `getRFrmVel` work, so an off-the-ground ghost pays only the memo
+  read. `UpdateActiveRobotics` therefore takes the section list as a third
+  parameter; both call sites pass the live trajectory's.
+- The gate touches ONLY `RoboticVisualMode.WheelGroundSpeed`. `RotorRpm` is
+  untouched - a helicopter's rotors must still spin in the air.
+- One Verbose line per ghost per ANSWER (`wheel-ground-contact-<recId>-<0|1>`,
+  rate-limited at 60 s), so a flip logs immediately and "wheels spun in orbit" /
+  "wheels never turned" is decidable from KSP.log.
+
+### Verification
+
+Full suite `19876 -> 19949` passing, 0 failures, 1 pre-existing skip, no existing
+test needed changing. That is +71 cells in
+`Source/Parsek.Tests/RecordedSignalFixTests.cs` (63 from the original commit, plus
+7 for the ground-contact gate and 1 pinning the binary reader's raw-cast
+tolerance) and +2 fixture-shape cells in `SyntheticRecordingTests.cs` for the two
+new synthetic recordings. `harness/lib` 1284 OK, `harness/provision` 237 OK,
+`harness/missions/lib` 1476 OK - `CommittedBatchTallySourceSyncTests` and
+`IngameBatchWiringGroupTests` both agree with the new `RecordedSignals` category
+at `total=3`. Three in-game cells added; the `H33-recorded-signals` scenario is
+AUTHORED, NOT YET FLOWN.
+
+**One step cannot be unit-tested, and is now covered IN GAME instead.** The
+absolute visual spin direction rests on Unity's left-handed `AngleAxis` identity
+(`AngleAxis(90, up) * forward == right`); `Quaternion.AngleAxis` is a native call
+that throws outside a Unity runtime, so no headless test can pin it. Magnitude,
+sign-relative-to-roll-direction, stationary-below-threshold and
+no-roll-on-sideways-slide are all proven headlessly. The identity itself is now
+pinned by `RecordedSignalsInGameTests.WheelRollForwardMatchesUnityHandedness`
+(below), which asserts both the bare identity AND the composed rolling-without-slip
+consequence. If wheels visibly spin backwards while driving forwards in game -
+or if that cell reds - negate the single cross product in
+`ComputeWheelRollForward` and nothing else; noted at that call site.
+
+### In-game + harness coverage (added 2026-08-11 alongside the D1 gate)
+
+**New `[InGameTest]` category `RecordedSignals`** -
+`Source/Parsek/InGameTests/RecordedSignalsInGameTests.cs`, 3 cells, each making a
+claim the headless suite cannot:
+
+1. `WheelRollForwardMatchesUnityHandedness` (AnyScene) - **the star cell.** The
+   bare Unity identity plus the composed proof: under the rotation
+   `UpdateActiveRobotics` would apply for forward motion, the TOP of the wheel must
+   travel ALONG `rollForward` and the contact patch AGAINST it (rolling without
+   slip). A negated cross product reverses both signs, which is exactly the
+   "wheels spin backwards" symptom. Pure math over local vectors; its tolerance
+   Skip path is deterministically unreachable with the committed constants, so
+   the batch passed= count floors at 1.
+2. `ParachuteRepackRestoresTheCapAtTransformLevel` (FLIGHT) - Deploy -> Cut ->
+   Repacked through `ApplyPartEvents` on a ghost built from a real PartLoader
+   prefab; asserts cap OFF after the cut (the contrast that stops a no-op repack
+   handler passing) and cap ON plus the captured stowed canopy pose after the
+   repack. Skips naming the context when no loaded part has a `ModuleParachute`
+   whose canopy AND cap both resolve on the prefab.
+3. `WheelSpinNeedsGroundContactAndGroundMotion` (FLIGHT) - three arms against a
+   real wheel prefab's own axis and radius, through the live
+   `CelestialBody.getRFrmVel` subtraction: Surface section + ground motion spins
+   it, parked does not, and a NON-Surface section at ~2100 m/s does not either
+   (the D1 regression). Skips naming the context when no loaded part carries a
+   wheel motor module or the ghost builder cannot resolve its spin transform.
+
+World-position assertions size their tolerance from
+`InGameFixtureMath.SceneFloatGridToleranceMeters` and refuse via
+`ToleranceResolvesSignal` rather than passing vacuously. Both FLIGHT fixtures are
+DISCOVERED from `PartLoader` at run time, not hardcoded, so the batch does not
+depend on which craft the save is flying.
+
+**Two synthetic recordings** (`docs/dev/synthetic-recordings.md` has the full
+rows): a chute-repack showcase carrying the `CUT -> STOWED` transition the old
+encoding could not represent, and a surface rover driving at 8 m/s with ZERO part
+events and a `SurfaceMobile` TrackSection - the two properties that make it a real
+test of the derivation rather than of the event stream. Each adds one `.prec` row,
+so the all-synthetic corpus moved 272 -> 274; every corpus count pin and H5's
+`recordings=308 trees=278` walk pin moved in the same commit. Those are DERIVED
+(+2), NOT re-measured, and the next flight of each spec confirms them.
+
+**Harness scenario `H33-recorded-signals`** (nightly, `ingame-batch`,
+gloops-airshow + all-synthetic) drives the category through the H-series
+`RunTests` seam step - NOT `[driver.autorun]`, which no committed spec uses
+because `PARSEK_AUTORUN_EXIT` quits KSP as soon as the first scene settles and
+races the driver's remaining steps. **AUTHORED, NOT YET FLOWN**: `total=3` is
+attribute-exact, but `passed=` / `skipped=` are left as regex classes because two
+cells self-skip on what the install loaded, so the spec is registered in
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` - the first interim member since H20
+in July. Its `passed=[1-9][0-9]*` still rejects the whole vacuous family. First
+flight: pin all four numbers literally, record any real skip in `RUNTIME_SKIPS`
+with its reason, and remove the id.
+## ~~REFLY-DELETES-NON-SLOT-WORLD: a Re-Fly removed every vessel except the selected slot, including discovered asteroids and planted flags~~ [FIXED 2026-08-09]
+
+Found by the part-action recording audit
+(`docs/dev/research/part-action-recording-audit-2026-08-09.md` §1), which was
+looking for something else entirely and tripped over this.
+
+**Two independent layers both deleted the non-slot world.** The pre-load
+temp-save scrub kept a `VESSEL` node only if its pid or root-part pid was in the
+SELECTED slot's map (`RewindInvoker.cs:1975`) and `RemoveNode`d the rest; and
+`PostLoadStripper.Strip` was then invoked with `stripUnmatchedVessels: true`
+(`RewindInvoker.cs:805`), so the already-implemented `LeftAlone` branch
+(`PostLoadStripper.cs:160-165`) was dead in production. No repopulation path
+existed.
+
+**This contradicted the binding design doc.**
+`done/parsek-rewind-separation-design.md:593` step 4 reads "**Else: leave
+alone.** The vessel does not belong to this RP's slot set (pre-existing stock
+vessel, different tree, debris, etc.)". `CHANGELOG.md:1089` shows the scrub was
+added deliberately, so intent diverged from the design without the design being
+updated.
+
+**Blast radius, worst first.** Every `VesselType.SpaceObject` node went too, so a
+Re-Fly destroyed every discovered asteroid and tracked comet including active
+grapple-contract targets - unrecoverable, unlike a station. Then stations,
+relays, rovers, deployed-science clusters. The ledger kept crediting their
+recoveries and contract completions. And it was self-concealing:
+`PostLoadStripper.ShouldPreserveVesselType`'s `VesselType.Flag` carve-out
+(`:238-241`) could never fire, because the scrub had already removed the flag
+nodes from the .sfs before the bypass was consulted.
+
+**Fix.** Removal is now scoped to this RP's OTHER slots via
+`BuildNonSelectedSlotPidSet`; a vessel in no slot map is preserved
+(`VesselsPreserved` counter + Verbose line + `preserved=N` in the applied-summary
+Info line). `stripUnmatchedVessels` is now `false` so `LeftAlone` is live. The
+`#587` name-matched debris kill
+(`StripPreExistingDebrisForInPlaceContinuation`) is a separate pass and is
+untouched - it remains the mechanism that removes prior-career debris which would
+trip stock patched conics, so widening the scrub did not reopen `#587`.
+`ForceReFlyVesselThrottleClosed` is now scoped to the selected slot only (a
+preserved vessel's `CTRLSTATE` is its own). The found-the-target guard changed
+from `VesselsKept == 0` to `SelectedActiveIndex < 0`: with preserved vessels
+surviving, a non-zero kept count no longer implies the re-fly target was found,
+and repointing `activeVessel` at an unrelated survivor would be worse than not
+scrubbing.
+
+**A ghost-node carve-out here is a TRAP - do not re-add it.** The first cut of
+this fix assumed a quicksave taken with ghosts on the map carries them as
+ordinary `VESSEL` nodes, and added a `"Ghost: "` name-prefix removal so the
+preserve path could not resurrect them (the `#587` third-facet symptom). That
+premise is FALSE and review caught it: `ParsekScenario.OnSave` calls
+`GhostMapPresence.StripFromSave` unconditionally
+(`ParsekScenario.cs:1091-1097`), and KSP writes the `SCENARIO` nodes before
+`FLIGHTSTATE` (`Game.Updated` captures `flightState` first, then runs
+`ScenarioRunner.GetUpdatedProtoModules()`, then `Game.Save()` writes SCENARIO
+then FLIGHTSTATE), so the strip lands before the file is written and ghosts never
+reach a save. The guard was reverted because it could only ever match a player
+craft genuinely named `Ghost: ...`, and - running before the selected-slot test -
+would have made the whole Re-Fly refuse if that craft were the target.
+`GhostVesselNamePrefix` was kept as a named constant with the reasoning attached;
+`ScrubQuicksaveToSelectedSlot_PreservesAGhostNamedPlayerCraft` is the regression
+guard.
+
+**TWO BLOCKERS the wide deletion was masking. Both had to land with the
+narrowing; either alone would have been worse than the original bug.**
+
+**B1 - the `#587` name-kill had been DEAD since the wide scrub starved it, and the
+narrowing pointed it at the preserved fleet.**
+`StripPreExistingDebrisForInPlaceContinuation` builds its candidates by
+re-surveying LIVE `FlightGlobals.Vessels` through
+`BuildLeftAlonePidNamesForInPlaceContinuation`, excluding ghost pids,
+`StrippedPids`, `SelectedPid` and (formerly) `VesselType.Flag`. With the wide
+scrub the loaded save held exactly one vessel and that vessel IS `SelectedPid`, so
+the survey was always empty and `ResolveInPlaceContinuationDebrisToKill` returned
+at its `leftAlonePids.Count == 0` guard on every production Re-Fly. Post-narrowing
+it operates on the whole preserved fleet, matching on EXACT `vesselName` against a
+kill-eligible set that includes the active recording's PARENT CHAIN - so with
+KSP's default naming a prior-career craft sharing the re-flown craft's name gets
+`Vessel.Die()`d inside `SuppressionGuard.Crew()`, i.e. with no ledger row and one
+`Warn` as the only trace. Fixed by replacing the inverted predicate
+`ShouldSkipFromLeftAloneSurvey` (skip Flag, survey everything else) with
+`IsDebrisKillSurveyCandidate` (ONLY `VesselType.Debris` is eligible), which
+matches the mechanism's own documented intent - `CHANGELOG.md:1218` filed `#587`
+as removing "pre-existing DEBRIS vessels ... whose name matches a
+Destroyed-terminal recording". Fails CLOSED: an unreadable `VesselType` is not a
+candidate. Note the pass remains a no-op on placeholder (non-in-place) Re-Fly by
+its own design.
+
+**CORRECTION OF RECORD - "never fired in production" is FALSE, and this entry is
+the correction.** Both `98eace618`'s commit message and the first cut of this
+entry said the `#587` kill had never removed anything on any production Re-Fly.
+The commit message is immutable and overstates it; read this paragraph instead.
+The repo's own archive
+(`done/todo-and-known-bugs-v5.md:5509-5516`, item `607`) quotes a real playtest
+log, `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906`:
+
+```
+[WARN][Rewind] Strip post-supplement: killed 3 pre-existing debris vessel(s) for in-place continuation re-fly: [Kerbal X Debris, Kerbal X Debris, Kerbal X Debris]
+```
+
+Timeline, verified by `git show -s --date=short`: the `#587` kill landed
+`00283b374` on **2026-04-25**; the wide scrub that starved it landed
+`ecb22f454` on **2026-04-26**. So the accurate statement is: the pass was dead
+from 2026-04-26 onward, it demonstrably FIRED on 2026-04-25, and every one of the
+3 vessels it killed was named `Kerbal X Debris`, i.e. genuine `VesselType.Debris`.
+The debris-only narrowing therefore PRESERVES the one historically observed kill
+rather than deleting the mechanism's only field evidence. The patched-conics
+symptom behind `#587` was likewise a field observation, not a hypothesis
+(`CHANGELOG.md:1218`).
+
+**ACCEPTED RESIDUAL HOLE of the debris-only gate.** Two populations can trip
+stock patched conics without carrying `VesselType.Debris`, and the narrowed gate
+will no longer clear either: (a) a spent stage that carries a probe core - KSP
+types those `VesselType.Probe` and names them `"<craft> Probe"`; (b) any vessel
+the player manually reclassified through the tracking-station type selector. The
+hole is BOUNDED because KSP's default staging pipeline assigns the `Debris` type
+and the `"<craft> Debris"` name together for an uncontrolled stage, so the
+population that both name-matches a kill-eligible recording AND is non-`Debris`
+is the minority of the population that name-matches at all. This is a deliberate
+trade: a residual phantom-conic prediction is recoverable (the player can delete
+the object in the tracking station), whereas a silent `Vessel.Die()` on a real
+craft with no ledger row is not.
+
+**B2 - the Re-Fly spawn-state reconcile was the pid-only, guid-blind overload.**
+`RewindInvoker.cs:877` collected bare `protoVessels[i].persistentId`, so
+`ReconcilePostStripSpawnState` bound `ParsekScenario.ReconcileSpawnStateAfterStrip(HashSet<uint>, ...)`
+whose decision is a bare `survivingPids.Contains(spawnedPid)`. The guid-aware
+overload sits directly below it with a comment naming this exact hazard, and the
+revert path already used it via `CollectSurvivingVesselIdentities`. Because
+`persistentId` is craft-baked, a relaunch of the recorded craft reuses the pid;
+once that relaunch is PRESERVED instead of deleted it reads as "the recording's
+spawned vessel is still alive", leaving `VesselSpawned=true` against a stranger so
+`ShouldSpawnAtRecordingEnd`'s dedup gate blocks the terminal ghost spawn forever -
+and nothing recovers it, because the liveness re-check
+(`ParsekPlaybackPolicy.RunSpawnDeathChecks` -> `FlightRecorder.FindVesselByPid`)
+is itself pid-only. `ReconcilePostStripSpawnState` now takes `(pid, launch-guid)`
+identities from `CollectSurvivingVesselIdentities`, subtracts `StrippedPids` via a
+`HashSet` before comparing, and routes to the guid-aware overload;
+`survivorsWithLaunchGuid=N` is in the summary line. **Fixture note:** the guid gate
+applies ONLY to an adoption stamp (`SpawnedVesselPersistentId == VesselPersistentId`) -
+a genuine Parsek spawn has a KSP-unique pid and stays pid-only by contract
+(`VesselLaunchIdentity.LiveVesselIsRecordedSpawn:99-104`). A test that omits
+`VesselPersistentId` therefore proves nothing about the gate; the first cut of
+`ReconcilePostStrip_SurvivorSharingCraftBakedPidFromADifferentLaunch_StillResets`
+did exactly that and read as a product failure.
+
+**Side effect worth knowing:** `WarnOnLeftAloneNameCollisions`
+(`RewindInvoker.cs:1233`, wired and unit-tested) becomes reachable for the first
+time. It was built for exactly this mode. (The other `RewindInvoker.cs:NNN`
+references in this entry - `:1975`, `:805`, `:877` - point at the PRE-FIX file
+and describe the code as it was; only this one is a current-HEAD line.)
+
+**STILL OPEN, filed rather than fixed** (both newly REACHABLE because the fleet now
+survives, neither introduced by the narrowing itself): post-RP recoveries can
+double-pay, because the world reverts to `rp.UT` while the ledger is deliberately
+kept and re-applied (`RecalculateAndPatch(double.MaxValue)`, "career state
+sticks") - a vessel recovered after the RP is resurrected with its payout still
+banked. And a family of pid-only live-vessel resolutions that were safe when only
+one vessel existed: `FlightRecorder.TryResolveLivePeerRecordingId` (a preserved
+stranger can become a RELATIVE anchor at a bogus position - silent trajectory
+corruption), `GhostPlaybackLogic.AnyLiveRealVesselSharesRecordedCraft` (latches the
+`#573` rewind suppression), plus `VesselSpawner.RemoveDuplicateCrewFromSnapshot`
+emptying seats, `SpawnCollisionDetector` blocking spawns against preserved
+stations, `IsFlightReady`'s `Vessels.Count > 0` no longer implying the selected slot
+is present, and a partially-populated RP now leaving the sibling stage in scene as
+a real vessel AND a ghost. See the P1-FOLLOWUP task entries.
+
+**PRE-INVOKE ADVISORY (audit item C2) - ADDRESSED 2026-08-11.** The world-state
+half of this entry was always going to survive the vessel-preservation fix: a
+Re-Fly still reverts everything outside the seven `KspStatePatcher.PatchAll`
+facets (`KspStatePatcher.cs:87-93`) to `rp.UT`, and that was silent. The Re-Fly
+confirmation dialog's body now carries three statements before the player commits:
+what is carried forward (the seven facets, in plain English), what goes back with
+the clock (named concretely - kerbal experience, resource-survey unlocks, contract
+waypoint progress, deployed-science accrual since `rp.UT`), and which of this RP's
+OTHER slot craft are put away as replays (named from their origin recordings,
+capped at 8 with a `(+N more)` overflow per the batch-logging convention). It
+closes with the post-P1 reassurance that unrelated vessels, stations, asteroids,
+comets and flags are preserved - deliberately NOT a fleet-deletion warning, which
+would now be false. Same facts emitted as one grep-stable `[Rewind]` Info line
+(`Pre-invoke advisory: rp=... siblingSlotsPutAway=N ...`) so a session record
+shows what the player was told even on Cancel. Informational only: no new button,
+no new refusal, no control-flow change, and the whole block is wrapped so a broken
+slot map costs the advisory rather than the dialog. Composition is pure
+(`ResolveReFlySiblingSlotNames` / `ComposeReFlyAdvisoryBody` /
+`FormatReFlyAdvisoryLogLine` / `FormatCappedNameList`), pinned by
+`ReFlyPreInvokeAdvisoryTests` (26 cells, including the exact player-facing
+strings, exclusion by `SlotIndex` rather than list index, and the omission of an
+UNMAPPED slot - the scrub cannot match its vessel, so promising the player it
+leaves would be a false statement). Note the audit ranks this **C2**, second in
+its MUST table behind C1 (the vessel preservation this entry closed); it is not
+ranked #3 anywhere in the doc.
+
+**LIVE COVERAGE ADDED 2026-08-11, and the gap it closes is a property of the
+headless surface rather than of any missing cell.** Everything below this paragraph
+is ConfigNode-level (what the scrub WRITES into the temp save) or pure-predicate
+(what the #587 survey ADMITS). This bug had TWO deleting layers, the second of them
+POST-load, so a green pre-load assertion is exactly what the defect looked like -
+and no headless cell can read `FlightGlobals` after a real `GamePersistence.LoadGame`.
+New in-game category `ReFlyWorldPreservation` (6 cells,
+`Source/Parsek/InGameTests/ReFlyWorldPreservationTests.cs`) closes that: it resolves the
+session's RP quicksave ON DISK as the pre-rewind ground truth, classifies every
+`VESSEL` node in it with the production scrub's own predicate, and asserts against
+the live scene - preserved non-Debris unrelated vessels present, sibling slots gone
+and the selected slot present, the #587 discrimination in BOTH directions (a
+name-colliding non-Debris craft survives, name-colliding Debris is still removed on
+an in-place continuation), Flag / `SpaceObject` specifically, and the pre-invoke
+advisory composing over the LIVE RewindPoint + store. The classifier is now ONE
+source for both consumers (`RewindInvoker.BuildSlotPidSets` /
+`ClassifySlotAffinity`, extracted from the scrub's inline loop) so the guard cannot
+drift from the code that produced the world it checks; every cell self-skips with a
+named requirement when no session is live. Driven unattended by
+`harness/scenarios/S4.2-refly-world-preservation.toml` over a new fixture
+(`ReFlyWorldPreservationFixture`, injection preset `refly-world-preservation`, RP
+`rp_wp_root`) whose quicksave is the FIRST to carry an unrelated fleet - the
+gloops-airshow donor's own `SpaceObject` asteroid re-admitted verbatim, a Station, a
+Flag, and a Probe + Debris pair both named `WP Booster A` after the crashed booster
+recording. **That fixture shape is the whole reason S4.1 never caught this:** every
+other rewind fixture's RP sidecar holds one vessel per slot and nothing else, so
+"the fleet survived" was vacuously true and S4.1 flew green through every day the
+bug was live. The scenario is AUTHORED, NOT YET FLOWN (its batch tally is derived
+per cell, not measured - see the spec's own banner and the `pending-operator`
+carrier entry in `harness/lib/test_hlib.py`).
+
+Guarded by `ReFlySaveScrubTests` (11 cells), plus
+`Bug587StripPreExistingDebrisTests.BuildLeftAlone_PreservedRealFleetSharingTheReFlownName_IsNeverKilled`
+(a Probe/Station/SpaceObject fleet all name-colliding with kill-eligible
+recordings, none killed, while genuine same-named Debris still is) and three new
+`SpawnStateReconciliationTests` cells for the guid gate in both directions plus the
+stripped-pid subtraction. Superseded cells:
+`ShouldSkipFromLeftAloneSurvey_*` -> `IsDebrisKillSurveyCandidate_*` (the
+`EveryNonDebrisType_ReturnsFalse` cell is the load-bearing one): other-slot removed while unrelated
+preserved, `activeVessel` indexing the selected slot past a preserved
+predecessor, a `[Theory]` over SpaceObject / Flag / Station / Probe, preserved
+throttle untouched, and the selected-absent refusal.
+
+## REFLY-CONCLUSION-SKIPS-APPENDRELATIONS: a rewind-then-conclude-without-flying retires through the zombie-provisional sweep, never through the `refused-unflown-provisional` refusal [FOUND 2026-08-11 by `S4.2-refly-world-preservation`'s FIRST flight, run `2026-08-11_1057`. REPORT-ONLY: the end state is benign and convergent. NOT FIXED - the call is which of the two routes is the intended one]
+
+### What was expected
+
+`S4.2-refly-world-preservation` pins `AppendRelations
+outcome=refused-unflown-provisional` as a required log contract, on the reading
+that a conclusion with no re-flight between rewind and merge reaches
+`SupersedeCommit.AppendRelations`, fails `ValidateSupersedeTarget` (a
+trajectory-less provisional cannot validly replace a real origin - the
+placeholder-redirect class that shipped twice in 2026-04, items 5 and 568), and
+takes the NAMED REFUSAL branch at `SupersedeCommit.cs:248-259`. That branch's own
+comment names the route: "Rewind-then-conclude (rewind, then end the session
+without flying) reaches it in normal play". Requiring the token is what stops a
+silent regression to the pre-2026 `#if DEBUG throw`, whose non-convergent reload
+loop is documented in the same comment block.
+
+### What actually happened, in order
+
+The token never appeared, because `AppendRelations` was never called. Measured
+from the collected `KSP.log` of run `2026-08-11_1057`:
+
+1. `CommitTreeSceneExit (autoMerge off): stashed tree 'WP Stack'` - the
+   `AnswerMergeDialog choice=merge` tail takes the ORDINARY whole-tree merge.
+2. `Merger MergeTree: starting merge for tree='WP Stack' recordings=3` over
+   `wp-stack-root` / `wp-upper-b` / `wp-booster-a`. The re-fly provisional is
+   NOT among them - `ERS Rebuilt: 2 entries from 3 committed ...
+   skippedSuppressed=1`.
+3. `[Parsek][WARN][MergeDialog] TryCommitReFlySupersede: provisional
+   rec=rec_cf0ed609... not found in committed list after tree commit; leaving
+   marker in place for load-time sweep` - the re-fly tail bails ONE STEP ABOVE
+   the refusal, so `SupersedeCommit` is never entered.
+4. On the next load: `[Parsek][WARN][ReFlySession] Marker invalid
+   field=ActiveReFlyRecordingId; cleared ... rejected because active recording
+   was not found in RecordingStore.CommittedRecordings`, then `LoadTimeSweep`.
+5. Final state `marker=False ... supersedes=0 tombstones=0`.
+
+### Why it is report-only, and what the actual question is
+
+The END STATE IS THE SAME as the refusal branch's: zero supersede rows, the
+origin stays effective, no non-convergent reload loop, nothing corrupted. So this
+is a ROUTE difference, not a defect in the outcome, which is why nothing is being
+fixed off one flight and why the spec's pin was deliberately LEFT IN PLACE rather
+than widened away.
+
+The question to settle: is retiring the session through the load-time
+zombie sweep the INTENDED conclusion path for rewind-then-conclude (in which case
+`SupersedeCommit`'s comment about that route is stale, and the spec's pin is the
+wrong contract), or should `TryCommitReFlySupersede` reach `AppendRelations` and
+take the named refusal (in which case the "not found in committed list after tree
+commit" bail is a gap that hides a designed, logged decision behind a generic
+sweep)? The second reading is the reason the refusal was given a grep-stable
+token in the first place.
+
+### The bonus finding: R1-EMPTY-PROVISIONAL's route is no longer unestablished
+
+The same flight fired `ReFlyProvisionalBinding`'s observation-only raise on a
+real driven run:
+
+```
+[Parsek][WARN][ReFlySession] outcome=unbound-refly-provisional
+reason=refly-provisional-has-no-trajectory-at-save sess=sess_599866f5...
+provisional=rec_cf0ed609... markerTree=tree-wp-stack-root origin=wp-booster-a
+treeKind=pending tree -- this session's provisional is being saved with no
+trajectory sidecar, so nothing has recorded into it. If the session concludes in
+this state the merge writes 0 supersede rows and the origin branch stays
+effective
+```
+
+Its prediction came true to the letter. `.claude/CLAUDE.md` records that raise as
+OBSERVATION ONLY because "the route to that state is not established; the only
+demonstrated route was fixture-shaped" - this is a driven flight over a
+production-shaped RP sidecar reaching it, so that sentence now has a
+counter-example. The standing instruction NOT to relax
+`ReFlySessionMarker.ResolveInPlaceContinuationTarget`'s tree-id gate to "fix" it
+is untouched by this.
+
+ONE TIMING SUBTLETY that probably matters to whoever takes this: the provisional
+is trajectory-less at the mid-session save (the raise above, 13:58:16.540) but
+carries FOUR points by the tail (`PRE_REFLY_ANCHOR written: rec=rec_cf0ed609...
+points=4`, 13:58:19.479), accumulated while the six-cell batch ran. So "unflown"
+and "trajectory-less" are NOT the same predicate on this timeline, and
+`ValidateSupersedeTarget` might not have refused even if it had been reached.
+Do not assume the refusal branch was merely bypassed - check whether it would
+still have fired.
+
+## PART-ACTION-RECORDING-COVERAGE: audit backlog for what Parsek records vs the stock part-action surface [OPEN 2026-08-09]
+
+Full matrix and reasoning:
+`docs/dev/research/part-action-recording-audit-2026-08-09.md`. 103 stock
+`PartModule` types decompiled and cross-matched against the 35 `PartEventType`
+values, 22 `GameStateEventType` values, 59 subscribed `GameEvents`, the playback
+dispatch and the Re-Fly restore path. That doc is the authority; this entry is
+the index so the items are not lost.
+
+**Both MUST-table `C` items are now closed.** `C1` (restore non-slot vessels,
+asteroids/comets, flags) shipped 2026-08-09 - see the
+REFLY-DELETES-NON-SLOT-WORLD entry above. `C2` (pre-invoke advisory naming what
+the revert takes back) shipped 2026-08-11 into the Re-Fly confirmation dialog +
+one `[Rewind]` Info line; details in that same entry. The `M` / `S` items below
+are untouched.
+
+**Establish the restore model before reasoning about any "world desyncs" claim.**
+The RP quicksave is a full `GamePersistence.SaveGame`, so the whole `GAME` node
+comes back. Anything in a `PART`/`MODULE` node on the selected slot is restored
+verbatim and is BENIGN - experiment `Deployed`/`Inoperable`, container contents,
+lab accrual, ISRU tank gains, per-part resource amounts,
+`flowState`/`flowMode`/crossfeed, `ACTIONGROUPS`, seats, inventory, `BROKEN`
+panels, ablator. So are ore depletion and biome/planet unlock (they live in
+`ResourceScenario`, a `GAME`-node scenario) - `grep ResourceMap Source/` returns
+0 hits and that is fine, not a gap. Recording those buys divergence DETECTION,
+not correctness.
+
+Open items, highest leverage first:
+
+- ~~FIXED 2026-08-11 (PR #1443)~~ **Ghost initial state is read from the part PREFAB, not the recorded
+  snapshot.** The snapshot IS a full `ProtoVessel` backup
+  (`FlightRecorder.cs:6080-6082`) but `GhostVisualBuilder` reads only
+  name/pid/pos/rot (`:431-441`) and builds from `ap.partPrefab`. Exactly three
+  module states are read from it: `ModuleJettison.isJettisoned`, fairing
+  fsm/XSECTION, `ModulePartVariants`. Everything else rides a 16-family
+  `PartStateSeeder` whitelist. The promotion gate
+  (`FlightRecorder.cs:6544-6581`) deliberately emits engine-only seeds for EVERY
+  continuation segment including Re-Fly forks, so a post-rewind ghost renders
+  gear up / panels folded / lights off for its whole span. Fix by reading the
+  snapshot at BUILD time (sidesteps the `#263` `FindLastInterestingUT` invariant
+  the gate protects). MUST land with the robotic split-seed fix - a
+  `RecordingTreeSplitter` TIP inherits the parent's LAUNCH-UT snapshot, so the
+  snapshot read alone gives forks a confidently-wrong pre-launch pose.
+- ~~FIXED 2026-08-11 (PR #1443)~~ **Robotic events are in neither split-seed family** and
+  `ReapplySpawnTimeModuleBaselinesForLoopCycle` never calls `ApplyRoboticPose`.
+- ~~FIXED 2026-08-11 (PR #1445)~~ **Two confidently-wrong recorded signals** that playback faithfully renders:
+  parachute REPACK is classified as CUT (`FlightRecorder.cs:1665-1690`) so a
+  repacked chute renders as an empty can; and wheel spin records `driveOutput`
+  (percent-of-max-torque) replayed at `value * 6` deg/s as if RPM
+  (`GhostPlaybackLogic.cs:3588`), with `Mathf.Abs` making reverse identical to
+  forward and a coasting rover showing stationary wheels. Re-deriving spin from
+  trajectory ground speed is storage-NEGATIVE.
+- **Recorded magnitude that playback discards.** `SetEngineEmission`
+  (`:2172-2204`) branches only on `power > 0f`; only `:2405`/`:2423` (audio
+  curves) read the magnitude. `ComputeScaledRcsEmissionRate`/`...Speed` exist at
+  `:3354`/`:3367` with ZERO production call sites (only
+  `RuntimePolicyTests.cs:210,219,228,230`). Worst on Waterfall installs, whose
+  premise is a throttle-continuous plume.
+- **Five dead reflection probes**, four of them documented as shipped at
+  `done/next-parts-event-support-priority.md:43-47`. `module.Fields` is
+  `[KSPField]`-only (`FlightRecorder.cs:3733-3748`); `ModuleControlSurface`'s
+  real field is `deploy` and the table lists `deployed`; the piston probe latches
+  `traverseVelocity`, a `[KSPAxisField]` SPEED SLIDER that resolves and is
+  constant during a stroke, shadowing the working `servoTransformPosition`
+  fallback; `ModuleAnimateHeat`'s live scalars are plain public fields whose
+  accessor is the `IScalarModule.GetScalar` property - ONE cast lights up the
+  complete already-built Hot/Medium/Cold playback path
+  (`GhostPlaybackLogic.cs:3693-3770`).
+- **Recorder cache and rails holes.** `cachedEngines` is assigned only in
+  `ResetPartEventTrackingState` (sole caller `StartRecording`) and
+  `CheckEngineState` guards only `part == null`, so a staged-away booster that
+  keeps burning writes into the PARENT recording. The background rails
+  transition ERASES state instead of deferring: `BackgroundRecorder.cs:2316-2336`
+  drops `loadedStates` with no terminal emit, so a BG ghost's plume latches on
+  for the whole rails span.
+- **Continuous motion to SYNTHESIZE, never sample:** gimbal (`ModuleGimbal`, 243
+  stock parts, ZERO Parsek references) and control-surface deflection from the
+  recorded `srfRelRotation` derivative; wheel steering from heading change; sun
+  tracking from `Planetarium.fetch.Sun`; launch dust (`ModuleSurfaceFX`, 183
+  parts, zero references) from engine power + altitude. Precedent:
+  `ApplyAblationChar` already synthesizes reentry char from live physics.
+- **Career-bearing modules with a modest visual, which fell through both the "is
+  it visible" and "does the quicksave restore it" sieves:**
+  `ModuleScienceExperiment` (158 parts, ONE reference and it is a comment at
+  `VesselSpawner.cs:744`), `ModuleDataTransmitter` transmission timeline (201
+  parts, 6 refs all static `AntennaSpec`), `ModuleTestSubject` (**709**
+  declarations, zero refs - a whole contract genre), `ModuleOrbitalSurveyor`.
+- **Ledger facets:** kerbal XP is zero-coverage (`ModuleTripLogger` /
+  `flightLog` / `ArchiveFlightLog` / `experienceLevel` all return NOTHING across
+  `Source/`) and survives a supersede that refunds the funds; it is monotone, so
+  the patcher is a re-assert. Contract snapshots are ACCEPT-time only
+  (`GameStateRecorder.Handlers.cs:84-93`, and `ContractsModule.cs` has zero
+  occurrences of "parameter"), so `PatchContracts`' rebuild branch
+  (`KspStatePatcher.cs:2050-2085`) returns a reinstated contract at 0/N
+  waypoints.
+- **UNTESTED INTERACTION, trace before assuming:** `ScienceChanged` is in the
+  seven-facet patch set while the `ResearchAndDevelopment` node - including each
+  subject's decayed `scientificValue` - is a `GAME`-node facet reverted to the
+  rewind UT. A surviving branch's post-rewind `ScienceChanged` rows are
+  re-applied against a rolled-back subject table. `PatchScience` was NOT traced.
+  The boundary between a restored `GAME`-node scenario and a patched ledger facet
+  that reads from it is where the remaining rewind bugs will be.
+- **Doc defects:** `done/next-parts-event-support-priority.md:43-47` (five
+  families claimed shipped, all dead probes); the rewind design doc §7.13 still
+  claims v1 never un-completes a contract, but `PatchContracts` can remove a
+  tombstoned finished row.
 ## ~~SYNTH-SOI-ENTRY-FASTPATH-LAUNCH-TRANSITION: the re-aim synthesizer's patched-conic fast path can report the LAUNCH body's SOI transition as the target arrival instant~~ [FOUND 2026-08-11 by the new Kerbin->Eve in-game cell on its first flight (`M2-periodicity-solver` run `2026-08-11_1213`). FIXED the same day on branch `reaim-inclined-targets` (Phase 2 addendum), same-branch because the retention work made it newly reachable]
 
 **What was wrong.** `ReaimTransferSynthesizer.TrySynthesizeTransfer` propagates the solved conic through `PatchedConics.CalculatePatch` and takes a FAST PATH when stock promotes an encounter with the intended target:

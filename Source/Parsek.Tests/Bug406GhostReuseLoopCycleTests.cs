@@ -428,5 +428,84 @@ namespace Parsek.Tests
 
             Assert.Empty(cameraEvents);
         }
+
+        // --- Robotic servo carry-over across cycles ---
+
+        [Fact]
+        public void ResetForLoopCycle_ZeroesRoboticBookkeepingButCannotMoveTheServo()
+        {
+            // This cell documents WHY ReapplySpawnTimeModuleBaselinesForLoopCycle needs a
+            // robotic step at all. ResetForLoopCycle is deliberately Unity-free, so it can
+            // zero the scalars but not put the servo transform back - leaving the numbers
+            // saying "at rest" while the mesh stands wherever the last cycle finished.
+            var info = new RoboticGhostInfo
+            {
+                moduleName = "ModuleRoboticServoHinge",
+                visualMode = RoboticVisualMode.Rotational,
+                currentValue = 87f,
+                spawnValue = 15f,
+                hasSnapshotBaseline = true,
+                active = true,
+                lastUpdateUT = 4242.0,
+            };
+            var state = new GhostPlaybackState
+            {
+                roboticInfos = new Dictionary<ulong, RoboticGhostInfo>
+                {
+                    { FlightRecorder.EncodeEngineKey(100000, 0), info },
+                },
+            };
+
+            GhostPlaybackLogic.ResetForLoopCycle(state, newCycleIndex: 1);
+
+            // Reset zeroes the scalars - note it zeroes them to 0f, NOT to spawnValue,
+            // which is why the pose restore is a separate step and not a re-run of reset.
+            Assert.Equal(0f, info.currentValue);
+            Assert.False(info.active);
+            Assert.True(double.IsNaN(info.lastUpdateUT));
+            Assert.Equal(15f, info.spawnValue);
+            Assert.True(info.hasSnapshotBaseline);
+        }
+
+        [Fact]
+        public void RestoreRoboticSpawnBaselines_PutsEveryServoBackToItsSpawnPose()
+        {
+            // The loop-cycle counterpart, called from
+            // ReapplySpawnTimeModuleBaselinesForLoopCycle step 3e. Two servos, one with a
+            // snapshot baseline and one without: both return to their own spawn pose, so
+            // cycle N+1 starts from the same look cycle 1 did.
+            var posed = new RoboticGhostInfo
+            {
+                moduleName = "ModuleRoboticServoHinge",
+                visualMode = RoboticVisualMode.Rotational,
+                currentValue = 87f,
+                spawnValue = 15f,
+                hasSnapshotBaseline = true,
+                active = true,
+            };
+            var prefabPosed = new RoboticGhostInfo
+            {
+                moduleName = "ModuleRoboticServoPiston",
+                visualMode = RoboticVisualMode.Linear,
+                currentValue = 0.9f,
+                active = true,
+            };
+            var state = new GhostPlaybackState
+            {
+                roboticInfos = new Dictionary<ulong, RoboticGhostInfo>
+                {
+                    { FlightRecorder.EncodeEngineKey(100000, 0), posed },
+                    { FlightRecorder.EncodeEngineKey(100000, 1), prefabPosed },
+                },
+            };
+
+            int restored = GhostPlaybackLogic.RestoreRoboticSpawnBaselines(state);
+
+            Assert.Equal(2, restored);
+            Assert.Equal(15f, posed.currentValue);
+            Assert.False(posed.active);
+            Assert.Equal(0f, prefabPosed.currentValue);
+            Assert.False(prefabPosed.active);
+        }
     }
 }

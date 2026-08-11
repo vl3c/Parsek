@@ -116,6 +116,8 @@ RP_SIDECAR_BY_PRESET = {
     "all-synthetic": None,
     "rewind-b9": "rp_b9_root",
     "rewind-crew-loss": "rp_cl_root",
+    # S4.2's world-preservation RP: the only sidecar carrying an unrelated fleet.
+    "refly-world-preservation": "rp_wp_root",
     # The S1.8 SoiCrossingPlayback corpus: a committed tree only, no RP.
     "looped-interplanetary": None,
 }
@@ -802,6 +804,11 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
       (the RP every rewind-b9 consumer's ``InvokeRewind rp=rp_b9_root`` needs).
     - ``rewind-crew-loss`` -> the same, plus ``Parsek/RewindPoints/rp_cl_root.sfs``
       (CL stage B's crewed re-fly target).
+    - ``refly-world-preservation`` -> the same, plus
+      ``Parsek/RewindPoints/rp_wp_root.sfs``. That sidecar is doubly load-bearing
+      here: it is the re-fly target AND the ground truth the in-game
+      ``ReFlyWorldPreservation`` cells read back to name what the pre-rewind world
+      held, so a missing one turns the whole batch into skips rather than failures.
     - ``looped-interplanetary`` -> a non-empty ``Parsek/Recordings/`` only (a
       committed looped tree, no RP; the S1.8 SoiCrossingPlayback corpus)."""
     missing: List[str] = []

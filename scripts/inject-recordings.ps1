@@ -17,6 +17,7 @@ $injectFilterByPreset = @{
     "all-synthetic"         = "InjectAllRecordings"
     "rewind-b9"             = "InjectRewindB9"
     "rewind-crew-loss"      = "InjectRewindCrewLoss"
+    "refly-world-preservation" = "InjectReFlyWorldPreservation"
     "looped-interplanetary" = "InjectLoopedInterplanetary"
 }
 
@@ -27,6 +28,7 @@ $defaultSaveByPreset = @{
     "all-synthetic"         = "test career"
     "rewind-b9"             = "rewind-b9-fixture"
     "rewind-crew-loss"      = "rewind-crew-loss-fixture"
+    "refly-world-preservation" = "refly-world-preservation-fixture"
     "looped-interplanetary" = "looped-interplanetary-fixture"
 }
 

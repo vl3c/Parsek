@@ -2735,20 +2735,26 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+        "H32-snapshot-baseline":     ("SnapshotBaseline", 7, "FLIGHT"),
+        "H33-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
         # The first member whose category is only PARTLY reachable at its boot
         # scene: 45 of the 47 Logistics declarations are FLIGHT-scoped and
         # scene-skip at SPACECENTER, so its skip floor is 45 where every FLIGHT
         # member's is 0 or 1. That floor is ATTRIBUTE-derived, so it needs no
         # RUNTIME_SKIPS entry - the measured run skipped nothing at run time.
-        "H32-logistics-inter-body":  ("Logistics", 47, "SPACECENTER"),
+        # (Flown as `H32-logistics-inter-body`; renamed H34 post-merge after a
+        # sibling lane landed a different H32 on main first. Nothing re-flown.)
+        "H34-logistics-inter-body":  ("Logistics", 47, "SPACECENTER"),
         # The OTHER half of the SAME category, at the other scene - the first
         # time two members share a category, and it needs nothing special: the
-        # tally is derived PER MEMBER from (category, scene), so H32's
-        # SPACECENTER slice (45 scene-skipped, 2 executable) and H33's FLIGHT
+        # tally is derived PER MEMBER from (category, scene), so H34's
+        # SPACECENTER slice (45 scene-skipped, 2 executable) and H35's FLIGHT
         # slice (1 scene-skipped + 38 batch-skipped, 8 executable) each check
         # against their own derivation off the same 47 declarations. Adding a
         # Logistics [InGameTest] moves BOTH pins, in the same commit.
-        "H33-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
+        # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
+        # same collision.)
+        "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2789,7 +2795,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # fixture x preset (ScenarioWriter.AddCrewReplacement has zero callers).
         # Fixture property, and the spec says so.
         "H31-crew-reservation": 3,
-        # H33: three, MEASURED identically on all three 2026-08-11 runs, on top
+        # H35: three, MEASURED identically on all three 2026-08-11 runs (flown
+        # under its pre-rename id `H33-logistics-route-proof`), on top
         # of an attribute floor of 39 (1 scene-skip + 38 AllowBatchExecution=
         # false) for a pinned skipped=42. All three are FIXTURE properties of
         # bdock-recorded, stated in the spec's STATUS block:
@@ -2807,21 +2814,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         #     ROUTE_ORIGIN_PROOF nodes because both BDOCK-1 flights start
         #     PRELAUNCH on the pad; the cell needs a mission that STARTS docked
         #     to a non-PRELAUNCH partner, which no committed profile produces.
-        "H33-logistics-route-proof": 3,
+        "H35-logistics-route-proof": 3,
     }
 
-    # EMPTY, and deliberately kept rather than deleted. H20 was the one member that
-    # carried the loose interim pin, because both its cells have run-time
-    # InGameAssert.Skip guards and one of them (the walkback endpoint-overlap probe,
-    # a live Physics.OverlapBox) is not decidable from source. It was re-flown ALONE
-    # on 2026-07-27 so its log would survive the sweep, measured
-    # `total=2 passed=2 failed=0 skipped=0`, and is now pinned whole like the rest.
-    # So every member of the group pins its tally whole, and
-    # test_the_interim_pin_member_is_declared_and_deliberately_loose now asserts that
-    # NONE of them is loose - which is the guard worth having, because the interim
-    # form accepts 1-of-N by design and re-introducing one silently would be a real
-    # weakening. Add an id back here only alongside a written reason in the spec.
-    #
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
     # DERIVABLE from the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
@@ -2838,6 +2833,28 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
+    # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
+    # (the form accepts 1-of-N by design), so it should exist only between a spec
+    # landing and its first flight. Two members passed through it and both are gone:
+    #
+    #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
+    #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
+    #   loose turned out not to hold - the stock-minimal profile DOES carry Breaking
+    #   Ground (the Clone phase junctions the dev install's whole
+    #   `GameData/SquadExpansion`, Serenity robotics included), and the four
+    #   deployable cells found stock prefabs whose animation clips do separate stow
+    #   from deploy. So a future interim pin justified by "the profile lacks X" should
+    #   CHECK the provisioned instance rather than reason from the profile's name.
+    #
+    #   H33-recorded-signals FLEW 2026-08-11 (run `2026-08-11_1118`, PASS attempt 1)
+    #   reading `total=3 passed=3 failed=0 skipped=0`. Both cells whose run-time Skip
+    #   guards motivated the loose form EXECUTED on stock-minimal - the stock chute
+    #   prefab resolves both a canopy and a cap transform, and the stock rover wheel
+    #   satisfied all four of its guards (motor module, resolved spin transform, a
+    #   body-relative surface normal, and a spin axis not parallel to it) - so no
+    #   RUNTIME_SKIPS entry is owed for either.
+    #
+    # Both specs now pin their tallies whole, so the set is empty again.
     INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -2883,8 +2900,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(26, len(self.GROUP),
-                         "the H7-H20 + H22-H33 group is 26 specs; if it genuinely changed "
+        self.assertEqual(28, len(self.GROUP),
+                         "the H7-H20 + H22-H35 group is 28 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -3064,10 +3081,20 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells bail through a SILENT return on an empty ghost-map pid set -
         # exactly the fourth-trap shape this cell exists for) and H30 (the
         # engine-level pause/unpause cell iterates the live ghost set).
+        # H33 is in this set for a DIFFERENT reason than the other seven, and the
+        # difference is worth stating: its three cells do NOT walk RecordingStore
+        # (each builds its own single-part ghost from a PartLoader prefab), so
+        # injection is not an anti-vacuity guard for the cells. It injects because
+        # its subject IS the two corpus rows `recorded-signal-fixes` added (the
+        # chute-repack showcase and the surface rover drive), and its count pin is
+        # the only committed assertion that those two land through the sidecar /
+        # schema-gate load path. Same requirement either way: inject AND pin
+        # non-zero, so a corpus that silently stopped landing reds.
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
                          "H16-corpus-spawn-health", "H17-flight-integration",
-                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio"}
-        # THE THIRD SHAPE (wave 3, H33). A RECORDED-FIXTURE member injects
+                         "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
+                         "H33-recorded-signals"}
+        # THE THIRD SHAPE (wave 3, the spec now called H35). A RECORDED-FIXTURE member injects
         # NOTHING - `injectedRecordings = "none"`, same as the zero-pin majority -
         # but its saveTemplate is a harvested save whose own COMMITTED recordings
         # ARE the payload the batch walks. So the zero-pin rule is not merely
@@ -3086,7 +3113,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # (test_fixture_set_is_exactly_the_committed_set forces every
         # fixtures/saves/ dir into either the zero-recording set or the fully
         # pinned RECORDED_FIXTURES). A wrong-but-present payload reds THERE.
-        recorded_fixture = {"H33-logistics-route-proof"}
+        recorded_fixture = {"H35-logistics-route-proof"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "
                          "recorded-fixture; the two rules contradict")
@@ -4693,6 +4720,28 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "reset need a career fixture the sandbox host lacks; the "
                                        "self-authored RewindPoint needs a multi-controllable "
                                        "split plus a seam channel. No unattended run discharges them.",
+        # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
+        # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
+        # pending-operator TAG stays until that first green run; the tag alone is
+        # non-gating." The original derivation debt is PAID: run 2026-08-11_1057 flew,
+        # the batch line matched the derived tally token for token, and the pin is
+        # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
+        # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
+        # is "until that first GREEN run" and that run classified
+        # PARSEK-FAIL(expectations) on the AppendRelations token - the standing
+        # RED-BY-FINDING (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS). What the operator
+        # still owes: the standing-red disposition (fix the finding, or set
+        # [expectedFail] bugId to quiet nightlies) and the save-structure arming
+        # decision the spec deliberately leaves report-only. DROP THIS ENTRY on the
+        # first green run after the finding is resolved.
+        "S4.2-refly-world-preservation.toml":
+                                       "flown RED-BY-FINDING 2026-08-11: tally measured (matched "
+                                       "the derivation token for token) but the run classified "
+                                       "PARSEK-FAIL on REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, "
+                                       "so the tag stays until the first green run. Operator "
+                                       "owes the standing-red disposition + the report-only "
+                                       "arming decision. NOT tier=operator: a nightly spec can "
+                                       "owe operator work, exactly as S1.5 and EVA-1 do.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -4706,16 +4755,19 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # outstanding and no human work is owed. What is open is the ordinary
         # operator -> daily CADENCE call, which is a human decision on whether the
         # largest in-game category belongs on the daily tier, exactly the shape
-        # recorded for GS-1 / GS-2 / GS-3 above.
-        "H32-logistics-inter-body.toml":    "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
-        # Same shape as H32 above, and for the same reason: the OTHER half of the
+        # recorded for GS-1 / GS-2 / GS-3 above. (Those runs flew under the
+        # pre-rename id `H32-logistics-inter-body`; the file is H34 since the
+        # post-merge id collision with the sibling lane's H32.)
+        "H34-logistics-inter-body.toml":    "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # Same shape as H34 above, and for the same reason: the OTHER half of the
         # Logistics split, flown three times on 2026-08-11 (one under-gated
         # reading run, two confirms), all PASS attempt 1, fully unattended. The
         # three run-time skips it pins are FIXTURE properties recorded in
         # RUNTIME_SKIPS and in the spec's STATUS block, not outstanding work; the
         # route-CANDIDACY gap they sit next to is a product finding with its own
-        # todo entry, not a debt this tag can carry.
-        "H33-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
+        # todo entry, not a debt this tag can carry. (Flown as
+        # `H33-logistics-route-proof`; renamed H35 for the same collision.)
+        "H35-logistics-route-proof.toml":   "FLOWN 3x 2026-08-11 (reading + two confirms, all PASS attempt 1) and PINNED WHOLE; operator tier is an open PROMOTION call, not debt",
         "H5-invariants-corpus.toml":        "discharged - 'resolving the former PENDING-OPERATOR check'",
         "H6-route-rewind-timeline.toml":    "discharged - 'The former PENDING-OPERATOR ...'",
         "M1-mission-loop-unit.toml":        "discharged - 'CLOSED by the 2026-07-26 flights'",
@@ -5398,7 +5450,12 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
     def test_the_stated_totals_match_the_table(self):
         stated_decls = sum(r[0] for r in self.rows.values())
         body = "\n".join(self.lines)
-        self.assertIn("**99 categories / %d declarations**" % stated_decls, body,
+        # The category COUNT is hardcoded here on purpose: it is the one token the
+        # table cannot self-check (a row added AND the totals line updated by hand
+        # would agree with each other while both drifted from the source). 99 -> 100
+        # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32).
+        self.assertIn("**102 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

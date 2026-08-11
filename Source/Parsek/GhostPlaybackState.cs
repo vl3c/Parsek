@@ -61,6 +61,12 @@ namespace Parsek
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
         public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
         public Dictionary<uint, FairingGhostInfo> fairingInfos;
+        // M1 build-time module baselines read from the ghost snapshot, keyed by
+        // persistentId. Applied once at spawn (after the stow/cold baselines, before the
+        // prefix event replay) and re-applied on every loop cycle, so cycle N+1 restarts
+        // from the recorded look instead of the all-stowed prefab look. Null when the
+        // snapshot carried nothing readable.
+        public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines;
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public Dictionary<uint, GameObject> fakeCanopies;
         public ReentryFxInfo reentryFxInfo;
@@ -106,6 +112,9 @@ namespace Parsek
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
+        // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
+        // WheelGroundContactMemo and GhostPlaybackLogic.ResolveWheelGroundContact.
+        internal WheelGroundContactMemo wheelGroundContact;
         public Vector3 lastValidHorizonForward; // fallback forward direction when velocity near zero
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
         public double lastDistance; // meters from active vessel, updated per frame in ApplyZonePolicy
@@ -134,6 +143,7 @@ namespace Parsek
             audioPaused = false;
             cachedAudioBody = null;
             cachedAudioBodyName = null;
+            wheelGroundContact = default;
             roboticInfos = null;
             deployableInfos = null;
             heatInfos = null;
@@ -141,6 +151,7 @@ namespace Parsek
             lightPlaybackStates = null;
             colorChangerInfos = null;
             fairingInfos = null;
+            snapshotBaselines = null;
             compoundPartInfos = null;
             fakeCanopies = null;
             reentryFxInfo = null;
@@ -199,5 +210,25 @@ namespace Parsek
             bodyName = body;
             altitude = alt;
         }
+    }
+
+    /// <summary>
+    /// Per-ghost memo of the last resolved wheel ground-contact answer, so the ground-contact gate
+    /// costs one pair of double compares on a steady-state frame instead of an O(sections) scan.
+    /// Owned by <see cref="GhostPlaybackState.wheelGroundContact"/>; resolved and updated only by
+    /// <see cref="GhostPlaybackLogic.ResolveWheelGroundContact"/>.
+    ///
+    /// The window is the resolved <see cref="TrackSection"/>'s own [startUT, endUT) span, so it
+    /// invalidates itself at every section change (and at a loop restart, where the UT jumps
+    /// backwards out of the window). Half-open on purpose: <c>FindTrackSectionForUT</c> treats the
+    /// LAST section's end as inclusive, so a probe at exactly that endUT re-resolves rather than
+    /// reading a cached answer — a miss, never a wrong answer.
+    /// </summary>
+    internal struct WheelGroundContactMemo
+    {
+        public bool hasValue;
+        public double startUT;
+        public double endUT;
+        public bool onGround;
     }
 }

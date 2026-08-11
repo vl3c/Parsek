@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -1339,6 +1339,12 @@ namespace Parsek.Tests
         private const uint AnimateHeatShowcasePidBase = 99100000;
         private const uint EngineShowcasePidBase = 99200000;
         private const uint ColorChangerShowcasePidBase = 99300000;
+        // Recorded-signal fixtures (2026-08-09 part-action audit): the chute-REPACK showcase and the
+        // moving surface rover. The 99400000 band is SHARED with FlagPlantShowcasePid below: the
+        // flag showcase uses 99400000 exactly, and these rows offset from the base by
+        // 242/243 * 1111, so no actual pid collides. A new band would have been cleaner but the
+        // next one (99500000) is taken by RestockPlus.
+        private const uint RecordedSignalShowcasePidBase = 99400000;
         private const uint FlagPlantShowcasePid = 99400000;
         private const uint RestockPlusShowcasePidBase = 99500000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
@@ -1354,6 +1360,17 @@ namespace Parsek.Tests
         private const double RestockPlusDistanceOffsetMeters = 3.0 * ShowcaseLineSpacingMeters;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
+        // Recorded-signal fixture row indices. Both sit inside the existing 0..ShowcaseRowCount-1
+        // band; 242 and 243 were the free gap (rows through 241 are the stock showcases and 244 is
+        // already taken), so no existing row's lat/lon moves - bumping ShowcaseRowCount would
+        // reshuffle every one of them.
+        private const int ChuteRepackShowcaseRowIndex = 242;
+        private const int SurfaceRoverRowIndex = 243;
+        // The rover's ground speed and clip length. 8 m/s is a realistic rover cruise and, over the
+        // 0.35 m default wheel radius, ~23 rad/s - unmistakable spin at playback speed.
+        private const double SurfaceRoverGroundSpeedMetersPerSecond = 8.0;
+        private const double SurfaceRoverDriveDurationSeconds = 30.0;
+        private const int SurfaceRoverDrivePointCount = 15;   // one sample every 2 s
         // Target top height (meters above KSC ground level). Every part's top is placed at
         // this height. With Clydesdale (topY=10.8, total ~22.3m) the bottom sits ~5.7m
         // above ground. Small parts float at ~28m — fine at 200m viewing distance.
@@ -2354,6 +2371,127 @@ namespace Parsek.Tests
                 .AsLanded(lat, lon, alt)
                 .Build();
             b.WithGhostVisualSnapshot(snap);
+
+            return b;
+        }
+
+        /// <summary>
+        /// Chute-REPACK showcase (row <see cref="ChuteRepackShowcaseRowIndex"/>), the fixture for the
+        /// 2026-08-09 audit's parachute fix. Deliberately NOT folded into
+        /// <see cref="ParachuteShowcaseRecordings"/>: that family cycles
+        /// semi-deployed -> deployed -> CUT and stops there, which is exactly the sequence that
+        /// looked correct while the bug was live. The transition this fixture exists for is the one
+        /// the old three-state encoding could not represent at all -
+        /// <c>CUT -&gt; STOWED</c>, i.e. <see cref="PartEventType.ParachuteRepacked"/> - and the
+        /// visual it exists to expose is the CAP coming back on.
+        ///
+        /// Two full deploy -> cut -> repack cycles in the 24 s clip, so the reversibility is visible
+        /// on a single loop: if the repack handler is ever regressed to a no-op, the ghost renders as
+        /// an empty can from the first cut onward and never recovers.
+        /// </summary>
+        internal static RecordingBuilder ChuteRepackShowcaseRecording(double baseUT = 0)
+        {
+            const string partName = "parachuteSingle";
+            const string vesselName = "Part Showcase - Parachute Repack Mk16";
+            double t = baseUT + 30;
+            ShowcasePosition(ChuteRepackShowcaseRowIndex, ShowcaseDistanceFromPadMeters,
+                out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
+
+            // Static trajectory (24s), same cadence as the rest of the showcase line.
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // Deployed (4s) -> cut (4s) -> repacked (4s), twice.
+            double offset = 0.0;
+            for (int cycle = 0; cycle < 2; cycle++)
+            {
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteDeployed, partName);
+                offset += 4.0;
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteCut, partName);
+                offset += 4.0;
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteRepacked, partName);
+                offset += 4.0;
+            }
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId(RecordedSignalShowcasePidBase + ChuteRepackShowcaseRowIndex)
+                .AddPart(partName, rotation: ShowcasePrimaryRotation)
+                .AsLanded(lat, lon, alt)
+                .Build();
+            b.WithGhostVisualSnapshot(snap);
+
+            return b;
+        }
+
+        /// <summary>
+        /// Surface rover driving east at <see cref="SurfaceRoverGroundSpeedMetersPerSecond"/>, the
+        /// fixture for the wheel-spin derivation. NOT a "Part Showcase" row and deliberately so: the
+        /// existing wheel families are STATIC single parts driven by recorded
+        /// <c>RoboticMotion*</c> events, and wheel spin no longer comes from an event at all. The
+        /// only thing that can drive it now is MOTION, so the fixture has to move.
+        ///
+        /// Two properties are load-bearing and both are what the old recorded signal could not
+        /// produce:
+        ///   * It carries ZERO part events. The spin has to appear anyway, from the trajectory - and
+        ///     a recording with no part events is precisely the case that used to reach no
+        ///     <c>UpdateActiveRobotics</c> call at all (<c>ApplyPartEvents</c> early-returns on it).
+        ///   * It carries a <see cref="SegmentEnvironment.SurfaceMobile"/> TrackSection over the
+        ///     whole span, which is what OPENS the ground-contact gate. Without a Surface section the
+        ///     gate holds the wheels still, so a fixture with no sections would look like the bug.
+        /// </summary>
+        internal static RecordingBuilder SurfaceRoverDriveRecording(double baseUT = 0)
+        {
+            const string vesselName = "Surface Rover Drive";
+            const string coreName = "probeCoreOcto";
+            const string wheelName = "roverWheel1";
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            // A lane of its own, well clear of the three showcase lines and the pad.
+            const double startLat = -0.0890;
+            const double startLon = -74.5300;
+            const double groundAlt = 70.0;
+
+            double t = baseUT + 30;
+            double endUT = t + SurfaceRoverDriveDurationSeconds;
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
+                .WithRecordingGroup("Synthetic");
+
+            // Drive due east at a constant ground speed. Longitude is what advances, so the
+            // successive points really are separated by SurfaceRoverGroundSpeedMetersPerSecond *
+            // dt on the ground - which is the quantity the playback derivation reads.
+            for (int i = 0; i <= SurfaceRoverDrivePointCount; i++)
+            {
+                double dt = i * (SurfaceRoverDriveDurationSeconds / SurfaceRoverDrivePointCount);
+                double travelled = SurfaceRoverGroundSpeedMetersPerSecond * dt;
+                b.AddPoint(t + dt, startLat, startLon + (travelled / metersPerDegree), groundAlt);
+            }
+
+            // The gate's only input. SurfaceMobile over the whole span = wheels on the ground.
+            b.AddTrackSection(
+                SegmentEnvironment.SurfaceMobile, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                t, endUT, sampleRateHz: 10.0f);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId(RecordedSignalShowcasePidBase + SurfaceRoverRowIndex)
+                .AddPart(coreName, rotation: ShowcasePrimaryRotation)
+                .AddPart(wheelName, position: "0.9,0,0.9", rotation: ShowcasePrimaryRotation)
+                .AddPart(wheelName, position: "-0.9,0,0.9", rotation: ShowcasePrimaryRotation)
+                .AddPart(wheelName, position: "0.9,0,-0.9", rotation: ShowcasePrimaryRotation)
+                .AddPart(wheelName, position: "-0.9,0,-0.9", rotation: ShowcasePrimaryRotation)
+                .AsLanded(startLat, startLon, groundAlt)
+                .Build();
+            b.WithGhostVisualSnapshot(snap);
+            b.WithVesselSnapshot(snap.CreateCopy());
 
             return b;
         }
@@ -4211,6 +4349,91 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ChuteRepackShowcaseRecording_CarriesTheCutToRepackTransitionTheOldEncodingCouldNotRepresent()
+        {
+            var rec = ChuteRepackShowcaseRecording(baseUT: 17000).Build();
+
+            Assert.Equal("Part Showcase - Parachute Repack Mk16", rec.GetValue("vesselName"));
+            Assert.Equal("True", rec.GetValue("loopPlayback"));
+            Assert.Equal(9, rec.GetNodes("POINT").Length);
+
+            var events = rec.GetNodes("PART_EVENT");
+            Assert.Equal(6, events.Length); // 2 cycles x (deploy, cut, repack)
+            var expected = new[]
+            {
+                PartEventType.ParachuteDeployed, PartEventType.ParachuteCut,
+                PartEventType.ParachuteRepacked, PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut, PartEventType.ParachuteRepacked
+            };
+            for (int i = 0; i < expected.Length; i++)
+                Assert.Equal(((int)expected[i]).ToString(), events[i].GetValue("type"));
+
+            // THE POINT OF THE FIXTURE: at least one ParachuteRepacked, always PRECEDED by a cut.
+            // The old three-state encoding folded stowed / active / cut together, so CUT -> STOWED
+            // was indistinguishable from a cut and no fixture could carry this pair.
+            Assert.Contains(events,
+                e => e.GetValue("type") == ((int)PartEventType.ParachuteRepacked).ToString());
+
+            var ghost = rec.GetNode("GHOST_VISUAL_SNAPSHOT");
+            var parts = ghost.GetNodes("PART");
+            Assert.Single(parts);
+            Assert.Equal("parachuteSingle", parts[0].GetValue("name"));
+            // Ghost-event <-> snapshot PID rule: a single-part showcase must use 100000.
+            Assert.Equal(SinglePartPid.ToString(), parts[0].GetValue("persistentId"));
+            foreach (var e in events)
+                Assert.Equal(SinglePartPid.ToString(), e.GetValue("pid"));
+        }
+
+        [Fact]
+        public void SurfaceRoverDriveRecording_MovesAcrossTheGroundWithNoPartEventsAndASurfaceSection()
+        {
+            var rec = SurfaceRoverDriveRecording(baseUT: 17000).Build();
+
+            Assert.Equal("Surface Rover Drive", rec.GetValue("vesselName"));
+
+            // (1) ZERO part events. Wheel spin is derived from motion now, and a recording with no
+            //     part events is exactly the case that used to reach no UpdateActiveRobotics call.
+            Assert.Empty(rec.GetNodes("PART_EVENT"));
+
+            // (2) It actually MOVES: longitude advances monotonically at the fixture ground speed.
+            var points = rec.GetNodes("POINT");
+            Assert.Equal(SurfaceRoverDrivePointCount + 1, points.Length);
+            double firstLon = double.Parse(points[0].GetValue("lon"), CultureInfo.InvariantCulture);
+            double lastLon = double.Parse(
+                points[points.Length - 1].GetValue("lon"), CultureInfo.InvariantCulture);
+            Assert.True(lastLon > firstLon, "the rover must travel east, not sit still");
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            double travelledMeters = (lastLon - firstLon) * metersPerDegree;
+            Assert.Equal(
+                SurfaceRoverGroundSpeedMetersPerSecond * SurfaceRoverDriveDurationSeconds,
+                travelledMeters, 1);
+            double prevLon = firstLon;
+            for (int i = 1; i < points.Length; i++)
+            {
+                double lon = double.Parse(points[i].GetValue("lon"), CultureInfo.InvariantCulture);
+                Assert.True(lon > prevLon, $"point {i} did not advance east");
+                prevLon = lon;
+            }
+
+            // (3) A SurfaceMobile TrackSection over the whole span - the ground-contact gate's only
+            //     input. Without it the gate would (correctly) hold the wheels still, and the
+            //     fixture would look exactly like the bug it exists to rule out.
+            var sections = rec.GetNodes("TRACK_SECTION");
+            Assert.Single(sections);
+            Assert.Equal(((int)SegmentEnvironment.SurfaceMobile).ToString(), sections[0].GetValue("env"));
+
+            // (4) Real wheels on the ghost, at the pids VesselSnapshotBuilder assigns.
+            var parts = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART");
+            Assert.Equal(5, parts.Length);
+            Assert.Equal("probeCoreOcto", parts[0].GetValue("name"));
+            for (int i = 1; i < parts.Length; i++)
+            {
+                Assert.Equal("roverWheel1", parts[i].GetValue("name"));
+                Assert.Equal((100000 + i * 1111).ToString(), parts[i].GetValue("persistentId"));
+            }
+        }
+
+        [Fact]
         public void SpecialDeployAnimationShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = SpecialDeployAnimationShowcaseRecordings(baseUT: 17000);
@@ -4501,6 +4724,7 @@ namespace Parsek.Tests
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
                 ColorChangerShowcaseRecordings(17000),
+                new[] { ChuteRepackShowcaseRecording(17000) },
                 new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
@@ -5108,7 +5332,8 @@ namespace Parsek.Tests
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
-                ColorChangerShowcaseRecordings(17000)
+                ColorChangerShowcaseRecordings(17000),
+                new[] { ChuteRepackShowcaseRecording(17000) }
             };
 
             foreach (var category in allShowcases)
@@ -5160,6 +5385,7 @@ namespace Parsek.Tests
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
                 ColorChangerShowcaseRecordings(17000),
+                new[] { ChuteRepackShowcaseRecording(17000) },
                 new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
@@ -6216,6 +6442,111 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Injects the WORLD-PRESERVATION rewindable-tree fixture into the target
+        /// save: the same rewindable shape as <see cref="InjectRewindB9"/> PLUS an
+        /// unrelated fleet inside the RP quicksave (a Station, the host save's own
+        /// asteroids/comets re-admitted verbatim, a Flag, and a Probe + Debris pair
+        /// both name-colliding with the re-flown craft). Harness-callable via
+        /// <c>dotnet test --filter InjectReFlyWorldPreservation</c> (the
+        /// <c>refly-world-preservation</c> injection preset consumed by
+        /// <c>S4.2-refly-world-preservation</c>).
+        ///
+        /// <para>
+        /// Sibling of the two injectors above and deliberately identical to them
+        /// except for the fixture populated; the slot-name prefix and the
+        /// unrelated-world author are both set by
+        /// <see cref="ReFlyWorldPreservationFixture.PopulateWriter"/> rather than
+        /// here, because the fleet and the prefix belong to the fixture's contract.
+        /// Same env contract (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START).
+        /// </para>
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectReFlyWorldPreservation()
+        {
+            // Distinct default save name so a bare `dotnet test` full-suite run
+            // no-ops here rather than purging another fixture's corpus.
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "refly-world-preservation-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            // Same guarded purge as the sibling injectors: refuse when KSP.log is
+            // locked by a live session so the inject never races the game.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double baseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            ReFlyWorldPreservationFixture.PopulateWriter(writer, baseUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = WP Stack", content);
+                    Assert.Contains("vesselName = WP Upper B", content);
+                    Assert.Contains(
+                        "vesselName = " + ReFlyWorldPreservationFixture.BoosterVesselName,
+                        content);
+                    Assert.Contains("REWIND_POINTS", content);
+                    Assert.Contains(
+                        "rewindPointId = " + ReFlyWorldPreservationFixture.RewindPointId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+
+            // The RP quicksave sidecar must exist on disk or CanInvoke declines, and
+            // it is ALSO the ground truth the in-game ReFlyWorldPreservation cells
+            // read back, so its absence would turn that whole category into skips.
+            string rpSidecar = Path.Combine(
+                saveDir, "Parsek", "RewindPoints",
+                ReFlyWorldPreservationFixture.RewindPointId + ".sfs");
+            Assert.True(File.Exists(rpSidecar),
+                $"World-preservation RP quicksave sidecar missing: {rpSidecar}");
+        }
+
+        /// <summary>
         /// Injects the LOOPED-INTERPLANETARY corpus into the target save: ONE
         /// looped recording whose OrbitSegment chain is the REAL flown
         /// duna-direct Kerbin -> Sun -> Duna geometry, byte-pinned (see
@@ -6421,6 +6752,14 @@ namespace Parsek.Tests
             var parachuteShowcases = ParachuteShowcaseRecordings(baseUT);
             for (int i = 0; i < parachuteShowcases.Length; i++)
                 writer.AddRecordingAsTree(parachuteShowcases[i]);
+            // Recorded-signal fixtures (2026-08-09 part-action audit). EACH ADDS EXACTLY ONE ROW,
+            // which is why every harness `[expectations.recordings] count` pin over the
+            // all-synthetic corpus moved 272 -> 274 in the same commit: run.py's count_recordings
+            // counts `.prec` files, ScenarioWriter.WriteSidecarFiles writes one per v3 builder, and
+            // AddRecordingAsTree adds one builder. Adding a row here without re-deriving those pins
+            // reds every corpus-backed spec on the next nightly.
+            writer.AddRecordingAsTree(ChuteRepackShowcaseRecording(baseUT));
+            writer.AddRecordingAsTree(SurfaceRoverDriveRecording(baseUT));
             var specialDeployAnimationShowcases = SpecialDeployAnimationShowcaseRecordings(baseUT);
             for (int i = 0; i < specialDeployAnimationShowcases.Length; i++)
                 writer.AddRecordingAsTree(specialDeployAnimationShowcases[i]);

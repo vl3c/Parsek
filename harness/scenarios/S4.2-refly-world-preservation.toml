@@ -1,0 +1,334 @@
+schema = 1
+id = "S4.2-refly-world-preservation"
+# tier = "nightly", on S4.1's OWN argument rather than a new one. This spec is S4.1's
+# shape plus a batch: same gloops-class FLIGHT-entry LoadGame, same injected-RP
+# InvokeRewind, same AnswerMergeDialog tail. So the two operator-tier reasons both
+# fail the same way they fail for S4.1 - reason (a) "PASS is unreachable unattended"
+# is false (LoadGame IS the flight-entry verb; see S4.1's tier note and EVA-1's live
+# precedent), and reason (b) needs EXPENSIVE, which a ~2-boot seam run with no
+# autopilot is not.
+#
+# NOT YET FLOWN. Its first scheduled run IS its live-prove, and a failure there
+# classifies driver-INVALID (retryable) or PARSEK-FAIL(expectation) with the numbers
+# to re-derive from - never a silent green. Read the DERIVED-NOT-MEASURED banner on
+# the batch tally below before treating a tally mismatch as a product defect.
+tier = "nightly"
+#
+# WHAT THIS SPEC IS FOR, and why S4.1 cannot be extended to cover it.
+#
+# REFLY-DELETES-NON-SLOT-WORLD (audit item C1, fixed 2026-08-09): a Re-Fly deleted
+# every vessel except the selected slot - stations, relays, rovers, planted flags,
+# and every discovered asteroid and tracked comet, the last of which is
+# UNRECOVERABLE. Two independent layers did it (the pre-load temp-save scrub AND
+# PostLoadStripper.Strip called with stripUnmatchedVessels: true), and the bug was
+# SELF-CONCEALING: the stripper's own VesselType.Flag carve-out could never fire
+# because the scrub had already removed the flag node from the .sfs before the
+# bypass was consulted.
+#
+# THE FIX HAS THOROUGH xUnit COVERAGE AND THAT COVERAGE CANNOT CLOSE THIS. Every
+# headless cell is ConfigNode-level (what the scrub WRITES into the temp save) or
+# pure-predicate (what the #587 survey ADMITS). None of them observes a real KSP
+# process that loaded the rewritten save. With two deleting layers, a green
+# pre-load assertion is precisely what the original defect looked like.
+#
+# S4.1 already drives the whole B9 re-fly cycle - and could not have caught this,
+# for a reason that is a property of the FIXTURE, not of the spec: every committed
+# rewind fixture's RP quicksave holds exactly one VESSEL per child slot and nothing
+# else (ScenarioWriter.BuildRewindPointQuicksave removes the donor's own vessels
+# before authoring the slots). A re-fly against such a sidecar loads a world with
+# no unrelated fleet in it, so "the fleet survived" is vacuously true and "the
+# fleet was deleted" is unobservable. S4.1 flew green through every day the bug
+# was live. Hence a new fixture AND a new spec.
+#
+# WHAT IT ADDS OVER S4.1, in one line each:
+#   1. an RP quicksave that CARRIES an unrelated fleet (the new
+#      `refly-world-preservation` preset - see [fixture]);
+#   2. an in-game batch, run WHILE the re-fly session is live, that reads the
+#      surviving world out of FlightGlobals and compares it against that same RP
+#      quicksave on disk.
+#
+# THE GROUND TRUTH IS THE RP QUICKSAVE, NOT THIS SPEC. The in-game cells resolve
+# `Parsek/RewindPoints/rp_wp_root.sfs` themselves, classify every VESSEL node in it
+# with the production scrub's own predicate (RewindInvoker.BuildSlotPidSets +
+# ClassifySlotAffinity, extracted so the guard cannot drift from the code that
+# produced the world it checks), and then assert per vessel. Nothing about the
+# expectation lives in this TOML, which is why the same category is valid on a
+# player's career save and why a fixture that quietly stopped carrying a fleet
+# makes the cells SKIP with a named reason rather than pass.
+description = "World-preservation re-fly: InvokeRewind a crashed-booster slot whose RP quicksave carries an unrelated fleet (station / asteroid / flag / name-colliding probe + debris), then run the ReFlyWorldPreservation in-game batch against the LIVE post-load scene while the session is still open."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "refly", "world-preservation", "ingame-batch", "S4.2", "D9",
+        "pending-operator"]
+
+[fixture]
+# gloops-airshow for TWO reasons, both load-bearing.
+#
+# 1. IT LOADS INTO FLIGHT. `activeVessel = 1` over two VESSEL nodes, so step 0 takes
+#    LoadGame's FOCUS route and step 2's RequiresFlight InvokeRewind executes rather
+#    than defers (measured by EVA-1 / EVA-2 / EVA-3 / S0.5 / S0.6 / S4.1 on this
+#    exact template).
+# 2. IT CARRIES A REAL ASTEROID. `Ast. VPA-167` (type = SpaceObject, a PotatoRoid
+#    part and a DISCOVERY block) is in the committed save. The new fixture RE-ADMITS
+#    the donor save's SpaceObject nodes into the RP quicksave verbatim rather than
+#    hand-authoring one, so the single most damaging member of the original blast
+#    radius is a REAL discovered asteroid rather than a guess at the field set.
+#
+# refly-world-preservation injects the world-preservation rewindable tree
+# (ReFlyWorldPreservationFixture via `dotnet test --filter
+# InjectReFlyWorldPreservation`): the B9 shape - root ascent + surviving upper stage
+# (slot 0) + crashed booster (slot 1, TerminalState.Destroyed,
+# MergeState.CommittedProvisional) - under `rp_wp_root`, with the RP quicksave
+# additionally carrying five UNRELATED vessels:
+#   - the re-admitted donor asteroid(s)                    -> SpaceObject
+#   - "WP Orbital Station"                                 -> Station, 800 km SMA
+#   - "WP Pad Flag"                                        -> Flag, landed
+#   - "WP Booster A"                                       -> Probe, 900 km SMA
+#   - "WP Booster A"                                       -> Debris, 950 km SMA
+# The last two share the CRASHED BOOSTER RECORDING'S CRAFT NAME. That pair is the
+# #587 discrimination: the Probe must survive (IsDebrisKillSurveyCandidate admits
+# VesselType.Debris ONLY, so a real craft sharing the re-flown name is never
+# Die()d inside SuppressionGuard.Crew with no ledger row) while the Debris must
+# still be removed (the debris-only narrowing must not have neutered the mechanism
+# that clears prior-career debris tripping stock patched conics). Asserting only the
+# survival would be satisfied by a #587 pass that had stopped firing entirely.
+#
+# FIXTURE-FIDELITY SCOPE, stated so a first-flight red is diagnosable rather than
+# mysterious. The four non-asteroid fleet members are CLONES of the donor save's own
+# command vessel, re-stamped with a fresh identity and a different `type` token
+# (the mechanism the per-slot vessels already use and that S4.1 has flown many
+# times). So each is a real loadable craft WEARING a type, not a part-accurate
+# station or a stock flagpole - which is exactly enough for an invariant about a
+# vessel's EXISTENCE and VesselType, and deliberately not more. Three of the four
+# are parked in distinct circular orbits (800 / 900 / 950 km SMA) specifically so a
+# co-located landed pile cannot kraken the very scene the cells read; only the Flag
+# stays landed, because a flag is a surface marker.
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "refly-world-preservation"
+craft              = []
+
+[driver]
+kind = "seam"
+# THE ORDERING IS THE SPEC. RunTests must run AFTER InvokeRewind and BEFORE
+# AnswerMergeDialog:
+#   - after, because every cell gates on a live `ActiveReFlySessionMarker` and
+#     self-skips without one (the category is then safely runnable anywhere, and
+#     that skip is what makes it safe - not what makes it pass);
+#   - before, because the merge REAPS rp_wp_root, and the RP quicksave is the ground
+#     truth the cells read. Answering first would leave them nothing to compare
+#     against and they would skip on "RP no longer resolves".
+# `RunTests` is AnyScene with no re-fly guard of its own
+# (TestCommandDispatcher.DecideDispatch), so the batch dispatches with the session
+# open; and the batch's teardown reverts persistent.sfs from its pre-batch .bak,
+# which is a FILE operation and does not touch the live in-memory session.
+#
+# THE ONE THING TO WATCH ON THE FIRST FLIGHT, named here so it is diagnosable
+# rather than mysterious. `InGameTestRunner.CaptureBatchBaseline` classifies a
+# FLIGHT scene with a live active vessel as `InMemoryAndDisk`, which QUICKSAVES the
+# live flight at batch start (plus a Parsek save-dir snapshot and a persistent.sfs
+# backup). So this run takes a quicksave WHILE a Re-Fly session is live - the same
+# thing a player pressing F5 mid-Re-Fly does, and a path with its own guards
+# (QuickloadResumeMatchGuard runs on LOAD, and nothing here loads the slot: no cell
+# carries RestoreBatchFlightBaselineAfterExecution, so no per-test restore fires).
+# It is nevertheless the one step of this sequence with no committed precedent - R7a
+# runs a FLIGHT batch but with NO session, and S4.1 drives a session but no batch.
+# If the first run trips `forbidden = [\[Parsek\]\[ERROR\]`] on a save/load path
+# rather than on a preservation cell, that is where to look first, and the finding
+# belongs in todo-and-known-bugs.md rather than in a relaxed contract.
+#
+# NOT isolated: all six ReFlyWorldPreservation declarations are batch-allowed
+# (AllowBatchExecution defaults true - the cells only READ live state), so the
+# ordinary admission filter admits all six and the isolated arg would buy nothing.
+#
+# autoRecordOnLaunch OFF pins determinism (no save-setting-triggered live recording
+# racing the re-fly - and InvokeRewind is REJECTED outright while a recorder is
+# live). The AnswerMergeDialog merge tail is S4.1's proven conclusion verbatim: it
+# leaves the run in SPACECENTER with the fork merged, so the following
+# RecordingState (AnyScene) confirms the merged tree.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "RunTests",          args = { category = "ReFlyWorldPreservation" },      expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST. The seam half is S4.1's and is claimed as such: a real
+# Rewind-to-Separation on a chosen slot past the five-precondition gate
+# (rewind-to-separation, refly-gate), which captures the reconciliation bundle
+# (reconciliation-bundle) and runs the read-back guard over it (read-back-guard),
+# then a merge that opens the journal (merge-journal) and recalcs the ledger at
+# commit (D8 recalc-engine).
+#
+# `world-preservation` is the NEW D9 value and the only cell this spec uniquely
+# owns; it is added to the registry in the same commit with its rationale. It is
+# claimed off the batch, not off the seam: six in-game cells read the live scene
+# against the RP quicksave and assert the preserved fleet, the removed sibling, the
+# #587 discrimination in BOTH directions, and the flag / SpaceObject survival.
+#
+# NOT claimed: supersede-relation and head-tip-split (this spec flies nothing
+# between the rewind and the conclusion, so its merge correctly writes zero rows -
+# the same limit S4.1 states, and the reason its own rewind block pins max = 0);
+# terminal-kind-classify (S4.1 owns it on the identical tail and a second claim
+# adds no coverage); tombstones (uncrewed booster, no kerbal death).
+#
+# MEASURED CAVEAT ON `merge-journal` (2026-08-11, run `2026-08-11_1057`): this
+# flight's conclusion never OPENED a merge journal - every OnSave/OnLoad line read
+# `journal=False` and `MergeJournal Journal saved: none`, because the tail bailed
+# out of `TryCommitReFlySupersede` before the orchestrator (see the logContracts
+# banner). So the claim is currently carried by the SEAM SHAPE, not by an observed
+# journal phase, and it is left standing rather than silently dropped so the call
+# is a human one. Re-read it when the `AppendRelations` finding is resolved.
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
+       "merge-journal", "world-preservation"]
+D8  = ["recalc-engine"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and never read (hlib.validate_spec REJECTS the misplaced form), so
+# this key must stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Floor only, exactly as S4.1: the merged fork must leave at least the surviving
+# tree visible, and a re-fly that lost the committed corpus sinks below 1. No
+# ceiling - the merge adds the fork's recording(s), a count the headless path does
+# not pin. NOTE the in-game batch's teardown reverts persistent.sfs from its
+# pre-batch .bak, so the produced save is written by the merge tail after the batch,
+# not by the batch.
+count = { min = 1 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: the tally is pinned WHOLE, as house style requires.
+#
+# EVIDENCE STANDING: **MEASURED 2026-08-11**, run `2026-08-11_1057`, attempt 1,
+# wall 63 s. THE TALLY DERIVATION HELD TOKEN FOR TOKEN: the log printed
+# `BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0
+# category=ReFlyWorldPreservation scene=FLIGHT` verbatim, so the per-cell
+# derivation below is now measurement and the one derivation flagged as able to
+# move (a placeholder, non-in-place marker skipping the #587 positive control for
+# `passed=5 skipped=1`) did NOT move - the session was in-place
+# (`Marker valid ... inPlace=True`) exactly as derived. The scrub line and the
+# advisory line also matched verbatim, including `preserved=5 removed=1
+# activeVessel=0` and `siblingSlotsPutAway=1`.
+#
+# THE RUN NEVERTHELESS CLASSIFIED `PARSEK-FAIL(expectations)` ON ONE TOKEN, and it
+# is the LAST required line below, not the tally: `AppendRelations
+# outcome=refused-unflown-provisional` NEVER APPEARED. Do NOT relax or delete that
+# pin to make the spec green - the mismatch is a real reading about which path a
+# rewind-then-conclude-without-flying takes, and it is written up in
+# `docs/dev/autotest-status.md` (Flown, RED BY FINDING) and
+# `docs/dev/todo-and-known-bugs.md`. In one line: the merge tail did NOT reach
+# `SupersedeCommit.AppendRelations` at all. `MergeDialog.TryCommitReFlySupersede`
+# bailed one step earlier with
+# `WARN ... provisional rec=... not found in committed list after tree commit;
+# leaving marker in place for load-time sweep`, the conclusion ran as an ORDINARY
+# whole-tree merge over 3 recordings with the provisional excluded
+# (`skippedSuppressed=1`), and the session was retired on the NEXT load by the
+# marker validator (`Marker invalid field=ActiveReFlyRecordingId; cleared ...
+# rejected because active recording was not found in
+# RecordingStore.CommittedRecordings`) plus LoadTimeSweep. End state is benign and
+# CONVERGENT (0 supersede rows, origin stays effective, marker=False), which is
+# what the refusal branch would also have produced - but by a different route, so
+# the pinned token is not merely mis-worded.
+#
+# WHAT EACH TOKEN RESTS ON:
+#  - total=6 is ATTRIBUTE-EXACT and the only statically certain token: six
+#    [InGameTest(Category = "ReFlyWorldPreservation")] declarations, all
+#    Scene = GameScenes.FLIGHT, all batch-allowed. BATCH_COMPLETE's total is
+#    allTests.Count(Status != NotRun) over the single batch. Kept in sync with the
+#    source by CommittedBatchTallySourceSyncTests, so adding a seventh cell reds
+#    locally rather than on the next nightly.
+#  - skipped=0 and passed=6 are DERIVED from the fixture, per cell. Each cell's
+#    run-time guards and what satisfies them here:
+#      PreservedWorldSurvivesReFlyLoad ......... live marker + rp resolves +
+#        >= 1 non-Debris unrelated vessel in the quicksave. The fixture carries 4
+#        (asteroid, Station, Flag, Probe).
+#      SiblingSlotsRemovedAndSelectedSlotSurvives ... >= 1 MAPPED sibling slot. The
+#        RP maps two slots; slot 0 is the sibling.
+#      NameCollidingNonDebrisVesselSurvivesTheBug587Kill ... a non-Debris unrelated
+#        vessel whose name matches a recording in the session's tree. The colliding
+#        Probe is named "WP Booster A", the crashed booster recording's craft name.
+#      PreservedFlagsAndSpaceObjectsSurviveReFlyLoad ... >= 1 unrelated Flag or
+#        SpaceObject. The fixture carries both (and the asteroid comes from the
+#        gloops-airshow donor, which is why the template choice is load-bearing).
+#      NameCollidingDebrisIsStillRemovedByTheBug587Kill ... an IN-PLACE continuation
+#        marker + a name-colliding Debris. The Debris is in the fixture; the
+#        in-place shape follows from AtomicMarkerWrite's own test
+#        (`inheritFrom.VesselPersistentId == stripResult.SelectedPid`), which holds
+#        because the fixture derives the slot's sidecar pid and the booster
+#        recording's VesselPersistentId from the same recording id. THIS IS THE ONE
+#        DERIVATION THAT COULD MOVE: a placeholder (non-in-place) session skips this
+#        cell BY DESIGN (the #587 pass returns early at its IsInPlaceContinuation
+#        guard), which would read `passed=5 skipped=1`. If the first run shows
+#        exactly that, the correction is this line, not the product.
+#      AdvisoryComposesFromLiveRewindPointAndStore ... live marker + rp resolves.
+#  - failed=0 is the ASSERTION.
+#  - scene=FLIGHT is the gloops-airshow Focusable route, measured by S4.1 / EVA-1 on
+#    this exact template, and load-bearing: at SPACECENTER all six scene-skip.
+#
+# THE SCRUB LINE is the preservation fix's own summary and `preserved=5` is its
+# load-bearing term: 4 cloned fleet members + 1 re-admitted donor asteroid, all
+# outside the RP's slot maps. `removed=1` is the upper-stage sibling. A pre-fix DLL
+# emits this line with `preserved=0 removed=1`, so the token discriminates the fix
+# from its absence directly - the regression pin, independent of the batch.
+# `activeVessel=0` is pinned with it because it is the OTHER thing preservation could
+# have broken: the guard changed from `VesselsKept == 0` to `SelectedActiveIndex < 0`
+# precisely because a non-zero kept count no longer implies the target was found, and
+# 0 is the selected slot's ordinal among the survivors (the removed sibling precedes
+# it and does not consume an index; the four appended fleet members follow it).
+#
+# THE ADVISORY LINE, and an honest note about WHO emits it. The pre-invoke advisory
+# is composed and logged by RewindInvoker.ShowDialog, which the seam NEVER reaches:
+# InvokeRewind calls StartInvoke directly, so no unattended run can surface a player
+# dialog. The line pinned here is therefore emitted by the
+# AdvisoryComposesFromLiveRewindPointAndStore cell, which calls the production
+# ResolveReFlySiblingSlotNames / LogReFlyAdvisory over the LIVE RewindPoint and
+# RecordingStore. So the pin proves the advisory composes and emits against real
+# live state - NOT that a player saw the dialog, which nothing headless can prove.
+# `siblingSlotsPutAway=1` is the mapped non-selected slot count (slot 0).
+#
+# The four re-fly milestones are S4.1's and mean the same here: StartInvoke entered
+# the pre-load phase, ConsumePostLoad completed, the bundle restored with a cutoff,
+# and the restore summary's unconditional pendingScience= count fired.
+# `outcome=refused-unflown-provisional` is the correct behaviour for a conclusion
+# with no re-flight between rewind and merge (this spec flies none), and requiring
+# it is what stops a silent regression to the old throw.
+required  = [
+  "BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=ReFlyWorldPreservation scene=FLIGHT",
+  "runtests start category=ReFlyWorldPreservation isolated=false",
+  "Re-Fly save scrub applied: rp=rp_wp_root slot=1 .* preserved=5 removed=1 activeVessel=0",
+  "Pre-invoke advisory: rp=rp_wp_root .* siblingSlotsPutAway=1 .* preserved=unrelated-vessels\\+stations\\+asteroids\\+comets\\+flags",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  "Restored: recs=.* pendingScience=",
+  "AppendRelations outcome=refused-unflown-provisional",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8), sized so the WORST DEFER path surfaces a clean
+# per-step TIMEOUT (driver-INVALID) rather than a run-budget KILL. run.py waits
+# max(step_budget, 600) + 60 per DEFERRED verb and step_budget for the rest:
+#   LoadGame          max(240,600)+60 = 660
+#   SetSetting        (default)       =  60
+#   InvokeRewind      max(300,600)+60 = 660
+#   RunTests          max(300,600)+60 = 660
+#   AnswerMergeDialog (budget)        = 120
+#   RecordingState    (default)       =  60
+#   FlushAndQuit      (default)       =  60   -> sum 2280; +120 margin = 2400.
+# On the happy path this is a ~2-boot seam run of ~700 s (S4.1's measured wall plus
+# a six-cell batch); the ceiling only governs the unattended defer path. A KILLED
+# run prints NO tally at all, which is why the headroom is worth its zero cost on a
+# healthy run.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

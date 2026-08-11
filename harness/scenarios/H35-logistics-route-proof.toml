@@ -1,8 +1,16 @@
 schema = 1
-id = "H33-logistics-route-proof"
+id = "H35-logistics-route-proof"
 tier = "operator"
+# ID PROVENANCE: this spec was authored and FLOWN as `H33-logistics-route-proof`
+# and was renamed to H35 post-merge, when a sibling lane landed a DIFFERENT
+# `H33-recorded-signals` on main first. Every run id cited below embeds the OLD
+# name (`2026-08-11_1704_H33-logistics-route-proof` and its two confirms); those
+# citations remain TRUE history - nothing was re-flown or re-measured by the
+# rename. Every pin here is id-INDEPENDENT: BATCH_COMPLETE carries no spec id,
+# and the tally / token pins are unchanged by it.
+#
 # The `Logistics` category's FLIGHT-eligible SLICE - 8 of its 47 declarations -
-# run unattended against a RECORDED docking fixture. H32 owns the other slice
+# run unattended against a RECORDED docking fixture. H34 owns the other slice
 # (the 2 SPACECENTER-eligible cells); between them the two specs drive every
 # Logistics declaration that a batch can execute at all. The remaining 38 carry
 # `AllowBatchExecution = false` and are batch-skipped by attribute at any scene;
@@ -38,7 +46,7 @@ tier = "operator"
 #                 window 19-40). Measured everything the pins below now carry.
 #   1708 (51 s), 1709 (50 s) - two consecutive CONFIRM runs on the pinned shape.
 # All three logged the pinned tally line token for token and produced count=21.
-# The H32 header records the same discipline; H6's derived pin is the standing
+# The H34 header records the same discipline; H6's derived pin is the standing
 # lesson it comes from.
 #
 # WHAT THE READING RUN MEASURED, and the honest scope it fixes. TWO of the five
@@ -84,7 +92,7 @@ instanceProfile = "stock-minimal"
 # `flown`, not `pending-flight`: three green flights on 2026-08-11. `--tag` is a
 # REAL selector, so the tag has to track the record in both directions (the CL-3
 # precedent).
-tags = ["logistics", "route", "route-proof", "dock", "recorded-fixture", "H33", "flown"]
+tags = ["logistics", "route", "route-proof", "dock", "recorded-fixture", "H35", "flown"]
 
 [fixture]
 # The BDOCK-1-station-interceptor harvest (run 2026-08-11_1606, PASS attempt 1,
@@ -105,7 +113,7 @@ craft              = []
 [driver]
 kind = "seam"
 # THE KILL TRIPLE IS LOAD-BEARING, and it is what separates this driver from
-# H32's. H32 loads gloops-airshow, which carries no trees; this loads a RECORDED
+# H34's. H34 loads gloops-airshow, which carries no trees; this loads a RECORDED
 # save whose own parked craft is active, and the committed-tree restore path
 # resumes a promotion-stub recording ~1 s into the scene, BEFORE any step can
 # run (measured across the V corpus - V2 flight 4 / V5 run 1 - and structural,
@@ -156,7 +164,7 @@ D14 = ["sandbox", "scene-flight"]
 # `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
 # to that SUB-table and is never read. hlib.validate_spec REJECTS the misplaced
 # form, so this table must stay ahead of the sub-tables below. No tracer is armed
-# by this spec, so the empty list is the honest declaration (mirrors H6/H23/H32).
+# by this spec, so the empty list is the honest declaration (mirrors H6/H23/H34).
 allowedAnomalies = []
 
 [expectations.recordings]
@@ -192,21 +200,21 @@ count = { min = 21, max = 21 }
 # derivable and cross-checked on every local suite run by
 # `CommittedBatchTallySourceSyncTests`. At scene=FLIGHT
 # `hlib.derive_batch_tally` decomposes it as 1 scene-skipped (the SPACECENTER
-# inter-body cell H32 owns) + 38 batch-skipped (`AllowBatchExecution = false`) +
+# inter-body cell H34 owns) + 38 batch-skipped (`AllowBatchExecution = false`) +
 # 8 executable, so the ATTRIBUTE floor is skipped>=39 and the ceiling is
 # passed<=8. The measured split lands at passed=5 / skipped=42, i.e. THREE
 # run-time self-skips on top of the floor - the three named in the STATUS block
 # above. Pinning 5/42 rather than the floor is what makes a future change loud:
 # a fourth cell starting to skip reds here, and so does one of the three
 # starting to PASS (which would be good news arriving as a red, deliberately -
-# H32 pins its floor the same way).
+# H34 pins its floor the same way).
 #
 # ANTI-VACUITY (hlib.batch_contract_vacuity_gap): the whole tally is pinned, so
 # no vacuous or wrong-scene batch can satisfy it. Pinning the landing scene ON
-# the tally line is the B10 fail-open guard - a SPACECENTER boot would run H32's
+# the tally line is the B10 fail-open guard - a SPACECENTER boot would run H34's
 # slice and report `passed=2 skipped=45`, which this pin rejects.
 #
-# THE TWO CELL TOKENS. Unlike H32's, these are TEST ECHOES rather than
+# THE TWO CELL TOKENS. Unlike H34's, these are TEST ECHOES rather than
 # production emissions, and that is forced rather than sloppy: all five proof
 # cells are READ-SIDE walkers over state a prior recording session wrote, so the
 # production emitters (`Route proof dock window captured:` from ParsekFlight,
@@ -238,10 +246,10 @@ required  = [
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-# Budget arithmetic (M-A5 S8, mirrors H5/H6/H23/H32): 900 >= 300 LoadGame + 540
-# RunTests ceiling headroom. The LoadGame is the slow half here - unlike H32's
+# Budget arithmetic (M-A5 S8, mirrors H5/H6/H23/H34): 900 >= 300 LoadGame + 540
+# RunTests ceiling headroom. The LoadGame is the slow half here - unlike H34's
 # vessel-less KSC boot this one restores 19 recordings and their sidecars into a
-# FLIGHT scene - so the margin over H32's 720 is deliberate.
+# FLIGHT scene - so the margin over H34's 720 is deliberate.
 budgetSeconds = 900
 
 [retry]

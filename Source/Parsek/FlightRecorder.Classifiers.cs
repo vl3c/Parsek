@@ -10,11 +10,72 @@ namespace Parsek
 {
     public partial class FlightRecorder
     {
+        /// <summary>
+        /// The four parachute visual states the recorder tracks, as stored in the
+        /// <c>parachuteStates</c> maps. Stowed is the map's implicit default: a pid absent from the
+        /// map reads as <see cref="ParachuteStateStowed"/>, and reaching Stowed removes the entry,
+        /// so the map only ever holds chutes that are NOT in their build-time pose.
+        ///
+        /// These are Parsek's states, not a 1:1 copy of KSP's five-member
+        /// <c>ModuleParachute.deploymentStates</c>: STOWED and ACTIVE both map to Stowed because an
+        /// armed-but-undeployed chute is visually identical to a packed one (see
+        /// <see cref="ClassifyParachuteState"/>).
+        /// </summary>
+        internal const int ParachuteStateStowed = 0;
+        internal const int ParachuteStateSemiDeployed = 1;
+        internal const int ParachuteStateDeployed = 2;
+        internal const int ParachuteStateCut = 3;
+
+        /// <summary>
+        /// Maps a stock <c>ModuleParachute.deploymentStates</c> onto Parsek's four tracked states.
+        /// The single source of truth for this mapping — the foreground recorder
+        /// (<c>CheckParachuteState</c>), the background recorder (<c>BackgroundRecorder</c>'s
+        /// own <c>CheckParachuteState</c>) and <c>PartStateSeeder.SeedParachutes</c> all route
+        /// through here so their shared <c>parachuteStates</c> dictionary carries one encoding.
+        ///
+        /// CUT is kept DISTINCT from STOWED (it used to collapse into it). That distinction is the
+        /// whole point: without it the CUT -> STOWED transition a stock <c>Repack()</c> performs is
+        /// indistinguishable from DEPLOYED -> CUT, and the recorder emitted ParachuteCut for both —
+        /// which playback rendered as a permanently empty can.
+        /// ACTIVE stays folded into Stowed — it is the armed-but-undeployed state, which has no
+        /// distinct visual (canopy still hidden, cap still on).
+        /// </summary>
+        internal static int ClassifyParachuteState(ModuleParachute.deploymentStates deployState)
+        {
+            switch (deployState)
+            {
+                case ModuleParachute.deploymentStates.SEMIDEPLOYED:
+                    return ParachuteStateSemiDeployed;
+                case ModuleParachute.deploymentStates.DEPLOYED:
+                    return ParachuteStateDeployed;
+                case ModuleParachute.deploymentStates.CUT:
+                    return ParachuteStateCut;
+                default:
+                    // STOWED and ACTIVE — no canopy, cap on.
+                    return ParachuteStateStowed;
+            }
+        }
+
+        /// <summary>
+        /// True when the tracked state is one where a canopy is actually out (semi or full), which
+        /// is what makes a part death an aero-destroyed chute rather than an ordinary part loss.
+        ///
+        /// Deliberately NOT <c>state &gt; 0</c>: <see cref="ParachuteStateCut"/> is 3, so the old
+        /// truthy test would classify a part that dies carrying an already-CUT chute as
+        /// ParachuteDestroyed. Before the four-state split a cut chute was erased from the map
+        /// entirely, so <c>state &gt; 0</c> happened to be right; it is not right any more.
+        /// </summary>
+        internal static bool IsDeployedParachuteState(int state)
+        {
+            return state == ParachuteStateSemiDeployed || state == ParachuteStateDeployed;
+        }
+
         internal static PartEventType ClassifyPartDeath(
             uint partPersistentId, bool hasParachuteModule, Dictionary<uint, int> parachuteStates)
         {
             int state;
-            if (hasParachuteModule && parachuteStates.TryGetValue(partPersistentId, out state) && state > 0)
+            if (hasParachuteModule && parachuteStates.TryGetValue(partPersistentId, out state) &&
+                IsDeployedParachuteState(state))
             {
                 parachuteStates.Remove(partPersistentId);
                 return PartEventType.ParachuteDestroyed;

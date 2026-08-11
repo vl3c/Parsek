@@ -397,6 +397,16 @@ namespace Parsek
                 return null;
             }
 
+            if (!SnapshotBaselineTrustedForBuildType(buildType))
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"Snapshot module baseline suppressed for '{rec?.VesselName ?? "unknown"}': "
+                    + $"buildType={buildType.ToLogToken()} — the node is the recording's END "
+                    + "state, not its start, so module state (gear / panels / bays / lamps / "
+                    + "chutes / servos) is NOT read from it; geometry and part variants still "
+                    + "are, exactly as before M1");
+            }
+
             var root = new GameObject(rootName);
             root.SetActive(false);
 
@@ -421,6 +431,8 @@ namespace Parsek
         {
             if (build == null || build.partNodes == null)
                 return true;
+
+            bool parseSnapshotBaselines = SnapshotBaselineTrustedForBuildType(build.buildType);
 
             long startedAt = Stopwatch.GetTimestamp();
             while (build.nextPartIndex < build.partNodes.Length)
@@ -499,6 +511,28 @@ namespace Parsek
                         var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, build.root);
                         if (partAudioInfos != null)
                             build.audioInfos.AddRange(partAudioInfos);
+
+                        // M1: read the part's persisted module state so the ghost spawns
+                        // looking the way the craft actually looked, instead of at the
+                        // prefab/all-stowed pose. Prefab-sourced cargo-bay pairing is
+                        // resolved here because the animTime -> open/closed mapping is
+                        // per-part config, not snapshot data. pid 0 is skipped: the
+                        // baseline dictionary is pid-keyed and every applier looks up by
+                        // pid, so a pid-less part could only collide. buildType gates the
+                        // whole read: on the VesselSnapshot fallback the node is the
+                        // END-of-recording state, which is the wrong end of the recording
+                        // to spawn from (see SnapshotBaselineTrustedForBuildType).
+                        if (persistentId != 0 && parseSnapshotBaselines)
+                        {
+                            ResolvePrefabCargoBayPairing(
+                                ap.partPrefab,
+                                out float? cargoClosedPosition,
+                                out int cargoDeployModuleIndex);
+                            SnapshotPartBaseline baseline = TryParseSnapshotPartBaseline(
+                                partNode, cargoClosedPosition, cargoDeployModuleIndex);
+                            if (baseline != null)
+                                build.snapshotBaselines[persistentId] = baseline;
+                        }
                     }
                 }
 
@@ -551,7 +585,44 @@ namespace Parsek
                 colorChangerInfos = build.colorChangerInfos.Count > 0 ? build.colorChangerInfos : null,
                 compoundPartInfos = build.compoundPartInfos.Count > 0 ? build.compoundPartInfos : null,
                 audioInfos = build.audioInfos.Count > 0 ? build.audioInfos : null,
+                snapshotBaselines =
+                    build.snapshotBaselines.Count > 0 ? build.snapshotBaselines : null,
             };
+        }
+
+        /// <summary>
+        /// Reads the prefab's cargo-bay pairing for the M1 baseline: which end of the
+        /// paired animation counts as "shut" (<c>closedPosition</c>) and which module
+        /// index carries that animation (<c>DeployModuleIndex</c>). Both are prefab
+        /// config, not snapshot data, which is why the pure parser takes them as inputs.
+        /// No cargo bay → no closedPosition, which is also the signal that routes the
+        /// part's ModuleAnimateGeneric to the standalone family.
+        /// </summary>
+        private static void ResolvePrefabCargoBayPairing(
+            Part prefab, out float? closedPosition, out int deployModuleIndex)
+        {
+            closedPosition = null;
+            deployModuleIndex = -1;
+            if (prefab == null)
+                return;
+
+            try
+            {
+                ModuleCargoBay cargo = prefab.FindModuleImplementing<ModuleCargoBay>();
+                if (cargo == null)
+                    return;
+                closedPosition = cargo.closedPosition;
+                deployModuleIndex = cargo.DeployModuleIndex;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "cargo-pairing-probe",
+                    $"ModuleCargoBay pairing probe threw {ex.GetType().Name} on prefab " +
+                    $"'{prefab.partInfo?.name ?? "unknown"}': {ex.Message}; " +
+                    $"cargo-bay baseline skipped for this part", 30.0);
+                closedPosition = null;
+                deployModuleIndex = -1;
+            }
         }
 
         internal static void DestroyPendingTimelineGhostBuild(PendingGhostVisualBuild build)
@@ -560,10 +631,46 @@ namespace Parsek
                 Object.Destroy(build.root);
         }
 
+        /// <summary>
+        /// Resolves the node a ghost is BUILT from. The <c>?? rec.VesselSnapshot</c> fallback
+        /// is the END-of-recording snapshot (<c>BuildCaptureRecording</c> captures it at
+        /// stop), which is fine for GEOMETRY — the part list and variants are what the build
+        /// needs and they barely differ — but is the wrong end of the recording for MODULE
+        /// STATE. See <see cref="SnapshotBaselineTrustedForBuildType"/>.
+        /// </summary>
         internal static ConfigNode GetGhostSnapshot(IPlaybackTrajectory rec)
         {
             if (rec == null) return null;
             return rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+        }
+
+        /// <summary>
+        /// Whether the M1 module-state baseline may be read out of the node this build is
+        /// using. TRUE only for <see cref="HeaviestSpawnBuildType.RecordingStartSnapshot"/>,
+        /// i.e. the recording's own <c>GhostVisualSnapshot</c>.
+        ///
+        /// <see cref="HeaviestSpawnBuildType.VesselSnapshot"/> means
+        /// <see cref="GetGhostSnapshot"/> fell back to the END-of-recording snapshot, and
+        /// spawning a ghost at its own end state is a new way to be wrong: a chute whose end
+        /// state is CUT would hide its canopy through the entire descent, gear that came down
+        /// on final approach would be down from the pad. Pre-M1 the fallback was harmless
+        /// because nothing read module state out of it; suppressing the read restores exactly
+        /// that. Geometry and part variants keep using the node either way.
+        ///
+        /// RESIDUAL, stated rather than papered over. This gate only catches the node-level
+        /// fallback. Several sites STAMP <c>GhostVisualSnapshot = VesselSnapshot.CreateCopy()</c>
+        /// and the copy is indistinguishable from a genuine start snapshot at build time:
+        /// <c>FlightRecorder.BuildCaptureRecording</c> when the start capture was null,
+        /// <c>RecordingOptimizer.SplitAtSection</c> step 8's #271 safety net,
+        /// <c>MergeDialog.Commit</c>, <c>BackgroundRecorder</c>'s child promotion and
+        /// <c>ParsekFlight.Finalization</c>. Those recordings still read module state out of
+        /// an end-state node. Closing that needs provenance carried on the recording (a
+        /// schema field) or stamped into the node at copy time, decided per site — not a
+        /// build-time inference, because by then the information is gone.
+        /// </summary>
+        internal static bool SnapshotBaselineTrustedForBuildType(HeaviestSpawnBuildType buildType)
+        {
+            return buildType == HeaviestSpawnBuildType.RecordingStartSnapshot;
         }
 
         internal static Transform EnsureGhostVisualsRoot(Transform ghostRoot)
@@ -3342,13 +3449,50 @@ namespace Parsek
             if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
                 return RoboticVisualMode.RotorRpm;
 
-            if (string.Equals(moduleName, "ModuleWheelMotor", System.StringComparison.Ordinal) ||
-                string.Equals(moduleName, "ModuleWheelMotorSteering", System.StringComparison.Ordinal))
-            {
-                return RoboticVisualMode.RotorRpm;
-            }
+            // Wheel motors no longer replay a recorded scalar (which was an unsigned
+            // percent-of-max-torque masquerading as RPM). Their spin is derived from the ghost's
+            // ground speed each frame — see FlightRecorder.IsWheelMotorSpinModuleName.
+            if (FlightRecorder.IsWheelMotorSpinModuleName(moduleName))
+                return RoboticVisualMode.WheelGroundSpeed;
 
             return RoboticVisualMode.Rotational;
+        }
+
+        /// <summary>
+        /// Reads the wheel's rolling radius for the ghost, from <c>ModuleWheelBase.radius</c> (a
+        /// <c>[KSPField]</c>, so it is reachable through <c>module.Fields</c>) scaled by the part's
+        /// <c>rescaleFactor</c> — the same product stock uses when it sizes the wheel collider
+        /// (<c>wheel.wheelCollider.radius = radius * part.rescaleFactor</c>).
+        ///
+        /// A wheel motor submodule does not carry the radius itself; it hangs off
+        /// <c>ModuleWheelBase</c> on the same part, which is what
+        /// <see cref="TryGetWheelBaseModule"/> resolves. Returns
+        /// <see cref="GhostPlaybackLogic.DefaultWheelRadiusMeters"/> when the base module or the
+        /// field cannot be reached, or when the value is not a usable positive radius.
+        /// </summary>
+        private static float ResolveWheelRadius(Part prefab, PartModule module, string partName)
+        {
+            float radius = 0f;
+            bool resolved =
+                (TryGetWheelBaseModule(prefab, module, out PartModule wheelBase) &&
+                 TryGetModuleFloatField(wheelBase, "radius", out radius))
+                || TryGetModuleFloatField(module, "radius", out radius);
+
+            float rescale = prefab != null && prefab.rescaleFactor > 0f ? prefab.rescaleFactor : 1f;
+            float scaled = radius * rescale;
+
+            if (!resolved || scaled <= GhostPlaybackLogic.MinWheelRadiusMeters ||
+                float.IsNaN(scaled) || float.IsInfinity(scaled))
+            {
+                ParsekLog.Verbose("Ghost",
+                    $"Wheel radius unresolved for '{partName}' module={module?.moduleName}; " +
+                    $"raw={radius.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"rescale={rescale.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}; " +
+                    $"using default {GhostPlaybackLogic.DefaultWheelRadiusMeters.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}m");
+                return GhostPlaybackLogic.DefaultWheelRadiusMeters;
+            }
+
+            return scaled;
         }
 
         private static bool TryGetWheelBaseModule(
@@ -3566,6 +3710,8 @@ namespace Parsek
                 float currentValue = 0f;
                 TryGetRoboticCurrentValue(module, moduleName, out currentValue);
 
+                RoboticVisualMode visualMode = GetRoboticVisualMode(moduleName);
+
                 var info = new RoboticGhostInfo
                 {
                     partPersistentId = persistentId,
@@ -3575,9 +3721,12 @@ namespace Parsek
                     axisLocal = axis.sqrMagnitude > 0.0001f ? axis.normalized : Vector3.up,
                     stowedPos = ghostServo.localPosition,
                     stowedRot = ghostServo.localRotation,
-                    visualMode = GetRoboticVisualMode(moduleName),
+                    visualMode = visualMode,
                     currentValue = currentValue,
-                    active = false
+                    active = false,
+                    wheelRadius = visualMode == RoboticVisualMode.WheelGroundSpeed
+                        ? ResolveWheelRadius(prefab, module, partName)
+                        : 0f
                 };
 
                 infos.Add(info);
@@ -3895,6 +4044,13 @@ namespace Parsek
                     ghostCanopy.localPosition = Vector3.zero;
                     ghostCanopy.localRotation = Quaternion.identity;
                 }
+
+                // Capture the stowed pose LAST, after the EVA override and the outside-modelRoot
+                // reparent have both had their say, so ParachuteRepacked can restore the actual
+                // spawn pose on every part shape rather than an assumed one.
+                parachuteInfo.stowedCanopyScale = ghostCanopy.localScale;
+                parachuteInfo.stowedCanopyPos = ghostCanopy.localPosition;
+                parachuteInfo.stowedCanopyRot = ghostCanopy.localRotation;
 
                 return parachuteInfo;
             }

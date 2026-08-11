@@ -1,4 +1,4 @@
-# In-game test category inventory (all 99 categories)
+# In-game test category inventory (all 100 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -120,7 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LedgerGroundTruth` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
-| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H32 (SPACECENTER slice), H33 (FLIGHT slice) | B |
+| `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT slice) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | - | B |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
@@ -141,7 +141,9 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
+| `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
+| `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
@@ -161,6 +163,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `Settings` | 3 | 2 | 2 | 3 | 0 | 0 | - | B |
+| `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
@@ -189,21 +192,49 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **99 categories / 550 declarations**. Buckets **A 27 categories
-(192 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **36 of 99 categories**, up from 35
-(`H32-logistics-inter-body`, 2026-08-11; before that the S1.8 SoiCrossingPlayback
-wave took it to 35 from 34, and 28 and 8 the waves before). Measured against
-declarations rather than categories, that is 365 of 550 inside a driven category
-(was 318; 317, 314 and 263 the waves before). `H33-logistics-route-proof`
-(2026-08-11) moves NEITHER number - it is the second spec on a category the first
-already counted - which is exactly the distortion the next paragraph is about.
+Totals, re-derived: **102 categories / 566 declarations**. Buckets **A 30 categories
+(208 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **39 of 102 categories**, up from 35
+across four waves that landed together in this merge - `ReFlyWorldPreservation` via
+S4.2, `RecordedSignals` via H33, `SnapshotBaseline` via H32, and `Logistics` via
+H34 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the
+waves before). Measured against declarations rather than categories, that is 381 of
+566 inside a driven category (was 318 before these waves: 324 after S4.2, 327 after
+H33, 334 after H32, and 381 once `Logistics` counted). `H35-logistics-route-proof`
+(2026-08-11) moves NEITHER number - it is the second spec on a category H34 already
+counted - which is exactly the distortion the paragraph after next is about.
 
-READ THAT 365 CAREFULLY - it is the largest single-spec jump in this row's history
-and the least representative. `Logistics` contributes all 47 of its declarations to
+`ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) arrived with
+its driver rather than as an undriven category: it was authored for the
+REFLY-DELETES-NON-SLOT-WORLD fix, whose xUnit coverage is ConfigNode-level and
+pure-predicate and therefore cannot observe the live post-load scene where the bug's
+second deleting layer lived. All six members are Scene = FLIGHT and batch-allowed,
+and all six self-skip with a named requirement when no Re-Fly session is live, so the
+category is safe in any batch and vacuous in none.
+
+`RecordedSignals` (3 declarations, wired as `H33-recorded-signals`) exists for the
+live half of the 2026-08-09 part-action recording audit - the one step of the
+wheel-spin fix (Unity's `AngleAxis` handedness) that no headless cell can reach, the
+parachute cap restore at transform level, and the ground-contact gate that keeps a
+rover riding a launch vehicle from spinning its wheels at orbital speed. Two of its
+three cells carry run-time self-skips (its row's "Members with self-skip" column
+reads 2), which is why its spec was pinned interim when it landed; the 2026-08-11
+flight measured `total=3 passed=3 failed=0 skipped=0` and the pin is now whole.
+
+`SnapshotBaseline` (7, driven by `H32-snapshot-baseline`) likewise arrived ALREADY in
+bucket A rather than as a bucket-B backlog row: the category was authored together
+with its scenario, for the M1 ghost snapshot-baseline fix. Its spec was also pinned
+interim on landing, on the expectation that the stock-minimal profile might carry
+neither Breaking Ground robotics nor deployable prefabs whose clips separate stow
+from deploy; the 2026-08-11 flight measured `total=7 passed=7 failed=0 skipped=0` and
+disproved both, so that pin is whole too. `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`
+is empty again.
+
+READ THAT 381 CAREFULLY - the last 47 of it are the largest single-spec jump in
+this row's history and the least representative. `Logistics` contributes all 47 of its declarations to
 "inside a driven category" while its two specs between them EXECUTE **6 distinct
-declarations**: H32 runs 2 at SPACECENTER (the inter-body builder-shape gate and the
-AnyScene tooltip cell) and H33 runs 5 at FLIGHT (the probe-admission cell, the
+declarations**: H34 runs 2 at SPACECENTER (the inter-body builder-shape gate and the
+AnyScene tooltip cell) and H35 runs 5 at FLIGHT (the probe-admission cell, the
 prelaunch origin-proof cell, the active-as-initiator route-proof cell, the mid-tree
 shuttle cell, and the same AnyScene tooltip cell, which is why the union is 6 and
 not 7). The other 41 never execute anywhere: 38 carry
@@ -463,7 +494,8 @@ specs that execute nothing. Each needs its guard preconditions read and a fixtur
 chosen to satisfy them - real work, one category at a time.
 
 `Logistics` IS NOW PARTLY WIRED, and the shape of that wiring is the worked example
-this paragraph asks for. `H32-logistics-inter-body` (2026-08-11) drives the category
+this paragraph asks for. `H34-logistics-inter-body` (2026-08-11, flown under its
+pre-rename id `H32-logistics-inter-body`) drives the category
 at SPACECENTER rather than FLIGHT, which is where its two scene-eligible members
 live: the `RouteInterBodyBuilderShapeInGameTest` inter-body builder-shape gate and
 the AnyScene tooltip cell. Measured tally `total=47 passed=2 failed=0 skipped=45`
@@ -476,7 +508,8 @@ that the guards this paragraph warns about are readable and satisfiable one spec
 a time, and that a partial category can be wired honestly as long as the pin carries
 the skip floor rather than hiding it.
 
-`H33-logistics-route-proof` (2026-08-11) then wired the OTHER slice - the 8
+`H35-logistics-route-proof` (2026-08-11, flown as `H33-logistics-route-proof`)
+then wired the OTHER slice - the 8
 FLIGHT-eligible declarations - and it is the sharper worked example, because it is
 the case where the fixture, not the guard, was the whole problem. Its five
 route-proof cells are pure READ-SIDE walkers: they inspect state a PRIOR recording

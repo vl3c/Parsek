@@ -56,6 +56,7 @@ namespace Parsek
                 case PartEventType.RoboticPositionSample:
                 case PartEventType.RoboticMotionStopped:
                 case PartEventType.ParachuteSemiDeployed:
+                case PartEventType.ParachuteRepacked:
                     return true;
 
                 default:
