@@ -107,6 +107,7 @@ namespace Parsek
             CheckFairingState(v, state, treeRec, ut);
             CheckRoboticState(v, state, treeRec, ut);
             CheckConverterState(v, state, treeRec, ut);
+            CheckEvaState(v, state, treeRec, ut);
 
             if (treeRec.PartEvents.Count > prePartEventCount)
                 treeRec.MarkFilesDirty();
@@ -281,6 +282,50 @@ namespace Parsek
                     treeRec.PartEvents.Add(evt.Value);
                     ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, converter)");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S4 BG parity for the two NON-momentary EVA signals. A background kerbal being knocked
+        /// ragdoll is a real, visible case (a rover runs him over while you fly something else), and
+        /// his jetpack pose persists across the span.
+        ///
+        /// THRUST is absent, and that is parity rather than a gap: JetpackIsThrusting is recomputed
+        /// from fuel flow driven by player INPUT, and a background kerbal receives none - so the
+        /// edge can never fire and a wrapper for it would be dead code.
+        /// </summary>
+        private void CheckEvaState(Vessel v, BackgroundVesselState state,
+            Recording treeRec, double ut)
+        {
+            if (v == null || !v.isEVA || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var eva = p.FindModuleImplementing<KerbalEVA>();
+                if (eva == null) continue;
+
+                string partName = p.partInfo?.name ?? "unknown";
+
+                var jetpackEvt = FlightRecorder.CheckEvaJetpackTransition(
+                    p.persistentId, partName, eva.JetpackDeployed, state.jetpackDeployedParts, ut);
+                if (jetpackEvt.HasValue)
+                {
+                    treeRec.PartEvents.Add(jetpackEvt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {jetpackEvt.Value.eventType} '{partName}' " +
+                        $"pid={p.persistentId} (bg vessel {state.vesselPid}, eva)");
+                }
+
+                var ragdollEvt = FlightRecorder.CheckEvaRagdollTransition(
+                    p.persistentId, partName, eva.isRagdoll, state.ragdollParts, ut);
+                if (ragdollEvt.HasValue)
+                {
+                    treeRec.PartEvents.Add(ragdollEvt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {ragdollEvt.Value.eventType} '{partName}' " +
+                        $"pid={p.persistentId} (bg vessel {state.vesselPid}, eva)");
                 }
             }
         }

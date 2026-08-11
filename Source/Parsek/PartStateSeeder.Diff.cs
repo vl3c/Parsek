@@ -22,6 +22,8 @@ namespace Parsek
             clone.extendedDeployables = new HashSet<uint>(source.extendedDeployables ?? new HashSet<uint>());
             clone.brokenDeployables = new HashSet<uint>(source.brokenDeployables ?? new HashSet<uint>());
             clone.activeConverterParts = new HashSet<uint>(source.activeConverterParts ?? new HashSet<uint>());
+            clone.jetpackDeployedParts = new HashSet<uint>(source.jetpackDeployedParts ?? new HashSet<uint>());
+            clone.ragdollParts = new HashSet<uint>(source.ragdollParts ?? new HashSet<uint>());
             clone.lightsOn = new HashSet<uint>(source.lightsOn ?? new HashSet<uint>());
             clone.blinkingLights = new HashSet<uint>(source.blinkingLights ?? new HashSet<uint>());
             clone.lightBlinkRates = new Dictionary<uint, float>(source.lightBlinkRates ?? new Dictionary<uint, float>());
@@ -157,6 +159,15 @@ namespace Parsek
             // nothing else reads or writes this family, so it needs no precedence dance.
             DiffUintSet(before.activeConverterParts, after.activeConverterParts,
                 PartEventType.ConverterActivated, PartEventType.ConverterDeactivated);
+
+            // S4: a kerbal who deployed his jetpack, or got knocked over, across a rails span. The
+            // THRUST pair has no diff by design - a burst is a momentary input, so there is no
+            // steady state for a span boundary to have missed, and the debounce frame counts are
+            // recorder-local bookkeeping rather than part state.
+            DiffUintSet(before.jetpackDeployedParts, after.jetpackDeployedParts,
+                PartEventType.EvaJetpackDeployed, PartEventType.EvaJetpackStowed);
+            DiffUintSet(before.ragdollParts, after.ragdollParts,
+                PartEventType.EvaRagdollStarted, PartEventType.EvaRagdollEnded);
             DiffUintSet(before.jettisonedShrouds, after.jettisonedShrouds,
                 PartEventType.ShroudJettisoned, null);
             DiffUintSet(before.deployedFairings, after.deployedFairings,

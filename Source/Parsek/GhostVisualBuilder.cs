@@ -4580,6 +4580,19 @@ namespace Parsek
             // clone only the canopy and cap transforms so they enter cloneMap.
             // We intentionally skip all other meshes in the subtree (backpack, storage,
             // parachute housing, etc.) — only the canopy/cap are needed for playback.
+            //
+            // P8-S4 PROBED THE BACKPACK HERE AND DELIBERATELY LEFT IT OUT. The finding, so nobody
+            // re-probes it: the asset is trivially reachable — `KerbalEVA.JetpackTransform` is a
+            // public serialized Transform field, so no name guessing is needed, and stock's own
+            // `UpdatePackModels` does nothing more than `JetpackTransform.gameObject.SetActive(flag)`.
+            // The blocker is the GATE, not the asset. That `flag` is `HasJetpack`, driven by whether
+            // an `evaJetpack` part is in the kerbal's ModuleInventoryPart — and Parsek records no
+            // such signal. Every gate reachable from recorded data renders visibly wrong:
+            // showing the pack on the first EvaJetpackDeployed event pops a backpack into existence
+            // mid-spacewalk and leaves every ground EVA (who never deploys) with no pack at all,
+            // while showing it unconditionally puts a jetpack on kerbals who carry none. Either is a
+            // worse lie than the current absence. The honest fix is to read the snapshot's
+            // ModuleInventoryPart contents as a new baseline surface, which is its own piece of work.
             Transform canopySubtreeRoot = null;
             if (srcCanopy != null && !cloneMap.ContainsKey(srcCanopy))
             {
@@ -7241,6 +7254,128 @@ namespace Parsek
                 material = dustMat,
                 generatedTexture = softCircle
             };
+        }
+
+        /// <summary>
+        /// S4: the ONE Parsek-owned jetpack puff a ghost kerbal gets, parented at the ghost root
+        /// and offset BACKWARD so the particles leave from behind the pack rather than out of the
+        /// kerbal's chest.
+        ///
+        /// Deliberately small and short-lived. A jetpack is a few newtons of cold gas, so a plume
+        /// scaled like an engine's would read as a rocket strapped to a spacesuit. What has to be
+        /// legible at playback speed is simply "he is under power", which a brief puff carries.
+        ///
+        /// Returns null when the additive particle shader is unavailable — the same condition that
+        /// makes launch dust and reentry FX unbuildable, and the caller then never re-tries.
+        /// </summary>
+        internal static EvaJetpackPlumeInfo TryBuildEvaJetpackPlume(GameObject ghostRoot, string vesselName)
+        {
+            if (ghostRoot == null) return null;
+
+            Shader particleShader = Shader.Find("KSP/Particles/Additive");
+            if (particleShader == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume-noshader",
+                    $"EVA jetpack plume unavailable for '{vesselName}': KSP/Particles/Additive not found", 60.0);
+                return null;
+            }
+
+            var plumeObj = new GameObject("ParsekEvaJetpackPlume");
+            plumeObj.transform.SetParent(ghostRoot.transform, false);
+            // Behind and slightly below the kerbal's origin: roughly where the pack's nozzles sit.
+            // A kerbal is ~1.8 m of which the pack occupies the upper back, and the ghost root is at
+            // the part origin, so these are deliberately small numbers.
+            plumeObj.transform.localPosition = new Vector3(0f, 0.15f, -0.25f);
+            plumeObj.transform.localRotation = Quaternion.identity;
+
+            ParticleSystem ps = plumeObj.AddComponent<ParticleSystem>();
+
+            var main = ps.main;
+            main.playOnAwake = false;
+            main.prewarm = false;
+            main.loop = true;
+            main.startLifetime = 0.35f;
+            main.startSpeed = 3.5f;
+            main.startSize = 0.18f;
+            main.maxParticles = 60;
+            // LOCAL space, unlike launch dust's world space: the puff belongs to a kerbal who is
+            // himself moving, and world-space particles would leave a trail hanging in the air
+            // behind him rather than a jet leaving the pack.
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.startColor = new Color(0.85f, 0.88f, 0.95f, 0.45f);
+
+            // A narrow cone pointing BACKWARD along the ghost's local -Z.
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 14f;
+            shape.radius = 0.05f;
+            plumeObj.transform.localRotation = Quaternion.LookRotation(Vector3.back, Vector3.up);
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTimeMultiplier = EvaJetpackPlumeEmissionRate;
+
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 0.2f)));
+
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(0.92f, 0.95f, 1f), 0f),
+                    new GradientColorKey(new Color(0.75f, 0.80f, 0.90f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0.55f, 0f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            colorOverLifetime.color = gradient;
+
+            var psRenderer = plumeObj.GetComponent<ParticleSystemRenderer>();
+            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            psRenderer.maxParticleSize = 0.5f;
+
+            Texture2D softCircle = CreateSoftCircleTexture(32);
+            var plumeMat = new Material(particleShader) { mainTexture = softCircle };
+            plumeMat.SetColor("_TintColor", new Color(0.85f, 0.9f, 1f, 0.4f));
+            psRenderer.material = plumeMat;
+
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            ps.Clear(true);
+
+            ParsekLog.Verbose("GhostVisual", $"EVA jetpack plume built for '{vesselName}'");
+            return new EvaJetpackPlumeInfo
+            {
+                plumeObject = plumeObj,
+                particles = ps,
+                material = plumeMat,
+                generatedTexture = softCircle
+            };
+        }
+
+        /// <summary>
+        /// S4: the puff's steady emission rate. A jetpack has no throttle a player can set, so
+        /// there is one rate rather than a power curve.
+        /// </summary>
+        internal const float EvaJetpackPlumeEmissionRate = 45f;
+
+        /// <summary>Destroys a ghost's EVA jetpack plume and the two assets it owns.</summary>
+        internal static void DestroyEvaJetpackPlume(EvaJetpackPlumeInfo info)
+        {
+            if (info == null) return;
+            if (info.material != null) Object.Destroy(info.material);
+            if (info.generatedTexture != null) Object.Destroy(info.generatedTexture);
+            if (info.plumeObject != null) Object.Destroy(info.plumeObject);
+            info.material = null;
+            info.generatedTexture = null;
+            info.particles = null;
+            info.plumeObject = null;
         }
 
         /// <summary>Destroys a ghost's launch-dust system and the two assets it owns.</summary>

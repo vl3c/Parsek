@@ -4279,6 +4279,8 @@ namespace Parsek
                 extendedDeployables = state.extendedDeployables,
                 brokenDeployables = state.brokenDeployables,
                 activeConverterParts = state.activeConverterParts,
+                jetpackDeployedParts = state.jetpackDeployedParts,
+                ragdollParts = state.ragdollParts,
                 lightsOn = state.lightsOn,
                 blinkingLights = state.blinkingLights,
                 lightBlinkRates = state.lightBlinkRates,

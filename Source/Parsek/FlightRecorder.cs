@@ -129,6 +129,19 @@ namespace Parsek
         /// harvest window - the running animation belongs to one part's ModuleAnimationGroup.
         /// </summary>
         private HashSet<uint> activeConverterParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
+        private HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA is in a SUSTAINED (post-debounce) thrust burst.</summary>
+        private HashSet<uint> thrustingJetpackParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA is ragdolled.</summary>
+        private HashSet<uint> ragdollParts = new HashSet<uint>();
+        /// <summary>
+        /// S4: consecutive frames each pid has read JetpackIsThrusting == true. Recorder-local
+        /// bookkeeping for the debounce, NOT part state, so it deliberately does not join
+        /// PartTrackingSets - there is no such thing as "seeding" a frame count, and a rails-span
+        /// diff of one would be meaningless.
+        /// </summary>
+        private Dictionary<uint, int> evaThrustFrameCounts = new Dictionary<uint, int>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> blinkingLights = new HashSet<uint>();
         private Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();
@@ -2149,6 +2162,221 @@ namespace Parsek
                     PartEvents.Add(evt.Value);
                     ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId} (converter)");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S4: the EVA jetpack's deploy / stow edge.
+        ///
+        /// <c>KerbalEVA.JetpackDeployed</c> is a clean two-state player action, so this is a plain
+        /// edge with no debounce. It IS a <c>[KSPField(isPersistant = true)]</c> — so it also rides
+        /// the quicksave, which is why a ghost spawned from a snapshot can read the pose without an
+        /// event. The event is what makes the CHANGE visible mid-recording.
+        /// </summary>
+        internal static PartEvent? CheckEvaJetpackTransition(
+            uint partPersistentId, string partName, bool deployed,
+            HashSet<uint> jetpackDeployedParts, double ut)
+        {
+            bool wasDeployed = jetpackDeployedParts.Contains(partPersistentId);
+
+            if (deployed && !wasDeployed)
+            {
+                jetpackDeployedParts.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaJetpackDeployed,
+                    partName = partName
+                };
+            }
+
+            if (!deployed && wasDeployed)
+            {
+                jetpackDeployedParts.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaJetpackStowed,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// S4: the EVA ragdoll edge. <c>KerbalEVA.isRagdoll</c> is set in the FSM's ragdoll-enter
+        /// state and cleared on the timed recover-complete event (decompiled, KSP 1.12.5), so it is
+        /// a clean edge that needs no debounce either.
+        ///
+        /// EVENTS ONLY, and that asymmetry is deliberate rather than unfinished: the ragdoll POSE is
+        /// a physics outcome with no animation clip to sample, so a replayed pose would be invention
+        /// rather than recording. What the events buy is real: they gate the thrust plume (a
+        /// tumbling kerbal is not flying) and they mark the timeline.
+        /// </summary>
+        internal static PartEvent? CheckEvaRagdollTransition(
+            uint partPersistentId, string partName, bool ragdoll,
+            HashSet<uint> ragdollParts, double ut)
+        {
+            bool wasRagdoll = ragdollParts.Contains(partPersistentId);
+
+            if (ragdoll && !wasRagdoll)
+            {
+                ragdollParts.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaRagdollStarted,
+                    partName = partName
+                };
+            }
+
+            if (!ragdoll && wasRagdoll)
+            {
+                ragdollParts.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.EvaRagdollEnded,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// S4: the EVA jetpack THRUST edge, debounced on the same frame threshold as RCS
+        /// (<see cref="RcsDebounceFrameThreshold"/>).
+        ///
+        /// WHY THIS ONE NEEDS A DEBOUNCE WHILE THE OTHER TWO DO NOT.
+        /// <c>KerbalEVA.JetpackIsThrusting</c> is not a state a player sets — it is RECOMPUTED every
+        /// FixedUpdate as <c>fuelFlowRate &gt; PropellantConsumption / 2 * thrustPercentage * 0.01</c>
+        /// (decompiled, KSP 1.12.5). A single tap of a translation key, or fuel flow hovering at the
+        /// comparison boundary, flips it on and off across consecutive frames. Recorded raw, one
+        /// kerbal nudging himself into a hatch would write dozens of start/stop pairs, which is
+        /// exactly the noise the RCS debounce exists to filter — so it reuses that threshold rather
+        /// than inventing a second number to keep in step.
+        ///
+        /// Binary rather than power-valued: a jetpack has no throttle a player can set, so
+        /// <c>value = 1.0</c> on the start event says "full", and the plume needs no magnitude.
+        ///
+        /// Budget: 2 events per sustained thrust burst.
+        /// </summary>
+        internal static void ProcessEvaThrustDebounce(
+            uint partPersistentId, string partName, bool thrusting, double ut,
+            Dictionary<uint, int> thrustFrameCounts, HashSet<uint> thrustingParts,
+            List<PartEvent> events)
+        {
+            if (thrusting)
+            {
+                int count;
+                thrustFrameCounts.TryGetValue(partPersistentId, out count);
+                count++;
+                thrustFrameCounts[partPersistentId] = count;
+
+                // Only the frame that EXACTLY reaches the threshold emits. Past it there is nothing
+                // to say: unlike RCS there is no continuous power to re-report.
+                if (ShouldStartRcsRecording(count, RcsDebounceFrameThreshold)
+                    && thrustingParts.Add(partPersistentId))
+                {
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = partPersistentId,
+                        eventType = PartEventType.EvaJetpackThrustStarted,
+                        partName = partName,
+                        value = 1f
+                    });
+                }
+                return;
+            }
+
+            int held;
+            if (!thrustFrameCounts.TryGetValue(partPersistentId, out held))
+                return;
+
+            thrustFrameCounts.Remove(partPersistentId);
+            if (IsRcsRecordingSustained(held, RcsDebounceFrameThreshold))
+            {
+                if (thrustingParts.Remove(partPersistentId))
+                {
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = partPersistentId,
+                        eventType = PartEventType.EvaJetpackThrustStopped,
+                        partName = partName
+                    });
+                }
+                return;
+            }
+
+            // A filtered micro-tap: nothing was ever emitted, so clear any stale membership
+            // rather than emitting an unpaired stop.
+            thrustingParts.Remove(partPersistentId);
+        }
+
+        /// <summary>
+        /// S4 flight-side poll for the three KerbalEVA signals.
+        ///
+        /// TYPED CASTS, not reflection, and the reason is measurable: of the three members only
+        /// <c>JetpackDeployed</c> carries <c>[KSPField]</c> — <c>JetpackIsThrusting</c> and
+        /// <c>isRagdoll</c> are plain public fields (decompiled, KSP 1.12.5). A
+        /// <c>module.Fields</c> walk, which is how the recorder reads modules whose types it cannot
+        /// reference, sees only KSPFields and would have silently missed two of the three.
+        ///
+        /// The <c>v.isEVA</c> gate is what keeps this free: a rocket pays one bool read per frame
+        /// and never walks its parts. EVA vessels ARE recorded — the VesselType.EVA filters
+        /// elsewhere in this file are docking-ANCHOR-candidate filters, not recording gates (they
+        /// also exclude LANDED / SPLASHED / PRELAUNCH, which no recording gate would).
+        /// </summary>
+        private void CheckEvaState(Vessel v)
+        {
+            if (v == null || !v.isEVA || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var eva = p.FindModuleImplementing<KerbalEVA>();
+                if (eva == null) continue;
+
+                string partName = p.partInfo?.name ?? "unknown";
+                uint pid = p.persistentId;
+
+                var jetpackEvt = CheckEvaJetpackTransition(
+                    pid, partName, eva.JetpackDeployed, jetpackDeployedParts, ut);
+                if (jetpackEvt.HasValue)
+                {
+                    PartEvents.Add(jetpackEvt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {jetpackEvt.Value.eventType} '{partName}' pid={pid} (eva)");
+                }
+
+                var ragdollEvt = CheckEvaRagdollTransition(
+                    pid, partName, eva.isRagdoll, ragdollParts, ut);
+                if (ragdollEvt.HasValue)
+                {
+                    PartEvents.Add(ragdollEvt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {ragdollEvt.Value.eventType} '{partName}' pid={pid} (eva)");
+                }
+
+                reusableEventBuffer.Clear();
+                ProcessEvaThrustDebounce(
+                    pid, partName, eva.JetpackIsThrusting, ut,
+                    evaThrustFrameCounts, thrustingJetpackParts, reusableEventBuffer);
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
+                {
+                    PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("Recorder", $"Part event: {reusableEventBuffer[e].eventType} '{partName}' " +
+                        $"pid={pid} (eva thrust, debounce={RcsDebounceFrameThreshold} frames)");
                 }
             }
         }
@@ -7041,6 +7269,10 @@ namespace Parsek
             extendedDeployables.Clear();
             brokenDeployables.Clear();
             activeConverterParts.Clear();
+            jetpackDeployedParts.Clear();
+            thrustingJetpackParts.Clear();
+            ragdollParts.Clear();
+            evaThrustFrameCounts.Clear();
             lightsOn.Clear();
             blinkingLights.Clear();
             lightBlinkRates.Clear();
@@ -7299,6 +7531,8 @@ namespace Parsek
                 extendedDeployables = extendedDeployables,
                 brokenDeployables = brokenDeployables,
                 activeConverterParts = activeConverterParts,
+                jetpackDeployedParts = jetpackDeployedParts,
+                ragdollParts = ragdollParts,
                 lightsOn = lightsOn,
                 blinkingLights = blinkingLights,
                 lightBlinkRates = lightBlinkRates,
@@ -8487,7 +8721,7 @@ namespace Parsek
         /// <summary>
         /// Polls all part-module states (parachutes, jettisons, engines, RCS, deployables,
         /// ladders, animation groups, aero/control surfaces, lights, gear, cargo bays,
-        /// fairings, robotics, converters). Runs every physics frame before adaptive sampling.
+        /// fairings, robotics, converters, EVA). Runs every physics frame before adaptive sampling.
         /// </summary>
         private void PollPartStates(Vessel v)
         {
@@ -8509,6 +8743,7 @@ namespace Parsek
             CheckFairingState(v);
             CheckRoboticState(v);
             CheckConverterState(v);
+            CheckEvaState(v);
         }
 
         /// <summary>

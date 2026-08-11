@@ -935,5 +935,407 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // ------------------------------------------------------------------
+        // Step 6 — S4: the EVA jetpack and ragdoll
+        // ------------------------------------------------------------------
+
+        #region S4 recorder edges
+
+        private const uint KerbalPid = 9001u;
+        private const string KerbalName = "kerbalEVA";
+
+        [Theory]
+        [InlineData(false, false, null)]
+        [InlineData(true, true, null)]
+        [InlineData(true, false, "EvaJetpackDeployed")]
+        [InlineData(false, true, "EvaJetpackStowed")]
+        public void CheckEvaJetpackTransition_TruthTable(
+            bool deployed, bool wasDeployed, string expectedEventName)
+        {
+            var set = new HashSet<uint>();
+            if (wasDeployed) set.Add(KerbalPid);
+
+            PartEvent? evt = FlightRecorder.CheckEvaJetpackTransition(
+                KerbalPid, KerbalName, deployed, set, ut: 300.0);
+
+            if (expectedEventName == null)
+            {
+                Assert.False(evt.HasValue);
+                Assert.Equal(wasDeployed, set.Contains(KerbalPid));
+                return;
+            }
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(expectedEventName, evt.Value.eventType.ToString());
+            Assert.Equal(300.0, evt.Value.ut);
+            Assert.Equal(deployed, set.Contains(KerbalPid));
+        }
+
+        [Theory]
+        [InlineData(false, false, null)]
+        [InlineData(true, true, null)]
+        [InlineData(true, false, "EvaRagdollStarted")]
+        [InlineData(false, true, "EvaRagdollEnded")]
+        public void CheckEvaRagdollTransition_TruthTable(
+            bool ragdoll, bool wasRagdoll, string expectedEventName)
+        {
+            var set = new HashSet<uint>();
+            if (wasRagdoll) set.Add(KerbalPid);
+
+            PartEvent? evt = FlightRecorder.CheckEvaRagdollTransition(
+                KerbalPid, KerbalName, ragdoll, set, ut: 400.0);
+
+            if (expectedEventName == null)
+            {
+                Assert.False(evt.HasValue);
+                return;
+            }
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(expectedEventName, evt.Value.eventType.ToString());
+            Assert.Equal(ragdoll, set.Contains(KerbalPid));
+        }
+
+        #endregion
+
+        #region S4 thrust debounce
+
+        private static List<PartEvent> RunThrustFrames(params bool[] thrustingPerFrame)
+        {
+            var counts = new Dictionary<uint, int>();
+            var thrusting = new HashSet<uint>();
+            var events = new List<PartEvent>();
+            for (int i = 0; i < thrustingPerFrame.Length; i++)
+            {
+                FlightRecorder.ProcessEvaThrustDebounce(
+                    KerbalPid, KerbalName, thrustingPerFrame[i], ut: 1000.0 + i,
+                    counts, thrusting, events);
+            }
+            return events;
+        }
+
+        private static bool[] Frames(bool value, int count)
+        {
+            var a = new bool[count];
+            for (int i = 0; i < count; i++) a[i] = value;
+            return a;
+        }
+
+        [Fact]
+        public void TheThrustDebounceReusesTheRcsThreshold()
+        {
+            // Pinned deliberately: JetpackIsThrusting flickers for the same reason RCS does (both
+            // are recomputed per FixedUpdate from a fuel-flow comparison), so a SECOND independent
+            // number would be a second thing to keep in step for no reason.
+            Assert.Equal(8, FlightRecorder.RcsDebounceFrameThreshold);
+        }
+
+        [Fact]
+        public void ASingleFrameTap_EmitsNothingAtAll()
+        {
+            // The whole point of the debounce. A kerbal nudging himself toward a hatch taps
+            // translation for a frame or two; recorded raw that would be a start/stop pair each time.
+            Assert.Empty(RunThrustFrames(true, false));
+            Assert.Empty(RunThrustFrames(true, true, false));
+        }
+
+        [Fact]
+        public void ATapJustShortOfTheThreshold_EmitsNothing_AndLeavesNoStaleState()
+        {
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var frames = new List<bool>(Frames(true, threshold - 1)) { false };
+            Assert.Empty(RunThrustFrames(frames.ToArray()));
+        }
+
+        [Fact]
+        public void ASustainedBurst_EmitsExactlyOneStartAndOneStop_TheStatedBudget()
+        {
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var frames = new List<bool>(Frames(true, threshold + 40)) { false };
+
+            var events = RunThrustFrames(frames.ToArray());
+
+            Assert.Equal(2, events.Count);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, events[0].eventType);
+            Assert.Equal(PartEventType.EvaJetpackThrustStopped, events[1].eventType);
+        }
+
+        [Fact]
+        public void TheStartEventFiresOnTheThresholdFrame_AndCarriesValueOne()
+        {
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var events = RunThrustFrames(Frames(true, threshold));
+
+            PartEvent start = Assert.Single(events);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, start.eventType);
+            // The threshold frame's own UT: frames start at 1000 and the Nth frame is 1000+(N-1).
+            Assert.Equal(1000.0 + (threshold - 1), start.ut);
+            // Binary, not power-valued: a jetpack has no throttle a player can set.
+            Assert.Equal(1f, start.value);
+        }
+
+        [Fact]
+        public void PastTheThreshold_NoFurtherEventsAreEmittedWhileThrustContinues()
+        {
+            // Unlike RCS there is no continuous power to re-report, so a long burn must not
+            // dribble events - which is what a copy-paste of the RCS path would have done.
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var events = RunThrustFrames(Frames(true, threshold + 500));
+            Assert.Single(events);
+        }
+
+        [Fact]
+        public void TwoSeparateSustainedBursts_EmitTwoPairs()
+        {
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var frames = new List<bool>();
+            frames.AddRange(Frames(true, threshold + 5));
+            frames.AddRange(Frames(false, 10));
+            frames.AddRange(Frames(true, threshold + 5));
+            frames.Add(false);
+
+            var events = RunThrustFrames(frames.ToArray());
+
+            Assert.Equal(4, events.Count);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, events[0].eventType);
+            Assert.Equal(PartEventType.EvaJetpackThrustStopped, events[1].eventType);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, events[2].eventType);
+            Assert.Equal(PartEventType.EvaJetpackThrustStopped, events[3].eventType);
+        }
+
+        [Fact]
+        public void AFilteredTapAfterASustainedBurst_DoesNotEmitAnUnpairedStop()
+        {
+            // The state-leak this guards: if the filtered-tap branch forgot to clear membership, the
+            // next stop would emit without a matching start and playback would see a stop for a
+            // plume it never lit.
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var frames = new List<bool>();
+            frames.AddRange(Frames(true, threshold + 3));
+            frames.Add(false);                    // -> real stop
+            frames.AddRange(Frames(true, 2));     // a tap, filtered
+            frames.Add(false);
+            frames.Add(false);
+
+            var events = RunThrustFrames(frames.ToArray());
+
+            Assert.Equal(2, events.Count);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, events[0].eventType);
+            Assert.Equal(PartEventType.EvaJetpackThrustStopped, events[1].eventType);
+        }
+
+        [Fact]
+        public void ARecordingThatEndsMidBurst_LeavesTheStartWithNoStop_WhichIsCorrect()
+        {
+            // A burst still running when the recording ends emits only the start. The playback loop
+            // reset and the ghost teardown both stop the plume, so there is nothing left lit.
+            int threshold = FlightRecorder.RcsDebounceFrameThreshold;
+            var events = RunThrustFrames(Frames(true, threshold + 20));
+            Assert.Single(events);
+            Assert.Equal(PartEventType.EvaJetpackThrustStarted, events[0].eventType);
+        }
+
+        #endregion
+
+        #region S4 seeding and split seeds
+
+        [Fact]
+        public void ARecordingThatStartsMidSpacewalk_SeedsThePackAndTheRagdoll()
+        {
+            var sets = new PartTrackingSets();
+            sets.jetpackDeployedParts.Add(KerbalPid);
+            sets.ragdollParts.Add(KerbalPid);
+
+            var events = PartStateSeeder.EmitSeedEvents(
+                sets, new Dictionary<uint, string> { { KerbalPid, KerbalName } },
+                startUT: 4000.0, logTag: "Recorder");
+
+            Assert.Single(events.Where(e => e.eventType == PartEventType.EvaJetpackDeployed));
+            Assert.Single(events.Where(e => e.eventType == PartEventType.EvaRagdollStarted));
+            // THRUST is never seeded: it is a momentary input, and a kerbal caught mid-burst has
+            // the debounce window ahead of him anyway.
+            Assert.Empty(events.Where(e => e.eventType == PartEventType.EvaJetpackThrustStarted));
+        }
+
+        [Fact]
+        public void TheJetpackPoseAndRagdollReconcileAcrossARailsSpan_ButThrustDoesNot()
+        {
+            var before = new PartTrackingSets();
+            var after = new PartTrackingSets();
+            after.jetpackDeployedParts.Add(KerbalPid);
+            after.ragdollParts.Add(KerbalPid);
+
+            var events = PartStateSeeder.EmitDiffEvents(
+                before, after, new Dictionary<uint, string> { { KerbalPid, KerbalName } },
+                2000.0, "BgRecorder");
+
+            Assert.Equal(2, events.Count);
+            Assert.Contains(events, e => e.eventType == PartEventType.EvaJetpackDeployed);
+            Assert.Contains(events, e => e.eventType == PartEventType.EvaRagdollStarted);
+            Assert.DoesNotContain(events, e => e.eventType == PartEventType.EvaJetpackThrustStarted);
+
+            // And the reverse direction, so a kerbal who stowed and got up is reconciled too.
+            var backAgain = PartStateSeeder.EmitDiffEvents(
+                after, before, new Dictionary<uint, string> { { KerbalPid, KerbalName } },
+                2000.0, "BgRecorder");
+            Assert.Equal(2, backAgain.Count);
+            Assert.Contains(backAgain, e => e.eventType == PartEventType.EvaJetpackStowed);
+            Assert.Contains(backAgain, e => e.eventType == PartEventType.EvaRagdollEnded);
+        }
+
+        [Fact]
+        public void TheJetpackPoseAndRagdollSeedAcrossASplit_InBothDirections()
+        {
+            var deployedAndDown = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaJetpackDeployed, partName = KerbalName },
+                new PartEvent { ut = 120, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaRagdollStarted, partName = KerbalName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(deployedAndDown, splitUT: 300.0);
+            Assert.Contains(seeds, s => s.eventType == PartEventType.EvaJetpackDeployed);
+            Assert.Contains(seeds, s => s.eventType == PartEventType.EvaRagdollStarted);
+
+            var stowedAndUp = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaJetpackDeployed, partName = KerbalName },
+                new PartEvent { ut = 150, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaJetpackStowed, partName = KerbalName },
+                new PartEvent { ut = 160, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaRagdollStarted, partName = KerbalName },
+                new PartEvent { ut = 200, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaRagdollEnded, partName = KerbalName },
+            };
+
+            var seeds2 = RecordingOptimizer.BuildTransientStateSeeds(stowedAndUp, splitUT: 300.0);
+            Assert.Contains(seeds2, s => s.eventType == PartEventType.EvaJetpackStowed);
+            Assert.Contains(seeds2, s => s.eventType == PartEventType.EvaRagdollEnded);
+        }
+
+        [Fact]
+        public void TheThrustPairIsNotASplitSeedFamily_ItFollowsTheRcsRule()
+        {
+            // "Not thrusting" is the prefab default, and a burst still running at a split is a
+            // momentary input the tail's own frames re-establish. Seeding it would assert a state
+            // the tail has no reason to inherit.
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaJetpackThrustStarted, partName = KerbalName, value = 1f },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+            Assert.Empty(seeds.Where(s =>
+                s.eventType == PartEventType.EvaJetpackThrustStarted
+                || s.eventType == PartEventType.EvaJetpackThrustStopped));
+        }
+
+        [Fact]
+        public void TheJetpackAndRagdollPairsAreSeparateSeedFamilies()
+        {
+            // Families 12 and 13. One kerbal can be BOTH pack-out and ragdolled, and folding them
+            // into one family would let one state's seed overwrite the other's.
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaJetpackDeployed, partName = KerbalName },
+                new PartEvent { ut = 120, partPersistentId = KerbalPid,
+                    eventType = PartEventType.EvaRagdollStarted, partName = KerbalName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+            Assert.Equal(2, seeds.Count(s => s.partPersistentId == KerbalPid));
+        }
+
+        #endregion
+
+        #region S4 plume gate
+
+        [Theory]
+        // deployed, thrusting, ragdoll, plume?
+        [InlineData(true, true, false, true)]    // the only case that emits
+        [InlineData(false, true, false, false)]  // thrusting with the pack stowed — cannot happen physically
+        [InlineData(true, false, false, false)]  // pack out, idle
+        [InlineData(true, true, true, false)]    // tumbling: stock cuts thrust
+        [InlineData(false, false, false, false)]
+        [InlineData(false, true, true, false)]
+        [InlineData(true, false, true, false)]
+        [InlineData(false, false, true, false)]
+        public void TheJetpackPlumeGate_IsTheFullThreeFlagTruthTable(
+            bool deployed, bool thrusting, bool ragdoll, bool expected)
+        {
+            Assert.Equal(expected,
+                GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(deployed, thrusting, ragdoll));
+        }
+
+        [Fact]
+        public void RagdollSuppressesThePlumeEvenWhileTheRecordingSaysThrusting()
+        {
+            // The one place the ragdoll events earn their keep VISUALLY, given the pose itself is
+            // deliberately never replayed. Stock cuts thrust when the FSM enters ragdoll, and the
+            // recorder's two flags are read independently, so this combination does occur on disk.
+            Assert.True(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
+                deployed: true, thrusting: true, ragdoll: false));
+            Assert.False(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
+                deployed: true, thrusting: true, ragdoll: true));
+        }
+
+        // TryUpdateEvaFlags is the headless-reachable half. ApplyEvaState wraps it and then
+        // reconciles the particle system, which compares a GameObject against null and so routes
+        // through a UnityEngine.Object ECall xUnit cannot host — the same wall the S6 appliers hit.
+        // The plume actually lighting and going out is pinned by the H37 in-game cell.
+
+        [Fact]
+        public void TryUpdateEvaFlags_TracksAllSixEdgesOnThePlaybackState()
+        {
+            var state = new GhostPlaybackState();
+
+            Assert.True(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EvaJetpackDeployed));
+            Assert.True(state.evaJetpackDeployed);
+
+            Assert.True(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EvaJetpackThrustStarted));
+            Assert.True(state.evaJetpackThrusting);
+
+            Assert.True(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EvaRagdollStarted));
+            Assert.True(state.evaRagdoll);
+
+            // With all three set, the gate is CLOSED by the ragdoll — the combination that exists
+            // on disk and must not light a plume.
+            Assert.False(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
+                state.evaJetpackDeployed, state.evaJetpackThrusting, state.evaRagdoll));
+
+            Assert.True(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EvaRagdollEnded));
+            Assert.False(state.evaRagdoll);
+            // He is up again, pack out, still thrusting: NOW it emits.
+            Assert.True(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
+                state.evaJetpackDeployed, state.evaJetpackThrusting, state.evaRagdoll));
+
+            Assert.True(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EvaJetpackThrustStopped));
+            Assert.False(state.evaJetpackThrusting);
+
+            Assert.True(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EvaJetpackStowed));
+            Assert.False(state.evaJetpackDeployed);
+
+            Assert.False(GhostPlaybackLogic.ShouldEmitEvaJetpackPlume(
+                state.evaJetpackDeployed, state.evaJetpackThrusting, state.evaRagdoll));
+        }
+
+        [Fact]
+        public void TryUpdateEvaFlags_IgnoresNonEvaEventTypesAndANullState()
+        {
+            var state = new GhostPlaybackState();
+            Assert.False(GhostPlaybackLogic.TryUpdateEvaFlags(state, PartEventType.EngineIgnited));
+            Assert.False(state.evaJetpackDeployed);
+            Assert.False(state.evaJetpackThrusting);
+            Assert.False(state.evaRagdoll);
+
+            Assert.False(GhostPlaybackLogic.TryUpdateEvaFlags(null, PartEventType.EvaJetpackDeployed));
+        }
+
+        #endregion
     }
 }

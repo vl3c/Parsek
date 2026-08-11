@@ -8352,6 +8352,10 @@ namespace Parsek
             // collect with the hierarchy — the same reason DestroyReentryFxResources exists.
             GhostVisualBuilder.DestroyLaunchDust(state.launchDustInfo);
             state.launchDustInfo = null;
+            // S4: the EVA jetpack puff owns a Material and a generated Texture2D on exactly the
+            // same terms, so it needs the same explicit release.
+            GhostVisualBuilder.DestroyEvaJetpackPlume(state.evaJetpackPlumeInfo);
+            state.evaJetpackPlumeInfo = null;
 
             if (state.ghost != null)
                 UnityEngine.Object.Destroy(state.ghost);

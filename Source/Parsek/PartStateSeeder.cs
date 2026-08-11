@@ -57,6 +57,7 @@ namespace Parsek
                 SeedAnimationGroupsAndSurfaces(p, sets, logTag);
                 SeedAnimateGeneric(p, cargo, sets, logTag);
                 SeedConverters(p, sets, logTag);
+                SeedEvaState(p, sets, logTag);
             }
 
             SeedEngines(cachedEngines, sets, logTag);
@@ -71,7 +72,8 @@ namespace Parsek
                 $"ladders={sets.deployedLadders.Count} animGroups={sets.deployedAnimationGroups.Count} " +
                 $"animGeneric={sets.deployedAnimateGenericModules.Count} heat={sets.animateHeatLevels.Count} " +
                 $"engines={sets.activeEngineKeys.Count} rcs={sets.activeRcsKeys.Count} " +
-                $"converters={sets.activeConverterParts.Count}");
+                $"converters={sets.activeConverterParts.Count} " +
+                $"evaJetpack={sets.jetpackDeployedParts.Count} evaRagdoll={sets.ragdollParts.Count}");
         }
 
         private static void SeedFairings(Part p, PartTrackingSets sets, string logTag)
@@ -173,6 +175,35 @@ namespace Parsek
             sets.activeConverterParts.Add(p.persistentId);
             ParsekLog.Verbose(logTag,
                 $"Seeded already-running converter: '{p.partInfo?.name}' pid={p.persistentId}");
+        }
+
+        /// <summary>
+        /// S4: a kerbal who is ALREADY on EVA with his jetpack out, or already ragdolled, when
+        /// recording starts. Same argument as every other seeder: without it the first poll reads
+        /// the live state as an entering edge and writes an event the recording never witnessed.
+        ///
+        /// TYPED cast, matching FlightRecorder.CheckEvaState - only JetpackDeployed is a KSPField,
+        /// so a Fields walk would miss isRagdoll entirely. THRUST is deliberately not seeded: it is
+        /// a momentary input, and a kerbal caught mid-burst at recording start has the debounce
+        /// window ahead of him anyway.
+        /// </summary>
+        private static void SeedEvaState(Part p, PartTrackingSets sets, string logTag)
+        {
+            var eva = p.FindModuleImplementing<KerbalEVA>();
+            if (eva == null) return;
+
+            if (eva.JetpackDeployed)
+            {
+                sets.jetpackDeployedParts.Add(p.persistentId);
+                ParsekLog.Verbose(logTag,
+                    $"Seeded already-deployed EVA jetpack: '{p.partInfo?.name}' pid={p.persistentId}");
+            }
+            if (eva.isRagdoll)
+            {
+                sets.ragdollParts.Add(p.persistentId);
+                ParsekLog.Verbose(logTag,
+                    $"Seeded already-ragdolled kerbal: '{p.partInfo?.name}' pid={p.persistentId}");
+            }
         }
 
         private static void SeedLights(Part p, PartTrackingSets sets,
@@ -508,6 +539,9 @@ namespace Parsek
             // S7: a recording that starts with the drill already turning needs the running loop
             // started at UT0 rather than at the recording's first toggle (which may never come).
             EmitFromUintSet(sets.activeConverterParts, PartEventType.ConverterActivated);
+            // S4: a recording that starts with the kerbal's pack already out, or already tumbling.
+            EmitFromUintSet(sets.jetpackDeployedParts, PartEventType.EvaJetpackDeployed);
+            EmitFromUintSet(sets.ragdollParts, PartEventType.EvaRagdollStarted);
             EmitFromUintSet(sets.jettisonedShrouds, PartEventType.ShroudJettisoned);
             EmitFromUintSet(sets.deployedFairings, PartEventType.FairingJettisoned);
             EmitFromUintSet(sets.lightsOn, PartEventType.LightOn);
@@ -787,6 +821,14 @@ namespace Parsek
         public HashSet<uint> brokenDeployables = new HashSet<uint>();
         /// <summary>S7: pids with at least one running BaseConverter (ISRU / drill / harvester).</summary>
         public HashSet<uint> activeConverterParts = new HashSet<uint>();
+        /// <summary>S4: pids whose KerbalEVA has its jetpack extended.</summary>
+        public HashSet<uint> jetpackDeployedParts = new HashSet<uint>();
+        /// <summary>
+        /// S4: pids whose KerbalEVA is ragdolled. Seeded and diffed for the same reason as the
+        /// jetpack pose - a kerbal can be knocked over across a rails span - even though the ghost
+        /// renders no ragdoll POSE (events only; see PartEventType.EvaRagdollStarted).
+        /// </summary>
+        public HashSet<uint> ragdollParts = new HashSet<uint>();
         public HashSet<uint> lightsOn = new HashSet<uint>();
         public HashSet<uint> blinkingLights = new HashSet<uint>();
         public Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();

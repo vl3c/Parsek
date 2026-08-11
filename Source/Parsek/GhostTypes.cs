@@ -204,6 +204,25 @@ namespace Parsek
     }
 
     /// <summary>
+    /// S4: the Parsek-owned puff a ghost kerbal's jetpack emits while thrusting.
+    ///
+    /// WHY PARSEK OWNS IT rather than cloning a stock system, verified by decompile: KerbalEVA's
+    /// jetpack FX are <c>FXGroup</c>s resolved from <c>part.findFxGroup("X+")</c> and friends, and
+    /// <c>kerbalEVA.cfg</c>'s EFFECTS node is AUDIO ONLY — there are no stock particles to clone,
+    /// and no ModuleRCS to route through the engine/RCS FX path. Same situation as launch dust, so
+    /// the same answer: author one system outright, which also means the driver may write emission
+    /// and size multipliers directly rather than through the captured-baseline machinery a cloned
+    /// KSP asset needs.
+    /// </summary>
+    internal class EvaJetpackPlumeInfo
+    {
+        public GameObject plumeObject;
+        public ParticleSystem particles;
+        public Material material;
+        public Texture2D generatedTexture;
+    }
+
+    /// <summary>
     /// The three S3 synthesis families a single part can contribute. One container so the ghost
     /// build's already-14-wide out-parameter list grows by one rather than by three.
     /// </summary>

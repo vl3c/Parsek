@@ -1337,6 +1337,16 @@ namespace Parsek
             if (state.launchDustInfo != null)
                 state.launchDustInfo.lastIntensity = 0f;
 
+            // S4: the three EVA flags go back to "pack stowed, not thrusting, on his feet", which is
+            // how a kerbal leaves the hatch. The particle system itself is stopped in
+            // ReapplySpawnTimeModuleBaselinesForLoopCycle (a Unity call this method cannot make),
+            // exactly like launch dust. Without the reset a kerbal who was thrusting at the end of
+            // one cycle would have the plume lit at the start of the next, before the recording's
+            // own thrust event replayed.
+            state.evaJetpackDeployed = false;
+            state.evaJetpackThrusting = false;
+            state.evaRagdoll = false;
+
             if (state.colorChangerInfos != null)
             {
                 foreach (var list in state.colorChangerInfos.Values)
@@ -1530,6 +1540,14 @@ namespace Parsek
             RestoreSynthesizedMotionNeutralPoses(state);
             if (state.launchDustInfo?.particles != null && state.launchDustInfo.particles.isPlaying)
                 state.launchDustInfo.particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            // S4: the EVA plume's Unity half of the same reset. Clear as well as stop, so no
+            // in-flight particles from the previous cycle survive into the new one.
+            if (state.evaJetpackPlumeInfo?.particles != null
+                && state.evaJetpackPlumeInfo.particles.isPlaying)
+            {
+                state.evaJetpackPlumeInfo.particles.Stop(
+                    true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
 
             // 3f. Re-apply the M1 snapshot baselines the stow/cold/off steps above just
             //     reverted, so cycle N+1 restarts from the RECORDED look rather than the
@@ -1846,6 +1864,17 @@ namespace Parsek
                         break;
                     case PartEventType.ConverterDeactivated:
                         ApplyConverterLoopState(state, evt.partPersistentId, active: false, activeSinceUT: evt.ut);
+                        break;
+                    // S4: all six EVA members share one applier so the plume gate lives in one
+                    // place. The RAGDOLL pair is recorded and applied but renders no POSE - it
+                    // gates the plume and marks the timeline (see PartEventType.EvaRagdollStarted).
+                    case PartEventType.EvaJetpackDeployed:
+                    case PartEventType.EvaJetpackStowed:
+                    case PartEventType.EvaJetpackThrustStarted:
+                    case PartEventType.EvaJetpackThrustStopped:
+                    case PartEventType.EvaRagdollStarted:
+                    case PartEventType.EvaRagdollEnded:
+                        ApplyEvaState(state, evt.eventType);
                         break;
                     case PartEventType.ThermalAnimationHot:
                         ApplyHeatState(state, evt, HeatLevel.Hot);
@@ -5674,6 +5703,110 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        /// <summary>
+        /// S4: the jetpack plume gate. Pure, because it is the one place the three recorded EVA
+        /// flags combine and the combination is the whole honesty of the feature.
+        ///
+        /// All three conditions are load-bearing:
+        /// <list type="bullet">
+        /// <item><description>THRUSTING is the signal itself, already debounced by the recorder so
+        /// a single tap never reaches here.</description></item>
+        /// <item><description>JETPACK DEPLOYED, because a stowed pack cannot thrust. The recorder
+        /// reads the two flags independently and KSP recomputes JetpackIsThrusting from fuel flow,
+        /// so the pair CAN disagree for a frame around a stow - and a plume from a stowed pack is
+        /// the more visible of the two possible errors.</description></item>
+        /// <item><description>NOT RAGDOLL. A tumbling kerbal is not flying, and stock cuts thrust
+        /// when the FSM enters ragdoll. This is also where the ragdoll events earn their keep on the
+        /// VISUAL side, given that the ragdoll POSE is deliberately not replayed.</description></item>
+        /// </list>
+        /// </summary>
+        internal static bool ShouldEmitEvaJetpackPlume(bool deployed, bool thrusting, bool ragdoll)
+            => thrusting && deployed && !ragdoll;
+
+        /// <summary>
+        /// S4: records one EVA flag change and reconciles the plume to the resulting gate.
+        ///
+        /// All six EVA event types route through here rather than each toggling the particle system
+        /// itself, so the gate is evaluated in exactly one place and cannot drift between call sites.
+        /// </summary>
+        internal static void ApplyEvaState(GhostPlaybackState state, PartEventType type)
+        {
+            if (!TryUpdateEvaFlags(state, type)) return;
+            ReconcileEvaJetpackPlume(state);
+        }
+
+        /// <summary>
+        /// S4: folds one EVA event into the three playback flags. Returns false for an event type
+        /// that is not an EVA one, so the caller skips the reconcile.
+        ///
+        /// Split out from <see cref="ApplyEvaState"/> so the BOOKKEEPING is headless-testable: the
+        /// reconcile below has to compare a GameObject against null, which routes through a
+        /// UnityEngine.Object ECall xUnit cannot host. Same pure-decision / Unity-applier division
+        /// the rest of this file uses.
+        /// </summary>
+        internal static bool TryUpdateEvaFlags(GhostPlaybackState state, PartEventType type)
+        {
+            if (state == null) return false;
+
+            switch (type)
+            {
+                case PartEventType.EvaJetpackDeployed: state.evaJetpackDeployed = true; return true;
+                case PartEventType.EvaJetpackStowed: state.evaJetpackDeployed = false; return true;
+                case PartEventType.EvaJetpackThrustStarted: state.evaJetpackThrusting = true; return true;
+                case PartEventType.EvaJetpackThrustStopped: state.evaJetpackThrusting = false; return true;
+                case PartEventType.EvaRagdollStarted: state.evaRagdoll = true; return true;
+                case PartEventType.EvaRagdollEnded: state.evaRagdoll = false; return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// S4: brings the plume into line with the flags. Builds it LAZILY on the first moment it is
+        /// actually wanted, so an EVA ghost that never fires its pack allocates no particle system
+        /// and a non-EVA ghost never reaches here at all.
+        /// </summary>
+        internal static void ReconcileEvaJetpackPlume(GhostPlaybackState state)
+        {
+            if (state == null) return;
+
+            bool wanted = ShouldEmitEvaJetpackPlume(
+                state.evaJetpackDeployed, state.evaJetpackThrusting, state.evaRagdoll);
+
+            if (!wanted)
+            {
+                // A PLAIN reference check on the info object before touching anything Unity-shaped:
+                // a ghost that never fired its pack has no plume to stop, and comparing a null
+                // ParticleSystem against null would still route through UnityEngine.Object's
+                // overloaded operator.
+                if (state.evaJetpackPlumeInfo == null) return;
+                ParticleSystem existing = state.evaJetpackPlumeInfo.particles;
+                if (existing != null && existing.isPlaying)
+                    existing.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                return;
+            }
+
+            if (state.evaJetpackPlumeInfo == null)
+            {
+                if (state.evaJetpackPlumeUnavailable || state.ghost == null) return;
+                state.evaJetpackPlumeInfo = GhostVisualBuilder.TryBuildEvaJetpackPlume(
+                    state.ghost, state.vesselName);
+                if (state.evaJetpackPlumeInfo == null)
+                {
+                    state.evaJetpackPlumeUnavailable = true;
+                    return;
+                }
+            }
+
+            ParticleSystem ps = state.evaJetpackPlumeInfo.particles;
+            if (ps == null) return;
+            if (!ps.isPlaying) ps.Play();
+
+            ParsekLog.VerboseRateLimited("GhostVisual", "eva-plume",
+                $"EVA jetpack plume emitting (vessel='{state.vesselName ?? "unknown"}' " +
+                $"deployed={state.evaJetpackDeployed} thrusting={state.evaJetpackThrusting} " +
+                $"ragdoll={state.evaRagdoll})", 5.0);
         }
 
         private static void DriveSynthesizedGimbals(

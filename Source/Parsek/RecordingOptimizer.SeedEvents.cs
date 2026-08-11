@@ -111,6 +111,8 @@ namespace Parsek
             var parachuteStates = new Dictionary<ulong, TransientPartState>();
             var roboticStates = new Dictionary<ulong, TransientPartState>();
             var converterStates = new Dictionary<ulong, TransientPartState>();
+            var evaJetpackStates = new Dictionary<ulong, TransientPartState>();
+            var evaRagdollStates = new Dictionary<ulong, TransientPartState>();
 
             for (int i = 0; i < indexedEvents.Count; i++)
             {
@@ -222,6 +224,27 @@ namespace Parsek
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
+                    case PartEventType.EvaJetpackDeployed:
+                        evaJetpackStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.EvaJetpackDeployed);
+                        break;
+                    case PartEventType.EvaJetpackStowed:
+                        evaJetpackStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.EvaJetpackStowed);
+                        break;
+                    case PartEventType.EvaRagdollStarted:
+                        evaRagdollStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.EvaRagdollStarted);
+                        break;
+                    case PartEventType.EvaRagdollEnded:
+                        evaRagdollStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.EvaRagdollEnded);
+                        break;
+                    // The THRUST pair follows the RCS RULE and is absent from this reducer on
+                    // purpose: "not thrusting" is the prefab default, so only the ACTIVE direction
+                    // could ever need a seed - and a thrust burst that was still running at a split
+                    // is a momentary input the tail's own next frame re-establishes. See
+                    // AppendActiveStateSeeds' call-site comment for the same argument on heat.
                     case PartEventType.ConverterActivated:
                         converterStates[key] = BuildTransientState(
                             evt, active: true, value: 0f, seedEventType: PartEventType.ConverterActivated);
@@ -331,6 +354,10 @@ namespace Parsek
                 parachuteStates, seeds, splitUT, ref visualStateOffSeeds);
             visualStateSeeds += AppendReversibleStateSeeds(
                 converterStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                evaJetpackStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                evaRagdollStates, seeds, splitUT, ref visualStateOffSeeds);
             // Heat stays ACTIVE-ONLY on purpose. The inactive direction here is
             // ThermalAnimationCold, and cold is what the spawn pass already lays down
             // unconditionally (PopulateHeatInfos / step 3a of the loop-cycle re-apply) —
@@ -493,6 +520,14 @@ namespace Parsek
                 // tail's ghost would spin a drill the recording says is idle.
                 case PartEventType.ConverterActivated:
                 case PartEventType.ConverterDeactivated:
+                // S4: the jetpack POSE and the ragdoll FLAG are both reversible two-state signals,
+                // so both directions seed. The THRUST pair is deliberately absent - it follows the
+                // RCS rule (active-direction only, and even that is momentary), so it is not a
+                // transient VISUAL STATE a tail has to be told about.
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
                     return true;
                 default:
                     return false;
@@ -555,6 +590,12 @@ namespace Parsek
                 case PartEventType.ConverterActivated:
                 case PartEventType.ConverterDeactivated:
                     return 11;
+                case PartEventType.EvaJetpackDeployed:
+                case PartEventType.EvaJetpackStowed:
+                    return 12;
+                case PartEventType.EvaRagdollStarted:
+                case PartEventType.EvaRagdollEnded:
+                    return 13;
                 default:
                     return 0;
             }
