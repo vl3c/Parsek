@@ -2215,6 +2215,11 @@ namespace Parsek
             var finishedEntries = BuildContractFilterEntries(finishedContracts);
             var tombstonedContractGuids =
                 LedgerOrchestrator.BuildTombstonedContractGuidsForPatch();
+            // Per-contract "rebuild it as of THIS UT" cutoffs. Resolved here rather than
+            // taken as a parameter because the tombstoned-guid set above is resolved the
+            // same way, at the same point, from the same source.
+            var reinstateCutoffs =
+                LedgerOrchestrator.BuildContractReinstateCutoffsForPatch();
 
             PartitionContractsForPatch(currentEntries, finishedEntries,
                 activeIdSet, terminalIdSet, terminalOutcomeById, tombstonedContractGuids,
@@ -2280,7 +2285,18 @@ namespace Parsek
                     continue;
                 }
 
-                ConfigNode snapshot = GameStateStore.GetContractSnapshot(contractId);
+                // Prefer the rewind-point snapshot at or before this contract's reinstate
+                // cutoff, so a contract that was half-finished when the timeline rewound
+                // comes back half-finished instead of reset to accept-time zero progress.
+                double? cutoffUt = null;
+                if (reinstateCutoffs != null && Guid.TryParse(contractId, out var cutoffGuid))
+                {
+                    double cutoffValue;
+                    if (reinstateCutoffs.TryGetValue(cutoffGuid, out cutoffValue))
+                        cutoffUt = cutoffValue;
+                }
+
+                ConfigNode snapshot = GameStateStore.GetContractSnapshotForPatch(contractId, cutoffUt);
                 if (snapshot == null)
                 {
                     noSnapshot++;

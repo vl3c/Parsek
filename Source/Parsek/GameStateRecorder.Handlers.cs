@@ -90,7 +90,9 @@ namespace Parsek
             // Store full contract snapshot for reversal
             if (contractNode != null)
             {
-                GameStateStore.AddContractSnapshot(guid, contractNode);
+                // Stamp the accept UT so the reinstate-cutoff selection can order this
+                // row against later rewind-point snapshots of the same contract.
+                GameStateStore.AddContractSnapshot(guid, contractNode, evt.ut);
                 ParsekLog.Info("GameStateRecorder",
                     $"Game state: ContractAccepted '{title}' type='{contractType}' deadline={deadlineStr} " +
                     $"advance={advanceFunds} failFunds={failFunds} failRep={failRep} (snapshot saved)");

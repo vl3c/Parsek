@@ -129,6 +129,7 @@ namespace Parsek
 
             int fileDeleteOk = 0;
             int fileDeleteFail = 0;
+            int contractSnapshotsPurged = 0;
             int bpBackrefCleared = 0;
 
             // Walk in reverse-index order so RemoveAt doesn't shift still-to-
@@ -152,6 +153,13 @@ namespace Parsek
                 if (ClearBranchPointBackref(rp))
                     bpBackrefCleared++;
 
+                // 4. Drop the RP's contract re-snapshots. They exist only to reinstate a
+                // tombstoned contract at THIS rewind point's state; once the RP is gone
+                // nothing can select them, and leaving them would grow snapshot storage
+                // without bound across a long career.
+                contractSnapshotsPurged +=
+                    GameStateStore.PurgeContractSnapshotsForRewindPoint(rp?.RewindPointId);
+
                 ParsekLog.Info(Tag,
                     $"Reaped rp={rp.RewindPointId ?? "<no-id>"} " +
                     $"bp={rp.BranchPointId ?? "<no-bp>"} slots={rp.ChildSlots?.Count ?? 0}");
@@ -162,7 +170,8 @@ namespace Parsek
                 $"remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteOk={fileDeleteOk.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteFail={fileDeleteFail.ToString(CultureInfo.InvariantCulture)} " +
-                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)}");
+                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)} " +
+                $"contractSnapshotsPurged={contractSnapshotsPurged.ToString(CultureInfo.InvariantCulture)}");
 
             return toReap.Count;
         }
