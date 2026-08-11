@@ -973,13 +973,25 @@ Open items, highest leverage first:
   accessor is the `IScalarModule.GetScalar` property - ONE cast lights up the
   complete already-built Hot/Medium/Cold playback path
   (`GhostPlaybackLogic.cs:3693-3770`).
-- **Recorder cache and rails holes.** `cachedEngines` is assigned only in
-  `ResetPartEventTrackingState` (sole caller `StartRecording`) and
-  `CheckEngineState` guards only `part == null`, so a staged-away booster that
-  keeps burning writes into the PARENT recording. The background rails
-  transition ERASES state instead of deferring: `BackgroundRecorder.cs:2316-2336`
-  drops `loadedStates` with no terminal emit, so a BG ghost's plume latches on
-  for the whole rails span.
+- **Recorder cache and rails holes.**
+  - ~~FIXED 2026-08-11 (M5)~~ **Cached engine/RCS/robotic modules were polled
+    without a vessel-identity check.** `cachedEngines` was assigned only in
+    `ResetPartEventTrackingState` (sole caller `StartRecording`) and
+    `CheckEngineState` guarded only `part == null`, so a staged-away booster that
+    kept burning wrote into the PARENT recording. Fix: the pure
+    `FlightRecorder.DecideCachedModulePoll` gates every per-frame read on
+    `ReferenceEquals(part.vessel, recordedVessel)` - a LIVE object comparison, not
+    a pid or guid one, so the craft-baked-pid identity rule does not apply - across
+    the foreground engine/RCS/robotic polls AND their background mirrors in
+    `BackgroundRecorder.PartEventPolling.cs`. `FlightRecorder.OnVesselWasModified`,
+    wired from the already-subscribed `ParsekFlight.OnVesselWasModified`, rebuilds
+    the three cache LISTS (tracking sets untouched, so no spurious transition at
+    the split), which also closes the inverse hole: a welded-on EVA-construction
+    engine or a newly docked module was absent from a cache built at
+    `StartRecording` and emitted nothing at all for the rest of the flight.
+  - The background rails transition ERASES state instead of deferring:
+    `BackgroundRecorder.cs:2316-2336` drops `loadedStates` with no terminal emit,
+    so a BG ghost's plume latches on for the whole rails span.
 - **Continuous motion to SYNTHESIZE, never sample:** gimbal (`ModuleGimbal`, 243
   stock parts, ZERO Parsek references) and control-surface deflection from the
   recorded `srfRelRotation` derivative; wheel steering from heading change; sun

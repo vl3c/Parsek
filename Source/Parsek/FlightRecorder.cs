@@ -162,6 +162,10 @@ namespace Parsek
         private Dictionary<ulong, float> lastRoboticPosition;
         private Dictionary<ulong, double> lastRoboticSampleUT;
         private HashSet<ulong> loggedRoboticModuleKeys;
+        /// <summary>One-shot log guard for the cached-module ownership guard (M5): a cached engine /
+        /// RCS / robotic entry whose part has left the recorded vessel is reported once per key,
+        /// not once per physics frame.</summary>
+        private HashSet<ulong> loggedForeignCachedModuleKeys = new HashSet<ulong>();
         private HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimateGenericClassificationMisses = new HashSet<ulong>();
@@ -3447,6 +3451,108 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Live half of the cached-module ownership guard: reads the four observable booleans off
+        /// the KSP objects and hands them to the pure
+        /// <see cref="DecideCachedModulePoll(bool, bool, bool, bool)"/> core.
+        ///
+        /// <para>
+        /// <c>ReferenceEquals</c> is deliberate. Unity's overloaded <c>==</c> on
+        /// <c>UnityEngine.Object</c> treats a destroyed-but-not-collected vessel as equal to
+        /// <c>null</c>, which would make a destroyed recorded vessel compare equal to a destroyed
+        /// foreign one. Identity here is instance identity, nothing more; the
+        /// <paramref name="part"/>/<paramref name="module"/> null checks use Unity's operator
+        /// because there "destroyed" genuinely means "nothing to read".
+        /// </para>
+        /// </summary>
+        internal static CachedModulePollDecision DecideCachedModulePoll(
+            Part part, PartModule module, Vessel recordedVessel)
+        {
+            bool hasPart = part != null;
+            Vessel partVessel = hasPart ? part.vessel : null;
+            return DecideCachedModulePoll(
+                hasPart,
+                module != null,
+                hasPart && partVessel != null,
+                hasPart && ReferenceEquals(partVessel, recordedVessel));
+        }
+
+        /// <summary>
+        /// Logs (once per cached key) that a cached module entry was skipped because its part no
+        /// longer belongs to the recorded vessel. Returns true when the entry should be polled.
+        /// </summary>
+        private bool ShouldPollCachedModule(
+            Part part, PartModule module, Vessel recordedVessel, ulong key, string family)
+        {
+            var decision = DecideCachedModulePoll(part, module, recordedVessel);
+            if (decision == CachedModulePollDecision.Poll)
+                return true;
+
+            if (decision == CachedModulePollDecision.SkipForeignVessel
+                && loggedForeignCachedModuleKeys.Add(key))
+            {
+                uint pid; int midx;
+                DecodeEngineKey(key, out pid, out midx);
+                ParsekLog.Info("Recorder",
+                    $"Cached {family} module dropped from poll: pid={pid} midx={midx} " +
+                    $"'{part?.partInfo?.name ?? "unknown"}' is no longer on the recorded vessel " +
+                    $"(recordedPid={recordedVessel?.persistentId ?? 0}) — events for it would have " +
+                    $"landed in this recording");
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Rebuilds the engine / RCS / robotic module caches from the live part list after KSP
+        /// reports the recorded vessel's structure changed (staging, decouple, undock, dock,
+        /// EVA-construction weld). Only the module LISTS are rebuilt — every tracking set keeps its
+        /// contents, so an engine that was burning before the change is still known to be burning
+        /// and no spurious transition is emitted.
+        ///
+        /// <para>
+        /// Two defects this closes. (1) Parts that left keep live <c>PartModule</c> references in
+        /// the cache; the per-poll ownership guard already refuses to read them, and this drops
+        /// them entirely so the guard has nothing to do. (2) Parts that ARRIVED (an EVA-construction
+        /// welded-on engine, a docked-on tug's RCS) were absent from a cache built at
+        /// <c>StartRecording</c> and therefore emitted nothing at all for the rest of the flight.
+        /// </para>
+        /// </summary>
+        public void OnVesselWasModified(Vessel v)
+        {
+            if (!IsRecording || v == null) return;
+            if (v.persistentId != RecordingVesselId) return;
+
+            int engineCountBefore = cachedEngines?.Count ?? 0;
+            int rcsCountBefore = cachedRcsModules?.Count ?? 0;
+            int roboticCountBefore = cachedRoboticModules?.Count ?? 0;
+
+            cachedEngines = CacheEngineModules(v);
+            cachedRcsModules = CacheRcsModules(v);
+            cachedRoboticModules = CacheRoboticModules(v);
+
+            // allEngineKeys drives the #298 EngineShutdown-sentinel seeding, so a welded-on engine
+            // has to join it or a later split/promotion seed would omit its sentinel.
+            int newEngineKeys = 0;
+            if (cachedEngines != null && allEngineKeys != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    var (part, engine, moduleIndex) = cachedEngines[i];
+                    if (part == null || engine == null) continue;
+                    if (allEngineKeys.Add(EncodeEngineKey(part.persistentId, moduleIndex)))
+                        newEngineKeys++;
+                }
+            }
+
+            ParsekLog.Info("Recorder",
+                $"Module caches rebuilt after vessel modification: pid={v.persistentId} " +
+                $"engines={engineCountBefore}->{cachedEngines?.Count ?? 0} " +
+                $"rcs={rcsCountBefore}->{cachedRcsModules?.Count ?? 0} " +
+                $"robotics={roboticCountBefore}->{cachedRoboticModules?.Count ?? 0} " +
+                $"newEngineKeys={newEngineKeys}");
+        }
+
         private void CheckEngineState(Vessel v)
         {
             if (cachedEngines == null) return;
@@ -3458,6 +3564,7 @@ namespace Parsek
                 if (part == null || engine == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, engine, v, key, "engine")) continue;
                 bool ignited = ShouldRecordEngineAsIgnited(
                     engine.EngineIgnited, engine.isOperational, engine.finalThrust);
                 float recordedPower = ComputeRecordedEnginePower(
@@ -3695,6 +3802,7 @@ namespace Parsek
                 if (part == null || rcs == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, rcs, v, key, "rcs")) continue;
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
                 if (loggedRcsModuleKeys.Add(key))
                 {
@@ -4155,6 +4263,7 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
 
                 // Wheel motor spin is derived from ground speed at playback, not recorded. The
                 // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
@@ -6619,6 +6728,7 @@ namespace Parsek
             lastRoboticPosition = new Dictionary<ulong, float>();
             lastRoboticSampleUT = new Dictionary<ulong, double>();
             loggedRoboticModuleKeys = new HashSet<ulong>();
+            loggedForeignCachedModuleKeys.Clear();
             RebuildHarvestConverterCache(v, "start");
             ParsekLog.Info("Recorder",
                 $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +

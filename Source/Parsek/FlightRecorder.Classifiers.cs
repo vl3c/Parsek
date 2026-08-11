@@ -196,5 +196,65 @@ namespace Parsek
                 isOpen = false;
             }
         }
+
+        /// <summary>
+        /// What the per-frame poll should do with one entry of a cached module list
+        /// (<c>cachedEngines</c> / <c>cachedRcsModules</c> / <c>cachedRoboticModules</c>).
+        /// </summary>
+        internal enum CachedModulePollDecision
+        {
+            /// <summary>Entry is live and still on the recorded vessel — poll it.</summary>
+            Poll,
+            /// <summary>The Part or the PartModule has been destroyed — nothing to read.</summary>
+            SkipNullEntry,
+            /// <summary>
+            /// The Part survives but no longer belongs to the recorded vessel (staged away,
+            /// undocked, decoupled, or mid-transition with a null <c>Part.vessel</c>).
+            /// </summary>
+            SkipForeignVessel
+        }
+
+        /// <summary>
+        /// Pure decision core for the cached-module ownership guard.
+        ///
+        /// <para>
+        /// The caches are built once per <c>ResetPartEventTrackingState</c> (and now refreshed from
+        /// <c>onVesselWasModified</c>) and hold direct <c>Part</c>/<c>PartModule</c> references. A
+        /// staged-away booster's <c>Part</c> is NOT destroyed — it moves to a brand-new debris
+        /// <c>Vessel</c> and keeps burning. The old poll only checked <c>part == null</c>, so those
+        /// still-live modules kept writing EngineIgnited / EngineThrottle / EngineShutdown (and the
+        /// RCS / robotic equivalents) into the PARENT recording under the booster's own part pid.
+        /// </para>
+        /// <para>
+        /// The comparison the live caller feeds this predicate is a LIVE OBJECT comparison
+        /// (<c>ReferenceEquals(part.vessel, recordedVessel)</c>), not a persistent-id or guid
+        /// comparison, so the CLAUDE.md "persistentId is craft-baked, not launch-unique" rule does
+        /// not apply here: there is exactly one in-memory <c>Vessel</c> instance per live vessel
+        /// within a session, and nothing is compared across saves or against stored recordings.
+        /// </para>
+        /// </summary>
+        /// <param name="hasPart">False when the cached <c>Part</c> reference is null/destroyed.</param>
+        /// <param name="hasModule">False when the cached <c>PartModule</c> reference is null/destroyed.</param>
+        /// <param name="hasPartVessel">False when <c>part.vessel</c> is null (mid-split frame).</param>
+        /// <param name="partVesselIsRecordedVessel">
+        /// True when <c>part.vessel</c> is the same live <c>Vessel</c> instance the recorder is
+        /// recording.
+        /// </param>
+        internal static CachedModulePollDecision DecideCachedModulePoll(
+            bool hasPart, bool hasModule, bool hasPartVessel, bool partVesselIsRecordedVessel)
+        {
+            if (!hasPart || !hasModule)
+                return CachedModulePollDecision.SkipNullEntry;
+
+            // A null Part.vessel is the one-frame window between a decoupler firing and KSP
+            // reparenting the part onto its new vessel. It is not our vessel right now, and
+            // guessing "probably still ours" is exactly the bug this guard closes.
+            if (!hasPartVessel)
+                return CachedModulePollDecision.SkipForeignVessel;
+
+            return partVesselIsRecordedVessel
+                ? CachedModulePollDecision.Poll
+                : CachedModulePollDecision.SkipForeignVessel;
+        }
     }
 }

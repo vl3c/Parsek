@@ -86,6 +86,10 @@ namespace Parsek
             public Dictionary<ulong, float> lastRoboticPosition = new Dictionary<ulong, float>();
             public Dictionary<ulong, double> lastRoboticSampleUT = new Dictionary<ulong, double>();
             public HashSet<ulong> loggedRoboticModuleKeys = new HashSet<ulong>();
+            /// <summary>One-shot log guard for the M5 cached-module ownership guard: a cached
+            /// engine / RCS / robotic entry whose part has left this BG vessel is reported once
+            /// per key, not once per physics frame.</summary>
+            public HashSet<ulong> loggedForeignCachedModuleKeys = new HashSet<ulong>();
 
             // Environment tracking (TrackSection management)
             public EnvironmentHysteresis environmentHysteresis;
