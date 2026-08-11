@@ -92,7 +92,7 @@ Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **V
 
 ### Recorded-signal fixtures (2026-08-09 part-action audit)
 
-Two rows added by `recorded-signal-fixes` for the two signals that audit found wrong at the source. Both are also the subject of the `H32-recorded-signals` harness scenario, whose `[expectations.recordings] count` pin is what asserts they landed.
+Two rows added by `recorded-signal-fixes` for the two signals that audit found wrong at the source. Both are also the subject of the `H33-recorded-signals` harness scenario, whose `[expectations.recordings] count` pin is what asserts they landed.
 
 **Parachute Repack Mk16** (showcase row 242, `parachuteSingle`, static, +30 for 24 s, looping). Two full `ParachuteDeployed` -> `ParachuteCut` -> `ParachuteRepacked` cycles. Deliberately NOT folded into the existing parachute showcase family: that family cycles semi-deployed -> deployed -> **cut** and stops there, which is exactly the sequence that looked correct while the bug was live. The transition this row exists for is the one the old three-state encoding could not represent at all (`CUT -> STOWED`), and the visual it exists to expose is the CAP coming back on. If the repack handler is ever regressed to a no-op, this ghost renders as an empty can from the first cut onward and never recovers - visible on a single loop.
 

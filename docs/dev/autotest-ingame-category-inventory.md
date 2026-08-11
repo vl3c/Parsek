@@ -142,7 +142,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
-| `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H32 | A |
+| `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
@@ -193,12 +193,12 @@ Two limits of this table, stated so nobody over-reads it:
 Totals, re-derived: **100 categories / 552 declarations**. Buckets **A 28 categories
 (195 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **36 of 100 categories**, up from 35
-(the `recorded-signal-fixes` `RecordedSignals` category, driven by `H32`; before
+(the `recorded-signal-fixes` `RecordedSignals` category, driven by `H33`; before
 that the S1.8 SoiCrossingPlayback wave took it to 35, before that 28, and 8 two
 waves earlier). Measured against declarations rather than categories, that is 320
 of 552 inside a driven category (was 317; 314 and 263 the waves before).
 
-`RecordedSignals` (3 declarations, wired as `H32-recorded-signals`) is the newest
+`RecordedSignals` (3 declarations, wired as `H33-recorded-signals`) is the newest
 bucket-A member and the only one authored WITHOUT a flight behind it: its spec
 carries an interim `passed=` / `skipped=` pin, registered in
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, because two of its three cells

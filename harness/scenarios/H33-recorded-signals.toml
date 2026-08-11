@@ -1,5 +1,5 @@
 schema = 1
-id = "H32-recorded-signals"
+id = "H33-recorded-signals"
 tier = "nightly"
 # BATCH-ONLY scenario, H7-H20 shape. Drives the NEW `RecordedSignals` category,
 # which exists for the live half of the 2026-08-09 part-action recording audit's
@@ -38,7 +38,7 @@ tier = "nightly"
 # self-set-up Skips naming the context it needed.
 description = "Run the in-game RecordedSignals category unattended: the Unity AngleAxis handedness proof behind the wheel-roll derivation, the parachute repack cap restore at transform level, and wheel spin gated on ground contact (spins driving, holds still parked, holds still at orbital speed off the ground)."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "recorded-signals", "H32"]
+tags = ["ingame-batch", "recorded-signals", "H33"]
 
 [fixture]
 # gloops-airshow, the H5 / H14-H17 / H27 / H28 / H30 family host, for the shared

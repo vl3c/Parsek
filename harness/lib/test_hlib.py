@@ -2735,7 +2735,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
-        "H32-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
+        "H33-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2781,9 +2781,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # ONE MEMBER, and it is the AUTHORED-NOT-YET-FLOWN one. The set was empty from
     # 2026-07-27 (H20, the previous holder, was re-flown ALONE that day so its log
     # would survive the sweep, measured `total=2 passed=2 failed=0 skipped=0`, and
-    # pinned whole like the rest) until H32 arrived on 2026-08-11.
+    # pinned whole like the rest) until H33 arrived on 2026-08-11.
     #
-    # H32-recorded-signals: authored by `recorded-signal-fixes` and never flown. Its
+    # H33-recorded-signals: authored by `recorded-signal-fixes` and never flown. Its
     # total=3 is attribute-exact, but two of the three cells carry run-time
     # InGameAssert.Skip guards over what the provisioned install actually LOADED - a
     # part whose ModuleParachute has both a canopy and a cap transform resolvable on
@@ -2819,7 +2819,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
-    INTERIM_PIN_IDS = {"H32-recorded-signals"}
+    INTERIM_PIN_IDS = {"H33-recorded-signals"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2865,7 +2865,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
         self.assertEqual(25, len(self.GROUP),
-                         "the H7-H20 + H22-H32 group is 25 specs; if it genuinely changed "
+                         "the H7-H20 + H22-H33 group is 25 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -3045,7 +3045,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells bail through a SILENT return on an empty ghost-map pid set -
         # exactly the fourth-trap shape this cell exists for) and H30 (the
         # engine-level pause/unpause cell iterates the live ghost set).
-        # H32 is in this set for a DIFFERENT reason than the other seven, and the
+        # H33 is in this set for a DIFFERENT reason than the other seven, and the
         # difference is worth stating: its three cells do NOT walk RecordingStore
         # (each builds its own single-part ghost from a PartLoader prefab), so
         # injection is not an anti-vacuity guard for the cells. It injects because
@@ -3057,7 +3057,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         corpus_backed = {"H14-corpus-data-health", "H15-corpus-ghost-visuals",
                          "H16-corpus-spawn-health", "H17-flight-integration",
                          "H27-diagnostics", "H28-map-presence", "H30-ghost-audio",
-                         "H32-recorded-signals"}
+                         "H33-recorded-signals"}
         for sid, spec in sorted(self.specs.items()):
             with self.subTest(spec=sid):
                 fixture = spec.get("fixture", {}) or {}

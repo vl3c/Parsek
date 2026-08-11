@@ -222,7 +222,7 @@ tolerance) and +2 fixture-shape cells in `SyntheticRecordingTests.cs` for the tw
 new synthetic recordings. `harness/lib` 1284 OK, `harness/provision` 237 OK,
 `harness/missions/lib` 1476 OK - `CommittedBatchTallySourceSyncTests` and
 `IngameBatchWiringGroupTests` both agree with the new `RecordedSignals` category
-at `total=3`. Three in-game cells added; the `H32-recorded-signals` scenario is
+at `total=3`. Three in-game cells added; the `H33-recorded-signals` scenario is
 AUTHORED, NOT YET FLOWN.
 
 **One step cannot be unit-tested, and is now covered IN GAME instead.** The
@@ -277,7 +277,7 @@ so the all-synthetic corpus moved 272 -> 274; every corpus count pin and H5's
 `recordings=308 trees=278` walk pin moved in the same commit. Those are DERIVED
 (+2), NOT re-measured, and the next flight of each spec confirms them.
 
-**Harness scenario `H32-recorded-signals`** (nightly, `ingame-batch`,
+**Harness scenario `H33-recorded-signals`** (nightly, `ingame-batch`,
 gloops-airshow + all-synthetic) drives the category through the H-series
 `RunTests` seam step - NOT `[driver.autorun]`, which no committed spec uses
 because `PARSEK_AUTORUN_EXIT` quits KSP as soon as the first scene settles and
