@@ -2759,6 +2759,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # then PASS 7/7 after both fixes), so its tally is now pinned WHOLE and it
         # has left INTERIM_PIN_IDS - see that set's comment for the measurement.
         "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
+        # P8's live half. NOT YET FLOWN, so its `passed=` is still the nonzero-literal
+        # form and the id sits in INTERIM_PIN_IDS below; `total=5` / `skipped=0` are
+        # attribute-exact and this entry is what keeps them so.
+        "H37-part-event-fidelity":   ("PartEventFidelity", 5, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2871,8 +2875,21 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   all seven guards were satisfied on stock-minimal, so no RUNTIME_SKIPS entry is
     #   owed and the pin is now whole.
     #
-    # All three specs now pin their tallies whole, so the set is empty again.
-    INTERIM_PIN_IDS: set = set()
+    # All three specs then pinned their tallies whole, emptying the set - and
+    # H37-part-event-fidelity re-opens it on exactly the same terms.
+    #
+    #   H37-part-event-fidelity (P8) has NOT FLOWN. Its `total=5` and `skipped=0` are
+    #   attribute-exact, but all five cells carry a run-time InGameAssert.Skip keyed on
+    #   what the provisioned install loaded AND on what the ghost builder resolved: a
+    #   deployable whose breakName (or its pivotName fallback) clones into the ghost, a
+    #   ModuleAnimationGroup whose running clip moves cloned geometry, a part with that
+    #   clip and NO deploy animation (the large-ISRU shape), a KerbalEVA prefab plus the
+    #   additive particle shader, and a science experiment paired with a
+    #   ModuleAnimateGeneric whose sampled poses differ. No attribute predicts that
+    #   split, so `passed=5` would be a prediction dressed as a pin. H36's history is the
+    #   precedent for holding the line: a RED is not a measurement either, and that id
+    #   stayed interim through a PARSEK-FAIL before its clean re-fly settled the pin.
+    INTERIM_PIN_IDS: set = {"H37-part-event-fidelity"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2917,8 +2934,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(29, len(self.GROUP),
-                         "the H7-H20 + H22-H36 group is 29 specs; if it genuinely changed "
+        self.assertEqual(30, len(self.GROUP),
+                         "the H7-H20 + H22-H37 group is 30 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5464,8 +5481,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # would agree with each other while both drifted from the source). 99 -> 100
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
         # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
-        # 102 -> 103 with `PlaybackFidelity` (H36).
-        self.assertIn("**103 categories / %d declarations**" % stated_decls, body,
+        # 102 -> 103 with `PlaybackFidelity` (H36), 103 -> 104 with
+        # `PartEventFidelity` (H37).
+        self.assertIn("**104 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

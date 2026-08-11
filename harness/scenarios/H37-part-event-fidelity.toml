@@ -1,0 +1,161 @@
+schema = 1
+id = "H37-part-event-fidelity"
+tier = "nightly"
+# BATCH-ONLY scenario, the H7-H20 / H32 / H36 shape. Drives the NEW `PartEventFidelity`
+# category, the live half of P8 — the wave that recorded the three signals the 2026-08-09
+# part-action audit found MISSING rather than wrong (S6 broken deployables, S7 the
+# converter running loop, S4 the EVA jetpack), plus the one VERIFICATION cell that pins
+# the audit's §2 correction.
+#
+# NUMBERING: H36 was the previous highest, so this is H37. Nothing about the spec depends
+# on the number — BATCH_COMPLETE carries no spec id and every pin below is id-independent.
+#
+# WHAT IT COVERS, and why each cell needs a real KSP:
+#  1. S6 THE BREAK SUBTREE ROUND TRIP. The headless suite pins the recorder's truth table,
+#     the split seeds and the snapshot parse; none of it can prove the break transform
+#     RESOLVED onto a ghost. The applier is not even CALLABLE headless — it compares a
+#     Transform against null, which routes through a UnityEngine.Object ECall xUnit cannot
+#     host (measured, not assumed: three cells were written, threw
+#     `SecurityException: ECall methods must be packaged into a system module`, and were
+#     replaced by a comment recording the exception). The cell drives break -> hide,
+#     DeployableRetracted -> un-hide (the event a stock repair actually emits), and the
+#     loop-cycle re-show. Its most likely red is the RESOLUTION half: stock defaults
+#     `breakName` to `pivotName` inside OnStart and a PREFAB has not run OnStart, so
+#     losing that fallback in TryResolveDeployableBreakSubtreeRoot makes the whole feature
+#     a silent no-op rather than an error.
+#  2. S7 THE RUNNING LOOP, at transform level. A cyclic clip's two endpoints are the SAME
+#     pose, so the loop is sampled at twelve phases off a temp model clone rather than
+#     interpolated between two — and only a live scene has a real clip to sample. The cell
+#     asserts motion a quarter of the way round, the CYCLIC property (one whole clip later
+#     is the same pose, which is what catches a broken wrap: a sampler that stored a
+#     duplicate endpoint still produces motion, it just stutters once per revolution), and
+#     a dead stop on deactivate.
+#  3. S7 THE EMPTY-DEPLOY-NAME SHAPE, as its own cell so it can skip independently of (2).
+#     The large ISRU and the orbital scanner ship a ModuleAnimationGroup with an EMPTY
+#     deployAnimationName and only a running one, so anything resolving the running clip
+#     through TryGetAnimationGroupDeployAnimation (which requires a non-empty deploy name)
+#     would skip the biggest ISRU in the game. This is the live proof of independence.
+#  4. S4 THE JETPACK PLUME. Parsek owns the particle system outright — verified by
+#     decompile, KerbalEVA's jetpack FX are FXGroups and kerbalEVA.cfg's EFFECTS node is
+#     audio only, so there is nothing to clone. The cell proves the LAZY build (nothing is
+#     allocated until the gate first opens), that it plays while thrusting, and that a
+#     ragdoll shuts it off — the one place the ragdoll events earn their keep visually,
+#     since the ragdoll POSE is deliberately never replayed.
+#  5. THE GOO CELL — the wave's one VERIFICATION cell, pinning a NEGATIVE decision. P8
+#     records no science events because the science-experiment deploy visual was ALREADY
+#     recorded, through the ModuleAnimateGeneric path: the Goo canister and Science Jr each
+#     carry a separate ModuleAnimateGeneric named `Deploy` wired via `FxModules = 0`, and
+#     ModuleScienceExperiment is not in HasDedicatedAnimateHandler's list, so
+#     CheckAnimateGenericState polls it like any other. The audit's §2 wording
+#     ("`Deployed` ... gates the deploy animation") was imprecise enough to make that
+#     verdict look wrong, and the claim had never been showcased. The cell asserts BOTH
+#     halves on a live prefab — the recorder does not skip the part, and the resulting
+#     event really does animate the ghost — so if the verdict ever stops being true this
+#     reds instead of a doc sentence quietly rotting.
+#
+# All five build their fixtures from PartLoader prefabs DISCOVERED at run time (first few
+# parts matching a cheap module predicate, capped at 4 builds so a modded install cannot
+# make the batch walk thousands of prefabs), so the batch does not depend on which craft
+# the save is flying, and a cell that cannot self-set-up Skips naming the context it
+# needed.
+description = "Run the in-game PartEventFidelity category unattended: a broken deployable's subtree hide with its repair un-hide and loop-cycle re-show, the converter running loop's motion / cyclic wrap / stop including the empty-deploy-name ISRU shape, the EVA jetpack plume's lazy build and three-flag gate, and the verification that a science experiment's deploy animation is already covered by the AnimateGeneric path."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "part-event-fidelity", "H37"]
+
+[fixture]
+# gloops-airshow, the H5 / H14-H17 / H27 / H28 / H30 / H33 / H36 family host, for the
+# shared FLIGHT Focusable boot route.
+saveTemplate = "fixtures/saves/gloops-airshow"
+# NONE, and deliberately not the all-synthetic corpus — the H36 argument, which applies
+# unchanged. These cells do NOT walk RecordingStore: each builds its own single-part ghost
+# from a PartLoader prefab, so injection would buy no anti-vacuity guard here the way it
+# does for H14-H17 / H27 / H28 / H30.
+#
+# P8 ADDS ZERO CORPUS ROWS, and that is a decision rather than an omission. H33's commit
+# injected because it ADDED two rows and its count pin was the only assertion those rows
+# load through the sidecar / schema gate. P8 adds no rows: a showcase recording of a broken
+# panel would buy no analyzer coverage (the analyzer has no rule about DeployableBroken)
+# and would break the 274-row count pin in FOUR sibling specs (H14, H15, H16, H17) for
+# nothing. The 0/0 pin below is then a real assertion in its own right: the batch must not
+# LEAK a recording into the produced save. Its five fixtures are Recording objects that are
+# never handed to RecordingStore, and this is the pin that keeps it that way.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+# The H-series `RunTests` seam form, NOT [driver.autorun]. Zero committed specs use the
+# autorun block: run.py implements it, but PARSEK_AUTORUN_EXIT quits KSP as soon as the
+# first scene settles, which races the seam driver's remaining steps, and
+# hlib.validate_spec forbids owning a batch both ways. RunTests produces the identical
+# BATCH_COMPLETE line the logContract pin below needs.
+kind = "seam"
+# NO isolated arg: all 5 declarations are AllowBatchExecution (default) with no restore
+# flag, so the ordinary and isolated admission filters are identical here.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PartEventFidelity" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal, the H13 / H29 / H36 shape: the value is the executed contract, not a
+# coverage token. NOT claimed: D16 (nothing is injected and nothing is loaded through the
+# sidecar / schema gate), and no part-event or playback dimension — the cells drive
+# GhostPlaybackLogic and GhostVisualBuilder directly on locally built ghosts rather than
+# through the engine's per-frame render path or through a real recorder poll.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, both ends. See the injectedRecordings note above for why this is an assertion
+# rather than bookkeeping.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: the tally names a literal total / failed / category / scene, and
+# `passed=` is pinned to a literal nonzero, so hlib.batch_contract_vacuity_gap answers
+# None (every vacuous BATCH_COMPLETE carries passed=0).
+#
+# EVIDENCE STANDING: **INTERIM — NOT YET FLOWN.** `total=5` and `skipped=0` are
+# ATTRIBUTE-EXACT, derived mechanically by `hlib.parse_ingame_test_declarations` +
+# `hlib.derive_batch_tally` over
+# Source/Parsek/InGameTests/PartEventFidelityInGameTests.cs (5 declarations, all
+# Category = "PartEventFidelity", all Scene = GameScenes.FLIGHT, all
+# AllowBatchExecution) and kept in sync by CommittedBatchTallySourceSyncTests.
+# `failed=0` is the ASSERTION. `scene=FLIGHT` is the gloops-airshow Focusable route,
+# measured by H13 / H5 / S1.4 / H33 / H36 on this exact fixture.
+#
+# WHAT IS NOT YET MEASURED, and why this id sits in
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS until it is: `passed=5` is a PREDICTION.
+# Every one of the five cells carries a run-time InGameAssert.Skip keyed on what the
+# provisioned install actually loaded AND on what the ghost builder resolved — a
+# deployable whose breakName (or pivotName fallback) clones into the ghost, a
+# ModuleAnimationGroup whose running clip moves cloned geometry, a part with that clip and
+# NO deploy animation, a KerbalEVA prefab plus the additive particle shader, and a science
+# experiment paired with a ModuleAnimateGeneric whose sampled poses differ. No attribute
+# can predict that split; "expected to hold" is not a measurement. The H36 precedent is
+# explicit that a RED is not a measurement either — that id stayed interim through a
+# PARSEK-FAIL before its clean re-fly settled the pin. So the interim exposure here is
+# accepted on the same terms: the first green flight replaces `passed=[1-9][0-9]*` with a
+# literal, records the per-cell resolutions the way H36's comment does, adds any owed
+# RUNTIME_SKIPS entry, and removes this id from INTERIM_PIN_IDS.
+required  = ["BATCH_COMPLETE v1 total=5 passed=[1-9][0-9]* failed=0 skipped=0 category=PartEventFidelity scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 720 >= 300 LoadGame + 540 RunTests ceiling is the family
+# default. The five cells are short — no coroutines, no warp — but each builds up to four
+# single-part ghosts while hunting a usable prefab, and two of them additionally sample a
+# whole animation clip at twelve phases off a temp model clone, so the family ceiling
+# rather than a tighter one.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
