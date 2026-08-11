@@ -365,6 +365,66 @@ namespace Parsek.Tests
 
         #region Robotic ordinal walk
 
+        /// <summary>
+        /// The persisted key set a REAL hinge MODULE node carries, verbatim from
+        /// `GameData/SquadExpansion/Serenity/Ships/SPH/Val-Thopter.craft` — note the
+        /// presence of `targetAngle` and the ABSENCE of `currentAngle`, which is the whole
+        /// point: `currentAngle` is a plain [KSPField] and never reaches a snapshot.
+        /// </summary>
+        private static (string, (string, string)[]) RealHingeModule(string targetAngle = "-45")
+            => Module("ModuleRoboticServoHinge",
+                ("softMinMaxAngles", "(-75, -15)"),
+                ("targetAngle", targetAngle),
+                ("mirrorRotation", "False"),
+                ("traverseVelocity", "180"),
+                ("hingeDamping", "100"),
+                ("previousTargetAngle", targetAngle),
+                ("servoIsLocked", "False"),
+                ("servoIsMotorized", "True"),
+                ("servoMotorIsEngaged", "True"),
+                ("launchPosition", targetAngle),
+                ("servoTransformPosition", "0,0,0"),
+                ("servoTransformRotation", "-0.382683456,0,0,0.923879504"));
+
+        /// <summary>
+        /// The persisted key set a REAL rotor MODULE node carries, verbatim from
+        /// `Kerbodyne Rotodyne.craft`. `rpmLimit = 460` is the trap: it is a SETTING, and
+        /// reading it made every rotor ghost spin at its limit from spawn.
+        /// </summary>
+        private static (string, (string, string)[]) RealRotorModule()
+            => Module("ModuleRoboticServoRotor",
+                ("rpmLimit", "460"),
+                ("rotateCounterClockwise", "False"),
+                ("inverted", "False"),
+                ("ratcheted", "0"),
+                ("brakePercentage", "100"),
+                ("servoIsLocked", "False"),
+                ("servoIsMotorized", "True"),
+                ("servoMotorIsEngaged", "True"),
+                ("launchPosition", "460"),
+                ("servoMotorLimit", "100"),
+                ("servoTransformPosition", "0,0,1.36598093E-08"),
+                ("servoTransformRotation", "0,0,0,1"));
+
+        /// <summary>
+        /// A piston's persisted key set. No stock craft ships a piston, so this is derived
+        /// from the decompiled [KSPAxisField(isPersistant = true)] / [KSPField] split on
+        /// `Expansions.Serenity.ModuleRoboticServoPiston` + `BaseServo`, in the same shape
+        /// the hinge above proves the game actually writes.
+        /// </summary>
+        private static (string, (string, string)[]) RealPistonModule(string targetExtension = "0.75")
+            => Module("ModuleRoboticServoPiston",
+                ("softMinMaxExtension", "(0, 1.5)"),
+                ("targetExtension", targetExtension),
+                ("traverseVelocity", "1"),
+                ("pistonDamping", "100"),
+                ("servoIsLocked", "False"),
+                ("servoIsMotorized", "True"),
+                ("servoMotorIsEngaged", "True"),
+                ("launchPosition", targetExtension),
+                ("servoTransformPosition", "0,0.75,0"),
+                ("servoTransformRotation", "0,0,0,1"));
+
         [Fact]
         public void RoboticOrdinals_CountOnlyRoboticModules()
         {
@@ -374,9 +434,9 @@ namespace Parsek.Tests
             // (FlightRecorder.CacheRoboticModules).
             ConfigNode partNode = PartWithModules(
                 Module("ModuleLight", ("isOn", "False")),
-                Module("ModuleRoboticServoHinge", ("currentAngle", "42.5")),
+                RealHingeModule("42.5"),
                 Module("ModuleCommand", ("controlSrcStatusText", "Fully Powered")),
-                Module("ModuleRoboticServoPiston", ("currentPosition", "0.75")));
+                RealPistonModule("0.75"));
 
             SnapshotPartBaseline baseline =
                 GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
@@ -400,7 +460,7 @@ namespace Parsek.Tests
             // silently would slide every later servo's ordinal off by one.
             ConfigNode partNode = PartWithModules(
                 Module("ModuleWheelSuspension", ("suspensionPos", "0.3")),
-                Module("ModuleRoboticRotationServo", ("currentAngle", "17")));
+                Module("ModuleRoboticRotationServo", ("targetAngle", "17")));
 
             SnapshotPartBaseline baseline =
                 GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
@@ -413,41 +473,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Robotic_FallbackFieldUsedWhenPrimaryAbsent()
+        public void Hinge_RealPersistedNodeShape_ReadsTargetAngle()
         {
-            // Same first-match-wins probe order the recorder uses
-            // (FlightRecorder.ResolveRoboticFieldPlan).
-            ConfigNode partNode = PartWithModules(
-                Module("ModuleRoboticServoHinge", ("targetAngle", "-12.25")));
+            // The whole persisted key set a real hinge writes: exactly one of them is a
+            // pose in the unit ApplyRoboticPose wants, and the parser must pick THAT one
+            // rather than traverseVelocity (a speed) or launchPosition (a launch setting).
+            ConfigNode partNode = PartWithModules(RealHingeModule("-45"));
 
             SnapshotPartBaseline baseline =
                 GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
 
             Assert.NotNull(baseline);
-            Assert.Single(baseline.roboticPoses);
-            Assert.Equal(-12.25f, baseline.roboticPoses[0].value);
+            Assert.Equal(-45f, Assert.Single(baseline.roboticPoses).value);
         }
 
         [Fact]
-        public void Robotic_PrimaryFieldWinsOverFallback()
+        public void Piston_RealPersistedNodeShape_ReadsTargetExtensionNotTraverseVelocity()
         {
-            ConfigNode partNode = PartWithModules(
-                Module("ModuleRoboticServoHinge", ("currentAngle", "5"), ("targetAngle", "90")));
+            // The live plan (currentPosition / position / targetPosition / traverseVelocity)
+            // matches NOTHING a piston persists except traverseVelocity, so before the fix
+            // every piston ghost posed to the traverse SPEED (1 m by default).
+            ConfigNode partNode = PartWithModules(RealPistonModule("0.4"));
 
             SnapshotPartBaseline baseline =
                 GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
 
             Assert.NotNull(baseline);
-            Assert.Equal(5f, baseline.roboticPoses[0].value);
+            Assert.Equal(0.4f, Assert.Single(baseline.roboticPoses).value);
         }
 
         [Fact]
-        public void Rotor_RpmKeyAbsent_NoPoseAtAll()
+        public void RotationServo_RealPersistedNodeShape_ReadsTargetAngle()
         {
-            // The conservative rotor rule: with no persisted RPM key we say nothing, so a
-            // rotor keeps today's stationary-at-spawn behaviour.
             ConfigNode partNode = PartWithModules(
-                Module("ModuleRoboticServoRotor", ("motorEnabled", "True")),
+                Module("ModuleRoboticRotationServo",
+                    ("softMinMaxAngles", "(0, 177)"),
+                    ("allowFullRotation", "True"),
+                    ("targetAngle", "112.5"),
+                    ("traverseVelocity", "90"),
+                    ("previousTargetAngle", "112.5"),
+                    ("servoMotorIsEngaged", "True"),
+                    ("launchPosition", "0")));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(112.5f, Assert.Single(baseline.roboticPoses).value);
+        }
+
+        [Fact]
+        public void Robotic_LiveOnlyKeys_ParseToNoBaseline()
+        {
+            // The negative statement the old fixtures hid: currentAngle / currentExtension /
+            // currentRPM are the LIVE probe's primary keys and are plain [KSPField]s, so a
+            // production snapshot never carries them. Authoring them must therefore produce
+            // NOTHING — if this cell ever goes green with a pose, the snapshot side has
+            // gone back to reading the live plan.
+            ConfigNode partNode = PartWithModules(
+                Module("ModuleRoboticServoHinge", ("currentAngle", "42.5")),
+                Module("ModuleRoboticServoPiston", ("currentExtension", "0.75")),
+                Module("ModuleRoboticServoRotor", ("currentRPM", "48.5")),
                 Module("ModuleLight", ("isOn", "True")));
 
             SnapshotPartBaseline baseline =
@@ -458,24 +544,87 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Rotor_RpmKeyPresent_PoseCarriesRpm()
+        public void Robotic_TraverseVelocityAlone_IsNotAPose()
         {
+            // traverseVelocity IS persisted on all three posed families and WAS the key the
+            // piston fell through to. On its own it must read as no opinion.
             ConfigNode partNode = PartWithModules(
-                Module("ModuleRoboticServoRotor", ("currentRPM", "48.5")));
+                Module("ModuleRoboticServoPiston", ("traverseVelocity", "1")),
+                Module("ModuleRoboticServoHinge", ("traverseVelocity", "180")));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.Null(baseline);
+        }
+
+        [Fact]
+        public void Rotor_RealPersistedNodeShape_NoPoseAtAll()
+        {
+            // rpmLimit = 460 is right there in the node and must be ignored: it is the
+            // rotor's LIMIT setting, not its spin. A parked helicopter on the pad would
+            // otherwise replay with its rotors at full speed from frame one.
+            ConfigNode partNode = PartWithModules(
+                RealRotorModule(),
+                Module("ModuleLight", ("isOn", "True")));
 
             SnapshotPartBaseline baseline =
                 GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
 
             Assert.NotNull(baseline);
-            Assert.Single(baseline.roboticPoses);
-            Assert.Equal(48.5f, baseline.roboticPoses[0].value);
+            Assert.Null(baseline.roboticPoses);
+            Assert.True(baseline.lightOn);
+        }
+
+        [Fact]
+        public void Rotor_KeepsItsOrdinalEvenWithNoPose()
+        {
+            // Same rule the wheel families follow: a rotor is robotic-classified, so it
+            // holds its ordinal or every later servo on the part slides off the recorder's
+            // numbering.
+            ConfigNode partNode = PartWithModules(
+                RealRotorModule(),
+                RealHingeModule("30"));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(1, Assert.Single(baseline.roboticPoses).ordinal);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoHinge", "targetAngle")]
+        [InlineData("ModuleRoboticRotationServo", "targetAngle")]
+        [InlineData("ModuleRoboticServoPiston", "targetExtension")]
+        public void SnapshotRoboticPoseKey_PosedFamilies(string moduleName, string expectedKey)
+        {
+            Assert.True(GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey(
+                moduleName, out string key));
+            Assert.Equal(expectedKey, key);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoRotor")]
+        [InlineData("ModuleWheelSuspension")]
+        [InlineData("ModuleWheelSteering")]
+        [InlineData("ModuleWheelMotor")]
+        [InlineData("ModuleWheelMotorSteering")]
+        [InlineData("ModuleCommand")]
+        [InlineData("")]
+        [InlineData(null)]
+        public void SnapshotRoboticPoseKey_NoKeyFamilies(string moduleName)
+        {
+            Assert.False(GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey(
+                moduleName, out string key));
+            Assert.Null(key);
         }
 
         [Fact]
         public void Robotic_NonFiniteValue_NoPose()
         {
             ConfigNode partNode = PartWithModules(
-                Module("ModuleRoboticServoHinge", ("currentAngle", "NaN")),
+                Module("ModuleRoboticServoHinge", ("targetAngle", "NaN")),
                 Module("ModuleLight", ("isOn", "True")));
 
             SnapshotPartBaseline baseline =
@@ -483,6 +632,19 @@ namespace Parsek.Tests
 
             Assert.NotNull(baseline);
             Assert.Null(baseline.roboticPoses);
+        }
+
+        [Fact]
+        public void Robotic_ZeroPose_IsARealOpinion()
+        {
+            // 0 is a genuine pose (fully retracted / at the servo's zero), not "no key".
+            ConfigNode partNode = PartWithModules(RealHingeModule("0"));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(0f, Assert.Single(baseline.roboticPoses).value);
         }
 
         #endregion
@@ -497,7 +659,7 @@ namespace Parsek.Tests
                 Module("ModuleWheelDeployment", ("stateString", "Deployed")),
                 Module("ModuleParachute", ("persistentState", "SEMIDEPLOYED")),
                 Module("ModuleLight", ("isOn", "True"), ("isBlinking", "False"), ("blinkRate", "1")),
-                Module("ModuleRoboticServoHinge", ("currentAngle", "33")));
+                RealHingeModule("33"));
 
             SnapshotPartBaseline baseline =
                 GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);

@@ -103,12 +103,32 @@ baseline -> recorded events.**
 
 - New pure parser `GhostVisualBuilder.TryParseSnapshotPartBaseline`
   (`GhostVisualBuilder.SnapshotBaseline.cs`): ConfigNode in,
-  `SnapshotPartBaseline` out. Robotic pose fields come from
-  `FlightRecorder.ResolveRoboticFieldPlan`, the same first-match-wins plan the
-  recorder reads live, so a baseline value means what a recorded robotic event's
-  value means. Cargo-bay `animTime` is resolved against the prefab's
+  `SnapshotPartBaseline` out. Cargo-bay `animTime` is resolved against the prefab's
   `ModuleCargoBay.closedPosition`, supplied by the caller because that mapping is
   per-part config rather than snapshot data.
+- Robotic poses read a SNAPSHOT-side per-family key
+  (`TryResolveSnapshotRoboticPoseKey`), NOT `FlightRecorder.ResolveRoboticFieldPlan`.
+  The live plan reads a running `PartModule` through `module.Fields` and sees every
+  `[KSPField]`; a snapshot MODULE node carries only the `isPersistant = true` subset,
+  and for all three posed families the live plan's primary key is outside it - so
+  reusing the live plan fell through to a persisted SETTING. Decompiled from
+  `Expansions.Serenity.*` (KSP 1.12.5) and cross-checked against the stock Breaking
+  Ground craft files: hinge / rotation servo -> `targetAngle` (`currentAngle` is a
+  plain `[KSPField]`; Val-Thopter.craft's hinge node carries `targetAngle = -45` and
+  no `currentAngle`); piston -> `targetExtension` (the live plan's
+  `currentPosition` / `position` / `targetPosition` are not public persisted fields on
+  `ModuleRoboticServoPiston` at all, leaving `traverseVelocity` - a SPEED, default 1 -
+  as the only match, so every piston posed to ~1 m); rotor -> NO KEY, because
+  `currentRPM` is not persisted and the persisted `rpmLimit` is a limit setting that
+  ships at 460 on every stock helicopter, which made rotor ghosts spin at their limit
+  from spawn and re-arm on every loop cycle. `ApplyRoboticSpawnBaseline` now parks
+  every rotor unconditionally. `targetAngle` / `targetExtension` are COMMANDED targets
+  and so wrong for a servo captured mid-travel or stopped short; that is accepted
+  deliberately, because the alternative is 0 (the prefab pose), which is the guess M1
+  exists to stop making, and any recorded robotic event overrides it.
+  **Separate, still open:** the LIVE piston probe lands on `traverseVelocity` for the
+  same name-mismatch reason, so recorded piston event values are a speed rather than
+  an extension. Out of scope for the ghost spawn look; needs a recorder-side plan fix.
 - Applied by `GhostPlaybackLogic.ApplySnapshotBaselines` at the TAIL of
   `PopulateGhostInfoDictionaries` - after the existing stow/cold baselines, before
   the prefix replay. **Zero new appliers**: it reuses `ApplyDeployableState`, the

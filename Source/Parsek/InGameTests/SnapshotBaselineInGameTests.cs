@@ -362,6 +362,7 @@ namespace Parsek.InGameTests
         {
             AvailablePart candidate = null;
             string roboticModuleName = null;
+            string poseKey = null;
             List<AvailablePart> loaded = PartLoader.LoadedPartsList;
             if (loaded != null)
             {
@@ -373,12 +374,17 @@ namespace Parsek.InGameTests
                     {
                         string name = ap.partPrefab.Modules[m]?.moduleName;
                         if (string.IsNullOrEmpty(name)) continue;
-                        // Non-wheel robotics only: the wheel families are robotic-CLASSIFIED
-                        // (so they hold the ordinal) but carry no persisted pose the parser reads.
-                        if (!FlightRecorder.IsRoboticModuleName(name)) continue;
-                        if (FlightRecorder.IsWheelRoboticModuleName(name)) continue;
+                        // POSED families only. The wheel families are robotic-CLASSIFIED (so
+                        // they hold the ordinal) but carry no persisted pose; rotors carry no
+                        // persisted SPIN key at all, so they are deliberately baseline-less.
+                        // Asking the resolver rather than re-deriving the rule keeps this
+                        // cell honest if the family set ever moves.
+                        if (!GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey(
+                                name, out string resolvedKey))
+                            continue;
                         candidate = ap;
                         roboticModuleName = name;
+                        poseKey = resolvedKey;
                         break;
                     }
                 }
@@ -387,28 +393,23 @@ namespace Parsek.InGameTests
             if (candidate == null)
             {
                 InGameAssert.Skip(
-                    "no part with a non-wheel robotic module (ModuleRoboticServoHinge / "
-                    + "ModuleRoboticRotationServo / ModuleRoboticServoPiston / "
-                    + "ModuleRoboticServoRotor) is installed; the Breaking Ground expansion "
-                    + "is required for the end-to-end servo pose path");
+                    "no part with a POSED robotic module (ModuleRoboticServoHinge / "
+                    + "ModuleRoboticRotationServo / ModuleRoboticServoPiston) is installed; "
+                    + "the Breaking Ground expansion is required for the end-to-end servo "
+                    + "pose path, and rotors do not qualify (no persisted spin key)");
                 return;
             }
 
-            // The pose FIELD has to be the one the recorder reads for this module, or the
-            // baseline value would not mean what a recorded robotic event's value means.
-            float deadband;
-            string[] fieldNames;
-            FlightRecorder.ResolveRoboticFieldPlan(roboticModuleName, out deadband, out fieldNames);
-            InGameAssert.IsNotNull(fieldNames,
-                $"no robotic field plan for '{roboticModuleName}'");
-            InGameAssert.IsGreaterThan(fieldNames.Length, 0,
-                $"empty robotic field plan for '{roboticModuleName}'");
-
+            // The authored key MUST be the one a real ProtoVessel snapshot carries — i.e. an
+            // isPersistant KSPField/KSPAxisField — or this cell would prove the pose path
+            // over a key production never writes. That was the original defect: it authored
+            // the LIVE probe plan's primary key (currentAngle / currentRPM / currentPosition),
+            // none of which persist.
             const float pose = 37.5f;
             ConfigNode snapshot = OnePartSnapshot(
                 candidate.name, 100000,
                 ModuleNode(roboticModuleName,
-                    fieldNames[0], pose.ToString("R", CultureInfo.InvariantCulture)));
+                    poseKey, pose.ToString("R", CultureInfo.InvariantCulture)));
 
             GhostBuildResult result;
             GhostPlaybackState state = BuildGhostAndPopulate(
@@ -457,14 +458,18 @@ namespace Parsek.InGameTests
             }
             else
             {
-                // Rotor: RPM-driven rather than posed, so the contract is that it is ARMED.
-                InGameAssert.IsTrue(info.active,
-                    "a rotor with a non-zero snapshot RPM should be spinning from spawn");
+                // Unreachable by construction: the candidate search only accepts modules the
+                // resolver gives a pose key for, and the only RotorRpm family has none. If a
+                // part ever maps a posed family onto RotorRpm, say so rather than passing.
+                InGameAssert.Fail(
+                    $"'{candidate.name}' resolved '{roboticModuleName}' to the RPM-driven "
+                    + "visual mode, but the snapshot resolver handed it a pose key "
+                    + $"('{poseKey}') — the two classifications have drifted apart");
             }
 
             ParsekLog.Info("TestRunner",
                 $"SnapshotBaseline: '{candidate.name}' servo '{roboticModuleName}' posed to "
-                + $"{pose} at spawn (mode={info.visualMode})");
+                + $"{pose} via persisted key '{poseKey}' at spawn (mode={info.visualMode})");
         }
 
         [InGameTest(Category = "SnapshotBaseline", Scene = GameScenes.FLIGHT,

@@ -274,21 +274,53 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reads one servo's persisted pose scalar. The candidate field list comes from
-        /// <see cref="FlightRecorder.ResolveRoboticFieldPlan"/> — the SAME plan the
-        /// recorder reads live — because the value has to mean the same thing on both
-        /// sides: <c>GhostPlaybackLogic.ApplyRoboticPose</c> applies it as an absolute
-        /// offset from the build-time stowed pose, exactly as a recorded robotic event
-        /// does. First present, finite key wins (mirroring the recorder's
-        /// first-match-wins probe). A servo whose snapshot node carries none of them
-        /// (e.g. only the vector/quaternion servoTransform fallbacks) degrades to
-        /// no-baseline — today's behaviour — rather than guessing at units.
+        /// The SNAPSHOT-side robotic pose key, per family. Deliberately NOT
+        /// <see cref="FlightRecorder.ResolveRoboticFieldPlan"/>: that is the LIVE probe
+        /// plan, which reads a running <c>PartModule</c> through <c>module.Fields</c> and
+        /// so can see every <c>[KSPField]</c>. A snapshot MODULE node carries only the
+        /// <c>isPersistant = true</c> subset, and for all three posed families the live
+        /// plan's primary key is NOT in it — so reusing the live plan silently fell through
+        /// to whatever persisted key happened to sit further down the list, which is a
+        /// SETTING rather than a pose.
+        ///
+        /// Verified by decompiling Assembly-CSharp (KSP 1.12.5,
+        /// <c>Expansions.Serenity.*</c>) and against the stock Breaking Ground craft files:
+        /// <list type="bullet">
+        /// <item><description>Hinge / rotation servo — <c>currentAngle</c> is a plain
+        /// <c>[KSPField]</c> (NOT persisted); <c>targetAngle</c> is
+        /// <c>[KSPAxisField(isPersistant = true)]</c> and <c>KSPAxisField : KSPField</c>, so
+        /// it does persist. Val-Thopter.craft's hinge node carries
+        /// <c>targetAngle = -45</c> and no <c>currentAngle</c>. Both are degrees from the
+        /// servo's zero, which is the unit <c>ApplyRoboticPose</c> wants.</description></item>
+        /// <item><description>Piston — the live plan is
+        /// <c>currentPosition / position / targetPosition / traverseVelocity</c> and
+        /// <c>ModuleRoboticServoPiston</c> declares NONE of the first three publicly
+        /// (its fields are <c>currentExtension</c>, non-persisted, and <c>targetExtension</c>,
+        /// persisted; <c>targetPosition</c> exists but is a private non-KSPField). The only
+        /// persisted plan key was <c>traverseVelocity</c> — a SPEED in m/s, default 1 — so
+        /// every piston posed to ~1 m. <c>targetExtension</c> is metres of extension
+        /// (<c>targetPosition = targetExtension</c>, and <c>currentExtension</c> is measured
+        /// along the same axis), which is what the Linear applier wants.</description></item>
+        /// <item><description>Rotor — NO KEY. <c>currentRPM</c> is non-persisted;
+        /// <c>rpmLimit</c> is persisted with a 230 default, and every stock Breaking Ground
+        /// helicopter craft ships it at 460. Reading it made every rotor ghost spin at its
+        /// LIMIT from spawn and re-arm on every loop cycle, parked or not. No persisted key
+        /// reflects actual spin (<c>servoMotorIsEngaged</c> says the motor is switched on,
+        /// not that the rotor is turning; brakes, resource starvation and a zero motor limit
+        /// all park an engaged rotor), so rotors get no baseline at all — which is exactly
+        /// the pre-M1 behaviour and far better than a confident wrong spin.</description></item>
+        /// </list>
+        ///
+        /// NOTE for whoever reads the piston case and reaches for the live plan: the live
+        /// piston probe lands on <c>traverseVelocity</c> too, for the same
+        /// name-mismatch reason. That is a separate recorder-side defect, out of scope here;
+        /// this method fixes only what the ghost SPAWNS at.
         /// </summary>
-        private static bool TryParseSnapshotRoboticPose(
-            ConfigNode moduleNode, string moduleName, out float pose)
+        internal static bool TryResolveSnapshotRoboticPoseKey(
+            string moduleName, out string persistedKey)
         {
-            pose = 0f;
-            if (moduleNode == null)
+            persistedKey = null;
+            if (string.IsNullOrEmpty(moduleName))
                 return false;
 
             // Wheel robotics (suspension / steering / motor) are continuous-motion
@@ -297,20 +329,43 @@ namespace Parsek
                 || FlightRecorder.IsWheelRoboticModuleName(moduleName))
                 return false;
 
-            FlightRecorder.ResolveRoboticFieldPlan(moduleName, out _, out string[] fieldNames);
-            if (fieldNames == null)
+            if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
                 return false;
 
-            for (int i = 0; i < fieldNames.Length; i++)
-            {
-                if (TryParseSnapshotFloat(moduleNode.GetValue(fieldNames[i]), out float value))
-                {
-                    pose = value;
-                    return true;
-                }
-            }
+            persistedKey =
+                string.Equals(moduleName, "ModuleRoboticServoPiston", System.StringComparison.Ordinal)
+                    ? "targetExtension"
+                    : "targetAngle";
+            return true;
+        }
 
-            return false;
+        /// <summary>
+        /// Reads one servo's persisted pose scalar through
+        /// <see cref="TryResolveSnapshotRoboticPoseKey"/>. A servo whose snapshot node does
+        /// not carry that key — or carries an unparseable / non-finite value — degrades to
+        /// no-baseline (pre-M1 behaviour) rather than guessing at units.
+        ///
+        /// CAVEAT, deliberately accepted for the angular families: <c>targetAngle</c> is the
+        /// COMMANDED target, not the achieved angle. It is wrong for a servo captured
+        /// mid-travel, and for one locked or power-starved short of its target. Neither
+        /// <c>servoIsLocked</c> nor <c>servoMotorIsEngaged</c> is used to gate it, because
+        /// the alternative is 0 (the prefab pose), which is not a safer guess — it is the
+        /// guess M1 exists to stop making — and because locking is what a player does to
+        /// HOLD a servo at the target it just reached, so gating on it would suppress the
+        /// baseline exactly where it is most likely right. Any recorded robotic event
+        /// overrides it anyway.
+        /// </summary>
+        private static bool TryParseSnapshotRoboticPose(
+            ConfigNode moduleNode, string moduleName, out float pose)
+        {
+            pose = 0f;
+            if (moduleNode == null)
+                return false;
+
+            if (!TryResolveSnapshotRoboticPoseKey(moduleName, out string persistedKey))
+                return false;
+
+            return TryParseSnapshotFloat(moduleNode.GetValue(persistedKey), out pose);
         }
 
         private static bool TryParseSnapshotBool(string raw, out bool value)

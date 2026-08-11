@@ -421,8 +421,16 @@ namespace Parsek.Tests
                 && l.Contains("servos=0") && l.Contains("servosSkipped=1"));
         }
 
+        /// <summary>
+        /// Was <c>..._RotorWithRpm_SpinsFromSpawn</c>. The applier now parks EVERY rotor:
+        /// no persisted key reflects actual spin (<c>currentRPM</c> is not persistent, and
+        /// the persisted <c>rpmLimit</c> is a limit SETTING that ships at 460 on the stock
+        /// helicopters), so the parser refuses to emit a rotor pose in the first place. The
+        /// fixture still hands one in on purpose: even if a rotor pose reached the applier
+        /// from somewhere, it must not turn into spin.
+        /// </summary>
         [Fact]
-        public void ApplySnapshotBaselines_RotorWithRpm_SpinsFromSpawn()
+        public void ApplySnapshotBaselines_RotorPose_NeverSpinsFromSpawn()
         {
             GhostBuildResult result = ResultWithServos(
                 Servo(100000, 0, "ModuleRoboticServoRotor", RoboticVisualMode.RotorRpm));
@@ -438,7 +446,7 @@ namespace Parsek.Tests
                             {
                                 ordinal = 0,
                                 moduleName = "ModuleRoboticServoRotor",
-                                value = 48f,
+                                value = 460f,
                             },
                         },
                     }
@@ -450,8 +458,7 @@ namespace Parsek.Tests
 
             RoboticGhostInfo info =
                 state.roboticInfos[FlightRecorder.EncodeEngineKey(100000, 0)];
-            Assert.Equal(48f, info.currentValue);
-            Assert.True(info.active);
+            Assert.False(info.active);
         }
 
         [Fact]
@@ -618,8 +625,15 @@ namespace Parsek.Tests
             Assert.False(info.active);
         }
 
+        /// <summary>
+        /// Was <c>..._RotorWithSnapshotRpm_ReArmsSpin</c>. The loop-cycle restore parks
+        /// rotors unconditionally now, for the same reason the spawn path does — and this is
+        /// the cell that catches the WORST shape of the old behaviour: a rotor re-armed at
+        /// its limit on EVERY cycle boundary, so a parked helicopter's replay spun up again
+        /// each time the loop came round.
+        /// </summary>
         [Fact]
-        public void RestoreRoboticSpawnBaselines_RotorWithSnapshotRpm_ReArmsSpin()
+        public void RestoreRoboticSpawnBaselines_RotorWithSnapshotRpm_StillParks()
         {
             var state = new GhostPlaybackState
             {
@@ -632,7 +646,7 @@ namespace Parsek.Tests
                             moduleName = "ModuleRoboticServoRotor",
                             visualMode = RoboticVisualMode.RotorRpm,
                             currentValue = 0f,
-                            spawnValue = 50f,
+                            spawnValue = 460f,
                             hasSnapshotBaseline = true,
                             active = false,
                         }
@@ -644,8 +658,7 @@ namespace Parsek.Tests
 
             RoboticGhostInfo info =
                 state.roboticInfos[FlightRecorder.EncodeEngineKey(100000, 0)];
-            Assert.Equal(50f, info.currentValue);
-            Assert.True(info.active);
+            Assert.False(info.active);
         }
 
         [Fact]

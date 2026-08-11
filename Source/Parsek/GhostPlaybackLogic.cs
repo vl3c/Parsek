@@ -711,10 +711,18 @@ namespace Parsek
 
         /// <summary>
         /// Puts one servo at its spawn baseline (<see cref="RoboticGhostInfo.spawnValue"/>
-        /// — the snapshot pose when M1 read one, else 0f = the prefab pose). Rotors are
-        /// RPM-driven rather than posed, so they only get their rate back and re-arm when
-        /// that rate is a real non-zero reading from the snapshot; a rotor with no
-        /// snapshot baseline stays parked exactly as before.
+        /// — the snapshot pose when M1 read one, else 0f = the prefab pose).
+        ///
+        /// ROTORS ALWAYS PARK. A rotor is RPM-driven rather than posed, and a ProtoVessel
+        /// snapshot carries no persisted key that reflects actual spin:
+        /// <c>ModuleRoboticServoRotor.currentRPM</c> is not persistent, and the persisted
+        /// <c>rpmLimit</c> is a SETTING (230 by default, 460 on every stock Breaking Ground
+        /// helicopter). <see cref="GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey"/>
+        /// therefore refuses to give a rotor a baseline at all, so
+        /// <c>hasSnapshotBaseline</c> is false for every rotor and this parks
+        /// unconditionally — the pre-M1 behaviour. If a persisted spin-state key ever
+        /// appears, arm from THAT plus <c>servoMotorIsEngaged</c>; do not re-derive spin
+        /// from a limit.
         /// </summary>
         internal static void ApplyRoboticSpawnBaseline(RoboticGhostInfo info)
         {
@@ -723,8 +731,7 @@ namespace Parsek
             info.currentValue = info.spawnValue;
             if (info.visualMode == RoboticVisualMode.RotorRpm)
             {
-                info.active = info.hasSnapshotBaseline
-                    && Mathf.Abs(info.spawnValue) > 0.0001f;
+                info.active = false;
                 info.lastUpdateUT = double.NaN;
                 return;
             }
