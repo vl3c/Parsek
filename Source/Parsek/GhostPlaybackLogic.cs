@@ -459,9 +459,16 @@ namespace Parsek
         /// (PopulateDeployableInfos, PopulateHeatInfos) and BEFORE the prefix replay in
         /// <see cref="ApplyPartEvents"/>, which replays every recorded event at or before
         /// the playback cursor. So: prefab pose, then snapshot baseline, then recorded
-        /// truth — a stale split-tip snapshot is always corrected by the forwarded seeds,
-        /// never fighting them. All appliers here are absolute-state and idempotent, which
-        /// is what makes a baseline + a start-UT seed for the same state harmless.
+        /// truth. All appliers here are absolute-state and idempotent, which is what makes
+        /// a baseline + a start-UT seed for the same state harmless.
+        ///
+        /// On a split TIP the snapshot is launch-time-stale by construction, and the seeds
+        /// correct it for every reversible family the head span emitted an event for — in
+        /// BOTH directions since <c>RecordingOptimizer.AppendReversibleStateSeeds</c>. A
+        /// family the head span never emitted an event for gets no seed and keeps the
+        /// snapshot's value, which is the right answer unless the recorder could not see
+        /// the change at all (the dead-probe families). Full statement on
+        /// <see cref="SnapshotPartBaseline"/>.
         ///
         /// Every family no-ops when the snapshot said nothing about it, so a recording
         /// whose snapshot carries none of these keys behaves exactly as before M1.

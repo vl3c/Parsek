@@ -269,12 +269,25 @@ namespace Parsek
             }
 
             int visualStateSeeds = 0;
-            visualStateSeeds += AppendActiveStateSeeds(deployableStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(lightPowerStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(lightBlinkStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(gearStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(cargoBayStates, seeds, splitUT);
-            visualStateSeeds += AppendActiveStateSeeds(parachuteStates, seeds, splitUT);
+            int visualStateOffSeeds = 0;
+            visualStateSeeds += AppendReversibleStateSeeds(
+                deployableStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                lightPowerStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                lightBlinkStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                gearStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                cargoBayStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                parachuteStates, seeds, splitUT, ref visualStateOffSeeds);
+            // Heat stays ACTIVE-ONLY on purpose. The inactive direction here is
+            // ThermalAnimationCold, and cold is what the spawn pass already lays down
+            // unconditionally (PopulateHeatInfos / step 3a of the loop-cycle re-apply) —
+            // AND the M1 snapshot parser reads no heat key at all, so there is no stale
+            // baseline for a cold seed to correct. Emitting one would be pure storage cost
+            // per part per split for a state nothing can have got wrong.
             visualStateSeeds += AppendActiveStateSeeds(heatStates, seeds, splitUT);
 
             int roboticSeeds = AppendRoboticStateSeeds(roboticStates, seeds, splitUT);
@@ -284,7 +297,8 @@ namespace Parsek
                     $"Built {seeds.Count} transient state seed event(s) at UT={splitUT:F1} " +
                     $"(enginesOn={engineIgnitedSeeds} engineIdle={engineIdleSeeds} " +
                     $"engineSentinels={engineShutdownSeeds} rcsOn={rcsSeeds} " +
-                    $"visualStates={visualStateSeeds} robotics={roboticSeeds})");
+                    $"visualStates={visualStateSeeds} visualStatesOff={visualStateOffSeeds} " +
+                    $"robotics={roboticSeeds})");
 
             return seeds;
         }
@@ -500,7 +514,8 @@ namespace Parsek
         {
             TransientPartState state;
             if (!states.TryGetValue(key, out state))
-                state = BuildTransientState(evt, activeWhenUnseen, evt.value);
+                state = BuildTransientState(
+                    evt, activeWhenUnseen, evt.value, stateKnown: false);
             else
             {
                 state.PartPersistentId = evt.partPersistentId;
@@ -522,7 +537,11 @@ namespace Parsek
             TransientPartState state;
             if (!states.TryGetValue(key, out state))
                 state = BuildTransientState(
-                    evt, active: false, value: evt.value, seedEventType: PartEventType.LightBlinkDisabled);
+                    evt, active: false, value: evt.value,
+                    seedEventType: PartEventType.LightBlinkDisabled,
+                    // A bare rate change says nothing about whether the lamp is blinking:
+                    // the inactive emitter must not read this as "blink was off".
+                    stateKnown: false);
             else
             {
                 state.PartPersistentId = evt.partPersistentId;
@@ -536,6 +555,11 @@ namespace Parsek
             states[key] = state;
         }
 
+        /// <summary>
+        /// ACTIVE-DIRECTION-ONLY emitter, kept for the ONE family whose inactive direction
+        /// is genuinely redundant (heat — see the call site's comment). Every other
+        /// reversible family goes through <see cref="AppendReversibleStateSeeds"/>.
+        /// </summary>
         private static int AppendActiveStateSeeds(
             Dictionary<ulong, TransientPartState> states,
             List<PartEvent> seeds,
@@ -561,6 +585,71 @@ namespace Parsek
                     moduleIndex = state.ModuleIndex
                 });
                 added++;
+            }
+
+            return added;
+        }
+
+        /// <summary>
+        /// Emits ONE seed per key in BOTH directions — the extension of the robotics rule
+        /// (<see cref="AppendRoboticStateSeeds"/>) to the reversible on/off families.
+        ///
+        /// WHY THE INACTIVE DIRECTION IS NOT REDUNDANT. Pre-M1 it was: "inactive" meant the
+        /// all-stowed prefab pose, which is exactly what the tail's ghost already spawned
+        /// at, so a GearRetracted seed said nothing. Post-M1 the tail's ghost spawns at the
+        /// pose its SNAPSHOT describes, and a split TIP's snapshot is a COPY of the parent's
+        /// launch-time snapshot (<c>SplitAtSection</c> step 8). Gear down on the pad +
+        /// GearRetracted during ascent + any routine env-boundary split then left the TIP
+        /// rendering gear DOWN for its whole span, with no seed able to say otherwise — a
+        /// regression against pre-M1 rather than a leftover of it.
+        ///
+        /// Two states deliberately get no inactive seed:
+        /// <list type="bullet">
+        /// <item><description><see cref="IsPermanentVisualStateEvent"/> types (only
+        /// ParachuteDestroyed overlaps): <see cref="ForwardPermanentStateEvents"/> copies
+        /// those verbatim, and it runs AFTER <c>InsertTransientStateSeeds</c>, so the
+        /// boundary-dedupe cannot see the forwarded copy yet and we would emit a
+        /// duplicate.</description></item>
+        /// <item><description>States whose activeness was never OBSERVED
+        /// (<c>StateKnown == false</c>): the light-blink reducer synthesises an inactive
+        /// state from a bare LightBlinkRate event, and turning blink OFF off the back of a
+        /// rate change would assert knowledge the head span never carried.</description></item>
+        /// </list>
+        ///
+        /// Storage: one extra PartEvent per inactive family per part per split.
+        /// </summary>
+        private static int AppendReversibleStateSeeds(
+            Dictionary<ulong, TransientPartState> states,
+            List<PartEvent> seeds,
+            double splitUT,
+            ref int inactiveAdded)
+        {
+            if (states == null || states.Count == 0) return 0;
+
+            int added = 0;
+            var keys = new List<ulong>(states.Keys);
+            keys.Sort();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                var state = states[keys[i]];
+                if (!state.Active)
+                {
+                    if (!state.StateKnown) continue;
+                    if (IsPermanentVisualStateEvent(state.SeedEventType)) continue;
+                }
+
+                seeds.Add(new PartEvent
+                {
+                    ut = splitUT,
+                    partPersistentId = state.PartPersistentId,
+                    eventType = state.SeedEventType,
+                    partName = state.PartName,
+                    value = state.Value,
+                    moduleIndex = state.ModuleIndex
+                });
+                added++;
+                if (!state.Active)
+                    inactiveAdded++;
             }
 
             return added;
@@ -608,7 +697,8 @@ namespace Parsek
             PartEvent evt,
             bool active,
             float value,
-            PartEventType? seedEventType = null)
+            PartEventType? seedEventType = null,
+            bool stateKnown = true)
         {
             return new TransientPartState
             {
@@ -617,6 +707,7 @@ namespace Parsek
                 PartName = evt.partName,
                 Value = value,
                 Active = active,
+                StateKnown = stateKnown,
                 SeedEventType = seedEventType.HasValue ? seedEventType.Value : evt.eventType
             };
         }
@@ -634,6 +725,15 @@ namespace Parsek
             public string PartName;
             public float Value;
             public bool Active;
+            /// <summary>
+            /// True when <see cref="Active"/> came from an event that actually STATES the
+            /// on/off direction, false when it was synthesised by a value-only reducer
+            /// (throttle / blink-rate) that saw no explicit state event for this key.
+            /// <see cref="AppendReversibleStateSeeds"/> refuses to emit an inactive seed
+            /// off an unobserved state; the engine / RCS loops ignore the flag entirely
+            /// because they emit in both directions from their own explicit rules.
+            /// </summary>
+            public bool StateKnown;
             public PartEventType SeedEventType;
         }
     }

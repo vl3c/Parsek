@@ -1362,5 +1362,219 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Inactive-direction reversible seeds (post-M1 stale-baseline correction)
+
+        private static PartEvent VisualEvent(
+            double ut, PartEventType type, uint pid = 100000, float value = 0f)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = pid,
+                eventType = type,
+                partName = "reversiblePart",
+                value = value,
+            };
+        }
+
+        /// <summary>
+        /// The exact spaceplane scenario the M1 baseline regressed: gear DOWN in the
+        /// launch-time snapshot the split TIP inherits, retracted during the head span,
+        /// then a routine env-boundary split. Pre-fix the TIP got no seed at all and its
+        /// ghost rendered gear down for its whole span; the seed is the only thing that can
+        /// override a stale baseline.
+        /// </summary>
+        [Theory]
+        [InlineData(PartEventType.GearDeployed, PartEventType.GearRetracted)]
+        [InlineData(PartEventType.DeployableExtended, PartEventType.DeployableRetracted)]
+        [InlineData(PartEventType.CargoBayOpened, PartEventType.CargoBayClosed)]
+        [InlineData(PartEventType.LightOn, PartEventType.LightOff)]
+        [InlineData(PartEventType.LightBlinkEnabled, PartEventType.LightBlinkDisabled)]
+        [InlineData(PartEventType.ParachuteSemiDeployed, PartEventType.ParachuteCut)]
+        public void BuildTransientStateSeeds_ActiveThenInactiveBeforeSplit_SeedsInactiveDirection(
+            PartEventType onEvent, PartEventType offEvent)
+        {
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, onEvent),
+                VisualEvent(20.0, offEvent),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(offEvent, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.Equal(100000u, seed.partPersistentId);
+        }
+
+        [Theory]
+        [InlineData(PartEventType.GearRetracted)]
+        [InlineData(PartEventType.DeployableRetracted)]
+        [InlineData(PartEventType.CargoBayClosed)]
+        [InlineData(PartEventType.LightOff)]
+        [InlineData(PartEventType.ParachuteCut)]
+        public void BuildTransientStateSeeds_InactiveOnlyBeforeSplit_StillSeeds(
+            PartEventType offEvent)
+        {
+            // No paired "on" event in the head span: the inactive state is still the
+            // observed truth at the cut, and still the only correction available for a
+            // stale launch-time baseline that says the opposite.
+            var events = new List<PartEvent> { VisualEvent(20.0, offEvent) };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(offEvent, seed.eventType);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_InactiveSeedsSurviveIntoTheTip()
+        {
+            // End-to-end through SplitAtUT rather than the reducer: the TIP's PartEvents
+            // must actually carry the retract at its start UT.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-retract", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent seed = Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.GearRetracted, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("visualStatesOff=1"));
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_ParachuteDestroyed_NoDuplicateAgainstPermanentForward()
+        {
+            // ParachuteDestroyed is in IsPermanentVisualStateEvent, so
+            // ForwardPermanentStateEvents copies it verbatim — and it runs AFTER the
+            // transient insertion, so the boundary dedupe cannot see the forwarded copy.
+            // The inactive emitter therefore has to skip it itself or the TIP gets two.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-destroyed", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.ParachuteDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteDestroyed));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.ParachuteDestroyed, tip.PartEvents[0].eventType);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_BlinkRateOnly_NoBlinkDisabledSeed()
+        {
+            // A bare LightBlinkRate synthesises an inactive blink state, but nothing in
+            // the head span ever SAID blink was off. Emitting LightBlinkDisabled would
+            // turn a snapshot-blinking lamp solid off the back of a rate change.
+            var events = new List<PartEvent>
+            {
+                VisualEvent(20.0, PartEventType.LightBlinkRate, value: 2.5f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Empty(seeds);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_BlinkDisabledThenRate_SeedsDisabledWithTheRate()
+        {
+            // Once an explicit LightBlinkDisabled has been seen the state IS known, so a
+            // later rate change keeps the disabled direction and carries the new rate.
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, PartEventType.LightBlinkDisabled),
+                VisualEvent(20.0, PartEventType.LightBlinkRate, value: 2.5f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(PartEventType.LightBlinkDisabled, seed.eventType);
+            Assert.Equal(2.5f, seed.value);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_ThermalCold_StaysUnseeded()
+        {
+            // Heat is the one reversible family deliberately left active-only: cold is
+            // what the spawn pass lays down anyway and the M1 parser reads no heat key,
+            // so there is no stale baseline for a cold seed to correct.
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, PartEventType.ThermalAnimationHot),
+                VisualEvent(20.0, PartEventType.ThermalAnimationCold),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Empty(seeds);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_InactiveSeedSuppressedByMatchingBoundaryEvent()
+        {
+            // The dedupe machinery already in place must swallow the inactive seed when
+            // the TIP's own first event says the same thing at the same UT.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-boundary", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+            rec.PartEvents.Add(VisualEvent(34.0, PartEventType.GearRetracted));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(tip.PartEvents);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("skippedExistingBoundary=1"));
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_InactiveSeedPrecedesTheTipsOwnLaterRedeploy()
+        {
+            // A TIP that re-deploys LATER in its own span still needs the retracted seed
+            // at its start, and the seed must sit before the real event so the replay
+            // walks retracted -> deployed rather than the reverse.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-redeploy", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+            rec.PartEvents.Add(VisualEvent(40.0, PartEventType.GearDeployed));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Equal(2, tip.PartEvents.Count);
+            Assert.Equal(PartEventType.GearRetracted, tip.PartEvents[0].eventType);
+            Assert.Equal(34.0, tip.PartEvents[0].ut);
+            Assert.Equal(PartEventType.GearDeployed, tip.PartEvents[1].eventType);
+            Assert.Equal(40.0, tip.PartEvents[1].ut);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_OpposingEventExactlyAtTheCutWinsInTheReducer()
+        {
+            // An event AT splitUT is inside the reducer's window (SplitSeedTimeEpsilon),
+            // so the seed it produces already agrees with it — and the boundary dedupe
+            // then drops the duplicate. The TIP keeps exactly the real event.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-at-cut", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+            rec.PartEvents.Add(VisualEvent(34.0, PartEventType.GearDeployed));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent only = Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.GearDeployed, only.eventType);
+            Assert.Equal(34.0, only.ut);
+        }
+
+        #endregion
     }
 }

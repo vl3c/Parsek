@@ -72,11 +72,29 @@ Two independent losses of the same state:
 
 The snapshot on a split TIP is a COPY of the parent's launch-time snapshot
 (`RecordingOptimizer.SplitAtSection` step 8), so it is stale by construction for
-every rewind fork. Reading it as a baseline is only safe because the forwarded
-seeds sit at `ut = splitUT` = the tail's start and therefore always win the prefix
-replay. Defect 2 is what puts robotics into that winning set; without it, defect
-1's fix would have made a stale servo pose confidently wrong on exactly the tips a
-rewind produces.
+every rewind fork. The forwarded seeds sit at `ut = splitUT` = the tail's start, so
+where a seed EXISTS it wins the prefix replay. Defect 2 is what puts robotics into
+that winning set; without it, defect 1's fix would have made a stale servo pose
+confidently wrong on exactly the tips a rewind produces.
+
+**The seeds do not cover everything, and the honest statement matters.** A seed
+exists only for a family the HEAD SPAN emitted at least one event for. That set is
+now closed under BOTH directions of the reversible families - `AppendReversibleStateSeeds`
+emits the inactive direction (`GearRetracted` / `DeployableRetracted` /
+`CargoBayClosed` / `LightOff` / `LightBlinkDisabled` / `ParachuteCut`) as well as
+the active one, because post-M1 "inactive" is no longer the pose the tail's ghost
+already spawns at. A family the head span emitted NOTHING for still gets no seed and
+keeps the stale baseline - which is normally correct, since no event means the state
+did not change during the head span, so the launch-time value is still the value at
+the cut. It is wrong only where the recorder cannot observe the change at all (the
+dead-probe families: ladders, aero / control surfaces, robot-arm scanners), which is
+the same blind spot pre-M1 had.
+
+Two families are deliberately outside the inactive set: thermal (its inactive
+direction is `ThermalAnimationCold`, which the spawn pass lays down unconditionally
+and which no snapshot key can contradict - the parser reads no heat state) and
+`ParachuteDestroyed` (already copied verbatim by `ForwardPermanentStateEvents`,
+which runs after the transient insertion, so seeding it too would duplicate it).
 
 ### Fix
 

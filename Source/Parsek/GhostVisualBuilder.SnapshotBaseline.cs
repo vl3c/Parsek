@@ -13,8 +13,20 @@ namespace Parsek
     /// tail of <c>GhostPlaybackLogic.PopulateGhostInfoDictionaries</c>, i.e. AFTER the
     /// existing stow/cold baselines and BEFORE the prefix replay in
     /// <c>ApplyPartEvents</c> — so any seed or recorded event at or before the playback
-    /// cursor overrides it. A split TIP whose snapshot is launch-time-stale is therefore
-    /// always corrected by the forwarded seeds, never fought by them.
+    /// cursor overrides it.
+    ///
+    /// HOW FAR THAT ACTUALLY GOES on a split TIP, whose snapshot is a COPY of the
+    /// parent's launch-time one (<c>RecordingOptimizer.SplitAtSection</c> step 8) and so
+    /// stale by construction. A seed exists only for a family the HEAD SPAN emitted at
+    /// least one event for. For those, <c>BuildTransientStateSeeds</c> now seeds BOTH
+    /// directions of the reversible families (<c>AppendReversibleStateSeeds</c>), so a
+    /// stale baseline is corrected either way — that inactive direction was added
+    /// precisely because it is not redundant post-M1. For a family the head span emitted
+    /// NOTHING for there is no seed and the stale baseline stands; that is normally right,
+    /// because "no event" means the state did not change during the head span and the
+    /// launch-time value is still the value at the cut. It is wrong only where the
+    /// recorder cannot SEE a change at all (the dead-probe families: ladders, aero /
+    /// control surfaces, robot-arm scanners), which is the same blind spot pre-M1 had.
     /// </summary>
     internal sealed class SnapshotPartBaseline
     {
