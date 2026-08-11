@@ -44,14 +44,35 @@ id = "FORGE-b18-dres-pad"
 #   istg -1 mk1pod.v2 + HeatShield1
 # Totals: LiquidFuel 19,520 / Oxidizer 21,120 / SolidFuel 64 / Ablator 200.
 #
-# ONE NAMED CREW IS LOAD-BEARING, the GS-1 argument verbatim and the INVERSE of
-# FORGE-b17's uncrewed contract: this stack's ONLY command part is the single
-# mk1pod.v2 (grep: exactly one `name = ModuleCommand` in the whole craft), whose
-# ModuleCommand carries minimumCrew = 1. An EMPTY pod is an UNCONTROLLED rocket --
-# kRPC could still read it, but throttle and staging would do nothing and B18 would
-# burn its whole budget sitting on the pad. B17 could be uncrewed because the DD1
-# is OKTO2-controlled (minimumCrew = 0); this craft has no probe core at all.
-# It is a SANDBOX save, so nothing about the roster is asserted.
+# ONE NAMED CREW IS LOAD-BEARING, and WHICH kerbal is load-bearing too -- this is
+# the trap this lane paid for, so it is written down rather than inherited.
+#
+# WHY CREW AT ALL: this stack's ONLY command part is the single mk1pod.v2 (grep:
+# exactly one `name = ModuleCommand` in the whole craft), whose ModuleCommand
+# carries minimumCrew = 1. An EMPTY pod is an UNCONTROLLED rocket -- kRPC still
+# READS it fine, but throttle and staging do nothing. B17 could be uncrewed
+# because the DD1 is OKTO2-controlled (minimumCrew = 0); this craft has no probe
+# core at all.
+#
+# WHY NOT JEBEDIAH, which is what the GS-1 forge this spec was modelled on passes:
+# in `bdock-forge-base` Jebediah is ALREADY `state = Assigned` -- he crews the
+# base's own active vessel (`crew = Jebediah Kerman` in its persistent.sfs). A
+# kRPC `launch_vessel(crew=["Jebediah Kerman"])` therefore cannot seat him, and it
+# does NOT fail loudly: it launches an EMPTY pod and leaves Jeb `state = Missing`
+# in the produced save. MEASURED, run 2026-08-11_2125 -> the first b18-dres-pad
+# harvest: zero `crew =` lines in the fixture, and B18 flight 1 (2026-08-11_2131)
+# sat at PRE_LAUNCH with throttle 0.000 for its whole ascent phase with MechJeb
+# engaged -- an uncontrolled rocket, exactly as predicted from the empty pod.
+# The committed `gs1-two-stage-pad` fixture has the SAME empty pod and the SAME
+# Missing Jeb; GS-1 never noticed because its craft carries a probeCoreOcto2
+# ALONGSIDE its Mk1 pod (2 ModuleCommands), so it is probe-controlled and flies
+# fine uncrewed. Its `crewNames` is decorative; this lane's is not.
+#
+# VALENTINA IS AVAILABLE in the base roster (as are Bill and Bob), and the
+# committed `eva3-pad-3crew` fixture is the positive control: that forge passed
+# exactly those three names and its fixture carries all three `crew =` lines with
+# `state = Assigned`. It is a SANDBOX save, so nothing about the roster is
+# asserted -- the only requirement is that the named kerbal be seatable.
 #
 # WHAT A FAILED FIRST RUN MEANS. Unlike the B17 forge there are no A1-A8 authoring
 # assumptions to fall over -- this craft was built in a real VAB and flown by a
@@ -97,9 +118,12 @@ steps = [
 [driver.missionParams]
 craftName            = "Duna Rocket"
 launchSite           = "LaunchPad"
-# ONE named crew (see the header): the single mk1pod.v2 is the only command part and
-# carries minimumCrew = 1, so an empty pod is an uncontrolled rocket.
-crewNames            = ["Jebediah Kerman"]
+# ONE named crew, and NOT Jebediah (see the header): the single mk1pod.v2 is the
+# only command part and carries minimumCrew = 1, so an empty pod is an uncontrolled
+# rocket -- and Jeb is already `Assigned` in this base, so naming him silently
+# produces exactly that empty pod. Valentina is `Available`; the eva3-pad-3crew
+# fixture is the positive control that an Available name really does get seated.
+crewNames            = ["Valentina Kerman"]
 # Game-seconds to see the new craft settle PRELAUNCH before flaking. WIDER than the
 # 120 the sibling forges use: this is a 92-part, ~260 t stack (the DD1 is a fraction
 # of both), and launch_vessel is a scene reload whose cost scales with part count.
