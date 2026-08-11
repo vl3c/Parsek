@@ -469,10 +469,28 @@ namespace Parsek
             {
                 try
                 {
+                    // Compose fully BEFORE mutating the dialog message so the outer
+                    // catch's "shown without the advisory" claim is true on every
+                    // path it can catch: a throw from name resolution or body
+                    // composition leaves `message` untouched. The log emit runs
+                    // after the append has succeeded, so a throw there would leave
+                    // the advisory IN the dialog — it gets its own guard with the
+                    // opposite wording instead of sharing the outer catch.
                     var siblingNames = ResolveReFlySiblingSlotNames(
                         rp, selectedSlotId, RecordingStore.CommittedRecordings);
-                    message += "\n\n" + ComposeReFlyAdvisoryBody(siblingNames);
-                    LogReFlyAdvisory(rp.RewindPointId, selectedSlotId, rp.UT, siblingNames);
+                    string advisoryBody = ComposeReFlyAdvisoryBody(siblingNames);
+                    message += "\n\n" + advisoryBody;
+                    try
+                    {
+                        LogReFlyAdvisory(rp.RewindPointId, selectedSlotId, rp.UT, siblingNames);
+                    }
+                    catch (Exception logEx)
+                    {
+                        ParsekLog.Warn(InvokeTag,
+                            $"Pre-invoke advisory: log emit failed rp={rp.RewindPointId ?? "<null>"} " +
+                            $"slot={selectedSlotId} exType={logEx.GetType().Name} " +
+                            $"message={logEx.Message ?? "<null>"} — dialog DOES carry the advisory");
+                    }
                 }
                 catch (Exception ex)
                 {

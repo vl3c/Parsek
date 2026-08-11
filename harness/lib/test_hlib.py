@@ -4608,19 +4608,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Landed UNFLOWN with the world-preservation coverage wave. The tag is here on
         # S4.1's OWN stated rule, quoted verbatim from its tier note: "The
         # pending-operator TAG stays until that first green run; the tag alone is
-        # non-gating." Two things a human must do, neither of which an unattended run
-        # discharges: READ the first run's BATCH_COMPLETE line and either confirm or
-        # correct the DERIVED-not-measured passed=/skipped= pin (the spec names the one
-        # derivation that can legitimately move - a placeholder marker skips the #587
-        # positive control), and take the later arming decision on the save-structure
-        # blocks it deliberately leaves report-only. DROP THIS ENTRY when the tally is
-        # re-pinned from a measured line, exactly as S4.1's was.
+        # non-gating." The original derivation debt is PAID: run 2026-08-11_1057 flew,
+        # the batch line matched the derived tally token for token, and the pin is
+        # re-stamped MEASURED. The entry's old drop rule ("when the tally is re-pinned
+        # from a measured line") is deliberately NOT taken, because S4.1's quoted rule
+        # is "until that first GREEN run" and that run classified
+        # PARSEK-FAIL(expectations) on the AppendRelations token - the standing
+        # RED-BY-FINDING (REFLY-CONCLUSION-SKIPS-APPENDRELATIONS). What the operator
+        # still owes: the standing-red disposition (fix the finding, or set
+        # [expectedFail] bugId to quiet nightlies) and the save-structure arming
+        # decision the spec deliberately leaves report-only. DROP THIS ENTRY on the
+        # first green run after the finding is resolved.
         "S4.2-refly-world-preservation.toml":
-                                       "unflown: the batch tally is DERIVED, not measured, and a "
-                                       "human must read the first run's line and confirm or "
-                                       "correct the pin (S4.1's own rule - the tag stays until "
-                                       "that first green run). NOT tier=operator: a nightly spec "
-                                       "can owe operator work, exactly as S1.5 and EVA-1 do.",
+                                       "flown RED-BY-FINDING 2026-08-11: tally measured (matched "
+                                       "the derivation token for token) but the run classified "
+                                       "PARSEK-FAIL on REFLY-CONCLUSION-SKIPS-APPENDRELATIONS, "
+                                       "so the tag stays until the first green run. Operator "
+                                       "owes the standing-red disposition + the report-only "
+                                       "arming decision. NOT tier=operator: a nightly spec can "
+                                       "owe operator work, exactly as S1.5 and EVA-1 do.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
