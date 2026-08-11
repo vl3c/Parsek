@@ -1,0 +1,186 @@
+# V8T-eve-ts-arrival - the first TRACKING-STATION observation of a looped
+# INWARD-transfer interplanetary replay: arm the Eve fixture's loop in
+# FLIGHT, product-warp to the cycle-0 relaunch, jump to just past the
+# Sun->Eve arrival seam, save, and re-boot into TRACKSTATION to observe what
+# the TS materializes at that epoch.
+#
+# ARMED REVISION (2026-08-11).
+#
+# ARMING LEDGER:
+#   READING  2026-08-11_0835 attempt 1 INVALID(driver-verdict-mismatch) -
+#            the TS LoadGame came back REJECTED recording-active: the V5
+#            re-arm race (V5:165-175, its own run-1 attempt-1 died the same
+#            way even with the re-kill pair correctly placed), THIRD
+#            SIGHTING, filed on the race's todo entry. Retry-once absorbed
+#            it: _0836 attempt 2 PASS, wall 92 s total, every step met,
+#            clean sweep - the reading measurements below are its.
+#   ARMED    2026-08-11_0843 PASS attempt 1, wall 50 s - saveParse
+#            status=PASS gating=True armed=['rewind','recordings.structure']
+#            mismatches=0, every pinned token met. Green in the armed
+#            direction (and no race this attempt).
+#   CONTROL  SHARED with V8's 2026-08-11_0830 (PARSEK-FAIL(save-structure),
+#            single mismatch `rewind.supersedeRows 0 < min 1`): the V5/V6T/
+#            V7M precedent - all these lanes gate through the one shared
+#            saveParse evaluator, so a second identical inversion would
+#            re-prove the evaluator, not this spec's windows, at the cost
+#            of a flight.
+#
+# READING MEASUREMENTS (_0836 a2), all pinned below:
+#   * TS host: `ParsekTrackingStation initialized: created 1 ghost
+#     vessel(s)` - the anti-vacuity gate, V5's form.
+#   * THE EVE-FRAMED INBOUND IS REAL: `phase=GhostCreated surface=ProtoIcon
+#     ... vessel=Ghost:_Kerbal_X body=Eve scene=TRACKSTATION` at the
+#     post-seam epoch - the first TS materialization of a looped
+#     inward-transfer arrival.
+#   * factory chain `reaimed=False` (phases=15) in the TS too - the
+#     tilt-declined faithful-window shape V8 measured in FLIGHT; V5's
+#     `reaimed=True` Duna pin INVERTED, deliberately (V6T's precedent for
+#     pinning the faithful direction).
+#   * census `seam-endpoint summary evaluated=0 outsideSoi=0
+#     skip.no-cross-body-successor=1` - the PREDICTED structural zero
+#     (post-seam epoch, the Eve leg is the recording's last cross-body
+#     leg), told from blindness by the census's own accounting. Presence
+#     pinned, evaluated deliberately NOT =[1-9] (V6M's rationale).
+#   * parity `faithful-parity summary sampled=0 overTolerance=0
+#     skip.reaimed-or-foreign-seed=1` - the TS chain seeds land in the
+#     SEED-FRAGMENT-REBASE standdown (unlike V8's FLIGHT sampled=1); data
+#     point filed on that entry. Presence + overTolerance-forbid pinned -
+#     the pair V5 itself omitted (recon mismatch M5); carried here so the
+#     Eve TS lane does not inherit that gap.
+#   * NEW FINDING, filed in todo-and-known-bugs.md: THE TS-FLUSHED SAVE
+#     DROPS THE DEBRIS terminalState KEYS. V8's FLIGHT-flushed save carries
+#     terminals {Orbiting 2, Destroyed 6}; this lane's TRACKSTATION-flushed
+#     save carries {Orbiting 2} with the six Destroyed keys ABSENT from the
+#     RECORDING nodes (verified on the produced-save bytes). Not gated here
+#     (the armed structure block pins committedTrees/trees, which are
+#     unaffected); the finding entry owns the question.
+#
+# WHAT V8 (the FLIGHT sibling, ARMED) ESTABLISHED THAT THIS LANE INHERITS:
+#   * The unit ENGAGES re-aim (Kerbin->Eve via Sun) but cycle-0's window
+#     TILT-DECLINES (all 27 tof candidates, unreachable-plane, incAch
+#     1.2358 vs targetInc 2.1) and falls back to a FAITHFUL window - so the
+#     TS should materialize the FAITHFUL chain (factory `reaimed=False`,
+#     measured on every V8 run), NOT V5's `reaimed=True` Duna shape. Pinning
+#     reaimed=True here would red on a correct run; the honest pin is the
+#     measured fallback shape.
+#   * Schedule: phaseAnchorUt=26,506,918.973, relaunchUt=26,505,827.655,
+#     cadence=29,374,070.903 (2*synodic), loiterCuts=1 cutSeconds=11819849.
+#     Cycle-0 replay-clock map: replayUT = 26,506,918.97 + (recordedUT -
+#     34.68) - 11,819,849 for recorded UTs past the cut end. The Sun->Eve
+#     seam maps to 30,360,218.7; this lane's TS epoch is +181 s past it
+#     (30,360,400, V8's own third arrival-bracket point), where the ghost
+#     rides the recorded Eve arrival leg - the Eve-framed inbound.
+#   * The seam-endpoint raise (ratio=4.6216) fires at the arrival seam in
+#     FLIGHT. At THIS lane's post-seam epoch the recorded Eve leg is the
+#     LAST cross-body leg, so the lens ahead of the clock has no successor -
+#     the census here is expected to read a skip bucket, and that
+#     told-from-blindness accounting is exactly what the census exists for.
+#     The raise is V8's claim, not this lane's.
+#
+# V5's OWN RE-KILL LESSON (V5:165-175, measured on its run-1 attempt-1
+# death): the scene-entry promotion recorder can RE-ARM a second time on
+# some entry orderings, and the LoadGame dispatch guard REJECTS
+# recording-active - so the StopRecording/DiscardTree pair is repeated
+# immediately before the TS load. Kept verbatim here.
+#
+# TS DWELL IS ~1 s (V5's measured 1.08 s): nothing rate-limited is pinned
+# on the TS side of the boot.
+
+schema = 1
+id = "V8T-eve-ts-arrival"
+tier = "operator"
+instanceProfile = "stock-minimal"
+tags = ["V8T", "tracking-station", "loop-arrival", "interplanetary", "reaim",
+        "eve", "inward-transfer", "reading-iteration"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eve-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "16af6b5e546a4bef86fcd8cde1ddc924" }, expect = "OK", budget = 300 },
+  # One jump to the post-seam Eve-framed arrival epoch (V8's third
+  # arrival-bracket point). A single jump cannot form a line-blink toggle
+  # pair (see V8's LINE-BLINK-JUMP-STRADDLE note), so no pacing spacers are
+  # needed here.
+  { cmd = "TimeJump", args = { ut = "30360400" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+# D14 eve is claimed AS OF THE ARMING REVISION, gated by the required
+# body=Eve TS GhostCreated token below (the V6T pattern).
+[dimensionsCovered]
+D14 = ["eve", "scene-ts", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED AT EXACTLY 9, measured on the reading run (observed count 9): the
+# fixture's 8 + the load-time optimizer split, and the double-entry stub
+# path left nothing behind. A 10 means a second-entry stub survived; an 8
+# means the split stopped. Both are findings.
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ENGAGED re-aim Kerbin->Eve via Sun",
+  "loadgame trackstation route: booting to TRACKSTATION save=",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+  "phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Eve scene=TRACKSTATION",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "FORCED FAITHFUL",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+# ARMED off the _0836 reading measurements (all-zero rewind facets,
+# committedTrees 1, trees 1); windows follow the corpus shape - the rewind
+# triple at max 0, committedTrees {1,1}, trees kept at the documented
+# duplicate-writer width {1,2}. Negative control shared with V8's _0830
+# (see the ARMING LEDGER).
+[expectations.rewind]
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating = true
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
