@@ -3,14 +3,33 @@
 # (negative-phase-angle) interplanetary transfer, and its first loop unit in
 # the span>synodic regime.
 #
-# READING ITERATION 2 (this revision). Iteration 1 (run 2026-08-11_0802,
-# PASS attempt 1, wall 51 s) was the under-gated arm-and-read; its MEASURED
-# ledger is below and every number in this revision's steps derives from it.
-# This iteration adds the cycle-0 bracket TimeJumps and gates only what
-# iteration 1 measured as deterministic (the ENGAGED mode line, the product
-# jump line, the 9-count). The census/parity pins and the arming ledger land
-# with the ARM step after this iteration measures them (reading -> armed ->
-# negative control, the V4/V5 discipline).
+# ARMED REVISION (2026-08-11). Development ran four reading iterations, all
+# flown the same day, every number below off the product's own lines.
+#
+# ARMING LEDGER (the V4/V5 three-run discipline):
+#   READING  2026-08-11_0818 and _0819, both PASS attempt 1 (~54 s), the
+#            two consecutive clean flights of the final paced shape.
+#            saveParse REPORT: rewindPoints 0, supersedeRows 0, tombstones
+#            0, rewindRetirements 0, committedTrees 1, trees 1 - every
+#            declared window already met, so arming re-pinned NOTHING
+#            (S4.1's rule). All twelve required tokens below measured on
+#            both (and on _0807/_0810/_0814 before them - five consecutive
+#            bracketed runs for every pinned instrument line).
+#   ARMED    2026-08-11_0828 PASS attempt 1, wall 54 s - saveParse
+#            status=PASS gating=True armed=['rewind','recordings.structure']
+#            mismatches=0. Green in the armed direction.
+#   CONTROL  2026-08-11_0830 PARSEK-FAIL(save-structure) attempt 1 - the
+#            rewind block temporarily re-declared supersedeRows={min=1},
+#            producing the single mismatch `rewind.supersedeRows 0 < min 1`
+#            and verdict reason `gating save-structure expectations
+#            mismatch`. Reverted immediately. Red in the red direction: the
+#            gate is load-bearing, not decorative.
+#
+# ITERATION HISTORY: _0802 iteration 1 (under-gated arm-and-read); _0807
+# iteration 2 (brackets; the instrument's FIRST RAISE); _0810/_0814
+# PARSEK-FAIL(anomaly) on the line-blink jump-straddle detector gap (filed,
+# both artifacts archived; the pacing spacers below are the response);
+# _0818/_0819 the final shape, twice consecutively clean.
 #
 # ITERATION-1 MEASURED LEDGER (run 2026-08-11_0802, KSP.log archived in
 # results/2026-08-11_0802_V8-eve-player-loop_shots/):
@@ -227,17 +246,16 @@ steps = [
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
-# D9 fast-forward is claimed AS OF ITERATION 2: the product's own jump line
-# (FastForwardToEventUT, emitted by ParsekFlight on the StartLoopPlayback
-# path, measured x1 on iteration 1) is now a required token below - the same
-# gate V4/V6M/V7M carry. D14 eve is NOT claimed yet: no body=Eve token gates
-# it in this revision; it lands at ARM time if the bracket dwells measure a
-# stable body=Eve render line. D11 loiter-compression is NOT claimed yet
-# either, despite iteration 1's measured loiterCuts=1 - the claim belongs to
-# the arming commit that pins a cut token, together with the todo entry
-# update it obligates (CLAIM-IS-NOT-GATE, both directions).
+# D9 fast-forward: gated by the product's own FastForwardToEventUT jump line
+# (the V4/V6M/V7M gate). D11 loiter-compression: claimed AS OF THE ARMING
+# REVISION, gated by the required `loiterCuts=1 cutSeconds=11819849` token -
+# the corpus's first (and only) non-zero cut, measured identically on all six
+# runs; the D11 todo entry carries the supersession note. D14 eve is
+# deliberately NOT claimed: no body=Eve token gates it in FLIGHT (V4's own
+# duna precedent; the TS sibling is where a body=Eve line is measurable).
 [dimensionsCovered]
 D9  = ["fast-forward"]
+D11 = ["loiter-compression"]
 D14 = ["scene-flight", "sandbox"]
 
 [expectations]
@@ -253,17 +271,40 @@ allowedAnomalies = []
 count = { min = 9, max = 9 }
 
 [expectations.logContracts]
-# Iteration-2 tokens: the plumbing trio, plus what iteration 1 measured as
-# deterministic - the ENGAGED mode line (x3 at unit build) and the product's
-# own jump line (x1, the D9 gate). The census/parity pins wait for this
-# iteration's measurements (two consecutive flights before any =[1-9] pin,
-# the V4 rule).
+# ARMED-REVISION tokens. The plumbing trio and the two deterministic build
+# tokens are iteration-2's. Everything added at arming was measured
+# bit-identically on FIVE consecutive bracketed runs (_0807/_0810/_0814/
+# _0818/_0819) - well past the two-consecutive-flights rule:
+#   * the census pair (V4's form): presence + evaluated=[1-9], the lens
+#     actually performed a destination-approach check;
+#   * the parity presence pin + the overTolerance forbid (the S1.6/S1.7
+#     anti-vacuity pair);
+#   * THE REGRESSION FLOOR: the finding trio. This lane's cycle-0 window is
+#     MEASURED to tilt-decline (all 27 tof candidates, unreachable-plane),
+#     fall back to a faithful window, and miss the moved Eve by ratio=4.6216
+#     at the recorded Sun->Eve seam - the 2026-06-15 defect class through a
+#     new route (see todo-and-known-bugs.md, first-raise paragraph). The
+#     three tokens pin the whole causal chain: if a future change fixes the
+#     tilt treatment, un-declines the window, or moves the arrival geometry,
+#     this lane REDS and forces the fixer to re-read and re-pin - the
+#     GS-3-style tolerate-plus-require shape (the raise itself stays
+#     REPORT-ONLY in hlib; requiring the line here gates only this lane).
+#   * the D11 gate: loiterCuts=1 cutSeconds=11819849, exact - the cut is a
+#     pure function of the fixture and the compressor; a different number
+#     means the compressor changed and this lane wants to know.
 required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
   "ENGAGED re-aim Kerbin->Eve via Sun",
   "FastForwardToEventUT: jumping to UT=",
+  "loiterCuts=1 cutSeconds=11819849",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "seam-endpoint summary evaluated=[1-9]",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "tilt correction: unreachable target plane",
+  "faithful this window",
+  "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -272,7 +313,28 @@ forbidden = [
   # change of subject (V4's rationale, safe to gate now that iteration 1
   # measured ENGAGED).
   "FORCED FAITHFUL",
+  # Any parity sample OVER tolerance is a rendered-vs-recorded drift (the
+  # S1.6/S1.7 pin verbatim; measured 0 on all six runs of this lane).
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
 ]
+
+# ARMED (this revision) off the two consecutive clean reading runs of the
+# final shape, whose saveParse REPORT measured rewindPoints=0,
+# supersedeRows=0, tombstones=0, rewindRetirements=0, committedTrees=1,
+# trees=1 on both. Windows follow the V4/V5/V6/V7 shape exactly: the rewind
+# triple at max 0, committedTrees pinned {1,1}, and trees kept at the
+# documented duplicate-writer width {1,2} - deliberately WIDER than the
+# measurement, per the corpus rule (arming must not smuggle in a re-pin).
+[expectations.rewind]
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating = true
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
 
 [runtime]
 budgetSeconds = 2400
