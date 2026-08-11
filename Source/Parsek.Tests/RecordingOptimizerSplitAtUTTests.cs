@@ -1161,5 +1161,532 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Robotic pose seeds across the split (M4)
+
+        private static PartEvent RoboticEvent(
+            double ut, PartEventType type, float value, uint pid = 100000, int moduleIndex = 0)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = pid,
+                eventType = type,
+                partName = "servoHinge",
+                value = value,
+                moduleIndex = moduleIndex,
+            };
+        }
+
+        [Fact]
+        public void SplitAtUT_RoboticPoseBeforeSplit_TipGetsMotionStoppedSeedAtSplitUT()
+        {
+            // A hinge that swung to 42 degrees and parked BEFORE the cut. Without a
+            // seed the tail's ghost renders the prefab pose (arm folded) forever,
+            // because the tail owns no robotic event of its own.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-robotic", midUT: 34.0);
+            rec.PartEvents.Add(RoboticEvent(10.0, PartEventType.RoboticMotionStarted, 10f));
+            rec.PartEvents.Add(RoboticEvent(20.0, PartEventType.RoboticPositionSample, 30f));
+            rec.PartEvents.Add(RoboticEvent(30.0, PartEventType.RoboticMotionStopped, 42f));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            // Latest-state-wins reducer: ONE seed carrying the last sampled pose.
+            Assert.Single(tip.PartEvents);
+            PartEvent seed = tip.PartEvents[0];
+            Assert.Equal(PartEventType.RoboticMotionStopped, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.Equal(42f, seed.value);
+            Assert.Equal(100000u, seed.partPersistentId);
+            Assert.Equal(0, seed.moduleIndex);
+            // The head keeps its three real events verbatim.
+            Assert.Equal(3, rec.PartEvents.Count);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("transient state seed event(s)")
+                && l.Contains("robotics=1"));
+        }
+
+        [Fact]
+        public void SplitAtUT_RoboticMidStrokeAtSplit_TipSeedCarriesLastSampledPose()
+        {
+            // Still travelling at the cut (last event is a position sample, not a stop).
+            // The seed parks the servo at the sampled pose; the tail's own samples
+            // re-arm the motion from there.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-robotic-midstroke", midUT: 34.0);
+            rec.PartEvents.Add(RoboticEvent(10.0, PartEventType.RoboticMotionStarted, 5f));
+            rec.PartEvents.Add(RoboticEvent(33.0, PartEventType.RoboticPositionSample, 17.5f));
+            rec.PartEvents.Add(RoboticEvent(40.0, PartEventType.RoboticPositionSample, 25f));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            // Seed first, then the post-split real sample that partitioned across.
+            Assert.Equal(2, tip.PartEvents.Count);
+            Assert.Equal(PartEventType.RoboticMotionStopped, tip.PartEvents[0].eventType);
+            Assert.Equal(34.0, tip.PartEvents[0].ut);
+            Assert.Equal(17.5f, tip.PartEvents[0].value);
+            Assert.Equal(PartEventType.RoboticPositionSample, tip.PartEvents[1].eventType);
+            Assert.Equal(40.0, tip.PartEvents[1].ut);
+        }
+
+        [Fact]
+        public void SplitAtUT_TwoServosOnOneVessel_EachModuleIndexGetsItsOwnSeed()
+        {
+            // Robotic keys are module-scoped (EncodeEngineKey), so two servos on the
+            // same part must not collapse into one seed the way the pid-keyed
+            // deployable / light families do.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-robotic-two", midUT: 34.0);
+            rec.PartEvents.Add(RoboticEvent(10.0, PartEventType.RoboticMotionStopped, 11f, moduleIndex: 0));
+            rec.PartEvents.Add(RoboticEvent(12.0, PartEventType.RoboticMotionStopped, 22f, moduleIndex: 1));
+            rec.PartEvents.Add(RoboticEvent(14.0, PartEventType.RoboticMotionStopped, 33f, pid: 101111, moduleIndex: 0));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Equal(3, tip.PartEvents.Count);
+            Assert.All(tip.PartEvents, e =>
+            {
+                Assert.Equal(PartEventType.RoboticMotionStopped, e.eventType);
+                Assert.Equal(34.0, e.ut);
+            });
+            Assert.Contains(tip.PartEvents, e => e.partPersistentId == 100000u && e.moduleIndex == 0 && e.value == 11f);
+            Assert.Contains(tip.PartEvents, e => e.partPersistentId == 100000u && e.moduleIndex == 1 && e.value == 22f);
+            Assert.Contains(tip.PartEvents, e => e.partPersistentId == 101111u && e.moduleIndex == 0 && e.value == 33f);
+        }
+
+        [Fact]
+        public void SplitAtUT_RealRoboticEventAtBoundary_SeedSuppressedByDedupe()
+        {
+            // A real robotic event already sitting at splitUT carries its own pose;
+            // inserting a seed for the same key would double-apply.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-robotic-boundary", midUT: 34.0);
+            rec.PartEvents.Add(RoboticEvent(10.0, PartEventType.RoboticMotionStopped, 42f));
+            rec.PartEvents.Add(RoboticEvent(34.0, PartEventType.RoboticMotionStarted, 42f));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.RoboticMotionStarted, tip.PartEvents[0].eventType);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("transient state seed event(s) at split UT")
+                && l.Contains("skippedExistingBoundary=1"));
+        }
+
+        [Fact]
+        public void SplitAtUT_RoboticPlusPermanentSeed_PermanentSeedsStillPrecedeTransient()
+        {
+            // ForwardPermanentStateEvents inserts at the front AFTER the transient
+            // insertion, so the ordering contract is permanent -> transient. The
+            // robotic seed must not disturb it.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-robotic-order", midUT: 34.0);
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 12.0,
+                partPersistentId = 102222,
+                eventType = PartEventType.ShroudJettisoned,
+                partName = "shroud",
+            });
+            rec.PartEvents.Add(RoboticEvent(20.0, PartEventType.RoboticMotionStopped, 42f));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Equal(2, tip.PartEvents.Count);
+            Assert.Equal(PartEventType.ShroudJettisoned, tip.PartEvents[0].eventType);
+            Assert.Equal(PartEventType.RoboticMotionStopped, tip.PartEvents[1].eventType);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_RoboticEventsAfterSplitUT_Ignored()
+        {
+            // Direct reducer cell: only events at or before splitUT feed the seed.
+            var events = new List<PartEvent>
+            {
+                RoboticEvent(10.0, PartEventType.RoboticMotionStopped, 42f),
+                RoboticEvent(50.0, PartEventType.RoboticMotionStopped, 99f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Single(seeds);
+            Assert.Equal(42f, seeds[0].value);
+            Assert.Equal(34.0, seeds[0].ut);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_RoboticZeroPose_StillEmitsSeed()
+        {
+            // Unlike the AppendActiveStateSeeds families, a robotic seed is emitted
+            // unconditionally: value 0 is a real pose (fully retracted), and the tail
+            // may need it to undo a prefab pose that is NOT zero.
+            var events = new List<PartEvent>
+            {
+                RoboticEvent(10.0, PartEventType.RoboticMotionStarted, 30f),
+                RoboticEvent(20.0, PartEventType.RoboticMotionStopped, 0f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Single(seeds);
+            Assert.Equal(PartEventType.RoboticMotionStopped, seeds[0].eventType);
+            Assert.Equal(0f, seeds[0].value);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_RoboticAndEngineSameKey_BothFamiliesSeeded()
+        {
+            // Family ids must not collide: the engine reducer and the robotic reducer
+            // both key by EncodeEngineKey, so a part with an engine and a servo at the
+            // same module index must produce two independent seeds.
+            var events = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 10.0,
+                    partPersistentId = 100000,
+                    eventType = PartEventType.EngineIgnited,
+                    partName = "engine",
+                    value = 0.8f,
+                    moduleIndex = 0,
+                },
+                RoboticEvent(11.0, PartEventType.RoboticMotionStopped, 42f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Equal(2, seeds.Count);
+            Assert.Contains(seeds, s => s.eventType == PartEventType.EngineIgnited && s.value == 0.8f);
+            Assert.Contains(seeds, s => s.eventType == PartEventType.RoboticMotionStopped && s.value == 42f);
+        }
+
+        #endregion
+
+        #region Inactive-direction reversible seeds (post-M1 stale-baseline correction)
+
+        private static PartEvent VisualEvent(
+            double ut, PartEventType type, uint pid = 100000, float value = 0f)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = pid,
+                eventType = type,
+                partName = "reversiblePart",
+                value = value,
+            };
+        }
+
+        /// <summary>
+        /// The exact spaceplane scenario the M1 baseline regressed: gear DOWN in the
+        /// launch-time snapshot the split TIP inherits, retracted during the head span,
+        /// then a routine env-boundary split. Pre-fix the TIP got no seed at all and its
+        /// ghost rendered gear down for its whole span; the seed is the only thing that can
+        /// override a stale baseline.
+        /// </summary>
+        [Theory]
+        [InlineData(PartEventType.GearDeployed, PartEventType.GearRetracted)]
+        [InlineData(PartEventType.DeployableExtended, PartEventType.DeployableRetracted)]
+        [InlineData(PartEventType.CargoBayOpened, PartEventType.CargoBayClosed)]
+        [InlineData(PartEventType.LightOn, PartEventType.LightOff)]
+        [InlineData(PartEventType.LightBlinkEnabled, PartEventType.LightBlinkDisabled)]
+        [InlineData(PartEventType.ParachuteSemiDeployed, PartEventType.ParachuteCut)]
+        public void BuildTransientStateSeeds_ActiveThenInactiveBeforeSplit_SeedsInactiveDirection(
+            PartEventType onEvent, PartEventType offEvent)
+        {
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, onEvent),
+                VisualEvent(20.0, offEvent),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(offEvent, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.Equal(100000u, seed.partPersistentId);
+        }
+
+        [Theory]
+        [InlineData(PartEventType.GearRetracted)]
+        [InlineData(PartEventType.DeployableRetracted)]
+        [InlineData(PartEventType.CargoBayClosed)]
+        [InlineData(PartEventType.LightOff)]
+        [InlineData(PartEventType.ParachuteCut)]
+        public void BuildTransientStateSeeds_InactiveOnlyBeforeSplit_StillSeeds(
+            PartEventType offEvent)
+        {
+            // No paired "on" event in the head span: the inactive state is still the
+            // observed truth at the cut, and still the only correction available for a
+            // stale launch-time baseline that says the opposite.
+            var events = new List<PartEvent> { VisualEvent(20.0, offEvent) };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(offEvent, seed.eventType);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_InactiveSeedsSurviveIntoTheTip()
+        {
+            // End-to-end through SplitAtUT rather than the reducer: the TIP's PartEvents
+            // must actually carry the retract at its start UT.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-retract", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent seed = Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.GearRetracted, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("visualStatesOff=1"));
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_ParachuteDestroyed_NoDuplicateAgainstPermanentForward()
+        {
+            // ParachuteDestroyed is in IsPermanentVisualStateEvent, so
+            // ForwardPermanentStateEvents copies it verbatim — and it runs AFTER the
+            // transient insertion, so the boundary dedupe cannot see the forwarded copy.
+            // The inactive emitter therefore has to skip it itself or the TIP gets two.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-destroyed", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.ParachuteDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteDestroyed));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.ParachuteDestroyed, tip.PartEvents[0].eventType);
+        }
+
+        /// <summary>
+        /// MERGED-BEHAVIOR CELL (bidirectional seed emission x the four-state parachute
+        /// machine). Neither branch could state this alone: the four-state machine gave
+        /// Repacked its own event type and its own cap-restoring pose, and bidirectional
+        /// emission is what makes an INACTIVE terminal state reach the tail as a seed at
+        /// all. Composed, the pair has to carry the terminal state ACROSS the cut with its
+        /// identity intact — a repacked chute and a cut chute are both "not flying" and
+        /// were both once seeded as nothing, but they render differently, so collapsing
+        /// them to one inactive type (or to no seed) is now a visible defect on the TIP.
+        ///
+        /// Deployed -> Cut -> Repacked is the ordering that makes it discriminating: it is
+        /// the full EVA repack story, and every intermediate state is one the reducer must
+        /// discard in favour of the last.
+        /// </summary>
+        [Fact]
+        public void SplitAtUT_HeadEndsRepacked_TipSeedsRepacked_AndRendersStowedWithCap()
+        {
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-repacked", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.ParachuteDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteCut));
+            rec.PartEvents.Add(VisualEvent(25.0, PartEventType.ParachuteRepacked));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent seed = Assert.Single(tip.PartEvents);
+            // The seed TYPE is the terminal state verbatim, not a shared inactive token.
+            Assert.Equal(PartEventType.ParachuteRepacked, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            // ...and the type the seed carries is the one that puts the cap BACK, which is
+            // what "stowed with cap" means at the transform level. Asserting the render
+            // decision off the SEED (rather than restating the table) is the whole point:
+            // it closes the loop from the optimizer's choice to the ghost's pose.
+            Assert.True(GhostPlaybackLogic.TryResolveParachuteCapActive(
+                seed.eventType, out bool capActive));
+            Assert.True(capActive);
+        }
+
+        /// <summary>
+        /// The CUT-terminal variant of the cell above, and the reason that one is not
+        /// vacuous: same reducer, same emitter, same head prefix — only the last event
+        /// differs — and the tail must render the OPPOSITE cap state. If the merge had
+        /// collapsed the parachute family to a single inactive seed type, these two cells
+        /// would disagree with each other rather than both passing.
+        /// </summary>
+        [Fact]
+        public void SplitAtUT_HeadEndsCut_TipSeedsCut_AndRendersWithCapHidden()
+        {
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-cut", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.ParachuteDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteCut));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent seed = Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.ParachuteCut, seed.eventType);
+            Assert.Equal(34.0, seed.ut);
+            Assert.True(GhostPlaybackLogic.TryResolveParachuteCapActive(
+                seed.eventType, out bool capActive));
+            Assert.False(capActive);
+        }
+
+        /// <summary>
+        /// A repack UNDOES a cut for seeding purposes, so the two must not both survive the
+        /// reducer: the parachute family is latest-state-wins on ONE key, and a TIP holding
+        /// both a Cut and a Repacked seed would apply them in list order and land on
+        /// whichever happened to be last. Guards the family-9 collapse itself rather than
+        /// the type carried out of it.
+        /// </summary>
+        [Fact]
+        public void BuildTransientStateSeeds_CutThenRepacked_CollapsesToOneRepackedSeed()
+        {
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, PartEventType.ParachuteDeployed),
+                VisualEvent(20.0, PartEventType.ParachuteCut),
+                VisualEvent(25.0, PartEventType.ParachuteRepacked),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(PartEventType.ParachuteRepacked, seed.eventType);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("visualStatesOff=1"));
+        }
+
+        /// <summary>
+        /// The other half of the composition: family-9 (parachute, main's ParachuteRepacked)
+        /// and family-10 (robotics, this branch's servo poses) must keep DISTINCT ids, or the
+        /// boundary dedupe would let a chute event at the split suppress a servo seed for the
+        /// same part — the two families are keyed differently (parachutes pid-collapsed,
+        /// robotics module-scoped), so a collision is silent rather than loud.
+        /// </summary>
+        [Fact]
+        public void SplitAtUT_ParachuteAndRoboticSeeds_BothSurviveOnTheSamePart()
+        {
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-and-servo", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.ParachuteRepacked));
+            rec.PartEvents.Add(VisualEvent(25.0, PartEventType.RoboticPositionSample, value: 37.5f));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Equal(2, tip.PartEvents.Count);
+            Assert.Contains(tip.PartEvents, e => e.eventType == PartEventType.ParachuteRepacked);
+            PartEvent servo = Assert.Single(
+                tip.PartEvents.Where(e => e.eventType == PartEventType.RoboticMotionStopped));
+            Assert.Equal(37.5f, servo.value);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_BlinkRateOnly_NoBlinkDisabledSeed()
+        {
+            // A bare LightBlinkRate synthesises an inactive blink state, but nothing in
+            // the head span ever SAID blink was off. Emitting LightBlinkDisabled would
+            // turn a snapshot-blinking lamp solid off the back of a rate change.
+            var events = new List<PartEvent>
+            {
+                VisualEvent(20.0, PartEventType.LightBlinkRate, value: 2.5f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Empty(seeds);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_BlinkDisabledThenRate_SeedsDisabledWithTheRate()
+        {
+            // Once an explicit LightBlinkDisabled has been seen the state IS known, so a
+            // later rate change keeps the disabled direction and carries the new rate.
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, PartEventType.LightBlinkDisabled),
+                VisualEvent(20.0, PartEventType.LightBlinkRate, value: 2.5f),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            PartEvent seed = Assert.Single(seeds);
+            Assert.Equal(PartEventType.LightBlinkDisabled, seed.eventType);
+            Assert.Equal(2.5f, seed.value);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_ThermalCold_StaysUnseeded()
+        {
+            // Heat is the one reversible family deliberately left active-only: cold is
+            // what the spawn pass lays down anyway and the M1 parser reads no heat key,
+            // so there is no stale baseline for a cold seed to correct.
+            var events = new List<PartEvent>
+            {
+                VisualEvent(10.0, PartEventType.ThermalAnimationHot),
+                VisualEvent(20.0, PartEventType.ThermalAnimationCold),
+            };
+
+            List<PartEvent> seeds = RecordingOptimizer.BuildTransientStateSeeds(events, 34.0);
+
+            Assert.Empty(seeds);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_InactiveSeedSuppressedByMatchingBoundaryEvent()
+        {
+            // The dedupe machinery already in place must swallow the inactive seed when
+            // the TIP's own first event says the same thing at the same UT.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-boundary", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+            rec.PartEvents.Add(VisualEvent(34.0, PartEventType.GearRetracted));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Single(tip.PartEvents);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("skippedExistingBoundary=1"));
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_InactiveSeedPrecedesTheTipsOwnLaterRedeploy()
+        {
+            // A TIP that re-deploys LATER in its own span still needs the retracted seed
+            // at its start, and the seed must sit before the real event so the replay
+            // walks retracted -> deployed rather than the reverse.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-redeploy", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+            rec.PartEvents.Add(VisualEvent(40.0, PartEventType.GearDeployed));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Equal(2, tip.PartEvents.Count);
+            Assert.Equal(PartEventType.GearRetracted, tip.PartEvents[0].eventType);
+            Assert.Equal(34.0, tip.PartEvents[0].ut);
+            Assert.Equal(PartEventType.GearDeployed, tip.PartEvents[1].eventType);
+            Assert.Equal(40.0, tip.PartEvents[1].ut);
+        }
+
+        [Fact]
+        public void BuildTransientStateSeeds_OpposingEventExactlyAtTheCutWinsInTheReducer()
+        {
+            // An event AT splitUT is inside the reducer's window (SplitSeedTimeEpsilon),
+            // so the seed it produces already agrees with it — and the boundary dedupe
+            // then drops the duplicate. The TIP keeps exactly the real event.
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-at-cut", midUT: 34.0);
+            rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));
+            rec.PartEvents.Add(VisualEvent(20.0, PartEventType.GearRetracted));
+            rec.PartEvents.Add(VisualEvent(34.0, PartEventType.GearDeployed));
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            PartEvent only = Assert.Single(tip.PartEvents);
+            Assert.Equal(PartEventType.GearDeployed, only.eventType);
+            Assert.Equal(34.0, only.ut);
+        }
+
+        #endregion
     }
 }

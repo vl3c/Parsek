@@ -178,6 +178,17 @@ namespace Parsek
         public float currentValue;
         public bool active;
         public double lastUpdateUT = double.NaN;
+        /// <summary>
+        /// The pose this servo starts every playback cycle from: the M1 snapshot value
+        /// when one was read, else 0f — which by construction IS the prefab pose, because
+        /// <c>stowedPos</c>/<c>stowedRot</c> are captured from the prefab-mirrored ghost
+        /// transform and <c>ApplyRoboticPose(info, 0f)</c> is the identity offset. Never
+        /// seeded from the prefab's own scalar field: the transform already embodies it,
+        /// so applying it again would double-count.
+        /// </summary>
+        public float spawnValue;
+        /// <summary>True when <see cref="spawnValue"/> came from the snapshot rather than defaulting to the prefab pose.</summary>
+        public bool hasSnapshotBaseline;
         // WheelGroundSpeed mode only: the wheel's rolling radius in metres, read at build time from
         // ModuleWheelBase.radius (a [KSPField]) times the part's rescaleFactor, matching how stock
         // sizes the wheel collider. Falls back to
@@ -288,6 +299,14 @@ namespace Parsek
         public List<ColorChangerGhostInfo> colorChangerInfos = new List<ColorChangerGhostInfo>();
         public List<CompoundPartGhostInfo> compoundPartInfos = new List<CompoundPartGhostInfo>();
         public List<AudioGhostInfo> audioInfos = new List<AudioGhostInfo>();
+        /// <summary>
+        /// Per-part module state read out of the snapshot PART nodes as the build walks
+        /// them (M1). Keyed by persistentId; only parts with something readable get an
+        /// entry. Consumed once by <c>GhostPlaybackLogic.ApplySnapshotBaselines</c> and
+        /// kept on the playback state so a loop cycle can restore the same baseline.
+        /// </summary>
+        public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines =
+            new Dictionary<uint, SnapshotPartBaseline>();
     }
 
     /// <summary>
@@ -310,5 +329,10 @@ namespace Parsek
         public List<ColorChangerGhostInfo> colorChangerInfos;
         public List<CompoundPartGhostInfo> compoundPartInfos;
         public List<AudioGhostInfo> audioInfos;
+        /// <summary>
+        /// Per-part snapshot module baselines (M1), keyed by persistentId. Null when the
+        /// snapshot carried nothing readable — which is also the pre-M1 behaviour.
+        /// </summary>
+        public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines;
     }
 }

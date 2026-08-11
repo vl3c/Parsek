@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 using Xunit;
 
@@ -473,12 +474,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildTransientStateSeeds_TailAfterCutThenRepack_RendersTheStowedBuildTimePose()
+        public void BuildTransientStateSeeds_TailAfterCutThenRepack_SeedsTheRepackedPose()
         {
-            // The brief's split-tail case. A repack collapses to "inactive" exactly like a cut, and
-            // AppendActiveStateSeeds emits nothing for an inactive state — so the tail carries NO
-            // parachute seed and renders from the ghost's build-time pose: canopy hidden, cap on,
-            // which is precisely a repacked chute. A forwarded cut seed would hide the cap again.
+            // The brief's split-tail case, RESTATED for the bidirectional seed emitter this
+            // fix was merged with. The visual verdict is unchanged — the tail renders
+            // canopy hidden, cap on, which is precisely a repacked chute — but the route to
+            // it is now explicit rather than implied.
+            //
+            // WHAT CHANGED AND WHY. This cell used to assert the tail carried NO parachute
+            // seed: a repack collapsed to "inactive" exactly like a cut, the active-only
+            // emitter emitted nothing for an inactive state, and the tail fell back to the
+            // ghost's BUILD-TIME pose, which happened to be the stowed-with-cap pose. That
+            // reasoning depended on the tail's ghost spawning at the all-stowed prefab pose.
+            // It no longer does: a split TIP spawns from a snapshot baseline, and a TIP's
+            // snapshot is a COPY of the parent's LAUNCH-time snapshot, so "no seed" now
+            // means "whatever the chute looked like at launch" — which for a chute that
+            // deployed and was repacked mid-flight is not the repacked pose at all. The
+            // terminal state has to be STATED, so AppendReversibleStateSeeds emits the
+            // inactive direction verbatim.
+            //
+            // The original risk this cell was written against is still guarded, and by the
+            // same assertion: the seed must be ParachuteRepacked and NOT ParachuteCut. A cut
+            // seed would hide the cap again, which was the whole defect.
             var events = new List<PartEvent>
             {
                 Chute(100.0, PartEventType.ParachuteDeployed),
@@ -488,7 +505,15 @@ namespace Parsek.Tests
 
             var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
 
-            Assert.DoesNotContain(seeds, s => IsParachuteEvent(s.eventType));
+            var chuteSeed = Assert.Single(seeds.Where(s => IsParachuteEvent(s.eventType)));
+            Assert.Equal(PartEventType.ParachuteRepacked, chuteSeed.eventType);
+            Assert.Equal(300.0, chuteSeed.ut);
+
+            // And the seeded type is the one that puts the cap back — the rendered pose the
+            // cell's old name asserted, now read off the seed instead of off the prefab.
+            Assert.True(GhostPlaybackLogic.TryResolveParachuteCapActive(
+                chuteSeed.eventType, out bool capActive));
+            Assert.True(capActive);
         }
 
         [Fact]

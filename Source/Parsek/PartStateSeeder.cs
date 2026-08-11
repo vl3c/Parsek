@@ -21,7 +21,13 @@ namespace Parsek
         /// <param name="cachedEngines">Pre-cached engine module list (may be null).</param>
         /// <param name="cachedRcsModules">Pre-cached RCS module list (may be null).</param>
         /// <param name="seedColorChangerLights">If true, also seeds ColorChanger-based cabin lights
-        /// (FlightRecorder polls these; BackgroundRecorder does not).</param>
+        /// (FlightRecorder polls these; BackgroundRecorder does not). This flag is about
+        /// TRANSITION events only: since M1 the ghost's initial cabin-light state rides the
+        /// snapshot (GhostVisualBuilder.TryParseSnapshotPartBaseline reads
+        /// ModuleColorChanger.animState, and background split children capture their own
+        /// fresh snapshot), so a false flag no longer means "the ghost spawns dark". Do not
+        /// remove it: it still keeps the background recorder from emitting LightOn/LightOff
+        /// events for a module it does not poll.</param>
         /// <param name="logTag">Log subsystem tag ("Recorder" or "BgRecorder").</param>
         internal static void SeedPartStates(
             Vessel v,

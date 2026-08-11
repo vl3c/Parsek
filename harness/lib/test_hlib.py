@@ -2735,6 +2735,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
+        "H32-snapshot-baseline":     ("SnapshotBaseline", 7, "FLIGHT"),
         "H33-recorded-signals":      ("RecordedSignals", 3, "FLIGHT"),
     }
 
@@ -2778,31 +2779,6 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H31-crew-reservation": 3,
     }
 
-    # ONE MEMBER, and it is the AUTHORED-NOT-YET-FLOWN one. The set was empty from
-    # 2026-07-27 (H20, the previous holder, was re-flown ALONE that day so its log
-    # would survive the sweep, measured `total=2 passed=2 failed=0 skipped=0`, and
-    # pinned whole like the rest) until H33 arrived on 2026-08-11.
-    #
-    # H33-recorded-signals: authored by `recorded-signal-fixes` and never flown. Its
-    # total=3 is attribute-exact, but two of the three cells carry run-time
-    # InGameAssert.Skip guards over what the provisioned install actually LOADED - a
-    # part whose ModuleParachute has both a canopy and a cap transform resolvable on
-    # the prefab, and a part carrying a wheel MOTOR module whose spin transform the
-    # ghost builder resolves. Both are expected to hold on stock-minimal
-    # (parachuteSingle, roverWheel1) and "expected to hold" is not a measurement, so
-    # the pin leaves passed= / skipped= loose and says so in the spec header. Its
-    # `passed=[1-9][0-9]*` still rejects the whole vacuous family, and cell 1 (the
-    # Unity AngleAxis handedness proof) is pure math and cannot skip, which is what
-    # makes a floor of 1 rather than 0 honest. FIRST FLIGHT: pin all four numbers
-    # literally off the collected log, record any real skip in RUNTIME_SKIPS with its
-    # reason, and remove the id from this set.
-    #
-    # The guard this set provides runs in both directions: the interim form accepts
-    # 1-of-N by design, so an ACCIDENTAL interim pin is a real weakening.
-    # test_the_interim_pin_member_is_declared_and_deliberately_loose asserts the set
-    # and the loose-pin state agree exactly. Add an id here only alongside a written
-    # reason in the spec.
-    #
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
     # DERIVABLE from the attributes plus a reachable-Skip scan. For H20 it is MEASURED only - the
     # attributes put a floor of 0 on it and nothing more, and a fixture change that
@@ -2821,14 +2797,26 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # satisfied.
     # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
     # (the form accepts 1-of-N by design), so it should exist only between a spec
-    # landing and its first flight. H33-recorded-signals was the one member; it FLEW
-    # 2026-08-11 (run `2026-08-11_1118`, PASS attempt 1) reading
-    # `total=3 passed=3 failed=0 skipped=0`, its spec now pins that whole, and the
-    # entry is dropped. Both cells whose run-time Skip guards motivated the loose form
-    # EXECUTED on stock-minimal - the stock chute prefab resolves both a canopy and a
-    # cap transform, and the stock rover wheel satisfied all four of its guards
-    # (motor module, resolved spin transform, a body-relative surface normal, and a
-    # spin axis not parallel to it) - so no RUNTIME_SKIPS entry is owed either.
+    # landing and its first flight. Two members passed through it and both are gone:
+    #
+    #   H32-snapshot-baseline FLEW 2026-08-11 (run `2026-08-11_1111`, PASS) reading
+    #   `total=7 passed=7 failed=0 skipped=0`. BOTH pre-flight reasons for leaving it
+    #   loose turned out not to hold - the stock-minimal profile DOES carry Breaking
+    #   Ground (the Clone phase junctions the dev install's whole
+    #   `GameData/SquadExpansion`, Serenity robotics included), and the four
+    #   deployable cells found stock prefabs whose animation clips do separate stow
+    #   from deploy. So a future interim pin justified by "the profile lacks X" should
+    #   CHECK the provisioned instance rather than reason from the profile's name.
+    #
+    #   H33-recorded-signals FLEW 2026-08-11 (run `2026-08-11_1118`, PASS attempt 1)
+    #   reading `total=3 passed=3 failed=0 skipped=0`. Both cells whose run-time Skip
+    #   guards motivated the loose form EXECUTED on stock-minimal - the stock chute
+    #   prefab resolves both a canopy and a cap transform, and the stock rover wheel
+    #   satisfied all four of its guards (motor module, resolved spin transform, a
+    #   body-relative surface normal, and a spin axis not parallel to it) - so no
+    #   RUNTIME_SKIPS entry is owed for either.
+    #
+    # Both specs now pin their tallies whole, so the set is empty again.
     INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -2874,8 +2862,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(25, len(self.GROUP),
-                         "the H7-H20 + H22-H33 group is 25 specs; if it genuinely changed "
+        self.assertEqual(26, len(self.GROUP),
+                         "the H7-H20 + H22-H33 group is 26 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5353,8 +5341,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # The category COUNT is hardcoded here on purpose: it is the one token the
         # table cannot self-check (a row added AND the totals line updated by hand
         # would agree with each other while both drifted from the source). 99 -> 100
-        # with the `ReFlyWorldPreservation` category (S4.2).
-        self.assertIn("**101 categories / %d declarations**" % stated_decls, body,
+        # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32).
+        self.assertIn("**102 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

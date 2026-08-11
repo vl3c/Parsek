@@ -1,0 +1,136 @@
+schema = 1
+id = "H32-snapshot-baseline"
+tier = "nightly"
+# BATCH-ONLY scenario, S1.4 / H6 pattern, for the NEW SnapshotBaseline category that
+# arrives with the M1 ghost snapshot-baseline fix (branch `ghost-snapshot-baseline`).
+#
+# WHY THE CATEGORY EXISTS AT ALL. The M1 parse is covered headlessly
+# (SnapshotBaselineParserTests, 57 cells) and so is the pure action resolution in front
+# of the appliers (SnapshotBaselineApplicationTests, 40 cells). What xUnit STRUCTURALLY
+# cannot reach is the appliers themselves: they touch Unity components, and calling
+# GhostPlaybackLogic.SetLightState or a canopy applier from a headless test throws
+# SecurityException ("ECall methods must be packaged into a system module") before it
+# runs a line. So "does a snapshot that says EXTENDED actually move the ghost's
+# transforms off the prefab stow pose" has no headless answer. These seven cells answer
+# it against a live PartLoader and live transforms.
+#
+# FIXTURE-INDEPENDENT BY CONSTRUCTION. Every cell authors its own one-part snapshot
+# ConfigNode over a stock part it discovers through PartLoader, so none of them reads
+# the recording store - which is why this spec injects NO corpus and pins a zero
+# recordings count (a leak into the save must red).
+#
+# PIN IS NOW MEASURED. **FLOWN 2026-08-11, run `2026-08-11_1111`, PASS attempt 1,
+# wall 52 s**, and the interim form is retired: the batch printed
+# `BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=SnapshotBaseline
+# scene=FLIGHT`. ALL SEVEN CELLS EXECUTED - nothing skipped - so the pin below is
+# literal and this spec is no longer a member of
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS. The measured split also agrees with
+# the attribute derivation (`hlib.derive_batch_tally` -> total 7, attribute_skipped
+# 0), so it needs no RUNTIME_SKIPS entry.
+#
+# THE PRE-FLIGHT PREDICTION WAS WRONG IN ONE PLACE, AND THE CORRECTION IS THE
+# INTERESTING PART. This header used to state that
+# SnapshotServoAngle_PosesTheGhostServo "requires ... the Breaking Ground expansion.
+# The stock-minimal profile does not ship it, so this cell is EXPECTED to
+# InGameAssert.Skip". **That premise is false.** The stock-minimal profile JUNCTIONS
+# the dev install's `GameData/SquadExpansion` wholesale (provision.py Clone phase:
+# `junction GameData/SquadExpansion -> ...`), and that tree carries `Serenity/Parts/
+# Robotics/` - hinge_01/03/04, piston_01, the rotors - i.e. Breaking Ground IS
+# present on this profile. The cell accordingly EXECUTED and passed, logging
+# `Snapshot baseline applied: parts=1 deployables=0 parachutes=0 lights=0 servos=1
+# servosSkipped=0`, which is the end-to-end parser -> ordinal-name-check ->
+# ApplyRoboticPose proof actually landing rather than being deferred to "a profile
+# with the expansion".
+#
+# THAT FLIGHT'S SERVO PROOF WAS OVER THE WRONG KEY, and the cell has since been
+# rewritten. It authored the LIVE probe plan's primary field
+# (`FlightRecorder.ResolveRoboticFieldPlan` -> `currentAngle` / `currentRPM` /
+# `currentPosition`), none of which is `isPersistant`, so no production snapshot ever
+# carries one - the flight proved the pose path over a key shape that does not exist.
+# It now asks `GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey` for the key a real
+# snapshot persists (hinge / rotation servo -> `targetAngle`, piston ->
+# `targetExtension`) and skips rotors, which have no persisted spin key at all. Cell
+# COUNT is unchanged at 7 and a hinge/piston candidate is present on this profile, so
+# the measured tally below still holds; the servo cell needed a RE-FLY to re-measure
+# its own pass, not a new pin.
+#
+# THAT RE-FLY IS FLOWN: **2026-08-11, run `2026-08-11_1643`, PASS attempt 1, wall
+# 53 s**, against the corrected code (branch tip `aee854e03`). The pin printed token
+# for token - `BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0
+# category=SnapshotBaseline scene=FLIGHT` - so no pin moved, and all seven cells
+# PASSED individually. The servo cell EXECUTED (it did NOT skip) and now proves the
+# pose path over a key production actually writes, logging `SnapshotBaseline:
+# 'hinge.01' servo 'ModuleRoboticServoHinge' posed to 37.5 via persisted key
+# 'targetAngle' at spawn (mode=Rotational)` alongside `Snapshot baseline applied:
+# parts=1 deployables=0 parachutes=0 lights=0 servos=1 servosSkipped=0`. The
+# candidate the resolver picked is a Breaking Ground hinge, which re-confirms the
+# SquadExpansion-junction finding above from the other direction. This flight also
+# read `unityExceptions total=0`, where the first flight reported 3 NREs.
+#
+# The four deployable cells were an honest measurement rather than a guess (whether a
+# stock prefab's animation clip separates stow from deploy by >1 cm / >0.5 deg is a
+# property of the clip, not of any attribute), and the measurement came back
+# POSITIVE: the three deployState cells and the gear cell all executed, each logging
+# `Snapshot baseline applied: parts=1 deployables=1 ...`. So no cell in this category
+# passes vacuously over a part whose animation moves nothing - the trap H15's header
+# documents - and no cell is currently deferred.
+description = "Run the in-game SnapshotBaseline category unattended: a snapshot saying deployState=EXTENDED / gear Deployed / a non-zero servo pose really moves the ghost's live transforms off the prefab stow pose, a mid-travel state deliberately does not, the loop-cycle restore puts a displaced servo transform back, and a MODULE-less snapshot produces no baseline at all."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ghost-visuals", "snapshot-baseline", "H32"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host, the family's FLIGHT boot. No injected recordings:
+# nothing in this category reads the recording store.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SnapshotBaseline" },              expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the subject is the ghost BUILD + spawn-baseline application over authored
+# snapshots, in a SANDBOX FLIGHT host. No D6 playback token - nothing is positioned or
+# played back here; no D16 sidecar token - the snapshots are authored in-memory rather
+# than read from a recording's sidecars.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7): a bare allowedAnomalies written after a
+# [expectations.<sub>] header is TOML-scoped to that sub-table and never read.
+allowedAnomalies = []
+
+[expectations.recordings]
+# Nothing here records, and the batch-isolation contract reverts persistent.sfs, so a
+# non-zero count means a leak.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The verboseLogging pin above is what makes the baseline summary line available; the
+# BATCH_COMPLETE pin is the gate. "Snapshot baseline applied" is the ApplySnapshotBaselines
+# summary (Verbose) and proves the spawn pass actually ran during the batch rather than
+# the cells only inspecting build output.
+required  = ["BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=SnapshotBaseline scene=FLIGHT",
+             "Snapshot baseline applied"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 720, the family default. The heaviest cell builds up to 16 candidate part-mesh
+# hierarchies in one frame (bounded by MaxCandidateParts) and holds them via
+# runner.TrackForCleanup until the cell ends - the same shape H15 measured at 70 s wall
+# while building 272 of them, so the budget has ample headroom. RE-MEASURE on the first
+# live run rather than trusting this note.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
