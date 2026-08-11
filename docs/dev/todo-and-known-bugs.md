@@ -231,13 +231,16 @@ direction.
 
 **Two deviations from the plan, both forced.**
 (1) `RetiringRecordingId` is the REWOUND ORIGIN child recording, not the session's
-provisional re-fly recording. The provisional does not exist yet at the chosen seam
-(`AtomicMarkerWrite` creates it), and - the load-bearing half - `TreeDiscardPurge`
-classifies a tombstone by its `RetiringRecordingId`, so pointing at the provisional would
-let a Re-Fly DISCARD delete these rows and resurrect the double-count. The resurrection is
-durable under both merge and discard, so its retirement must be too. `Inv7TreeTopology`
-also requires the id to resolve to a real recording, so a synthetic id would raise a
-`badlink ... kind=dangling` analyzer finding.
+provisional re-fly recording, and ONE reason decides it: the provisional does not exist yet
+at the chosen seam (`AtomicMarkerWrite` creates it), so there is no id to write.
+`Inv7TreeTopology` also requires the id to resolve to a real recording, so a synthetic
+placeholder would raise a `badlink ... kind=dangling` analyzer finding. The
+discard-durability argument first written here alongside it was OVERSTATED and is
+withdrawn: `TreeDiscardPurge.PurgeLedgerTombstones` classifies primarily by the RETIRED
+ACTION's owning recording (indexed from `Ledger.Actions`) and falls back to
+`RetiringRecordingId` only when the target action is no longer in the ledger. These
+tombstones target actions owned by the origin recording, which a Re-Fly discard does not
+purge, so the primary path leaves them alone whichever id is written.
 (2) No `CL-4` harness scenario. The plan asked for one, but every `required` regex in an
 un-flown spec is a guess, and the harness's own committed-spec gates (anti-vacuity,
 `CommittedBatchTallySourceSyncTests`, the coverage registry) exist to reject exactly that.
@@ -251,6 +254,14 @@ may be armed gating until that reading run exists.
 it implied. Not a protection gap: the crew are aboard the resurrected vessel in the loaded
 world, so the LIVE roster (Assigned to that vessel) protects them from there, exactly as
 for any other crew in flight.
+
+**Residual, stated deliberately.** A recording whose launch guid is unknown (legacy /
+pre-guid recordings, where `Recording.RecordedVesselGuid` was never captured) never matches
+`IsPositivelySameLaunch` and so keeps its recovery double-count after a resurrection. That
+is the intended trade: the alternative is a pid-only match, and `persistentId` is
+craft-baked and reused on every launch, so pid-only would eventually take funds back for a
+recovery that genuinely happened on a different launch of the same design. Leaving a stale
+double-count is the pro-player direction; clawing back funds the player earned is not.
 
 **Advisory.** `ComposeReFlyAdvisoryBody` gains the sentence "Craft you recovered after this
 point are back in flight, and their recovery rewards are returned to the ledger." Pinned by

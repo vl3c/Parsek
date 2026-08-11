@@ -502,10 +502,25 @@ namespace Parsek
         /// rebuilding it from the zero-progress accept-time snapshot.
         ///
         /// <para>
-        /// Runs inside the deferred body BEFORE the quicksave, so the RP's own .sfs also
-        /// carries these rows (the ParsekScenario serializer writes the store) and the
-        /// snapshot UT is exactly the quicksave UT — the two cannot drift, because nothing
-        /// advances the clock between them.
+        /// Runs inside the deferred body BEFORE the quicksave, so the snapshot UT is exactly
+        /// the quicksave UT — the two cannot drift, because nothing advances the clock
+        /// between them.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Where these rows actually live.</b> NOT in the RP's own <c>.sfs</c>: the RP
+        /// quicksave runs <c>ParsekScenario.OnSave</c>, whose
+        /// <c>PersistGameStateAndMilestones</c> writes only a <c>gameStateEventCount</c> value
+        /// into the save node and pushes the store itself out through
+        /// <c>GameStateStore.SaveEventFile</c>, which is SAVE-SCOPED
+        /// (<c>&lt;save&gt;/Parsek/GameState/events.pgse</c>) and shared by every quicksave in
+        /// the save. That is STRONGER than a per-.sfs copy for the cutoff-selection contract
+        /// this feature depends on: <see cref="GameStateStore.GetContractSnapshotForPatch"/>
+        /// picks a snapshot by RP-tagged UT against a cutoff, so every RP's snapshot has to be
+        /// visible from whichever save is loaded, not only from the one .sfs it was taken
+        /// alongside. The rows are reaped with their RP via
+        /// <c>GameStateStore.PurgeContractSnapshotsForRewindPoint</c>, so the shared file does
+        /// not grow without bound.
         /// </para>
         ///
         /// Per-contract try/catch mirrors the accept-time precedent: one contract whose

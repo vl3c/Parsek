@@ -1455,28 +1455,6 @@ namespace Parsek
         #region Kerbal Experience Handlers
 
         /// <summary>
-        /// Captures the career-log entries a recovery just archived for each crew member.
-        ///
-        /// <para>
-        /// <b>Why this seam.</b> Decompile-verified against KSP 1.12.5: there is NO
-        /// <c>GameEvents.OnExperienceRecorded</c> - the <c>GameEvents</c> class carries no
-        /// experience-named member at all. What DOES exist is the ordering inside
-        /// <c>VesselRecovery</c>: <c>recoverVesselCrew</c> (which calls
-        /// <c>ProtoCrewMember.ArchiveFlightLog()</c> once per crew member) runs IMMEDIATELY
-        /// BEFORE <c>GameEvents.onVesselRecoveryProcessing.Fire</c>. So by the time this
-        /// handler runs, every crew member's <c>careerLog</c> already carries the entries the
-        /// recovery archived and <c>flightLog</c> has been cleared. This is the only seam that
-        /// sees the archive as a completed fact without patching stock.
-        /// </para>
-        ///
-        /// <para>
-        /// The facet records the ARCHIVED ENTRIES, not a numeric XP: stock recomputes
-        /// <c>experience</c> from the career log every time it is asked, and the flight NUMBER
-        /// is part of the scoring (entries are grouped by flight and deduped across groups). A
-        /// number could not be safely re-asserted; a set of entries can.
-        /// </para>
-        /// </summary>
-        /// <summary>
         /// Pure guard set for <see cref="OnVesselRecoveryProcessingForExperience"/>: the SAME
         /// set <c>ParsekScenario.OnVesselRecoveryProcessing</c> carries on this event, plus
         /// the crew-suppression flag.
@@ -1503,6 +1481,28 @@ namespace Parsek
             return isReplayingActions || suppressCrewEvents || isGhostMapVessel || isRewinding;
         }
 
+        /// <summary>
+        /// Captures the career-log entries a recovery just archived for each crew member.
+        ///
+        /// <para>
+        /// <b>Why this seam.</b> Decompile-verified against KSP 1.12.5: there is NO
+        /// <c>GameEvents.OnExperienceRecorded</c> - the <c>GameEvents</c> class carries no
+        /// experience-named member at all. What DOES exist is the ordering inside
+        /// <c>VesselRecovery</c>: <c>recoverVesselCrew</c> (which calls
+        /// <c>ProtoCrewMember.ArchiveFlightLog()</c> once per crew member) runs IMMEDIATELY
+        /// BEFORE <c>GameEvents.onVesselRecoveryProcessing.Fire</c>. So by the time this
+        /// handler runs, every crew member's <c>careerLog</c> already carries the entries the
+        /// recovery archived and <c>flightLog</c> has been cleared. This is the only seam that
+        /// sees the archive as a completed fact without patching stock.
+        /// </para>
+        ///
+        /// <para>
+        /// The facet records the ARCHIVED ENTRIES, not a numeric XP: stock recomputes
+        /// <c>experience</c> from the career log every time it is asked, and the flight NUMBER
+        /// is part of the scoring (entries are grouped by flight and deduped across groups). A
+        /// number could not be safely re-asserted; a set of entries can.
+        /// </para>
+        /// </summary>
         internal void OnVesselRecoveryProcessingForExperience(
             ProtoVessel pv, KSP.UI.Screens.MissionRecoveryDialog dialog, float recoveryFactor)
         {

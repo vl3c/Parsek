@@ -1412,12 +1412,18 @@ namespace Parsek
             }
 
             // RetiringRecordingId is the REWOUND origin recording, not the session's
-            // provisional. Two reasons, both load-bearing: the provisional does not exist
-            // until AtomicMarkerWrite runs (after this point), and a Re-Fly DISCARD prunes
-            // the attempt topology — TreeDiscardPurge classifies a tombstone by its
-            // RetiringRecordingId, so pointing at the provisional would let a discard delete
-            // these rows and resurrect the double-count. The resurrection itself is durable
-            // under discard, so its retirement must be too.
+            // provisional, and the reason that decides it is simply that the provisional does
+            // not exist yet: AtomicMarkerWrite creates it after this point, so there is no id
+            // to write. (Inv7TreeTopology also requires the id to resolve to a real recording,
+            // so a synthetic placeholder would raise a `badlink ... kind=dangling` finding.)
+            //
+            // A discard-durability argument was originally offered alongside it and is
+            // OVERSTATED: TreeDiscardPurge.PurgeLedgerTombstones classifies primarily by the
+            // RETIRED ACTION's owning recording, indexed from Ledger.Actions, and falls back
+            // to RetiringRecordingId only when the target action is no longer in the ledger.
+            // These tombstones target actions owned by the origin recording, which a Re-Fly
+            // discard does not purge, so the primary path already leaves them alone whichever
+            // id is written here. Reason 1 stands on its own.
             string retiringRecordingId = selected?.OriginChildRecordingId;
 
             if (scenario.LedgerTombstones == null)
