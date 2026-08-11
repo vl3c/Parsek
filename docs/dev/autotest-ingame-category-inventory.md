@@ -131,7 +131,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Periodicity` | 11 | 1 | 7 | 0 | 3 | 5 | M2 | B |
+| `Periodicity` | 12 | 1 | 8 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
@@ -189,12 +189,12 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **99 categories / 549 declarations**. Buckets **A 27 categories
-(192 declarations)**, **B 72 categories (357 declarations)**, **C 0 categories (0
+Totals, re-derived: **99 categories / 550 declarations**. Buckets **A 27 categories
+(192 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
 declarations)**. Driven by a committed spec: **35 of 99 categories**, up from 34
 (the S1.8 SoiCrossingPlayback wave; before that 28, and 8 two waves earlier).
-Measured against declarations rather than categories, that is 317 of 549 inside a
-driven category (was 314; 263 the wave before).
+Measured against declarations rather than categories, that is 318 of 550 inside a
+driven category (was 317; 314 and 263 the waves before).
 
 The 2026-08-05 wave (`wire-wave-2`, H26-H31) wired exactly the list the previous
 revision of this doc named as "the honest next wave": all five B6 members that
