@@ -14,6 +14,75 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-RESURRECTS-RECOVERED-CRAFT-KEEPS-REWARDS: a Re-Fly puts a recovered vessel back in the world while its recovery funds, science and crew rows stay banked~~ [#15, user-decided 2026-08-11. FIXED 2026-08-11, branch `ledger-facets`]
+
+Direct consequence of the `REFLY-DELETES-NON-SLOT-WORLD` fix below. Once the strip
+started PRESERVING unrelated vessels, a Re-Fly stopped deleting the craft the player had
+recovered after the rewind point - correct, that craft was flying at the rewind point -
+but nothing retired the recovery's career rewards. The player ended up with the craft AND
+its recovery funds, its recovery science, and a crew whose ledger row still said "safely
+home". Double-counted, unbounded, and with no player-facing way to give any of it back.
+
+**Seam.** `RewindInvoker.RunStripActivateMarker`, immediately after the post-strip
+spawn-state reconcile (so `CollectSurvivingVesselIdentities` has already settled) and
+BEFORE `AtomicMarkerWrite` and the Step-5 `RecalculateAndPatch(double.MaxValue)` with
+`authoritativeReduction=true` - the reduction must not be clamp-blocked by the drawdown
+guard. `ReconciliationBundle.Restore` is the wrong seam (it runs before `FlightGlobals`
+populates and doubles as the failed-load rollback); `LoadTimeSweep` is the wrong seam
+(later loads only, and classification rather than economy mutation).
+
+**Mechanism: tombstones, not removal.** Append-only `LedgerTombstone` rows, the
+codebase's retirement semantics (ELS = ledger minus tombstones, idempotent under the "at
+least one tombstone exists" rule). NOT physical row removal - that is Rec-1's path for
+free-standing route rows - and NOT `RecordingRewindRetirement`, which is
+recording-level.
+
+**Identity is guid-positive, and pid-only is FORBIDDEN.** New pure classifier
+`ResurrectionRetirementEligibility` (`Source/Parsek/GameActions/`). It deliberately does
+NOT use `VesselLaunchIdentity.LiveVesselIsRecordedLaunch`: that predicate degrades to
+pid-only when either launch guid is unknown, which is right for a visibility or dedup
+decision and wrong here, because the consequence is taking funds out of the player's
+account and `persistentId` is craft-baked and reused on every launch.
+`IsPositivelySameLaunch` requires pid equality AND both guids known AND equal.
+
+**Bundle.** Anchor = the recording's `FundsEarning` with `FundsSource == Recovery` and UT
+strictly after the Rec-1 retire cutoff (hoisted out of `ConsumePostLoad` and threaded in,
+so both consumers use the identical value rather than recomputing it after the
+`onFlightReady` deferral). Bundled = same-recording `ScienceEarning` within
+`RecoveryBundleUtWindow` (60 s) of an anchor - deliberately tight, because science
+TRANSMITTED mid-mission is not recovery science - plus same-recording `KerbalAssignment`
+rows with `KerbalEndState.Recovered`, matched by END STATE rather than UT because the
+crew's disposition IS the recovery. Stock awards no reputation for a plain vessel
+recovery, so nothing reputation-shaped is bundled. A zero-value recovery (a pod recovered
+at the pad) has no funds anchor and falls back to `Recording.EndUT`.
+
+**Two deviations from the plan, both forced.**
+(1) `RetiringRecordingId` is the REWOUND ORIGIN child recording, not the session's
+provisional re-fly recording. The provisional does not exist yet at the chosen seam
+(`AtomicMarkerWrite` creates it), and - the load-bearing half - `TreeDiscardPurge`
+classifies a tombstone by its `RetiringRecordingId`, so pointing at the provisional would
+let a Re-Fly DISCARD delete these rows and resurrect the double-count. The resurrection is
+durable under both merge and discard, so its retirement must be too. `Inv7TreeTopology`
+also requires the id to resolve to a real recording, so a synthetic id would raise a
+`badlink ... kind=dangling` analyzer finding.
+(2) No `CL-4` harness scenario. The plan asked for one, but every `required` regex in an
+un-flown spec is a guess, and the harness's own committed-spec gates (anti-vacuity,
+`CommittedBatchTallySourceSyncTests`, the coverage registry) exist to reject exactly that.
+Filed as the named next step instead: **fly a CL-4 that recovers a second vessel after the
+RP, invokes the Re-Fly, and asserts the vessel is alive AND the funds pool is lowered** -
+the `LedgerGroundTruth` pool facet is HARD, so a regression to the double-count reds there
+rather than needing a bespoke assertion. hlib expectations per the CL-3 precedent. Nothing
+may be armed gating until that reading run exists.
+
+**Crew note.** Retiring a `KerbalAssignment(Recovered)` also removes the Parsek reservation
+it implied. Not a protection gap: the crew are aboard the resurrected vessel in the loaded
+world, so the LIVE roster (Assigned to that vessel) protects them from there, exactly as
+for any other crew in flight.
+
+**Advisory.** `ComposeReFlyAdvisoryBody` gains the sentence "Craft you recovered after this
+point are back in flight, and their recovery rewards are returned to the ledger." Pinned by
+a new `ReFlyPreInvokeAdvisoryTests` cell.
+
 ## ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct]
 
 **What was measured.** The `bdock-recorded` fixture is the produced save of a FULLY

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -671,6 +671,8 @@ namespace Parsek
                 + "resource-survey unlocks, contract waypoint progress, and "
                 + "deployed-science gathered since then.\n\n"
                 + affected + "\n\n"
+                + "Craft you recovered after this point are back in flight, and their "
+                + "recovery rewards are returned to the ledger.\n\n"
                 + "Everything else stays where it is - your other vessels, stations, "
                 + "tracked asteroids and comets, and planted flags are all preserved.";
         }
@@ -1014,6 +1016,12 @@ namespace Parsek
             // comment / edge-case finding #4). The failed-load rollback (TryRestoreBundle)
             // uses the parameterless overload, so it retires nothing and the pre-rewind
             // ledger is restored intact.
+            // Rec-1's route-retire cutoff, hoisted so the #15 resurrected-recovery
+            // retirement downstream reuses the identical value rather than recomputing a
+            // slightly different one after the onFlightReady deferral.
+            double liveUTForCutoff = SafeNow();
+            double retireCutoffUT = liveUTForCutoff > 0.0 ? liveUTForCutoff : rp.UT;
+
             if (hasBundle)
             {
                 try
@@ -1028,8 +1036,7 @@ namespace Parsek
                     // world, which the re-fly would then double-apply (edge-case review
                     // finding #4). Fall back to rp.UT if the live UT is unavailable
                     // (SafeNow returns 0.0 on failure).
-                    double liveUT = SafeNow();
-                    double retireCutoffUT = liveUT > 0.0 ? liveUT : rp.UT;
+                    double liveUT = liveUTForCutoff;
                     ParsekLog.Info(InvokeTag,
                         $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
                     ReconciliationBundle.Restore(bundle, retireCutoffUT);
@@ -1065,7 +1072,7 @@ namespace Parsek
             // callback fires.
             if (IsFlightReady())
             {
-                RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath);
+                RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath, retireCutoffUT);
             }
             else
             {
@@ -1080,7 +1087,7 @@ namespace Parsek
                 // that never fires onFlightReady would leak the temp file
                 // and leave RewindInvokeContext half-cleared.
                 DeferUntilFlightReady(
-                    () => RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath),
+                    () => RunStripActivateMarker(rp, selected, sessionId, slotIdx, tempPath, retireCutoffUT),
                     tempPath);
             }
         }
@@ -1090,7 +1097,8 @@ namespace Parsek
             ChildSlot selected,
             string sessionId,
             int slotIdx,
-            string tempPath)
+            string tempPath,
+            double retireCutoffUT)
         {
             try
             {
@@ -1194,6 +1202,31 @@ namespace Parsek
                 {
                     ParsekLog.Warn(InvokeTag,
                         $"Post-strip spawn-state reconcile threw (non-fatal): {ex.Message}");
+                }
+
+                // Step 3b (#15): retire the recovery rewards of every vessel this Re-Fly
+                // just put back in the world. The strip preserved unrelated vessels, so a
+                // craft the player had RECOVERED after the rewind point is now flying again
+                // while its recovery funds/science/crew rows are still banked. Retiring them
+                // here — after the post-strip reconcile, so the surviving identities are
+                // settled, and BEFORE the marker write and the Step-5
+                // RecalculateAndPatch(double.MaxValue) with authoritativeReduction=true, so
+                // the funds/science reduction is not clamp-blocked by the drawdown guard.
+                //
+                // The retirement is DURABLE: Re-Fly discard prunes attempt topology, it does
+                // not reload the pre-invoke world, so the resurrection outlives both merge
+                // and discard and the tombstones must too. (The failed-LoadGame rollback via
+                // TryRestoreBundle restores the pre-invoke tombstone list — correct, because
+                // that path never loaded the world. Post-strip failure paths return without
+                // rollback while the world IS loaded, so tombstones persisting matches it.)
+                try
+                {
+                    RetireResurrectedVesselRecoveryRows(selected, retireCutoffUT);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(InvokeTag,
+                        $"Resurrected-recovery retirement threw (non-fatal): {ex.Message}");
                 }
 
                 // Step 4: §6.3 step 4 phases 1 + 2 — atomic provisional + marker write.
@@ -1315,6 +1348,135 @@ namespace Parsek
                 TryDeleteTemp(tempPath);
                 RewindInvokeContext.Clear();
             }
+        }
+
+        /// <summary>
+        /// Writes the <see cref="LedgerTombstone"/> rows that retire the recovery rewards of
+        /// every vessel this Re-Fly resurrected (#15). Pure classification is delegated to
+        /// <see cref="ResurrectionRetirementEligibility.Classify"/>; this is the live-side
+        /// wrapper that gathers the surviving identities, writes the rows, and logs.
+        ///
+        /// <para>
+        /// <b>Crew note.</b> Retiring a <see cref="GameActionType.KerbalAssignment"/> with end
+        /// state <see cref="KerbalEndState.Recovered"/> also removes the Parsek reservation
+        /// that row implied. That is correct and not a protection gap: the crew are aboard the
+        /// resurrected vessel in the loaded world, so the LIVE roster (Assigned to that
+        /// vessel) is what protects them from here, exactly as it does for any other crew in
+        /// flight.
+        /// </para>
+        ///
+        /// <para>
+        /// [ERS-exempt] Reads the RAW <c>Ledger.Actions</c> and the RAW committed list, for the
+        /// same reason <c>SupersedeCommit.CommitTombstones</c> does: this BUILDS a tombstone
+        /// set, and ELS is defined as "ledger minus tombstones", so reading ELS here would hide
+        /// exactly the rows that need retiring. The committed-list read is a physical
+        /// live-vessel-to-recording identity correlation, not a visibility walk.
+        /// </para>
+        /// </summary>
+        internal static void RetireResurrectedVesselRecoveryRows(
+            ChildSlot selected, double retireCutoffUT)
+        {
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    "Resurrected-recovery retirement: no ParsekScenario instance — skipping");
+                return;
+            }
+
+            var flightState = HighLogic.CurrentGame?.flightState;
+            if (flightState == null || flightState.protoVessels == null)
+            {
+                ParsekLog.Verbose(InvokeTag,
+                    "Resurrected-recovery retirement: no flightState — skipping");
+                return;
+            }
+
+            var survivingIdentities =
+                ParsekScenario.CollectSurvivingVesselIdentities(flightState.protoVessels);
+
+            var classified = ResurrectionRetirementEligibility.Classify(
+                survivingIdentities,
+                RecordingStore.CommittedRecordings,
+                Ledger.Actions,
+                retireCutoffUT);
+
+            var ic = CultureInfo.InvariantCulture;
+            if (classified.Count == 0)
+            {
+                ParsekLog.Info(InvokeTag,
+                    $"Resurrected-recovery retirement: none " +
+                    $"(survivors={survivingIdentities.Count.ToString(ic)} " +
+                    $"cutoffUT={retireCutoffUT.ToString("F1", ic)})");
+                return;
+            }
+
+            // RetiringRecordingId is the REWOUND origin recording, not the session's
+            // provisional. Two reasons, both load-bearing: the provisional does not exist
+            // until AtomicMarkerWrite runs (after this point), and a Re-Fly DISCARD prunes
+            // the attempt topology — TreeDiscardPurge classifies a tombstone by its
+            // RetiringRecordingId, so pointing at the provisional would let a discard delete
+            // these rows and resurrect the double-count. The resurrection itself is durable
+            // under discard, so its retirement must be too.
+            string retiringRecordingId = selected?.OriginChildRecordingId;
+
+            if (scenario.LedgerTombstones == null)
+                scenario.LedgerTombstones = new List<LedgerTombstone>();
+
+            var alreadyTombstoned = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+            {
+                var existing = scenario.LedgerTombstones[i];
+                if (existing != null && !string.IsNullOrEmpty(existing.ActionId))
+                    alreadyTombstoned.Add(existing.ActionId);
+            }
+
+            string nowIso = DateTime.UtcNow.ToString("o", ic);
+            double mergeUT = retireCutoffUT;
+            int written = 0;
+            int skippedDuplicate = 0;
+
+            for (int i = 0; i < classified.Count; i++)
+            {
+                var entry = classified[i];
+                for (int a = 0; a < entry.RetiredActionIds.Count; a++)
+                {
+                    string actionId = entry.RetiredActionIds[a];
+                    if (string.IsNullOrEmpty(actionId)) continue;
+                    if (!alreadyTombstoned.Add(actionId))
+                    {
+                        skippedDuplicate++;
+                        continue;
+                    }
+
+                    scenario.LedgerTombstones.Add(new LedgerTombstone
+                    {
+                        TombstoneId = "tomb_" + Guid.NewGuid().ToString("N"),
+                        ActionId = actionId,
+                        RetiringRecordingId = retiringRecordingId,
+                        UT = mergeUT,
+                        CreatedRealTime = nowIso,
+                    });
+                    written++;
+                }
+
+                ParsekLog.Info(InvokeTag,
+                    $"Resurrected-recovery retirement: rec={entry.RecordingId} " +
+                    $"pid={entry.LiveVesselPid.ToString(ic)} " +
+                    $"anchorUT={entry.AnchorUT.ToString("F1", ic)} " +
+                    $"fallbackAnchor={entry.UsedFallbackAnchor} " +
+                    $"actions={entry.RetiredActionIds.Count.ToString(ic)}");
+            }
+
+            if (written > 0)
+                scenario.BumpTombstoneStateVersion();
+
+            ParsekLog.Info(InvokeTag,
+                $"Resurrected-recovery retirement: recordings={classified.Count.ToString(ic)} " +
+                $"tombstonesWritten={written.ToString(ic)} " +
+                $"alreadyRetired={skippedDuplicate.ToString(ic)} " +
+                $"retiring={retiringRecordingId ?? "<none>"} " +
+                $"cutoffUT={retireCutoffUT.ToString("F1", ic)}");
         }
 
         /// <summary>
