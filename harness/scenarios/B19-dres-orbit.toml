@@ -270,8 +270,22 @@ transferBurnTimeoutSeconds = 18000000
 coastTimeoutSeconds        = 16000000
 flybyTimeoutSeconds        = 600000
 coastWarpFactor            = 7
-flybyWarpFactor            = 5
-flybyMaxWarpFactor         = 6
+# IN-SOI WARP, LOWERED FROM B16's 5/6 BY FLIGHT 3's MEASUREMENT. Flight 3 reached
+# Dres cleanly and then died on the NAMED give-up
+#   `capture-never-armed (past-periapsis) ... pe=870357.886 ttPe=-9119.015`
+# -- the arrival flew THROUGH the capture point before PLAN-CAPTURE could arm.
+# The mechanism is a body-size effect, not a defect: Dres's SOI is 32,832 km
+# against Eve's 85,109 km (2.6x smaller), so the SOI-entry -> periapsis coast is
+# far shorter in game time, while factor 6 (x10,000) advances ~10,000 game
+# seconds per poll frame. B16 gets away with 5/6 because Eve's approach gives it
+# an order of magnitude more frames to work with.
+# 3/4 (x50 / x100) samples the same approach ~100x more finely. The cost is
+# bounded and small: the in-SOI arrival is a few tens of thousands of game
+# seconds, so even at x100 it is tens of wall seconds, and flybyTimeoutSeconds
+# still bounds SLOW.
+# UNFLOWN AT THIS SETTING -- flight 4 is the first to test it.
+flybyWarpFactor            = 3
+flybyMaxWarpFactor         = 4
 nodeArrivalMarginSeconds   = 15
 planWarpFactor             = 2
 soiLeadSeconds             = 30
