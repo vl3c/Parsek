@@ -6040,15 +6040,22 @@ namespace Parsek
                 5.0);
         }
 
+        /// <summary>
+        /// Drives the dust to nothing. The early-out is on the SYSTEM STILL PLAYING rather than on
+        /// the cached lastIntensity: ResetForLoopCycle zeroes that memo without being able to touch
+        /// Unity, so a memo-only guard would then refuse to stop a system that is still emitting.
+        /// (In practice ReapplySpawnTimeModuleBaselinesForLoopCycle always follows and stops it,
+        /// but a truth-vs-memo disagreement should not need a second method to be safe.)
+        /// </summary>
         private static void DriveLaunchDustToZero(GhostPlaybackState state)
         {
             LaunchDustInfo info = state?.launchDustInfo;
-            if (info?.particles == null || info.lastIntensity <= 0f) return;
+            if (info?.particles == null) return;
+            info.lastIntensity = 0f;
+            if (!info.particles.isPlaying) return;
             var emission = info.particles.emission;
             emission.rateOverTimeMultiplier = 0f;
-            if (info.particles.isPlaying)
-                info.particles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-            info.lastIntensity = 0f;
+            info.particles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
         }
 
         /// <summary>

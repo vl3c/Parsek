@@ -1620,6 +1620,11 @@ namespace Parsek
                 // dictionary rather than widened into the existing sample tuple: that tuple's shape
                 // is repeated in six signatures and a 7-element -> 8-element change would touch all
                 // of them for one float.
+                // Written HERE, before the delta-extraction below can bail: a length is a
+                // property of the clip, and a clip that produced no usable transform deltas for
+                // one family is still the right duration for the family that does resolve. The
+                // key is per PART, so a multi-family part is last-write-wins - bounded by the
+                // [0.25, 30] s clamp, and the family that actually resolves samples last.
                 animationClipLengthCache[partKey] =
                     GhostPlaybackLogic.ClampDeployableClipSeconds(state.length);
 
@@ -1728,17 +1733,16 @@ namespace Parsek
         internal static void ClearAnimateHeatCache()
         {
             animateHeatCache.Clear();
+            // S2's clip-length cache is prefab-derived exactly like this one and has exactly the
+            // same lifetime, so it is dropped here rather than growing a second call site nobody
+            // remembers to call.
+            animationClipLengthCache.Clear();
         }
 
         // S2: partKey -> the prefab deployable clip's own length in seconds, already clamped.
         // Populated by SampleAnimationStates; read by the deployable-info builders.
         private static readonly Dictionary<string, float> animationClipLengthCache =
             new Dictionary<string, float>();
-
-        internal static void ClearAnimationClipLengthCache()
-        {
-            animationClipLengthCache.Clear();
-        }
 
         /// <summary>
         /// The sampled clip length for a part, or the default when the part's animation was never

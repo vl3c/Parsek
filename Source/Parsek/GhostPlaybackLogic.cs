@@ -4113,6 +4113,11 @@ namespace Parsek
                     ParticleSystem ps = systems[i];
                     GhostFxMagnitudeBaseline b = baselines[i];
                     if (ps == null || !b.captured) continue;
+                    // Size rides the SPEED ratio on purpose - neither the engine nor the RCS path
+                    // carries a separate size curve, and a throttled-down plume is shorter and
+                    // thinner in the same proportion its exhaust slows. Do NOT "fix" this to the
+                    // emission ratio: that one is a particle COUNT, and scaling size by it shrinks
+                    // a deliberately low-rate dense asset (ReStock SRB smoke) to nothing.
                     var main = ps.main;
                     main.startSpeedMultiplier = b.startSpeedMultiplier * speedRatio;
                     main.startSizeMultiplier = b.startSizeMultiplier * speedRatio;
@@ -4823,13 +4828,15 @@ namespace Parsek
             }
 
             double dt = currentUT - state.prevGroundHeadingUT;
-            if (dt <= 0.0)
+            if (dt <= 0.0 || dt > MaxSynthSampleSeconds)
             {
+                // Same reasoning as UpdateSynthesizedMotion: re-seed rather than cap the
+                // denominator, so a warp gap cannot manufacture a huge heading rate and lock the
+                // calipers at full lock on a rover that is barely turning.
                 state.prevGroundHeading = heading;
                 state.prevGroundHeadingUT = currentUT;
                 return state.smoothedHeadingRateDegPerSec;
             }
-            dt = Math.Min(dt, 1.0);
 
             float sample = ComputeHeadingRateDegPerSec(state.prevGroundHeading, heading, up, dt);
             state.smoothedHeadingRateDegPerSec =
@@ -4919,6 +4926,14 @@ namespace Parsek
         #endregion
 
         #region S3 — synthesized motion (gimbal, control surfaces, sun tracking)
+
+        /// <summary>
+        /// The longest UT gap a synthesis derivative will differentiate across. A longer gap is
+        /// not clamped - it is DISCARDED and the sample re-seeded. Clamping a derivative's
+        /// denominator inflates the answer instead of bounding it, which under time warp reads as
+        /// a violent manoeuvre and pins every synthesized surface at its clamp.
+        /// </summary>
+        internal const double MaxSynthSampleSeconds = 1.0;
 
         /// <summary>EMA weight on the newest angular-velocity sample. Low = smooth, laggy.</summary>
         internal const float SynthAngularEmaAlpha = 0.25f;
@@ -5179,15 +5194,18 @@ namespace Parsek
             }
 
             double deltaSeconds = currentUT - state.prevSynthUT;
-            if (deltaSeconds <= 0.0)
+            if (deltaSeconds <= 0.0 || deltaSeconds > MaxSynthSampleSeconds)
             {
-                // Paused, same-frame double call, or a backwards scrub. Re-seed and wait: a
-                // negative dt would invert the derivative's sign.
+                // Paused, same-frame double call, a backwards scrub, or a gap too long to
+                // differentiate across (high warp, a hitch, a stall). RE-SEED AND SKIP THE SAMPLE
+                // rather than clamping the denominator: dividing a full-interval angle by a capped
+                // dt does not GUARD the rate, it INFLATES it - a 10 s gap over-reports by 10x, so
+                // a slowly-coasting ghost under warp would sit pinned at full deflection while its
+                // true rate is under the deadband. A negative dt would invert the sign outright.
                 state.prevSynthRotation = currentRotation;
                 state.prevSynthUT = currentUT;
                 return;
             }
-            deltaSeconds = Math.Min(deltaSeconds, 1.0);
 
             Vector3 sample = ComputeLocalAngularVelocityDegPerSec(
                 state.prevSynthRotation, currentRotation, deltaSeconds);
@@ -5302,6 +5320,19 @@ namespace Parsek
                 // deployed and nothing is animating it.
                 if (!IsDeployablePoseFullyDeployedForPart(state, s.partPersistentId))
                 {
+                    // TRANSITION > TRACKING, in its strong form: while a clip is actually RUNNING
+                    // we must not write the pivot AT ALL. On many tracking panels the pivot is one
+                    // of the transforms the deploy animation itself moves, so easing it toward
+                    // neutral here would overwrite UpdateActiveDeployables' write from earlier in
+                    // the same frame and make the retract judder. Drop the bookkeeping and let S2
+                    // own the transform; the ease-back below is only for a panel that is stowed
+                    // and static, where nothing else is writing it.
+                    if (IsDeployableTransitionRunningForPart(state, s.partPersistentId))
+                    {
+                        s.currentAngleDegrees = 0f;
+                        s.hasAimed = false;
+                        continue;
+                    }
                     if (s.hasAimed)
                     {
                         s.currentAngleDegrees = SlewTowardDegrees(
@@ -5350,6 +5381,15 @@ namespace Parsek
                     return true;
             }
             return false;
+        }
+
+        /// <summary>True when the part has a deployable clip actually RUNNING this frame.</summary>
+        private static bool IsDeployableTransitionRunningForPart(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.deployableInfos == null) return false;
+            return state.deployableInfos.TryGetValue(partPersistentId, out DeployableGhostInfo d)
+                && d != null && d.transitionActive;
         }
 
         /// <summary>
@@ -5827,9 +5867,21 @@ namespace Parsek
                 return info.transforms.Count > 0;
             }
 
+            // A REVERSAL MID-CLIP must start from where the old transition had reached AT THIS
+            // EVENT'S UT, not from info.deployFraction. In a one-batch prefix replay (a spawn or a
+            // scrub into the window) deploy@t1 and retract@t2 are consumed back to back with no
+            // UpdateActiveDeployables pass between them, so deployFraction is still the pose as of
+            // t1; using it would arm a zero-span retract that completes instantly and show a
+            // fully-stowed panel where a partly-retracted one belongs.
+            float startFraction = info.transitionActive
+                ? ComputeDeployableTransitionFraction(
+                    evt.ut, info.transitionStartUT, info.transitionStartFraction,
+                    info.transitionTargetFraction, info.clipLengthSeconds, out _)
+                : info.deployFraction;
+
             info.transitionActive = true;
             info.transitionStartUT = evt.ut;
-            info.transitionStartFraction = info.deployFraction;
+            info.transitionStartFraction = startFraction;
             info.transitionTargetFraction = target;
             info.currentDeployed = deployed;
 
@@ -5840,10 +5892,7 @@ namespace Parsek
 
             // Apply the first frame straight away so a transition that starts on a frame where
             // UpdateActiveDeployables already ran is not a frame late.
-            float first = ComputeDeployableTransitionFraction(
-                evt.ut, info.transitionStartUT, info.transitionStartFraction, target,
-                info.clipLengthSeconds, out _);
-            return ApplyDeployableFraction(info, first);
+            return ApplyDeployableFraction(info, startFraction);
         }
 
         /// <summary>

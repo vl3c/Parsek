@@ -184,8 +184,10 @@ namespace Parsek
             prevGroundHeading = Vector3.zero;
             prevGroundHeadingUT = double.NaN;
             smoothedHeadingRateDegPerSec = 0f;
-            // launchDustInfo holds Unity objects; the engine destroys them (GhostPlaybackEngine
-            // .DestroyLaunchDust) before calling this, exactly as it does for reentryFxInfo.
+            // launchDustInfo holds Unity objects. GhostVisualBuilder.DestroyLaunchDust releases
+            // them from DestroyGhostResourcesWithMetrics BEFORE this runs, exactly as
+            // DestroyReentryFxResources does for reentryFxInfo - the child GameObject would go
+            // with the ghost, but the Material and the generated Texture2D would not.
             launchDustInfo = null;
             launchDustPendingBuild = false;
             launchDustGroundRefAltitude = double.NaN;
