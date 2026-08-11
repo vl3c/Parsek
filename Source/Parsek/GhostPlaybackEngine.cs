@@ -972,6 +972,14 @@ namespace Parsek
                 case PartEventType.Undocked:
                 case PartEventType.InventoryPartPlaced:
                 case PartEventType.InventoryPartRemoved:
+                // P8: DeployableBroken is the ONLY new member that earns a prewarm — it hides a
+                // mesh subtree, so a hidden ghost that skipped it would render an intact panel
+                // the moment it becomes visible. The other eight are self-correcting overlays:
+                // the converter running loop is a pure function of (UT - activeSinceUT) and
+                // re-derives its phase on the first visible frame, and the EVA jetpack pose /
+                // plume / ragdoll flags are re-established by the prefix replay when the ghost
+                // is actually built. Prewarming a ghost build for those would buy nothing.
+                case PartEventType.DeployableBroken:
                     return true;
                 default:
                     return false;
