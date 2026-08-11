@@ -1,0 +1,153 @@
+schema = 1
+id = "H36-playback-fidelity"
+tier = "nightly"
+# BATCH-ONLY scenario, H7-H20 shape. Drives the NEW `PlaybackFidelity` category, the
+# live half of P5/P6: plume magnitude (S1), deployable interpolation (S2) and
+# synthesized motion (S3).
+#
+# NUMBERING NOTE: H34 and H35 were taken by the Logistics pair while this lane was in
+# flight, so this is H36. Nothing about the spec depends on the number - BATCH_COMPLETE
+# carries no spec id, and every pin below is id-independent.
+#
+# WHAT IT COVERS, and why each cell needs a real KSP:
+#  1. PLUME MAGNITUDE IS A RATIO OF A CAPTURED BASELINE. The baseline only exists after
+#     a real FX asset has been CLONED into a ghost, size-boosted (#383) and
+#     velocity-floored; the headless suite pins the ratio arithmetic and its
+#     degrade-to-1.0 direction, but only a live scene can prove a baseline was captured
+#     at all and that the write lands on the cloned KSPParticleEmitter - which is the
+#     ONLY particle creation source on a ghost, because Unity's emission module is
+#     permanently disabled there (bug #105).
+#  2. THE SUPPRESS/RESTORE ROUND TRIP. RestoreAllRcsEmissions re-enables emitters
+#     WITHOUT going back through SetRcsEmission. That single path is the reason the
+#     mechanism had to be persistent emitter fields rather than a per-event
+#     computation, and this is the only committed assertion that it holds.
+#  3. DEPLOYABLE INTERPOLATION AT TRANSFORM LEVEL, both directions: an event must
+#     produce a pose strictly BETWEEN the sampled stowed and deployed poses, and a
+#     BASELINE application of the same target must still SNAP. A ghost spawning with
+#     its panels already out must not be shown opening them.
+#  4. THE LOOP-CYCLE RESET, mid-clip - the M4 carry-over class. ResetForLoopCycle can
+#     only zero numbers; the transform re-stow is ReapplySpawnTimeModuleBaselines-
+#     ForLoopCycle's job, and a mesh left half-open while the numbers claim stowed is
+#     exactly the bug this pairing exists to catch.
+#  5. GIMBAL DEFLECTION off the ghost's APPLIED WORLD ROTATION, through
+#     Quaternion.AngleAxis - a native ECall that throws headless - plus its clamp to
+#     the module's declared range and its decay back to neutral.
+#  6. WHEEL STEERING parks straight across a loop cycle. ApplyRoboticPose deliberately
+#     writes nothing for WheelSteeringHeading, so the dedicated branch in
+#     ApplyRoboticSpawnBaseline is the only thing that can park a turned caliper. The
+#     same cell proves a recorded ModuleWheelSteering scalar is IGNORED, the contract
+#     wheel spin already has.
+#  7. SUN TRACKING aims only once FULLY DEPLOYED and holds once aimed - the S2-over-S3
+#     precedence (transition beats tracking), which needs a live Planetarium.Sun.
+#
+# All seven build their fixtures from PartLoader prefabs DISCOVERED at run time (first
+# few parts matching a cheap module predicate, capped so a modded install cannot make
+# the batch walk thousands of prefabs), so the batch does not depend on which craft the
+# save is flying, and a cell that cannot self-set-up Skips naming the context it needed.
+description = "Run the in-game PlaybackFidelity category unattended: throttle-scaled engine and RCS plumes including the suppress/restore path that bypasses SetRcsEmission, deployable interpolation and its loop-cycle re-stow, gimbal deflection with clamp and decay, wheel-steering park, and sun-tracking gated on full deployment."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "playback-fidelity", "H36"]
+
+[fixture]
+# gloops-airshow, the H5 / H14-H17 / H27 / H28 / H30 / H33 family host, for the shared
+# FLIGHT Focusable boot route.
+saveTemplate = "fixtures/saves/gloops-airshow"
+# NONE, and deliberately not the all-synthetic corpus. These cells do NOT walk
+# RecordingStore - each builds its own single-part ghost from a PartLoader prefab - so
+# injection would buy no anti-vacuity guard here the way it does for H14-H17 / H27 / H28
+# / H30. H33 injected for a DIFFERENT reason that does not apply: its commit ADDED two
+# corpus rows and its count pin was the only assertion those rows load through the
+# sidecar / schema gate. P5/P6 adds ZERO rows (playback-side only: no storage, no
+# recorder, no schema), so there is nothing new to prove about the load path and every
+# sibling's 274 pin stands untouched. The 0/0 pin below is then a real assertion in its
+# own right: the batch must not LEAK a recording into the produced save.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+# The H-series `RunTests` seam form, NOT [driver.autorun]. Zero committed specs use the
+# autorun block: run.py implements it, but PARSEK_AUTORUN_EXIT quits KSP as soon as the
+# first scene settles, which races the seam driver's remaining steps, and
+# hlib.validate_spec forbids owning a batch both ways. RunTests produces the identical
+# BATCH_COMPLETE line the logContract pin below needs.
+kind = "seam"
+# NO isolated arg: all 7 declarations are AllowBatchExecution (default) with no restore
+# flag, so the ordinary and isolated admission filters are identical here.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PlaybackFidelity" },            expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST and minimal, the H13 / H29 shape: the value is the executed contract, not a
+# coverage token. NOT claimed: D16 (nothing is injected and nothing is loaded through
+# the sidecar / schema gate), and no part-event or playback dimension - the cells drive
+# GhostPlaybackLogic and GhostVisualBuilder directly on locally built ghosts rather than
+# through the engine's per-frame render path.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H7).
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, both ends. The batch injects nothing and its cells build their ghosts in memory
+# from prefabs, so the produced save must come back with no recordings at all. A nonzero
+# count would mean a cell leaked one - the seven fixtures are Recording objects that are
+# never handed to RecordingStore, and this is the pin that keeps it that way.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY: the tally names a literal total / failed / category / scene, and
+# `passed=[1-9][0-9]*` rejects the whole vacuous family (every vacuous BATCH_COMPLETE
+# carries passed=0), so hlib.batch_contract_vacuity_gap answers None.
+#
+# EVIDENCE STANDING: **AUTHORED, NOT YET FLOWN.** total=7 is ATTRIBUTE-EXACT (7
+# [InGameTest(Category = "PlaybackFidelity")] declarations in
+# Source/Parsek/InGameTests/PlaybackFidelityInGameTests.cs, all Scene = FLIGHT, all
+# AllowBatchExecution), kept in sync by CommittedBatchTallySourceSyncTests; failed=0 is
+# the ASSERTION; scene=FLIGHT is the gloops-airshow Focusable route, measured by H13 /
+# H5 / S1.4 / H33 on this exact fixture.
+#
+# passed= and skipped= are DELIBERATELY LOOSE, and this id is registered in
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS with that reason, because EVERY cell here
+# carries a run-time InGameAssert.Skip keyed on what the provisioned install actually
+# loaded and on what the ghost builder resolved - and "expected to hold" is not a
+# measurement:
+#  - EnginePlumeMagnitudeScalesWithThrottle needs a loaded engine part whose EFFECTS (or
+#    legacy fx_* children) clone into a ghost AND whose emitters yield a captured
+#    magnitude baseline.
+#  - RcsPlumeMagnitudeSurvivesSuppressAndRestore needs the same for an RCS block's
+#    running effect group.
+#  - DeployableAnimatesOnEventAndSnapsOnBaseline and
+#    LoopCycleResetReStowsAMidTransitionDeployable both need a deployable part whose
+#    sampled stowed and deployed poses actually DIFFER on this install.
+#  - GimbalDeflectsWithAttitudeAndClampsToRange needs a ModuleGimbal whose
+#    gimbalTransformName resolves on the cloned model.
+#  - WheelSteeringIsDerivedAndParksOnLoopCycle needs a ModuleWheelSteering whose
+#    caliperTransformName resolves.
+#  - SunTrackingPivotAimsOnlyWhenFullyDeployed needs a tracking ModuleDeployablePart
+#    (isTracking = true) whose pivotName resolves, plus a live Planetarium.fetch.Sun.
+#
+# All seven are expected to hold on stock-minimal, but the first flight is what settles
+# it. AFTER THAT FLIGHT: pin all four numbers literally, remove this id from
+# INTERIM_PIN_IDS, and if a cell skipped, record it in
+# IngameBatchWiringGroupTests.RUNTIME_SKIPS with its verbatim skip message as the
+# reason, exactly as H26 / H28 / H31 do.
+required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=PlaybackFidelity scene=FLIGHT"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 720 >= 300 LoadGame + 540 RunTests ceiling is the family
+# default. The seven cells are short - no coroutines, no warp - but each builds up to
+# four single-part ghosts while hunting a usable prefab, so the family ceiling rather
+# than a tighter one.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

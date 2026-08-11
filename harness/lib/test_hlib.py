@@ -2755,6 +2755,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # (Flown as `H33-logistics-route-proof`; renamed H35 post-merge for the
         # same collision.)
         "H35-logistics-route-proof": ("Logistics", 47, "FLIGHT"),
+        # P5/P6's live half. Authored, not yet flown - the INTERIM member (see
+        # INTERIM_PIN_IDS above), so its pinned total is attribute-exact while its
+        # passed / skipped split waits on a measurement.
+        "H36-playback-fidelity":     ("PlaybackFidelity", 7, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -2855,7 +2859,16 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #   RUNTIME_SKIPS entry is owed for either.
     #
     # Both specs now pin their tallies whole, so the set is empty again.
-    INTERIM_PIN_IDS = set()
+    # H36 is the interim member: EVERY one of its seven cells carries a run-time
+    # InGameAssert.Skip keyed on what the provisioned install loaded and on what the
+    # ghost builder resolved (an engine whose FX clone yields a captured magnitude
+    # baseline, an RCS block ditto, a deployable whose sampled poses differ, a
+    # resolvable ModuleGimbal / ModuleWheelSteering transform, a tracking pivot). All
+    # seven are expected to hold on stock-minimal, but no attribute predicts any of
+    # them, so total= is pinned literally and passed= / skipped= stay regex classes
+    # until the first flight measures them. passed=[1-9][0-9]* still rejects the whole
+    # vacuous family. Reason restated in the spec header.
+    INTERIM_PIN_IDS = {"H36-playback-fidelity"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -2900,8 +2913,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(28, len(self.GROUP),
-                         "the H7-H20 + H22-H35 group is 28 specs; if it genuinely changed "
+        self.assertEqual(29, len(self.GROUP),
+                         "the H7-H20 + H22-H36 group is 29 specs; if it genuinely changed "
                          "size, update this floor AND the counts in "
                          "docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5454,8 +5467,9 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # table cannot self-check (a row added AND the totals line updated by hand
         # would agree with each other while both drifted from the source). 99 -> 100
         # with the `ReFlyWorldPreservation` category (S4.2), 100 -> 101 with
-        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32).
-        self.assertIn("**102 categories / %d declarations**" % stated_decls, body,
+        # `RecordedSignals` (H33), 101 -> 102 with `SnapshotBaseline` (H32),
+        # 102 -> 103 with `PlaybackFidelity` (H36).
+        self.assertIn("**103 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))

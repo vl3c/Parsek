@@ -140,6 +140,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
+| `PlaybackFidelity` | 7 | 7 | 0 | 0 | 0 | 7 | H36 | A |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
 | `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
@@ -192,17 +193,18 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **102 categories / 566 declarations**. Buckets **A 30 categories
-(208 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
-declarations)**. Driven by a committed spec: **39 of 102 categories**, up from 35
-across four waves that landed together in this merge - `ReFlyWorldPreservation` via
-S4.2, `RecordedSignals` via H33, `SnapshotBaseline` via H32, and `Logistics` via
-H34 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the
-waves before). Measured against declarations rather than categories, that is 381 of
-566 inside a driven category (was 318 before these waves: 324 after S4.2, 327 after
-H33, 334 after H32, and 381 once `Logistics` counted). `H35-logistics-route-proof`
-(2026-08-11) moves NEITHER number - it is the second spec on a category H34 already
-counted - which is exactly the distortion the paragraph after next is about.
+Totals, re-derived: **103 categories / 573 declarations**. Buckets **A 31 categories
+(215 declarations)**, **B 72 categories (358 declarations)**, **C 0 categories (0
+declarations)**. Driven by a committed spec: **40 of 103 categories**, up from 35
+across five waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
+`SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
+(the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
+before), then `PlaybackFidelity` via H36. Measured against declarations rather than
+categories, that is 388 of 573 inside a driven category (was 318 before these waves:
+324 after S4.2, 327 after H33, 334 after H32, 381 once `Logistics` counted, and 388
+with `PlaybackFidelity`). `H35-logistics-route-proof` (2026-08-11) moves NEITHER
+number - it is the second spec on a category H34 already counted - which is exactly
+the distortion the paragraph after next is about.
 
 `ReFlyWorldPreservation` (6, driven by `S4.2-refly-world-preservation`) arrived with
 its driver rather than as an undriven category: it was authored for the
@@ -211,6 +213,20 @@ pure-predicate and therefore cannot observe the live post-load scene where the b
 second deleting layer lived. All six members are Scene = FLIGHT and batch-allowed,
 and all six self-skip with a named requirement when no Re-Fly session is live, so the
 category is safe in any batch and vacuous in none.
+
+`PlaybackFidelity` (7 declarations, wired as `H36-playback-fidelity`) is the live
+half of P5/P6 - plume magnitude, deployable interpolation and synthesized motion. It
+arrived with its driver rather than as an undriven backlog row, on the same ground
+`ReFlyWorldPreservation` did: the headless suite owns every pure decision these
+features make, and what is left over is exactly what needs a scene - a captured FX
+baseline on a CLONED `KSPParticleEmitter`, an interpolated pose on a real
+`Transform`, and `Quaternion.AngleAxis`, a native call that throws in a headless
+process. All seven are Scene = FLIGHT and batch-allowed, so its attribute-derived
+skip floor is 0; all seven ALSO self-skip with a named requirement when the install
+gives them no usable prefab, which is why `H36` ships with an interim (loose
+`passed=` / `skipped=`) pin until a flight measures the split. Bucket A1 by
+admission criterion 1 and A1's exception 2 - the same standing `H26` / `H28` / `H31`
+have.
 
 `RecordedSignals` (3 declarations, wired as `H33-recorded-signals`) exists for the
 live half of the 2026-08-09 part-action recording audit - the one step of the
