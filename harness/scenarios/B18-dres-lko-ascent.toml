@@ -74,6 +74,15 @@ id = "B18-dres-lko-ascent"
 # measurement" -- both are pinned below. RE-PIN CONTRACT (the EVA-4 / B2
 # precedent): if a later run legitimately differs, RE-PIN to the newly measured
 # value and record which recordings it produced; do NOT widen back toward 1.
+#
+# CONFIRMED ON THE RE-PINNED SPEC, run 2026-08-11_2150: PASS attempt 1, 334 s
+# wall, every verifier PASS/SKIPPED again, and against the TIGHTENED gates rather
+# than the placeholder ones -- so the numbers above are two consecutive
+# observations, not one. The reproduction is close enough to be worth recording:
+# orbit 82,939 x 76,875 (vs 82,927 x 76,893), ecc 0.004460 (vs 0.004440), inc
+# 0.08996 (vs 0.090), count 3 (vs 3), 58 parts (vs 58), vessel 74.330 t (vs
+# 74.308 t), and pure-LF residual 2,240.00 units on BOTH runs. This craft's
+# ascent is deterministic to ~0.03% on this profile.
 # =====================================================================================
 tier = "operator"
 description = "Dres program step 1: MechJeb flies the stock Duna Rocket (92 parts, ~260 t, 3x Mainsail) from the pad to an 80 km circular LKO -- the ascent-works proof, whose produced save is the surface the remaining LV-N transfer-stage delta-v is measured from."
