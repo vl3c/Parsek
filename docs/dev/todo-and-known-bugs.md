@@ -1015,10 +1015,19 @@ Open items, highest leverage first:
     per-vessel caches once in `InitializeLoadedState` and has no
     `onVesselWasModified` hook, so a module ARRIVING on a BG-loaded vessel still
     records nothing until that vessel next re-enters loaded state. Accepted, not
-    overlooked: the BG half of the ownership guard already stops the harmful
-    direction (a departed part writing into the wrong recording), and the missing
-    direction needs a per-BG-vessel subscription whose cost scales with the
-    background fleet.
+    overlooked: the BG half of the ownership guard stops the POLLING direction (a
+    departed part writing into the wrong recording), and the missing direction
+    needs a per-BG-vessel subscription whose cost scales with the background
+    fleet. The M5b re-review sharpened the residual: the D1 key-rot shape itself
+    also survives on the BG side - a BG-loaded vessel that sheds a burning part
+    with NO detected split keeps the departed key in
+    `loadedState.activeEngineKeys` (guard skips polls, no prune hook), and
+    `EmitBackgroundRailsTerminalEvents` writes a stale `EngineShutdown` for that
+    pid at the next rails transition. Bounded differently from the FG case:
+    DETECTED sheds route through `CloseParentRecording`, which discards the
+    parent's `loadedState` so the stale key dies unemitted; the residual
+    manifests only for undetected sheds, and becomes a genuine tail artifact
+    only when the vessel then stays on rails until commit.
   - ~~FIXED 2026-08-11 (M5b)~~ **Departed-part keys rotted in the tracking sets.**
     The M5 guard makes a departed booster's burnout UNOBSERVABLE, so its key never
     left `activeEngineKeys` - and the terminal emit

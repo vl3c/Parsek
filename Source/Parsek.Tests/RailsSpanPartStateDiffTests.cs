@@ -692,9 +692,12 @@ namespace Parsek.Tests
             foreach (var kvp in methods)
             {
                 if (!kvp.Value.Contains("loadedStates.Remove(")) continue;
-                sawTeardown.Add(kvp.Key);
+                // Overload bodies carry a #N suffix (see SplitIntoMethods) - the
+                // gate reasons about the method NAME.
+                string name = kvp.Key.Split('#')[0];
+                sawTeardown.Add(name);
 
-                if (CaptureSites.Contains(kvp.Key))
+                if (CaptureSites.Contains(name))
                 {
                     Assert.True(kvp.Value.Contains("CaptureRailsSpanPartStates("),
                         $"'{kvp.Key}' is exempted as a capture site but no longer captures a snapshot");
@@ -719,11 +722,28 @@ namespace Parsek.Tests
         {
             // Crude but sufficient: a class-member-indent line carrying an access modifier and an
             // opening paren starts a method; its body runs to the next such line.
+            //
+            // OVERLOADS: keys are disambiguated with a #N suffix rather than first-wins. The
+            // re-review of b9413a4d1 found that first-wins silently discarded the private
+            // OnVesselRemovedFromBackground(uint, double?) overload's body - the one carrying the
+            // real teardown - because the public delegating overload of the same name appears
+            // first in the file. A gate that keeps only the first body per name can false-pass on
+            // exactly the teardown-drift it exists to catch.
             var header = new Regex(
                 @"^\s{8}(?:public|private|internal|protected)[^=;]*?\b(\w+)\s*\(",
                 RegexOptions.Compiled);
 
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            void Flush(string name, string bodyText)
+            {
+                if (name == null) return;
+                string key = name;
+                int n = 2;
+                while (result.ContainsKey(key))
+                    key = name + "#" + n++;
+                result[key] = bodyText;
+            }
+
             string current = null;
             var body = new StringBuilder();
             foreach (string line in src.Split('\n'))
@@ -731,15 +751,13 @@ namespace Parsek.Tests
                 Match m = header.Match(line);
                 if (m.Success)
                 {
-                    if (current != null && !result.ContainsKey(current))
-                        result[current] = body.ToString();
+                    Flush(current, body.ToString());
                     current = m.Groups[1].Value;
                     body.Length = 0;
                 }
                 body.Append(line).Append('\n');
             }
-            if (current != null && !result.ContainsKey(current))
-                result[current] = body.ToString();
+            Flush(current, body.ToString());
             return result;
         }
 

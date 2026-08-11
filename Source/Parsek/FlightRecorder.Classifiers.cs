@@ -422,6 +422,14 @@ namespace Parsek
         /// key wins over a carry-over key of the same id (the live poll is newer). Returns null
         /// collections when the union is empty so <c>InheritedEngineState.FromRecorder</c> keeps its
         /// "nothing was running" contract.
+        /// <para>
+        /// CONTRACT CHANGE vs the pre-M5b whole-dict copy, believed unreachable: an id present in
+        /// the active key set but ABSENT from the throttle dictionary now inherits throttle 0
+        /// (this method writes 0 for it), where the old copy fell through to
+        /// <c>MergeInheritedEngineState</c>'s 1.0 default. Both the seed and poll paths maintain
+        /// active-implies-throttle-present, so no reachable route was found - recorded so a future
+        /// path that breaks that invariant knows which default it lands on.
+        /// </para>
         /// </summary>
         internal static void UnionDepartedIntoInheritedState(
             HashSet<ulong> activeKeys,
