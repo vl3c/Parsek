@@ -49,6 +49,8 @@ namespace Parsek
             public bool loggedFirstDebrisOrdinarySample;
 
             // Part event tracking (mirrors FlightRecorder's instance fields)
+            // parachuteStates: 0=stowed/active, 1=semi, 2=deployed, 3=cut — see
+            // FlightRecorder.ClassifyParachuteState, the single source of that encoding.
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
             public HashSet<uint> jettisonedShrouds = new HashSet<uint>();
             public Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();

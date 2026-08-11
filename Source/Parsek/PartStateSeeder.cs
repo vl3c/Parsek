@@ -104,14 +104,24 @@ namespace Parsek
             var chute = p.FindModuleImplementing<ModuleParachute>();
             if (chute == null) return;
 
-            int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
-                           : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
-                           : 0;
-            if (chuteState > 0)
+            // Four-state classifier, so a chute that is already CUT at recording start primes the
+            // map as Cut rather than being left absent (= Stowed). PartTrackingSets.parachuteStates
+            // is the SAME dictionary instance the recorder polls against, not a copy, so this write
+            // sets the recorder's `oldState` for the very first poll. Two things depend on it:
+            //   - the first poll of an already-cut chute reads Cut -> Cut and emits nothing, rather
+            //     than Stowed -> Cut (which ClassifyParachuteTransitionEvent also suppresses, so
+            //     this is belt-and-braces on that side);
+            //   - a later EVA repack reads Cut -> Stowed and emits ParachuteRepacked. Without the
+            //     priming the repack would read Stowed -> Stowed and emit nothing at all.
+            // EmitSeedEvents only turns states 1 and 2 into seed events; Cut deliberately produces
+            // no seed, because the ghost's build-time pose (canopy hidden, cap on) is already what
+            // a stowed chute looks like and there is no "cut" seed event type.
+            int chuteState = FlightRecorder.ClassifyParachuteState(chute.deploymentState);
+            if (chuteState != FlightRecorder.ParachuteStateStowed)
             {
                 sets.parachuteStates[p.persistentId] = chuteState;
                 ParsekLog.Verbose(logTag,
-                    $"Seeded already-deployed parachute: '{p.partInfo?.name}' pid={p.persistentId} state={chuteState}");
+                    $"Seeded non-stowed parachute: '{p.partInfo?.name}' pid={p.persistentId} state={chuteState}");
             }
         }
 
@@ -485,7 +495,9 @@ namespace Parsek
             EmitFromUintSet(sets.deployedGear, PartEventType.GearDeployed);
             EmitFromUintSet(sets.openCargoBays, PartEventType.CargoBayOpened);
 
-            // parachuteStates → ParachuteSemiDeployed (value=1) or ParachuteDeployed (value=2)
+            // parachuteStates → ParachuteSemiDeployed (state 1) or ParachuteDeployed (state 2).
+            // States 0 (stowed) and 3 (cut) emit nothing: both render as the ghost's build-time
+            // pose, and there is no seed event type that would reproduce a cut chute's missing cap.
             if (sets.parachuteStates != null)
             {
                 foreach (var kvp in sets.parachuteStates)
@@ -493,12 +505,12 @@ namespace Parsek
                     uint pid = kvp.Key;
                     int chuteState = kvp.Value;
                     PartEventType eventType;
-                    if (chuteState == 2)
+                    if (chuteState == FlightRecorder.ParachuteStateDeployed)
                         eventType = PartEventType.ParachuteDeployed;
-                    else if (chuteState == 1)
+                    else if (chuteState == FlightRecorder.ParachuteStateSemiDeployed)
                         eventType = PartEventType.ParachuteSemiDeployed;
                     else
-                        continue; // state 0 = stowed, no seed event needed
+                        continue; // stowed or cut — no seed event needed
                     events.Add(new PartEvent
                     {
                         ut = startUT,

@@ -38,7 +38,14 @@ namespace Parsek
         ParachuteSemiDeployed, // 33 - parachute entered semi-deployed (streamer) state
         // Explicit value for serialization stability. Values 0-33 are contiguous;
         // new values must be explicitly numbered.
-        ThermalAnimationMedium = 34 // ModuleAnimateHeat entered medium visual state
+        ThermalAnimationMedium = 34, // ModuleAnimateHeat entered medium visual state
+        // A CUT chute was repacked back to STOWED by an EVA kerbal (stock
+        // ModuleParachute.Repack: cap re-shown, canopy hidden). Distinct from
+        // ParachuteCut, which hides the cap permanently — before this member
+        // existed the recorder collapsed STOWED/ACTIVE/CUT into one state and a
+        // repack emitted ParachuteCut, so a repacked chute rendered as an empty
+        // can for the rest of playback.
+        ParachuteRepacked = 35
     }
 
     internal enum HeatLevel { Cold, Medium, Hot }

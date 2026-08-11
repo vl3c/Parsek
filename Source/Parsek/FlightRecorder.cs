@@ -111,7 +111,9 @@ namespace Parsek
 
         // Part event tracking
         private HashSet<uint> decoupledPartIds = new HashSet<uint>();
-        private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>(); // 0=stowed, 1=semi, 2=deployed
+        // 0=stowed/active, 1=semi, 2=deployed, 3=cut — see ClassifyParachuteState. Stowed is the
+        // implicit default and removes the entry, so this only holds non-build-time-pose chutes.
+        private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
         private Dictionary<ulong, string[]> parsedJettisonNamesCache = new Dictionary<ulong, string[]>();
@@ -1606,60 +1608,95 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Detect parachute state transitions. States: 0=stowed/active/cut, 1=semi-deployed, 2=deployed.
+        /// Detect parachute state transitions over the four states
+        /// <see cref="ClassifyParachuteState"/> produces: 0=stowed/active, 1=semi-deployed,
+        /// 2=deployed, 3=cut. Stowed is the map's implicit default and removes the entry.
+        ///
+        /// The four-state split exists so CUT -> STOWED (a stock EVA <c>Repack()</c>) is
+        /// distinguishable from DEPLOYED -> CUT. Under the old three-state encoding both looked
+        /// like "N -> 0" and both emitted ParachuteCut, so playback hid the cap forever and a
+        /// repacked chute rendered as an empty can.
+        ///
+        /// Transition table:
+        ///   Stowed        -> Semi/Deployed : ParachuteSemiDeployed / ParachuteDeployed
+        ///   Semi          -> Deployed      : ParachuteDeployed
+        ///   Semi/Deployed -> Cut           : ParachuteCut
+        ///   Cut           -> Stowed        : ParachuteRepacked   (the fix)
+        ///   Cut           -> Semi/Deployed : ParachuteSemiDeployed / ParachuteDeployed
+        ///   Semi/Deployed -> Stowed        : ParachuteCut  (defensive; not a stock transition,
+        ///                                    preserves the pre-split behaviour for that shape)
+        ///   Stowed        -> Cut           : NO EVENT — see below
+        ///   same -> same                   : null
+        ///
+        /// Stowed -> Cut is not a physical transition (stock reaches CUT only from SEMIDEPLOYED or
+        /// DEPLOYED). It is what the FIRST observation of an already-cut chute looks like, because
+        /// an unseen pid defaults to Stowed: a recording that starts mid-descent after a cut, or a
+        /// background vessel that enters loaded state carrying a cut chute. Emitting ParachuteCut
+        /// there would be a spurious event at segment start, so the state is recorded silently —
+        /// which still leaves the later Cut -> Stowed repack detectable. The ghost's build-time
+        /// pose is stowed-with-cap either way, so no visual is lost.
         /// </summary>
         internal static PartEvent? CheckParachuteTransition(
             uint partPersistentId, string partName, int newState, Dictionary<uint, int> stateMap, double ut)
         {
             int oldState;
             if (!stateMap.TryGetValue(partPersistentId, out oldState))
-                oldState = 0;
+                oldState = ParachuteStateStowed;
 
             if (newState == oldState)
                 return null;
 
-            if (newState > 0)
+            if (newState != ParachuteStateStowed)
                 stateMap[partPersistentId] = newState;
             else
                 stateMap.Remove(partPersistentId);
 
-            // 0→1: semi-deployed (streamer)
-            if (newState == 1 && oldState == 0)
+            PartEventType? eventType = ClassifyParachuteTransitionEvent(oldState, newState);
+            if (!eventType.HasValue)
+                return null;
+
+            return new PartEvent
             {
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ParachuteSemiDeployed,
-                    partName = partName
-                };
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = eventType.Value,
+                partName = partName
+            };
+        }
+
+        /// <summary>
+        /// Pure transition-to-event-type half of <see cref="CheckParachuteTransition"/>, split out
+        /// so the table above is testable without a dictionary. Returns null when the transition
+        /// carries no visual (same state, or first sight of an already-cut chute).
+        /// </summary>
+        internal static PartEventType? ClassifyParachuteTransitionEvent(int oldState, int newState)
+        {
+            if (newState == oldState)
+                return null;
+
+            // Any arrival at a canopy-out state is a deploy, wherever it came from (including a
+            // re-deploy straight out of Cut, which stock only allows after a Repack but which
+            // costs nothing to tolerate here).
+            if (newState == ParachuteStateSemiDeployed)
+                return PartEventType.ParachuteSemiDeployed;
+            if (newState == ParachuteStateDeployed)
+                return PartEventType.ParachuteDeployed;
+
+            if (newState == ParachuteStateCut)
+            {
+                // First observation of an already-cut chute — not a transition. See the remarks
+                // on CheckParachuteTransition.
+                if (oldState == ParachuteStateStowed)
+                    return null;
+                return PartEventType.ParachuteCut;
             }
 
-            // 0→2 or 1→2: fully deployed (dome)
-            if (newState == 2)
-            {
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ParachuteDeployed,
-                    partName = partName
-                };
-            }
+            // newState == Stowed.
+            if (oldState == ParachuteStateCut)
+                return PartEventType.ParachuteRepacked;
 
-            // 1→0 or 2→0: cut
-            if (newState == 0 && oldState > 0)
-            {
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ParachuteCut,
-                    partName = partName
-                };
-            }
-
-            return null;
+            // Semi/Deployed -> Stowed: not a stock path, but keep the pre-split verdict.
+            return PartEventType.ParachuteCut;
         }
 
         private void CheckParachuteState(Vessel v)
@@ -1675,9 +1712,7 @@ namespace Parsek
                 var chute = p.FindModuleImplementing<ModuleParachute>();
                 if (chute == null) continue;
 
-                int state = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
-                          : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
-                          : 0;
+                int state = ClassifyParachuteState(chute.deploymentState);
 
                 var evt = CheckParachuteTransition(
                     p.persistentId, p.partInfo?.name ?? "unknown", state, parachuteStates, ut);
@@ -3703,6 +3738,44 @@ namespace Parsek
                    IsWheelRoboticModuleName(moduleName);
         }
 
+        /// <summary>
+        /// The wheel MOTOR modules, whose spin is derived at playback from the ghost's own ground
+        /// speed instead of being recorded. Returns false for ModuleWheelSuspension and
+        /// ModuleWheelSteering, whose scalars are still recorded normally.
+        ///
+        /// Why these two stopped being recorded: the only field on <c>ModuleWheelMotor</c> that the
+        /// probe list could resolve is <c>driveOutput</c>, and <c>module.Fields</c> is
+        /// <c>[KSPField]</c>-only, so every RPM-shaped candidate ahead of it (<c>currentRPM</c>,
+        /// <c>rpm</c>, <c>wheelRPM</c>, <c>motorRPM</c>, <c>targetRPM</c>) resolves to nothing.
+        /// Decompiled, <c>driveOutput</c> is
+        /// <c>Mathf.Abs(driveInput * wheel.maxDriveTorque / maxTorque) * 100f * resourceFraction</c>
+        /// — an UNSIGNED PERCENT OF MAX TORQUE, declared
+        /// <c>[UI_ProgressBar(minValue = 0, maxValue = 100)]</c>. Playback spun the wheel at
+        /// <c>value * 6</c> deg/s as if it were RPM, so: a coasting rover recorded 0 and showed
+        /// STATIONARY wheels while moving; reverse was byte-identical to forward because of the
+        /// <c>Mathf.Abs</c>; and the magnitude was a torque fraction, not a rate.
+        ///
+        /// Deriving the spin from ground speed at playback is strictly more correct on all three
+        /// counts and is storage-NEGATIVE, so the signal is simply not recorded any more.
+        ///
+        /// ModuleWheelMotorSteering is included because it is a motor first: the field plan reaches
+        /// <c>driveOutput</c> before its <c>steeringAngle</c> fallback, so what it recorded was the
+        /// same bogus torque percent, not steering. (Recording real steering deflection is a separate
+        /// piece of work — it would also need a visual mode other than continuous spin.)
+        ///
+        /// NOTE: this predicate gates EMISSION only. It must not be folded into
+        /// <see cref="IsRoboticModuleName"/>, because that predicate assigns the sequential
+        /// <c>roboticModuleIndex</c> in BOTH <see cref="CacheRoboticModules"/> and the ghost builder's
+        /// <c>TryBuildRoboticInfos</c>, and those two numberings have to stay in lockstep — the
+        /// playback key is <c>EncodeEngineKey(pid, moduleIndex)</c>. Skipping wheel motors there
+        /// would renumber every later robotic module on the same part.
+        /// </summary>
+        internal static bool IsWheelMotorSpinModuleName(string moduleName)
+        {
+            return string.Equals(moduleName, "ModuleWheelMotor", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleWheelMotorSteering", StringComparison.Ordinal);
+        }
+
         internal static List<(Part part, PartModule module, int moduleIndex, string moduleName)> CacheRoboticModules(Vessel v)
         {
             var result = new List<(Part, PartModule, int, string)>();
@@ -4082,6 +4155,20 @@ namespace Parsek
                 if (part == null || module == null) continue;
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+
+                // Wheel motor spin is derived from ground speed at playback, not recorded. The
+                // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
+                // builder's; only the emission is skipped. See IsWheelMotorSpinModuleName.
+                if (IsWheelMotorSpinModuleName(moduleName))
+                {
+                    if (loggedRoboticModuleKeys.Add(key))
+                    {
+                        ParsekLog.Verbose("Recorder", $"Robotics: wheel-motor spin not recorded for " +
+                            $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
+                            $"module={moduleName}; derived from ghost ground speed at playback");
+                    }
+                    continue;
+                }
 
                 bool hasMovingSignal = TryGetRoboticMovingState(module, out bool movingSignal);
                 bool hasPosition = TryGetRoboticPositionValue(

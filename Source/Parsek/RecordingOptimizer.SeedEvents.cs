@@ -10,6 +10,20 @@ namespace Parsek
         /// <summary>
         /// Checks if a part event represents a permanent one-way visual state change
         /// that must be seeded in subsequent segments after a split.
+        ///
+        /// ParachuteRepacked is deliberately NOT here, and neither is ParachuteCut — both belong to
+        /// the reversible family. The reasoning, since a repack undoing a cut is exactly the case
+        /// that makes "is a cut permanent?" a live question:
+        ///
+        /// A cut was never in this family to begin with. ParachuteDestroyed is (the part is gone for
+        /// good and the tail must keep it hidden), but a cut leaves the part present, and a stock EVA
+        /// Repack turns it back into a stowed chute — so cut is not one-way and a repack has no
+        /// permanence to revoke. Both stay in the reversible family, where the parachute state
+        /// machine collapses a per-part run of events to its last state; Cut and Repacked both mark
+        /// that state inactive, and AppendActiveStateSeeds emits nothing for an inactive state. A
+        /// tail that starts after cut+repack therefore gets NO parachute seed and renders from the
+        /// ghost's build-time pose — canopy hidden, cap on — which is precisely the repacked pose.
+        /// Forwarding a permanent seed instead would hide the cap and put the empty can back.
         /// </summary>
         internal static bool IsPermanentVisualStateEvent(PartEventType type)
         {
@@ -179,6 +193,11 @@ namespace Parsek
                         break;
                     case PartEventType.ParachuteCut:
                     case PartEventType.ParachuteDestroyed:
+                    // A repack is the same verdict as a cut for seeding purposes: inactive, so no
+                    // seed is emitted and the tail falls back to the ghost's build-time stowed pose
+                    // — which is what a repacked chute looks like. (ParachuteDestroyed additionally
+                    // rides the permanent family, which keeps the part hidden; a repack must not.)
+                    case PartEventType.ParachuteRepacked:
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
@@ -391,6 +410,7 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                case PartEventType.ParachuteRepacked:
                     return true;
                 default:
                     return false;
@@ -433,6 +453,7 @@ namespace Parsek
                 case PartEventType.ParachuteDeployed:
                 case PartEventType.ParachuteCut:
                 case PartEventType.ParachuteDestroyed:
+                case PartEventType.ParachuteRepacked:
                     return 9;
                 default:
                     return 0;
