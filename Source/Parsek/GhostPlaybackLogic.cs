@@ -1214,6 +1214,15 @@ namespace Parsek
         ///     cycle's events re-deploy it on schedule.
         ///  3. Jettison panels: reactivate jettisoned panels (SetActive true)
         ///     so the new cycle's jettison events can re-fire.
+        ///  3e. Robotic servos: put every servo transform back to its spawn
+        ///     pose. <see cref="ResetForLoopCycle"/> zeroes the robotic
+        ///     bookkeeping but cannot touch <c>servoTransform</c>, so the mesh
+        ///     used to stay wherever the previous cycle left it while the
+        ///     numbers claimed "at rest".
+        ///  3f. Snapshot baselines (M1): re-apply the recorded per-part module
+        ///     state that steps 1-3e just reverted, so the new cycle restarts
+        ///     from the same look the first cycle spawned with instead of the
+        ///     all-stowed prefab look.
         ///  4. Orphan engine/audio auto-start: for recordings with ZERO
         ///     engine events (typical of pure debris boosters that were
         ///     running at breakup), re-fire the fresh-spawn auto-start logic
@@ -1312,6 +1321,27 @@ namespace Parsek
                 foreach (var kvp in state.lightInfos)
                     SetLightState(state, kvp.Key, false);
             }
+
+            // 3e. Robotics: put every servo back to its spawn pose. ResetForLoopCycle
+            //     already zeroes the robotic bookkeeping (currentValue / active /
+            //     lastUpdateUT) but cannot touch servoTransform — it has to stay
+            //     Unity-free — so before this step the numbers said "at rest" while the
+            //     mesh stayed wherever the previous cycle left it. A rover replay's second
+            //     cycle began with its arm already unfolded.
+            int roboticsRestored = RestoreRoboticSpawnBaselines(state);
+
+            // 3f. Re-apply the M1 snapshot baselines the stow/cold/off steps above just
+            //     reverted, so cycle N+1 restarts from the RECORDED look rather than the
+            //     all-stowed prefab look — the same layering a fresh spawn gets
+            //     (PopulateGhostInfoDictionaries applies the stow baselines, then this).
+            //     The prefix replay in the following PrimeLoadedGhostForPlaybackUT then
+            //     layers the cycle's own events on top, exactly as at spawn.
+            ApplySnapshotBaselines(state);
+
+            if (roboticsRestored > 0)
+                ParsekLog.VerboseRateLimited("GhostVisual", "loop-robotic-restore",
+                    $"Loop cycle: restored {roboticsRestored} servo(s) to their spawn pose " +
+                    $"(vessel='{state.vesselName ?? "unknown"}')", 1.0);
 
             // 4. Orphan engine/audio auto-start: duplicates the zero-engine-event
             //    branch of TryPopulateGhostVisuals so a debris-booster recording
