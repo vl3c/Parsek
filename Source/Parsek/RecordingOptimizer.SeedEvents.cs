@@ -110,6 +110,7 @@ namespace Parsek
             var heatStates = new Dictionary<ulong, TransientPartState>();
             var parachuteStates = new Dictionary<ulong, TransientPartState>();
             var roboticStates = new Dictionary<ulong, TransientPartState>();
+            var converterStates = new Dictionary<ulong, TransientPartState>();
 
             for (int i = 0; i < indexedEvents.Count; i++)
             {
@@ -221,6 +222,14 @@ namespace Parsek
                         parachuteStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: evt.eventType);
                         break;
+                    case PartEventType.ConverterActivated:
+                        converterStates[key] = BuildTransientState(
+                            evt, active: true, value: 0f, seedEventType: PartEventType.ConverterActivated);
+                        break;
+                    case PartEventType.ConverterDeactivated:
+                        converterStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: PartEventType.ConverterDeactivated);
+                        break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
                     case PartEventType.RoboticMotionStopped:
@@ -320,6 +329,8 @@ namespace Parsek
                 cargoBayStates, seeds, splitUT, ref visualStateOffSeeds);
             visualStateSeeds += AppendReversibleStateSeeds(
                 parachuteStates, seeds, splitUT, ref visualStateOffSeeds);
+            visualStateSeeds += AppendReversibleStateSeeds(
+                converterStates, seeds, splitUT, ref visualStateOffSeeds);
             // Heat stays ACTIVE-ONLY on purpose. The inactive direction here is
             // ThermalAnimationCold, and cold is what the spawn pass already lays down
             // unconditionally (PopulateHeatInfos / step 3a of the loop-cycle re-apply) —
@@ -476,6 +487,12 @@ namespace Parsek
                 case PartEventType.RoboticMotionStarted:
                 case PartEventType.RoboticPositionSample:
                 case PartEventType.RoboticMotionStopped:
+                // S7: the converter running loop is a plain reversible on/off pair - a player
+                // toggle. The INACTIVE direction is not redundant: nothing else stops the loop, so
+                // a tail whose head span ended with the drill switched off needs to be told, or the
+                // tail's ghost would spin a drill the recording says is idle.
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
                     return true;
                 default:
                     return false;
@@ -535,6 +552,9 @@ namespace Parsek
                 case PartEventType.RoboticPositionSample:
                 case PartEventType.RoboticMotionStopped:
                     return 10;
+                case PartEventType.ConverterActivated:
+                case PartEventType.ConverterDeactivated:
+                    return 11;
                 default:
                     return 0;
             }

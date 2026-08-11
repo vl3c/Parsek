@@ -50,7 +50,7 @@ namespace Parsek
         ///     [x] CheckJettisonState          - ShroudJettisoned
         ///     [x] CheckEngineState            - EngineIgnited / EngineShutdown / EngineThrottle
         ///     [x] CheckRcsState               - RCSActivated / RCSStopped / RCSThrottle
-        ///     [x] CheckDeployableState        - DeployableExtended / DeployableRetracted
+        ///     [x] CheckDeployableState        - DeployableExtended / DeployableRetracted / DeployableBroken
         ///     [x] CheckLadderState            - DeployableExtended / DeployableRetracted (ladders)
         ///     [x] CheckAnimationGroupState    - DeployableExtended / DeployableRetracted (anim groups)
         ///     [x] CheckAeroSurfaceState       - DeployableExtended / DeployableRetracted (aero surfaces)
@@ -64,6 +64,11 @@ namespace Parsek
         ///     [x] CheckFairingState           - FairingJettisoned
         ///     [x] CheckRoboticState           - RoboticMotionStarted / RoboticPositionSample / RoboticMotionStopped
         ///                                       (wheel MOTOR spin excluded — derived from ground speed at playback)
+        ///     [x] CheckConverterState         - ConverterActivated / ConverterDeactivated
+        ///     [x] CheckEvaState               - EvaJetpackDeployed / EvaJetpackStowed / EvaRagdollStarted / EvaRagdollEnded
+        ///                                       (jetpack THRUST is flight-only by nature: a background
+        ///                                        kerbal receives no input, so the edge never fires. That
+        ///                                        is parity with reality, not a coverage gap.)
         ///
         ///   GAME-EVENT DRIVEN (via SubscribePartEvents):
         ///     [x] onPartDie                   - Destroyed / ParachuteDestroyed (OnBackgroundPartDie)
@@ -79,7 +84,7 @@ namespace Parsek
             // Count delta before/after pattern: all CheckXState methods only
             // mutate treeRec.PartEvents (no Points/OrbitSegments/etc changes),
             // so a single post-polling dirty mark guarded on count-delta covers
-            // all 17 child checks without 19 inline MarkFilesDirty calls.
+            // all 19 child checks without 19 inline MarkFilesDirty calls.
             // If no events were emitted this poll, the mark is skipped — keeps
             // the frequent per-physics-frame poll cheap.
             int prePartEventCount = treeRec.PartEvents.Count;
@@ -101,6 +106,7 @@ namespace Parsek
             CheckCargoBayState(v, state, treeRec, ut);
             CheckFairingState(v, state, treeRec, ut);
             CheckRoboticState(v, state, treeRec, ut);
+            CheckConverterState(v, state, treeRec, ut);
 
             if (treeRec.PartEvents.Count > prePartEventCount)
                 treeRec.MarkFilesDirty();
@@ -247,6 +253,34 @@ namespace Parsek
                     treeRec.PartEvents.Add(evt.Value);
                     ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S7 BG parity - and this is the case that MATTERS most for converters: a mining base you
+        /// left behind keeps producing while you are elsewhere, and that is exactly when the base is
+        /// a background vessel. Same Layer-1 transition, no window machinery (the harvest window is
+        /// a flight-side resource-attribution device, unrelated to this visual).
+        /// </summary>
+        private void CheckConverterState(Vessel v, BackgroundVesselState state,
+            Recording treeRec, double ut)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = FlightRecorder.CheckConverterTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    FlightRecorder.IsAnyConverterActiveOnPart(p), state.activeConverterParts, ut);
+                if (evt.HasValue)
+                {
+                    treeRec.PartEvents.Add(evt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, converter)");
                 }
             }
         }

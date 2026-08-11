@@ -4278,6 +4278,7 @@ namespace Parsek
                 parachuteStates = state.parachuteStates,
                 extendedDeployables = state.extendedDeployables,
                 brokenDeployables = state.brokenDeployables,
+                activeConverterParts = state.activeConverterParts,
                 lightsOn = state.lightsOn,
                 blinkingLights = state.blinkingLights,
                 lightBlinkRates = state.lightBlinkRates,

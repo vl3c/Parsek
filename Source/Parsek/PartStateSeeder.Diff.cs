@@ -21,6 +21,7 @@ namespace Parsek
             clone.parachuteStates = new Dictionary<uint, int>(source.parachuteStates ?? new Dictionary<uint, int>());
             clone.extendedDeployables = new HashSet<uint>(source.extendedDeployables ?? new HashSet<uint>());
             clone.brokenDeployables = new HashSet<uint>(source.brokenDeployables ?? new HashSet<uint>());
+            clone.activeConverterParts = new HashSet<uint>(source.activeConverterParts ?? new HashSet<uint>());
             clone.lightsOn = new HashSet<uint>(source.lightsOn ?? new HashSet<uint>());
             clone.blinkingLights = new HashSet<uint>(source.blinkingLights ?? new HashSet<uint>());
             clone.lightBlinkRates = new Dictionary<uint, float>(source.lightBlinkRates ?? new Dictionary<uint, float>());
@@ -152,6 +153,10 @@ namespace Parsek
                 before.extendedDeployables, after.extendedDeployables,
                 PartEventType.DeployableExtended, PartEventType.DeployableRetracted,
                 departureCarveOut: after.brokenDeployables);
+            // S7: a drill switched on or off across a rails span. Bidirectional and independent -
+            // nothing else reads or writes this family, so it needs no precedence dance.
+            DiffUintSet(before.activeConverterParts, after.activeConverterParts,
+                PartEventType.ConverterActivated, PartEventType.ConverterDeactivated);
             DiffUintSet(before.jettisonedShrouds, after.jettisonedShrouds,
                 PartEventType.ShroudJettisoned, null);
             DiffUintSet(before.deployedFairings, after.deployedFairings,

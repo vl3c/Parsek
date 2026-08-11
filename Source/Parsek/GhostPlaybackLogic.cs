@@ -1839,6 +1839,14 @@ namespace Parsek
                     case PartEventType.DeployableBroken:
                         ApplyDeployableBrokenState(state, evt.partPersistentId, broken: true);
                         break;
+                    // S7: evt.ut is the loop's phase origin, which is what makes a scrubbed or
+                    // looping replay land on the SAME pose for the same recorded moment.
+                    case PartEventType.ConverterActivated:
+                        ApplyConverterLoopState(state, evt.partPersistentId, active: true, activeSinceUT: evt.ut);
+                        break;
+                    case PartEventType.ConverterDeactivated:
+                        ApplyConverterLoopState(state, evt.partPersistentId, active: false, activeSinceUT: evt.ut);
+                        break;
                     case PartEventType.ThermalAnimationHot:
                         ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
@@ -5448,6 +5456,31 @@ namespace Parsek
                 }
             }
 
+            // S7: STOP every running loop and put its transforms back to phase 0. Without the stop,
+            // a drill switched on during the prior cycle would keep turning through the start of
+            // the next one - before the recording's own ConverterActivated has replayed - so the
+            // second cycle of a looping mining replay would show the drill already running.
+            if (synth.converterLoops != null)
+            {
+                for (int i = 0; i < synth.converterLoops.Count; i++)
+                {
+                    ConverterLoopGhostInfo loop = synth.converterLoops[i];
+                    if (loop == null) continue;
+                    loop.active = false;
+                    loop.activeSinceUT = 0.0;
+                    if (loop.transforms == null) continue;
+                    for (int t = 0; t < loop.transforms.Count; t++)
+                    {
+                        ConverterLoopTransformState ts = loop.transforms[t];
+                        if (ts?.t == null || ts.phases == null || ts.phases.Length == 0) continue;
+                        ts.t.localPosition = ts.phases[0].pos;
+                        ts.t.localRotation = ts.phases[0].rot;
+                        ts.t.localScale = ts.phases[0].scale;
+                        restored++;
+                    }
+                }
+            }
+
             if (restored > 0)
                 ParsekLog.VerboseRateLimited("GhostVisual", "loop-synth-restore",
                     $"Loop cycle: restored {restored} synthesized transform(s) to neutral " +
@@ -5466,6 +5499,14 @@ namespace Parsek
             if (state?.ghost == null) return;
             SynthesizedMotionGhostInfos synth = state.synthesizedMotionInfos;
             if (synth == null || synth.IsEmpty) return;
+
+            // S7 runs FIRST and OUTSIDE the delta-time machinery below, deliberately. The other
+            // three families are attitude-DERIVATIVE driven, so they need a usable dt and re-seed
+            // (skipping the frame) when they cannot get one. A running loop needs no derivative at
+            // all: its phase is a pure function of (currentUT - activeSinceUT). Putting it after
+            // the re-seed guard would freeze every drill in the scene for the whole of a sustained
+            // time warp — precisely the situation a mining base is usually watched in.
+            DriveConverterLoops(state, synth, currentUT);
 
             // The APPLIED world rotation — post-positioning, post-frame-resolution, correct on
             // Absolute and RELATIVE sections alike because it is the transform, not stored data.
@@ -5511,6 +5552,128 @@ namespace Parsek
             DriveSynthesizedGimbals(state, synth, rate, deltaSeconds);
             DriveSynthesizedControlSurfaces(state, synth, rate, deltaSeconds);
             DriveSunTracking(state, synth, deltaSeconds);
+        }
+
+        /// <summary>
+        /// S7: the running-loop phase for one loop at one recorded UT, wrapped into [0,1).
+        ///
+        /// Pure, so the cyclic arithmetic — the part most likely to be wrong and least likely to be
+        /// noticed — is directly testable. A non-finite or non-positive clip length parks the loop
+        /// at phase 0 rather than dividing by it.
+        /// </summary>
+        internal static float ComputeConverterLoopPhase(
+            double currentUT, double activeSinceUT, float clipLengthSeconds)
+        {
+            if (clipLengthSeconds <= 0f || float.IsNaN(clipLengthSeconds) || float.IsInfinity(clipLengthSeconds))
+                return 0f;
+            double elapsed = currentUT - activeSinceUT;
+            if (double.IsNaN(elapsed) || double.IsInfinity(elapsed) || elapsed <= 0.0)
+                return 0f;
+
+            double cycles = elapsed / clipLengthSeconds;
+            double phase = cycles - Math.Floor(cycles);
+            if (phase < 0.0) phase += 1.0;
+            // Guard the boundary: floating point can land phase at exactly 1.0 for a large
+            // `cycles`, and a caller indexing phases[(int)(phase * N)] would then run off the end.
+            if (phase >= 1.0) phase = 0.0;
+            return (float)phase;
+        }
+
+        /// <summary>
+        /// S7: resolves a wrapped phase onto a pair of adjacent sampled poses and the blend between
+        /// them. The pair WRAPS — phase 11 of 12 blends toward phase 0, not toward a 13th slot —
+        /// because the clip is cyclic and the sampler deliberately did not store a duplicate
+        /// endpoint.
+        /// </summary>
+        internal static void ResolveConverterLoopBlend(
+            float phase, int phaseCount, out int fromIndex, out int toIndex, out float blend)
+        {
+            fromIndex = 0;
+            toIndex = 0;
+            blend = 0f;
+            if (phaseCount <= 0) return;
+            if (phaseCount == 1) return;
+
+            float scaled = Mathf.Clamp01(phase) * phaseCount;
+            fromIndex = (int)scaled;
+            if (fromIndex >= phaseCount) fromIndex = phaseCount - 1;
+            toIndex = (fromIndex + 1) % phaseCount;
+            blend = Mathf.Clamp01(scaled - fromIndex);
+        }
+
+        /// <summary>
+        /// S7: advances every ACTIVE running loop on this ghost to the pose its recorded UT implies.
+        /// Inactive loops are left exactly where they stopped, which is what a switched-off drill
+        /// looks like — parked mid-stroke, not snapped to a home pose.
+        /// </summary>
+        private static void DriveConverterLoops(
+            GhostPlaybackState state, SynthesizedMotionGhostInfos synth, double currentUT)
+        {
+            if (synth.converterLoops == null || synth.converterLoops.Count == 0) return;
+
+            int driven = 0;
+            for (int i = 0; i < synth.converterLoops.Count; i++)
+            {
+                ConverterLoopGhostInfo loop = synth.converterLoops[i];
+                if (loop == null || !loop.active) continue;
+                if (loop.transforms == null || loop.transforms.Count == 0) continue;
+
+                float phase = ComputeConverterLoopPhase(
+                    currentUT, loop.activeSinceUT, loop.clipLengthSeconds);
+
+                for (int t = 0; t < loop.transforms.Count; t++)
+                {
+                    ConverterLoopTransformState ts = loop.transforms[t];
+                    if (ts?.t == null || ts.phases == null || ts.phases.Length == 0) continue;
+
+                    ResolveConverterLoopBlend(
+                        phase, ts.phases.Length, out int from, out int to, out float blend);
+
+                    ConverterLoopPose a = ts.phases[from];
+                    ConverterLoopPose b = ts.phases[to];
+                    ts.t.localPosition = Vector3.Lerp(a.pos, b.pos, blend);
+                    ts.t.localRotation = Quaternion.Slerp(a.rot, b.rot, blend);
+                    ts.t.localScale = Vector3.Lerp(a.scale, b.scale, blend);
+                }
+                driven++;
+            }
+
+            if (driven > 0)
+                ParsekLog.VerboseRateLimited("GhostVisual", "converter-loop-drive",
+                    $"Converter loops driven: {driven} (vessel='{state.vesselName ?? "unknown"}')", 5.0);
+        }
+
+        /// <summary>
+        /// S7: starts or stops one part's running loop. Called by the ConverterActivated /
+        /// ConverterDeactivated events, by the snapshot-start seed and by the loop-cycle reset.
+        ///
+        /// <paramref name="activeSinceUT"/> is the RECORDED event UT, which is what makes the whole
+        /// thing scrub-safe: replaying the same recorded moment always lands on the same phase, so
+        /// a rewound or looping replay is not merely close but identical.
+        /// </summary>
+        internal static bool ApplyConverterLoopState(
+            GhostPlaybackState state, uint partPersistentId, bool active, double activeSinceUT)
+        {
+            var synth = state?.synthesizedMotionInfos;
+            if (synth?.converterLoops == null) return false;
+
+            bool applied = false;
+            for (int i = 0; i < synth.converterLoops.Count; i++)
+            {
+                ConverterLoopGhostInfo loop = synth.converterLoops[i];
+                if (loop == null || loop.partPersistentId != partPersistentId) continue;
+
+                // Re-arming an ALREADY-active loop would restart it from phase 0 and produce a
+                // visible hitch. A duplicate ConverterActivated (a snapshot seed followed by a
+                // start-UT seed for the same part) is exactly that case, so it is ignored.
+                if (active && loop.active) { applied = true; continue; }
+
+                loop.active = active;
+                if (active) loop.activeSinceUT = activeSinceUT;
+                applied = true;
+            }
+
+            return applied;
         }
 
         private static void DriveSynthesizedGimbals(

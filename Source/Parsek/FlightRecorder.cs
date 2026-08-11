@@ -124,6 +124,11 @@ namespace Parsek
         /// clears the extended flag when a panel breaks, so no pid is ever in both.
         /// </summary>
         private HashSet<uint> brokenDeployables = new HashSet<uint>();
+        /// <summary>
+        /// S7: pids with at least one running BaseConverter. Per-PART, unlike the vessel-scoped
+        /// harvest window - the running animation belongs to one part's ModuleAnimationGroup.
+        /// </summary>
+        private HashSet<uint> activeConverterParts = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> blinkingLights = new HashSet<uint>();
         private Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();
@@ -2039,6 +2044,111 @@ namespace Parsek
                 {
                     PartEvents.Add(evt.Value);
                     ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// S7: whether ANY <c>BaseConverter</c> on this part is currently running.
+        ///
+        /// Base-class keying, the same choice <see cref="RebuildHarvestConverterCache"/> makes and
+        /// for the same reason: it covers <c>ModuleResourceHarvester</c>,
+        /// <c>ModuleResourceConverter</c>, the asteroid / comet drills and modded derivatives with
+        /// no module-name list to maintain. <c>BaseConverter.IsActivated</c> is a
+        /// <c>[KSPField(isPersistant = true)] public bool</c> (verified by decompile, KSP 1.12.5),
+        /// so it is readable, persistent and rails-safe.
+        ///
+        /// ANY rather than ALL because the visual is per-PART: one ModuleAnimationGroup drives one
+        /// running animation on the part, so a single active converter is enough to make the drill
+        /// spin. A Unity-destroyed module (a staged-away drill) counts as inactive.
+        /// </summary>
+        internal static bool IsAnyConverterActiveOnPart(Part p)
+        {
+            if (p?.Modules == null) return false;
+            for (int m = 0; m < p.Modules.Count; m++)
+            {
+                if (p.Modules[m] is BaseConverter converter
+                    && converter != null
+                    && converter.IsActivated)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// S7: the per-part converter on/off edge, which produced NO PartEvent at all before P8 —
+        /// so a mining base replayed with a dead-still drill and an ISRU that never moved, even
+        /// though the recording knew the harvest was running (the vessel-scoped
+        /// <see cref="PollHarvestActivity"/> window is a resource-attribution device and emits no
+        /// part event).
+        ///
+        /// Playback turns these into the part's ModuleAnimationGroup RUNNING animation
+        /// (RadialDrill's Drill_Running, the large ISRU's ProcessorLarge_running), driven as a pure
+        /// function of elapsed recorded UT.
+        ///
+        /// Budget: 2 events per mining session. The state is a player toggle, not a continuous
+        /// signal, so there is nothing to debounce.
+        /// </summary>
+        internal static PartEvent? CheckConverterTransition(
+            uint partPersistentId, string partName, bool isActive,
+            HashSet<uint> activeConverterParts, double ut)
+        {
+            bool wasActive = activeConverterParts.Contains(partPersistentId);
+
+            if (isActive && !wasActive)
+            {
+                activeConverterParts.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ConverterActivated,
+                    partName = partName
+                };
+            }
+
+            if (!isActive && wasActive)
+            {
+                activeConverterParts.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ConverterDeactivated,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// S7 flight-side poll. DELIBERATELY SEPARATE from the harvest-window machinery
+        /// (<see cref="PollHarvestActivity"/>), which is vessel-scoped, owns rails-entry /
+        /// rails-exit funnels and exists to attribute harvested resources. This one is per-PART and
+        /// needs none of that: the background recorder gets the identical wrapper with no window
+        /// bookkeeping to replicate.
+        /// </summary>
+        private void CheckConverterState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = CheckConverterTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    IsAnyConverterActiveOnPart(p), activeConverterParts, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId} (converter)");
                 }
             }
         }
@@ -6930,6 +7040,7 @@ namespace Parsek
             parsedJettisonNamesCache.Clear();
             extendedDeployables.Clear();
             brokenDeployables.Clear();
+            activeConverterParts.Clear();
             lightsOn.Clear();
             blinkingLights.Clear();
             lightBlinkRates.Clear();
@@ -7187,6 +7298,7 @@ namespace Parsek
                 parachuteStates = parachuteStates,
                 extendedDeployables = extendedDeployables,
                 brokenDeployables = brokenDeployables,
+                activeConverterParts = activeConverterParts,
                 lightsOn = lightsOn,
                 blinkingLights = blinkingLights,
                 lightBlinkRates = lightBlinkRates,
@@ -8375,7 +8487,7 @@ namespace Parsek
         /// <summary>
         /// Polls all part-module states (parachutes, jettisons, engines, RCS, deployables,
         /// ladders, animation groups, aero/control surfaces, lights, gear, cargo bays,
-        /// fairings, robotics). Runs every physics frame before adaptive sampling.
+        /// fairings, robotics, converters). Runs every physics frame before adaptive sampling.
         /// </summary>
         private void PollPartStates(Vessel v)
         {
@@ -8396,6 +8508,7 @@ namespace Parsek
             CheckCargoBayState(v);
             CheckFairingState(v);
             CheckRoboticState(v);
+            CheckConverterState(v);
         }
 
         /// <summary>

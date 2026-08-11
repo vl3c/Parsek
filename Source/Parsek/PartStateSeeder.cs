@@ -56,6 +56,7 @@ namespace Parsek
                 SeedLadders(p, sets, logTag);
                 SeedAnimationGroupsAndSurfaces(p, sets, logTag);
                 SeedAnimateGeneric(p, cargo, sets, logTag);
+                SeedConverters(p, sets, logTag);
             }
 
             SeedEngines(cachedEngines, sets, logTag);
@@ -69,7 +70,8 @@ namespace Parsek
                 $"blinks={sets.blinkingLights.Count} gear={sets.deployedGear.Count} cargo={sets.openCargoBays.Count} " +
                 $"ladders={sets.deployedLadders.Count} animGroups={sets.deployedAnimationGroups.Count} " +
                 $"animGeneric={sets.deployedAnimateGenericModules.Count} heat={sets.animateHeatLevels.Count} " +
-                $"engines={sets.activeEngineKeys.Count} rcs={sets.activeRcsKeys.Count}");
+                $"engines={sets.activeEngineKeys.Count} rcs={sets.activeRcsKeys.Count} " +
+                $"converters={sets.activeConverterParts.Count}");
         }
 
         private static void SeedFairings(Part p, PartTrackingSets sets, string logTag)
@@ -154,6 +156,23 @@ namespace Parsek
                 ParsekLog.Verbose(logTag,
                     $"Seeded already-broken deployable: '{p.partInfo?.name}' pid={p.persistentId}");
             }
+        }
+
+        /// <summary>
+        /// S7: a drill / ISRU already RUNNING when recording starts. Without this the first poll
+        /// would read the live active state as an activation edge and emit a spurious
+        /// ConverterActivated - so a base that had been mining for an hour would look like it
+        /// started the moment the recording did. (The precedent is
+        /// FlightRecorder.InitializeHarvestWindowAtStart, which opens the resource window at start
+        /// for the same reason.)
+        /// </summary>
+        private static void SeedConverters(Part p, PartTrackingSets sets, string logTag)
+        {
+            if (!FlightRecorder.IsAnyConverterActiveOnPart(p)) return;
+
+            sets.activeConverterParts.Add(p.persistentId);
+            ParsekLog.Verbose(logTag,
+                $"Seeded already-running converter: '{p.partInfo?.name}' pid={p.persistentId}");
         }
 
         private static void SeedLights(Part p, PartTrackingSets sets,
@@ -486,6 +505,9 @@ namespace Parsek
             // S6: a recording that STARTS with a broken panel needs the ghost told so at UT0 —
             // the ghost is built from the prefab (intact) and nothing else would hide the subtree.
             EmitFromUintSet(sets.brokenDeployables, PartEventType.DeployableBroken);
+            // S7: a recording that starts with the drill already turning needs the running loop
+            // started at UT0 rather than at the recording's first toggle (which may never come).
+            EmitFromUintSet(sets.activeConverterParts, PartEventType.ConverterActivated);
             EmitFromUintSet(sets.jettisonedShrouds, PartEventType.ShroudJettisoned);
             EmitFromUintSet(sets.deployedFairings, PartEventType.FairingJettisoned);
             EmitFromUintSet(sets.lightsOn, PartEventType.LightOn);
@@ -763,6 +785,8 @@ namespace Parsek
         public HashSet<uint> extendedDeployables = new HashSet<uint>();
         /// <summary>S6: pids whose ModuleDeployablePart is BROKEN. Disjoint from extendedDeployables.</summary>
         public HashSet<uint> brokenDeployables = new HashSet<uint>();
+        /// <summary>S7: pids with at least one running BaseConverter (ISRU / drill / harvester).</summary>
+        public HashSet<uint> activeConverterParts = new HashSet<uint>();
         public HashSet<uint> lightsOn = new HashSet<uint>();
         public HashSet<uint> blinkingLights = new HashSet<uint>();
         public Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();

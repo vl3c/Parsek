@@ -574,6 +574,11 @@ namespace Parsek
                 if (sink.sunTrackers == null) sink.sunTrackers = new List<SunTrackingGhostInfo>();
                 sink.sunTrackers.AddRange(part.sunTrackers);
             }
+            if (part.converterLoops != null)
+            {
+                if (sink.converterLoops == null) sink.converterLoops = new List<ConverterLoopGhostInfo>();
+                sink.converterLoops.AddRange(part.converterLoops);
+            }
         }
 
         internal static GhostBuildResult CompleteTimelineGhostBuild(
@@ -1778,6 +1783,194 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// S7: how many poses around a running loop get sampled. Twelve is a deliberate middle:
+        /// enough that a rotating drill head reads as rotating rather than as three jerks, few
+        /// enough that the storage is trivial (12 poses x a handful of transforms per part, built
+        /// once per part TYPE and cached) and the per-frame cost stays one lerp+slerp per transform.
+        /// </summary>
+        internal const int ConverterLoopPhaseCount = 12;
+
+        // S7: partKey|animName -> the sampled loop phases, and the running clip's own length.
+        // Keyed by BOTH because the running clip is a different clip from the deploy clip on the
+        // same part, and animationClipLengthCache is per-part last-write-wins — writing the running
+        // length into that cache would corrupt the DEPLOY duration the S2 interpolation reads.
+        private static readonly Dictionary<string, (List<(string path, ConverterLoopPose[] phases)> samples,
+            float clipSeconds)> converterLoopSampleCache =
+            new Dictionary<string, (List<(string, ConverterLoopPose[])>, float)>();
+
+        internal static void ClearConverterLoopSampleCache() => converterLoopSampleCache.Clear();
+
+        /// <summary>
+        /// S7: samples a LOOPING animation clip at <see cref="ConverterLoopPhaseCount"/> evenly
+        /// spaced normalized times, keeping every transform the clip actually moves.
+        ///
+        /// A sibling of <see cref="SampleAnimationStates"/> rather than an extension of it: that
+        /// method's whole contract is a stowed/deployed PAIR (it even scores which endpoint is
+        /// "stowed"), and a cyclic clip has no such pair — its endpoints coincide. Same temp-clone
+        /// mechanics, same DestroyImmediate in a finally.
+        ///
+        /// A transform is kept when ANY sampled phase differs from phase 0 beyond the same
+        /// thresholds <see cref="CollectTransformDeltas"/> uses, so a clip that animates nothing
+        /// (or that could not be found) yields null and the part simply has no running loop.
+        /// </summary>
+        private static List<(string path, ConverterLoopPose[] phases)> SampleAnimationLoopStates(
+            Part prefab, string animName, string label, out float clipSeconds)
+        {
+            clipSeconds = GhostPlaybackLogic.ClampDeployableClipSeconds(0f);
+            if (prefab == null || string.IsNullOrEmpty(animName)) return null;
+
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            string cacheKey = partKey + "|" + animName;
+            if (converterLoopSampleCache.TryGetValue(cacheKey, out var cached))
+            {
+                clipSeconds = cached.clipSeconds;
+                return cached.samples;
+            }
+
+            Transform modelRoot = FindModelRoot(prefab);
+            if (modelRoot == null)
+            {
+                converterLoopSampleCache[cacheKey] = (null, clipSeconds);
+                return null;
+            }
+
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+            List<(string path, ConverterLoopPose[] phases)> result = null;
+            try
+            {
+                Animation anim = FindAnimation(tempClone, animName, null,
+                    AnimLookup.Simple, label, partKey);
+                AnimationState state = anim != null ? anim[animName] : null;
+                if (state == null)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"  {label} '{partKey}': running animation '{animName}' not found on model clone");
+                    converterLoopSampleCache[cacheKey] = (null, clipSeconds);
+                    return null;
+                }
+
+                clipSeconds = GhostPlaybackLogic.ClampDeployableClipSeconds(state.length);
+
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                state.enabled = true;
+                state.speed = 0f;
+                state.weight = 1f;
+                anim.Play(animName);
+
+                // Phase i is sampled at i/N, NOT i/(N-1): the clip is cyclic, so normalized time 1
+                // is the same pose as 0 and including both would spend a phase slot on a duplicate
+                // and stall the loop for one interval. The drive wraps from the last phase back to
+                // phase 0.
+                var perPhase = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>[ConverterLoopPhaseCount];
+                for (int phase = 0; phase < ConverterLoopPhaseCount; phase++)
+                {
+                    state.normalizedTime = (float)phase / ConverterLoopPhaseCount;
+                    anim.Sample();
+                    perPhase[phase] = SnapshotTransformStates(allTransforms, tempClone.transform);
+                }
+
+                result = new List<(string, ConverterLoopPose[])>();
+                foreach (var kv in perPhase[0])
+                {
+                    string path = kv.Key;
+                    var poses = new ConverterLoopPose[ConverterLoopPhaseCount];
+                    bool moves = false;
+                    bool complete = true;
+
+                    for (int phase = 0; phase < ConverterLoopPhaseCount; phase++)
+                    {
+                        if (!perPhase[phase].TryGetValue(path, out var s)) { complete = false; break; }
+                        poses[phase] = new ConverterLoopPose { pos = s.pos, rot = s.rot, scale = s.scale };
+
+                        if (!moves && phase > 0)
+                        {
+                            moves = (s.pos - kv.Value.pos).sqrMagnitude > 0.0001f
+                                || Quaternion.Angle(s.rot, kv.Value.rot) > 0.01f
+                                || (s.scale - kv.Value.scale).sqrMagnitude > 0.0001f;
+                        }
+                    }
+
+                    if (complete && moves)
+                        result.Add((path, poses));
+                }
+
+                if (result.Count == 0)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"  {label} '{partKey}': running animation '{animName}' moves nothing over {ConverterLoopPhaseCount} phases");
+                    result = null;
+                }
+                else
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"  {label} '{partKey}': sampled {result.Count} looping transform(s) from '{animName}' " +
+                        $"over {ConverterLoopPhaseCount} phases (clip={clipSeconds.ToString("F2", CultureInfo.InvariantCulture)}s)");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            converterLoopSampleCache[cacheKey] = (result, clipSeconds);
+            return result;
+        }
+
+        /// <summary>
+        /// S7: builds one part's running loop from its ModuleAnimationGroup
+        /// <c>activeAnimationName</c>.
+        ///
+        /// Stock ground truth, read off the shipped configs: RadialDrill pairs
+        /// <c>Drill_Deploy</c> with <c>Drill_Running</c>, MiniDrill pairs <c>Deploy</c> with
+        /// <c>Drill</c>, and the large ISRU and the orbital scanner have an EMPTY
+        /// <c>deployAnimationName</c> with only a running one (<c>ProcessorLarge_running</c> /
+        /// <c>miniscanner</c>). That last shape is why this reads <c>activeAnimationName</c>
+        /// DIRECTLY instead of going through <c>TryGetAnimationGroupDeployAnimation</c>, which
+        /// requires a non-empty deploy name and would have skipped them.
+        /// </summary>
+        private static ConverterLoopGhostInfo TryBuildConverterLoopInfo(
+            Part prefab, PartModule module, uint persistentId, string partName,
+            Transform modelNodeTransform)
+        {
+            if (!TryGetModuleStringField(module, "activeAnimationName", out string activeAnim))
+                return null;
+            if (string.IsNullOrEmpty(activeAnim))
+                return null;
+
+            var samples = SampleAnimationLoopStates(
+                prefab, activeAnim, "ConverterLoop", out float clipSeconds);
+            if (samples == null || samples.Count == 0)
+                return null;
+
+            var resolved = new List<ConverterLoopTransformState>();
+            for (int i = 0; i < samples.Count; i++)
+            {
+                Transform ghostT = FindTransformByPath(modelNodeTransform, samples[i].path);
+                if (ghostT == null) continue;
+                resolved.Add(new ConverterLoopTransformState
+                {
+                    t = ghostT,
+                    phases = samples[i].phases
+                });
+            }
+
+            if (resolved.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"converter-loop-unresolved-{partName}",
+                    $"    ConverterLoop '{partName}' pid={persistentId}: none of {samples.Count} looping " +
+                    $"transform(s) from '{activeAnim}' resolved onto the ghost", 60.0);
+                return null;
+            }
+
+            return new ConverterLoopGhostInfo
+            {
+                partPersistentId = persistentId,
+                transforms = resolved,
+                clipLengthSeconds = clipSeconds
+            };
+        }
+
         // Cache: partName(+anim) -> sampled 3-state ModuleAnimateHeat transform states
         private static readonly Dictionary<string, List<(string path,
             Vector3 coldPos, Quaternion coldRot, Vector3 coldScale,
@@ -1790,8 +1983,9 @@ namespace Parsek
             animateHeatCache.Clear();
             // S2's clip-length cache is prefab-derived exactly like this one and has exactly the
             // same lifetime, so it is dropped here rather than growing a second call site nobody
-            // remembers to call.
+            // remembers to call. S7's loop-phase cache is prefab-derived on the same terms.
             animationClipLengthCache.Clear();
+            converterLoopSampleCache.Clear();
         }
 
         // S2: partKey -> the prefab deployable clip's own length in seconds, already clamped.
@@ -3963,6 +4157,19 @@ namespace Parsek
                             result.sunTrackers = new List<SunTrackingGhostInfo>();
                         result.sunTrackers.Add(tracker);
                     }
+                    continue;
+                }
+
+                if (string.Equals(moduleName, "ModuleAnimationGroup", System.StringComparison.Ordinal))
+                {
+                    ConverterLoopGhostInfo loop = TryBuildConverterLoopInfo(
+                        prefab, module, persistentId, partName, modelNode);
+                    if (loop != null)
+                    {
+                        if (result.converterLoops == null)
+                            result.converterLoops = new List<ConverterLoopGhostInfo>();
+                        result.converterLoops.Add(loop);
+                    }
                 }
             }
 
@@ -3973,7 +4180,8 @@ namespace Parsek
                 $"Synthesized motion for '{partName}' pid={persistentId}: " +
                 $"gimbals={(result.gimbals != null ? result.gimbals.Count : 0)} " +
                 $"surfaces={(result.controlSurfaces != null ? result.controlSurfaces.Count : 0)} " +
-                $"sunTrackers={(result.sunTrackers != null ? result.sunTrackers.Count : 0)}", 30.0);
+                $"sunTrackers={(result.sunTrackers != null ? result.sunTrackers.Count : 0)} " +
+                $"converterLoops={(result.converterLoops != null ? result.converterLoops.Count : 0)}", 30.0);
             return result;
         }
 

@@ -58,6 +58,8 @@ namespace Parsek
             public HashSet<uint> extendedDeployables = new HashSet<uint>();
             /// <summary>S6: pids whose ModuleDeployablePart is currently BROKEN (see FlightRecorder.brokenDeployables).</summary>
             public HashSet<uint> brokenDeployables = new HashSet<uint>();
+            /// <summary>S7: pids with a running BaseConverter (see FlightRecorder.activeConverterParts).</summary>
+            public HashSet<uint> activeConverterParts = new HashSet<uint>();
             public HashSet<uint> lightsOn = new HashSet<uint>();
             public HashSet<uint> blinkingLights = new HashSet<uint>();
             public Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();

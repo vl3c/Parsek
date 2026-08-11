@@ -646,5 +646,294 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // ------------------------------------------------------------------
+        // Step 5 — S7: the converter running loop
+        // ------------------------------------------------------------------
+
+        #region S7 recorder truth table
+
+        private const uint DrillPid = 8001u;
+        private const string DrillName = "RadialDrill";
+
+        [Theory]
+        // isActive, wasActive, expected event (null = none)
+        [InlineData(false, false, null)]
+        [InlineData(true, true, null)]
+        [InlineData(true, false, "ConverterActivated")]
+        [InlineData(false, true, "ConverterDeactivated")]
+        public void CheckConverterTransition_TruthTable(
+            bool isActive, bool wasActive, string expectedEventName)
+        {
+            var activeSet = new HashSet<uint>();
+            if (wasActive) activeSet.Add(DrillPid);
+
+            PartEvent? evt = FlightRecorder.CheckConverterTransition(
+                DrillPid, DrillName, isActive, activeSet, ut: 700.0);
+
+            if (expectedEventName == null)
+            {
+                Assert.False(evt.HasValue);
+                Assert.Equal(wasActive, activeSet.Contains(DrillPid));
+                return;
+            }
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(expectedEventName, evt.Value.eventType.ToString());
+            Assert.Equal(DrillPid, evt.Value.partPersistentId);
+            Assert.Equal(700.0, evt.Value.ut);
+            Assert.Equal(isActive, activeSet.Contains(DrillPid));
+        }
+
+        [Fact]
+        public void AMiningSessionProducesExactlyTwoEvents_TheStatedBudget()
+        {
+            // The budget claim in the enum's comment, held to. Converter state is a player toggle,
+            // not a continuous signal, so a whole session that polls hundreds of times must still
+            // cost exactly one pair.
+            var activeSet = new HashSet<uint>();
+            var emitted = new List<PartEventType>();
+
+            void Poll(bool active, double ut)
+            {
+                PartEvent? e = FlightRecorder.CheckConverterTransition(
+                    DrillPid, DrillName, active, activeSet, ut);
+                if (e.HasValue) emitted.Add(e.Value.eventType);
+            }
+
+            for (int i = 0; i < 50; i++) Poll(active: false, ut: 100 + i);
+            for (int i = 0; i < 500; i++) Poll(active: true, ut: 200 + i);
+            for (int i = 0; i < 50; i++) Poll(active: false, ut: 800 + i);
+
+            Assert.Equal(new[]
+            {
+                PartEventType.ConverterActivated,
+                PartEventType.ConverterDeactivated,
+            }, emitted);
+        }
+
+        [Fact]
+        public void ARecordingThatStartsWithTheDrillRunning_SeedsConverterActivatedAtUT0()
+        {
+            // Without the seed the loop would start at the recording's first TOGGLE, which for a
+            // base that has been mining for hours may never come at all.
+            var sets = new PartTrackingSets();
+            sets.activeConverterParts.Add(DrillPid);
+
+            var events = PartStateSeeder.EmitSeedEvents(
+                sets, new Dictionary<uint, string> { { DrillPid, DrillName } },
+                startUT: 5000.0, logTag: "Recorder");
+
+            PartEvent seed = Assert.Single(
+                events.Where(e => e.eventType == PartEventType.ConverterActivated));
+            Assert.Equal(DrillPid, seed.partPersistentId);
+            Assert.Equal(5000.0, seed.ut);
+        }
+
+        [Fact]
+        public void ADrillToggledAcrossARailsSpan_ReconcilesInBothDirections()
+        {
+            var on = new PartTrackingSets();
+            on.activeConverterParts.Add(DrillPid);
+            var off = new PartTrackingSets();
+
+            var started = PartStateSeeder.EmitDiffEvents(
+                off, on, new Dictionary<uint, string> { { DrillPid, DrillName } }, 2000.0, "BgRecorder");
+            Assert.Single(started);
+            Assert.Equal(PartEventType.ConverterActivated, started[0].eventType);
+
+            var stopped = PartStateSeeder.EmitDiffEvents(
+                on, off, new Dictionary<uint, string> { { DrillPid, DrillName } }, 2000.0, "BgRecorder");
+            Assert.Single(stopped);
+            Assert.Equal(PartEventType.ConverterDeactivated, stopped[0].eventType);
+
+            // Running on both sides of the span is not a change.
+            Assert.Empty(PartStateSeeder.EmitDiffEvents(
+                on, PartStateSeeder.ClonePartTrackingSets(on),
+                new Dictionary<uint, string>(), 2000.0, "BgRecorder"));
+        }
+
+        [Fact]
+        public void ATailAfterTheDrillWasSwitchedOff_SeedsTheDeactivation()
+        {
+            // The inactive direction is NOT redundant here, unlike thermal-cold: nothing else stops
+            // the loop, so a tail with no deactivation seed would spin a drill the recording says
+            // is idle for its whole span.
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = DrillPid,
+                    eventType = PartEventType.ConverterActivated, partName = DrillName },
+                new PartEvent { ut = 200, partPersistentId = DrillPid,
+                    eventType = PartEventType.ConverterDeactivated, partName = DrillName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+            PartEvent seed = Assert.Single(seeds.Where(s => s.partPersistentId == DrillPid));
+            Assert.Equal(PartEventType.ConverterDeactivated, seed.eventType);
+            Assert.Equal(300.0, seed.ut);
+        }
+
+        [Fact]
+        public void ATailWhileTheDrillIsStillRunning_SeedsTheActivation()
+        {
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = DrillPid,
+                    eventType = PartEventType.ConverterActivated, partName = DrillName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+            PartEvent seed = Assert.Single(seeds.Where(s => s.partPersistentId == DrillPid));
+            Assert.Equal(PartEventType.ConverterActivated, seed.eventType);
+            // The seed's UT is the SPLIT, not the original activation. The loop restarts its phase
+            // at the cut, which is a sub-cycle discontinuity in the drill's rotation and nothing a
+            // player can perceive - and the alternative (carrying the original UT past a cut whose
+            // tail may not even contain it) is worse.
+            Assert.Equal(300.0, seed.ut);
+        }
+
+        [Fact]
+        public void ConverterEventsAreTheirOwnSeedFamily_NotFoldedIntoTheDeployableOne()
+        {
+            // Family 11 exists so a drill part that ALSO has a deployable (RadialDrill has both a
+            // ModuleAnimationGroup deploy and a converter) gets one seed per family rather than one
+            // opinion overwriting the other.
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = DrillPid,
+                    eventType = PartEventType.DeployableExtended, partName = DrillName },
+                new PartEvent { ut = 150, partPersistentId = DrillPid,
+                    eventType = PartEventType.ConverterActivated, partName = DrillName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+            var forDrill = seeds.Where(s => s.partPersistentId == DrillPid).ToList();
+
+            Assert.Equal(2, forDrill.Count);
+            Assert.Contains(forDrill, s => s.eventType == PartEventType.DeployableExtended);
+            Assert.Contains(forDrill, s => s.eventType == PartEventType.ConverterActivated);
+        }
+
+        #endregion
+
+        #region S7 loop phase arithmetic
+
+        [Fact]
+        public void TheLoopPhaseIsAPureFunctionOfElapsedRecordedTime()
+        {
+            const float clip = 4f;
+
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeConverterLoopPhase(100.0, 100.0, clip));
+            Assert.Equal(0.25, GhostPlaybackLogic.ComputeConverterLoopPhase(101.0, 100.0, clip), 5);
+            Assert.Equal(0.5, GhostPlaybackLogic.ComputeConverterLoopPhase(102.0, 100.0, clip), 5);
+
+            // WRAPPING is the point: at exactly one clip length the loop is back where it started,
+            // and at 2.5 clips it is halfway round again.
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputeConverterLoopPhase(104.0, 100.0, clip), 5);
+            Assert.Equal(0.5, GhostPlaybackLogic.ComputeConverterLoopPhase(110.0, 100.0, clip), 5);
+        }
+
+        [Fact]
+        public void ReplayingTheSameRecordedMomentAlwaysGivesTheSamePhase()
+        {
+            // The S2 argument, restated for the loop: no wall clock is involved, so a scrub back to
+            // a moment renders the pose that moment always rendered. Two calls separated by any
+            // amount of real time agree, and so do a forward pass and a rewound one.
+            const float clip = 3.5f;
+            float first = GhostPlaybackLogic.ComputeConverterLoopPhase(1234.75, 1000.0, clip);
+            float again = GhostPlaybackLogic.ComputeConverterLoopPhase(1234.75, 1000.0, clip);
+            Assert.Equal(first, again);
+
+            // And an exact whole number of cycles later is the same pose again.
+            Assert.Equal((double)first, (double)GhostPlaybackLogic.ComputeConverterLoopPhase(
+                1234.75 + clip * 100, 1000.0, clip), 4);
+        }
+
+        [Theory]
+        [InlineData(0f)]        // a clip length that would divide by zero
+        [InlineData(-1f)]       // nonsense from a corrupt cache
+        [InlineData(float.NaN)]
+        [InlineData(float.PositiveInfinity)]
+        public void AnUnusableClipLengthParksTheLoopAtPhaseZero(float clip)
+        {
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeConverterLoopPhase(500.0, 100.0, clip));
+        }
+
+        [Fact]
+        public void APlaybackUTBeforeTheLoopStarted_ParksAtPhaseZeroRatherThanGoingNegative()
+        {
+            // Reachable on a scrub backwards past the activation before the event index rewinds.
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeConverterLoopPhase(90.0, 100.0, 4f));
+        }
+
+        [Fact]
+        public void ThePhaseIsAlwaysAValidIndexIntoTheSampledPoses()
+        {
+            // The specific crash this guards: the drive does phases[(int)(phase * N)], so a phase
+            // that ever reached exactly 1.0 would index off the end of the array.
+            const int n = PartEventFidelityTests.PhaseCount;
+            foreach (double ut in new[] { 100.0, 100.0001, 103.9999, 104.0, 104.0001, 1e6, 1e9 })
+            {
+                float phase = GhostPlaybackLogic.ComputeConverterLoopPhase(ut, 100.0, 4f);
+                Assert.InRange(phase, 0f, 0.9999999f);
+
+                GhostPlaybackLogic.ResolveConverterLoopBlend(
+                    phase, n, out int from, out int to, out float blend);
+                Assert.InRange(from, 0, n - 1);
+                Assert.InRange(to, 0, n - 1);
+                Assert.InRange(blend, 0f, 1f);
+            }
+        }
+
+        internal const int PhaseCount = GhostVisualBuilder.ConverterLoopPhaseCount;
+
+        [Fact]
+        public void TheBlendPairWrapsFromTheLastSampledPhaseBackToTheFirst()
+        {
+            // The cyclic property the sampler depends on: it deliberately does NOT store a
+            // duplicate endpoint pose (phase i is sampled at i/N, not i/(N-1)), so the LAST phase
+            // must blend toward phase 0 or the loop would stall for one interval every cycle.
+            GhostPlaybackLogic.ResolveConverterLoopBlend(
+                0.999f, 12, out int from, out int to, out float blend);
+            Assert.Equal(11, from);
+            Assert.Equal(0, to);
+            Assert.InRange(blend, 0.9f, 1f);
+
+            GhostPlaybackLogic.ResolveConverterLoopBlend(
+                0f, 12, out from, out to, out blend);
+            Assert.Equal(0, from);
+            Assert.Equal(1, to);
+            Assert.Equal(0f, blend);
+
+            GhostPlaybackLogic.ResolveConverterLoopBlend(
+                0.5f, 12, out from, out to, out blend);
+            Assert.Equal(6, from);
+            Assert.Equal(7, to);
+            Assert.Equal(0.0, (double)blend, 4);
+        }
+
+        [Fact]
+        public void ASinglePhaseOrNoPhases_DegradesToAStillPose()
+        {
+            GhostPlaybackLogic.ResolveConverterLoopBlend(0.7f, 1, out int from, out int to, out float blend);
+            Assert.Equal(0, from);
+            Assert.Equal(0, to);
+            Assert.Equal(0f, blend);
+
+            GhostPlaybackLogic.ResolveConverterLoopBlend(0.7f, 0, out from, out to, out blend);
+            Assert.Equal(0, from);
+            Assert.Equal(0, to);
+            Assert.Equal(0f, blend);
+        }
+
+        [Fact]
+        public void TwelvePhasesIsThePinnedSampleCount()
+        {
+            // Pinned because it is a storage-vs-smoothness trade the design principle asks to be
+            // deliberate about, and because the wrap cells above are written against it.
+            Assert.Equal(12, GhostVisualBuilder.ConverterLoopPhaseCount);
+        }
+
+        #endregion
     }
 }

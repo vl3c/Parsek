@@ -212,11 +212,72 @@ namespace Parsek
         public List<GimbalGhostInfo> gimbals;
         public List<ControlSurfaceGhostInfo> controlSurfaces;
         public List<SunTrackingGhostInfo> sunTrackers;
+        /// <summary>
+        /// S7: the ModuleAnimationGroup RUNNING loops (drill spinning, ISRU churning). Rides this
+        /// container rather than a fifteenth <c>AddPartVisuals</c> out-parameter, and it belongs
+        /// here on merit: like the other three it is DRIVEN per frame from recorded state rather
+        /// than applied once by an event, so it shares the same per-frame walk.
+        /// </summary>
+        public List<ConverterLoopGhostInfo> converterLoops;
 
         internal bool IsEmpty =>
             (gimbals == null || gimbals.Count == 0)
             && (controlSurfaces == null || controlSurfaces.Count == 0)
-            && (sunTrackers == null || sunTrackers.Count == 0);
+            && (sunTrackers == null || sunTrackers.Count == 0)
+            && (converterLoops == null || converterLoops.Count == 0);
+    }
+
+    /// <summary>One transform's pose at one sampled phase of a looping animation clip.</summary>
+    internal struct ConverterLoopPose
+    {
+        public Vector3 pos;
+        public Quaternion rot;
+        public Vector3 scale;
+    }
+
+    /// <summary>
+    /// One ghost transform animated by a running loop, with its pose sampled at each phase.
+    /// <c>phases</c> has the same length for every transform in a
+    /// <see cref="ConverterLoopGhostInfo"/> (the sampler fills all of them or drops the transform).
+    /// </summary>
+    internal class ConverterLoopTransformState
+    {
+        public Transform t;
+        public ConverterLoopPose[] phases;
+    }
+
+    /// <summary>
+    /// S7: one part's ModuleAnimationGroup RUNNING animation, replayed as a continuous loop while
+    /// the part's converter is active.
+    ///
+    /// WHY N SAMPLED PHASES rather than the two-pose interpolation the deployable family uses: a
+    /// running loop is CYCLIC, so its two endpoints are the SAME pose. Sampling only the ends would
+    /// produce a delta of zero and no motion at all — a drill that "runs" by standing perfectly
+    /// still. N phases around the cycle give a piecewise-linear traversal that reads correctly at
+    /// playback speed, which is all the design principle asks for.
+    ///
+    /// The phase is a pure function of <c>(playbackUT - activeSinceUT) / clipLengthSeconds</c>,
+    /// exactly the S2 argument: no wall-clock time anywhere, so scrubbing, time warp and looping
+    /// replays all land on the same pose for the same recorded moment.
+    ///
+    /// Built INDEPENDENTLY of <c>TryGetAnimationGroupDeployAnimation</c>, which requires a non-empty
+    /// deployAnimationName — the large ISRU's ModuleAnimationGroup has an EMPTY deploy name and only
+    /// a running one (<c>ProcessorLarge_running</c>), so anything gated on the deploy name would
+    /// silently skip the single biggest ISRU part in the game.
+    /// </summary>
+    internal class ConverterLoopGhostInfo
+    {
+        public uint partPersistentId;
+        public List<ConverterLoopTransformState> transforms;
+        /// <summary>The running clip's own length, clamped by ClampDeployableClipSeconds.</summary>
+        public float clipLengthSeconds = 3f;
+        /// <summary>True while the part's converter is running and the loop should advance.</summary>
+        public bool active;
+        /// <summary>
+        /// The RECORDED UT the loop started at — never wall time. Phase is measured from here, so
+        /// the same recorded moment always renders the same pose.
+        /// </summary>
+        public double activeSinceUT;
     }
 
     internal struct HeatTransformState
