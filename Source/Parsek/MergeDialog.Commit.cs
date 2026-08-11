@@ -226,11 +226,7 @@ namespace Parsek
             }
             if (provisional == null)
             {
-                ParsekLog.Warn("MergeDialog",
-                    $"TryCommitReFlySupersede: provisional rec={provisionalId} " +
-                    "not found in committed list after tree commit; " +
-                    "leaving marker in place for load-time sweep");
-                return ReFlyMergeCommitResult.Interrupted;
+                return ConcludeMissingProvisional(marker, provisionalId);
             }
 
 
@@ -303,6 +299,63 @@ namespace Parsek
             }
 
             return ReFlyMergeCommitResult.Completed;
+        }
+
+        /// <summary>
+        /// REFLY-CONCLUSION-SKIPS-APPENDRELATIONS (2026-08-11): decides what a
+        /// conclusion does when the session's provisional is not in the committed
+        /// list. Before the fix this was an unconditional WARN + "leave the marker
+        /// for the load-time sweep", which is how a rewind-then-conclude session
+        /// skipped the entire supersede / tombstone machinery and retired through a
+        /// zombie sweep on the NEXT load instead.
+        ///
+        /// <para>
+        /// The established route into that state: any quicksave / quickload between
+        /// the rewind and the conclusion re-hydrates the NotCommitted provisional
+        /// into <c>tree.Recordings</c> ONLY (never back into the flat committed
+        /// list), and the scene-exit leaf prune then removes it from the tree too —
+        /// so both surfaces are empty by merge time. That is a plain player
+        /// sequence, not a fixture artefact.
+        /// </para>
+        ///
+        /// <para>
+        /// The prune now hands the retired recording over, so the two cases split:
+        /// a provably-unplayable provisional concludes in-session through
+        /// <see cref="SupersedeCommit.ConcludeRetiredProvisional"/> (which runs the
+        /// same <c>AppendRelations</c> refusal), and a genuinely unexplained
+        /// absence keeps the old conservative bail.
+        /// </para>
+        /// </summary>
+        private static ReFlyMergeCommitResult ConcludeMissingProvisional(
+            ReFlySessionMarker marker, string provisionalId)
+        {
+            Recording retired;
+            string retireReason;
+            bool haveRetired = ReFlyProvisionalRetirement.TryTake(
+                marker, out retired, out retireReason);
+
+            string ignoredValidationReason;
+            bool retiredValidates = haveRetired
+                && SupersedeCommit.ValidateSupersedeTarget(retired, out ignoredValidationReason);
+
+            var decision = ReFlyConclusionRoute.Classify(
+                marker, provisionalId, haveRetired ? retired : null, retiredValidates);
+
+            if (decision.Kind == ReFlyConclusionRouteKind.NoOpConclusion
+                && SupersedeCommit.ConcludeRetiredProvisional(marker, retired, retireReason))
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"TryCommitReFlySupersede: provisional rec={provisionalId} was retired " +
+                    $"this session (reason={decision.Reason}); concluded in-session with " +
+                    "0 supersede rows — origin stays effective");
+                return ReFlyMergeCommitResult.Completed;
+            }
+
+            ParsekLog.Warn("MergeDialog",
+                $"TryCommitReFlySupersede: provisional rec={provisionalId} " +
+                $"not found in committed list after tree commit (route={decision.Reason}); " +
+                "leaving marker in place for load-time sweep");
+            return ReFlyMergeCommitResult.Interrupted;
         }
 
         // internal (not private) so the MergeAndSealReFlyClosesSlot in-game
