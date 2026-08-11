@@ -1019,18 +1019,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Post-strip spawn-state reconcile glue (coverage-gap follow-up for the Re-Fly
-        /// load path). Extracted from <see cref="RunStripActivateMarker"/> so the
-        /// "protoVessel PIDs minus stripped PIDs -> survivor set -> summary log ->
-        /// reconcile" wiring is directly unit-testable. The Unity-only step (enumerating
-        /// <c>HighLogic.CurrentGame.flightState.protoVessels</c> for their PIDs) stays at
-        /// the call site because <c>ProtoVessel</c> cannot be constructed in xUnit; this
-        /// method takes the pre-collected PID lists. Behavior matches the prior inline
-        /// block exactly; the returned count is additive for test assertions.
-        /// </summary>
-        /// <returns>The number of committed recordings whose spawn state was reset.</returns>
-        /// <summary>
         /// Post-strip spawn-state reconcile for the Re-Fly load path.
+        /// <para>
+        /// Extracted from <see cref="RunStripActivateMarker"/> so the
+        /// "identities minus stripped PIDs -> survivor set -> summary log ->
+        /// reconcile" wiring is directly unit-testable. The Unity-only step
+        /// (enumerating <c>HighLogic.CurrentGame.flightState.protoVessels</c>)
+        /// stays at the call site because <c>ProtoVessel</c> cannot be
+        /// constructed in xUnit; this method takes the pre-collected lists.
+        /// </para>
         /// <para>
         /// Takes (pid, launch-guid) IDENTITIES rather than bare pids and routes to
         /// the guid-aware <c>ReconcileSpawnStateAfterStrip</c> overload. The bare-pid
@@ -1046,6 +1043,7 @@ namespace Parsek
         /// collision reachable, and a relaunch of the same craft is the common case.
         /// </para>
         /// </summary>
+        /// <returns>The number of committed recordings whose spawn state was reset.</returns>
         internal static int ReconcilePostStripSpawnState(
             IReadOnlyList<(uint pid, string guid)> protoVesselIdentities,
             IReadOnlyList<uint> strippedPids,
@@ -3032,22 +3030,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// #fix-refly-preserve-flag-vessels survey-level skip predicate. Returns
-        /// true when a live vessel must be excluded from the
-        /// <c>leftAlonePidNames</c> list built by
-        /// <see cref="StripPreExistingDebrisForInPlaceContinuation"/>. Currently
-        /// only <see cref="VesselType.Flag"/>: planted flags are durable
-        /// FlagPlant career milestones that
-        /// <see cref="PostLoadStripper.ShouldPreserveVesselType"/> already
-        /// bypasses at the primary strip path, and that the secondary kill walk
-        /// must NOT silently Die() on a name-collision with an in-scope
-        /// recording. Keyed on actual <c>VesselType</c> (not on
-        /// <see cref="PostLoadStripResult.PreservedFlagPids"/> membership) so
-        /// the skip is robust against any future divergence between strip
-        /// bookkeeping and live vessel state. Pure / static so unit tests can
-        /// pin it against the <see cref="IStrippableVessel"/> contract.
-        /// </summary>
-        /// <summary>
         /// Bug #587 kill-survey eligibility: ONLY <see cref="VesselType.Debris"/>
         /// may become a candidate for the name-matched pre-existing-debris kill.
         /// <para>
@@ -3217,14 +3199,17 @@ namespace Parsek
         ///     paths, so the flag is never recorded in
         ///     <see cref="PostLoadStripResult.StrippedPids"/> and never
         ///     receives a <c>Vessel.Die()</c> from <c>PostLoadStripper</c>.</description></item>
-        ///   <item><description><b>Survey-level skip:</b>
-        ///     <see cref="BuildLeftAlonePidNamesForInPlaceContinuation"/> filters
-        ///     <see cref="VesselType.Flag"/> entries out of the
-        ///     <c>leftAlonePidNames</c> list at the survey step, so a
-        ///     name-colliding flag never even enters the kill-set construction.
-        ///     This is the user-requested layer that resolves the original
-        ///     review note's concern at the source: a preserved flag must not
-        ///     reach the resolver in the first place.</description></item>
+        ///   <item><description><b>Survey-level gate:</b>
+        ///     <see cref="BuildLeftAlonePidNamesForInPlaceContinuation"/> admits
+        ///     ONLY <see cref="VesselType.Debris"/> into the
+        ///     <c>leftAlonePidNames</c> list, via
+        ///     <see cref="IsDebrisKillSurveyCandidate"/> — so a name-colliding
+        ///     flag never enters the kill-set construction, and neither does any
+        ///     other real craft. This layer used to be the inverse (skip
+        ///     <c>Flag</c>, survey everything else), which was safe only while
+        ///     the Re-Fly scrub left a single vessel in scene; the debris-only
+        ///     gate resolves the original review note's concern at the source
+        ///     for the whole preserved fleet, not just for flags.</description></item>
         ///   <item><description><b>Kill-set protection:</b>
         ///     <see cref="BuildProtectedPidsForInPlaceContinuation"/> still adds
         ///     <see cref="PostLoadStripResult.PreservedFlagPids"/> to the
@@ -3275,12 +3260,13 @@ namespace Parsek
             // Protect the selected slot vessel + the marker's active recording's pid
             // (#573 contract: never kill the actively re-flown vessel) + every
             // VesselType.Flag pid the stripper preserved (#fix-refly-preserve-flag-vessels
-            // follow-up: belt-and-suspenders alongside the survey-level skip above.
-            // Even though BuildLeftAlonePidNamesForInPlaceContinuation now filters
-            // VesselType.Flag entries at the source, this kill-set protection stays
-            // as a redundant safety net so a future refactor that accidentally
-            // bypasses the survey helper cannot silently revive name-collision
-            // Die() on a planted-flag career milestone).
+            // follow-up: belt-and-suspenders alongside the survey-level gate above.
+            // Even though BuildLeftAlonePidNamesForInPlaceContinuation now admits
+            // ONLY VesselType.Debris at the source (so a Flag cannot reach the
+            // resolver at all), this kill-set protection stays as a redundant
+            // safety net so a future refactor that accidentally bypasses the
+            // survey helper cannot silently revive name-collision Die() on a
+            // planted-flag career milestone).
             var protectedPids = BuildProtectedPidsForInPlaceContinuation(
                 stripResult, marker, RecordingStore.CommittedRecordings);
 

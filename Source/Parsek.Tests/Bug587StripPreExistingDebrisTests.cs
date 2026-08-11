@@ -1410,14 +1410,20 @@ namespace Parsek.Tests
             // set that includes the active recording's parent chain - so a
             // prior-career craft sharing the re-flown craft's name would be
             // silently Die()d. Every one of these must now be ineligible.
-            foreach (var t in new[]
+            //
+            // Enumerated via Enum.GetValues rather than a hand-written list: the
+            // first cut of this cell listed 12 members while KSP 1.12.5 declares
+            // 17, so DeployedScienceController / DeployedSciencePart / DroppedPart /
+            // DeployedGroundPart were silently uncovered by the very cell that
+            // exists to prove the gate is exhaustive. Reflection cannot
+            // under-cover, and a future KSP that adds a member is covered the day
+            // it adds it.
+            var allTypes = (VesselType[])Enum.GetValues(typeof(VesselType));
+            int checkedCount = 0;
+            foreach (var t in allTypes)
             {
-                VesselType.Ship, VesselType.Probe, VesselType.EVA,
-                VesselType.Plane, VesselType.Lander, VesselType.Rover,
-                VesselType.Base, VesselType.Station, VesselType.Relay,
-                VesselType.SpaceObject, VesselType.Flag, VesselType.Unknown,
-            })
-            {
+                if (t == VesselType.Debris) continue;
+
                 var v = new StrippableStub
                 {
                     PersistentId = 101u,
@@ -1428,7 +1434,18 @@ namespace Parsek.Tests
                 Assert.False(
                     RewindInvoker.IsDebrisKillSurveyCandidate(v),
                     $"VesselType.{t} must NOT be kill-eligible even on a name collision");
+                checkedCount++;
             }
+
+            // Anti-vacuity floor: an enum walk that returned nothing (or only
+            // Debris) would make every assertion above unreachable while the cell
+            // still reported PASSED. 16 is KSP 1.12.5's non-Debris member count;
+            // assert the floor rather than equality so a KSP that ADDS a member
+            // still passes, while one that loses the enum surface does not.
+            Assert.True(
+                checkedCount >= 16,
+                $"expected at least 16 non-Debris VesselType members, walked {checkedCount} " +
+                $"(total enumerated {allTypes.Length}) - the exhaustiveness claim is vacuous");
         }
 
         [Fact]

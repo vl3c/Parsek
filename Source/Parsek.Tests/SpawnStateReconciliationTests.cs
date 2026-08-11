@@ -355,8 +355,24 @@ namespace Parsek.Tests
         {
             // PRODUCTION INPUT SHAPE: the post-strip survivor set is computed
             // by subtracting PostLoadStripResult.StrippedPids from the raw
-            // flightState.protoVessels PID enumeration. This is the shape the
-            // Re-Fly load path constructs at RewindInvoker.cs:~822.
+            // flightState.protoVessels PID enumeration, then handed to the
+            // pid-only ReconcileSpawnStateAfterStrip(HashSet<uint>, ...) overload.
+            //
+            // WHICH path this pins: the go-back / Rewind-to-Launch OnLoad path,
+            // whose production call site is ParsekScenario.cs:4152
+            // (ReconcileSpawnStateAfterStrip(fsReconcile.protoVessels, recordings)
+            // -> CollectSurvivingPids -> the pid-only overload). It is NOT the
+            // Re-Fly load path any more: since 98eace618 that path collects
+            // (pid, launch-guid) identities and routes through
+            // RewindInvoker.ReconcilePostStripSpawnState to the guid-aware
+            // overload, because a craft-baked persistentId shared with a
+            // PRESERVED relaunch is not proof of same-launch identity. The
+            // guid-aware Re-Fly shape is pinned by the
+            // ReconcilePostStrip_* cells below.
+            //
+            // ComputeSurvivorsFromProtoVesselPids itself now has no production
+            // caller (only these tests); it is retained as the pure statement of
+            // the stripped-pid subtraction that both paths must perform.
             const uint activeProbePid = 3215646968u;
             const uint capsulePid = 2708531065u;
             const uint otherSiblingPid = 1234567890u;

@@ -79,12 +79,12 @@ guard.
 **TWO BLOCKERS the wide deletion was masking. Both had to land with the
 narrowing; either alone would have been worse than the original bug.**
 
-**B1 - the `#587` name-kill had never fired in production, and the narrowing
-pointed it at the preserved fleet.**
+**B1 - the `#587` name-kill had been DEAD since the wide scrub starved it, and the
+narrowing pointed it at the preserved fleet.**
 `StripPreExistingDebrisForInPlaceContinuation` builds its candidates by
 re-surveying LIVE `FlightGlobals.Vessels` through
 `BuildLeftAlonePidNamesForInPlaceContinuation`, excluding ghost pids,
-`StrippedPids`, `SelectedPid` and (formerly) `VesselType.Flag`. With the old wide
+`StrippedPids`, `SelectedPid` and (formerly) `VesselType.Flag`. With the wide
 scrub the loaded save held exactly one vessel and that vessel IS `SelectedPid`, so
 the survey was always empty and `ResolveInPlaceContinuationDebrisToKill` returned
 at its `leftAlonePids.Count == 0` guard on every production Re-Fly. Post-narrowing
@@ -95,12 +95,46 @@ KSP's default naming a prior-career craft sharing the re-flown craft's name gets
 `Warn` as the only trace. Fixed by replacing the inverted predicate
 `ShouldSkipFromLeftAloneSurvey` (skip Flag, survey everything else) with
 `IsDebrisKillSurveyCandidate` (ONLY `VesselType.Debris` is eligible), which
-matches the mechanism's own documented intent - `CHANGELOG.md:1209` filed `#587`
+matches the mechanism's own documented intent - `CHANGELOG.md:1218` filed `#587`
 as removing "pre-existing DEBRIS vessels ... whose name matches a
 Destroyed-terminal recording". Fails CLOSED: an unreadable `VesselType` is not a
 candidate. Note the pass remains a no-op on placeholder (non-in-place) Re-Fly by
-its own design, and it has still never been exercised in the field, so the
-patched-conics claim behind it is unproven either way.
+its own design.
+
+**CORRECTION OF RECORD - "never fired in production" is FALSE, and this entry is
+the correction.** Both `98eace618`'s commit message and the first cut of this
+entry said the `#587` kill had never removed anything on any production Re-Fly.
+The commit message is immutable and overstates it; read this paragraph instead.
+The repo's own archive
+(`done/todo-and-known-bugs-v5.md:5509-5516`, item `607`) quotes a real playtest
+log, `logs/2026-04-25_2334_refly-followup-test/KSP.log:12906`:
+
+```
+[WARN][Rewind] Strip post-supplement: killed 3 pre-existing debris vessel(s) for in-place continuation re-fly: [Kerbal X Debris, Kerbal X Debris, Kerbal X Debris]
+```
+
+Timeline, verified by `git show -s --date=short`: the `#587` kill landed
+`00283b374` on **2026-04-25**; the wide scrub that starved it landed
+`ecb22f454` on **2026-04-26**. So the accurate statement is: the pass was dead
+from 2026-04-26 onward, it demonstrably FIRED on 2026-04-25, and every one of the
+3 vessels it killed was named `Kerbal X Debris`, i.e. genuine `VesselType.Debris`.
+The debris-only narrowing therefore PRESERVES the one historically observed kill
+rather than deleting the mechanism's only field evidence. The patched-conics
+symptom behind `#587` was likewise a field observation, not a hypothesis
+(`CHANGELOG.md:1218`).
+
+**ACCEPTED RESIDUAL HOLE of the debris-only gate.** Two populations can trip
+stock patched conics without carrying `VesselType.Debris`, and the narrowed gate
+will no longer clear either: (a) a spent stage that carries a probe core - KSP
+types those `VesselType.Probe` and names them `"<craft> Probe"`; (b) any vessel
+the player manually reclassified through the tracking-station type selector. The
+hole is BOUNDED because KSP's default staging pipeline assigns the `Debris` type
+and the `"<craft> Debris"` name together for an uncontrolled stage, so the
+population that both name-matches a kill-eligible recording AND is non-`Debris`
+is the minority of the population that name-matches at all. This is a deliberate
+trade: a residual phantom-conic prediction is recoverable (the player can delete
+the object in the tracking station), whereas a silent `Vessel.Die()` on a real
+craft with no ledger row is not.
 
 **B2 - the Re-Fly spawn-state reconcile was the pid-only, guid-blind overload.**
 `RewindInvoker.cs:877` collected bare `protoVessels[i].persistentId`, so
