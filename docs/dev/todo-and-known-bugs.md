@@ -156,21 +156,31 @@ inventory CANNOT be fixed by seed forwarding at all: a stale tip snapshot has no
 PART node for a part placed during the head span, so there is no ghost visual to
 reveal - that needs a snapshot refresh at split, a different mechanism.
 
-### Tests (84 new xUnit cells + a new in-game category, H32)
+### Tests (126 new xUnit cells + a new in-game category, H32)
 
-- `SnapshotBaselineParserTests` (42) - every family key -> parsed field, the
+- `SnapshotBaselineParserTests` (57) - every family key -> parsed field, the
   robotic ordinal walk including wheel modules advancing the ordinal without
   taking a pose, mid-travel / BROKEN / malformed values producing no opinion, and
   the two mirrored suppressions (standalone AnimateGeneric behind a dedicated
-  handler; ColorChanger behind a ModuleLight).
-- `SnapshotBaselineApplicationTests` (32) - the spawn pass's ordering against the
+  handler; ColorChanger behind a ModuleLight). The robotic cells author the REAL
+  persisted key sets, lifted verbatim from the stock Breaking Ground craft files,
+  plus the negative statements: live-only keys (`currentAngle` / `currentExtension`
+  / `currentRPM`) parse to NO baseline, `traverseVelocity` alone is not a pose, and
+  a rotor node carrying `rpmLimit = 460` yields no pose while keeping its ordinal.
+- `SnapshotBaselineApplicationTests` (40) - the spawn pass's ordering against the
   stow baseline, the pure `ResolveSnapshotBaselineActions` precedence (deployState
   > gear > cargo > animation group > standalone animation), servo pose
-  application, ordinal-drift degradation, rotor arm/park, and the loop-cycle
-  `RestoreRoboticSpawnBaselines`.
-- `RecordingOptimizerSplitAtUTTests` (+8) - the split-tip payload end to end:
+  application, ordinal-drift degradation, the unconditional rotor park at both
+  spawn and loop-cycle restore, the all-false light-baseline skip, and the
+  build-type provenance gate.
+- `RecordingOptimizerSplitAtUTTests` (+27) - the split-tip payload end to end:
   latest pose wins, mid-stroke poses, two servos on one part keeping separate
-  seeds, boundary dedupe, permanent-before-transient ordering.
+  seeds, boundary dedupe, permanent-before-transient ordering, and the
+  inactive-direction seed per reversible family (including the ParachuteDestroyed
+  non-duplication, the blink-rate exclusion, and thermal staying unseeded).
+- `RecordingOptimizerTests` (3 rewritten) - the three cells that pinned the
+  pre-M1 premise that an inactive state needs no seed because the tail spawns
+  all-stowed anyway.
 - `Bug406GhostReuseLoopCycleTests` (+2) - both sides of the loop contract: reset
   zeroes the scalars to 0f (not to the spawn pose, which is why the restore is a
   separate step), and the restore returns each servo to its own spawn pose.
@@ -190,24 +200,40 @@ split into the pure `ResolveSnapshotBaselineActions` (see Known limits). The cel
 author their own one-part snapshot ConfigNode over a stock part discovered through
 `PartLoader`, so they depend on no fixture corpus: EXTENDED and gear Deployed must land
 the built ghost on its DEPLOYED transform poses, a mid-travel EXTENDING must produce no
-baseline and leave the stow pose, a servo pose read through the recorder's own field
-plan must move the servo transform off stowed (Breaking Ground only - skips naming that
-otherwise), the loop restore must return a displaced servo, and a MODULE-less PART must
-produce no baseline at all. A candidate part qualifies only when its stowed and deployed
-poses are measurably separated, so a cell cannot pass over an animation that moves
-nothing. NOT YET LIVE-RUN: H32's tally pin is deliberately INTERIM (`total=7` exact,
-`passed=[1-9][0-9]*`), and it is the single declared member of
-`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` until a flight measures the split.
+baseline and leave the stow pose, a servo pose authored under the key a real snapshot
+persists must move the servo transform off stowed (Breaking Ground only - skips naming
+that otherwise), the loop restore must return a displaced servo, and a MODULE-less PART
+must produce no baseline at all. A candidate part qualifies only when its stowed and
+deployed poses are measurably separated, so a cell cannot pass over an animation that
+moves nothing. The servo cell asks
+`GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey` which key to author rather than
+deriving one: it used to author the LIVE probe plan's primary key, which production
+snapshots never contain, so it proved the pose path over a key shape that does not
+exist. Cell count is unchanged at 7, so H32's measured tally pin still holds.
 
 ### Known limits of the fix
 
-- A recording whose builder falls back to `VesselSnapshot` (no
-  `GhostVisualSnapshot`) reads END-of-recording state as its baseline. That is the
-  same end-state snapshot those ghosts already use for geometry and variants, and any
-  seed or event overrides it on replay - but only where the recording HAS one for that
-  family, so a family the recording never touched shows its end state for the whole
-  playback instead of the prefab pose. Accepted: end state is a better guess than the
-  parts catalogue, and this population is the pre-`GhostVisualSnapshot` tail.
+- A recording whose builder falls back to `VesselSnapshot` (no `GhostVisualSnapshot`)
+  no longer reads module state at all. END-of-recording state is not a better guess
+  than the parts catalogue - it is a NEW way to be wrong, and a directional one: a
+  chute whose end state is CUT would hide its canopy through the entire descent, gear
+  that came down on final approach would be down from the pad. Geometry and part
+  variants still come from that node, exactly as pre-M1, so the fallback population is
+  byte-for-byte unchanged from before M1. The gate is the pure
+  `GhostVisualBuilder.SnapshotBaselineTrustedForBuildType(HeaviestSpawnBuildType)`,
+  read once per build in `AdvanceTimelineGhostBuild`, with one Verbose line naming
+  the suppression at `TryBeginTimelineGhostBuild`.
+- **The suppression is PARTIAL and the residual is not hypothetical.** It catches only
+  the node-level fallback in `GetGhostSnapshot`. Several sites STAMP
+  `GhostVisualSnapshot = VesselSnapshot.CreateCopy()`, and at build time that copy is
+  indistinguishable from a genuine start snapshot: `FlightRecorder.BuildCaptureRecording`
+  when the start capture was null, `RecordingOptimizer.SplitAtSection` step 8's #271
+  safety net, `MergeDialog.Commit`, `BackgroundRecorder`'s child promotion, and
+  `ParsekFlight.Finalization`. Those recordings still read module state out of an
+  end-state node. Closing it needs provenance carried on the recording (a schema field,
+  hence a generation bump) or stamped into the node at copy time, decided per site -
+  the copies are not all the same kind of stale, and a build-time inference cannot
+  recover the distinction because by then the information is gone.
 - On a split tip, the families left uncovered are exactly the out-of-scope list
   above. This is not "tips fully fixed".
 - The robotic seeds have one effect beyond visuals: `GhostingTriggerClassifier`
@@ -222,6 +248,16 @@ nothing. NOT YET LIVE-RUN: H32's tally pin is deliberately INTERIM (`total=7` ex
   no-baseline with a `servo ordinal ... mod-set drift` log line rather than posing
   the wrong servo. The same exposure already existed for every recorded robotic
   event's `moduleIndex`.
+
+- The deployable-family precedence in `ResolveSnapshotBaselineActions` is that
+  resolver's OWN order, not one derived from the recorder - the recorder has no
+  precedence to mirror (its per-family pollers run independently and each emits its
+  own event type; `HasDedicatedAnimateHandler` is an OR that only suppresses the
+  standalone `ModuleAnimateGeneric` read). Visible consequence: a part carrying BOTH a
+  `ModuleDeployablePart` and a `ModuleCargoBay` takes the deployState branch and so
+  `ApplyDeployableState`, skipping the cargo cascade its live cargo events would route
+  through. Rare enough to leave alone; documented at the site so nobody "fixes" the
+  order by consulting the recorder.
 
 - The light and parachute appliers cannot be called from xUnit at all
   (`SecurityException: ECall methods must be packaged into a system module` the

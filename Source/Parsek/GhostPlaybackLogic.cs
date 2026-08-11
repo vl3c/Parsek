@@ -581,10 +581,24 @@ namespace Parsek
         /// The deployable families all collapse onto the SINGLE
         /// <c>DeployableGhostInfo</c> a part owns (the singular out-param of
         /// <c>AddPartVisuals</c>), so exactly one opinion may be applied or they would
-        /// silently overwrite each other in dictionary order. Precedence mirrors the
-        /// recorder's dedicated-handler order: explicit deploy state, then gear, then
-        /// cargo bay, then animation group, then the generic animation (which the parser
-        /// already suppresses whenever a dedicated handler exists).
+        /// silently overwrite each other in dictionary order. The order is: explicit deploy
+        /// state, then gear, then cargo bay, then animation group, then the generic
+        /// animation (which the parser already suppresses whenever a dedicated handler
+        /// exists).
+        ///
+        /// That order is THIS RESOLVER'S OWN, not a recorder-derived precedence — the
+        /// recorder has no precedence to mirror. Its per-family pollers
+        /// (<c>CheckDeployableState</c> / <c>CheckGearState</c> / <c>CheckCargoBayState</c> /
+        /// <c>CheckAnimationGroupState</c>) run independently and each emits its own event
+        /// type for the same part; <c>FlightRecorder.HasDedicatedAnimateHandler</c>, whose
+        /// listing order this echoes, is an OR that only suppresses the standalone
+        /// <c>ModuleAnimateGeneric</c> read. The mismatch is visible at the cargo-bay arm:
+        /// a part carrying BOTH a <c>ModuleDeployablePart</c> and a <c>ModuleCargoBay</c>
+        /// takes the deployState branch and therefore <c>ApplyDeployableState</c>, skipping
+        /// the cargo cascade (<c>ApplyCargoBayState</c>'s deployable-else-jettison-panels
+        /// fallback) that the same part's live cargo events would route through. Rare enough
+        /// to leave alone; do not "fix" the ordering by consulting the recorder, which does
+        /// not answer this question.
         /// </summary>
         internal static SnapshotBaselineActions ResolveSnapshotBaselineActions(
             SnapshotPartBaseline baseline)
@@ -609,14 +623,41 @@ namespace Parsek
             // A ColorChanger cabin light only stands in for a ModuleLight the part does
             // not have (the parser enforces that), so at most one of these is ever set and
             // they share one power action.
-            actions.lightPower = baseline.lightOn ?? baseline.colorChangerOn;
-            actions.blinkEnabled = baseline.lightBlinking;
-            actions.blinkRateHz = baseline.lightBlinkRate;
+            //
+            // An ALL-FALSE light opinion (lamp off, blink off, no rate) is dropped rather
+            // than applied: it is byte-identical to a fresh LightPlaybackState, and the
+            // appliers would materialise a dict entry for it via
+            // GetOrCreateLightPlaybackState. UpdateBlinkingLights then walks that entry on
+            // EVERY frame of EVERY such ghost to set a light state nothing ever changed.
+            // Nothing is lost by skipping it: parts with a LightGhostInfo already get an
+            // entry pre-populated at spawn (PopulateGhostInfoDictionaries), and ColorChanger
+            // materials are initialised to their off colour at build time.
+            if (LightBaselineSaysSomething(baseline))
+            {
+                actions.lightPower = baseline.lightOn ?? baseline.colorChangerOn;
+                actions.blinkEnabled = baseline.lightBlinking;
+                actions.blinkRateHz = baseline.lightBlinkRate;
+            }
 
             actions.parachuteAction = ClassifySnapshotParachuteAction(
                 baseline.parachutePersistentState);
 
             return actions;
+        }
+
+        /// <summary>
+        /// True when a part's light baseline differs from a default
+        /// <see cref="LightPlaybackState"/> (off, not blinking, no explicit rate) in a way
+        /// worth materialising an entry for. See the call site for why an all-false opinion
+        /// is dropped instead of applied.
+        /// </summary>
+        internal static bool LightBaselineSaysSomething(SnapshotPartBaseline baseline)
+        {
+            if (baseline == null) return false;
+            bool? power = baseline.lightOn ?? baseline.colorChangerOn;
+            return (power.HasValue && power.Value)
+                || (baseline.lightBlinking.HasValue && baseline.lightBlinking.Value)
+                || baseline.lightBlinkRate.HasValue;
         }
 
         /// <summary>

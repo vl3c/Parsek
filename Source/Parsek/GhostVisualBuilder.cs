@@ -397,6 +397,16 @@ namespace Parsek
                 return null;
             }
 
+            if (!SnapshotBaselineTrustedForBuildType(buildType))
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"Snapshot module baseline suppressed for '{rec?.VesselName ?? "unknown"}': "
+                    + $"buildType={buildType.ToLogToken()} — the node is the recording's END "
+                    + "state, not its start, so module state (gear / panels / bays / lamps / "
+                    + "chutes / servos) is NOT read from it; geometry and part variants still "
+                    + "are, exactly as before M1");
+            }
+
             var root = new GameObject(rootName);
             root.SetActive(false);
 
@@ -421,6 +431,8 @@ namespace Parsek
         {
             if (build == null || build.partNodes == null)
                 return true;
+
+            bool parseSnapshotBaselines = SnapshotBaselineTrustedForBuildType(build.buildType);
 
             long startedAt = Stopwatch.GetTimestamp();
             while (build.nextPartIndex < build.partNodes.Length)
@@ -506,8 +518,11 @@ namespace Parsek
                         // resolved here because the animTime -> open/closed mapping is
                         // per-part config, not snapshot data. pid 0 is skipped: the
                         // baseline dictionary is pid-keyed and every applier looks up by
-                        // pid, so a pid-less part could only collide.
-                        if (persistentId != 0)
+                        // pid, so a pid-less part could only collide. buildType gates the
+                        // whole read: on the VesselSnapshot fallback the node is the
+                        // END-of-recording state, which is the wrong end of the recording
+                        // to spawn from (see SnapshotBaselineTrustedForBuildType).
+                        if (persistentId != 0 && parseSnapshotBaselines)
                         {
                             ResolvePrefabCargoBayPairing(
                                 ap.partPrefab,
@@ -616,10 +631,46 @@ namespace Parsek
                 Object.Destroy(build.root);
         }
 
+        /// <summary>
+        /// Resolves the node a ghost is BUILT from. The <c>?? rec.VesselSnapshot</c> fallback
+        /// is the END-of-recording snapshot (<c>BuildCaptureRecording</c> captures it at
+        /// stop), which is fine for GEOMETRY — the part list and variants are what the build
+        /// needs and they barely differ — but is the wrong end of the recording for MODULE
+        /// STATE. See <see cref="SnapshotBaselineTrustedForBuildType"/>.
+        /// </summary>
         internal static ConfigNode GetGhostSnapshot(IPlaybackTrajectory rec)
         {
             if (rec == null) return null;
             return rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
+        }
+
+        /// <summary>
+        /// Whether the M1 module-state baseline may be read out of the node this build is
+        /// using. TRUE only for <see cref="HeaviestSpawnBuildType.RecordingStartSnapshot"/>,
+        /// i.e. the recording's own <c>GhostVisualSnapshot</c>.
+        ///
+        /// <see cref="HeaviestSpawnBuildType.VesselSnapshot"/> means
+        /// <see cref="GetGhostSnapshot"/> fell back to the END-of-recording snapshot, and
+        /// spawning a ghost at its own end state is a new way to be wrong: a chute whose end
+        /// state is CUT would hide its canopy through the entire descent, gear that came down
+        /// on final approach would be down from the pad. Pre-M1 the fallback was harmless
+        /// because nothing read module state out of it; suppressing the read restores exactly
+        /// that. Geometry and part variants keep using the node either way.
+        ///
+        /// RESIDUAL, stated rather than papered over. This gate only catches the node-level
+        /// fallback. Several sites STAMP <c>GhostVisualSnapshot = VesselSnapshot.CreateCopy()</c>
+        /// and the copy is indistinguishable from a genuine start snapshot at build time:
+        /// <c>FlightRecorder.BuildCaptureRecording</c> when the start capture was null,
+        /// <c>RecordingOptimizer.SplitAtSection</c> step 8's #271 safety net,
+        /// <c>MergeDialog.Commit</c>, <c>BackgroundRecorder</c>'s child promotion and
+        /// <c>ParsekFlight.Finalization</c>. Those recordings still read module state out of
+        /// an end-state node. Closing that needs provenance carried on the recording (a
+        /// schema field) or stamped into the node at copy time, decided per site — not a
+        /// build-time inference, because by then the information is gone.
+        /// </summary>
+        internal static bool SnapshotBaselineTrustedForBuildType(HeaviestSpawnBuildType buildType)
+        {
+            return buildType == HeaviestSpawnBuildType.RecordingStartSnapshot;
         }
 
         internal static Transform EnsureGhostVisualsRoot(Transform ghostRoot)

@@ -274,7 +274,10 @@ namespace Parsek.Tests
         public void ResolveActions_ModuleLightWinsOverColorChanger()
         {
             // The parser already nulls colorChangerOn when a ModuleLight exists; the
-            // resolver's ?? order is the second line of defence for that same rule.
+            // resolver's ?? order is the second line of defence for that same rule. A
+            // ModuleLight saying OFF must not be overridden into ON by a ColorChanger —
+            // and it resolves to "no action" rather than an explicit off, because off IS
+            // the default state (see the all-false skip below).
             GhostPlaybackLogic.SnapshotBaselineActions actions =
                 GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
                 {
@@ -282,7 +285,75 @@ namespace Parsek.Tests
                     colorChangerOn = true,
                 });
 
+            Assert.NotEqual(true, actions.lightPower);
+        }
+
+        [Fact]
+        public void ResolveActions_ModuleLightOnWinsOverColorChangerOff()
+        {
+            // The same precedence in the direction that survives the all-false skip.
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    lightOn = true,
+                    colorChangerOn = false,
+                });
+
+            Assert.True(actions.lightPower);
+        }
+
+        [Fact]
+        public void ResolveActions_AllFalseLightBaseline_ResolvesToNoLightAction()
+        {
+            // An all-off light opinion is byte-identical to a fresh LightPlaybackState,
+            // and applying it would materialise a dict entry that UpdateBlinkingLights
+            // then walks on every frame of every such ghost for no visual effect.
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    lightOn = false,
+                    lightBlinking = false,
+                });
+
+            Assert.False(actions.lightPower.HasValue);
+            Assert.False(actions.blinkEnabled.HasValue);
+            Assert.False(actions.blinkRateHz.HasValue);
+        }
+
+        [Fact]
+        public void ResolveActions_LampOffButBlinkArmed_StillResolves()
+        {
+            // Only the all-false case is dropped: a blink opinion or an explicit rate is
+            // real state a fresh LightPlaybackState does not carry, so the whole light
+            // block still resolves (including the lamp-off half, which
+            // ApplyLightPowerEvent needs in order to agree with the blink pass).
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    lightOn = false,
+                    lightBlinking = true,
+                    lightBlinkRate = 2f,
+                });
+
             Assert.False(actions.lightPower);
+            Assert.True(actions.blinkEnabled);
+            Assert.Equal(2f, actions.blinkRateHz);
+        }
+
+        [Fact]
+        public void ResolveActions_ColorChangerOffOnly_ResolvesToNoLightAction()
+        {
+            // ColorChanger materials are initialised to their OFF colour at build time, so
+            // an animState=False opinion has nothing to do — and this is the population the
+            // skip actually saves work on, since ColorChanger-only parts have no
+            // pre-populated LightPlaybackState entry.
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    colorChangerOn = false,
+                });
+
+            Assert.False(actions.lightPower.HasValue);
         }
 
         // `expected` is an int rather than the enum itself: the enum is internal (it lives
@@ -706,6 +777,36 @@ namespace Parsek.Tests
                 },
             };
             Assert.Equal(0, GhostPlaybackLogic.RestoreRoboticSpawnBaselines(state));
+        }
+
+        #endregion
+
+        #region Build-type provenance (end-state fallback suppression)
+
+        [Fact]
+        public void SnapshotBaselineTrusted_OnlyForTheRecordingStartSnapshot()
+        {
+            Assert.True(GhostVisualBuilder.SnapshotBaselineTrustedForBuildType(
+                HeaviestSpawnBuildType.RecordingStartSnapshot));
+        }
+
+        // `buildType` is a byte rather than the enum itself: HeaviestSpawnBuildType is
+        // internal and an internal type cannot appear in the signature of the public method
+        // xUnit needs in order to discover the theory (same reason as the parachute-action
+        // theory above). 2 = VesselSnapshot, 3 = SphereFallback, 0 = None.
+        [Theory]
+        [InlineData((byte)2)]
+        [InlineData((byte)3)]
+        [InlineData((byte)0)]
+        public void SnapshotBaselineNotTrusted_ForEveryOtherBuildType(byte rawBuildType)
+        {
+            var buildType = (HeaviestSpawnBuildType)rawBuildType;
+            // VesselSnapshot is the load-bearing one: GetGhostSnapshot fell back to the
+            // END-of-recording snapshot, and spawning a ghost at its own end state is a new
+            // way to be wrong (a chute whose end state is CUT would hide its canopy through
+            // the whole descent). Pre-M1 the fallback was harmless precisely because nothing
+            // read module state out of it.
+            Assert.False(GhostVisualBuilder.SnapshotBaselineTrustedForBuildType(buildType));
         }
 
         #endregion

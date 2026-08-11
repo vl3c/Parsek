@@ -5,8 +5,8 @@ tier = "nightly"
 # arrives with the M1 ghost snapshot-baseline fix (branch `ghost-snapshot-baseline`).
 #
 # WHY THE CATEGORY EXISTS AT ALL. The M1 parse is covered headlessly
-# (SnapshotBaselineParserTests, 42 cells) and so is the pure action resolution in front
-# of the appliers (SnapshotBaselineApplicationTests, 32 cells). What xUnit STRUCTURALLY
+# (SnapshotBaselineParserTests, 57 cells) and so is the pure action resolution in front
+# of the appliers (SnapshotBaselineApplicationTests, 40 cells). What xUnit STRUCTURALLY
 # cannot reach is the appliers themselves: they touch Unity components, and calling
 # GhostPlaybackLogic.SetLightState or a canopy applier from a headless test throws
 # SecurityException ("ECall methods must be packaged into a system module") before it
@@ -38,9 +38,21 @@ tier = "nightly"
 # Robotics/` - hinge_01/03/04, piston_01, the rotors - i.e. Breaking Ground IS
 # present on this profile. The cell accordingly EXECUTED and passed, logging
 # `Snapshot baseline applied: parts=1 deployables=0 parachutes=0 lights=0 servos=1
-# servosSkipped=0`, which is the end-to-end recorder-field-plan -> parser ->
-# ordinal-name-check -> ApplyRoboticPose proof actually landing rather than being
-# deferred to "a profile with the expansion".
+# servosSkipped=0`, which is the end-to-end parser -> ordinal-name-check ->
+# ApplyRoboticPose proof actually landing rather than being deferred to "a profile
+# with the expansion".
+#
+# THAT FLIGHT'S SERVO PROOF WAS OVER THE WRONG KEY, and the cell has since been
+# rewritten. It authored the LIVE probe plan's primary field
+# (`FlightRecorder.ResolveRoboticFieldPlan` -> `currentAngle` / `currentRPM` /
+# `currentPosition`), none of which is `isPersistant`, so no production snapshot ever
+# carries one - the flight proved the pose path over a key shape that does not exist.
+# It now asks `GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey` for the key a real
+# snapshot persists (hinge / rotation servo -> `targetAngle`, piston ->
+# `targetExtension`) and skips rotors, which have no persisted spin key at all. Cell
+# COUNT is unchanged at 7 and a hinge/piston candidate is present on this profile, so
+# the measured tally below still holds; the servo cell needs a RE-FLY to re-measure
+# its own pass, not a new pin.
 #
 # The four deployable cells were an honest measurement rather than a guess (whether a
 # stock prefab's animation clip separates stow from deploy by >1 cm / >0.5 deg is a
