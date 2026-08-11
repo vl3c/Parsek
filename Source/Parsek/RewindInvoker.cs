@@ -1164,8 +1164,11 @@ namespace Parsek
                 // The old strict strip removed it as collateral; with the fleet preserved it
                 // now stays, and it is BOTH a real vessel and a replaying ghost. Every other
                 // non-selected slot has its vessel removed and its recording continued as
-                // history, so this restores that invariant for the disabled ones - narrowly,
-                // via the launch-identity gate, so no unrelated preserved craft is touched.
+                // history, so this restores that invariant for PID-STABLE disabled slots -
+                // narrowly, via the launch-identity gate, so no unrelated preserved craft is
+                // touched. A disabled slot's craft live under a DIFFERENT vessel pid (docking pid
+                // churn between recording and RP capture) is outside the pass's reach and stays
+                // as it is today; see the ResolveDisabledSlotVesselsToStrip remarks.
                 //
                 // Runs AFTER Activate deliberately: the selected vessel is the active one by
                 // then, so no Die() here can land on the vessel the player is about to fly
@@ -1725,11 +1728,32 @@ namespace Parsek
         /// A slot is disabled when the RP author could not correlate its origin recording to a
         /// live vessel (<c>DisabledReason="no-live-vessel"</c>), which is exactly why it has no
         /// <c>PidSlotMap</c> entry and why <see cref="PostLoadStripper"/> classifies its craft
-        /// as unrelated. Matching is done through
-        /// <see cref="VesselLaunchIdentity.CandidateMatchesRecording"/> on the slot's EFFECTIVE
-        /// tip recording (supersede-walked, so a re-flown slot resolves to the recording that
+        /// as unrelated. Matching is done on launch identity against the slot's EFFECTIVE tip
+        /// recording (supersede-walked, so a re-flown slot resolves to the recording that
         /// actually stands), never by name: name matching is what the #587 pass needs and it
         /// would delete a player's unrelated same-named craft here.
+        /// </para>
+        /// <para>
+        /// The two identity arms are deliberately asymmetric. The SPAWN arm goes through
+        /// <see cref="VesselLaunchIdentity.CandidateMatchesRecording"/> (spawn pids are
+        /// KSP-unique; an adoption stamp there already refuses a conclusive guid disagreement).
+        /// The SOURCE arm requires a POSITIVE guid match
+        /// (<see cref="VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch"/>) rather than
+        /// the family's degrading <c>LiveVesselIsRecordedLaunch</c>, because the unknown-guid
+        /// fallback direction is destructive HERE: everywhere else pid-only IS the pre-guid
+        /// behavior being preserved, but the pre-guid behavior of this pass (the preserved-fleet
+        /// world) was to leave the vessel alone, so degrading would aim a pid coincidence at
+        /// <c>Die()</c>. The consequence is deliberate: a disabled slot whose recording carries
+        /// no guid strips nothing, leaving the #587 third-facet shape (real vessel + replaying
+        /// ghost) rather than risking a stranger.
+        /// </para>
+        /// <para>
+        /// Known escape (safe direction, filed as a todo follow-up): a disabled slot's craft that
+        /// is live under a DIFFERENT vessel pid than the recording carries - docking pid churn
+        /// between recording and RP capture, which is the very reason the author could not
+        /// correlate it - matches neither <c>PidSlotMap</c> nor this pass, so it stays both a real
+        /// vessel and a replaying ghost. This pass restores the invariant for pid-stable disabled
+        /// slots only.
         /// </para>
         /// <para>
         /// Three exclusions keep the pass narrow: a pid the RP maps to ANY slot is left to the
@@ -1788,8 +1812,16 @@ namespace Parsek
                     // A mapped pid is the normal strip's business (selected or enabled sibling).
                     if (rp.PidSlotMap != null && rp.PidSlotMap.ContainsKey(pid)) continue;
                     if (kill.Contains(pid)) continue;
-                    if (VesselLaunchIdentity.CandidateMatchesRecording(
-                            rec, pid, liveVessels[i].guid, matchSource: true, matchSpawn: true))
+                    bool matches =
+                        // Spawn arm: a genuine Parsek spawn pid is KSP-unique and an adoption
+                        // stamp already refuses a conclusive guid disagreement, so the shared
+                        // gate is the right one there.
+                        VesselLaunchIdentity.CandidateMatchesRecording(
+                            rec, pid, liveVessels[i].guid, matchSource: false, matchSpawn: true)
+                        // Source arm: CONCLUSIVE guid match only, no pid-only fallback.
+                        || VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(
+                            rec, pid, liveVessels[i].guid);
+                    if (matches)
                     {
                         kill.Add(pid);
                     }

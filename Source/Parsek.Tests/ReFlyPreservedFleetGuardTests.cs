@@ -23,8 +23,10 @@ namespace Parsek.Tests
     /// unrelated and (correctly, by its own rules) leaves it. The old strict strip removed it as
     /// collateral; now it stays as a real vessel while its recording also replays as a ghost -
     /// the #587 third-facet shape. <c>ResolveDisabledSlotVesselsToStrip</c> restores the
-    /// every-non-selected-slot invariant for disabled slots, matching on launch identity (never
-    /// on name, which would delete a player's unrelated same-named craft).
+    /// every-non-selected-slot invariant for PID-STABLE disabled slots, matching on launch
+    /// identity (never on name, which would delete a player's unrelated same-named craft), and
+    /// with the source arm demanding a CONCLUSIVE guid match because the unknown-guid fallback
+    /// direction here is Die() rather than the usual preserve-prior-behavior.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -196,6 +198,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveDisabledSlotVesselsToStrip_UnknownRecordingGuid_IsNeverStripped()
+        {
+            // The fallback DIRECTION is what makes this pass different from the rest of the
+            // guid-gating wave. Everywhere else "guid unknown -> fall back to pid-only" PRESERVES
+            // the pre-guid behavior of the site. Here the pre-guid behavior (the preserved-fleet
+            // world) was to leave the vessel alone, so a pid-only fallback would point the
+            // fallback at Die(): a same-pid stranger would be deleted on a craft-baked pid
+            // coincidence with nothing to disambiguate it. The source arm therefore demands a
+            // CONCLUSIVE guid match, and a guid-less recording strips nothing - accepting the
+            // #587 third-facet shape (real vessel + replaying ghost) over risking a stranger.
+            var recordings = MakeRecordings();
+            recordings[1].RecordedVesselGuid = null;
+
+            var kill = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
+                MakeRewindPoint(), selectedSlotIndex: 0, recordings, supersedes: null,
+                liveVessels: new List<(uint pid, string guid)>
+                {
+                    (DisabledSlotCraftPid, DisabledSlotLaunchGuid),  // live guid known
+                    (DisabledSlotCraftPid + 1u, null),               // live guid unknown too
+                });
+
+            Assert.Empty(kill);
+        }
+
+        [Fact]
+        public void ResolveDisabledSlotVesselsToStrip_UnknownLiveGuid_IsNeverStripped()
+        {
+            // Mirror of the cell above from the other side: the recording's guid is known, the
+            // LIVE vessel's is not (an unreadable Vessel.id). Still inconclusive, still no kill.
+            var kill = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
+                MakeRewindPoint(), selectedSlotIndex: 0, MakeRecordings(), supersedes: null,
+                liveVessels: new List<(uint pid, string guid)> { (DisabledSlotCraftPid, null) });
+
+            Assert.Empty(kill);
+        }
+
+        [Fact]
+        public void ResolveDisabledSlotVesselsToStrip_GenuineSpawnPid_StaysPidConclusive()
+        {
+            // The spawn arm keeps the shared gate: a genuine Parsek spawn pid is KSP-unique
+            // (SpawnedVesselPersistentId != VesselPersistentId), so a bare pid match IS
+            // conclusive there and no guid is needed. Only the SOURCE arm tightened.
+            const uint spawnPid = 771234u;
+            var recordings = MakeRecordings();
+            recordings[1].RecordedVesselGuid = null;
+            recordings[1].SpawnedVesselPersistentId = spawnPid;
+
+            var kill = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
+                MakeRewindPoint(), selectedSlotIndex: 0, recordings, supersedes: null,
+                liveVessels: new List<(uint pid, string guid)> { (spawnPid, null) });
+
+            Assert.Single(kill);
+            Assert.Contains(spawnPid, kill);
+        }
+
+        [Fact]
         public void ResolveDisabledSlotVesselsToStrip_EnabledSlot_IsLeftToTheNormalStrip()
         {
             var kill = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
@@ -238,18 +296,23 @@ namespace Parsek.Tests
             var recordings = MakeRecordings();
             const uint regeneratedSelectedPid = 8888u;
             // The collision: the disabled sibling's recording carries the pid the selected
-            // vessel now has, with no conclusive guid disagreement.
+            // vessel now has, and it agrees on the launch guid (chain-continuation segments of
+            // one launch share a guid, so a sibling slot's recording legitimately can). The guid
+            // has to AGREE for the pass to name the pid at all now that the source arm requires
+            // a conclusive match - which is exactly the collision the protection must survive.
             recordings[1].VesselPersistentId = regeneratedSelectedPid;
-            recordings[1].RecordedVesselGuid = null;
+            recordings[1].RecordedVesselGuid = DisabledSlotLaunchGuid;
 
             var withoutProtection = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
                 MakeRewindPoint(), selectedSlotIndex: 0, recordings, supersedes: null,
-                liveVessels: new List<(uint pid, string guid)> { (regeneratedSelectedPid, null) });
+                liveVessels: new List<(uint pid, string guid)>
+                    { (regeneratedSelectedPid, DisabledSlotLaunchGuid) });
             Assert.Contains(regeneratedSelectedPid, withoutProtection);
 
             var withProtection = RewindInvoker.ResolveDisabledSlotVesselsToStrip(
                 MakeRewindPoint(), selectedSlotIndex: 0, recordings, supersedes: null,
-                liveVessels: new List<(uint pid, string guid)> { (regeneratedSelectedPid, null) },
+                liveVessels: new List<(uint pid, string guid)>
+                    { (regeneratedSelectedPid, DisabledSlotLaunchGuid) },
                 selectedVesselPid: regeneratedSelectedPid);
             Assert.Empty(withProtection);
         }

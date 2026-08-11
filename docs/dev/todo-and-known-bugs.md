@@ -1216,13 +1216,55 @@ are appended to `stripResult.StrippedPids` - `Vessel.Die()` does not remove the
 matching `ProtoVessel`, so without that the disabled slot's recording would keep
 reading as "still spawned" through the very reconcile that exists to catch it (and the
 #587 survey / left-alone warn correctly treat the appended pids as already-removed).
-Cells: `ReFlyPreservedFleetGuardTests` (14).
+A third self-review finding tightened the identity gate itself: this pass's SOURCE arm
+now demands a CONCLUSIVE guid match
+(`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`, the non-degrading sibling
+the #15 resurrection classifier already needed and now shares) instead of the family's
+`LiveVesselIsRecordedLaunch`. Reason: the unknown-guid fallback DIRECTION is inverted
+here. Everywhere else on this branch, degrading to pid-only preserves the site's
+pre-guid behavior; the pre-guid behavior of THIS pass (the preserved-fleet world) was
+leave-the-vessel-alone, so degrading would have pointed the fallback at `Die()` - a
+same-pid stranger with a guid-less recording deleted on a craft-baked coincidence.
+Reachability was near-nil (a same-pid stranger live at strip time essentially cannot
+coexist with a slot the author disabled for having no live vessel), but the asymmetry
+was real and the safe direction is free: a guid-less disabled slot now strips nothing.
+The SPAWN arm is unchanged - a genuine Parsek spawn pid is KSP-unique, so it is already
+pid-conclusive. Cells: `ReFlyPreservedFleetGuardTests` (17),
+`VesselLaunchIdentityTests` (+2 non-degrading-sibling cells).
+
+Known escape in the pass, SAFE direction, not fixed: a disabled slot's craft that is
+live under a DIFFERENT vessel pid than its recording carries - docking pid churn between
+recording and RP capture, which is the very thing that made the author fail to correlate
+it - matches neither `PidSlotMap` nor this pass, so it stays both a real vessel and a
+replaying ghost (the #587 third-facet shape the supplement otherwise closes). The pass
+restores the invariant for PID-STABLE disabled slots only. Closing it would need a
+non-pid correlation key at strip time (part-set or root-part fingerprint), which is a
+larger design question than this supplement; the current behavior is the pre-existing
+one, so nothing regressed.
+
+**FOLLOW-UP (filed, NOT fixed here): guid-check the RP author's slot correlation.** The
+strip end of this defect class is now guid-gated at six sites, but the CAPTURE end is
+still pid-only: `RewindPointAuthor.ExecuteDeferredBody` resolves each child slot's
+recording pid and hands it straight to `IFlightGlobalsProvider.TryGetVesselSnapshot(pid)`
+(`SegmentBoundaryLogic.cs:512`, which is `FlightRecorder.FindVesselByPid`), with no
+launch-guid check. So a same-craft STRANGER live at RP-capture time - a separate launch
+of the craft, carrying the same craft-baked pid - gets correlated INTO `PidSlotMap` /
+`RootPartPidMap` as if it were the slot's vessel. On the later Re-Fly the NORMAL strip
+then reads that mapped pid as a non-selected sibling and kills the stranger: exactly the
+delete-a-player's-unrelated-launch failure this branch fixes everywhere else, arriving
+through the author path instead. Deliberately left alone here because it touches the
+author/capture path this branch did not open, and the fix is not merely "add the guid":
+refusing the correlation turns the slot into a `no-live-vessel` disabled one (usable RP,
+one lost sibling) and the author would need to say so in its Warn, so it wants its own
+pass. Fix: gate the author-time correlation on `VesselLaunchIdentity` (the live vessel
+read through `AnchorDetector.TryReadLiveVesselGuid`) and let a guid mismatch disable the
+slot with a distinct reason string rather than mapping the wrong vessel.
 
 Guarded by `AnchorDetectorTests` (+6 `LiveAnchorLaunchMatches` cells),
 `ChainGhostSkipTests` (+4), `SpawnStateReconciliationTests` (ported to the guid-aware
 surface, +5 adoption-stamp / plain-rewind-shape cells),
 `RewindSpawnSuppressionTests` (+2 pid-only-verdict cells), `CrewDedupTests` (+4),
-`ReFlyPreservedFleetGuardTests` (13, new) and `ReFlyConclusionRouteTests` (+3
+`ReFlyPreservedFleetGuardTests` (17, new) and `ReFlyConclusionRouteTests` (+3
 marker-clear cells). No in-game category was added: every decision in this batch is a
 pure predicate over data a headless cell can build, and the live halves are the
 existing Unity walks that feed them (a new FLIGHT cell would assert the walk, not the
