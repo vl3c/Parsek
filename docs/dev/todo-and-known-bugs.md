@@ -551,7 +551,11 @@ baseline -> recorded events.**
 ### Deliberately out of scope
 
 Sun-tracking `currentRotation` (freezing a launch-time sun-relative quaternion is
-worse than the prefab pose - the real fix synthesizes it), deployable `BROKEN`,
+worse than the prefab pose - the real fix synthesizes it), ~~deployable `BROKEN`~~
+(**DONE 2026-08-12**, `part-event-fidelity`/P8-S6: the snapshot slot this list deferred
+is filled, and `deployState = BROKEN` now parses to its own `deployableBroken` baseline
+rather than to no opinion - alongside a recorded `DeployableBroken` PartEvent, so a break
+mid-recording is carried as well as a break before it),
 wheel-robotic suspension/steering/motor (continuous-motion, no meaningful
 persisted pose), ladders / aero / control surfaces / robot-arm scanners (their
 live probes are the dead-probe family, so no event stream could toggle a baseline

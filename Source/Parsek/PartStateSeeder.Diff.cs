@@ -20,6 +20,7 @@ namespace Parsek
             clone.jettisonedShrouds = new HashSet<uint>(source.jettisonedShrouds ?? new HashSet<uint>());
             clone.parachuteStates = new Dictionary<uint, int>(source.parachuteStates ?? new Dictionary<uint, int>());
             clone.extendedDeployables = new HashSet<uint>(source.extendedDeployables ?? new HashSet<uint>());
+            clone.brokenDeployables = new HashSet<uint>(source.brokenDeployables ?? new HashSet<uint>());
             clone.lightsOn = new HashSet<uint>(source.lightsOn ?? new HashSet<uint>());
             clone.blinkingLights = new HashSet<uint>(source.blinkingLights ?? new HashSet<uint>());
             clone.lightBlinkRates = new Dictionary<uint, float>(source.lightBlinkRates ?? new Dictionary<uint, float>());
@@ -101,9 +102,10 @@ namespace Parsek
 
             // --- pid-keyed boolean families ---
 
-            void DiffUintSet(
+            void DiffUintSetWithDepartureCarveOut(
                 HashSet<uint> beforeSet, HashSet<uint> afterSet,
-                PartEventType onArrival, PartEventType? onDeparture)
+                PartEventType onArrival, PartEventType? onDeparture,
+                HashSet<uint> departureCarveOut)
             {
                 if (afterSet != null)
                 {
@@ -119,13 +121,37 @@ namespace Parsek
                     foreach (uint pid in beforeSet)
                     {
                         if (afterSet != null && afterSet.Contains(pid)) continue;
+                        if (departureCarveOut != null && departureCarveOut.Contains(pid)) continue;
                         Emit(pid, 0, onDeparture.Value, 0f);
                     }
                 }
             }
 
-            DiffUintSet(before.extendedDeployables, after.extendedDeployables,
-                PartEventType.DeployableExtended, PartEventType.DeployableRetracted);
+            void DiffUintSet(
+                HashSet<uint> beforeSet, HashSet<uint> afterSet,
+                PartEventType onArrival, PartEventType? onDeparture)
+                => DiffUintSetWithDepartureCarveOut(
+                    beforeSet, afterSet, onArrival, onDeparture, departureCarveOut: null);
+
+            // S6: BROKEN takes PRECEDENCE over the extended/retracted diff, for exactly the
+            // reason the live poll does (CheckDeployableBrokenTransition rule 1). A panel that
+            // breaks across a rails span leaves extendedDeployables AND arrives in
+            // brokenDeployables; running the plain extended diff would ALSO emit a
+            // DeployableRetracted for it, and playback would animate the panel folding neatly
+            // shut before hiding it. So the broken diff runs first and its arrivals are carved
+            // out of the extended diff's DEPARTURE side.
+            //
+            // The ARRIVAL side deliberately has no carve-out: a pid that was broken before the
+            // span and extended after it was repaired AND re-deployed, which is two real events
+            // (DeployableRetracted from the broken departure here, then DeployableExtended
+            // below) and both belong in the recording.
+            DiffUintSet(before.brokenDeployables, after.brokenDeployables,
+                PartEventType.DeployableBroken, PartEventType.DeployableRetracted);
+
+            DiffUintSetWithDepartureCarveOut(
+                before.extendedDeployables, after.extendedDeployables,
+                PartEventType.DeployableExtended, PartEventType.DeployableRetracted,
+                departureCarveOut: after.brokenDeployables);
             DiffUintSet(before.jettisonedShrouds, after.jettisonedShrouds,
                 PartEventType.ShroudJettisoned, null);
             DiffUintSet(before.deployedFairings, after.deployedFairings,

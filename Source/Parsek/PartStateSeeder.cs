@@ -64,7 +64,8 @@ namespace Parsek
 
             ParsekLog.Verbose(logTag,
                 $"Initial state seeding complete: fairings={sets.deployedFairings.Count} shrouds={sets.jettisonedShrouds.Count} " +
-                $"parachutes={sets.parachuteStates.Count} deployables={sets.extendedDeployables.Count} lights={sets.lightsOn.Count} " +
+                $"parachutes={sets.parachuteStates.Count} deployables={sets.extendedDeployables.Count} " +
+                $"brokenDeployables={sets.brokenDeployables.Count} lights={sets.lightsOn.Count} " +
                 $"blinks={sets.blinkingLights.Count} gear={sets.deployedGear.Count} cargo={sets.openCargoBays.Count} " +
                 $"ladders={sets.deployedLadders.Count} animGroups={sets.deployedAnimationGroups.Count} " +
                 $"animGeneric={sets.deployedAnimateGenericModules.Count} heat={sets.animateHeatLevels.Count} " +
@@ -141,6 +142,17 @@ namespace Parsek
                 sets.extendedDeployables.Add(p.persistentId);
                 ParsekLog.Verbose(logTag,
                     $"Seeded already-extended deployable: '{p.partInfo?.name}' pid={p.persistentId}");
+            }
+            // S6: a panel that is ALREADY BROKEN when recording starts. Without this the broken
+            // set would be empty on the first poll, read the live BROKEN state as an ENTERING
+            // edge, and emit a DeployableBroken the recording never witnessed — the break would
+            // appear to happen at the start of every later recording of that craft. The two
+            // states are mutually exclusive, hence the else.
+            else if (deployable.deployState == ModuleDeployablePart.DeployState.BROKEN)
+            {
+                sets.brokenDeployables.Add(p.persistentId);
+                ParsekLog.Verbose(logTag,
+                    $"Seeded already-broken deployable: '{p.partInfo?.name}' pid={p.persistentId}");
             }
         }
 
@@ -471,6 +483,9 @@ namespace Parsek
             // --- uint-keyed sets (pid only, moduleIndex = 0) ---
 
             EmitFromUintSet(sets.extendedDeployables, PartEventType.DeployableExtended);
+            // S6: a recording that STARTS with a broken panel needs the ghost told so at UT0 —
+            // the ghost is built from the prefab (intact) and nothing else would hide the subtree.
+            EmitFromUintSet(sets.brokenDeployables, PartEventType.DeployableBroken);
             EmitFromUintSet(sets.jettisonedShrouds, PartEventType.ShroudJettisoned);
             EmitFromUintSet(sets.deployedFairings, PartEventType.FairingJettisoned);
             EmitFromUintSet(sets.lightsOn, PartEventType.LightOn);
@@ -746,6 +761,8 @@ namespace Parsek
         public HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
         public HashSet<uint> extendedDeployables = new HashSet<uint>();
+        /// <summary>S6: pids whose ModuleDeployablePart is BROKEN. Disjoint from extendedDeployables.</summary>
+        public HashSet<uint> brokenDeployables = new HashSet<uint>();
         public HashSet<uint> lightsOn = new HashSet<uint>();
         public HashSet<uint> blinkingLights = new HashSet<uint>();
         public Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();

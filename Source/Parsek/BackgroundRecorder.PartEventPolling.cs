@@ -218,14 +218,30 @@ namespace Parsek
                 if (deployable == null) continue;
 
                 var ds = deployable.deployState;
-                if (ds == ModuleDeployablePart.DeployState.BROKEN) continue;
+                string partName = p.partInfo?.name ?? "unknown";
+                bool isBroken = ds == ModuleDeployablePart.DeployState.BROKEN;
+
+                // S6 BG parity: a background station's solar panel snapping off is one of the
+                // visible cases (a micrometeorite / overspeed break on an unattended base), so
+                // the BG wrapper polls the same edge through the same pure transition.
+                var brokenEvt = FlightRecorder.CheckDeployableBrokenTransition(
+                    p.persistentId, partName, isBroken, state.brokenDeployables,
+                    state.extendedDeployables, ut);
+                if (brokenEvt.HasValue)
+                {
+                    treeRec.PartEvents.Add(brokenEvt.Value);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {brokenEvt.Value.eventType} '{brokenEvt.Value.partName}' " +
+                        $"pid={brokenEvt.Value.partPersistentId} (bg vessel {state.vesselPid}, deployable-broken edge)");
+                }
+
+                if (isBroken) continue;
                 if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
                 if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
 
                 bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
 
                 var evt = FlightRecorder.CheckDeployableTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isExtended, state.extendedDeployables, ut);
+                    p.persistentId, partName, isExtended, state.extendedDeployables, ut);
                 if (evt.HasValue)
                 {
                     treeRec.PartEvents.Add(evt.Value);

@@ -118,6 +118,12 @@ namespace Parsek
         private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
         private Dictionary<ulong, string[]> parsedJettisonNamesCache = new Dictionary<ulong, string[]>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
+        /// <summary>
+        /// S6: pids whose ModuleDeployablePart is currently BROKEN. Disjoint from
+        /// <see cref="extendedDeployables"/> by construction — CheckDeployableBrokenTransition
+        /// clears the extended flag when a panel breaks, so no pid is ever in both.
+        /// </summary>
+        private HashSet<uint> brokenDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> blinkingLights = new HashSet<uint>();
         private Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();
@@ -1882,6 +1888,80 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// S6: the BROKEN edge of the ModuleDeployablePart state machine, which the recorder
+        /// skipped outright before P8 — a snapped solar panel replayed intact for the rest of
+        /// the recording, forever, on every replay.
+        ///
+        /// WHAT STOCK DOES, decompiled (ModuleDeployablePart, KSP 1.12.5). On the live break,
+        /// <c>breakPanels()</c> detaches the <c>panelBreakTransform</c> subtree into its own
+        /// physics object and sets <c>deployState = BROKEN</c>: the panel flies off. On any
+        /// later load, <c>startFSM()</c> simply does
+        /// <c>panelBreakTransform.gameObject.SetActive(false)</c>. Either way the net look is
+        /// the same and it is what playback reproduces: the subtree is GONE.
+        /// <c>breakName</c> defaults to <c>pivotName</c> when the config leaves it empty.
+        ///
+        /// AND IT IS REVERSIBLE. <c>eventRepairExternal</c> is active exactly while BROKEN, and
+        /// <c>DoRepair()</c> returns the part to RETRACTED (it re-instantiates a fresh subtree
+        /// from the prefab; our ghost only ever hid its own, so a plain un-hide is the faithful
+        /// inverse). That is why this is a reversible-family member rather than a permanent one.
+        ///
+        /// THE TWO ORDERING RULES, which are the whole reason this is a separate pure function
+        /// with its own truth table:
+        /// <list type="number">
+        /// <item><description>ENTERING broken must SILENTLY drop the pid from
+        /// <paramref name="extendedSet"/>. A panel breaks while extended — that is the only way
+        /// it usually breaks — so leaving the set alone would make the NEXT poll of a
+        /// no-longer-extended part emit a spurious <c>DeployableRetracted</c>, and playback
+        /// would animate the panel politely folding up before hiding it.</description></item>
+        /// <item><description>LEAVING broken (a repair) must emit <c>DeployableRetracted</c>
+        /// EXPLICITLY. Stock lands on RETRACTED, and playback needs a positive instruction to
+        /// un-hide the subtree and snap it stowed; without one the ghost would keep rendering
+        /// the panel as missing even though the recording says it was repaired.</description></item>
+        /// </list>
+        ///
+        /// Budget: 0-2 events per flight. A panel breaks at most once per mission in practice,
+        /// and repairs need an EVA kerbal carrying repair kits.
+        /// </summary>
+        internal static PartEvent? CheckDeployableBrokenTransition(
+            uint partPersistentId, string partName, bool isBroken,
+            HashSet<uint> brokenSet, HashSet<uint> extendedSet, double ut)
+        {
+            bool wasBroken = brokenSet.Contains(partPersistentId);
+
+            if (isBroken && !wasBroken)
+            {
+                brokenSet.Add(partPersistentId);
+                // Rule 1: drop the extended flag WITHOUT emitting a retract for it.
+                extendedSet?.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableBroken,
+                    partName = partName
+                };
+            }
+
+            if (!isBroken && wasBroken)
+            {
+                brokenSet.Remove(partPersistentId);
+                // Rule 2: a repair lands on RETRACTED, and playback needs to be told so.
+                // The pid is deliberately NOT added to extendedSet: RETRACTED is the
+                // not-extended state, so the ordinary extended/retracted poll picks up from
+                // here correctly on the next frame.
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableRetracted,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
         internal static PartEvent? CheckDeployableTransition(
             uint partPersistentId, string partName, bool isExtended, HashSet<uint> extendedSet, double ut)
         {
@@ -1928,16 +2008,33 @@ namespace Parsek
                 if (deployable == null) continue;
 
                 var ds = deployable.deployState;
+                string partName = p.partInfo?.name ?? "unknown";
+                bool isBroken = ds == ModuleDeployablePart.DeployState.BROKEN;
 
-                // Skip broken and transitional states — only fire on completed transitions
-                if (ds == ModuleDeployablePart.DeployState.BROKEN) continue;
+                // S6: BROKEN is now a RECORDED state rather than a skipped one. This runs first
+                // and owns both edges of it — entering (emit DeployableBroken, silently clear the
+                // extended flag) and leaving via repair (emit DeployableRetracted).
+                var brokenEvt = CheckDeployableBrokenTransition(
+                    p.persistentId, partName, isBroken, brokenDeployables, extendedDeployables, ut);
+                if (brokenEvt.HasValue)
+                {
+                    PartEvents.Add(brokenEvt.Value);
+                    ParsekLog.Verbose("Recorder", $"Part event: {brokenEvt.Value.eventType} '{brokenEvt.Value.partName}' " +
+                        $"pid={brokenEvt.Value.partPersistentId} (deployable-broken edge, deployState={ds})");
+                }
+
+                // While BROKEN there is no extended/retracted opinion to form: the subtree is
+                // gone, and the ordinary check would read "not extended" and emit a retract.
+                if (isBroken) continue;
+
+                // Transitional states — only fire on completed transitions.
                 if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
                 if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
 
                 bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
 
                 var evt = CheckDeployableTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isExtended, extendedDeployables, ut);
+                    p.persistentId, partName, isExtended, extendedDeployables, ut);
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
@@ -6832,6 +6929,7 @@ namespace Parsek
             jettisonNameRawCache.Clear();
             parsedJettisonNamesCache.Clear();
             extendedDeployables.Clear();
+            brokenDeployables.Clear();
             lightsOn.Clear();
             blinkingLights.Clear();
             lightBlinkRates.Clear();
@@ -7088,6 +7186,7 @@ namespace Parsek
                 jettisonedShrouds = jettisonedShrouds,
                 parachuteStates = parachuteStates,
                 extendedDeployables = extendedDeployables,
+                brokenDeployables = brokenDeployables,
                 lightsOn = lightsOn,
                 blinkingLights = blinkingLights,
                 lightBlinkRates = lightBlinkRates,

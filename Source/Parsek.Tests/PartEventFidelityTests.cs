@@ -135,5 +135,413 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // ------------------------------------------------------------------
+        // Step 3 — S6: the BROKEN deployable edge
+        // ------------------------------------------------------------------
+
+        #region S6 recorder truth table
+
+        private const uint PanelPid = 7001u;
+        private const string PanelName = "solarPanels5";
+
+        /// <summary>
+        /// The full 2x2 of (isBroken, wasBroken), plus the two set side effects that are the
+        /// actual bug surface. Each row runs from a fresh pair of sets so a row cannot pass on
+        /// state a previous row left behind.
+        /// </summary>
+        [Theory]
+        // isBroken, wasBroken, wasExtended, expected event (null = none)
+        [InlineData(false, false, false, null)]          // intact, unchanged
+        [InlineData(false, false, true, null)]           // extended, unchanged
+        [InlineData(true, true, false, null)]            // already broken, unchanged
+        [InlineData(true, false, false, "DeployableBroken")]     // breaks while stowed
+        [InlineData(true, false, true, "DeployableBroken")]      // breaks while extended (the usual case)
+        [InlineData(false, true, false, "DeployableRetracted")]  // repaired
+        public void CheckDeployableBrokenTransition_TruthTable(
+            bool isBroken, bool wasBroken, bool wasExtended, string expectedEventName)
+        {
+            var brokenSet = new HashSet<uint>();
+            var extendedSet = new HashSet<uint>();
+            if (wasBroken) brokenSet.Add(PanelPid);
+            if (wasExtended) extendedSet.Add(PanelPid);
+
+            PartEvent? evt = FlightRecorder.CheckDeployableBrokenTransition(
+                PanelPid, PanelName, isBroken, brokenSet, extendedSet, ut: 500.0);
+
+            if (expectedEventName == null)
+            {
+                Assert.False(evt.HasValue);
+                // A no-op edge must not disturb either set.
+                Assert.Equal(wasBroken, brokenSet.Contains(PanelPid));
+                Assert.Equal(wasExtended, extendedSet.Contains(PanelPid));
+                return;
+            }
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(expectedEventName, evt.Value.eventType.ToString());
+            Assert.Equal(PanelPid, evt.Value.partPersistentId);
+            Assert.Equal(PanelName, evt.Value.partName);
+            Assert.Equal(500.0, evt.Value.ut);
+            // Broken membership always follows the live state.
+            Assert.Equal(isBroken, brokenSet.Contains(PanelPid));
+        }
+
+        [Fact]
+        public void BreakingWhileExtended_SilentlyClearsTheExtendedFlag_SoNoSpuriousRetractFollows()
+        {
+            // Rule 1, and the reason this is not just a third case bolted onto
+            // CheckDeployableTransition. A panel breaks WHILE EXTENDED — that is how it
+            // normally breaks (overspeed / impact on a deployed array). If the extended flag
+            // survived, the very next poll would read "not extended, was extended" and emit
+            // DeployableRetracted, so playback would show the panel folding up neatly and only
+            // THEN vanishing.
+            var brokenSet = new HashSet<uint>();
+            var extendedSet = new HashSet<uint> { PanelPid };
+
+            PartEvent? breakEvt = FlightRecorder.CheckDeployableBrokenTransition(
+                PanelPid, PanelName, isBroken: true, brokenSet, extendedSet, ut: 500.0);
+
+            Assert.True(breakEvt.HasValue);
+            Assert.Equal(PartEventType.DeployableBroken, breakEvt.Value.eventType);
+            Assert.DoesNotContain(PanelPid, extendedSet);
+            Assert.Contains(PanelPid, brokenSet);
+
+            // The follow-up poll the live loop would do: the ordinary extended/retracted check
+            // now sees not-extended AND not-was-extended, so it stays silent.
+            PartEvent? followUp = FlightRecorder.CheckDeployableTransition(
+                PanelPid, PanelName, isExtended: false, extendedSet, ut: 500.02);
+            Assert.False(followUp.HasValue);
+        }
+
+        [Fact]
+        public void RepairEmitsRetractedExplicitly_AndLeavesTheExtendedFlagClear()
+        {
+            // Rule 2. Stock DoRepair lands on RETRACTED, and playback needs a positive
+            // instruction to un-hide the subtree — "no event" would leave the ghost rendering a
+            // missing panel for a part the recording says was repaired.
+            var brokenSet = new HashSet<uint> { PanelPid };
+            var extendedSet = new HashSet<uint>();
+
+            PartEvent? repairEvt = FlightRecorder.CheckDeployableBrokenTransition(
+                PanelPid, PanelName, isBroken: false, brokenSet, extendedSet, ut: 900.0);
+
+            Assert.True(repairEvt.HasValue);
+            Assert.Equal(PartEventType.DeployableRetracted, repairEvt.Value.eventType);
+            Assert.DoesNotContain(PanelPid, brokenSet);
+            // NOT re-added to extendedSet: RETRACTED is the not-extended state, so a later
+            // re-deploy is a genuine DeployableExtended edge rather than a suppressed one.
+            Assert.DoesNotContain(PanelPid, extendedSet);
+
+            PartEvent? redeploy = FlightRecorder.CheckDeployableTransition(
+                PanelPid, PanelName, isExtended: true, extendedSet, ut: 950.0);
+            Assert.True(redeploy.HasValue);
+            Assert.Equal(PartEventType.DeployableExtended, redeploy.Value.eventType);
+        }
+
+        [Fact]
+        public void ABreakRepairRedeployCycle_ProducesExactlyThreeEventsInOrder()
+        {
+            // The end-to-end sequence a mission actually flies, driven through both pure
+            // helpers the way the live poll chains them.
+            var brokenSet = new HashSet<uint>();
+            var extendedSet = new HashSet<uint>();
+            var emitted = new List<PartEventType>();
+
+            void Poll(bool broken, bool extended, double ut)
+            {
+                PartEvent? b = FlightRecorder.CheckDeployableBrokenTransition(
+                    PanelPid, PanelName, broken, brokenSet, extendedSet, ut);
+                if (b.HasValue) emitted.Add(b.Value.eventType);
+                if (broken) return; // the live poll's `if (isBroken) continue;`
+                PartEvent? e = FlightRecorder.CheckDeployableTransition(
+                    PanelPid, PanelName, extended, extendedSet, ut);
+                if (e.HasValue) emitted.Add(e.Value.eventType);
+            }
+
+            Poll(broken: false, extended: false, ut: 100);  // stowed on the pad
+            Poll(broken: false, extended: true, ut: 200);   // deploy      -> Extended
+            Poll(broken: false, extended: true, ut: 210);   // steady
+            Poll(broken: true, extended: false, ut: 300);   // snap        -> Broken
+            Poll(broken: true, extended: false, ut: 310);   // steady broken
+            Poll(broken: false, extended: false, ut: 400);  // EVA repair  -> Retracted
+            Poll(broken: false, extended: false, ut: 410);  // steady
+
+            Assert.Equal(new[]
+            {
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableBroken,
+                PartEventType.DeployableRetracted,
+            }, emitted);
+        }
+
+        #endregion
+
+        #region S6 start-of-recording seeding
+
+        [Fact]
+        public void ARecordingThatStartsWithABrokenPanel_SeedsDeployableBrokenAtUT0()
+        {
+            // Without the seed, a ghost built from the prefab renders an INTACT panel and
+            // nothing in the recording ever hides it.
+            var sets = new PartTrackingSets();
+            sets.brokenDeployables.Add(PanelPid);
+
+            var events = PartStateSeeder.EmitSeedEvents(
+                sets, new Dictionary<uint, string> { { PanelPid, PanelName } },
+                startUT: 1000.0, logTag: "Recorder");
+
+            PartEvent seed = Assert.Single(
+                events.Where(e => e.eventType == PartEventType.DeployableBroken));
+            Assert.Equal(PanelPid, seed.partPersistentId);
+            Assert.Equal(1000.0, seed.ut);
+            Assert.Equal(PanelName, seed.partName);
+
+            // A broken panel is not also seeded as extended: the two sets are disjoint, so the
+            // ghost gets one unambiguous instruction.
+            Assert.Empty(events.Where(e => e.eventType == PartEventType.DeployableExtended));
+        }
+
+        [Fact]
+        public void ARecordingThatStartsIntact_SeedsNoBrokenEvent()
+        {
+            var sets = new PartTrackingSets();
+            sets.extendedDeployables.Add(PanelPid);
+
+            var events = PartStateSeeder.EmitSeedEvents(
+                sets, new Dictionary<uint, string> { { PanelPid, PanelName } },
+                startUT: 1000.0, logTag: "Recorder");
+
+            Assert.Empty(events.Where(e => e.eventType == PartEventType.DeployableBroken));
+            Assert.Single(events.Where(e => e.eventType == PartEventType.DeployableExtended));
+        }
+
+        #endregion
+
+        #region S6 split-seed placement
+
+        [Fact]
+        public void ATailAfterABreak_SeedsDeployableBrokenVerbatim_NotRetracted()
+        {
+            // The parachute-trio property applied to the deployable family: Retracted and Broken
+            // are both "not extended" but they render differently, so the reducer must carry the
+            // event type VERBATIM. A collapsed-to-Retracted seed would put the tail's ghost's
+            // panel back on the craft.
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableExtended, partName = PanelName },
+                new PartEvent { ut = 200, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableBroken, partName = PanelName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+
+            PartEvent seed = Assert.Single(
+                seeds.Where(s => s.partPersistentId == PanelPid));
+            Assert.Equal(PartEventType.DeployableBroken, seed.eventType);
+            Assert.Equal(300.0, seed.ut);
+        }
+
+        [Fact]
+        public void ATailAfterABreakThenRepair_SeedsRetracted_BecauseTheFamilyCollapsesToItsLastState()
+        {
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableExtended, partName = PanelName },
+                new PartEvent { ut = 200, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableBroken, partName = PanelName },
+                new PartEvent { ut = 250, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableRetracted, partName = PanelName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+
+            PartEvent seed = Assert.Single(seeds.Where(s => s.partPersistentId == PanelPid));
+            Assert.Equal(PartEventType.DeployableRetracted, seed.eventType);
+        }
+
+        [Fact]
+        public void BrokenAndExtended_ShareFamilyThree_SoOneSeedWinsPerPart()
+        {
+            // Family membership is what makes the reducer collapse the run to a single opinion
+            // (and what makes the boundary dedupe recognise an existing event as covering the
+            // seed). A separate family would emit BOTH a Broken and an Extended seed for one
+            // pivot, and playback would apply them in list order.
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableBroken, partName = PanelName },
+                new PartEvent { ut = 150, partPersistentId = PanelPid,
+                    eventType = PartEventType.DeployableExtended, partName = PanelName },
+            };
+
+            var seeds = RecordingOptimizer.BuildTransientStateSeeds(events, splitUT: 300.0);
+            Assert.Single(seeds.Where(s => s.partPersistentId == PanelPid));
+        }
+
+        #endregion
+
+        #region S6 rails-span reconcile
+
+        private static List<PartEvent> DiffSets(PartTrackingSets before, PartTrackingSets after)
+            => PartStateSeeder.EmitDiffEvents(
+                before, after,
+                new Dictionary<uint, string> { { PanelPid, PanelName } },
+                ut: 2000.0, logTag: "BgRecorder");
+
+        [Fact]
+        public void APanelThatBreaksAcrossARailsSpan_EmitsBrokenAndNotAlsoRetracted()
+        {
+            // The precedence rule. On the diff path a break shows up as TWO set changes at once
+            // (leaves extendedDeployables, arrives in brokenDeployables). Diffing them
+            // independently would emit both DeployableRetracted and DeployableBroken, and
+            // playback would fold the panel shut before hiding it — the same artefact rule 1
+            // prevents on the live path.
+            var before = new PartTrackingSets();
+            before.extendedDeployables.Add(PanelPid);
+
+            var after = new PartTrackingSets();
+            after.brokenDeployables.Add(PanelPid);
+
+            var events = DiffSets(before, after);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.DeployableBroken, events[0].eventType);
+            Assert.Equal(PanelPid, events[0].partPersistentId);
+            Assert.Equal(2000.0, events[0].ut);
+        }
+
+        [Fact]
+        public void APanelRepairedAcrossARailsSpan_EmitsRetracted()
+        {
+            var before = new PartTrackingSets();
+            before.brokenDeployables.Add(PanelPid);
+            var after = new PartTrackingSets();
+
+            var events = DiffSets(before, after);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.DeployableRetracted, events[0].eventType);
+        }
+
+        [Fact]
+        public void APanelRepairedAndRedeployedAcrossARailsSpan_EmitsBothEvents()
+        {
+            // The case the arrival side deliberately has NO carve-out for: broken before,
+            // extended after, means the kerbal repaired it and then deployed it again. Both are
+            // real, and swallowing the Extended would leave the ghost's panel folded.
+            var before = new PartTrackingSets();
+            before.brokenDeployables.Add(PanelPid);
+            var after = new PartTrackingSets();
+            after.extendedDeployables.Add(PanelPid);
+
+            var events = DiffSets(before, after);
+
+            Assert.Equal(2, events.Count);
+            Assert.Contains(events, e => e.eventType == PartEventType.DeployableRetracted);
+            Assert.Contains(events, e => e.eventType == PartEventType.DeployableExtended);
+        }
+
+        [Fact]
+        public void APanelBrokenOnBothSidesOfARailsSpan_EmitsNothing()
+        {
+            var before = new PartTrackingSets();
+            before.brokenDeployables.Add(PanelPid);
+            var after = new PartTrackingSets();
+            after.brokenDeployables.Add(PanelPid);
+
+            Assert.Empty(DiffSets(before, after));
+        }
+
+        [Fact]
+        public void AnOrdinaryRetractAcrossARailsSpan_StillEmitsRetracted()
+        {
+            // Guard against the carve-out over-reaching: with no broken pid anywhere, the
+            // extended diff must behave exactly as it did before P8.
+            var before = new PartTrackingSets();
+            before.extendedDeployables.Add(PanelPid);
+            var after = new PartTrackingSets();
+
+            var events = DiffSets(before, after);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.DeployableRetracted, events[0].eventType);
+        }
+
+        [Fact]
+        public void CloningTrackingSets_CarriesTheBrokenSetByVALUE()
+        {
+            // The rails reconciler holds `before` across a span while the originals keep
+            // mutating, so a shallow copy would diff the live set against itself and report
+            // nothing ever changed.
+            var source = new PartTrackingSets();
+            source.brokenDeployables.Add(PanelPid);
+
+            PartTrackingSets clone = PartStateSeeder.ClonePartTrackingSets(source);
+            Assert.Contains(PanelPid, clone.brokenDeployables);
+
+            source.brokenDeployables.Clear();
+            Assert.Contains(PanelPid, clone.brokenDeployables);
+            Assert.NotSame(source.brokenDeployables, clone.brokenDeployables);
+        }
+
+        #endregion
+
+        #region S6 snapshot baseline
+
+        private static ConfigNode PartNodeWithDeployState(string deployState)
+        {
+            var partNode = new ConfigNode("PART");
+            ConfigNode module = partNode.AddNode("MODULE");
+            module.AddValue("name", "ModuleDeployableSolarPanel");
+            module.AddValue("deployState", deployState);
+            return partNode;
+        }
+
+        [Fact]
+        public void ASnapshotWhoseDeployStateIsBROKEN_FillsTheBrokenBaselineAndNoPoseOpinion()
+        {
+            // The slot the pre-P8 comment explicitly deferred. A station snapshotted after
+            // losing a panel must spawn its ghost with the subtree hidden.
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(PartNodeWithDeployState("BROKEN"));
+
+            Assert.NotNull(baseline);
+            Assert.True(baseline.deployableBroken);
+            // No stowed/deployed opinion: broken is off that axis, and giving it one would pose
+            // the panel as well as hiding it.
+            Assert.False(baseline.deployableExtended.HasValue);
+            Assert.True(baseline.HasAnyBaseline);
+        }
+
+        [Theory]
+        [InlineData("EXTENDED", true)]
+        [InlineData("RETRACTED", false)]
+        public void ASnapshotWithAnOrdinaryDeployState_IsUnchangedByTheBrokenSlot(
+            string deployState, bool expectedExtended)
+        {
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(PartNodeWithDeployState(deployState));
+
+            Assert.NotNull(baseline);
+            Assert.False(baseline.deployableBroken);
+            Assert.Equal(expectedExtended, baseline.deployableExtended);
+        }
+
+        [Theory]
+        [InlineData("EXTENDING")]
+        [InlineData("RETRACTING")]
+        public void ASnapshotCaughtMidTravel_StillCarriesNoDeployableOpinionAtAll(string deployState)
+        {
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(PartNodeWithDeployState(deployState));
+
+            // Nothing readable on this node -> no baseline object at all, exactly as before P8.
+            Assert.Null(baseline);
+        }
+
+        #endregion
     }
 }

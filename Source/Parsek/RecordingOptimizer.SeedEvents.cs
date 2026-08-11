@@ -143,6 +143,16 @@ namespace Parsek
                         deployableStates[key] = BuildTransientState(
                             evt, active: false, value: 0f, seedEventType: PartEventType.DeployableRetracted);
                         break;
+                    // S6: the PARACHUTE-TRIO pattern. Retracted and Broken are both "panel not
+                    // extended", but they are NOT interchangeable poses — retracted renders a
+                    // folded panel, broken renders NO panel — so the seed carries evt.eventType
+                    // VERBATIM rather than one shared inactive type. `active: false` only routes
+                    // it past the active-direction emitter; AppendReversibleStateSeeds still
+                    // emits it, because DeployableBroken is not an IsPermanentVisualStateEvent.
+                    case PartEventType.DeployableBroken:
+                        deployableStates[key] = BuildTransientState(
+                            evt, active: false, value: 0f, seedEventType: evt.eventType);
+                        break;
                     case PartEventType.GearDeployed:
                         gearStates[key] = BuildTransientState(
                             evt, active: true, value: 0f, seedEventType: PartEventType.GearDeployed);
@@ -439,6 +449,9 @@ namespace Parsek
             {
                 case PartEventType.DeployableExtended:
                 case PartEventType.DeployableRetracted:
+                // S6: reversible because stock repair (eventRepairExternal -> DoRepair) takes a
+                // BROKEN panel back to RETRACTED. NOT a permanent state event.
+                case PartEventType.DeployableBroken:
                 case PartEventType.GearDeployed:
                 case PartEventType.GearRetracted:
                 case PartEventType.CargoBayOpened:
@@ -490,6 +503,10 @@ namespace Parsek
             {
                 case PartEventType.DeployableExtended:
                 case PartEventType.DeployableRetracted:
+                // S6: BROKEN joins the deployable family rather than getting its own, so the
+                // reducer collapses a per-part run of extend/retract/break to its LAST state
+                // and the boundary dedupe treats all three as one opinion about one pivot.
+                case PartEventType.DeployableBroken:
                     return 3;
                 case PartEventType.GearDeployed:
                 case PartEventType.GearRetracted:
