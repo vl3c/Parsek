@@ -2806,15 +2806,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # guard on whether KSP built a Vectrosity orbit line for a synthetic ghost that
     # session, which no attribute predicts. The 2026-07-30 flight measured all three
     # satisfied.
-    # H32-snapshot-baseline is the ONE declared interim-pin member, and unlike H20 it
-    # has never flown: it arrives with the M1 snapshot-baseline fix, and its passed /
-    # skipped split is genuinely unmeasured. Its spec header states the per-cell reason
-    # (one cell needs the Breaking Ground expansion the stock-minimal profile does not
-    # ship; four need a part whose animation clip actually separates the stowed and
-    # deployed poses, which is a build-time measurement no attribute predicts). The pin
-    # keeps total= literal and `passed=[1-9][0-9]*`, so an all-skipped batch still reds.
-    # DROP THIS ENTRY once a live run measures the split and the spec pins it whole.
-    INTERIM_PIN_IDS = {"H32-snapshot-baseline"}
+    # EMPTY, and that is the healthy state: an interim pin is a temporary weakening
+    # (it accepts 1-of-N by design), so it should exist only between a spec landing
+    # and its first flight. H32-snapshot-baseline was the one member; it FLEW
+    # 2026-08-11 (run `2026-08-11_1111`, PASS) reading
+    # `total=7 passed=7 failed=0 skipped=0`, its spec now pins that whole, and the
+    # entry is dropped. Worth keeping from its removal: BOTH pre-flight reasons for
+    # leaving it loose turned out not to hold - the stock-minimal profile DOES carry
+    # Breaking Ground (the Clone phase junctions the dev install's whole
+    # `GameData/SquadExpansion`, Serenity robotics included), and the four deployable
+    # cells found stock prefabs whose animation clips do separate stow from deploy.
+    # So a future interim pin justified by "the profile lacks X" should CHECK the
+    # provisioned instance rather than reason from the profile's name.
+    INTERIM_PIN_IDS = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

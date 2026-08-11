@@ -19,34 +19,36 @@ tier = "nightly"
 # the recording store - which is why this spec injects NO corpus and pins a zero
 # recordings count (a leak into the save must red).
 #
-# PIN IS INTERIM ON PURPOSE, AND THIS SPEC IS THE ONE MEMBER OF
-# IngameBatchWiringGroupTests.INTERIM_PIN_IDS. total=7 is attribute-exact. passed= and
-# skipped= are NOT derivable here and are deliberately left loose until a live run
-# measures them, for a stated reason per cell:
-#   * SnapshotServoAngle_PosesTheGhostServo requires a NON-WHEEL robotic module
-#     (ModuleRoboticServoHinge / RotationServo / ServoPiston / ServoRotor), i.e. the
-#     Breaking Ground expansion. The stock-minimal profile does not ship it, so this
-#     cell is EXPECTED to InGameAssert.Skip naming that requirement. It is kept in the
-#     category rather than deleted because it is the only end-to-end proof of the
-#     recorder-field-plan -> parser -> ordinal-name-check -> ApplyRoboticPose path, and
-#     it will execute the moment a profile with the expansion exists.
-#   * The three deployState cells and the gear cell each require a part whose ghost
-#     build yields deployable transforms with a MEASURABLY separated stowed-vs-deployed
-#     pose (>1 cm or >0.5 deg). That is a property of the prefab's animation clip
-#     sampled at build time, not of any attribute, so whether a stock install satisfies
-#     it is a measurement. They skip - naming the requirement - rather than pass
-#     vacuously over a part whose animation moves nothing, which is exactly the trap
-#     H15's header documents for its own category.
-#   * LoopRestore_ReturnsTheServoTransformToItsSpawnPose and
-#     SnapshotWithoutModules_ProducesNoBaseline are expected to EXECUTE on a stock-only
-#     install: the first deliberately accepts ANY robotic-classified module (the wheel
-#     suspension / steering / motor families included, which stock landing gear carry)
-#     because it is about the restore putting the transform back, not about where the
-#     spawn value came from; the second needs only a part with renderers.
-# So `passed=[1-9][0-9]*` is the anti-vacuity floor the interim form is for: a batch in
-# which EVERY cell skipped reds, and any real assertion failure reds on failed=0.
-# WHEN THIS FLIES: replace the loose tokens with the measured split, record the run id
-# here, and drop the id from INTERIM_PIN_IDS in harness/lib/test_hlib.py.
+# PIN IS NOW MEASURED. **FLOWN 2026-08-11, run `2026-08-11_1111`, PASS attempt 1,
+# wall 52 s**, and the interim form is retired: the batch printed
+# `BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=SnapshotBaseline
+# scene=FLIGHT`. ALL SEVEN CELLS EXECUTED - nothing skipped - so the pin below is
+# literal and this spec is no longer a member of
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS. The measured split also agrees with
+# the attribute derivation (`hlib.derive_batch_tally` -> total 7, attribute_skipped
+# 0), so it needs no RUNTIME_SKIPS entry.
+#
+# THE PRE-FLIGHT PREDICTION WAS WRONG IN ONE PLACE, AND THE CORRECTION IS THE
+# INTERESTING PART. This header used to state that
+# SnapshotServoAngle_PosesTheGhostServo "requires ... the Breaking Ground expansion.
+# The stock-minimal profile does not ship it, so this cell is EXPECTED to
+# InGameAssert.Skip". **That premise is false.** The stock-minimal profile JUNCTIONS
+# the dev install's `GameData/SquadExpansion` wholesale (provision.py Clone phase:
+# `junction GameData/SquadExpansion -> ...`), and that tree carries `Serenity/Parts/
+# Robotics/` - hinge_01/03/04, piston_01, the rotors - i.e. Breaking Ground IS
+# present on this profile. The cell accordingly EXECUTED and passed, logging
+# `Snapshot baseline applied: parts=1 deployables=0 parachutes=0 lights=0 servos=1
+# servosSkipped=0`, which is the end-to-end recorder-field-plan -> parser ->
+# ordinal-name-check -> ApplyRoboticPose proof actually landing rather than being
+# deferred to "a profile with the expansion".
+#
+# The four deployable cells were an honest measurement rather than a guess (whether a
+# stock prefab's animation clip separates stow from deploy by >1 cm / >0.5 deg is a
+# property of the clip, not of any attribute), and the measurement came back
+# POSITIVE: the three deployState cells and the gear cell all executed, each logging
+# `Snapshot baseline applied: parts=1 deployables=1 ...`. So no cell in this category
+# passes vacuously over a part whose animation moves nothing - the trap H15's header
+# documents - and no cell is currently deferred.
 description = "Run the in-game SnapshotBaseline category unattended: a snapshot saying deployState=EXTENDED / gear Deployed / a non-zero servo pose really moves the ghost's live transforms off the prefab stow pose, a mid-travel state deliberately does not, the loop-cycle restore puts a displaced servo transform back, and a MODULE-less snapshot produces no baseline at all."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ghost-visuals", "snapshot-baseline", "H32"]
@@ -90,7 +92,7 @@ count = { min = 0, max = 0 }
 # BATCH_COMPLETE pin is the gate. "Snapshot baseline applied" is the ApplySnapshotBaselines
 # summary (Verbose) and proves the spawn pass actually ran during the batch rather than
 # the cells only inspecting build output.
-required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SnapshotBaseline scene=FLIGHT",
+required  = ["BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=SnapshotBaseline scene=FLIGHT",
              "Snapshot baseline applied"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

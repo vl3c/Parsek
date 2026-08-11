@@ -1227,7 +1227,7 @@ de-vacuate them.
 | H30-ghost-audio | nightly | The ghost-audio lifecycle: pause/unpause over null/empty/real AudioSource state, decoupled-subtree FX+audio stop, engine-level pause/unpause across the live ghost set (corpus-fed), watch-pivot anchoring, part-visibility source sync after reanchor, camera-pivot recentring. RESTS ON the W2-SHIP-VOLUME-ZERO profile fix - on any instance provisioned before 2026-08-05 the reanchor cell hard-fails | D6 ghost-audio (FIRST claim - was uncovered); D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. **LIVE-PROVEN 2026-08-04** (run `2026-08-04_2211`, PASS attempt 1, 69 s, mismatches=0), on an instance re-provisioned with the SHIP_VOLUME fix the same day - the reanchor cell's start-path assertion held, which is the first unattended exercise of StartLoopedGhostAudio. Tally MEASURED whole: `total=9 passed=8 failed=0 skipped=1 category=GhostAudio scene=FLIGHT` (the skip is the SPACECENTER-scoped KSC explosion cell, attribute-derived) |
 | H31-crew-reservation | nightly | Crew reservation/stand-in/seat-matching against a LIVE roster: free-seat crew add, orphan placement across all three seat-match tiers (pid hit, name-fallback with nameHitFallbacks=1, both-tiers-miss with reason=active-vessel-missing-snapshot-part), assigned-stand-in dedup, reserved-missing spawn rescue (Bug609/687), rescue-completion marker. On b2-lko-craft - the ONLY committed fixture with both free seats (mk1-3pod, 2 free) and spare Available kerbals (3); on gloops-airshow five seat-matching cells would skip | D12 seat-matching/rescue-marker; D14 sandbox/scene-flight. **LIVE-PROVEN 2026-08-04, twice** (run `2026-08-04_2212`, PASS attempt 1, 49 s, mismatches=0; re-confirmed `2026-08-04_2239`, PASS attempt 1, 52 s, after the review pass wrapped the three finally-restore roster flips - members of this batch - in SuppressionGuard.Crew()), then **RE-PINNED 2026-08-05** off measurement run `2026-08-05_1857` (50 s; PARSEK-FAIL on the stale pin ALONE - batchComplete/testResults/analyzer/logValidate/anomalySweep all PASS, 0 test failures, recordings.count=0 as the zero-leak pin demands). Tally MEASURED whole: `total=15 passed=11 failed=0 skipped=4 category=CrewReservation scene=FLIGHT`, splitting 1 attribute + 3 run-time (`RUNTIME_SKIPS: 3`). The attribute skip is still the SPACECENTER-scoped auto-assign cell, unreachable in ANY scene - see W2-VACUOUS-CELLS; the three run-time skips are `ReplacementsAreValid` / `NoSelfReplacements` / `NoCircularReplacements`, the W2-VACUOUS-CELLS conversions, all on the empty `CrewReplacements` dict no committed fixture populates. This is the spec's OWN prediction landing token-for-token: its derivation comment said the conversion "will move this pin to passed=11 skipped=4 DELIBERATELY when it lands". The same 11 cells asserted for real on all three runs. The whole seat-matching derivation held: all five free-seat guards, the three spare-kerbal guards, and Bug578's ERS-absence guard all resolved as read. CONFIRMED GREEN against the new pin: run `2026-08-05_1916`, PASS attempt 1, pinned line printed token for token |
 
-### In-game batch wiring: the M1 snapshot baseline, H32 (1)
+### In-game batch wiring: the M1 snapshot baseline, H32 (1), LIVE-PROVEN
 
 The `SnapshotBaseline` category and its scenario were authored TOGETHER, for the M1
 ghost snapshot-baseline fix (branch `ghost-snapshot-baseline`) - the first member of
@@ -1245,18 +1245,38 @@ category, FlushAndQuit. Every cell authors its OWN one-part snapshot ConfigNode 
 stock part it discovers through `PartLoader`, so the spec injects no corpus and pins a
 zero recordings count.
 
-NOT YET LIVE-RUN, and its pin says so: `total=7` is attribute-exact but `passed=` /
-`skipped=` are left as `passed=[1-9][0-9]*` / `skipped=[0-9]+` because the split is
-genuinely unmeasured - one cell needs the Breaking Ground expansion the `stock-minimal`
-profile does not ship, and four need a part whose animation clip actually separates the
-stowed and deployed poses, which is a build-time measurement no attribute predicts. The
-loose form still reds an all-skipped batch. This is the single declared member of
-`IngameBatchWiringGroupTests.INTERIM_PIN_IDS`; the first live run replaces the loose
-tokens with the measured split and drops that entry.
+**LIVE-PROVEN 2026-08-11, run `2026-08-11_1111`, PASS attempt 1, wall 52 s, fully
+unattended** - every verifier PASS (driverValidity, batchComplete found=True failed=0
+perCategory=1, analyzer red=0, logValidate, anomalySweep `hits=[] counts={}`,
+expectations mismatches=0), `unityExceptions` REPORT total=3 (NullReferenceException;
+NOT armed off one reading), saveParse REPORT clean and the zero-recordings leak pin
+held (`pointsTotal=0`, count 0).
+
+THE INTERIM PIN IS RETIRED AND BOTH REASONS FOR IT TURNED OUT NOT TO HOLD, which is
+worth more than the pin. The batch read `BATCH_COMPLETE v1 total=7 passed=7 failed=0
+skipped=0 category=SnapshotBaseline scene=FLIGHT` - ALL SEVEN CELLS EXECUTED, nothing
+skipped - so the spec now pins the tally whole and
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is EMPTY (its healthy state). (1) The
+claim that "one cell needs the Breaking Ground expansion the `stock-minimal` profile
+does not ship" is FALSE: the Clone phase junctions the dev install's entire
+`GameData/SquadExpansion` (`junction GameData/SquadExpansion -> ...`), which carries
+`Serenity/Parts/Robotics/` - hinge_01/03/04, piston_01, the rotors - so Breaking Ground
+IS present and `SnapshotServoAngle_PosesTheGhostServo` executed, logging `Snapshot
+baseline applied: parts=1 deployables=0 parachutes=0 lights=0 servos=1
+servosSkipped=0`. The end-to-end recorder-field-plan -> parser -> ordinal-name-check ->
+`ApplyRoboticPose` proof therefore LANDED rather than being deferred to "a profile with
+the expansion". (2) The four deployable cells' requirement was an honest build-time
+measurement, and it came back positive - all four executed, each logging `Snapshot
+baseline applied: parts=1 deployables=1 ...`, so no cell in this category is currently
+vacuous or deferred. GENERAL LESSON, recorded at the removal site in `test_hlib.py`: a
+future interim pin justified by "the profile lacks X" should CHECK THE PROVISIONED
+INSTANCE rather than reason from the profile's name. The measured split also agrees
+with the attribute derivation (`hlib.derive_batch_tally` -> total 7, attribute_skipped
+0), so the spec needs no `RUNTIME_SKIPS` entry.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| H32-snapshot-baseline | nightly | The M1 ghost snapshot baseline against LIVE transforms: `deployState=EXTENDED` and gear `stateString=Deployed` pose the built ghost at its DEPLOYED transform poses, a mid-travel `EXTENDING` deliberately produces no baseline and leaves the pre-M1 stow pose, a non-zero servo pose read through the recorder's own field plan moves the servo transform off its stowed pose (Breaking Ground only - skips naming the requirement otherwise), the loop-cycle `RestoreRoboticSpawnBaselines` returns a displaced servo transform to its spawn pose, and a MODULE-less snapshot PART produces no baseline dictionary at all. Positional assertions scale their tolerance through `InGameFixtureMath.SceneFloatGridToleranceMeters`; a candidate part qualifies only when its stowed and deployed poses are measurably separated, so a cell cannot pass over an animation that moves nothing | D14 sandbox/scene-flight. NOT claimed: any D6 playback token (nothing is positioned or played back) and no D16 sidecar token (the snapshots are authored in-memory). **NOT YET LIVE-RUN**; interim tally pin, see above |
+| H32-snapshot-baseline | nightly | The M1 ghost snapshot baseline against LIVE transforms: `deployState=EXTENDED` and gear `stateString=Deployed` pose the built ghost at its DEPLOYED transform poses, a mid-travel `EXTENDING` deliberately produces no baseline and leaves the pre-M1 stow pose, a non-zero servo pose read through the recorder's own field plan moves the servo transform off its stowed pose (Breaking Ground only - skips naming the requirement otherwise), the loop-cycle `RestoreRoboticSpawnBaselines` returns a displaced servo transform to its spawn pose, and a MODULE-less snapshot PART produces no baseline dictionary at all. Positional assertions scale their tolerance through `InGameFixtureMath.SceneFloatGridToleranceMeters`; a candidate part qualifies only when its stowed and deployed poses are measurably separated, so a cell cannot pass over an animation that moves nothing | D14 sandbox/scene-flight. NOT claimed: any D6 playback token (nothing is positioned or played back) and no D16 sidecar token (the snapshots are authored in-memory). **LIVE-PROVEN 2026-08-11** (`2026-08-11_1111`, PASS attempt 1, wall 52 s): `total=7 passed=7 failed=0 skipped=0` - all seven cells EXECUTED, including the servo cell the header had predicted would skip (stock-minimal junctions SquadExpansion, so Breaking Ground robotics ARE present). Tally now pinned whole; `INTERIM_PIN_IDS` emptied. See the section note above for both falsified premises |
 
 ### In-game Rewind block, R7 (2)
 
