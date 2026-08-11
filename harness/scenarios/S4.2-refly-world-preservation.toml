@@ -236,7 +236,7 @@ count = { min = 1 }
 #
 # POST-FIX CONTRACT (2026-08-11, branch `refly-conclusion-route`). The three
 # conclusion tokens below are DERIVED-PENDING-REFLY: the fix is unit-covered
-# (`Source/Parsek.Tests/ReFlyConclusionRouteTests.cs`, 19 cells, including the
+# (`Source/Parsek.Tests/ReFlyConclusionRouteTests.cs`, 20 cells, including the
 # end-to-end commit-branch cells) but has NOT flown. The supervisor re-flies S4.2
 # to confirm; if a token's exact text moves, the correction is THIS list, and the
 # fix's own log sites are the authority.
